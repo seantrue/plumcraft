@@ -237,6 +237,12 @@ fn is_workflow(name: &Path, names: &[PathBuf]) -> bool {
     top && json && !names.iter().any(|n| *n == name.with_extension(""))
 }
 
+/// Is this entry named from a root or a drive? `enclosed_name` drops the root and keeps the rest,
+/// but a bundle written here never has one, so it is refused like any other escape.
+fn rooted(name: &str) -> bool {
+    name.starts_with(['/', '\\']) || matches!(name.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
+}
+
 /// Check every entry, before anything is written. Returns the workflow's name in the bundle.
 fn survey<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, limits: Limits) -> std::result::Result<PathBuf, String> {
     if zip.len() > limits.entries {
@@ -246,8 +252,9 @@ fn survey<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, limits: Limits)
     let mut declared: u64 = 0;
     for i in 0..zip.len() {
         let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
-        let Some(name) = entry.enclosed_name() else {
-            return Err(format!("entry {:?} leaves its folder", entry.name().chars().take(200).collect::<String>()));
+        let raw = entry.name().unwrap_or("?".into());
+        let Some(name) = entry.enclosed_name().filter(|_| !rooted(&raw)) else {
+            return Err(format!("entry {:?} leaves its folder", raw.chars().take(200).collect::<String>()));
         };
         if entry.is_symlink() {
             return Err(format!("entry {} is a link", name.display()));

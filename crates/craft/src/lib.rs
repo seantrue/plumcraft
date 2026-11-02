@@ -728,9 +728,11 @@ pub fn smoke(manifest: &Manifest, opts: &Options, fixture: &Path, only: Option<&
     let schema = engine.schema();
     let open = manifest.nodes.iter().find(|n| n.kind == Kind::Open).map(|n| n.id.clone()).ok_or("the manifest has no open node")?;
     let base = manifest.smoke_base.clone();
+    // The pack's own nodes: a building block without its inputs is a config error by design.
+    let prefix = format!("{}.", open.split('.').next().unwrap_or_default());
     let mut out = Vec::new();
     for def in &schema.nodes {
-        if only.is_some_and(|o| !def.id.contains(o)) {
+        if !def.id.starts_with(&prefix) || only.is_some_and(|o| !def.id.contains(o)) {
             continue;
         }
         let takes_doc = def.inputs.iter().any(|p| p.name == "doc");

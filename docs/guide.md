@@ -13,7 +13,7 @@ Working, pre-release; MIT or Apache-2.0, at your choice (`LICENSE-MIT`, `LICENSE
   - every artcraft app with an MCP server, through the craft adapter (VectorCraft, GridCraft, PdfCraft, SoundCraft and nine more).
 - **Hosting:** every engine runs in-process, as a separate process or over HTTP.
 - **How values move:** values cross engines as blobs named by content handle, and unchanged results are reused from the memo.
-- **Accepted by the maintainer so far:** P01–P06 (`docs/acceptance/`).
+- **Accepted by the maintainer so far:** P01–P06. P07–P09 were closed on the maintainer's word after AI runs; each says what wasn't tried by hand (`docs/acceptance/`).
 - **Planned next:** milestone Q (streaming in queued chunks).
 
 See `docs/STATUS.md`.

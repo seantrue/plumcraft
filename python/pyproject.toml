@@ -2,17 +2,37 @@
 name = "plumcraft-engine"
 version = "0.1.0"
 description = "PlumCraft's Python engine SDK and the text engine in Python, speaking protocol 2 over the mode 2 socket binding, with blobs in commonkit"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
+license-files = ["LICENSE-MIT", "LICENSE-APACHE"]
+authors = [{ name = "Sean D. True" }, { name = "Swapwizard LLC" }]
+keywords = ["node editor", "node graph", "workflow", "plumcraft"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries",
+]
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26", "pyuncommonkit>=0.1"]
+dependencies = ["numpy>=1.26", "pillow>=10", "pyuncommonkit>=0.1"]
+
+[project.urls]
+Homepage = "https://github.com/seantrue/plumcraft"
+Repository = "https://github.com/seantrue/plumcraft"
+Issues = "https://github.com/seantrue/plumcraft/issues"
+Changelog = "https://github.com/seantrue/plumcraft/blob/main/CHANGELOG.md"
 
 [project.scripts]
 plumcraft-text-engine-py = "plumcraft_text.__main__:main"
 plumcraft-engine = "plumcraft_engine.cli:main"
 
 [dependency-groups]
-# pillow: generated image engines use it, and test_new_engine.py runs their tests here.
-dev = ["pytest>=8", "ruff>=0.6", "pillow>=10"]
+dev = ["pytest>=8", "ruff>=0.6"]
 
 [build-system]
 requires = ["hatchling"]

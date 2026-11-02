@@ -2,7 +2,7 @@
 (`docs/research/17-engine-generator.md`, sections 2 and 3).
 
     plumcraft-engine new DEST [--id ID] [--name NAME] [--types text,table,array,…] [--package NAME]
-                              [--sdk path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]
+                              [--sdk pypi|path|git[@REV]] [--python 3.X] [--no-pycharm] [--git]
 
 Everything is checked before anything is written; a refusal is a message and exit 2. The project
 is built in a sibling temporary directory and renamed into place, so a failure leaves nothing.
@@ -84,8 +84,12 @@ class Plan:
     def values(self) -> dict[str, str]:
         v = {k: getattr(self, k) for k in ("id", "name", "package", "cls", "project", "python", "sdk_source")}
         watch = "loud.text" if "text" in self.types else "parsed.float"
-        deps = ['"plumcraft-engine"', *(['"pillow>=10"'] if "image" in self.types else [])]
-        return v | {"python_tag": self.python.replace(".", ""), "types": ", ".join(self.types), "watch": watch, "dependencies": ", ".join(deps)}
+        deps = ['"plumcraft-engine>=0.1,<0.2"', *(['"pillow>=10"'] if "image" in self.types else [])]
+        sources = ""
+        if self.sdk_source:
+            sources = f"# Where the PlumCraft SDK comes from; README.md says how to switch.\n[tool.uv.sources]\nplumcraft-engine = {self.sdk_source}\n\n"
+        extra = {"python_tag": self.python.replace(".", ""), "types": ", ".join(self.types), "watch": watch, "dependencies": ", ".join(deps)}
+        return v | extra | {"uv_sources": sources}
 
     @property
     def pairs(self) -> list[tuple[str, str]]:
@@ -138,11 +142,13 @@ def checkout() -> Path | None:
 
 
 def sdk_source(sdk: str) -> str:
-    """The `[tool.uv.sources]` value for `--sdk`."""
+    """The `[tool.uv.sources]` value for `--sdk`, or nothing for the package on PyPI."""
     root = checkout()
+    if sdk == "pypi":
+        return ""
     if sdk == "path":
         if root is None:
-            raise Refused("--sdk path: this SDK isn't installed from a PlumCraft checkout; use --sdk git@REV")
+            raise Refused("--sdk path: this SDK isn't installed from a PlumCraft checkout; use --sdk pypi or git@REV")
         return f'{{ path = "{root}", editable = true }}'
     if sdk == "git" or sdk.startswith("git@"):
         rev = sdk.partition("@")[2]
@@ -152,7 +158,7 @@ def sdk_source(sdk: str) -> str:
         if not rev:
             raise Refused("--sdk git: no commit to pin; use --sdk git@REV")
         return f'{{ git = "{GIT_URL}", subdirectory = "python", rev = "{rev}" }}'
-    raise Refused(f"--sdk {sdk!r}: path, git or git@REV")
+    raise Refused(f"--sdk {sdk!r}: pypi, path, git or git@REV")
 
 
 def check_dest(dest: Path) -> None:
@@ -171,7 +177,7 @@ def plan(args: argparse.Namespace) -> Plan:
     if not re.fullmatch(r"3\.\d+", args.python) or int(args.python.split(".")[1]) < 11:
         raise Refused(f"--python {args.python}: 3.11 or later, as 3.12")
     types = check_types(args.types)
-    source = sdk_source(args.sdk)
+    source = sdk_source(args.sdk or ("path" if checkout() else "pypi"))
     check_dest(dest)
     return Plan(dest, i, args.name or i.replace("_", " ").title(), types, package, source, args.python, not args.no_pycharm)
 
@@ -430,7 +436,7 @@ def parser() -> argparse.ArgumentParser:
     a.add_argument("--name", help="display name (default: the id, title-cased)")
     a.add_argument("--types", default="text", help=f"comma-separated: {', '.join(TYPES)} (default: text; scalars are always on)")
     a.add_argument("--package", help="Python package (default: <id>_engine)")
-    a.add_argument("--sdk", default="path", help="where the SDK comes from: path, git or git@REV (default: path)")
+    a.add_argument("--sdk", help="where the SDK comes from: pypi, path, git or git@REV (default: path in a checkout, else pypi)")
     a.add_argument("--python", default="3.12", help="Python version (default: 3.12)")
     a.add_argument("--no-pycharm", action="store_true", help="leave out .idea/ and .run/")
     a.add_argument("--git", action="store_true", help="run git init and make a first commit")
