@@ -11,7 +11,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [workspace.dependencies]
-zip = { version = "3", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # internal
 plumcraft-proto = { path = "crates/proto" }
 plumcraft-engine = { path = "crates/engine" }
