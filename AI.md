@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — Public, and `plumcraft-engine` 0.1.0 on PyPI (Claude Opus 5.5)
+
+**What the maintainer asked for:** "No change to email address", "Make the repo public and turn on vulnerability reporting", and "Push the tag and upload to PyPI". Going public, keeping the email and publishing were the maintainer's decisions.
+
+**What the AI did:** checked what would become visible before the change: only the fresh commits were reachable, and the one gitleaks hit was the dummy test token. It then made the repository public, turned on private vulnerability reporting, which GitHub refuses on a private repository, and confirmed the page and `SECURITY.md` load without logging in. For the release it pushed `v0.1.0`, built from a clean clone of that tag, ran the wheel test on those files, and uploaded them with twine.
+
+**Verified from PyPI itself:** in a clean venv, on Python 3.12, `plumcraft-engine==0.1.0` installed with its dependencies, `plumcraft-engine new` made a project locked to PyPI, its 15 tests passed, its demo ran, and 14 of 14 conformance cases held. The Rust half of conformance was skipped, as there were no PlumCraft binaries. Other Python versions and Linux were not tried.
+
+**Ruled out:** the first installs failed with "not found", which looked like a bad upload. It was PyPI's index catching up, and it cleared within minutes.
+
+**Known at release:** the code still names the older research projects in a few comments, test docstrings and one default value, outside the Markdown the rule covers. The maintainer was told after the repository went public.
+
 ### 2026-11-02 — `zip` 9, P07–P09 closed, and the SDK ready for PyPI (Claude Opus 5.5)
 
 **What the maintainer asked for:** "Close out po7-9. Bump zip.", then "Make the fixes, then CPM and test release steps 1-4", the fixes being the AI's list for publishing `plumcraft-engine`.
