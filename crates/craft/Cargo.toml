@@ -2,7 +2,7 @@
 name = "plumcraft-craft"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft engine: the generic craft MCP adapter (plan 10.6, milestone M); an artcraft app's MCP server as nodes, VectorCraft first"
@@ -21,9 +21,9 @@ png = { workspace = true }
 toml = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
-plumcraft-host = { workspace = true }
+plumcraft-host = { path = "../host" }
 
 [build-dependencies]
 md-5 = { workspace = true }

@@ -18,8 +18,9 @@ use crate::op::{config, f, img, n, one, s};
 
 include!(concat!(env!("OUT_DIR"), "/craft_fonts.rs"));
 
-/// The UI's own text fallback face (Inter, OFL: `crates/ui/assets/fonts/OFL-Inter.txt`).
-static INTER: &[u8] = include_bytes!("../../../ui/assets/fonts/Inter-Regular.ttf");
+/// The UI's own text fallback face (Inter, OFL: `assets/fonts/OFL-Inter.txt`, links to
+/// `crates/ui`'s so a published crate carries them).
+static INTER: &[u8] = include_bytes!("../../assets/fonts/Inter-Regular.ttf");
 /// The largest font file read by path.
 const MAX_FONT_FILE: u64 = 64 << 20;
 /// The most characters drawn.

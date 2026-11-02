@@ -1,0 +1,1 @@
+../../../ui/assets/fonts/OFL-Inter.txt

@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — `plumcraft` on crates.io, and the editor free of git dependencies (Claude Opus 5.5)
+
+**What the maintainer asked for:** "let's get plumcraft on to crates.io", "Publish npexact, then the 16 crates with the rename", then "Make audio optional unless the code is extractable. Extract the needful craft UI bits." and "Go for 1,2 including icon". The rename, the scope and audio's treatment were the maintainer's calls.
+
+**What the AI did:**
+
+- **Published:** `npexact` 0.1.0 from the maintainer's yapocis-rs, then 16 crates, with `plumcraft-cli` renamed `plumcraft`. `cargo install plumcraft --locked` from crates.io built in a clean folder and ran a workflow.
+- **Packaging:** exact internal versions, path-only internal dev-dependencies, licences in each crate, and `digest.rs` linked into each engine crate. The dry run found that four build scripts included a file from another crate, which a published crate wouldn't have. The SDK digest hashed sibling crates that a published crate doesn't have, so it now also takes the crate version.
+- **`craft-ui`:** the two modules PlumCraft uses, 175 lines and their tests, copied into `crates/ui/src/craft_ui` with their notice.
+- **Audio:** the SoundCraft crates are about 12,000 lines reached through a plugin registry, so nothing small could be extracted, and crates.io refuses optional git dependencies too, so a feature wouldn't work. The editor no longer compiles audio in; it starts `plumcraft-audio-engine` as a process when that binary is beside it, which is the interchangeable-engine design doing its job.
+- **`plumcraft-array`, `plumcraft-ui`, `plumcraft-editor`:** `npexact` from crates.io, and the font, its OFL licence and the app icon linked into their crates. All three pass a dry run against the crates really on crates.io. They are not published.
+
+Gate on the final tree: Rust 1,037 passed, 0 failed, 3 ignored; Python 208 passed; clippy, fmt and ruff clean.
+
+**Wrong claims the AI made and corrected:** it told the maintainer `craft-ui` was essential, in 37 source files, when a search for `craft_ui` had also matched `plumcraft_ui`; the real count was 2 lines. It called the crate of that name on crates.io unrelated, when its repository is a fork of `craft-libs`. It said an `audio` Cargo feature could make audio optional, before checking that crates.io refuses that too. It also stopped the running publish once to change the retry interval, which the script tolerated because it skips what is already up.
+
+**Tests that pinned the old behaviour:** in-process audio tests now run the real process, and the Engine menu counts lost audio's in-process entry.
+
+**Not verified:** an editor with audio over HTTP started, but the demo finishing there was not shown. Installed alone, the editor runs text and array; process modes, audio and the crafts need their engine binaries beside it, and the message says so. Apps published later need those binaries installed too.
+
 ### 2026-11-02 — Public, and `plumcraft-engine` 0.1.0 on PyPI (Claude Opus 5.5)
 
 **What the maintainer asked for:** "No change to email address", "Make the repo public and turn on vulnerability reporting", and "Push the tag and upload to PyPI". Going public, keeping the email and publishing were the maintainer's decisions.

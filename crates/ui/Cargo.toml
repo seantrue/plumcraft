@@ -2,7 +2,7 @@
 name = "plumcraft-ui"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft L4: the egui editor shell (menus and shortcuts from the command registry, node canvas over egui-snarl, widgets, palette, run states, the Watched panel); lifted from the research software's research-ui-egui"
@@ -25,7 +25,6 @@ plumcraft-proto = { workspace = true }
 plumcraft-automation = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }
-craft-ui = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
 egui-snarl = { workspace = true }
@@ -50,12 +49,12 @@ image = { workspace = true }
 egui_kittest = { workspace = true, features = ["wgpu"] }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
 zip = { workspace = true }
-plumcraft-engine = { workspace = true }
-plumcraft-text = { workspace = true }
-plumcraft-audio = { workspace = true }
-plumcraft-array = { workspace = true }
+plumcraft-engine = { path = "../engine" }
+plumcraft-text = { path = "../text" }
+plumcraft-audio = { path = "../audio" }
+plumcraft-array = { path = "../array" }
 serde_yaml = "0.9"
 # wgpu: the offscreen snapshot example renders with it; the kittests only query the
 # accessibility tree and never render.

@@ -5,7 +5,7 @@
 use std::fmt::Write as _;
 use std::path::Path;
 
-include!("../engine/digest.rs");
+include!("digest.rs");
 
 fn main() {
     // The adapter's code digest, for the memo salt (with the craft's own version and executable).

@@ -7,29 +7,28 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
-# Not published to crates.io yet (docs/plan.md D17).
-publish = false
+repository = "https://github.com/seantrue/plumcraft"
 
 [workspace.dependencies]
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # internal
-plumcraft-proto = { path = "crates/proto" }
-plumcraft-engine = { path = "crates/engine" }
-plumcraft-text = { path = "crates/text" }
-plumcraft-array = { path = "crates/array" }
-plumcraft-audio = { path = "crates/audio" }
-plumcraft-craft = { path = "crates/craft" }
-plumcraft-coordinator = { path = "crates/coordinator" }
-plumcraft-host = { path = "crates/host" }
-plumcraft-store = { path = "crates/store" }
-plumcraft-graph = { path = "crates/graph" }
-plumcraft-layout = { path = "crates/layout" }
-plumcraft-session = { path = "crates/session" }
-plumcraft-ui = { path = "crates/ui" }
-plumcraft-automation = { path = "crates/automation" }
-plumcraft-scratch = { path = "crates/scratch" }
-plumcraft-svg = { path = "crates/svg" }
-plumcraft-conform = { path = "crates/conform" }
+plumcraft-proto = { path = "crates/proto", version = "=0.1.0" }
+plumcraft-engine = { path = "crates/engine", version = "=0.1.0" }
+plumcraft-text = { path = "crates/text", version = "=0.1.0" }
+plumcraft-array = { path = "crates/array", version = "=0.1.0" }
+plumcraft-audio = { path = "crates/audio", version = "=0.1.0" }
+plumcraft-craft = { path = "crates/craft", version = "=0.1.0" }
+plumcraft-coordinator = { path = "crates/coordinator", version = "=0.1.0" }
+plumcraft-host = { path = "crates/host", version = "=0.1.0" }
+plumcraft-store = { path = "crates/store", version = "=0.1.0" }
+plumcraft-graph = { path = "crates/graph", version = "=0.1.0" }
+plumcraft-layout = { path = "crates/layout", version = "=0.1.0" }
+plumcraft-session = { path = "crates/session", version = "=0.1.0" }
+plumcraft-ui = { path = "crates/ui", version = "=0.1.0" }
+plumcraft-automation = { path = "crates/automation", version = "=0.1.0" }
+plumcraft-scratch = { path = "crates/scratch", version = "=0.1.0" }
+plumcraft-svg = { path = "crates/svg", version = "=0.1.0" }
+plumcraft-conform = { path = "crates/conform", version = "=0.1.0" }
 
 # external
 serde = { version = "1", features = ["derive"] }
@@ -43,8 +42,8 @@ base64 = "0.22"
 # Deflate for compressed raw blobs and memo records (plumcraft-store), in pure Rust (miniz_oxide).
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # numpy's own host numerics (PCG64 draws, pairwise reductions, histograms, sorts), bit for bit
-# (plumcraft-array); the maintainer's yapocis-rs, at a pinned revision.
-npexact = { git = "https://github.com/seantrue/yapocis-rs", rev = "1fbf919a8b6b80902214cb9837e933b93457ef00" }
+# (plumcraft-array); from the maintainer's yapocis-rs.
+npexact = "0.1"
 # Draw Text in the array engine: glyph outlines (skrifa, as egui's epaint uses) filled antialiased
 # (tiny-skia, as resvg uses); both already in the tree, pure Rust.
 skrifa = "0.44"
@@ -59,8 +58,6 @@ schemars = "1.2"
 tiny_http = "0.12"
 ureq = { version = "3", default-features = false }
 # The editor UI (plumcraft-ui and plumcraft-editor; plumcraft-view keeps its own until it retires).
-# craft-ui pinned at the crafts' rev (the research software's and photocraft's Cargo.toml).
-craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
 egui = { version = "0.36", default-features = false }
 eframe = { version = "0.36", default-features = false }
 egui-snarl = { version = "0.12", features = ["serde"] }

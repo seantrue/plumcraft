@@ -64,10 +64,10 @@ A wire can also be drawn as a net label, as in a schematic: right-click › Draw
 
 ### In the terminal
 
-`plumcraft-cli run` drives an engine and prints the interface as it happens. The built-in demo has a node that always fails, so its downstream node is skipped, and a node that is reused from the memo (`cached`):
+`plumcraft run` drives an engine and prints the interface as it happens. The built-in demo has a node that always fails, so its downstream node is skipped, and a node that is reused from the memo (`cached`):
 
 ```text
-$ cargo run -p plumcraft-cli -- run
+$ cargo run -p plumcraft -- run
   0.000s hello    engine Text 0.1.0, protocol 2, session s-43746
                   caps: codec.json data.path data.shm display.stream events.poll events.push events.resume status.progress
   0.001s run      accepted: {"accepted":true,"queued_behind":0,"run_id":"cli-43746-4745308781897886162"}
@@ -98,10 +98,10 @@ watched shout.text (Text): text, 70 characters, 2 lines
   | THE CARPET IS RED AND GOLD.
 ```
 
-`plumcraft-cli nodes` lists the catalogue:
+`plumcraft nodes` lists the catalogue:
 
 ```text
-$ cargo run -p plumcraft-cli -- nodes
+$ cargo run -p plumcraft -- nodes
 seq.rows_table Rows to Table (rows:ANY, header:BOOL) -> (table:ANY)
 seq.table_rows Table to Rows (table:ANY, header:BOOL) -> (rows:ANY)
 text.codes     Code points  (text:TEXT) -> (codes:ARRAY)
@@ -116,14 +116,14 @@ text.letters   Letter counts (a–z) (text:TEXT) -> (table:TABLE)
 cargo build
 cargo run -p plumcraft-editor                          # the editor on the text engine, in-process
 cargo run -p plumcraft-editor -- --python              # the same engine written in Python, as a separate process
-cargo run -p plumcraft-editor -- --engine audio        # the audio engine: waveforms, spectrogram, playback
+cargo build -p plumcraft-audio && cargo run -p plumcraft-editor -- --engine audio     # the audio engine: waveforms, spectrogram, playback
 cargo run -p plumcraft-editor -- --engine array        # the array nodes
 cargo run -p plumcraft-editor -- --engine vectorcraft  # VectorCraft through the craft adapter (any craft pack by name)
 cargo run -p plumcraft-editor -- --engine array,vectorcraft         # several engines: opens Trace and measure
 cargo run -p plumcraft-editor -- --engine text,audio,array          # opens What a chord looks like
 cargo run -p plumcraft-editor -- --engine text,array,gridcraft      # opens Analytics in GridCraft
 cargo run -p plumcraft-editor -- examples/data.json --http --python # over HTTP, as a remote engine: uploads, downloads
-cargo run -p plumcraft-cli -- run --watch shout.text   # the interface live in the terminal
+cargo run -p plumcraft -- run --watch shout.text   # the interface live in the terminal
 ```
 
 **Write your own engine,** in Python, with no Rust build:
@@ -144,7 +144,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
   - `--http [--python]`: HTTP, talked to as a remote engine would be.
 - **Craft packs:** cadcraft, deckcraft, designcraft, effectcraft, figcraft, filmcraft, gridcraft, pdfcraft, photocraft, solidcraft, soundcraft, vectorcraft and wordcraft. Each needs that app installed.
 - **While the editor runs:** Engine › Add Engine adds another engine.
-- **Remote engines:** `plumcraft-cli run --attach http://HOST:PORT` reaches an engine already running elsewhere, with `PLUMCRAFT_ENGINE_TOKEN`.
+- **Remote engines:** `plumcraft run --attach http://HOST:PORT` reaches an engine already running elsewhere, with `PLUMCRAFT_ENGINE_TOKEN`.
 - **Engines from files:** `--engine-manifest FILE` and `~/.config/plumcraft/engines/*.toml` name engines this build doesn't know (spec 16.6), in the editor and in `plumcraft run`.
 - **Control channel:** the editor's `--control PORT` opens it for tests and agents (`docs/control-protocol.md`).
 
@@ -156,7 +156,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | Python, memo | The text engine in Python, byte-identical on the wire to the Rust one; the memo (plan keys over a typed canonical form, shared vectors, `cached` reruns) | P01 |
 | D, the data plane | Blobs in commonkit named by handle (`md5:raw:`, `md5:nd1:`), the same-host proof, tables and arrays, file sources keyed by content; HTTP with upload-once and lazy verified download into the UI's own CAS; a run from one machine to another | P02, P03 |
 | E, the editor | Lifted from research software supporting www.virtimp.com: graph model, every action a command, egui-snarl canvas, widgets, palette, Watched panel, theme from craft-ui; the control channel; files, undo, copy and paste; groups with collapse, promotion and insert; Tidy; wire bend points | P04 |
-| F, audio | `plumcraft-audio` on SoundCraft's crates: 46 nodes; audio values with waveform peaks; spectrogram and playback in the editor | P05 |
+| F, audio | `plumcraft-audio` on SoundCraft's crates, an optional engine the editor starts as a process: 46 nodes; audio values with waveform peaks; spectrogram and playback in the editor | P05 |
 | The Engine menu | Switch engine and hosting while the editor runs, keeping the graph; Reconnect; Attach | P06 |
 | M, craft engines | The craft MCP adapter: any artcraft app's MCP server as nodes, from a manifest; VectorCraft first, then every craft with a server | P07, P08 |
 | Several engines | The coordinator: one graph across several engines, each run split into per-engine fragments joined by bindings; three demos | — |
@@ -195,7 +195,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | `plumcraft-svg` | L0 | SVG, a core type like ARRAY: parse (bounded, no external files) and rasterise with resvg, text with the system's fonts; the editor's SVG view and the engine SDK's SVG thumbnails share it |
 | `plumcraft-scratch` | test | One scratch directory per test process, swept once that process has exited |
 | `plumcraft-editor` | app | The editor: any engine or several (`--engine text\|audio\|array\|<craft>`, comma-separated), any mode, `--control`; the demos in `apps/plumcraft-editor/demos/` |
-| `plumcraft-cli` | app | `plumcraft run` / `plumcraft nodes`: drive an engine and print the interface live |
+| `plumcraft` | app | `plumcraft run` / `plumcraft nodes`: drive an engine and print the interface live |
 | `plumcraft-view` | app | The first minimal window (retires now the editor covers it) |
 | `plumcraft-conform` | test | The generic conformance cases (spec 19): any engine, any binding, graphs from its catalogue. `plumcraft conform --engine-manifest FILE` runs them, and the text engine's suite calls them |
 | `plumcraft-text` | example | The thin text engine the interface is proven on (`plumcraft-text-engine` serves modes 2 and 3), with the conformance suite every mode runs |

@@ -2,7 +2,7 @@
 
 ## 0.1.0, 2026-11-02
 
-The first public version. The Python SDK, `plumcraft-engine`, is on [PyPI](https://pypi.org/project/plumcraft-engine/). The editor and CLI build from source.
+The first public version. The Python SDK, `plumcraft-engine`, is on [PyPI](https://pypi.org/project/plumcraft-engine/). The command line is `plumcraft` on [crates.io](https://crates.io/crates/plumcraft), with 15 of its library crates. The editor builds from source, and `plumcraft run --python` needs a checkout.
 
 - A native node-flow editor with interchangeable engines, speaking protocol 2 in-process, over a Unix socket or over HTTP.
 - Engines for text (Rust and Python), audio and arrays, plus craft apps through their MCP servers.

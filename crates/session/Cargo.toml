@@ -2,7 +2,7 @@
 name = "plumcraft-session"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft L3: the editor session and its command registry (every action a command), graph and run commands, run state; lifted from the research software's research-engine"
@@ -26,6 +26,6 @@ sha2 = { workspace = true }
 zip = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
-plumcraft-engine = { workspace = true }
-plumcraft-text = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-engine = { path = "../engine" }
+plumcraft-text = { path = "../text" }

@@ -2,7 +2,7 @@
 name = "plumcraft-array"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft array engine: the research software's general array nodes on the CPU, ported from yapocis's numba kernels with npexact for numpy's own numerics"
@@ -22,9 +22,9 @@ plumcraft-svg = { workspace = true }
 base64 = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
-plumcraft-host = { workspace = true }
-plumcraft-store = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-host = { path = "../host" }
+plumcraft-store = { path = "../store" }
 
 [build-dependencies]
 md-5 = { workspace = true }

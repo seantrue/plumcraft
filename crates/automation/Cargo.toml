@@ -2,7 +2,7 @@
 name = "plumcraft-automation"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft L4: the editor's --control JSON channel (loopback transport with token auth, session methods); lifted from the research software's research-automation"
@@ -20,5 +20,5 @@ uuid = { workspace = true }
 rustix = { version = "1", default-features = false, features = ["std", "process"] }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
-plumcraft-text = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-text = { path = "../text" }

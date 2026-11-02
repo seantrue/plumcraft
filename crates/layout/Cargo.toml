@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-publish.workspace = true
+repository.workspace = true
 description = "PlumCraft L0: Tidy, the layered node layout (left to right, packed, parameters beside their pins); lifted from the research software's research-layout"
 
 [lints]

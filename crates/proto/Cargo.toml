@@ -2,7 +2,7 @@
 name = "plumcraft-proto"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft L0: the UI <-> engine interface, protocol 2 (docs/interface.md): handles, data references, sessions, the catalogue, runs, events, displays and errors"

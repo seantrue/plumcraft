@@ -4,7 +4,7 @@
 
 ```sh
 cd ~/workspace/plumcraft
-cargo build --release -p plumcraft-cli -p plumcraft-editor
+cargo build --release -p plumcraft -p plumcraft-editor
 uv run --project python plumcraft-engine new ~/workspace/atlas-engine --name Atlas --types text,table,array,svg,image,audio,list,any
 cd ~/workspace/atlas-engine
 uv sync

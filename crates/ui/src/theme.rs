@@ -7,7 +7,7 @@
 //! ([`Tokens::family_tint`]): the colour of a wire type of the same id when the engine gives one,
 //! otherwise a hue derived from the family id, stable across runs and machines.
 
-use craft_ui::theme::WidgetPalette;
+use crate::craft_ui::theme::WidgetPalette;
 use egui::{Color32, CornerRadius, Stroke};
 use plumcraft_proto::catalogue::SchemaReply;
 use plumcraft_proto::event::NodeState;

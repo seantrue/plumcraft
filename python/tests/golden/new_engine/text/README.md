@@ -22,7 +22,7 @@ scripts/run --watch loud.text   # the demo, events as they come
 | `scripts/editor [GRAPH]` | `plumcraft-editor --engine-manifest`: the editor with this engine, on the demo by default | a built PlumCraft |
 | `scripts/install`, `scripts/uninstall` | Link `plumcraft-engine.toml` into `~/.config/plumcraft/engines/`, so every editor offers this engine | |
 
-"A built PlumCraft" means the Rust editor and CLI, which aren't on PyPI. Clone [PlumCraft](https://github.com/seantrue/plumcraft), run `cargo build --release -p plumcraft-cli -p plumcraft-editor` there, and set `PLUMCRAFT_HOME` to that folder. The other scripts need only uv.
+"A built PlumCraft" means the Rust editor and CLI, which aren't on PyPI. Clone [PlumCraft](https://github.com/seantrue/plumcraft), run `cargo build --release -p plumcraft -p plumcraft-editor` there, and set `PLUMCRAFT_HOME` to that folder. The other scripts need only uv.
 
 ## Using it in the editor
 
@@ -30,7 +30,7 @@ scripts/run --watch loud.text   # the demo, events as they come
 scripts/editor
 ```
 
-The editor starts this engine from `plumcraft-engine.toml` and opens the demo. `scripts/_plumcraft.sh` looks for the editor in `$PLUMCRAFT_BIN`, on PATH, then in your PlumCraft checkout's `target/`; build it there with `cargo build --release -p plumcraft-cli -p plumcraft-editor`.
+The editor starts this engine from `plumcraft-engine.toml` and opens the demo. `scripts/_plumcraft.sh` looks for the editor in `$PLUMCRAFT_BIN`, on PATH, then in your PlumCraft checkout's `target/`; build it there with `cargo build --release -p plumcraft -p plumcraft-editor`.
 
 **The loop:** edit a node, Engine › Reconnect (a fresh process, the same graph), run.
 

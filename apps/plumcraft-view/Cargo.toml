@@ -2,7 +2,7 @@
 name = "plumcraft-view"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft: a minimal native window that runs a workflow on an engine and shows node status, progress and data in flight live"

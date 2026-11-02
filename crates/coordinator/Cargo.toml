@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-publish.workspace = true
+repository.workspace = true
 description = "PlumCraft L2: the coordinator, one engine made of several (docs/research/15-multi-engine.md); a Connection over sub-engine Connections"
 
 [lints]
@@ -18,9 +18,9 @@ plumcraft-store = { workspace = true }
 serde_json = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
-plumcraft-array = { workspace = true }
-plumcraft-engine = { workspace = true }
-plumcraft-audio = { workspace = true }
-plumcraft-craft = { workspace = true }
-plumcraft-text = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-array = { path = "../array" }
+plumcraft-engine = { path = "../engine" }
+plumcraft-audio = { path = "../audio" }
+plumcraft-craft = { path = "../craft" }
+plumcraft-text = { path = "../text" }

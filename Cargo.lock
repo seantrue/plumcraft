@@ -845,15 +845,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "craft-ui"
-version = "0.1.0"
-source = "git+https://github.com/storytold/craft-libs?rev=5c874d51eeb3de70e735c8ce87a59a7dedd47675#5c874d51eeb3de70e735c8ce87a59a7dedd47675"
-dependencies = [
- "egui",
- "serde",
-]
-
-[[package]]
 name = "crc32fast"
 version = "1.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2243,7 +2234,8 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 [[package]]
 name = "npexact"
 version = "0.1.0"
-source = "git+https://github.com/seantrue/yapocis-rs?rev=1fbf919a8b6b80902214cb9837e933b93457ef00#1fbf919a8b6b80902214cb9837e933b93457ef00"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5d27be32f8742df4719b7d485edb270da7edfc703283e10c1b236040bb0706dd"
 
 [[package]]
 name = "num-complex"
@@ -2860,6 +2852,20 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
+name = "plumcraft"
+version = "0.1.0"
+dependencies = [
+ "plumcraft-conform",
+ "plumcraft-engine",
+ "plumcraft-host",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-session",
+ "plumcraft-text",
+ "serde_json",
+]
+
+[[package]]
 name = "plumcraft-array"
 version = "0.1.0"
 dependencies = [
@@ -2905,20 +2911,6 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.21",
  "uuid",
-]
-
-[[package]]
-name = "plumcraft-cli"
-version = "0.1.0"
-dependencies = [
- "plumcraft-conform",
- "plumcraft-engine",
- "plumcraft-host",
- "plumcraft-proto",
- "plumcraft-scratch",
- "plumcraft-session",
- "plumcraft-text",
- "serde_json",
 ]
 
 [[package]]
@@ -2975,7 +2967,6 @@ dependencies = [
  "egui",
  "egui_kittest",
  "plumcraft-array",
- "plumcraft-audio",
  "plumcraft-automation",
  "plumcraft-coordinator",
  "plumcraft-craft",
@@ -3108,7 +3099,6 @@ version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cpal",
- "craft-ui",
  "eframe",
  "egui",
  "egui-snarl",

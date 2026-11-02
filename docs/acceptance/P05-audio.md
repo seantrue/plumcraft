@@ -5,7 +5,8 @@
 ```sh
 cd ~/workspace/plumcraft
 cargo build                                            # builds plumcraft-audio-engine too
-cargo run -p plumcraft-editor -- --engine audio        # in-process; or --process, --http
+cargo build -p plumcraft-audio
+cargo run -p plumcraft-editor -- --engine audio        # as a process; or --http
 ```
 
 ## Checklist

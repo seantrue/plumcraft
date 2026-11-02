@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
-publish.workspace = true
+repository.workspace = true
 description = "PlumCraft's SVG core type: parse (bounded, no external files) and rasterise with resvg, text drawn with the system's fonts; shared by the editor's SVG view and the engine SDK's thumbnails"
 
 [lints]

@@ -1,6 +1,6 @@
 //! Bakes this engine's code digest into its memo salt (`plumcraft_engine::salt`).
 
-include!("../engine/digest.rs");
+include!("digest.rs");
 
 fn main() {
     let here = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
