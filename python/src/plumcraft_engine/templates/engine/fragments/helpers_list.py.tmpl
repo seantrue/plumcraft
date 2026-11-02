@@ -1,0 +1,41 @@
+
+
+class Split(Node):
+    """Text to a list of words. Written in the low-level layer because `list` ports are what a
+    signature can't say yet: a `Node` subclass with its NodeDef as a dict, and `run(inputs, cx)`."""
+
+    definition = {
+        "id": "$id.split",
+        "display": "Split",
+        "category": ["$name"],
+        "description": "Text as a list of its words. Wired into an ordinary input, the next node runs once per word. The inverse of Join List.",
+        "inputs": [{"name": "text", "type": "TEXT", "socket": "socket"}, {"name": "separator", "type": "STRING", "default": " "}],
+        "outputs": [{"name": "items", "type": "TEXT", "list": True, "socket": "socket"}],
+    }
+
+    def run(self, inputs: dict, cx: Cx) -> dict:
+        separator = inputs.get("separator")
+        if not isinstance(separator, str) or not separator:
+            raise ConfigError("a separator is some text")
+        return {"items": List(inputs["text"].split(separator))}
+
+
+class JoinList(Node):
+    """A list of words to text. A `list` input receives the whole list at once."""
+
+    definition = {
+        "id": "$id.join_list",
+        "display": "Join List",
+        "category": ["$name"],
+        "description": "A list of texts joined into one. The inverse of Split.",
+        "inputs": [{"name": "items", "type": "TEXT", "list": True, "socket": "socket"}, {"name": "separator", "type": "STRING", "default": " "}],
+        "outputs": [{"name": "text", "type": "TEXT"}],
+        "flags": {"input_list": True},
+    }
+
+    def run(self, inputs: dict, cx: Cx) -> dict:
+        items = inputs["items"]
+        separator = inputs.get("separator")
+        if not isinstance(separator, str):
+            raise ConfigError("a separator is some text")
+        return {"text": separator.join(str(i) for i in (items.items if isinstance(items, List) else [items]))}

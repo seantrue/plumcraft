@@ -1,0 +1,5 @@
+
+
+def test_svg_to_text_and_back(engine):
+    drawing = engine.shapes(2, "#112233")
+    assert engine.text_to_svg(engine.svg_to_text(drawing)).data == drawing.data

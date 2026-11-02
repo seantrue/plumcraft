@@ -1,0 +1,17 @@
+[package]
+name = "plumcraft-graph"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L1: the graph model (nodes, widget values, positions, typed wires, checks, workflow JSON), lifted from the research software's research-graph"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-proto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

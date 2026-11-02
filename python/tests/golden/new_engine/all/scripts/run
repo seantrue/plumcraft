@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Run a workflow and print its events as they come.
+#   scripts/run [GRAPH.json] [--watch NODE.PORT]... [--cancel-after S] [--attach URL] [--raw]
+# The demo by default. Exits 0 when every node is done or cached, so it works as a smoke test.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+if [[ $# -gt 0 && "$1" != -* ]]; then
+    graph=$1
+    shift
+else
+    graph=examples/demo.json
+fi
+exec uv run plumcraft-engine run "$graph" "$@"

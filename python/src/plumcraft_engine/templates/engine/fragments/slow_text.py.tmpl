@@ -1,0 +1,13 @@
+
+    # ---------- testing ----------
+
+    @node("Slow", category=("$name", "Testing"))
+    def slow(self, text: Text, seconds: Annotated[float, Range(0, 600, invalid="clamp")] = 0.05, *, cx: Cx) -> Text:
+        """Passes its input through after `seconds`, reporting progress and stopping on cancel. How a long node behaves."""
+        start = time.monotonic()
+        while time.monotonic() - start < seconds:
+            if cx.cancelled():
+                raise NodeError.cancelled()
+            cx.progress((time.monotonic() - start) / max(seconds, 1e-9), "waiting")
+            time.sleep(0.01)
+        return text

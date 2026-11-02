@@ -1,0 +1,5 @@
+
+
+@pytest.mark.parametrize("text", ["", "a corgi", "ünï çødé 🐕"])
+def test_text_to_hex_and_back(engine, text):
+    assert engine.hex_to_text(engine.text_to_hex(text)) == text

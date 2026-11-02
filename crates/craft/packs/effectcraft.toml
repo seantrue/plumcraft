@@ -1,0 +1,406 @@
+# The EffectCraft pack for plumcraft-craft (note 14, 3.10): a motion-graphics compositor
+# (After Effects-class) as PlumCraft nodes. Worker A, 2026-10-28; notes in
+# claude-debug/craft-pack-effectcraft.md.
+#
+# The document is an EffectCraft project (`.ecproj`): saves are deterministic and open → save is
+# the identity. `file.closeProject` leaves an empty project, so New is `comp.new` after it.
+# Layers are addressed explicitly (`#1` = the top layer, where a new layer goes): a reopened
+# project has no selected layers, so nodes never rely on the selection.
+#
+# Export: `ec.export_png` runs its own command, `comp.saveFrameAs {path, time, scale}`; an
+# export node with its own command sends no `format` (EffectCraft refuses unknown parameters).
+
+id = "effectcraft"
+name = "EffectCraft"
+command = ["effectcraft-cli", "mcp"]
+hint = "install effectcraft-cli on PATH (https://github.com/storytold/effectcraft)"
+timeout_s = 600
+
+[gui]
+command = ["effectcraft"]
+env = "PLUMCRAFT_EFFECTCRAFT_APP"
+label = "EffectCraft"
+hint = "install effectcraft on PATH (~/bin/effectcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+open = { tool = "open_project", path = "path" }
+save = { tool = "save_project", path = "path" }
+close_all = { command = "file.closeProject" }
+clear_history = { command = "edit.purgeUndo" }
+export = { command = "comp.saveFrameAs", path = "path" }
+
+[doc]
+wire = "effectcraft.project"
+ext = "ecproj"
+media = "application/vnd.effectcraft+json"
+app = "effectcraft"
+stem = "project"
+color = "#7c3aed"
+
+[[catalogue]]
+name = "effects"
+command = "effect.list"
+path = ""
+
+[[catalogue]]
+name = "presets"
+command = "anim.builtinPresets"
+path = ""
+
+[run_node]
+id = "ec.run"
+display = "Run command"
+allow = ["layer.new", "layer.transform", "layer.settings", "layer.addShapeItem", "layer.applyTextPreset", "layer.tree", "effect.apply", "effect.toggle", "effect.reset", "effect.reorder", "effect.duplicate", "prop.", "keys.set", "keys.setEase", "keys.setSpatialTangents", "text.insert", "shape.", "mask.", "anim.applyBuiltinPreset", "anim.builtinPresets", "comp.settings", "comp.info"]
+deny = ["layer.newModel", "prop.editGradient", "mask.deleteVertices"]
+
+# ---- composition ----
+
+[[node]]
+id = "ec.open"
+display = "Open project"
+kind = "open"
+family = "Composition"
+description = "Open an EffectCraft project (.ecproj, open_project)"
+
+[[node]]
+id = "ec.new"
+display = "New composition"
+kind = "new"
+family = "Composition"
+command = "comp.new"
+description = "An empty project with one composition (comp.new); it becomes the active comp"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Main"
+[[node.widget]]
+name = "width"
+type = "INT"
+default = 1920
+min = 4.0
+max = 30000.0
+[[node.widget]]
+name = "height"
+type = "INT"
+default = 1080
+min = 4.0
+max = 30000.0
+[[node.widget]]
+name = "frameRate"
+type = "FLOAT"
+default = 30.0
+min = 1.0
+max = 999.0
+[[node.widget]]
+name = "duration"
+type = "FLOAT"
+default = 5.0
+min = 0.01
+max = 86400.0
+[[node.widget]]
+name = "background"
+type = "STRING"
+default = "#000000"
+
+[[node]]
+id = "ec.comp_settings"
+display = "Composition settings"
+kind = "transform"
+family = "Composition"
+command = "comp.settings"
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 4.0
+max = 30000.0
+optional = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 4.0
+max = 30000.0
+optional = true
+[[node.widget]]
+name = "frameRate"
+type = "FLOAT"
+min = 1.0
+max = 999.0
+optional = true
+[[node.widget]]
+name = "duration"
+type = "FLOAT"
+min = 0.01
+max = 86400.0
+optional = true
+[[node.widget]]
+name = "background"
+type = "STRING"
+optional = true
+
+[[node]]
+id = "ec.info"
+display = "Composition info"
+kind = "query"
+family = "Composition"
+command = "comp.info"
+description = "The active composition: size, frame rate, duration and its layers top to bottom (comp.info)"
+[[node.output]]
+name = "layers"
+type = "JSON"
+from = "layers"
+[[node.output]]
+name = "info"
+type = "JSON"
+
+# ---- layers ----
+
+[[node]]
+id = "ec.text"
+display = "Text layer"
+kind = "transform"
+family = "Layer"
+command = "layer.newText"
+description = "A new text layer on top (layer.newText)"
+[[node.output]]
+name = "layer"
+type = "INT"
+from = "layer"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 96.0
+min = 1.0
+max = 10000.0
+[[node.widget]]
+name = "fill"
+type = "STRING"
+default = "#ffffff"
+[[node.widget]]
+name = "font"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "position"
+type = "JSON"
+optional = true
+tooltip = "[x, y] in comp pixels; default the comp's centre"
+
+[[node]]
+id = "ec.solid"
+display = "Solid layer"
+kind = "transform"
+family = "Layer"
+command = "layer.newSolid"
+description = "A new comp-sized solid on top (layer.newSolid)"
+[[node.output]]
+name = "layer"
+type = "INT"
+from = "layer"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#203060"
+[[node.widget]]
+name = "name"
+type = "STRING"
+optional = true
+
+[[node]]
+id = "ec.shape"
+display = "Shape layer"
+kind = "transform"
+family = "Layer"
+command = "layer.newShape"
+description = "A new shape layer on top (layer.newShape)"
+[[node.output]]
+name = "layer"
+type = "INT"
+from = "layer"
+[[node.widget]]
+name = "kind"
+type = "ENUM"
+choices = ["rect", "rounded", "ellipse", "star", "polygon"]
+default = "ellipse"
+[[node.widget]]
+name = "size"
+type = "JSON"
+default = [200, 200]
+socket = "widget"
+[[node.widget]]
+name = "fill"
+type = "STRING"
+default = "#e11d48"
+
+[[node]]
+id = "ec.layer_transform"
+display = "Fit / centre / flip layer"
+kind = "transform"
+family = "Layer"
+command = "layer.transform"
+[[node.widget]]
+name = "op"
+type = "ENUM"
+choices = ["reset", "center", "fit", "fitWidth", "fitHeight", "flipH", "flipV"]
+default = "center"
+[[node.widget]]
+name = "layers"
+type = "JSON"
+default = ["#1"]
+socket = "both"
+
+# ---- effects and animation ----
+
+[[node]]
+id = "ec.effect"
+display = "Apply effect"
+kind = "transform"
+family = "Effect"
+command = "effect.apply"
+description = "Apply an effect to layers (effect.apply); set its parameters with Set property at `effects/#n/<param>`"
+[[node.output]]
+name = "paths"
+type = "JSON"
+from = "paths"
+[[node.widget]]
+name = "effect"
+type = "ENUM"
+choices_from = "effects:id"
+default = "ec.blur.gaussian"
+[[node.widget]]
+name = "layers"
+type = "JSON"
+default = ["#1"]
+socket = "both"
+
+[[node]]
+id = "ec.preset"
+display = "Animation preset"
+kind = "transform"
+family = "Animate"
+command = "anim.applyBuiltinPreset"
+description = "Apply a built-in animation preset (fades, wipes, …) to layers (anim.applyBuiltinPreset)"
+[[node.widget]]
+name = "preset"
+type = "ENUM"
+choices_from = "presets:id"
+default = "fadeIn"
+[[node.widget]]
+name = "layers"
+type = "JSON"
+default = ["#1"]
+socket = "both"
+
+[[node]]
+id = "ec.set_property"
+display = "Set property"
+kind = "transform"
+family = "Animate"
+command = "prop.set"
+description = "Set a layer property (prop.set): `transform/position`, `transform/opacity`, `effects/#1/blurriness`, …; with a time, a keyframe on an animated property"
+[[node.widget]]
+name = "layer"
+type = "STRING"
+default = "#1"
+[[node.widget]]
+name = "path"
+type = "STRING"
+default = "transform/opacity"
+[[node.widget]]
+name = "value"
+type = "JSON"
+default = 100
+socket = "both"
+[[node.widget]]
+name = "time"
+type = "FLOAT"
+optional = true
+
+[[node]]
+id = "ec.keyframe"
+display = "Add keyframe"
+kind = "transform"
+family = "Animate"
+command = "prop.addKey"
+description = "Add a keyframe to a layer property (prop.addKey); times are layer seconds"
+[[node.widget]]
+name = "layer"
+type = "STRING"
+default = "#1"
+[[node.widget]]
+name = "path"
+type = "STRING"
+default = "transform/opacity"
+[[node.widget]]
+name = "time"
+type = "FLOAT"
+default = 0.0
+min = -86400.0
+max = 86400.0
+[[node.widget]]
+name = "value"
+type = "JSON"
+default = 0
+socket = "both"
+
+[[node]]
+id = "ec.expression"
+display = "Expression"
+kind = "transform"
+family = "Animate"
+command = "prop.setExpression"
+description = "Set (or with empty text remove) a property's expression (prop.setExpression)"
+[[node.widget]]
+name = "layer"
+type = "STRING"
+default = "#1"
+[[node.widget]]
+name = "path"
+type = "STRING"
+default = "transform/rotation"
+[[node.widget]]
+name = "expression"
+type = "STRING"
+default = "time * 90"
+
+# ---- export ----
+
+[[node]]
+id = "ec.export_png"
+display = "Export frame PNG"
+kind = "export"
+family = "Export"
+command = "comp.saveFrameAs"
+ext = "png"
+media = "image/png"
+description = "One frame of the active composition as a PNG (comp.saveFrameAs)"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "time"
+type = "FLOAT"
+default = 0.0
+min = 0.0
+max = 86400.0
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+optional = true
+advanced = true

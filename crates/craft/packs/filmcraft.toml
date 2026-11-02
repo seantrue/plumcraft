@@ -1,0 +1,526 @@
+# The FilmCraft pack (Worker B, 2026-10-28; note 14, 3.10).
+#
+# FilmCraft's document is a project file (`file.save`/`file.open`). Its `mcp` server has no
+# automation roots, so this craft is NOT confined to the CAS and the work folder: it can read and
+# write anywhere the user can. The nodes build self-contained projects: synthetic media (demo
+# footage, colour mattes, bars and tone) and graphics live inside the project file, so a project
+# reopens cold from the CAS with nothing missing. Importing footage from files is left out (the
+# project would point at files outside the CAS; see claude-debug/craft-pack-filmcraft.md).
+#
+# Exports go through `file.exportMedia` with `wait: true` (it is a background job otherwise);
+# `file.exportMedia` writes stills as a numbered sequence, so the PNG still is the node's own
+# command, `file.exportFrame` (round 2: per-node export commands).
+
+id = "filmcraft"
+name = "FilmCraft"
+command = ["filmcraft-cli", "mcp"]
+hint = "install filmcraft-cli on PATH (https://github.com/storytold/filmcraft)"
+timeout_s = 600
+
+# The desktop app: "Open in FilmCraft" opens a copy of a project with `filmcraft <file>`.
+# PLUMCRAFT_FILMCRAFT_APP names another build.
+[gui]
+command = ["filmcraft"]
+env = "PLUMCRAFT_FILMCRAFT_APP"
+label = "FilmCraft"
+hint = "install filmcraft on PATH (https://github.com/storytold/filmcraft)"
+
+# One process: a render already uses every core, and a project is small to reopen.
+[pool]
+max = 1
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+open = { command = "file.open", path = "path" }
+save = { command = "file.save", path = "path" }
+close_all = { command = "file.closeAllProjects", params = { force = true } }
+export = { command = "file.exportMedia", path = "path", params = { wait = true } }
+
+# `timeline.select` takes the clip ids under `clips` (round 2: `set_key`), so `select = "ids:12,13"`
+# and a wired `ids` list work.
+[selection]
+all = "edit.selectAll"
+none = "edit.deselectAll"
+set = "timeline.select"
+set_key = "clips"
+
+[doc]
+wire = "filmcraft.project"
+ext = "fcproj"
+media = "application/vnd.filmcraft+json"
+app = "filmcraft"
+stem = "project"
+color = "#be123c"
+
+[[catalogue]]
+name = "effects"
+command = "effects.list"
+path = ""
+params = { kind = "Video" }
+
+[[catalogue]]
+name = "looks"
+command = "lumetri.presets"
+path = "presets"
+
+[run_node]
+id = "fc.run"
+display = "Run command"
+allow = ["timeline.", "clip.", "effects.", "lumetri.", "graphics.", "sequence.", "markers.", "playhead.set", "playhead.step", "edit."]
+# Left out: files and folders (paths, LUT files, CSV, extracted audio, templates), renders to disk,
+# transcription (speech models), the clipboard, app defaults, and opening other apps.
+deny = [
+    "clip.extractAudio", "clip.revealInProject",
+    "sequence.renderEffectsInToOut", "sequence.renderInToOut", "sequence.renderSelection", "sequence.renderAudio",
+    "sequence.deleteRenderFiles", "sequence.deleteRenderFilesInToOut", "sequence.transcribe", "sequence.revealInProject",
+    "markers.exportCsv",
+    "effects.setDefaultTransition",
+    "lumetri.presetThumbnails", "lumetri.setInputLut", "lumetri.setLook",
+    "graphics.newFromFile", "graphics.template.",
+    "edit.cut", "edit.copy", "edit.paste", "edit.pasteInsert", "edit.pasteMedia", "edit.editOriginal", "edit.find", "edit.findNext",
+]
+
+# ---- project and sequence ----
+
+[[node]]
+id = "fc.new"
+display = "New project"
+kind = "new"
+family = "Project"
+command = "file.newProject"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Project"
+
+[[node]]
+id = "fc.sequence"
+display = "New sequence"
+kind = "transform"
+family = "Project"
+command = "file.newSequence"
+description = "A new sequence, made active (file.newSequence); wire an item in to make it from that clip's settings"
+[[node.output]]
+name = "sequence"
+type = "INT"
+from = "sequence"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Sequence"
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 16.0
+max = 16384.0
+optional = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 16.0
+max = 16384.0
+optional = true
+[[node.widget]]
+name = "fps"
+type = "FLOAT"
+min = 1.0
+max = 240.0
+optional = true
+[[node.widget]]
+name = "fromItem"
+label = "from item"
+type = "INT"
+min = 0.0
+optional = true
+socket = "both"
+
+[[node]]
+id = "fc.settings"
+display = "Sequence settings"
+kind = "transform"
+family = "Project"
+command = "sequence.settings"
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 16.0
+max = 16384.0
+optional = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 16.0
+max = 16384.0
+optional = true
+[[node.widget]]
+name = "fps"
+type = "FLOAT"
+min = 1.0
+max = 240.0
+optional = true
+
+[[node]]
+id = "fc.inspect"
+display = "Inspect sequence"
+kind = "query"
+family = "Project"
+command = "sequence.inspect"
+
+[[node]]
+id = "fc.items"
+display = "Project items"
+kind = "query"
+family = "Project"
+command = "project.items"
+fixed = { recursive = true }
+
+# ---- media ----
+
+[[node]]
+id = "fc.demo_footage"
+display = "Demo footage"
+kind = "transform"
+family = "Media"
+command = "file.importDemoFootage"
+description = "A synthetic clip into the project (file.importDemoFootage); it lives in the project, no file"
+[[node.output]]
+name = "item"
+type = "INT"
+from = "items.0"
+[[node.widget]]
+name = "scene"
+type = "ENUM"
+choices = ["OceanSunset", "Aurora", "CityNight", "Dunes", "Plasma", "Forest"]
+default = "Aurora"
+
+[[node]]
+id = "fc.color_matte"
+display = "Colour matte"
+kind = "transform"
+family = "Media"
+command = "file.newColorMatte"
+[[node.output]]
+name = "item"
+type = "INT"
+from = "item"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#2050a0"
+[[node.widget]]
+name = "seconds"
+type = "FLOAT"
+default = 5.0
+min = 0.04
+max = 86400.0
+
+[[node]]
+id = "fc.bars_tone"
+display = "Bars and tone"
+kind = "transform"
+family = "Media"
+command = "file.newBarsAndTone"
+[[node.output]]
+name = "item"
+type = "INT"
+from = "item"
+[[node.widget]]
+name = "seconds"
+type = "FLOAT"
+default = 10.0
+min = 0.04
+max = 86400.0
+
+# ---- timeline ----
+
+[[node]]
+id = "fc.place"
+display = "Place on timeline"
+kind = "transform"
+family = "Timeline"
+command = "timeline.place"
+description = "Put a project item on the active sequence (timeline.place); wire a media node's item in"
+[[node.widget]]
+name = "item"
+type = "INT"
+default = 1
+min = 0.0
+socket = "both"
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "V1"
+[[node.widget]]
+name = "seconds"
+type = "FLOAT"
+default = 0.0
+min = 0.0
+max = 86400.0
+[[node.widget]]
+name = "insert"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "fc.text"
+display = "Text"
+kind = "transform"
+family = "Graphics"
+command = "graphics.newText"
+description = "A text graphic above the clips at the playhead (graphics.newText)"
+[[node.output]]
+name = "clip"
+type = "INT"
+from = "clip"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 100.0
+min = 1.0
+max = 2000.0
+[[node.widget]]
+name = "seconds"
+type = "FLOAT"
+default = 5.0
+min = 0.04
+max = 86400.0
+[[node.widget]]
+name = "position"
+type = "JSON"
+optional = true
+advanced = true
+[[node.widget]]
+name = "font"
+type = "STRING"
+optional = true
+advanced = true
+
+[[node]]
+id = "fc.shape"
+display = "Shape"
+kind = "transform"
+family = "Graphics"
+command = "graphics.newShape"
+[[node.output]]
+name = "clip"
+type = "INT"
+from = "clip"
+[[node.widget]]
+name = "shape"
+type = "ENUM"
+choices = ["rectangle", "ellipse", "polygon"]
+default = "rectangle"
+[[node.widget]]
+name = "size"
+type = "JSON"
+default = [400, 200]
+[[node.widget]]
+name = "position"
+type = "JSON"
+optional = true
+advanced = true
+[[node.widget]]
+name = "seconds"
+type = "FLOAT"
+default = 5.0
+min = 0.04
+max = 86400.0
+
+[[node]]
+id = "fc.marker"
+display = "Marker"
+kind = "transform"
+family = "Timeline"
+command = "markers.add"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Marker"
+[[node.widget]]
+name = "comment"
+type = "STRING"
+optional = true
+
+# ---- effects (on the selected clips: `select`, default all) ----
+
+[[node]]
+id = "fc.effect"
+display = "Video effect"
+kind = "transform"
+family = "Effects"
+command = "effects.apply"
+description = "A video effect on the clips (effects.apply); the list is FilmCraft's own (effects.list)"
+select = "all"
+[[node.widget]]
+name = "effect"
+type = "ENUM"
+choices_from = "effects:id"
+default = "gaussian_blur"
+
+[[node]]
+id = "fc.look"
+display = "Lumetri look"
+kind = "transform"
+family = "Effects"
+command = "lumetri.applyPreset"
+description = "A built-in Lumetri colour preset on the clips (lumetri.applyPreset)"
+select = "all"
+[[node.widget]]
+name = "name"
+label = "look"
+type = "ENUM"
+choices_from = "looks:name"
+default = "Golden Dusk"
+
+[[node]]
+id = "fc.speed"
+display = "Speed / duration"
+kind = "transform"
+family = "Effects"
+command = "clip.speedDuration"
+select = "all"
+[[node.widget]]
+name = "speed"
+type = "FLOAT"
+default = 100.0
+min = 1.0
+max = 10000.0
+[[node.widget]]
+name = "reverse"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "ripple"
+type = "BOOL"
+default = false
+
+# ---- export (file.exportMedia, waited) ----
+
+[[node]]
+id = "fc.export_mp4"
+display = "Export MP4"
+kind = "export"
+family = "Export"
+description = "The active sequence as H.264 MP4 (file.exportMedia); no viewer in the editor yet"
+format = "h264"
+ext = "mp4"
+media = "video/mp4"
+[[node.output]]
+name = "video"
+type = "MP4"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+min = 0.05
+max = 1.0
+optional = true
+[[node.widget]]
+name = "crf"
+type = "INT"
+min = 0.0
+max = 51.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "audio"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "range"
+type = "ENUM"
+choices = ["entire", "inOut", "workArea", "custom"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "startSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "endSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+
+[[node]]
+id = "fc.export_mov"
+display = "Export ProRes MOV"
+kind = "export"
+family = "Export"
+format = "prores"
+ext = "mov"
+media = "video/quicktime"
+[[node.output]]
+name = "video"
+type = "MOV"
+[[node.widget]]
+name = "proresProfile"
+label = "profile"
+type = "ENUM"
+choices = ["proxy", "lt", "standard", "hq", "4444", "4444xq"]
+optional = true
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+min = 0.05
+max = 1.0
+optional = true
+
+[[node]]
+id = "fc.export_gif"
+display = "Export GIF"
+kind = "export"
+family = "Export"
+format = "gif"
+ext = "gif"
+media = "image/gif"
+[[node.output]]
+name = "image"
+type = "GIF"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 0.25
+min = 0.05
+max = 1.0
+
+[[node]]
+id = "fc.export_wav"
+display = "Export WAV"
+kind = "export"
+family = "Export"
+description = "The active sequence's sound as WAV (file.exportMedia)"
+format = "wav"
+ext = "wav"
+media = "audio/wav"
+[[node.output]]
+name = "audio"
+type = "WAV"
+
+[[node]]
+id = "fc.export_png"
+display = "Export frame PNG"
+kind = "export"
+family = "Export"
+command = "file.exportFrame"
+description = "One frame of the active sequence as PNG (file.exportFrame); time in ticks, 254016000000 a second (unset: the playhead)"
+fixed = { format = "png", target = "program" }
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "time"
+type = "INT"
+min = 0.0
+optional = true

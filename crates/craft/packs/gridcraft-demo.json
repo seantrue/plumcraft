@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":   {"kind": "gc.new",        "pos": [0, 0],     "values": {"sample": "grades"}},
+    "sort":  {"kind": "gc.sort",       "pos": [440, 0],   "values": {"range": "A1:G9", "keys": [{"column": "F", "order": "desc"}], "header": true}},
+    "chart": {"kind": "gc.chart",      "pos": [880, 0],   "values": {"range": "A1:E9", "type": "column", "title": "Scores", "at": "I2"}},
+    "pdf":   {"kind": "gc.export_pdf", "pos": [1320, 0],  "values": {}},
+    "read":  {"kind": "gc.read",       "pos": [880, 420], "values": {"range": "A1:G4"}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "sort", "port": "doc"}},
+    {"from": {"node": "sort", "port": "doc"}, "to": {"node": "chart", "port": "doc"}},
+    {"from": {"node": "chart", "port": "doc"}, "to": {"node": "pdf", "port": "doc"}},
+    {"from": {"node": "sort", "port": "doc"}, "to": {"node": "read", "port": "doc"}}
+  ]
+}

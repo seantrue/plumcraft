@@ -1,0 +1,23 @@
+[package]
+name = "plumcraft-store"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L1: blobs in the commonkit store (key layout, .npy write and read), the same-host proof, and resolving DataRefs"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-proto = { workspace = true }
+base64 = { workspace = true }
+# mmap: a value over MAX_READ is mapped, never copied (Store::resolve_in).
+commonkit = { workspace = true, features = ["mmap"] }
+flate2 = { workspace = true }
+# Free space on the store's disk (commonkit uses it too).
+fs4 = "1"
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }

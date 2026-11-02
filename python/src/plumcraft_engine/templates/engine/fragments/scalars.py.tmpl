@@ -1,0 +1,20 @@
+
+    # ---------- numbers ----------
+
+    @node("Add")
+    def add(self, a: Annotated[float, Range(-1e9, 1e9)] = 1.0, b: Annotated[float, Range(-1e9, 1e9), Port(label="Plus", tooltip="Added to a")] = 2.0) -> Float:
+        """Add two numbers. Widgets that can also be wired, with a range the engine enforces."""
+        return a + b
+
+    @node("Format Number")
+    def format_number(self, value: Annotated[float, Range(-1e9, 1e9)] = 1.5, decimals: Annotated[int, Range(0, 12, invalid="clamp")] = 2) -> String:
+        """A number as text. The inverse of Parse Number. `invalid="clamp"` brings decimals into range."""
+        return f"{value:.{decimals}f}"
+
+    @node("Parse Number")
+    def parse_number(self, string: str = "1.5") -> Float:
+        """Text as a number. The inverse of Format Number. Text that isn't one is a config error: the user can fix it."""
+        try:
+            return float(string)
+        except ValueError:
+            raise ConfigError(f"{string!r} isn't a number") from None

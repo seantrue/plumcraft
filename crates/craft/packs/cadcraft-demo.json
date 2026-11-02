@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":    {"kind": "cad.new",        "pos": [0, 0],      "values": {"metric": true}},
+    "rect":   {"kind": "cad.rectangle",  "pos": [400, 0],    "values": {"p1": [0, 0], "p2": [100, 60], "fillet": 5.0}},
+    "circle": {"kind": "cad.circle",     "pos": [800, 0],    "values": {"center": [50, 30], "radius": 20.0}},
+    "hatch":  {"kind": "cad.hatch",      "pos": [1200, 0],   "values": {"points": [[10, 10]], "pattern": "ANSI31"}},
+    "text":   {"kind": "cad.text",       "pos": [1600, 0],   "values": {"at": [0, 70], "text": "PlumCraft", "height": 8.0}},
+    "array":  {"kind": "cad.array_polar","pos": [2000, 0],   "values": {"center": [-60, 30], "count": 3, "angle": 360.0}},
+    "svg":    {"kind": "cad.export_svg", "pos": [2400, 0],   "values": {}},
+    "png":    {"kind": "cad.export_png", "pos": [2400, 400], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "rect", "port": "doc"}},
+    {"from": {"node": "rect", "port": "doc"}, "to": {"node": "circle", "port": "doc"}},
+    {"from": {"node": "circle", "port": "doc"}, "to": {"node": "hatch", "port": "doc"}},
+    {"from": {"node": "hatch", "port": "doc"}, "to": {"node": "text", "port": "doc"}},
+    {"from": {"node": "text", "port": "doc"}, "to": {"node": "array", "port": "doc"}},
+    {"from": {"node": "array", "port": "doc"}, "to": {"node": "svg", "port": "doc"}},
+    {"from": {"node": "array", "port": "doc"}, "to": {"node": "png", "port": "doc"}}
+  ]
+}

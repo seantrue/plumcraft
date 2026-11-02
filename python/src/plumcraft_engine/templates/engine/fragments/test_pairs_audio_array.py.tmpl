@@ -1,0 +1,6 @@
+
+
+def test_audio_to_array_and_back(engine):
+    tone = engine.tone(440.0, 0.1, 8000)
+    back = engine.array_to_audio(engine.audio_to_array(tone), 8000)
+    assert back.sample_rate == 8000 and (back.samples == tone.samples).all()

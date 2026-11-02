@@ -1,0 +1,91 @@
+{
+ "version": 1,
+ "nodes": {
+  "picture": {
+   "kind": "demo.op1",
+   "values": {
+    "path": "sample.png"
+   },
+   "pos": [
+    0.0,
+    0.0
+   ]
+  },
+  "normalized": {
+   "kind": "demo.op2",
+   "values": {},
+   "pos": [
+    319.0,
+    0.0
+   ]
+  },
+  "view_1": {
+   "kind": "demo.op3",
+   "values": {},
+   "pos": [
+    536.0,
+    0.0
+   ],
+   "title": "x"
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "picture",
+    "port": "rgb"
+   },
+   "to": {
+    "node": "normalized",
+    "port": "image"
+   }
+  },
+  {
+   "from": {
+    "node": "normalized",
+    "port": "p1"
+   },
+   "to": {
+    "node": "view_1",
+    "port": "array"
+   }
+  }
+ ],
+ "frames": {
+  "f1": {
+   "title": "Sample: a framed graph",
+   "pos": [
+    -40.0,
+    -80.0
+   ],
+   "size": [
+    862.0,
+    294.0
+   ]
+  }
+ },
+ "next_frame": 2,
+ "meta": {
+  "title": "Sample",
+  "description": "a framed graph",
+  "style": {
+   "name": "Sample",
+   "command": "sample",
+   "results": [
+    [
+     "n",
+     "value"
+    ]
+   ],
+   "labels": [
+    {
+     "params": {},
+     "scale": 0,
+     "substyle": ""
+    }
+   ],
+   "interleave": false,
+   "settings": {}
+  }
+ }
+}

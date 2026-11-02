@@ -1,0 +1,5 @@
+
+
+def test_json_to_text_and_back(engine):
+    value = engine.settings("heron", 2)
+    assert engine.text_to_json(engine.json_to_text(value)) == value

@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# The catalogue: every node, its inputs and outputs. In this process, no Rust build needed.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+exec uv run plumcraft-engine nodes "$@"

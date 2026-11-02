@@ -1,0 +1,3844 @@
+{
+  "$defs": {
+    "BlobMeta": {
+      "properties": {
+        "aliases": {
+          "description": "Other handles of the same bytes (an `md5` item's `b3` twin).",
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "type": "array"
+        },
+        "form": {
+          "$ref": "#/$defs/Form",
+          "default": {
+            "kind": "bytes"
+          }
+        },
+        "media": {
+          "default": "",
+          "description": "A media type: `application/x-npy`, `text/plain; charset=utf-8`, `image/png`, …",
+          "type": "string"
+        },
+        "size": {
+          "default": 0,
+          "description": "Bytes, checked against what is read (spec 18).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Caps": {
+      "description": "Capability strings (spec 5.3); unknown strings are ignored",
+      "items": {
+        "maxLength": 96,
+        "minLength": 1,
+        "type": "string"
+      },
+      "maxItems": 512,
+      "type": "array",
+      "uniqueItems": true
+    },
+    "ChannelStats": {
+      "description": "One channel's range and histogram.",
+      "properties": {
+        "histogram": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Histogram"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "max": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "nan": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ClientInfo": {
+      "description": "Who the client is.",
+      "properties": {
+        "base": {
+          "default": "",
+          "description": "The base it is built on (`plumcraft 0.1.0`).",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Column": {
+      "description": "A table column: its name and the wire type of its values.",
+      "properties": {
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Compat": {
+      "description": "An extra conversion a port accepts.",
+      "properties": {
+        "from": {
+          "default": "",
+          "type": "string"
+        },
+        "to": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "DataInfo": {
+      "description": "Where the engine's data lives.",
+      "properties": {
+        "algos": {
+          "default": [],
+          "description": "Hash algorithms accepted, preferred first.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "blob_url": {
+          "description": "A remote fleet's blob server (spec 16.2).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "stores": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "work_root": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "DataRef": {
+      "description": "A handle plus typed metadata plus the ways to reach the bytes, in the engine's order of\npreference.",
+      "properties": {
+        "at": {
+          "default": [],
+          "description": "Unknown or malformed locators are skipped.",
+          "items": {
+            "$ref": "#/$defs/Locator"
+          },
+          "type": "array"
+        },
+        "handle": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Handle"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` only for a protocol 1 array published without a commonkit key; the reader may\nhash the file if it needs an identity (spec 17)."
+        },
+        "meta": {
+          "$ref": "#/$defs/BlobMeta",
+          "default": {
+            "form": {
+              "kind": "bytes"
+            },
+            "media": "",
+            "size": 0
+          }
+        }
+      },
+      "type": "object"
+    },
+    "Display": {
+      "description": "What the viewer shows for one watched value.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "full": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The value itself, read lazily (probe, compare, playback, 1:1 zoom)."
+        },
+        "index": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "items": {
+          "default": 0,
+          "description": "Items in the list (1 for a single value) and the one shown.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "live": {
+          "$ref": "#/$defs/LiveMark",
+          "default": {
+            "provisional": false,
+            "seq": 0
+          }
+        },
+        "media": {
+          "$ref": "#/$defs/Media",
+          "default": "bytes"
+        },
+        "node": {
+          "default": "",
+          "type": "string"
+        },
+        "port": {
+          "default": "",
+          "type": "string"
+        },
+        "recipe": {
+          "default": null,
+          "description": "What made the item shown: `{style?, params, settings, graph}`."
+        },
+        "renditions": {
+          "default": [],
+          "description": "Unknown kinds are skipped.",
+          "items": {
+            "$ref": "#/$defs/Rendition"
+          },
+          "type": "array"
+        },
+        "sheet": {
+          "items": {
+            "$ref": "#/$defs/SheetCell"
+          },
+          "type": "array"
+        },
+        "stats": {
+          "$ref": "#/$defs/Stats",
+          "default": {
+            "channels": []
+          }
+        },
+        "summary": {
+          "default": "",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "description": "The wire type.",
+          "type": "string"
+        },
+        "value": {
+          "default": null,
+          "description": "A scalar."
+        },
+        "view": {
+          "$ref": "#/$defs/View",
+          "default": {
+            "id": "auto",
+            "params": {}
+          }
+        }
+      },
+      "type": "object"
+    },
+    "Editor": {
+      "description": "A custom editor: `curves`, `mask` or a pack kind, on a port.",
+      "properties": {
+        "interpolant": {
+          "description": "For `curves`: the curve maths (VI: `monotone_cubic`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "default": "",
+          "type": "string"
+        },
+        "port": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EngineInfo": {
+      "description": "Who answered, and what its results depend on.",
+      "properties": {
+        "components": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Component versions (`impressionist`, `yapocis`, …).",
+          "type": "object"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "salt": {
+          "default": "",
+          "description": "The engine's code digest, part of every memo key (spec 14).",
+          "type": "string"
+        },
+        "schema_digest": {
+          "default": "",
+          "description": "Lets the UI skip a catalogue it has cached.",
+          "type": "string"
+        },
+        "version": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "EngineState": {
+      "description": "What the host reports about its engine (spec 12.4). Engines push only states only they know\n(`unavailable`); every other state is the host's.",
+      "oneOf": [
+        {
+          "properties": {
+            "state": {
+              "const": "off",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "connecting",
+              "type": "string"
+            },
+            "url": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A broker or server that can't be reached, with the fix.",
+          "properties": {
+            "hint": {
+              "default": "",
+              "type": "string"
+            },
+            "reason": {
+              "default": "",
+              "type": "string"
+            },
+            "retry_s": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "const": "unreachable",
+              "type": "string"
+            },
+            "url": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The engine isn't running or crashed, with the fix (from the engine manifest).",
+          "properties": {
+            "hint": {
+              "default": "",
+              "type": "string"
+            },
+            "queues": {
+              "items": {
+                "type": "string"
+              },
+              "type": [
+                "array",
+                "null"
+              ]
+            },
+            "reason": {
+              "default": "",
+              "type": "string"
+            },
+            "state": {
+              "const": "engine_down",
+              "type": "string"
+            },
+            "stderr_tail": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "state": {
+              "const": "loading_schema",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Up but unusable (no GPU device, protocol mismatch).",
+          "properties": {
+            "reason": {
+              "default": "",
+              "type": "string"
+            },
+            "state": {
+              "const": "unavailable",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Missed pings during a run.",
+          "properties": {
+            "since": {
+              "default": 0.0,
+              "format": "double",
+              "type": "number"
+            },
+            "state": {
+              "const": "busy",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "caps": {
+              "$ref": "#/$defs/Caps",
+              "default": []
+            },
+            "nodes": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "state": {
+              "const": "connected",
+              "type": "string"
+            },
+            "version": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Envelope": {
+      "description": "One event on the wire: `{\"v\": 2, \"seq\", \"ts\", \"kind\", \"run_id\"?, \"generation\"?, \"body\"}`.",
+      "properties": {
+        "body": {
+          "default": null
+        },
+        "generation": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "default": "",
+          "type": "string"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "seq": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ts": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "v": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "ErrorCode": {
+      "description": "A JSON-RPC error code (spec 12.2)",
+      "type": "integer"
+    },
+    "ErrorData": {
+      "description": "`{kind, hint?}` attached to a protocol error.",
+      "properties": {
+        "hint": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Export": {
+      "description": "Whether a node can be marked for export (a Cartooner checkpoint), and what core calls the\nmark. The pack's export data is opaque.",
+      "properties": {
+        "mark": {
+          "type": "string"
+        },
+        "markable": {
+          "default": false,
+          "type": "boolean"
+        },
+        "x": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "Family": {
+      "description": "A node family: nodes are coloured by family (theme tokens, by id).",
+      "properties": {
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "display": {
+          "default": "",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Form": {
+      "description": "What the bytes hold, enough to choose a viewer before reading them. An unknown kind reads as\n[`Form::Bytes`].",
+      "oneOf": [
+        {
+          "properties": {
+            "dtype": {
+              "default": "",
+              "type": "string"
+            },
+            "kind": {
+              "const": "array",
+              "type": "string"
+            },
+            "names": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "shape": {
+              "default": [],
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
+            "space": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "table": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "encoding": {
+              "default": "",
+              "type": "string"
+            },
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "lines": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "json",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "PCM stored as (frames, channels).",
+          "properties": {
+            "channels": {
+              "default": 0,
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "dtype": {
+              "default": "",
+              "type": "string"
+            },
+            "frames": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "audio",
+              "type": "string"
+            },
+            "sample_rate": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "SVG and similar.",
+          "properties": {
+            "height": {
+              "default": 0.0,
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "vector",
+              "type": "string"
+            },
+            "width": {
+              "default": 0.0,
+              "format": "double",
+              "type": "number"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An encoded source picture.",
+          "properties": {
+            "height": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "image",
+              "type": "string"
+            },
+            "width": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "faces": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "mesh",
+              "type": "string"
+            },
+            "vertices": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An application document (an artcraft file).",
+          "properties": {
+            "app": {
+              "default": "",
+              "type": "string"
+            },
+            "kind": {
+              "const": "doc",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Named typed columns (media `table`), stored as JSON `{\"columns\": [{name, type, values}]}`.",
+          "properties": {
+            "columns": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/Column"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "table",
+              "type": "string"
+            },
+            "rows": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "bytes",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "GraphRef": {
+      "description": "The graph a run executes: the workflow JSON inline, or a handle from `graph.put`.",
+      "oneOf": [
+        {
+          "properties": {
+            "graph": true,
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "graph"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "handle": {
+              "$ref": "#/$defs/Handle"
+            },
+            "kind": {
+              "const": "handle",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "handle"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Handle": {
+      "description": "algo:recipe:digest (spec 4.1)",
+      "pattern": "^(md5:(nd1|raw):[0-9a-f]{32}|b3:(nd1|raw):[0-9a-f]{64})$",
+      "type": "string"
+    },
+    "Hello": {
+      "description": "UI → engine: open (or resume) a session.",
+      "properties": {
+        "caps": {
+          "$ref": "#/$defs/Caps",
+          "default": []
+        },
+        "client": {
+          "$ref": "#/$defs/ClientInfo",
+          "default": {
+            "base": "",
+            "name": "",
+            "version": ""
+          }
+        },
+        "host": {
+          "$ref": "#/$defs/HostInfo",
+          "default": {
+            "boot": "",
+            "id": "",
+            "stores": []
+          }
+        },
+        "op": {
+          "default": "hello",
+          "type": "string"
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Proof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "protocol": {
+          "$ref": "#/$defs/ProtocolRange",
+          "default": {
+            "max": 2,
+            "min": 2
+          }
+        },
+        "session": {
+          "default": null,
+          "description": "The session to resume, and the last envelope `seq` the client applied.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "since": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "token": {
+          "default": null,
+          "description": "Required on sockets and non-loopback HTTP. Never logged ([`Hello::redacted`]).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "v": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "HelloReply": {
+      "description": "Engine → UI: the reply to [`Hello`].",
+      "properties": {
+        "caps": {
+          "$ref": "#/$defs/Caps",
+          "default": []
+        },
+        "data": {
+          "$ref": "#/$defs/DataInfo",
+          "default": {
+            "algos": [],
+            "stores": []
+          }
+        },
+        "engine": {
+          "$ref": "#/$defs/EngineInfo",
+          "default": {
+            "components": {},
+            "id": "",
+            "name": "",
+            "salt": "",
+            "schema_digest": "",
+            "version": ""
+          }
+        },
+        "limits": {
+          "$ref": "#/$defs/Limits",
+          "default": {
+            "idle_cancel_s": 30,
+            "inactivity_s": 30,
+            "max_blob": 4294967296,
+            "max_display_inline": 65536,
+            "max_frame": 16777216,
+            "max_inline": 65536,
+            "max_runs": 1,
+            "max_status_inline": 4096,
+            "ring_events": 4096,
+            "ring_seconds": 60,
+            "run_ttl_s": 600,
+            "snapshot_runs": 16
+          }
+        },
+        "proof": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Proof"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "protocol": {
+          "default": 2,
+          "description": "The major both chose.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replay": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Replay"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "session": {
+          "default": "",
+          "type": "string"
+        },
+        "v": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Histogram": {
+      "properties": {
+        "bins": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "counts": {
+          "default": [],
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "hi": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "lo": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "HostInfo": {
+      "description": "The client's host, for the same-host proof and store roots.",
+      "properties": {
+        "boot": {
+          "default": "",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "stores": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Limits": {
+      "description": "Session limits (spec 5.2). Absent fields take these defaults.",
+      "properties": {
+        "idle_cancel_s": {
+          "default": 30,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "inactivity_s": {
+          "default": 30,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_blob": {
+          "default": 4294967296,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_display_inline": {
+          "default": 65536,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_frame": {
+          "default": 16777216,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_inline": {
+          "default": 65536,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_runs": {
+          "default": 1,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "max_status_inline": {
+          "default": 4096,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ring_events": {
+          "default": 4096,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ring_seconds": {
+          "default": 60,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_ttl_s": {
+          "default": 600,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "snapshot_runs": {
+          "default": 16,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "LiveMark": {
+      "description": "Whether a display is a provisional value from a node still running (spec 10.6).",
+      "properties": {
+        "provisional": {
+          "default": false,
+          "type": "boolean"
+        },
+        "seq": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "LiveUpdate": {
+      "description": "Live data in flight for a watched value (spec 10.6).",
+      "oneOf": [
+        {
+          "description": "A whole provisional value; the newest per (node, port) wins.",
+          "properties": {
+            "display": {
+              "$ref": "#/$defs/Display"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "port": {
+              "type": "string"
+            },
+            "provisional": {
+              "default": false,
+              "type": "boolean"
+            },
+            "seq": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "stream": {
+              "const": "snapshot",
+              "type": "string"
+            }
+          },
+          "required": [
+            "stream",
+            "node_id",
+            "port",
+            "display"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A growing value with a contiguous `offset`; a gap makes the viewer fetch `run.get`\npartials.",
+          "properties": {
+            "frames": {
+              "description": "Audio frames in the chunk.",
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "inline": {
+              "description": "Text appended inline.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "offset": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "port": {
+              "type": "string"
+            },
+            "ref": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DataRef"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A chunk too large to inline."
+            },
+            "seq": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "stream": {
+              "const": "append",
+              "type": "string"
+            }
+          },
+          "required": [
+            "stream",
+            "node_id",
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A node-scoped message: status tooltip and run log, never the value.",
+          "properties": {
+            "level": {
+              "default": "",
+              "type": "string"
+            },
+            "node_id": {
+              "type": "string"
+            },
+            "port": {
+              "default": null,
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "stream": {
+              "const": "log",
+              "type": "string"
+            },
+            "text": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "stream",
+            "node_id"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Locator": {
+      "description": "One way to reach a blob's bytes. Readers take the first they can use, cheapest first:\n`mem`, `commonkit`, `path`, their own CAS by handle, `url`, then a derivative request.\n`commonkit` and `path` are honoured only after the same-host proof, under declared roots\n(spec 4.4, 5.4).",
+      "oneOf": [
+        {
+          "description": "A commonkit key, resolved under the reader's own store root.",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "commonkit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A file on the same host; `offset` into the payload of a wrapping `.npy`.",
+          "properties": {
+            "kind": {
+              "const": "path",
+              "type": "string"
+            },
+            "offset": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "In-process binding only: a slot in the host's byte table.",
+          "properties": {
+            "kind": {
+              "const": "mem",
+              "type": "string"
+            },
+            "slot": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "slot"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "expires": {
+              "description": "Seconds since the epoch.",
+              "format": "double",
+              "type": [
+                "number",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "url",
+              "type": "string"
+            },
+            "url": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "url"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Base64 bytes, at most the session's inline limit.",
+          "properties": {
+            "b64": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "b64"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LogRecord": {
+      "description": "A `log` event.",
+      "properties": {
+        "level": {
+          "default": "",
+          "type": "string"
+        },
+        "logger": {
+          "default": "",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "node_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "op_id": {
+          "description": "The request this log belongs to (a long `x.vi.deliver`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Media": {
+      "description": "Media kinds (spec 10.1): how a value is shown. A closed set; unknown reads as `bytes`.",
+      "oneOf": [
+        {
+          "enum": [
+            "image",
+            "ndarray",
+            "table",
+            "scalar",
+            "text",
+            "audio",
+            "vector",
+            "mesh",
+            "tree",
+            "composite",
+            "sequence",
+            "doc"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "bytes",
+          "description": "Opaque: the hex viewer plus any rgba8 rendition. Also what an unknown kind reads as.",
+          "type": "string"
+        }
+      ]
+    },
+    "MemoInfo": {
+      "description": "A node's memo identity in this run (spec 14).",
+      "properties": {
+        "computed_ms": {
+          "description": "What computing this result took, when it was computed or a record says.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "content_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "plan_key": {
+          "default": "",
+          "type": "string"
+        },
+        "source": {
+          "description": "Where a cached result came from: `memory`, `store` or `content` (found by its inputs'\nbytes, not how they were made). Absent when the node ran.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "MemoMode": {
+      "description": "How a run uses the memo. The exactness and conformance gates send `off` with a fresh store.",
+      "oneOf": [
+        {
+          "enum": [
+            "off"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "refresh",
+          "description": "Recompute the targets, keep upstream results.",
+          "type": "string"
+        },
+        {
+          "const": "use",
+          "description": "The default; also what an unknown mode reads as.",
+          "type": "string"
+        }
+      ]
+    },
+    "MemoScope": {
+      "description": "Where a node's results may be reused (spec 14.4).",
+      "oneOf": [
+        {
+          "enum": [
+            "none",
+            "session",
+            "global"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "machine",
+          "description": "The default; also what an unknown scope reads as.",
+          "type": "string"
+        }
+      ]
+    },
+    "MemoSpec": {
+      "properties": {
+        "content": {
+          "default": false,
+          "description": "Ask for a content key as well as a plan key.",
+          "type": "boolean"
+        },
+        "device_sensitive": {
+          "default": false,
+          "type": "boolean"
+        },
+        "persist": {
+          "default": false,
+          "description": "Eligible for persistence across restarts.",
+          "type": "boolean"
+        },
+        "scope": {
+          "$ref": "#/$defs/MemoScope",
+          "default": "machine"
+        }
+      },
+      "type": "object"
+    },
+    "NodeDef": {
+      "description": "One node type. Rust never hard-codes one.",
+      "properties": {
+        "category": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "type": "string"
+        },
+        "display": {
+          "default": "",
+          "type": "string"
+        },
+        "editor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Editor"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "engines": {
+          "description": "In a catalogue merged from several (a coordinator's, spec 7.3): the engines that offer\nthis kind, the one that runs it unless the workflow says otherwise first. Absent from a\nsingle engine's catalogue.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "export": {
+          "$ref": "#/$defs/Export",
+          "default": {
+            "markable": false
+          }
+        },
+        "family": {
+          "default": "",
+          "type": "string"
+        },
+        "flags": {
+          "$ref": "#/$defs/NodeFlags",
+          "default": {
+            "input_list": false,
+            "keep": null,
+            "output_node": false,
+            "per_channel": false,
+            "vary_choices": false
+          }
+        },
+        "icon": {
+          "default": "",
+          "description": "A Lucide icon name.",
+          "type": "string"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "inputs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "type": "array"
+        },
+        "memo": {
+          "$ref": "#/$defs/MemoSpec",
+          "default": {
+            "content": false,
+            "device_sensitive": false,
+            "persist": false,
+            "scope": "machine"
+          }
+        },
+        "outputs": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "type": "array"
+        },
+        "resource": {
+          "default": "",
+          "description": "`cpu`, `gpu`, `mlx`, …",
+          "type": "string"
+        },
+        "version": {
+          "default": 1,
+          "description": "Part of the memo key; absent → 1.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "x": {
+          "additionalProperties": true,
+          "description": "Pack fields (`x.vi.code`, …), passed through.",
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "NodeError": {
+      "description": "A node's or a run's error, as data. `kind` is one of [`NodeError::KINDS`]; an unknown kind is\nkept as text and shown as an operation error.",
+      "properties": {
+        "kind": {
+          "default": "",
+          "type": "string"
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        },
+        "type": {
+          "description": "The exception type, when there was one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NodeFlags": {
+      "description": "Behaviour flags of a node.",
+      "properties": {
+        "bundle_port": {
+          "description": "The input that takes the parameter bundle (protocol 1: `settings`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "input_list": {
+          "default": false,
+          "type": "boolean"
+        },
+        "keep": {
+          "default": null,
+          "description": "`true`, `false` or `\"unit\"`: whether results keep colour-space tags."
+        },
+        "output_node": {
+          "default": false,
+          "type": "boolean"
+        },
+        "per_channel": {
+          "default": false,
+          "type": "boolean"
+        },
+        "recipe": {
+          "description": "The input whose recipes this node gets as its `recipe` value.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "result": {
+          "description": "A result node: its output is the graph's result (protocol 1: `vi.op.result`).",
+          "type": "boolean"
+        },
+        "vary_choices": {
+          "default": false,
+          "description": "Its `values` text is seeded with the choices of the ENUM input it is wired into.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "NodeReport": {
+      "description": "One node's result.",
+      "properties": {
+        "editor": {
+          "additionalProperties": true,
+          "description": "Editor payloads by editor kind (`curves`, `mask`); opaque to core.",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "memo": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MemoInfo"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PortValue"
+          },
+          "description": "Targets only.",
+          "type": "object"
+        },
+        "provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "description": "Where each input's value came from: wire | bundle | widget | default.",
+          "type": "object"
+        },
+        "state": {
+          "$ref": "#/$defs/NodeState",
+          "default": "unknown"
+        },
+        "text": {
+          "default": null,
+          "description": "Text the node shows (a summary, a warning about an unused override).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "thumb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rendition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "worker": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "NodeSnapshot": {
+      "description": "A node as `run.get` sees it now.",
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fraction": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ms": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "stage": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/NodeState",
+          "default": "unknown"
+        },
+        "thumb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rendition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "NodeState": {
+      "description": "A node's state (spec 9.4). Every UI accepts all nine; an unknown state is\n[`NodeState::Unknown`] and its record is ignored.",
+      "oneOf": [
+        {
+          "enum": [
+            "queued",
+            "started",
+            "progress",
+            "done",
+            "cached",
+            "error",
+            "skipped",
+            "cancelled",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "preview",
+          "description": "Adds thumb, outputs and displays; never changes a terminal state.",
+          "type": "string"
+        }
+      ]
+    },
+    "ParamRef": {
+      "description": "The bundle parameter a port is tied to (protocol 1's impressionist `setting{section, name}`).",
+      "properties": {
+        "group": {
+          "default": "",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Partial": {
+      "description": "An appending value's bytes so far.",
+      "properties": {
+        "offset": {
+          "default": 0,
+          "description": "The next append's offset.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "partial": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "PathFilter": {
+      "properties": {
+        "extensions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PathHint": {
+      "description": "What a path input names, for its file dialog: `open`, `save` or `folder`.",
+      "properties": {
+        "filters": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/PathFilter"
+          },
+          "type": "array"
+        },
+        "mode": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PeekReply": {
+      "description": "`{display}` now, `{pending}` (it arrives on a `preview` record), or `{missing}`.",
+      "properties": {
+        "display": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Display"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "missing": {
+          "type": "boolean"
+        },
+        "pending": {
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "PeekRequest": {
+      "description": "`run.peek`: open any (node, port, index) of a run without a new run.",
+      "properties": {
+        "run_id": {
+          "default": "",
+          "type": "string"
+        },
+        "watch": {
+          "$ref": "#/$defs/WatchRequest",
+          "default": {
+            "index": 0,
+            "node": "",
+            "port": "",
+            "px": 1024,
+            "view": {
+              "id": "auto",
+              "params": {}
+            }
+          }
+        }
+      },
+      "type": "object"
+    },
+    "Phase": {
+      "description": "Where a run is.",
+      "enum": [
+        "accepted",
+        "running",
+        "finished",
+        "cancelled",
+        "failed"
+      ],
+      "type": "string"
+    },
+    "PlanNode": {
+      "properties": {
+        "cached": {
+          "default": false,
+          "type": "boolean"
+        },
+        "plan_key": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "PlanReply": {
+      "description": "`run.plan`: order, plan keys and cached states without running.",
+      "properties": {
+        "missing_sources": {
+          "items": {
+            "$ref": "#/$defs/Handle"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PlanNode"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "order": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "Port": {
+      "description": "One input or output of a node. Every protocol 1 field keeps its meaning.",
+      "properties": {
+        "active_when": {
+          "additionalProperties": {
+            "items": true,
+            "type": "array"
+          },
+          "description": "Read only under these parameters' values.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "advanced": {
+          "default": false,
+          "type": "boolean"
+        },
+        "choices": {
+          "default": null,
+          "items": true,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "decimals": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "default": {
+          "default": null
+        },
+        "disabled_choices": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Choices that can't run on this machine → why.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "external": {
+          "default": false,
+          "description": "A group shows this port on its surface, wired or not.",
+          "type": "boolean"
+        },
+        "fills": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "description": "A choice that fills other ports: `{choice: {port: value}}`. The filled ports stay editable.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "label": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "list": {
+          "default": false,
+          "type": "boolean"
+        },
+        "max": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "optional": {
+          "default": false,
+          "type": "boolean"
+        },
+        "options": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/Port"
+            },
+            "type": "array"
+          },
+          "default": null,
+          "description": "Sub-ports a choice brings: `{choice: [Port…]}`.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "param_ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ParamRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "path": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PathHint"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "shows": {
+          "additionalProperties": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "description": "With `fills`: the ports each choice uses, which the node shows.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "socket": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Socket"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`None`: the type's default ([`Socket::Both`] for scalars, [`Socket::Socket`] otherwise)."
+        },
+        "soft_max": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "soft_min": {
+          "description": "The span a slider covers when narrower than `min..max`, or when a bound is open.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "step": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "tooltip": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "default": "",
+          "type": "string"
+        },
+        "variadic": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Variadic"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "widget": {
+          "description": "How to show the value when its type alone doesn't say. Unknown hints are ignored.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortValue": {
+      "description": "A port value in a reply, snapshot or event (spec 4.5).",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "blob",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "items": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/PortValue"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "list",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Numbers, bools, strings, settings, curves.",
+          "properties": {
+            "kind": {
+              "const": "json",
+              "type": "string"
+            },
+            "value": {
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A value the engine keeps to itself (a STYLE), with a line describing it.",
+          "properties": {
+            "held": {
+              "description": "The engine still has it (`values.held`, spec 7.6 rule 11): pass it back to that\nengine as an input of the same run.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "const": "opaque",
+              "type": "string"
+            },
+            "summary": {
+              "default": "",
+              "type": "string"
+            },
+            "type": {
+              "default": "",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "PreviewSizes": {
+      "description": "Thumbnail and viewer sizes (long side, pixels).",
+      "properties": {
+        "inspect_px": {
+          "default": 1024,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "node_px": {
+          "default": 160,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Proof": {
+      "description": "One direction of the same-host proof (spec 5.4): a nonce file the other side reads.",
+      "properties": {
+        "client_proof_read": {
+          "description": "In the engine's reply: it read the client's nonce file and it matched.",
+          "type": "boolean"
+        },
+        "nonce": {
+          "default": "",
+          "type": "string"
+        },
+        "path": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ProtoError": {
+      "description": "A request that failed as a request: `{code, message, data?}`.",
+      "properties": {
+        "code": {
+          "$ref": "#/$defs/ErrorCode"
+        },
+        "data": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ErrorData"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "message": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ],
+      "type": "object"
+    },
+    "ProtocolRange": {
+      "description": "A range of protocol majors one side speaks.",
+      "properties": {
+        "max": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Rendition": {
+      "description": "An engine-made derivative the UI draws without understanding the value (spec 10.3).",
+      "oneOf": [
+        {
+          "description": "(h, w, 4) `u1`.",
+          "properties": {
+            "caption": {
+              "type": "string"
+            },
+            "h": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "items": {
+              "description": "List length when the value is a list (0: a single value).",
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "rgba8",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            },
+            "role": {
+              "type": "string"
+            },
+            "summary": {
+              "description": "A one-line description of the value (\"array HSI 64×80 float32\").",
+              "type": "string"
+            },
+            "w": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "(levels, channels, bins, 2) min/max.",
+          "properties": {
+            "bins": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "channels": {
+              "default": 0,
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "peaks",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "(frames, bins) f32 dB.",
+          "properties": {
+            "fft": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "hop": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "spectrogram",
+              "type": "string"
+            },
+            "rate": {
+              "default": 0,
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Up to 4 KiB of text and where it sits.",
+          "properties": {
+            "kind": {
+              "const": "excerpt",
+              "type": "string"
+            },
+            "lines": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "offset": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "text": {
+              "default": "",
+              "type": "string"
+            },
+            "total_chars": {
+              "default": 0,
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "svg",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "mesh_lod",
+              "type": "string"
+            },
+            "ref": {
+              "$ref": "#/$defs/DataRef"
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Small inline series.",
+          "properties": {
+            "kind": {
+              "const": "plot",
+              "type": "string"
+            },
+            "series": {
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Inline JSON, depth ≤ 32.",
+          "properties": {
+            "kind": {
+              "const": "tree",
+              "type": "string"
+            },
+            "value": {
+              "default": null
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Replay": {
+      "description": "Whether a resumed session's missed events were replayed.",
+      "oneOf": [
+        {
+          "enum": [
+            "ok"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "gap",
+          "description": "The ring no longer covers `since`: the engine emits `resync`; the client calls `run.get`.",
+          "type": "string"
+        }
+      ]
+    },
+    "Resync": {
+      "description": "The client must call `run.get`: events were lost or the ring no longer covers it.",
+      "properties": {
+        "reason": {
+          "default": "",
+          "type": "string"
+        },
+        "run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "RunAck": {
+      "description": "The immediate answer to `run`; the result arrives as a `run.reply` event.",
+      "properties": {
+        "accepted": {
+          "default": false,
+          "type": "boolean"
+        },
+        "queued_behind": {
+          "default": 0,
+          "description": "Runs ahead of this one.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RunReply": {
+      "description": "`run.reply`: authoritative. The reducer fills every node without a record from it.",
+      "properties": {
+        "elapsed_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "engine_stats": {
+          "additionalProperties": {
+            "$ref": "#/$defs/RunStats"
+          },
+          "description": "A coordinator's run: each engine's share.",
+          "type": "object"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A run-level failure: `graph`, `engine` or `cancelled`."
+        },
+        "generation": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeReport"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "ok": {
+          "default": false,
+          "description": "Every node `done` or `cached`.",
+          "type": "boolean"
+        },
+        "order": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "run_id": {
+          "default": "",
+          "type": "string"
+        },
+        "stats": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunStats"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the run's caches did (spec 14.6): the whole run's, across its engines."
+        },
+        "v": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watch": {
+          "default": [],
+          "description": "In request order; an entry with only `error` set says why there is no display.",
+          "items": {
+            "$ref": "#/$defs/Display"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RunRequest": {
+      "description": "`{\"v\": 2, \"op\": \"run\", …}`.",
+      "properties": {
+        "detach": {
+          "description": "Survive the session going idle, for `run_ttl_s`.",
+          "type": "boolean"
+        },
+        "generation": {
+          "default": 0,
+          "description": "Monotonic per session; records and replies of older generations are ignored.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "graph": {
+          "$ref": "#/$defs/GraphRef",
+          "default": {
+            "graph": null,
+            "kind": "inline"
+          }
+        },
+        "hold": {
+          "description": "`node.port`s whose value the engine keeps for this run if it can't send it (spec 7.6 rule 11).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PortValue"
+          },
+          "description": "`{\"node.port\": value}`: external bindings that override a port's wire or widget.\nJoins graphs across engines (decision D14) and lets a client feed a node a value; spec 7.6 rule 10.",
+          "type": "object"
+        },
+        "memo": {
+          "$ref": "#/$defs/MemoMode",
+          "default": "use"
+        },
+        "op": {
+          "default": "run",
+          "type": "string"
+        },
+        "preview": {
+          "$ref": "#/$defs/PreviewSizes",
+          "default": {
+            "inspect_px": 1024,
+            "node_px": 160
+          }
+        },
+        "priority": {
+          "default": 9,
+          "description": "0–9: runs 9, saves and ops 5.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run_id": {
+          "default": "",
+          "type": "string"
+        },
+        "scope": {
+          "description": "The life of the graph this run belongs to, from its opening to the next: what the engine\nkeeps for it (scratch files) goes on `graph.release`. Empty: unscoped (spec 5.3).",
+          "type": "string"
+        },
+        "targets": {
+          "default": [],
+          "description": "Empty: the graph's sinks. Watched nodes are added by the engine.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "trusted_roots": {
+          "description": "Folders besides its store where this run's `path` locators may be read (spec 7.6 rule 10).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "v": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watch": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/WatchRequest"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RunSnapshot": {
+      "description": "`run.get`: the resync path, mandatory on every engine (spec 8.5).",
+      "properties": {
+        "generation": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "last_seq": {
+          "default": 0,
+          "description": "The last envelope `seq` this snapshot includes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nodes": {
+          "additionalProperties": {
+            "$ref": "#/$defs/NodeSnapshot"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "partials": {
+          "additionalProperties": {
+            "$ref": "#/$defs/Partial"
+          },
+          "description": "`\"node.port\"` → bytes so far.",
+          "type": "object"
+        },
+        "phase": {
+          "$ref": "#/$defs/Phase",
+          "default": "accepted"
+        },
+        "reply": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunReply"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Once finished."
+        },
+        "run_id": {
+          "default": "",
+          "type": "string"
+        },
+        "v": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "watch": {
+          "default": [],
+          "description": "One per watch entry; `None` until it exists.",
+          "items": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/Display"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "RunStats": {
+      "description": "What a run's caches did (capability `run.stats`, spec 14.6).",
+      "properties": {
+        "computed": {
+          "default": 0,
+          "description": "Nodes that ran.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "computed_ms": {
+          "default": 0.0,
+          "description": "What the nodes that ran took, and what the hits would have taken.",
+          "format": "double",
+          "type": "number"
+        },
+        "evicted": {
+          "default": 0,
+          "description": "Entries the in-memory memo dropped.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from_content": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from_memory": {
+          "default": 0,
+          "description": "Nodes answered by the in-memory memo, by a persisted record, and by a content key.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "from_store": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "kept": {
+          "default": 0,
+          "description": "Records written, so a later run or process can skip the node.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "saved_ms": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "store": {
+          "additionalProperties": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "description": "The store's own counters over the run, by contract name (`shm_hit`, `shm_declined_space`).",
+          "type": "object"
+        },
+        "store_missed": {
+          "default": 0,
+          "description": "Persistable nodes with no usable record.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tree": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TreeUsage"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tree, when its usage is known."
+        }
+      },
+      "type": "object"
+    },
+    "SaveFormat": {
+      "description": "A save format for `output.save`.",
+      "properties": {
+        "extensions": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "type": "string"
+        },
+        "media": {
+          "description": "The kinds of value it writes. Empty: any.",
+          "items": {
+            "$ref": "#/$defs/Media"
+          },
+          "type": "array"
+        },
+        "options": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Port"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "SaveReply": {
+      "properties": {
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "files": {
+          "items": {
+            "$ref": "#/$defs/SavedFile"
+          },
+          "type": "array"
+        },
+        "items": {
+          "default": 0,
+          "description": "A contact sheet's item count.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "labels": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "ok": {
+          "default": false,
+          "type": "boolean"
+        },
+        "paths": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "recipe": {
+          "default": false,
+          "description": "Every file carries its recipe.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "SaveRequest": {
+      "description": "`output.save`: write (or return) a node's output.",
+      "properties": {
+        "format": {
+          "default": "",
+          "type": "string"
+        },
+        "graph": {
+          "$ref": "#/$defs/GraphRef",
+          "default": {
+            "graph": null,
+            "kind": "inline"
+          }
+        },
+        "index": {
+          "default": null,
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "inputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PortValue"
+          },
+          "description": "What crosses into this engine's share of a larger graph, as `RunRequest.inputs`.",
+          "type": "object"
+        },
+        "node": {
+          "default": "",
+          "type": "string"
+        },
+        "op": {
+          "default": "output.save",
+          "type": "string"
+        },
+        "options": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        },
+        "path": {
+          "default": null,
+          "description": "Omitted when `data.path` is off: the files come back as blobs.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "port": {
+          "default": "",
+          "type": "string"
+        },
+        "recipe_graph": {
+          "description": "The whole graph that share came from: what a saved recipe holds, so it remakes the file."
+        },
+        "sheet": {
+          "type": "boolean"
+        },
+        "trusted_roots": {
+          "description": "As `RunRequest.trusted_roots`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "v": {
+          "default": 2,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "SavedFile": {
+      "properties": {
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "ref": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "SchemaReply": {
+      "description": "The reply to `schema`.",
+      "properties": {
+        "compat": {
+          "description": "Extra conversions; `None` means [`Compat::defaults`].",
+          "items": {
+            "$ref": "#/$defs/Compat"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "engine": {
+          "$ref": "#/$defs/EngineInfo",
+          "default": {
+            "components": {},
+            "id": "",
+            "name": "",
+            "salt": "",
+            "schema_digest": "",
+            "version": ""
+          }
+        },
+        "expansions": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Command node id → the graph it unrolls into. Opaque.",
+          "type": "object"
+        },
+        "families": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Family"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/NodeDef"
+          },
+          "type": "array"
+        },
+        "save_formats": {
+          "items": {
+            "$ref": "#/$defs/SaveFormat"
+          },
+          "type": "array"
+        },
+        "templates": {
+          "additionalProperties": true,
+          "default": {},
+          "description": "Name → a graph the UI opens (protocol 1 `style_graphs`).",
+          "type": "object"
+        },
+        "texts": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "v": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "wire_types": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/WireType"
+          },
+          "type": "array"
+        },
+        "x": {
+          "additionalProperties": true,
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "SessionConfirm": {
+      "description": "UI → engine after `hello`: the same-host verdicts (spec 5.4).",
+      "properties": {
+        "path": {
+          "default": false,
+          "description": "The engine read the UI's nonce: the engine may read paths the UI names.",
+          "type": "boolean"
+        },
+        "shm": {
+          "default": false,
+          "description": "The UI read the engine's nonce: engine `commonkit`/`path` locators are usable.",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "SheetCell": {
+      "description": "One item of a list as the sheet shows it.",
+      "properties": {
+        "label": {
+          "default": "",
+          "description": "What made it differ from the others (\"dim 150 · resample bilinear\").",
+          "type": "string"
+        },
+        "summary": {
+          "default": "",
+          "type": "string"
+        },
+        "thumb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rendition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "Socket": {
+      "description": "How a port appears on a node.",
+      "oneOf": [
+        {
+          "const": "widget",
+          "description": "A plain widget; cannot be wired.",
+          "type": "string"
+        },
+        {
+          "const": "socket",
+          "description": "Wire only; no widget.",
+          "type": "string"
+        },
+        {
+          "const": "both",
+          "description": "A widget that becomes a socket when wired.",
+          "type": "string"
+        }
+      ]
+    },
+    "Stats": {
+      "properties": {
+        "blob": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DataRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Stats too large to carry inline, as a JSON blob (spec 10.2)."
+        },
+        "channels": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/ChannelStats"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "StatusRecord": {
+      "description": "A `node.status` body (spec 9.3).",
+      "properties": {
+        "display": {
+          "description": "`preview` of a watched node with `display.stream` on: one per watch entry for it.",
+          "items": {
+            "$ref": "#/$defs/Display"
+          },
+          "type": "array"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NodeError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "fraction": {
+          "default": null,
+          "description": "`progress`: 0..1.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "ms": {
+          "default": null,
+          "description": "MUST on `done`; also `cached` and `error`.",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "node_id": {
+          "default": "",
+          "type": "string"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/$defs/PortValue"
+          },
+          "description": "`preview`, targets only.",
+          "type": "object"
+        },
+        "publisher": {
+          "default": "",
+          "description": "A stable id of the emitting process instance.",
+          "type": "string"
+        },
+        "seq": {
+          "default": 0,
+          "description": "The record's own counter, per publisher and run (protocol 1's `seq`). With `publisher`,\nit orders a node's records and drops redeliveries.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stage": {
+          "default": null,
+          "description": "`progress`: short text under the bar.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "state": {
+          "$ref": "#/$defs/NodeState",
+          "default": "unknown"
+        },
+        "thumb": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Rendition"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "`preview`: rgba8 at ≤ `node_px`."
+        },
+        "ts": {
+          "default": 0.0,
+          "format": "double",
+          "type": "number"
+        },
+        "worker": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "TreeUsage": {
+      "description": "The store tree as a run left it. Its size comes from the reaper's last walk and can be\nunknown; the disk's free space is always read, and is what the store refuses writes by.",
+      "properties": {
+        "bytes": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "files": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "free_bytes": {
+          "description": "Free space on the store's disk, and the floor under which the store refuses writes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "max_bytes": {
+          "default": 0,
+          "description": "The tree's budget.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min_free_bytes": {
+          "default": 0,
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "Variadic": {
+      "description": "A growable input (`c1`, `c2`, …).",
+      "properties": {
+        "max": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "min": {
+          "default": 0,
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "names": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "template": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "View": {
+      "description": "A view of a value: an id the wire type lists, and its parameters.",
+      "properties": {
+        "id": {
+          "default": "auto",
+          "type": "string"
+        },
+        "params": {
+          "additionalProperties": true,
+          "default": {},
+          "type": "object"
+        }
+      },
+      "type": "object"
+    },
+    "Want": {
+      "additionalProperties": true,
+      "description": "A derivative the viewer wants: `{\"kind\": \"rgba8\"}`, `{\"kind\": \"peaks\", \"px\": 1600}`,\n`{\"kind\": \"full\"}`. Parameters are kind-specific and kept as JSON.",
+      "properties": {
+        "kind": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "WatchRequest": {
+      "description": "One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).",
+      "properties": {
+        "index": {
+          "default": 0,
+          "format": "int64",
+          "type": "integer"
+        },
+        "node": {
+          "default": "",
+          "type": "string"
+        },
+        "port": {
+          "default": "",
+          "type": "string"
+        },
+        "px": {
+          "default": 1024,
+          "description": "The long side of view renditions.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "sheet": {
+          "description": "Every item of a list, small and labelled.",
+          "type": "boolean"
+        },
+        "view": {
+          "$ref": "#/$defs/View",
+          "default": {
+            "id": "auto",
+            "params": {}
+          }
+        },
+        "want": {
+          "description": "Empty: the media kind's defaults.",
+          "items": {
+            "$ref": "#/$defs/Want"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "WireType": {
+      "description": "A wire type: its colour and how its values are shown.",
+      "properties": {
+        "bundle": {
+          "description": "The parameter-bundle type (today `SETTINGS`).",
+          "type": "boolean"
+        },
+        "color": {
+          "default": null,
+          "description": "`#rrggbb`, when the engine suggests one.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_view": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "For `composite`: field → wire type.",
+          "type": "object"
+        },
+        "id": {
+          "default": "",
+          "type": "string"
+        },
+        "media": {
+          "$ref": "#/$defs/Media",
+          "default": "bytes"
+        },
+        "thumb": {
+          "description": "Whether node thumbnails are drawn for it.",
+          "type": "boolean"
+        },
+        "view_params": {
+          "additionalProperties": {
+            "items": {
+              "$ref": "#/$defs/Port"
+            },
+            "type": "array"
+          },
+          "description": "Parameters per view: `{\"angle\": [Port…]}`.",
+          "type": "object"
+        },
+        "views": {
+          "description": "The views the viewer offers, exactly (replaces a hard-coded list).",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/seantrue/plumcraft/schema/protocol2.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The UI <-> engine interface (docs/interface.md). An envelope's body is one of: EngineState (engine.state), StatusRecord (node.status), LiveUpdate (node.live), RunReply (run.reply), LogRecord (log), Resync (resync), {schema_digest} (schema.changed).",
+  "messages": {
+    "DataRef": {
+      "$ref": "#/$defs/DataRef"
+    },
+    "Display": {
+      "$ref": "#/$defs/Display"
+    },
+    "EngineState": {
+      "$ref": "#/$defs/EngineState"
+    },
+    "Envelope": {
+      "$ref": "#/$defs/Envelope"
+    },
+    "Hello": {
+      "$ref": "#/$defs/Hello"
+    },
+    "HelloReply": {
+      "$ref": "#/$defs/HelloReply"
+    },
+    "LiveUpdate": {
+      "$ref": "#/$defs/LiveUpdate"
+    },
+    "LogRecord": {
+      "$ref": "#/$defs/LogRecord"
+    },
+    "PeekReply": {
+      "$ref": "#/$defs/PeekReply"
+    },
+    "PeekRequest": {
+      "$ref": "#/$defs/PeekRequest"
+    },
+    "PlanReply": {
+      "$ref": "#/$defs/PlanReply"
+    },
+    "PortValue": {
+      "$ref": "#/$defs/PortValue"
+    },
+    "ProtoError": {
+      "$ref": "#/$defs/ProtoError"
+    },
+    "Resync": {
+      "$ref": "#/$defs/Resync"
+    },
+    "RunAck": {
+      "$ref": "#/$defs/RunAck"
+    },
+    "RunReply": {
+      "$ref": "#/$defs/RunReply"
+    },
+    "RunRequest": {
+      "$ref": "#/$defs/RunRequest"
+    },
+    "RunSnapshot": {
+      "$ref": "#/$defs/RunSnapshot"
+    },
+    "SaveReply": {
+      "$ref": "#/$defs/SaveReply"
+    },
+    "SaveRequest": {
+      "$ref": "#/$defs/SaveRequest"
+    },
+    "SchemaReply": {
+      "$ref": "#/$defs/SchemaReply"
+    },
+    "SessionConfirm": {
+      "$ref": "#/$defs/SessionConfirm"
+    },
+    "StatusRecord": {
+      "$ref": "#/$defs/StatusRecord"
+    },
+    "WatchRequest": {
+      "$ref": "#/$defs/WatchRequest"
+    }
+  },
+  "title": "PlumCraft protocol 2"
+}

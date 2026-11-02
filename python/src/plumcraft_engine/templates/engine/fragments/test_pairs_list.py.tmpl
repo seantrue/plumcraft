@@ -1,0 +1,5 @@
+
+
+@pytest.mark.parametrize("text", ["a corgi naps", "one"])
+def test_split_and_join(text):
+    assert JoinList().run({"items": Split().run({"text": text, "separator": " "}, None)["items"], "separator": " "}, None) == {"text": text}

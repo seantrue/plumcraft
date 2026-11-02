@@ -1,0 +1,5 @@
+
+
+def test_image_to_array_and_back(engine):
+    picture = engine.array_to_image(engine.ramp(8, 8))
+    assert engine.array_to_image(engine.image_to_array(picture)).data == picture.data, "the same pixels, 8 bits a channel"

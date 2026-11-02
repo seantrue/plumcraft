@@ -1,0 +1,14 @@
+
+    @node("Image to Array")
+    def image_to_array(self, picture: Image) -> Array:
+        """A picture's pixels, H × W × 3, 0-1. The inverse of Array to Image."""
+        pixels = np.asarray(decoded(picture).convert("RGB"), dtype="f4") / 255
+        return ArrayValue(pixels, space="RGB", names=("red", "green", "blue"))
+
+    @node("Array to Image")
+    def array_to_image(self, array: Array) -> Image:
+        """A picture (H × W, or H × W × 3 or 4, 0-1) as a PNG, clipped and rounded to 8 bits. The inverse of Image to Array."""
+        data = np.asarray(array)
+        if data.ndim == 1 or data.ndim > 3 or (data.ndim == 3 and data.shape[2] not in (3, 4)):
+            raise ConfigError(f"a picture, not {'×'.join(str(n) for n in data.shape)}")
+        return image(png((np.nan_to_num(np.clip(data, 0, 1)) * 255 + 0.5).astype("u1")))

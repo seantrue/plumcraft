@@ -1,0 +1,7 @@
+
+
+def test_sort_rows(engine):
+    table = engine.sample_table(3)
+    assert engine.sort_rows(table, "count", True)["columns"][1]["values"] == [7.0, 3.0, 0.0]
+    with pytest.raises(ConfigError):
+        engine.sort_rows(table, "nothing", False)

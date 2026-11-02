@@ -1,0 +1,25 @@
+
+    @node("Table to CSV")
+    def table_to_csv(self, table: Table) -> Text:
+        """A table as CSV text, a header line first. The inverse of CSV to Table."""
+        columns = table["columns"]
+        out = io.StringIO()
+        writer = csv.writer(out, lineterminator="\n")
+        writer.writerow(c["name"] for c in columns)
+        writer.writerows(zip(*(c["values"] for c in columns), strict=True))
+        return out.getvalue()
+
+    @node("CSV to Table")
+    def csv_to_table(self, text: Text) -> Table:
+        """CSV text as a table: the first line names the columns, and a column of numbers is FLOAT. The inverse of Table to CSV."""
+        rows = list(csv.reader(io.StringIO(text)))
+        if not rows:
+            raise ConfigError("the CSV is empty")
+        columns = []
+        for i, name in enumerate(rows[0]):
+            values = [r[i] if i < len(r) else "" for r in rows[1:]]
+            try:
+                columns.append({"name": name, "type": "FLOAT", "values": [float(v) for v in values]})
+            except ValueError:
+                columns.append({"name": name, "type": "STRING", "values": values})
+        return {"columns": columns}

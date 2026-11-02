@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "nodes": {
+    "open":    {"kind": "vc.open",       "pos": [0, 0],     "values": {"file": ""}},
+    "trace":   {"kind": "vc.trace",      "pos": [440, 0],   "values": {"preset": "6 Colors"}},
+    "recolor": {"kind": "vc.recolor",    "pos": [880, 0],   "values": {"map": [{"from": ["rgb 81 74 61"], "to": "#ff0000"}]}},
+    "svg":     {"kind": "vc.export_svg", "pos": [1320, 0],  "values": {}},
+    "png":     {"kind": "vc.export_png", "pos": [880, 520], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "open", "port": "doc"}, "to": {"node": "trace", "port": "doc"}},
+    {"from": {"node": "trace", "port": "doc"}, "to": {"node": "recolor", "port": "doc"}},
+    {"from": {"node": "recolor", "port": "doc"}, "to": {"node": "svg", "port": "doc"}},
+    {"from": {"node": "trace", "port": "doc"}, "to": {"node": "png", "port": "doc"}}
+  ]
+}

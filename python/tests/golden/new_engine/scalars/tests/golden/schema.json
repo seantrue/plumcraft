@@ -1,0 +1,136 @@
+{
+  "nodes": [
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Add two numbers. Widgets that can also be wired, with a range the engine enforces.",
+      "display": "Add",
+      "family": "weather",
+      "id": "weather.add",
+      "inputs": [
+        {
+          "default": 1.0,
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "a",
+          "type": "FLOAT"
+        },
+        {
+          "default": 2.0,
+          "label": "Plus",
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "b",
+          "tooltip": "Added to a",
+          "type": "FLOAT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "A number as text. The inverse of Parse Number. `invalid=\"clamp\"` brings decimals into range.",
+      "display": "Format Number",
+      "family": "weather",
+      "id": "weather.format_number",
+      "inputs": [
+        {
+          "default": 1.5,
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "value",
+          "type": "FLOAT"
+        },
+        {
+          "default": 2,
+          "max": 12.0,
+          "min": 0.0,
+          "name": "decimals",
+          "type": "INT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "string",
+          "type": "STRING"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather"
+      ],
+      "description": "Text as a number. The inverse of Format Number. Text that isn't one is a config error: the user can fix it.",
+      "display": "Parse Number",
+      "family": "weather",
+      "id": "weather.parse_number",
+      "inputs": [
+        {
+          "default": "1.5",
+          "name": "string",
+          "type": "STRING"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Weather",
+        "Testing"
+      ],
+      "description": "Passes its input through after `seconds`, reporting progress and stopping on cancel. How a long node behaves.",
+      "display": "Slow",
+      "family": "weather",
+      "id": "weather.slow",
+      "inputs": [
+        {
+          "default": 1.0,
+          "max": 1000000000.0,
+          "min": -1000000000.0,
+          "name": "value",
+          "type": "FLOAT"
+        },
+        {
+          "default": 0.05,
+          "max": 600.0,
+          "min": 0.0,
+          "name": "seconds",
+          "type": "FLOAT"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "float",
+          "type": "FLOAT"
+        }
+      ]
+    }
+  ],
+  "wire_types": [
+    {
+      "id": "FLOAT",
+      "media": "scalar"
+    },
+    {
+      "id": "INT",
+      "media": "scalar"
+    },
+    {
+      "id": "STRING",
+      "media": "scalar"
+    }
+  ]
+}

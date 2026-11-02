@@ -1,0 +1,30 @@
+[package]
+name = "plumcraft-array"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft array engine: the research software's general array nodes on the CPU, ported from yapocis's numba kernels with npexact for numpy's own numerics"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-proto = { workspace = true }
+serde_json = { workspace = true }
+npexact = { workspace = true }
+image = { workspace = true }
+skrifa = { workspace = true }
+tiny-skia = { workspace = true }
+plumcraft-svg = { workspace = true }
+base64 = { workspace = true }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-store = { workspace = true }
+
+[build-dependencies]
+md-5 = { workspace = true }

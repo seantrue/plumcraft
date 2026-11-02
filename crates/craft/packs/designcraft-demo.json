@@ -1,0 +1,204 @@
+{
+ "version": 1,
+ "nodes": {
+  "new": {
+   "kind": "dsc.new",
+   "pos": [
+    0,
+    0
+   ],
+   "values": {
+    "preset": "Letter",
+    "pages": 1
+   }
+  },
+  "title": {
+   "kind": "dsc.text_frame",
+   "pos": [
+    440,
+    0
+   ],
+   "values": {
+    "rect": [
+     36,
+     36,
+     576,
+     160
+    ],
+    "text": "PlumCraft Quarterly"
+   }
+  },
+  "circle": {
+   "kind": "dsc.shape",
+   "pos": [
+    880,
+    0
+   ],
+   "values": {
+    "rect": [
+     156,
+     240,
+     456,
+     540
+    ],
+    "shape": "ellipse"
+   }
+  },
+  "swatch": {
+   "kind": "dsc.swatch",
+   "pos": [
+    1320,
+    0
+   ],
+   "values": {
+    "name": "Plum",
+    "color": "#8e4585"
+   }
+  },
+  "fill": {
+   "kind": "dsc.fill",
+   "pos": [
+    1760,
+    0
+   ],
+   "values": {
+    "swatch": "Plum",
+    "select": "all"
+   }
+  },
+  "shadow": {
+   "kind": "dsc.drop_shadow",
+   "pos": [
+    2200,
+    0
+   ],
+   "values": {}
+  },
+  "check": {
+   "kind": "dsc.preflight",
+   "pos": [
+    2640,
+    0
+   ],
+   "values": {}
+  },
+  "inspect": {
+   "kind": "dsc.inspect",
+   "pos": [
+    2640,
+    520
+   ],
+   "values": {}
+  },
+  "png": {
+   "kind": "dsc.export_png",
+   "pos": [
+    2640,
+    1040
+   ],
+   "values": {
+    "scale": 1.0
+   }
+  },
+  "pdf": {
+   "kind": "dsc.export_pdf",
+   "pos": [
+    3080,
+    0
+   ],
+   "values": {}
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "new",
+    "port": "doc"
+   },
+   "to": {
+    "node": "title",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "title",
+    "port": "doc"
+   },
+   "to": {
+    "node": "circle",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "circle",
+    "port": "doc"
+   },
+   "to": {
+    "node": "swatch",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "swatch",
+    "port": "doc"
+   },
+   "to": {
+    "node": "fill",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "fill",
+    "port": "doc"
+   },
+   "to": {
+    "node": "shadow",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "shadow",
+    "port": "doc"
+   },
+   "to": {
+    "node": "check",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "shadow",
+    "port": "doc"
+   },
+   "to": {
+    "node": "inspect",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "shadow",
+    "port": "doc"
+   },
+   "to": {
+    "node": "png",
+    "port": "doc"
+   }
+  },
+  {
+   "from": {
+    "node": "shadow",
+    "port": "doc"
+   },
+   "to": {
+    "node": "pdf",
+    "port": "doc"
+   }
+  }
+ ]
+}

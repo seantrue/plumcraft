@@ -1,0 +1,10 @@
+
+    @node("SVG to Text")
+    def svg_to_text(self, drawing: Svg) -> Text:
+        """An SVG's source. The inverse of Text to SVG."""
+        return drawing.data.decode("utf-8")
+
+    @node("Text to SVG")
+    def text_to_svg(self, text: Text) -> Svg:
+        """Text as an SVG; text that isn't one is a config error. The inverse of SVG to Text."""
+        return svg(text)

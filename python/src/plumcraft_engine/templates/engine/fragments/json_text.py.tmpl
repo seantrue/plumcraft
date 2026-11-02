@@ -1,0 +1,13 @@
+
+    @node("JSON to Text")
+    def json_to_text(self, value: Json) -> Text:
+        """A JSON value as text. The inverse of Text to JSON."""
+        return json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False)
+
+    @node("Text to JSON")
+    def text_to_json(self, text: Text) -> Json:
+        """Text as a JSON value; text that isn't JSON is a config error. The inverse of JSON to Text."""
+        try:
+            return json.loads(text)
+        except ValueError as e:
+            raise ConfigError(f"not JSON: {e}") from None

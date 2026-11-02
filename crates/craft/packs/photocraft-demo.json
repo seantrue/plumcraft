@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":    {"kind": "pc.new",           "pos": [0, 0],    "values": {"width": 1024, "height": 768}},
+    "clouds": {"kind": "pc.clouds",        "pos": [440, 0],  "values": {"seed": 7}},
+    "lut":    {"kind": "pc.color_lookup",  "pos": [880, 0],  "values": {"lut": "tealOrange"}},
+    "paint":  {"kind": "pc.oil_paint",     "pos": [1320, 0], "values": {}},
+    "png":    {"kind": "pc.export_png",    "pos": [1760, 0], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "clouds", "port": "doc"}},
+    {"from": {"node": "clouds", "port": "doc"}, "to": {"node": "lut", "port": "doc"}},
+    {"from": {"node": "lut", "port": "doc"}, "to": {"node": "paint", "port": "doc"}},
+    {"from": {"node": "paint", "port": "doc"}, "to": {"node": "png", "port": "doc"}}
+  ]
+}

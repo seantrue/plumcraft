@@ -1,0 +1,45 @@
+[package]
+name = "plumcraft-editor"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft's node editor: open a workflow, edit it on a node canvas and run it on an engine (in-process, a separate process or over HTTP)"
+
+[lib]
+name = "plumcraft_editor"
+path = "src/lib.rs"
+
+[[bin]]
+name = "plumcraft-editor"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-automation = { workspace = true }
+plumcraft-engine = { workspace = true }
+plumcraft-graph = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-text = { workspace = true }
+plumcraft-audio = { workspace = true }
+plumcraft-array = { workspace = true }
+plumcraft-coordinator = { workspace = true }
+plumcraft-craft = { workspace = true }
+plumcraft-ui = { workspace = true }
+serde_json = { workspace = true }
+egui = { workspace = true, features = ["default_fonts"] }
+eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
+
+# Turning off winit's default macOS menu, whose Quit (Cmd+Q) ends the app without asking:
+# Cmd+Q then reaches the editor as a key, its `app.quit` shortcut (the unsaved-changes prompt).
+[target.'cfg(target_os = "macos")'.dependencies]
+winit = { version = "0.30", default-features = false }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+egui_kittest = { workspace = true }

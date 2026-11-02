@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Serve the engine over HTTP for Engine › Attach and scripts/run --attach.
+#   scripts/serve [PORT]
+# It needs a token: PLUMCRAFT_ENGINE_TOKEN when set, else .engine-token, made on first use.
+set -euo pipefail
+cd "$$(dirname "$$0")/.."
+port=$${1:-7311}
+echo "attach to http://127.0.0.1:$$port with the token in .engine-token"
+exec uv run python -m $package --listen "127.0.0.1:$$port" --token-file .engine-token

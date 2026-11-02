@@ -1,0 +1,484 @@
+# The SolidCraft pack for plumcraft-craft (note 14, 3.10): SolidCraft's parametric CAD engine as
+# nodes. Lengths are mm; every length or angle widget also takes an expression ("width / 2",
+# "30 deg") over the design's parameters.
+#
+# The document is a .solidcraft design (the parametric timeline). SolidCraft holds one design per
+# process: file.new and doc.open replace it, so there is no close action. Saves (without the
+# model cache) and STL, STEP, 3MF and OBJ exports are byte-stable.
+#
+# Confinement: `--allow-path DIR` (repeated) is SolidCraft's only file flag, so both roots use it;
+# SolidCraft also allows its own recovery folder, a private temp folder and the open design's
+# folder (in the CAS).
+#
+# PNG comes from the `screenshot` tool (sol.export_png, an export node with its own action: the
+# adapter sends path and widgets, never `format`); STEP/STL/3MF/OBJ from file.export.
+
+id = "solidcraft"
+name = "SolidCraft"
+command = ["solidcraft-cli", "mcp"]
+hint = "install solidcraft-cli on PATH"
+timeout_s = 600
+volatile = ["path", "index", "ms"]
+
+[gui]
+command = ["solidcraft"]
+env = "PLUMCRAFT_SOLIDCRAFT_APP"
+label = "SolidCraft"
+hint = "install solidcraft on PATH"
+
+[roots]
+read = "--allow-path"
+write = "--allow-path"
+
+[pool]
+max = 2
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "list_commands"
+run = { tool = "execute", id = "command", params = "params" }
+
+[actions]
+open = { command = "doc.open", path = "path" }
+# cache = false: the evaluated-model cache records each feature's build time (`ms`), so a cached
+# save is not byte-stable; without it a design reopens by re-evaluating its timeline.
+save = { command = "file.save_as", path = "path", params = { cache = false } }
+export = { command = "file.export", path = "path" }
+
+[doc]
+wire = "solidcraft.doc"
+ext = "solidcraft"
+media = "application/vnd.solidcraft"
+app = "solidcraft"
+stem = "document"
+color = "#0e7490"
+
+[run_node]
+id = "sol.run"
+display = "Run command"
+allow = ["solid.", "sketch.", "surface.", "construct.", "parameters.", "timeline.", "component.", "joint.", "material.assign", "material.list", "material.create", "material.edit", "appearance.", "inspect.", "model.", "body.rename", "sheet.", "plastic.", "select.", "explode.", "document.inspect", "document.units", "document.metadata"]
+deny = ["sketch.insert_svg", "sketch.export_dxf", "sheet.export_dxf", "sheet.export_bend_table", "timeline.export_script", "timeline.copy", "timeline.paste", "component.insert_design", "component.paste_new", "plastic.manage_rules", "sheet.manage_rules"]
+
+# ---- designs ----
+
+[[node]]
+id = "sol.open"
+display = "Open"
+kind = "open"
+family = "Design"
+description = "Open a .solidcraft design, or STEP, IGES, FreeCAD, Rhino, 3MF, STL, OBJ or glTF as a new design (doc.open)"
+
+[[node]]
+id = "sol.new"
+display = "New design"
+kind = "new"
+family = "Design"
+command = "file.new"
+fixed = { name = "document" }
+
+[[node]]
+id = "sol.parameter"
+display = "Set parameter"
+kind = "transform"
+family = "Design"
+command = "parameters.change"
+description = "Create or change a user parameter (a number or an expression such as \"40 mm\" or \"width * 2\"); the timeline rebuilds"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "width"
+[[node.widget]]
+name = "expression"
+type = "STRING"
+default = "40 mm"
+socket = "both"
+
+# ---- primitives ----
+
+[[node]]
+id = "sol.box"
+display = "Box"
+kind = "transform"
+family = "Solid"
+command = "solid.box"
+[[node.widget]]
+name = "length"
+type = "STRING"
+default = "40"
+[[node.widget]]
+name = "width"
+type = "STRING"
+default = "30"
+[[node.widget]]
+name = "height"
+type = "STRING"
+default = "20"
+[[node.widget]]
+name = "corner"
+type = "JSON"
+optional = true
+tooltip = "[x, y, z] in mm (default: the origin)"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+choices = ["new", "join", "cut", "intersect"]
+optional = true
+[[node.widget]]
+name = "body_name"
+type = "STRING"
+optional = true
+advanced = true
+
+[[node]]
+id = "sol.cylinder"
+display = "Cylinder"
+kind = "transform"
+family = "Solid"
+command = "solid.cylinder"
+[[node.widget]]
+name = "radius"
+type = "STRING"
+default = "10"
+[[node.widget]]
+name = "height"
+type = "STRING"
+default = "20"
+[[node.widget]]
+name = "base"
+type = "JSON"
+optional = true
+tooltip = "[x, y, z] centre of the bottom in mm (default: the origin)"
+[[node.widget]]
+name = "axis"
+type = "ENUM"
+choices = ["X", "Y", "Z"]
+default = "Z"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+choices = ["new", "join", "cut", "intersect"]
+optional = true
+[[node.widget]]
+name = "body_name"
+type = "STRING"
+optional = true
+advanced = true
+
+[[node]]
+id = "sol.sphere"
+display = "Sphere"
+kind = "transform"
+family = "Solid"
+command = "solid.sphere"
+[[node.widget]]
+name = "radius"
+type = "STRING"
+default = "10"
+[[node.widget]]
+name = "center"
+type = "JSON"
+optional = true
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+choices = ["new", "join", "cut", "intersect"]
+optional = true
+
+# ---- features ----
+
+[[node]]
+id = "sol.fillet"
+display = "Fillet"
+kind = "transform"
+family = "Feature"
+command = "solid.fillet"
+description = "Round edges (solid.fillet); edges are [x,y,z] points on them, or {body, index}"
+[[node.widget]]
+name = "edges"
+type = "JSON"
+default = []
+[[node.widget]]
+name = "radius"
+type = "STRING"
+default = "2"
+[[node.widget]]
+name = "fit"
+type = "ENUM"
+choices = ["exact", "reduce", "taper"]
+default = "reduce"
+advanced = true
+
+[[node]]
+id = "sol.chamfer"
+display = "Chamfer"
+kind = "transform"
+family = "Feature"
+command = "solid.chamfer"
+[[node.widget]]
+name = "edges"
+type = "JSON"
+default = []
+[[node.widget]]
+name = "distance"
+type = "STRING"
+default = "1"
+
+[[node]]
+id = "sol.shell"
+display = "Shell"
+kind = "transform"
+family = "Feature"
+command = "solid.shell"
+description = "Hollow a body, removing the picked faces (solid.shell); faces are [x,y,z] points on them or face names"
+[[node.widget]]
+name = "faces"
+type = "JSON"
+default = []
+[[node.widget]]
+name = "thickness"
+type = "STRING"
+default = "2"
+[[node.widget]]
+name = "direction"
+type = "ENUM"
+choices = ["inside", "outside", "both"]
+default = "inside"
+
+[[node]]
+id = "sol.combine"
+display = "Combine"
+kind = "transform"
+family = "Feature"
+command = "solid.combine"
+description = "Join, cut or intersect bodies into a target body (solid.combine)"
+[[node.widget]]
+name = "target"
+type = "STRING"
+default = "Body1"
+[[node.widget]]
+name = "tools"
+type = "JSON"
+default = ["Body2"]
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+choices = ["join", "cut", "intersect"]
+default = "cut"
+[[node.widget]]
+name = "keep_tools"
+type = "BOOL"
+default = false
+advanced = true
+
+[[node]]
+id = "sol.move"
+display = "Move bodies"
+kind = "transform"
+family = "Feature"
+command = "solid.move"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+default = ["Body1"]
+[[node.widget]]
+name = "translate"
+type = "JSON"
+default = [0, 0, 0]
+[[node.widget]]
+name = "axis"
+type = "JSON"
+optional = true
+[[node.widget]]
+name = "angle"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "sol.mirror"
+display = "Mirror"
+kind = "transform"
+family = "Feature"
+command = "solid.mirror"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+default = ["Body1"]
+[[node.widget]]
+name = "plane"
+type = "ENUM"
+choices = ["XY", "XZ", "YZ"]
+default = "YZ"
+[[node.widget]]
+name = "combine"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "sol.pattern"
+display = "Rectangular pattern"
+kind = "transform"
+family = "Feature"
+command = "solid.pattern.rectangular"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+default = ["Body1"]
+[[node.widget]]
+name = "dir1"
+type = "JSON"
+default = [1, 0, 0]
+[[node.widget]]
+name = "count1"
+type = "INT"
+default = 3
+min = 1.0
+[[node.widget]]
+name = "spacing1"
+type = "STRING"
+default = "50"
+[[node.widget]]
+name = "dir2"
+type = "JSON"
+optional = true
+[[node.widget]]
+name = "count2"
+type = "INT"
+optional = true
+[[node.widget]]
+name = "spacing2"
+type = "STRING"
+optional = true
+
+[[node]]
+id = "sol.appearance"
+display = "Appearance"
+kind = "transform"
+family = "Feature"
+command = "appearance.assign"
+description = "Colour bodies (appearance.assign); also shows in 3MF and OBJ exports"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+default = ["Body1"]
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#0e7490"
+
+# ---- queries ----
+
+[[node]]
+id = "sol.measure"
+display = "Measure"
+kind = "query"
+family = "Query"
+command = "inspect.measure"
+description = "Volume, area, centre of mass and bounding box of bodies (inspect.measure)"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+optional = true
+
+[[node]]
+id = "sol.inspect"
+display = "Inspect design"
+kind = "query"
+family = "Query"
+command = "document.inspect"
+fixed = { measure = true }
+
+# ---- export ----
+
+[[node]]
+id = "sol.export_png"
+display = "Render PNG"
+kind = "export"
+family = "Export"
+description = "A CPU render of the model fitted to the view (the screenshot tool)"
+action = { tool = "screenshot", path = "path" }
+ext = "png"
+media = "image/png"
+[[node.widget]]
+name = "width"
+type = "INT"
+default = 960
+min = 16.0
+max = 4096.0
+[[node.widget]]
+name = "height"
+type = "INT"
+default = 600
+min = 16.0
+max = 4096.0
+[[node.widget]]
+name = "view"
+type = "ENUM"
+choices = ["iso", "front", "back", "top", "bottom", "left", "right"]
+default = "iso"
+[[node.widget]]
+name = "grid"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "axes"
+type = "BOOL"
+default = false
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "sol.export_stl"
+display = "Export STL"
+kind = "export"
+family = "Export"
+description = "Binary STL of every body (file.export); no viewer in the editor"
+format = "stl"
+ext = "stl"
+media = "model/stl"
+[[node.output]]
+name = "stl"
+type = "STL"
+
+[[node]]
+id = "sol.export_step"
+display = "Export STEP"
+kind = "export"
+family = "Export"
+description = "STEP AP214 of every body (file.export); no viewer in the editor"
+format = "step"
+ext = "step"
+media = "model/step"
+[[node.output]]
+name = "step"
+type = "STEP"
+
+[[node]]
+id = "sol.export_3mf"
+display = "Export 3MF"
+kind = "export"
+family = "Export"
+description = "3MF with colours (file.export); no viewer in the editor"
+format = "3mf"
+ext = "3mf"
+media = "model/3mf"
+[[node.output]]
+name = "mesh"
+type = "3MF"
+
+[[node]]
+id = "sol.export_obj"
+display = "Export OBJ"
+kind = "export"
+family = "Export"
+format = "obj"
+ext = "obj"
+media = "model/obj"
+[[node.output]]
+name = "obj"
+type = "OBJ"

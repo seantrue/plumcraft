@@ -1,0 +1,388 @@
+{
+  "version": 1,
+  "engines": [
+    "array",
+    "vectorcraft"
+  ],
+  "meta": {
+    "title": "Trace and measure",
+    "about": "Two engines, three steps: the array engine draws a picture, VectorCraft traces it into paths, and the array engine measures what the trace lost (the squared difference, as a heat map). Open it with plumcraft-editor --engine array,vectorcraft."
+  },
+  "nodes": {
+    "red": {
+      "kind": "array.simplex_noise",
+      "values": {
+        "seed": 1,
+        "width": 384,
+        "height": 256,
+        "cells": 6.0
+      },
+      "pos": [
+        0,
+        0
+      ]
+    },
+    "green": {
+      "kind": "array.simplex_noise",
+      "values": {
+        "seed": 2,
+        "width": 384,
+        "height": 256,
+        "cells": 3.0
+      },
+      "pos": [
+        0,
+        400
+      ]
+    },
+    "blue": {
+      "kind": "array.mandelbrot",
+      "values": {
+        "width": 384,
+        "height": 256
+      },
+      "pos": [
+        0,
+        800
+      ]
+    },
+    "rgb": {
+      "kind": "array.stack",
+      "values": {
+        "space": "RGB"
+      },
+      "pos": [
+        340,
+        380
+      ]
+    },
+    "blur": {
+      "kind": "array.gaussian_blur",
+      "values": {
+        "scale": 1
+      },
+      "pos": [
+        640,
+        420
+      ]
+    },
+    "title": {
+      "kind": "array.draw_text",
+      "values": {
+        "text": "PlumCraft",
+        "size": 56,
+        "h_align": "C",
+        "v_align": "C",
+        "x": 0,
+        "y": 0,
+        "color": "#ffffff"
+      },
+      "pos": [
+        940,
+        330
+      ]
+    },
+    "encode": {
+      "kind": "array.encode_image",
+      "values": {
+        "format": "png"
+      },
+      "pos": [
+        1260,
+        380
+      ]
+    },
+    "open": {
+      "kind": "vc.open",
+      "pos": [
+        1560,
+        380
+      ]
+    },
+    "trace": {
+      "kind": "vc.trace",
+      "values": {
+        "preset": "6 Colors"
+      },
+      "pos": [
+        1860,
+        250
+      ]
+    },
+    "svg": {
+      "kind": "vc.export_svg",
+      "pos": [
+        2180,
+        150
+      ]
+    },
+    "png": {
+      "kind": "vc.export_png",
+      "pos": [
+        2180,
+        520
+      ]
+    },
+    "decode": {
+      "kind": "array.decode_image",
+      "pos": [
+        2500,
+        600
+      ]
+    },
+    "traced": {
+      "kind": "array.resize",
+      "values": {
+        "by": "maxdim",
+        "dim": 384
+      },
+      "pos": [
+        2800,
+        600
+      ]
+    },
+    "drawn": {
+      "kind": "array.resize",
+      "values": {
+        "by": "maxdim",
+        "dim": 384
+      },
+      "pos": [
+        1260,
+        860
+      ]
+    },
+    "diff": {
+      "kind": "array.arithmetic",
+      "values": {
+        "operation": "subtract"
+      },
+      "pos": [
+        2500,
+        1000
+      ]
+    },
+    "square": {
+      "kind": "array.arithmetic",
+      "values": {
+        "operation": "multiply"
+      },
+      "pos": [
+        2800,
+        1000
+      ]
+    },
+    "hsi": {
+      "kind": "array.convert_color_space",
+      "values": {
+        "target": "HSI"
+      },
+      "pos": [
+        3100,
+        1000
+      ]
+    },
+    "lost": {
+      "kind": "array.pick_channel",
+      "values": {
+        "channel": 3
+      },
+      "pos": [
+        3400,
+        1000
+      ]
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "red",
+        "port": "noise"
+      },
+      "to": {
+        "node": "rgb",
+        "port": "c1"
+      }
+    },
+    {
+      "from": {
+        "node": "green",
+        "port": "noise"
+      },
+      "to": {
+        "node": "rgb",
+        "port": "c2"
+      }
+    },
+    {
+      "from": {
+        "node": "blue",
+        "port": "escape"
+      },
+      "to": {
+        "node": "rgb",
+        "port": "c3"
+      }
+    },
+    {
+      "from": {
+        "node": "rgb",
+        "port": "stack"
+      },
+      "to": {
+        "node": "blur",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "blur",
+        "port": "blurred"
+      },
+      "to": {
+        "node": "title",
+        "port": "canvas"
+      }
+    },
+    {
+      "from": {
+        "node": "title",
+        "port": "drawing"
+      },
+      "to": {
+        "node": "encode",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "encode",
+        "port": "image"
+      },
+      "to": {
+        "node": "open",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "open",
+        "port": "doc"
+      },
+      "to": {
+        "node": "trace",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "trace",
+        "port": "doc"
+      },
+      "to": {
+        "node": "svg",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "trace",
+        "port": "doc"
+      },
+      "to": {
+        "node": "png",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "png",
+        "port": "image"
+      },
+      "to": {
+        "node": "decode",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "decode",
+        "port": "rgb"
+      },
+      "to": {
+        "node": "traced",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "title",
+        "port": "drawing"
+      },
+      "to": {
+        "node": "drawn",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "traced",
+        "port": "resized"
+      },
+      "to": {
+        "node": "diff",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "drawn",
+        "port": "resized"
+      },
+      "to": {
+        "node": "diff",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "diff",
+        "port": "result"
+      },
+      "to": {
+        "node": "square",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "diff",
+        "port": "result"
+      },
+      "to": {
+        "node": "square",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "square",
+        "port": "result"
+      },
+      "to": {
+        "node": "hsi",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "hsi",
+        "port": "converted"
+      },
+      "to": {
+        "node": "lost",
+        "port": "array"
+      }
+    }
+  ]
+}

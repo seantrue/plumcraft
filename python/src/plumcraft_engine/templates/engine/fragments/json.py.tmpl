@@ -1,0 +1,14 @@
+
+    # ---------- JSON ----------
+
+    @node("Settings")
+    def settings(self, name: str = "corgi", size: Annotated[int, Range(0, 100, invalid="clamp")] = 3) -> Json:
+        """A source: any JSON value. It stays JSON on the wire; the editor shows it as YAML."""
+        return {"name": name, "size": size, "tags": ["small", "loud"], "owner": {"present": True}}
+
+    @node("Get Key")
+    def get_key(self, value: Json, key: str = "name") -> Json:
+        """One key of a JSON object. A key that isn't there is a config error."""
+        if not isinstance(value, dict) or key not in value:
+            raise ConfigError(f"no key {key!r} in this value")
+        return value[key]

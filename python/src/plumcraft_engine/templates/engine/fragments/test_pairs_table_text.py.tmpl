@@ -1,0 +1,5 @@
+
+
+def test_table_to_csv_and_back(engine):
+    table = engine.sample_table(4)
+    assert engine.csv_to_table(engine.table_to_csv(table)) == table

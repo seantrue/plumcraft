@@ -1,0 +1,252 @@
+{
+ "version": 1,
+ "nodes": {
+  "red": {
+   "kind": "array.simplex_noise",
+   "values": {
+    "seed": 1,
+    "width": 384,
+    "height": 256,
+    "cells": 6.0
+   },
+   "pos": [
+    0,
+    0
+   ]
+  },
+  "green": {
+   "kind": "array.simplex_noise",
+   "values": {
+    "seed": 2,
+    "width": 384,
+    "height": 256,
+    "cells": 3.0
+   },
+   "pos": [
+    0,
+    420
+   ]
+  },
+  "blue": {
+   "kind": "array.mandelbrot",
+   "values": {
+    "width": 384,
+    "height": 256
+   },
+   "pos": [
+    0,
+    840
+   ]
+  },
+  "rgb": {
+   "kind": "array.stack",
+   "values": {
+    "space": "RGB"
+   },
+   "pos": [
+    380,
+    460
+   ]
+  },
+  "blur": {
+   "kind": "array.gaussian_blur",
+   "values": {
+    "scale": 1
+   },
+   "pos": [
+    700,
+    460
+   ]
+  },
+  "hsi": {
+   "kind": "array.convert_color_space",
+   "values": {
+    "target": "HSI"
+   },
+   "pos": [
+    1000,
+    460
+   ]
+  },
+  "gradient": {
+   "kind": "array.gradient",
+   "values": {
+    "reach": 2
+   },
+   "pos": [
+    380,
+    -300
+   ]
+  },
+  "binary": {
+   "kind": "array.binarize",
+   "values": {
+    "threshold": 0.5
+   },
+   "pos": [
+    380,
+    60
+   ]
+  },
+  "sobel": {
+   "kind": "array.sobel_magnitude",
+   "pos": [
+    700,
+    60
+   ]
+  },
+  "edges": {
+   "kind": "array.binarize",
+   "values": {
+    "threshold": 0.5
+   },
+   "pos": [
+    1000,
+    60
+   ]
+  },
+  "regions": {
+   "kind": "array.connected_components",
+   "pos": [
+    1300,
+    60
+   ]
+  },
+  "outlines": {
+   "kind": "array.region_outlines",
+   "pos": [
+    1620,
+    60
+   ]
+  },
+  "fft": {
+   "kind": "array.fft",
+   "pos": [
+    700,
+    880
+   ]
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "red",
+    "port": "noise"
+   },
+   "to": {
+    "node": "rgb",
+    "port": "c1"
+   }
+  },
+  {
+   "from": {
+    "node": "green",
+    "port": "noise"
+   },
+   "to": {
+    "node": "rgb",
+    "port": "c2"
+   }
+  },
+  {
+   "from": {
+    "node": "blue",
+    "port": "escape"
+   },
+   "to": {
+    "node": "rgb",
+    "port": "c3"
+   }
+  },
+  {
+   "from": {
+    "node": "rgb",
+    "port": "stack"
+   },
+   "to": {
+    "node": "blur",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "blur",
+    "port": "blurred"
+   },
+   "to": {
+    "node": "hsi",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "red",
+    "port": "noise"
+   },
+   "to": {
+    "node": "gradient",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "red",
+    "port": "noise"
+   },
+   "to": {
+    "node": "binary",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "binary",
+    "port": "binary"
+   },
+   "to": {
+    "node": "sobel",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "sobel",
+    "port": "magnitude"
+   },
+   "to": {
+    "node": "edges",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "edges",
+    "port": "binary"
+   },
+   "to": {
+    "node": "regions",
+    "port": "edges"
+   }
+  },
+  {
+   "from": {
+    "node": "regions",
+    "port": "labels"
+   },
+   "to": {
+    "node": "outlines",
+    "port": "labels"
+   }
+  },
+  {
+   "from": {
+    "node": "green",
+    "port": "noise"
+   },
+   "to": {
+    "node": "fft",
+    "port": "array"
+   }
+  }
+ ]
+}

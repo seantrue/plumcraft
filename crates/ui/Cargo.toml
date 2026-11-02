@@ -1,0 +1,62 @@
+[package]
+name = "plumcraft-ui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L4: the egui editor shell (menus and shortcuts from the command registry, node canvas over egui-snarl, widgets, palette, run states, the Watched panel); lifted from the research software's research-ui-egui"
+
+[features]
+default = ["audio-out"]
+# Play audio in the Watched panel through the system's output (cpal; CoreAudio on macOS).
+# Off: the audio view says "no audio output".
+audio-out = ["dep:cpal"]
+
+[lints]
+workspace = true
+
+[dependencies]
+hayro = { workspace = true }
+plumcraft-graph = { workspace = true }
+plumcraft-coordinator = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-automation = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-store = { workspace = true }
+craft-ui = { workspace = true }
+egui = { workspace = true, features = ["default_fonts"] }
+eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
+egui-snarl = { workspace = true }
+# the SVG loader for the embedded Lucide icons (crate::icons)
+egui_extras = { workspace = true, features = ["svg"] }
+# Tables of positions as plots (crate::viewers::plot).
+egui_plot = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rfd = { workspace = true }
+png = { workspace = true }
+base64 = { workspace = true }
+# The Watched panel's audio view: its spectrogram, and playback (feature `audio-out`).
+rustfft = { workspace = true }
+cpal = { workspace = true, optional = true }
+# The Watched panel's SVG view (crate::media): usvg + resvg + tiny-skia.
+resvg = { workspace = true }
+plumcraft-svg = { workspace = true }
+image = { workspace = true }
+# The offscreen renderer (crate::offscreen): `ui.screenshot` and `--screenshot` fall back to it
+# when the window never delivers its picture (a locked screen).
+egui_kittest = { workspace = true, features = ["wgpu"] }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+zip = { workspace = true }
+plumcraft-engine = { workspace = true }
+plumcraft-text = { workspace = true }
+plumcraft-audio = { workspace = true }
+plumcraft-array = { workspace = true }
+serde_yaml = "0.9"
+# wgpu: the offscreen snapshot example renders with it; the kittests only query the
+# accessibility tree and never render.
+egui_kittest = { workspace = true, features = ["wgpu", "eframe"] }

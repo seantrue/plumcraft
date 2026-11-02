@@ -1,0 +1,26 @@
+[package]
+name = "plumcraft-audio"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft example engine: audio nodes on SoundCraft's DSP and file I/O (plan 10.4, F2), in every mode the SDK serves"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-proto = { workspace = true }
+serde_json = { workspace = true }
+soundcraft-dsp = { workspace = true }
+soundcraft-audio-io = { workspace = true }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-store = { workspace = true }
+
+[build-dependencies]
+md-5 = { workspace = true }

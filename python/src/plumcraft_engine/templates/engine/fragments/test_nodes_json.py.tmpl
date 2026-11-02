@@ -1,0 +1,6 @@
+
+
+def test_get_key(engine):
+    assert engine.get_key(engine.settings("heron", 2), "name") == "heron"
+    with pytest.raises(ConfigError):
+        engine.get_key({"a": 1}, "b")

@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":     {"kind": "wc.new",        "pos": [0, 0],     "values": {"template": "sample"}},
+    "replace": {"kind": "wc.replace",    "pos": [440, 0],   "values": {"text": "Studio", "with": "Orchard"}},
+    "styles":  {"kind": "wc.style_set",  "pos": [880, 0],   "values": {"name": "shaded"}},
+    "mark":    {"kind": "wc.watermark",  "pos": [1320, 0],  "values": {"text": "DRAFT"}},
+    "png":     {"kind": "wc.export_png", "pos": [1760, 0],  "values": {}},
+    "pdf":     {"kind": "wc.export_pdf", "pos": [1760, 520], "values": {}},
+    "count":   {"kind": "wc.word_count", "pos": [880, 520], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "replace", "port": "doc"}},
+    {"from": {"node": "replace", "port": "doc"}, "to": {"node": "styles", "port": "doc"}},
+    {"from": {"node": "styles", "port": "doc"}, "to": {"node": "mark", "port": "doc"}},
+    {"from": {"node": "mark", "port": "doc"}, "to": {"node": "png", "port": "doc"}},
+    {"from": {"node": "mark", "port": "doc"}, "to": {"node": "pdf", "port": "doc"}},
+    {"from": {"node": "replace", "port": "doc"}, "to": {"node": "count", "port": "doc"}}
+  ]
+}

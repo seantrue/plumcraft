@@ -1,0 +1,482 @@
+# The WordCraft pack (a Word-class word processor; note 14, 3.10). Worker C, 2026-10-28.
+#
+# A document is a .docx file. WordCraft's headless MCP server holds several open documents and
+# works on the active one; `open_document` and `file.new` make the new one active, and
+# `file.closeDocument {force}` closes the active one (closing the last leaves a blank one), so the
+# adapter's "close everything, open one" model holds with at most two documents in a process.
+#
+# Curated nodes are caret-independent on purpose: a node runs in a warm process whose caret and
+# selection are wherever the last node left them, but a cold open puts the caret at the start of
+# the body. So there are no "insert at caret" nodes (text, table of contents) and no
+# header/footer nodes (they leave the caret in the header story), and the formatting nodes
+# select the whole body first (`select = "all"`). See claude-debug/craft-pack-wordcraft.md.
+#
+# Saves are not byte-stable: docProps/core.xml carries the save time and a revision counter
+# (no SOURCE_DATE_EPOCH support in WordCraft), so a document handle differs per run. Memo still
+# works (pure nodes cache by their inputs); `content` is never set.
+
+id = "wordcraft"
+name = "WordCraft"
+command = ["wordcraft-cli", "mcp"]
+hint = "install wordcraft-cli on PATH (https://github.com/storytold/wordcraft)"
+timeout_s = 300
+
+[gui]
+command = ["wordcraft"]
+env = "PLUMCRAFT_WORDCRAFT_APP"
+label = "WordCraft"
+hint = "install the WordCraft app on PATH (https://github.com/storytold/wordcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+
+[tools]
+list = "list_commands"
+run = { tool = "execute", id = "command", params = "params" }
+
+[actions]
+open = { tool = "open_document", path = "path" }
+save = { tool = "save_document", path = "path" }
+close_all = { command = "file.closeDocument", params = { force = true } }
+# save_document picks the format from the extension (docx, pdf, odt, rtf, html, md, txt, png);
+# the `format` key the adapter adds is ignored.
+export = { tool = "save_document", path = "path" }
+
+# WordCraft has no object ids: every selection is the whole body (select.all), or none.
+[selection]
+all = "select.all"
+none = "select.collapse"
+set = "select.all"
+
+[doc]
+wire = "wordcraft.doc"
+ext = "docx"
+media = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+app = "wordcraft"
+stem = "document"
+color = "#1d4ed8"
+
+[errors]
+config = ["bad parameters", "unknown command", "is required", "unknown theme", "not available"]
+unknown_command = ["unknown command"]
+
+[run_node]
+id = "wc.run"
+display = "Run command"
+allow = ["format.", "para.", "styles.apply", "table.", "layout.", "design.", "references.", "review.acceptAll", "review.rejectAll", "review.wordCount", "edit.replaceAll", "edit.replace", "select.", "caret.", "document.inspect", "document.text", "document.setText", "text.", "outline.", "insert.table", "insert.pageBreak", "insert.blankPage", "insert.coverPage", "insert.header", "insert.footer", "insert.pageNumber", "insert.closeHeader", "insert.horizontalLine", "insert.dateTime", "insert.symbol", "insert.dropCap", "insert.equation", "insert.shape", "insert.textBox", "insert.wordArt", "insert.chart", "insert.smartArt", "equation.", "chart.", "shape.", "arrange.", "wordArt.", "smartArt.", "file.properties", "file.inspect", "file.info"]
+deny = ["design.setDefault", "design.themes", "styles.organizer", "styles.copyFrom", "references.researcher", "references.sources", "text.toggleUnicode", "table.draw", "table.eraser"]
+
+# ---- documents ----
+
+[[node]]
+id = "wc.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open a .docx, .doc, .odt, .rtf, .md, .html, .tex or .txt file (open_document)"
+
+[[node]]
+id = "wc.new"
+display = "New document"
+kind = "new"
+family = "Document"
+command = "file.new"
+description = "A new document, blank or from one of WordCraft's built-in templates (file.new)"
+[[node.widget]]
+name = "template"
+type = "ENUM"
+choices = ["blank", "sample", "letter", "resume", "report"]
+default = "blank"
+
+[[node]]
+id = "wc.set_text"
+display = "Set body text"
+kind = "transform"
+family = "Text"
+command = "document.setText"
+description = "Replace the whole body with this text, one paragraph per line (document.setText)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello from PlumCraft"
+
+[[node]]
+id = "wc.replace"
+display = "Replace all"
+kind = "transform"
+family = "Text"
+command = "edit.replaceAll"
+description = "Find and replace everywhere (edit.replaceAll); ^p is a paragraph mark, ^t a tab"
+[[node.output]]
+name = "replaced"
+type = "INT"
+from = "replaced"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "{{name}}"
+[[node.widget]]
+name = "with"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "matchCase"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "wholeWord"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "regex"
+type = "BOOL"
+default = false
+advanced = true
+
+[[node]]
+id = "wc.accept_changes"
+display = "Accept all changes"
+kind = "transform"
+family = "Review"
+command = "review.acceptAll"
+description = "Accept every tracked change (review.acceptAll)"
+fixed = { stopTracking = true }
+
+[[node]]
+id = "wc.reject_changes"
+display = "Reject all changes"
+kind = "transform"
+family = "Review"
+command = "review.rejectAll"
+description = "Reject every tracked change (review.rejectAll)"
+fixed = { stopTracking = true }
+
+[[node]]
+id = "wc.clean"
+display = "Remove comments and metadata"
+kind = "transform"
+family = "Review"
+command = "file.inspect"
+description = "Inspect Document, removing what is ticked (file.inspect {remove})"
+[[node.output]]
+name = "found"
+type = "JSON"
+from = "found"
+[[node.widget]]
+name = "remove"
+type = "JSON"
+default = ["comments", "revisions", "properties", "hidden"]
+socket = "widget"
+tooltip = "Any of comments, revisions, properties, hidden, headers"
+
+[[node]]
+id = "wc.properties"
+display = "Document properties"
+kind = "transform"
+family = "Document"
+command = "file.properties"
+description = "Set the title, subject, author and keywords (file.properties); unset fields are kept"
+[[node.widget]]
+name = "title"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "subject"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "author"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "keywords"
+type = "STRING"
+optional = true
+
+# ---- formatting (the whole body) ----
+
+[[node]]
+id = "wc.paragraph_style"
+display = "Paragraph style"
+kind = "transform"
+family = "Format"
+command = "para.style"
+description = "Apply a paragraph style to the selected paragraphs, the whole body by default (para.style)"
+select = "all"
+[[node.widget]]
+name = "style"
+type = "STRING"
+default = "Normal"
+
+[[node]]
+id = "wc.font"
+display = "Font"
+kind = "transform"
+family = "Format"
+command = "format.font"
+description = "Set the font of the selected text, the whole body by default (format.font)"
+select = "all"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Georgia"
+
+[[node]]
+id = "wc.font_size"
+display = "Font size"
+kind = "transform"
+family = "Format"
+command = "format.size"
+description = "Set the point size of the selected text, the whole body by default (format.size)"
+select = "all"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 12.0
+min = 1.0
+max = 1638.0
+
+[[node]]
+id = "wc.change_case"
+display = "Change case"
+kind = "transform"
+family = "Format"
+command = "format.changeCase"
+description = "Change the case of the selected text, the whole body by default (format.changeCase)"
+select = "all"
+[[node.widget]]
+name = "mode"
+type = "ENUM"
+choices = ["sentence", "lower", "upper", "title", "toggle"]
+default = "upper"
+
+[[node]]
+id = "wc.line_spacing"
+display = "Line spacing"
+kind = "transform"
+family = "Format"
+command = "para.lineSpacing"
+description = "Line spacing as a multiple, for the selected paragraphs, the whole body by default (para.lineSpacing)"
+select = "all"
+[[node.widget]]
+name = "value"
+type = "FLOAT"
+default = 1.15
+min = 0.25
+max = 10.0
+
+# ---- design and layout ----
+
+[[node]]
+id = "wc.style_set"
+display = "Style set"
+kind = "transform"
+family = "Design"
+command = "design.styleSet"
+description = "Apply one of the Design tab's style sets (design.styleSet)"
+[[node.widget]]
+name = "name"
+type = "ENUM"
+choices = ["default", "basic", "lines", "shaded", "casual", "centered", "minimalist", "title"]
+default = "basic"
+
+[[node]]
+id = "wc.theme"
+display = "Theme"
+kind = "transform"
+family = "Design"
+command = "design.theme"
+description = "Apply a document theme: fonts and colours (design.theme)"
+[[node.widget]]
+name = "name"
+type = "ENUM"
+choices = ["Craft", "Studio", "Gallery", "Atelier", "Darkroom", "Sketchbook"]
+default = "Craft"
+
+[[node]]
+id = "wc.watermark"
+display = "Watermark"
+kind = "transform"
+family = "Design"
+command = "design.watermark"
+description = "Add a text watermark behind every page (design.watermark)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "DRAFT"
+[[node.widget]]
+name = "diagonal"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "color"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "RRGGBB"
+
+[[node]]
+id = "wc.orientation"
+display = "Orientation"
+kind = "transform"
+family = "Layout"
+command = "layout.orientation"
+description = "Portrait or landscape pages (layout.orientation)"
+[[node.widget]]
+name = "value"
+type = "ENUM"
+choices = ["portrait", "landscape"]
+default = "landscape"
+
+[[node]]
+id = "wc.paper_size"
+display = "Paper size"
+kind = "transform"
+family = "Layout"
+command = "layout.size"
+description = "The paper size by name (layout.size)"
+[[node.widget]]
+name = "name"
+type = "ENUM"
+choices = ["Letter", "Legal", "A4", "A3", "A5", "Executive", "Tabloid"]
+default = "A4"
+
+[[node]]
+id = "wc.margins"
+display = "Margins"
+kind = "transform"
+family = "Layout"
+command = "layout.margins"
+description = "A margin preset (layout.margins)"
+[[node.widget]]
+name = "preset"
+type = "ENUM"
+choices = ["normal", "narrow", "moderate", "wide", "mirrored", "office2003"]
+default = "narrow"
+
+[[node]]
+id = "wc.columns"
+display = "Columns"
+kind = "transform"
+family = "Layout"
+command = "layout.columns"
+description = "Text columns for the section (layout.columns)"
+[[node.widget]]
+name = "count"
+type = "INT"
+default = 2
+min = 1.0
+max = 12.0
+[[node.widget]]
+name = "separator"
+type = "BOOL"
+default = false
+
+# ---- queries ----
+
+[[node]]
+id = "wc.word_count"
+display = "Word count"
+kind = "query"
+family = "Document"
+command = "review.wordCount"
+description = "Pages, words, characters, paragraphs and lines (review.wordCount)"
+[[node.output]]
+name = "words"
+type = "INT"
+from = "words"
+[[node.output]]
+name = "pages"
+type = "INT"
+from = "pages"
+[[node.output]]
+name = "result"
+type = "JSON"
+
+[[node]]
+id = "wc.info"
+display = "Document info"
+kind = "query"
+family = "Document"
+command = "file.info"
+description = "Pages, words, sections, comments and properties (file.info)"
+
+# ---- export ----
+
+[[node]]
+id = "wc.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+pure = false
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+[[node]]
+id = "wc.export_png"
+display = "Export PNG (page 1)"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "wc.export_txt"
+display = "Export text"
+kind = "export"
+family = "Export"
+format = "txt"
+ext = "txt"
+media = "text/plain"
+[[node.output]]
+name = "text"
+type = "TXT"
+
+[[node]]
+id = "wc.export_md"
+display = "Export Markdown"
+kind = "export"
+family = "Export"
+format = "md"
+ext = "md"
+media = "text/markdown"
+[[node.output]]
+name = "markdown"
+type = "MD"
+
+[[node]]
+id = "wc.export_html"
+display = "Export HTML"
+kind = "export"
+family = "Export"
+format = "html"
+ext = "html"
+media = "text/html"
+[[node.output]]
+name = "html"
+type = "HTML"
+
+[[node]]
+id = "wc.export_odt"
+display = "Export ODT"
+kind = "export"
+family = "Export"
+format = "odt"
+ext = "odt"
+media = "application/vnd.oasis.opendocument.text"
+pure = false
+[[node.output]]
+name = "odt"
+type = "ODT"

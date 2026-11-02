@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":       {"kind": "sc.new",              "pos": [0, 0],      "values": {"sample_rate": 48000}},
+    "synth":     {"kind": "sc.instrument_track", "pos": [400, 0],    "values": {"name": "Synth", "instrument": "subtractive_synth"}},
+    "notes":     {"kind": "sc.notes",            "pos": [800, 0],    "values": {"track": "Synth"}},
+    "transpose": {"kind": "sc.transpose",        "pos": [1200, 0],   "values": {"semitones": 5}},
+    "reverb":    {"kind": "sc.reverb",           "pos": [1600, 0],   "values": {"track": "Synth", "plugin": "plate_reverb", "mix": 35.0}},
+    "wav":       {"kind": "sc.export_wav",       "pos": [2000, 0],   "values": {"normalize": true}},
+    "inspect":   {"kind": "sc.inspect",          "pos": [2000, 400], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "synth", "port": "doc"}},
+    {"from": {"node": "synth", "port": "doc"}, "to": {"node": "notes", "port": "doc"}},
+    {"from": {"node": "notes", "port": "doc"}, "to": {"node": "transpose", "port": "doc"}},
+    {"from": {"node": "transpose", "port": "doc"}, "to": {"node": "reverb", "port": "doc"}},
+    {"from": {"node": "reverb", "port": "doc"}, "to": {"node": "wav", "port": "doc"}},
+    {"from": {"node": "reverb", "port": "doc"}, "to": {"node": "inspect", "port": "doc"}}
+  ]
+}

@@ -1,0 +1,38 @@
+# P08: VectorCraft in the editor (M3)
+
+*2026-10-27. `plumcraft-editor --engine vectorcraft`: the craft adapter's nodes in the palette, an SVG view, an image view and a document view in the Watched panel, thumbnails on document, image and SVG nodes, and **Open in VectorCraft** on any `vectorcraft.doc` value (plan 10.6, M3). The test image is the corgi on a floral carpet, `claude-debug/craft-mcp/corgi.jpg`; `corgi_big.jpg` beside it is the same corgi at 4×.*
+
+```sh
+cd ~/workspace/plumcraft
+cargo build -p plumcraft-editor -p plumcraft-craft --bins
+cargo run -p plumcraft-editor -- --engine vectorcraft
+```
+
+`--engine vectorcraft` hosts the adapter as its own process (mode 2, D49); `--inproc` compiles it in (mode 1) and `--http` runs it over HTTP as a remote engine would (mode 3). The Engine menu has all three under **VectorCraft**.
+
+**Checked by the AI before the session (2026-10-27):** every item below through the control channel (`claude-debug/editor/m3_probe.py`) in mode 2, plus the kittests (`cargo test -p plumcraft-editor vectorcraft`). The chain ran in 0.40 s and the rerun was all `cached` (70 ms); a High Fidelity Photo trace of `corgi_big.jpg` cancelled in 0.02 s; Open in VectorCraft started the real app on `~/Library/Caches/plumcraft/open/n2/Image_Trace-183ff715.vectorcraft`, which showed the traced corgi (`claude-debug/editor/m3-vectorcraft-app.png`). In mode 3 the doc view's button is disabled with "the document is on a remote engine", and the SVG view still draws. Pictures: `claude-debug/editor/m3-svg.png`, `m3-image.png`, `m3-doc.png`, `m3-inproc.png`.
+
+**Checked by the AI again (2026-10-29), on `main` at `86878f9`, release build:** items 1–13 through the control channel (`claude-debug/vary/p08_probe.py`, mode 2 then mode 3), plus the editor's VectorCraft kittests (3 passed, the picture-writing one ignored). The chain ran in 233 ms and the rerun was all `cached` in 8 ms. An SVG to `doc` wire was refused ("type mismatch"). The SVG view showed 811×812 and the PNG view 811×812 px. Open in VectorCraft opened `Image_Trace-b1f5b712.vectorcraft`. After the copy was changed on disk (standing in for an edit saved in VectorCraft, which the AI can't do in the app), the rerun was `cached` and the next open got `Image_Trace-b1f5b712-2.vectorcraft` with the original, leaving the changed copy alone. Recolor's document opened without being watched first. A High Fidelity Photo trace of `corgi_big.jpg` cancelled in 0.02 s. In mode 3 the SVG and PNG views worked and Open in VectorCraft was disabled with the remote-engine note. Quitting through the unsaved-changes prompt left nothing running. Not checked by the AI: that the VectorCraft windows *showed* the right drawings (they started on the right files), zoom, pan and sharpening by mouse, and the hover text. Pictures: `claude-debug/vary/p08-*.png`.
+
+## Checklist
+
+| # | Try | Expect | Result |
+|---|---|---|---|
+| 1 | Start as above. Look at the status bar, then Node › Add | "engine: VectorCraft 0.18.0 · Rust · mode 2 · process · connected · 157 nodes" (142 of VectorCraft's and the 15 building blocks). Node › Add › VectorCraft has Document, Trace, Colour, Path, Transform, Stylize, Export, Effect (the 116 effects in VectorCraft's own menus) and Advanced (Run command). The demo graph is open: Open → Image Trace → Recolor → Export SVG, and Export PNG off the trace | |
+| 2 | File › New (Discard). Build by hand: Tab, type "open", add **Open**; click its file field's "…" and pick `claude-debug/craft-mcp/corgi.jpg`. Add **Image Trace** (preset 6 Colors), **Recolor**, **Export SVG**; wire `doc` → `doc` along the chain. In Recolor's `map` field paste `[{"from": ["rgb 81 74 61"], "to": "#ff0000"}]` | Wires take only `doc` to `doc` (orange); the map field shows the JSON | |
+| 3 | Run (Cmd+Enter) | Every node turns done in under a second or two; each shows a thumbnail: the corgi on Open, the 6-colour trace on Image Trace, the trace with red patches on Recolor and on Export SVG. Image Trace's `colors` and the other blank fields stay **blank** | |
+| 4 | Run again | Every node says `cached`; the run takes well under 0.2 s | |
+| 5 | Click Export SVG's title (watch `svg`) | The Watched panel: "image/svg+xml, 1265528 bytes", the corgi drawn by resvg, "SVG 811×812, drawn at …". Scroll on it to zoom in, drag to pan, double-click (or Fit) to fit: zoomed in, the edges stay sharp after a moment ("sharpening…") | |
+| 6 | Add **Export PNG** off Image Trace, run, watch its `image` | The image view: "811×812 px", zoom and pan as in 5 | |
+| 7 | Watch Image Trace's `doc` (its title) | The doc view: "application/vnd.vectorcraft+json, … bytes, in the engine's CAS", a 120 px rendition, and an **Open in VectorCraft** button | |
+| 8 | Click **Open in VectorCraft** | VectorCraft opens on `Image_Trace-<8 hex>.vectorcraft` (from `~/Library/Caches/plumcraft/open/<node>/`), showing the 6-colour trace; the panel says "opened a copy: …" | |
+| 9 | In VectorCraft, change something and Save; close it. Back in PlumCraft, run again, then click Open in VectorCraft again | The rerun is `cached` (your edit never reached the engine's file); VectorCraft opens a new copy named `…-2.vectorcraft` with the original trace, and your edited copy is still there | |
+| 10 | Right-click Recolor (or its ⋮) → **Open doc in VectorCraft** | VectorCraft opens the recoloured document (red patches). If Recolor wasn't watched, the editor watches it and runs first (all `cached`), then opens it | |
+| 11 | Set Open's file to `claude-debug/craft-mcp/corgi_big.jpg` and Image Trace's preset to **High Fidelity Photo**; Run, and press Cancel in the status bar (or Cmd+.) while Image Trace shows progress | The run stops at once: Image Trace and everything after it `cancelled`. Set them back (corgi.jpg, 6 Colors) and run: it completes | |
+| 12 | Engine › VectorCraft › Rust · HTTP (mode 3); run; watch Image Trace's `doc` | The SVG and PNG views still work; Open in VectorCraft is greyed out, and its hover says "the document is on a remote engine (no file on this machine)" | |
+| 13 | Quit the editor and VectorCraft, then `pgrep -fl "vectorcraft-cli mcp --automation\|plumcraft"` | Nothing left running | |
+| 14 | Anything wrong, slow or confusing | Note it here | Maintainer, 2026-10-29: "P08-14 is fine." (The AI noted that `command.run app.quit` over the control channel replies `{"quit": true}` but leaves the window open; `ui.invoke app.quit` quits, as `docs/control-protocol.md` says.) |
+
+## Results
+
+(For the maintainer.)

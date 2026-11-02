@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":     {"kind": "fig.new",        "pos": [0, 0],      "values": {}},
+    "rect":    {"kind": "fig.rectangle",  "pos": [440, 0],    "values": {"x": 0, "y": 0, "width": 240, "height": 160, "props": {"cornerRadius": 24}}},
+    "circle":  {"kind": "fig.ellipse",    "pos": [880, 0],    "values": {"x": 140, "y": 60, "width": 160, "height": 160}},
+    "cut":     {"kind": "fig.boolean",    "pos": [1320, 0],   "values": {"op": "subtract"}},
+    "fill":    {"kind": "fig.fill",       "pos": [1760, 0],   "values": {"color": "#7C3AED"}},
+    "shadow":  {"kind": "fig.effect",     "pos": [2200, 0],   "values": {"type": "dropShadow"}},
+    "png":     {"kind": "fig.export_png", "pos": [2640, 0],   "values": {"scale": 2.0}},
+    "svg":     {"kind": "fig.export_svg", "pos": [2640, 420], "values": {}},
+    "css":     {"kind": "fig.code",       "pos": [2640, 840], "values": {"language": "css"}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "rect", "port": "doc"}},
+    {"from": {"node": "rect", "port": "doc"}, "to": {"node": "circle", "port": "doc"}},
+    {"from": {"node": "circle", "port": "doc"}, "to": {"node": "cut", "port": "doc"}},
+    {"from": {"node": "cut", "port": "doc"}, "to": {"node": "fill", "port": "doc"}},
+    {"from": {"node": "fill", "port": "doc"}, "to": {"node": "shadow", "port": "doc"}},
+    {"from": {"node": "shadow", "port": "doc"}, "to": {"node": "png", "port": "doc"}},
+    {"from": {"node": "shadow", "port": "doc"}, "to": {"node": "svg", "port": "doc"}},
+    {"from": {"node": "shadow", "port": "doc"}, "to": {"node": "css", "port": "doc"}}
+  ]
+}

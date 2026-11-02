@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# PlumCraft's conformance checks: the Python half, in process and over HTTP, then, with a built
+# PlumCraft, the Rust half, on a socket and over HTTP: kill -9 recovery, tokens, every delivery.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+uv run plumcraft-engine check "$@"
+source scripts/_plumcraft.sh
+if plumcraft=$(find_plumcraft plumcraft 2>/dev/null); then
+    "$plumcraft" conform --engine-manifest plumcraft-engine.toml
+else
+    echo "(no built PlumCraft: skipped the Rust half)"
+fi

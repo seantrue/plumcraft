@@ -1,0 +1,564 @@
+# The DeckCraft pack (a PowerPoint-class presentation app; note 14, 3.10). Worker C, 2026-10-28.
+#
+# A document is a native .deckcraft file (a zip; saves are byte-stable). DeckCraft's headless MCP
+# server holds several presentations; `open_presentation` and `file.new` add one and make it
+# active, and `file.close` closes the active one. It fails when none is open; the adapter then
+# replaces the process (round 2), so a plain `file.close` is enough.
+#
+# Commands act on the current slide unless they take an `index`; the current slide is wherever
+# the last node left it in a warm process, but 0 after a cold open. Curated nodes therefore take
+# explicit slide indices, and the one that inserts after the current slide (Slides from outline)
+# goes to the first slide first, through its `select` port: `[selection].all` is `slide.first`.
+# (A workaround; see claude-debug/craft-pack-deckcraft.md.) Shape-selection nodes (format.*) are
+# left to dk.run.
+
+id = "deckcraft"
+name = "DeckCraft"
+command = ["deckcraft-cli", "mcp"]
+hint = "install deckcraft-cli on PATH (https://github.com/storytold/deckcraft)"
+timeout_s = 300
+# `document` is the presentation's index in the process.
+volatile = ["path", "index", "document"]
+
+[gui]
+command = ["deckcraft"]
+env = "PLUMCRAFT_DECKCRAFT_APP"
+label = "DeckCraft"
+hint = "install the DeckCraft app on PATH (https://github.com/storytold/deckcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+
+[tools]
+list = "list_commands"
+run = { tool = "run_command", id = "command", params = "params" }
+
+[actions]
+open = { tool = "open_presentation", path = "path" }
+save = { tool = "save_presentation", path = "path" }
+close_all = { command = "file.close" }
+export = { command = "file.export", path = "path" }
+
+# Not object selection: `all` and `none` make the first slide current (see the header).
+[selection]
+all = "slide.first"
+none = "slide.first"
+set = "edit.select"
+
+[doc]
+wire = "deckcraft.doc"
+ext = "deckcraft"
+media = "application/vnd.storyteller.deckcraft+zip"
+app = "deckcraft"
+stem = "presentation"
+color = "#c2410c"
+
+[errors]
+config = ["is not available right now", "unknown command", "invalid", "unknown parameter", "missing", "no slide", "out of range", "unknown"]
+unknown_command = ["unknown command"]
+
+[[catalogue]]
+name = "templates"
+command = "file.templates"
+path = "templates"
+
+[run_node]
+id = "dk.run"
+display = "Run command"
+allow = ["slide.", "shape.", "format.", "text.", "design.", "transition.", "animation.", "table.", "chart.", "smartArt.", "arrange.", "section.", "comment.", "edit.select", "edit.selectAll", "edit.deselect", "edit.delete", "edit.duplicate", "insert.textBox", "insert.table", "insert.chart", "insert.wordArt", "insert.slideNumber", "insert.dateTime", "insert.symbol", "insert.smartArt", "insert.actionButton", "insert.icon", "insert.hyperlink", "font.replace", "font.used", "document.inspect", "file.info", "file.properties", "master.", "guide."]
+deny = ["slide.reuse", "slide.reuseList", "slide.colorAt", "design.browseTheme", "design.ideas", "design.applyIdea", "text.autocorrect", "text.compose", "text.edit"]
+
+# ---- documents ----
+
+[[node]]
+id = "dk.open"
+display = "Open"
+kind = "open"
+family = "Presentation"
+description = "Open a .deckcraft or .pptx presentation (open_presentation)"
+
+[[node]]
+id = "dk.new"
+display = "New presentation"
+kind = "new"
+family = "Presentation"
+command = "file.new"
+description = "A new presentation: one title slide in a theme, or a starter template (file.new)"
+[[node.widget]]
+name = "theme"
+type = "ENUM"
+choices = ["DeckCraft", "Harbor", "Ember", "Meadow", "Nocturne", "Paper", "Coral Reef", "Slate"]
+optional = true
+tooltip = "Unset: DeckCraft. Set a theme or a template, not both"
+[[node.widget]]
+name = "template"
+type = "ENUM"
+choices_from = "templates:name"
+optional = true
+tooltip = "A starter template (its own theme); unset: one title slide"
+
+[[node]]
+id = "dk.properties"
+display = "Properties"
+kind = "transform"
+family = "Presentation"
+command = "file.properties"
+description = "Set the title, subject, author and keywords (file.properties); unset fields are kept"
+[[node.widget]]
+name = "title"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "subject"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "author"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "keywords"
+type = "STRING"
+optional = true
+
+# ---- slides ----
+
+[[node]]
+id = "dk.add_slide"
+display = "Add slide"
+kind = "transform"
+family = "Slides"
+command = "slide.new"
+description = "Insert a slide with a layout, title and body (slide.new); `at` past the end appends"
+[[node.widget]]
+name = "layout"
+type = "ENUM"
+choices = ["title", "titleAndContent", "sectionHeader", "twoContent", "comparison", "titleOnly", "blank", "contentWithCaption", "pictureWithCaption"]
+default = "titleAndContent"
+[[node.widget]]
+name = "title"
+type = "STRING"
+default = "Title"
+[[node.widget]]
+name = "body"
+type = "STRING"
+default = ""
+tooltip = "One bullet per line; a leading tab indents"
+[[node.widget]]
+name = "at"
+type = "INT"
+default = 10000
+min = 0.0
+max = 10000.0
+tooltip = "Slide index; past the end appends"
+
+[[node]]
+id = "dk.from_outline"
+display = "Slides from outline"
+kind = "transform"
+family = "Slides"
+command = "slide.fromOutline"
+description = "Add slides from an outline after the first slide (slide.fromOutline); with markdown, # headings are slides and - items bullets"
+select = "all"
+[[node.output]]
+name = "slides"
+type = "INT"
+from = "slides"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "# Agenda\n- Why\n- How\n# Next steps\n- Try it"
+[[node.widget]]
+name = "markdown"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "dk.delete_slide"
+display = "Delete slide"
+kind = "transform"
+family = "Slides"
+command = "slide.delete"
+description = "Delete the slide at an index (slide.delete)"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+
+[[node]]
+id = "dk.duplicate_slide"
+display = "Duplicate slide"
+kind = "transform"
+family = "Slides"
+command = "slide.duplicate"
+description = "Duplicate the slide at an index; the copy follows it (slide.duplicate)"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+
+[[node]]
+id = "dk.move_slide"
+display = "Move slide"
+kind = "transform"
+family = "Slides"
+command = "slide.move"
+description = "Move a slide from one index to another (slide.move)"
+[[node.widget]]
+name = "from"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+[[node.widget]]
+name = "to"
+type = "INT"
+default = 1
+min = 0.0
+max = 10000.0
+
+[[node]]
+id = "dk.hide_slide"
+display = "Hide slide"
+kind = "transform"
+family = "Slides"
+command = "slide.hide"
+description = "Hide or show the slide at an index in the slide show (slide.hide)"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+[[node.widget]]
+name = "hidden"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "dk.slide_layout"
+display = "Slide layout"
+kind = "transform"
+family = "Slides"
+command = "slide.layout"
+description = "Change the layout of the slide at an index (slide.layout)"
+[[node.widget]]
+name = "layout"
+type = "ENUM"
+choices = ["title", "titleAndContent", "sectionHeader", "twoContent", "comparison", "titleOnly", "blank", "contentWithCaption", "pictureWithCaption"]
+default = "titleOnly"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+
+[[node]]
+id = "dk.notes"
+display = "Speaker notes"
+kind = "transform"
+family = "Slides"
+command = "slide.notes"
+description = "Set the speaker notes of the slide at an index (slide.notes)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+
+[[node]]
+id = "dk.transition"
+display = "Transition"
+kind = "transform"
+family = "Slides"
+command = "transition.set"
+description = "Set the transition into the slide at an index (transition.set)"
+[[node.widget]]
+name = "kind"
+type = "ENUM"
+choices = ["none", "morph", "fade", "push", "wipe", "split", "reveal", "cut", "randomBar", "shape", "uncover", "cover", "flash", "fallOver", "drape", "curtains", "wind", "prestige", "fracture", "crush", "peelOff", "pageCurlDouble", "airplane", "origami", "dissolve", "checker", "blinds", "clock", "ripple", "honeycomb", "glitter", "vortex", "shred", "switch", "flip", "gallery", "cube", "doors", "box", "comb", "zoom", "random", "pan", "ferris", "conveyor", "rotate", "window", "orbit", "flythrough"]
+default = "fade"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+[[node.widget]]
+name = "duration"
+type = "INT"
+optional = true
+min = 0.0
+max = 60000.0
+tooltip = "Milliseconds"
+
+# ---- text ----
+
+[[node]]
+id = "dk.replace"
+display = "Replace text"
+kind = "transform"
+family = "Text"
+command = "text.replace"
+description = "Replace text on every slide (text.replace)"
+[[node.output]]
+name = "replaced"
+type = "INT"
+from = "replaced"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "{{name}}"
+[[node.widget]]
+name = "with"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "matchCase"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "wholeWords"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "dk.replace_font"
+display = "Replace font"
+kind = "transform"
+family = "Text"
+command = "font.replace"
+description = "Replace every explicit use of a font family, theme fonts included (font.replace)"
+[[node.output]]
+name = "replaced"
+type = "INT"
+from = "replaced"
+[[node.widget]]
+name = "from"
+type = "STRING"
+default = "Inter"
+[[node.widget]]
+name = "to"
+type = "STRING"
+default = "Roboto"
+
+# ---- design ----
+# design.colors and design.fonts {name} are left out: the adapter's params grammar reads only
+# the first alternative of "{} opens … | {name} | {colors: …}" and rejects `name`.
+
+[[node]]
+id = "dk.theme"
+display = "Theme"
+kind = "transform"
+family = "Design"
+command = "design.theme"
+description = "Apply a theme: colours, fonts and backgrounds (design.theme)"
+[[node.widget]]
+name = "name"
+type = "ENUM"
+choices = ["DeckCraft", "Harbor", "Ember", "Meadow", "Nocturne", "Paper", "Coral Reef", "Slate"]
+default = "Harbor"
+
+[[node]]
+id = "dk.variant"
+display = "Theme variant"
+kind = "transform"
+family = "Design"
+command = "design.variant"
+description = "One of the theme's four colour variants (design.variant)"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 1
+min = 0.0
+max = 3.0
+
+[[node]]
+id = "dk.background"
+display = "Background colour"
+kind = "transform"
+family = "Design"
+command = "design.background"
+description = "A solid background on every slide (design.background {color, all})"
+fixed = { all = true }
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#fdf6e3"
+tooltip = "#RRGGBB"
+
+[[node]]
+id = "dk.header_footer"
+display = "Header and footer"
+kind = "transform"
+family = "Design"
+command = "design.headerFooter"
+description = "Slide numbers, a footer and a date on every slide (design.headerFooter)"
+[[node.widget]]
+name = "slideNumber"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "footer"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "footerText"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "date"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "hideOnTitle"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "dk.slide_size"
+display = "Slide size"
+kind = "transform"
+family = "Design"
+command = "design.slideSize"
+description = "Widescreen (16:9) or standard (4:3) slides (design.slideSize)"
+[[node.widget]]
+name = "preset"
+type = "ENUM"
+choices = ["widescreen", "standard"]
+default = "standard"
+[[node.widget]]
+name = "scale"
+type = "ENUM"
+choices = ["maximize", "ensureFit", "none"]
+default = "ensureFit"
+
+# ---- queries ----
+
+[[node]]
+id = "dk.inspect"
+display = "Inspect presentation"
+kind = "query"
+family = "Presentation"
+command = "document.inspect"
+description = "Slides with titles, layouts and shape counts; size; theme (document.inspect)"
+
+[[node]]
+id = "dk.info"
+display = "Presentation info"
+kind = "query"
+family = "Presentation"
+command = "file.info"
+description = "Title, slide and section counts, properties (file.info)"
+[[node.output]]
+name = "slides"
+type = "INT"
+from = "slides"
+[[node.output]]
+name = "result"
+type = "JSON"
+
+# ---- export ----
+
+[[node]]
+id = "dk.export_png"
+display = "Export PNG (one slide)"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "slide"
+type = "INT"
+default = 0
+min = 0.0
+max = 10000.0
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 1.0
+min = 0.1
+max = 8.0
+tooltip = "Pixels per point (1: 960×540 for 16:9)"
+
+[[node]]
+id = "dk.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+[[node.output]]
+name = "pdf"
+type = "PDF"
+[[node.widget]]
+name = "layout"
+type = "ENUM"
+choices = ["slides", "notes", "handouts"]
+default = "slides"
+
+[[node]]
+id = "dk.export_pptx"
+display = "Export PowerPoint"
+kind = "export"
+family = "Export"
+format = "pptx"
+ext = "pptx"
+media = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+[[node.output]]
+name = "pptx"
+type = "PPTX"
+
+[[node]]
+id = "dk.export_gif"
+display = "Export animated GIF"
+kind = "export"
+family = "Export"
+format = "gif"
+ext = "gif"
+media = "image/gif"
+[[node.output]]
+name = "gif"
+type = "GIF"
+[[node.widget]]
+name = "width"
+type = "ENUM"
+choices = ["small", "medium", "large", "extraLarge"]
+default = "small"
+[[node.widget]]
+name = "secondsPerSlide"
+type = "FLOAT"
+default = 2.0
+min = 0.1
+max = 600.0
+
+[[node]]
+id = "dk.export_outline"
+display = "Export outline text"
+kind = "export"
+family = "Export"
+format = "outline"
+ext = "txt"
+media = "text/plain"
+[[node.output]]
+name = "text"
+type = "TXT"

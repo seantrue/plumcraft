@@ -1,0 +1,10 @@
+
+
+def test_ramp_says_what_it_is(engine):
+    a = engine.ramp(8, 4)
+    assert a.shape == (4, 8, 3) and a.space == "RGB"
+
+
+def test_normalize(engine):
+    assert engine.normalize(np.array([2.0, 4.0, 6.0])).tolist() == [0.0, 0.5, 1.0]
+    assert engine.normalize(np.array([3.0, 3.0])).tolist() == [0.0, 0.0], "flat"

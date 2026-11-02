@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# PlumCraft's editor with this engine, started from its manifest; the demo opens unless you name
+# a workflow. It needs a built PlumCraft (see _plumcraft.sh).
+#   scripts/editor [GRAPH.json]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/_plumcraft.sh
+editor=$(find_plumcraft plumcraft-editor)
+exec "$editor" --engine-manifest plumcraft-engine.toml "$@"

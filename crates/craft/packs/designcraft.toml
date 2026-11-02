@@ -1,0 +1,614 @@
+# The DesignCraft pack (an InDesign-class page-layout app; note 14, 3.10). Worker C, 2026-10-28.
+#
+# A document is a native .designcraft file (a zip; saves are byte-stable). DesignCraft's headless
+# MCP server holds several documents; `file.open` and `file.new` add one and make it active.
+# There is no `close_all`: `file.close` fails when no document is open (the server starts with
+# one, but a failed open would leave none and every later reset would fail), and `batch` stops
+# at the first error and has no keepGoing. Documents therefore accumulate in a process until the
+# pool retires it (idle_s).
+#
+# Exports (round 2): each export node has its own action, which never gets `format`:
+# PDF through `file.exportPdf {created: 0}` (reproducible), PNG and JPEG through the
+# `export_png` tool (one page, scale).
+
+id = "designcraft"
+name = "DesignCraft"
+command = ["designcraft-cli", "mcp"]
+hint = "install designcraft-cli on PATH (https://github.com/storytold/designcraft)"
+timeout_s = 300
+
+[gui]
+command = ["designcraft"]
+env = "PLUMCRAFT_DESIGNCRAFT_APP"
+label = "DesignCraft"
+hint = "install the DesignCraft app on PATH (https://github.com/storytold/designcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+
+[tools]
+list = "list_commands"
+run = { tool = "execute", id = "command", params = "params" }
+
+[actions]
+# file.open also reads IDML and InDesign .indd/.indt (converted to IDML).
+open = { command = "file.open", path = "path" }
+save = { tool = "save_document", path = "path" }
+# The export nodes carry their own actions (file.exportPdf, the export_png tool).
+
+# Object selection on the active spread: all, none, or ids (select ids:12,14 or an `ids` socket).
+[selection]
+all = "edit.selectAll"
+none = "edit.deselectAll"
+set = "selection.set"
+
+[doc]
+wire = "designcraft.doc"
+ext = "designcraft"
+media = "application/vnd.designcraft+zip"
+app = "designcraft"
+stem = "document"
+color = "#be185d"
+
+[errors]
+config = ["is not available right now", "invalid parameters", "unknown parameter", "unknown command", "no such", "not found"]
+unknown_command = ["unknown command"]
+
+[run_node]
+id = "dsc.run"
+display = "Run command"
+allow = ["frame.", "line.", "path.", "object.", "transform.", "type.", "style.", "swatch.create", "swatch.new", "swatch.addColorTheme", "swatch.addUnnamed", "swatch.delete", "swatch.options", "table.", "text.", "story.setText", "story.replaceRange", "story.get", "find.", "layout.", "layer.", "edit.selectAll", "edit.deselectAll", "edit.clear", "edit.duplicate", "edit.stepAndRepeat", "selection.", "select.", "math.insert", "font.replace", "font.list", "toc.", "footnote.", "endnote.", "note.", "list.", "anchored.", "anchor.", "xref.", "index.", "bookmark.", "hyperlink.create", "hyperlink.list", "condition.", "variables.", "changes.", "guide.", "document.inspect", "preflight.run", "file.info", "file.info.get", "page.transition"]
+deny = ["object.exportOptions", "style.load", "style.load.list", "story.placeAndLink", "layer.activate", "text.release", "font.reload", "swatch.load", "swatch.save", "table.placeGraphic", "path.erase"]
+
+# ---- documents ----
+
+[[node]]
+id = "dsc.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open a DesignCraft document, an IDML package or an InDesign .indd/.indt (file.open)"
+
+[[node]]
+id = "dsc.new"
+display = "New document"
+kind = "new"
+family = "Document"
+command = "file.new"
+description = "A new document from a page-size preset (file.new); the title is fixed, else it would be Untitled-N by the process's count"
+[[node.widget]]
+name = "title"
+type = "STRING"
+default = "Untitled"
+advanced = true
+[[node.widget]]
+name = "preset"
+type = "ENUM"
+choices = ["Letter", "Legal", "Tabloid", "Letter - Half", "A3", "A4", "A5"]
+default = "Letter"
+[[node.widget]]
+name = "pages"
+type = "INT"
+default = 1
+min = 1.0
+max = 9999.0
+[[node.widget]]
+name = "facingPages"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "columns"
+type = "INT"
+default = 1
+min = 1.0
+max = 40.0
+[[node.widget]]
+name = "margins"
+type = "FLOAT"
+default = 36.0
+min = 0.0
+max = 1000.0
+tooltip = "Points, all sides"
+
+[[node]]
+id = "dsc.sample"
+display = "Sample document"
+kind = "new"
+family = "Document"
+command = "file.newSample"
+description = "DesignCraft's multi-page magazine sample (file.newSample)"
+
+[[node]]
+id = "dsc.file_info"
+display = "File info"
+kind = "transform"
+family = "Document"
+command = "file.info"
+description = "Set the title, author, description and keywords (file.info); unset fields are kept"
+[[node.widget]]
+name = "documentTitle"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "author"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "description"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "keywords"
+type = "STRING"
+optional = true
+tooltip = "a; b; c"
+
+# ---- pages ----
+
+[[node]]
+id = "dsc.add_pages"
+display = "Add pages"
+kind = "transform"
+family = "Pages"
+command = "layout.pages.insert"
+description = "Insert pages after the last page (layout.pages.insert)"
+[[node.widget]]
+name = "count"
+type = "INT"
+default = 1
+min = 1.0
+max = 9999.0
+
+[[node]]
+id = "dsc.document_setup"
+display = "Document setup"
+kind = "transform"
+family = "Pages"
+command = "layout.documentSetup"
+description = "Page size, facing pages and margins for the whole document (layout.documentSetup)"
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+optional = true
+min = 1.0
+max = 15552.0
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+optional = true
+min = 1.0
+max = 15552.0
+[[node.widget]]
+name = "facingPages"
+type = "BOOL"
+optional = true
+[[node.widget]]
+name = "margins"
+type = "FLOAT"
+optional = true
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "adjustLayout"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "dsc.margins_columns"
+display = "Margins and columns"
+kind = "transform"
+family = "Pages"
+command = "layout.marginsAndColumns"
+description = "Margins, columns and gutter for every page (layout.marginsAndColumns)"
+[[node.widget]]
+name = "margins"
+type = "FLOAT"
+default = 36.0
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "columns"
+type = "INT"
+default = 2
+min = 1.0
+max = 40.0
+[[node.widget]]
+name = "gutter"
+type = "FLOAT"
+default = 12.0
+min = 0.0
+max = 1000.0
+
+# ---- frames ----
+
+[[node]]
+id = "dsc.text_frame"
+display = "Text frame"
+kind = "transform"
+family = "Frames"
+command = "frame.create"
+description = "A text frame with text on a spread (frame.create); rect is [x0, y0, x1, y1] in points"
+fixed = { content = "text" }
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "rect"
+type = "JSON"
+default = [36, 36, 576, 200]
+socket = "both"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello from PlumCraft"
+[[node.widget]]
+name = "spread"
+type = "INT"
+default = 0
+min = 0.0
+max = 9999.0
+advanced = true
+
+[[node]]
+id = "dsc.shape"
+display = "Shape frame"
+kind = "transform"
+family = "Frames"
+command = "frame.create"
+description = "An empty rectangle, ellipse or polygon frame (frame.create content graphic); rect is [x0, y0, x1, y1]"
+fixed = { content = "graphic" }
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "rect"
+type = "JSON"
+default = [100, 250, 300, 450]
+socket = "both"
+[[node.widget]]
+name = "shape"
+type = "ENUM"
+choices = ["rectangle", "ellipse", "polygon"]
+default = "ellipse"
+[[node.widget]]
+name = "spread"
+type = "INT"
+default = 0
+min = 0.0
+max = 9999.0
+advanced = true
+
+[[node]]
+id = "dsc.equation"
+display = "Equation"
+kind = "transform"
+family = "Frames"
+command = "math.insert"
+description = "A typeset LaTeX equation as a frame at x, y (math.insert)"
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "latex"
+type = "STRING"
+default = "e^{i\\pi} + 1 = 0"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 24.0
+min = 1.0
+max = 1296.0
+[[node.widget]]
+name = "x"
+type = "FLOAT"
+default = 72.0
+[[node.widget]]
+name = "y"
+type = "FLOAT"
+default = 500.0
+
+# ---- text ----
+
+[[node]]
+id = "dsc.replace"
+display = "Find and change text"
+kind = "transform"
+family = "Text"
+command = "find.change"
+description = "Find and change text through the document (find.change); grep for regular expressions"
+[[node.output]]
+name = "count"
+type = "INT"
+from = "count"
+[[node.widget]]
+name = "find"
+type = "STRING"
+default = "{{name}}"
+[[node.widget]]
+name = "change"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "grep"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "caseSensitive"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "wholeWord"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "dsc.replace_font"
+display = "Replace font"
+kind = "transform"
+family = "Text"
+command = "font.replace"
+description = "Replace a font family in text and styles (font.replace)"
+[[node.widget]]
+name = "family"
+type = "STRING"
+default = "Source Serif 4"
+[[node.widget]]
+name = "toFamily"
+type = "STRING"
+default = "Inter"
+
+# ---- objects (the selection: all items of the active spread by default) ----
+
+[[node]]
+id = "dsc.swatch"
+display = "New swatch"
+kind = "transform"
+family = "Colour"
+command = "swatch.create"
+description = "Add a named colour swatch (swatch.create); fills and strokes use it by name"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Plum"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#8e4585"
+tooltip = "#rrggbb"
+
+[[node]]
+id = "dsc.fill"
+display = "Fill"
+kind = "transform"
+family = "Colour"
+command = "object.fill"
+description = "Fill the selected objects with a swatch (object.fill)"
+select = "all"
+[[node.widget]]
+name = "swatch"
+type = "STRING"
+default = "[Black]"
+tooltip = "A swatch name: [Black], [Paper], [Registration] or one made by New swatch"
+[[node.widget]]
+name = "tint"
+type = "FLOAT"
+optional = true
+min = 0.0
+max = 1.0
+
+[[node]]
+id = "dsc.opacity"
+display = "Opacity"
+kind = "transform"
+family = "Effects"
+command = "object.opacity"
+description = "Opacity and blend mode of the selected objects (object.opacity)"
+select = "all"
+[[node.widget]]
+name = "opacity"
+type = "FLOAT"
+default = 0.5
+min = 0.0
+max = 1.0
+[[node.widget]]
+name = "blend"
+type = "ENUM"
+choices = ["normal", "multiply", "screen", "overlay", "softLight", "hardLight", "colorDodge", "colorBurn", "darken", "lighten", "difference", "exclusion", "hue", "saturation", "color", "luminosity"]
+default = "normal"
+
+[[node]]
+id = "dsc.drop_shadow"
+display = "Drop shadow"
+kind = "transform"
+family = "Effects"
+command = "object.dropShadow"
+description = "A drop shadow on the selected objects (object.dropShadow)"
+select = "all"
+fixed = { on = true }
+[[node.widget]]
+name = "distance"
+type = "FLOAT"
+default = 7.0
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 120.0
+min = -180.0
+max = 180.0
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 5.0
+min = 0.0
+max = 1000.0
+
+[[node]]
+id = "dsc.corners"
+display = "Corner options"
+kind = "transform"
+family = "Effects"
+command = "object.cornerOptions"
+description = "Corner shape and size of the selected frames (object.cornerOptions)"
+select = "all"
+[[node.widget]]
+name = "shape"
+type = "ENUM"
+choices = ["none", "rounded", "inverseRounded", "inset", "bevel", "fancy"]
+default = "rounded"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 12.0
+min = 0.0
+max = 1000.0
+
+[[node]]
+id = "dsc.rotate"
+display = "Rotate"
+kind = "transform"
+family = "Transform"
+command = "transform.rotate"
+description = "Rotate the selected objects about their centre (transform.rotate; degrees, counter-clockwise)"
+select = "all"
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 15.0
+min = -360.0
+max = 360.0
+
+[[node]]
+id = "dsc.move"
+display = "Move"
+kind = "transform"
+family = "Transform"
+command = "transform.move"
+description = "Move the selected objects by dx, dy points (transform.move)"
+select = "all"
+[[node.widget]]
+name = "dx"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "dy"
+type = "FLOAT"
+default = 36.0
+
+[[node]]
+id = "dsc.outlines"
+display = "Create outlines"
+kind = "transform"
+family = "Transform"
+command = "type.createOutlines"
+description = "Selected text frames become compound paths of their glyphs (type.createOutlines)"
+select = "all"
+
+# ---- queries ----
+
+[[node]]
+id = "dsc.inspect"
+display = "Inspect document"
+kind = "query"
+family = "Document"
+command = "document.inspect"
+description = "Pages, spreads, items, stories (with overset), styles and swatches (document.inspect)"
+
+[[node]]
+id = "dsc.preflight"
+display = "Preflight"
+kind = "query"
+family = "Document"
+command = "preflight.run"
+description = "Preflight issues: missing fonts, low-resolution images, overset text, RGB in print (preflight.run)"
+[[node.output]]
+name = "errors"
+type = "INT"
+from = "errors"
+[[node.output]]
+name = "issues"
+type = "JSON"
+from = "issues"
+
+# ---- export ----
+
+[[node]]
+id = "dsc.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+ext = "pdf"
+media = "application/pdf"
+action = { command = "file.exportPdf", path = "path", params = { created = 0 } }
+[[node.output]]
+name = "pdf"
+type = "PDF"
+[[node.widget]]
+name = "pages"
+type = "STRING"
+optional = true
+tooltip = "1-based, such as 1-3,5; unset: all"
+[[node.widget]]
+name = "standard"
+type = "ENUM"
+choices = ["none", "x4", "x1a", "a2b"]
+optional = true
+advanced = true
+
+[[node]]
+id = "dsc.export_png"
+display = "Export PNG (one page)"
+kind = "export"
+family = "Export"
+ext = "png"
+media = "image/png"
+action = { tool = "export_png", path = "path" }
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "page"
+type = "INT"
+default = 0
+min = 0.0
+max = 9999.0
+tooltip = "0-based page index"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 1.0
+min = 0.05
+max = 16.0
+tooltip = "Pixels per point (1 = 72 ppi)"
+
+[[node]]
+id = "dsc.export_jpg"
+display = "Export JPEG (one page)"
+kind = "export"
+family = "Export"
+ext = "jpg"
+media = "image/jpeg"
+action = { tool = "export_png", path = "path" }
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "page"
+type = "INT"
+default = 0
+min = 0.0
+max = 9999.0
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 1.0
+min = 0.05
+max = 16.0

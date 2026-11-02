@@ -1,0 +1,1453 @@
+{
+  "version": 1,
+  "nodes": {
+    "bass": {
+      "kind": "sc.instrument_track",
+      "pos": [
+        1542.0,
+        0.0
+      ],
+      "values": {
+        "instrument": "subtractive_synth",
+        "name": "Bass"
+      },
+      "serial": 1
+    },
+    "bounce": {
+      "kind": "sc.export_wav",
+      "pos": [
+        3045.0,
+        0.0
+      ],
+      "values": {
+        "normalize": true
+      },
+      "serial": 1
+    },
+    "canvas": {
+      "kind": "pc.open",
+      "pos": [
+        1044.0,
+        1085.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "chords": {
+      "kind": "sc.notes",
+      "pos": [
+        1961.0,
+        0.0
+      ],
+      "values": {
+        "notes": [
+          {
+            "length_ticks": 3840,
+            "pitch": 38,
+            "start_ticks": 0
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 62,
+            "start_ticks": 0
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 34,
+            "start_ticks": 3840
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 58,
+            "start_ticks": 3840
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 29,
+            "start_ticks": 7680
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 57,
+            "start_ticks": 7680
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 36,
+            "start_ticks": 11520
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 60,
+            "start_ticks": 11520
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 38,
+            "start_ticks": 15360
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 62,
+            "start_ticks": 15360
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 34,
+            "start_ticks": 19200
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 58,
+            "start_ticks": 19200
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 29,
+            "start_ticks": 23040
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 57,
+            "start_ticks": 23040
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 36,
+            "start_ticks": 26880
+          },
+          {
+            "length_ticks": 3840,
+            "pitch": 60,
+            "start_ticks": 26880
+          },
+          {
+            "length_ticks": 7680,
+            "pitch": 38,
+            "start_ticks": 30720
+          }
+        ],
+        "track": "Bass"
+      },
+      "serial": 1
+    },
+    "clip": {
+      "kind": "array.clamp",
+      "pos": [
+        0.0,
+        1085.0
+      ],
+      "values": {
+        "high": 1.0,
+        "low": 0.0
+      },
+      "serial": 1
+    },
+    "contours": {
+      "kind": "array.contour_svg",
+      "pos": [
+        3683.0,
+        1085.0
+      ],
+      "values": {
+        "detail": 0.7,
+        "levels": 14,
+        "min_area": 20.0
+      },
+      "serial": 1
+    },
+    "cool": {
+      "kind": "array.arithmetic",
+      "pos": [
+        4887.0,
+        0.0
+      ],
+      "values": {
+        "constant": 170.0,
+        "operation": "add"
+      },
+      "serial": 1
+    },
+    "crisp": {
+      "kind": "pc.unsharp_mask",
+      "pos": [
+        2167.0,
+        1085.0
+      ],
+      "values": {
+        "amount": 70,
+        "radius": 2.0,
+        "threshold": 0
+      },
+      "serial": 1
+    },
+    "drift": {
+      "kind": "array.arithmetic",
+      "pos": [
+        4530.0,
+        0.0
+      ],
+      "values": {
+        "constant": 0.11,
+        "operation": "multiply"
+      },
+      "serial": 2
+    },
+    "echo": {
+      "kind": "sc.delay",
+      "pos": [
+        2346.0,
+        0.0
+      ],
+      "values": {
+        "feedback": 45.0,
+        "mix": 35.0,
+        "track": "Lead"
+      },
+      "serial": 1
+    },
+    "glow": {
+      "kind": "pc.hue_saturation",
+      "pos": [
+        1760.0,
+        1085.0
+      ],
+      "values": {
+        "saturation": 25
+      },
+      "serial": 1
+    },
+    "hall": {
+      "kind": "sc.reverb",
+      "pos": [
+        2691.0,
+        0.0
+      ],
+      "values": {
+        "mix": 45.0,
+        "plugin": "plate_reverb",
+        "track": "Lead"
+      },
+      "serial": 1
+    },
+    "lead": {
+      "kind": "sc.instrument_track",
+      "pos": [
+        737.0,
+        0.0
+      ],
+      "values": {
+        "instrument": "subtractive_synth",
+        "name": "Lead"
+      },
+      "serial": 2
+    },
+    "light": {
+      "kind": "array.arithmetic",
+      "pos": [
+        5983.0,
+        0.0
+      ],
+      "values": {
+        "constant": 0.0,
+        "operation": "add"
+      },
+      "serial": 3
+    },
+    "m_dim": {
+      "kind": "array.arithmetic",
+      "pos": [
+        4887.0,
+        410.0
+      ],
+      "values": {
+        "constant": 0.8,
+        "operation": "multiply"
+      },
+      "serial": 4
+    },
+    "m_hsv": {
+      "kind": "array.stack",
+      "pos": [
+        5244.0,
+        0.0
+      ],
+      "values": {
+        "space": "HSV"
+      },
+      "serial": 1
+    },
+    "m_rgb": {
+      "kind": "array.convert_color_space",
+      "pos": [
+        5570.0,
+        0.0
+      ],
+      "values": {
+        "target": "RGB"
+      },
+      "serial": 1
+    },
+    "m_sat": {
+      "kind": "array.constant",
+      "pos": [
+        4887.0,
+        193.0
+      ],
+      "values": {
+        "value": 0.85
+      },
+      "serial": 1
+    },
+    "melody": {
+      "kind": "sc.notes",
+      "pos": [
+        1156.0,
+        0.0
+      ],
+      "values": {
+        "notes": [
+          {
+            "length_ticks": 1440,
+            "pitch": 50,
+            "start_ticks": 0
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 57,
+            "start_ticks": 480
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 62,
+            "start_ticks": 960
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 65,
+            "start_ticks": 1440
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 69,
+            "start_ticks": 1920
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 74,
+            "start_ticks": 2400
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 2880
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 81,
+            "start_ticks": 3360
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 46,
+            "start_ticks": 3840
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 53,
+            "start_ticks": 4320
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 58,
+            "start_ticks": 4800
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 62,
+            "start_ticks": 5280
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 65,
+            "start_ticks": 5760
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 70,
+            "start_ticks": 6240
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 74,
+            "start_ticks": 6720
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 7200
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 41,
+            "start_ticks": 7680
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 53,
+            "start_ticks": 8160
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 57,
+            "start_ticks": 8640
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 60,
+            "start_ticks": 9120
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 65,
+            "start_ticks": 9600
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 69,
+            "start_ticks": 10080
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 72,
+            "start_ticks": 10560
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 11040
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 48,
+            "start_ticks": 11520
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 55,
+            "start_ticks": 12000
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 60,
+            "start_ticks": 12480
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 64,
+            "start_ticks": 12960
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 67,
+            "start_ticks": 13440
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 72,
+            "start_ticks": 13920
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 76,
+            "start_ticks": 14400
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 79,
+            "start_ticks": 14880
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 62,
+            "start_ticks": 15360
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 69,
+            "start_ticks": 15840
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 74,
+            "start_ticks": 16320
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 16800
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 81,
+            "start_ticks": 17280
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 86,
+            "start_ticks": 17760
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 89,
+            "start_ticks": 18240
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 93,
+            "start_ticks": 18720
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 58,
+            "start_ticks": 19200
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 65,
+            "start_ticks": 19680
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 70,
+            "start_ticks": 20160
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 74,
+            "start_ticks": 20640
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 21120
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 82,
+            "start_ticks": 21600
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 86,
+            "start_ticks": 22080
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 89,
+            "start_ticks": 22560
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 53,
+            "start_ticks": 23040
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 65,
+            "start_ticks": 23520
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 69,
+            "start_ticks": 24000
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 72,
+            "start_ticks": 24480
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 77,
+            "start_ticks": 24960
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 81,
+            "start_ticks": 25440
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 84,
+            "start_ticks": 25920
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 89,
+            "start_ticks": 26400
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 60,
+            "start_ticks": 26880
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 67,
+            "start_ticks": 27360
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 72,
+            "start_ticks": 27840
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 76,
+            "start_ticks": 28320
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 79,
+            "start_ticks": 28800
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 84,
+            "start_ticks": 29280
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 88,
+            "start_ticks": 29760
+          },
+          {
+            "length_ticks": 1440,
+            "pitch": 91,
+            "start_ticks": 30240
+          },
+          {
+            "length_ticks": 7680,
+            "pitch": 86,
+            "start_ticks": 30720
+          },
+          {
+            "length_ticks": 7680,
+            "pitch": 89,
+            "start_ticks": 31200
+          },
+          {
+            "length_ticks": 7680,
+            "pitch": 93,
+            "start_ticks": 31680
+          },
+          {
+            "length_ticks": 7680,
+            "pitch": 98,
+            "start_ticks": 32160
+          }
+        ],
+        "track": "Lead"
+      },
+      "serial": 2
+    },
+    "music_pic": {
+      "kind": "audio.spectrogram",
+      "pos": [
+        3800.0,
+        0.0
+      ],
+      "values": {
+        "fft_size": 8192,
+        "floor": -70.0,
+        "height": 900,
+        "low": 60.0,
+        "width": 1600
+      },
+      "serial": 1
+    },
+    "open": {
+      "kind": "vc.open",
+      "pos": [
+        4063.0,
+        1085.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "paint": {
+      "kind": "pc.oil_paint",
+      "pos": [
+        1399.0,
+        1085.0
+      ],
+      "values": {
+        "bristleDetail": 8.0,
+        "cleanliness": 3.0,
+        "scale": 1.0,
+        "stylization": 3.0
+      },
+      "serial": 1
+    },
+    "painted": {
+      "kind": "pc.export_png",
+      "pos": [
+        2561.0,
+        1085.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "pixels": {
+      "kind": "array.decode_image",
+      "pos": [
+        2951.0,
+        1085.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "png": {
+      "kind": "array.encode_image",
+      "pos": [
+        677.0,
+        1085.0
+      ],
+      "values": {
+        "format": "png"
+      },
+      "serial": 1
+    },
+    "poster": {
+      "kind": "vc.export_svg",
+      "pos": [
+        4780.0,
+        1085.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "print": {
+      "kind": "vc.export_png",
+      "pos": [
+        4780.0,
+        1302.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "session": {
+      "kind": "sc.new",
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "values": {
+        "sample_rate": 48000
+      },
+      "serial": 1
+    },
+    "smooth": {
+      "kind": "vc.simplify",
+      "pos": [
+        4420.0,
+        1085.0
+      ],
+      "values": {
+        "cornerAngle": 60.0,
+        "tolerance": 1.0
+      },
+      "serial": 1
+    },
+    "soft": {
+      "kind": "array.gaussian_blur",
+      "pos": [
+        3320.0,
+        1085.0
+      ],
+      "values": {
+        "scale": 0
+      },
+      "serial": 1
+    },
+    "tempo": {
+      "kind": "sc.tempo",
+      "pos": [
+        384.0,
+        0.0
+      ],
+      "values": {
+        "bpm": 108
+      },
+      "serial": 1
+    },
+    "title": {
+      "kind": "array.draw_text",
+      "pos": [
+        332.0,
+        1085.0
+      ],
+      "values": {
+        "color": "#ffffff",
+        "h_align": "C",
+        "size": 120,
+        "text": "SYNESTHESIA",
+        "v_align": "C",
+        "x": 0,
+        "y": -320
+      },
+      "serial": 1
+    },
+    "together": {
+      "kind": "audio.mix",
+      "pos": [
+        3800.0,
+        238.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "v_clip": {
+      "kind": "array.clamp",
+      "pos": [
+        4174.0,
+        430.0
+      ],
+      "values": {
+        "high": 1.0,
+        "low": 0.0
+      },
+      "serial": 2
+    },
+    "v_edge": {
+      "kind": "array.arithmetic",
+      "pos": [
+        3432.0,
+        238.0
+      ],
+      "values": {
+        "constant": 0.3,
+        "operation": "subtract"
+      },
+      "serial": 6
+    },
+    "v_gain": {
+      "kind": "array.arithmetic",
+      "pos": [
+        3800.0,
+        430.0
+      ],
+      "values": {
+        "constant": 1.9,
+        "operation": "multiply"
+      },
+      "serial": 7
+    },
+    "v_hsv": {
+      "kind": "array.stack",
+      "pos": [
+        5244.0,
+        603.0
+      ],
+      "values": {
+        "space": "HSV"
+      },
+      "serial": 2
+    },
+    "v_hue": {
+      "kind": "array.arithmetic",
+      "pos": [
+        4887.0,
+        603.0
+      ],
+      "values": {
+        "constant": 0.0,
+        "operation": "add"
+      },
+      "serial": 5
+    },
+    "v_rgb": {
+      "kind": "array.convert_color_space",
+      "pos": [
+        5570.0,
+        603.0
+      ],
+      "values": {
+        "target": "RGB"
+      },
+      "serial": 2
+    },
+    "v_sat": {
+      "kind": "array.constant",
+      "pos": [
+        4887.0,
+        796.0
+      ],
+      "values": {
+        "value": 0.8
+      },
+      "serial": 2
+    },
+    "v_tint": {
+      "kind": "array.arithmetic",
+      "pos": [
+        4530.0,
+        430.0
+      ],
+      "values": {
+        "constant": 50.0,
+        "operation": "multiply"
+      },
+      "serial": 8
+    },
+    "voice": {
+      "kind": "audio.load",
+      "pos": [
+        2691.0,
+        238.0
+      ],
+      "values": {
+        "path": "synesthesia-voice.wav"
+      },
+      "serial": 1
+    },
+    "voice_pic": {
+      "kind": "audio.spectrogram",
+      "pos": [
+        3045.0,
+        238.0
+      ],
+      "values": {
+        "fft_size": 2048,
+        "floor": -60.0,
+        "height": 900,
+        "low": 60.0,
+        "width": 1600
+      },
+      "serial": 2
+    },
+    "wave": {
+      "kind": "audio.from_wav",
+      "pos": [
+        3432.0,
+        0.0
+      ],
+      "values": {},
+      "serial": 1
+    },
+    "where": {
+      "kind": "array.coordinates",
+      "pos": [
+        4174.0,
+        0.0
+      ],
+      "values": {},
+      "serial": 1
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "session",
+        "port": "doc"
+      },
+      "to": {
+        "node": "tempo",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "tempo",
+        "port": "doc"
+      },
+      "to": {
+        "node": "lead",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "lead",
+        "port": "doc"
+      },
+      "to": {
+        "node": "melody",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "melody",
+        "port": "doc"
+      },
+      "to": {
+        "node": "bass",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "bass",
+        "port": "doc"
+      },
+      "to": {
+        "node": "chords",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "chords",
+        "port": "doc"
+      },
+      "to": {
+        "node": "echo",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "echo",
+        "port": "doc"
+      },
+      "to": {
+        "node": "hall",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "hall",
+        "port": "doc"
+      },
+      "to": {
+        "node": "bounce",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "bounce",
+        "port": "audio"
+      },
+      "to": {
+        "node": "wave",
+        "port": "wav"
+      }
+    },
+    {
+      "from": {
+        "node": "wave",
+        "port": "audio"
+      },
+      "to": {
+        "node": "together",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "voice",
+        "port": "audio"
+      },
+      "to": {
+        "node": "together",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "wave",
+        "port": "audio"
+      },
+      "to": {
+        "node": "music_pic",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "voice",
+        "port": "audio"
+      },
+      "to": {
+        "node": "voice_pic",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "music_pic",
+        "port": "spectrogram"
+      },
+      "to": {
+        "node": "where",
+        "port": "like"
+      }
+    },
+    {
+      "from": {
+        "node": "where",
+        "port": "x"
+      },
+      "to": {
+        "node": "drift",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "drift",
+        "port": "result"
+      },
+      "to": {
+        "node": "cool",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "music_pic",
+        "port": "spectrogram"
+      },
+      "to": {
+        "node": "m_sat",
+        "port": "like"
+      }
+    },
+    {
+      "from": {
+        "node": "music_pic",
+        "port": "spectrogram"
+      },
+      "to": {
+        "node": "m_dim",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "cool",
+        "port": "result"
+      },
+      "to": {
+        "node": "m_hsv",
+        "port": "c1"
+      }
+    },
+    {
+      "from": {
+        "node": "m_sat",
+        "port": "constant"
+      },
+      "to": {
+        "node": "m_hsv",
+        "port": "c2"
+      }
+    },
+    {
+      "from": {
+        "node": "m_dim",
+        "port": "result"
+      },
+      "to": {
+        "node": "m_hsv",
+        "port": "c3"
+      }
+    },
+    {
+      "from": {
+        "node": "m_hsv",
+        "port": "stack"
+      },
+      "to": {
+        "node": "m_rgb",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "voice_pic",
+        "port": "spectrogram"
+      },
+      "to": {
+        "node": "v_edge",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "v_edge",
+        "port": "result"
+      },
+      "to": {
+        "node": "v_gain",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "v_gain",
+        "port": "result"
+      },
+      "to": {
+        "node": "v_clip",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "v_clip",
+        "port": "clamped"
+      },
+      "to": {
+        "node": "v_tint",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "v_tint",
+        "port": "result"
+      },
+      "to": {
+        "node": "v_hue",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "voice_pic",
+        "port": "spectrogram"
+      },
+      "to": {
+        "node": "v_sat",
+        "port": "like"
+      }
+    },
+    {
+      "from": {
+        "node": "v_hue",
+        "port": "result"
+      },
+      "to": {
+        "node": "v_hsv",
+        "port": "c1"
+      }
+    },
+    {
+      "from": {
+        "node": "v_sat",
+        "port": "constant"
+      },
+      "to": {
+        "node": "v_hsv",
+        "port": "c2"
+      }
+    },
+    {
+      "from": {
+        "node": "v_clip",
+        "port": "clamped"
+      },
+      "to": {
+        "node": "v_hsv",
+        "port": "c3"
+      }
+    },
+    {
+      "from": {
+        "node": "v_hsv",
+        "port": "stack"
+      },
+      "to": {
+        "node": "v_rgb",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "m_rgb",
+        "port": "converted"
+      },
+      "to": {
+        "node": "light",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "v_rgb",
+        "port": "converted"
+      },
+      "to": {
+        "node": "light",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "light",
+        "port": "result"
+      },
+      "to": {
+        "node": "clip",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "clip",
+        "port": "clamped"
+      },
+      "to": {
+        "node": "title",
+        "port": "canvas"
+      }
+    },
+    {
+      "from": {
+        "node": "title",
+        "port": "drawing"
+      },
+      "to": {
+        "node": "png",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "png",
+        "port": "image"
+      },
+      "to": {
+        "node": "canvas",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "canvas",
+        "port": "doc"
+      },
+      "to": {
+        "node": "paint",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "paint",
+        "port": "doc"
+      },
+      "to": {
+        "node": "glow",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "glow",
+        "port": "doc"
+      },
+      "to": {
+        "node": "crisp",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "crisp",
+        "port": "doc"
+      },
+      "to": {
+        "node": "painted",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "painted",
+        "port": "image"
+      },
+      "to": {
+        "node": "pixels",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "pixels",
+        "port": "rgb"
+      },
+      "to": {
+        "node": "soft",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "soft",
+        "port": "blurred"
+      },
+      "to": {
+        "node": "contours",
+        "port": "image"
+      }
+    },
+    {
+      "from": {
+        "node": "contours",
+        "port": "svg"
+      },
+      "to": {
+        "node": "open",
+        "port": "svg"
+      }
+    },
+    {
+      "from": {
+        "node": "open",
+        "port": "doc"
+      },
+      "to": {
+        "node": "smooth",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "smooth",
+        "port": "doc"
+      },
+      "to": {
+        "node": "poster",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "smooth",
+        "port": "doc"
+      },
+      "to": {
+        "node": "print",
+        "port": "doc"
+      }
+    }
+  ],
+  "next_id": 1,
+  "meta": {
+    "about": "Music and a voice become a painting become a poster: SoundCraft composes and mixes, the audio engine turns the bounce and a spoken line into spectrograms, the array engine colours the music cool and the voice hot and adds them as light, PhotoCraft paints the result, the array engine finds its contours as a vector drawing, and VectorCraft refines the curves. Change a note or the voice and the poster changes. Open it with plumcraft-editor apps/plumcraft-editor/demos/synesthesia.json --engine array,audio,photocraft,soundcraft,vectorcraft.",
+    "title": "Synesthesia"
+  },
+  "engines": [
+    "soundcraft",
+    "audio",
+    "array",
+    "photocraft",
+    "vectorcraft"
+  ]
+}

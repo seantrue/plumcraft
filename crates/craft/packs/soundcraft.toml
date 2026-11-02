@@ -1,0 +1,517 @@
+# The SoundCraft pack (note 14, 3.10; grown from the M2.6 genericity pack, 2026-10-28).
+#
+# SoundCraft's document is a `.scraft` session. A session whose audio lives in recorded or
+# imported files saves them beside it, in an `Audio Files/` folder, and the adapter keeps only the
+# one `.scraft` file: so this pack works on self-contained sessions, built from MIDI on built-in
+# instrument tracks, mixed through built-in plug-ins, and bounced to WAV, AIFF or FLAC. Importing
+# audio, AudioSuite rendering, freezing, the demo template and anything else that writes audio
+# files is left out until the adapter can carry a session folder (see
+# claude-debug/craft-pack-soundcraft.md). Every node sends its tracks by name, so a chain doesn't
+# depend on the selection a cold open restores.
+
+id = "soundcraft"
+name = "SoundCraft"
+command = ["soundcraft-cli", "mcp"]
+hint = "install soundcraft-cli on PATH (https://github.com/storytold/soundcraft)"
+timeout_s = 120
+
+# The desktop app: "Open in SoundCraft" opens a copy of a session with `soundcraft <file>`.
+# PLUMCRAFT_SOUNDCRAFT_APP names another build.
+[gui]
+command = ["soundcraft"]
+env = "PLUMCRAFT_SOUNDCRAFT_APP"
+label = "SoundCraft"
+hint = "install soundcraft on PATH (https://github.com/storytold/soundcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 1
+
+[tools]
+list = "list_commands"
+run = { tool = "execute", id = "command", params = "params" }
+
+[actions]
+open = { tool = "open_session", path = "path" }
+save = { tool = "save_session", path = "path", params = { replace = true } }
+close_all = { command = "session.close" }
+# bounce_mix takes `format` (wav, aiff, flac) and the path; peak and loudness come back.
+export = { tool = "bounce_mix", path = "path" }
+
+[doc]
+wire = "soundcraft.session"
+ext = "scraft"
+media = "application/vnd.soundcraft+json"
+app = "soundcraft"
+stem = "session"
+color = "#0d9488"
+
+[run_node]
+id = "sc.run"
+display = "Run command"
+allow = ["event.", "mix.", "markers.", "automation.", "midi.", "track.", "clip.", "edit.", "session.inspect", "clip.inspect"]
+# Left out: what removes, records, plays or touches files (the session folder problem: rendering
+# audio writes Audio Files), and settings.
+deny = [
+    "track.delete", "markers.delete", "midi.note_delete", "edit.fades_delete", "clip.clear",
+    "track.freeze", "track.commit", "track.bounce", "track.set_record_to_input_only", "track.create_click",
+    "clip.gain_render", "clip.effects_render", "clip.capture", "clip.conform_to_tempo", "clip.remove_pitch_shift", "clip.elastic_properties",
+    "edit.consolidate", "edit.play_timeline", "edit.tce_to_timeline", "edit.mode", "edit.tool", "edit.snap_to_grid", "edit.shuffle_lock",
+    "mix.record_arm", "mix.input_monitor", "mix.sampler_load", "mix.insert_state",
+    "event.all_notes_off", "event.input_quantize", "event.step_input", "event.time_ops_window", "event.tempo_ops_window", "event.midi_ops_window",
+]
+
+# ---- session ----
+
+[[node]]
+id = "sc.new"
+display = "New session"
+kind = "new"
+family = "Session"
+command = "session.new"
+description = "A new, empty session (session.new); the demo template is left out, as its audio lives in files beside the session"
+fixed = { template = "blank" }
+[[node.widget]]
+name = "sample_rate"
+type = "INT"
+default = 48000
+min = 8000.0
+max = 384000.0
+[[node.widget]]
+name = "bit_depth"
+type = "ENUM"
+choices = ["16", "24", "32f"]
+optional = true
+advanced = true
+
+[[node]]
+id = "sc.inspect"
+display = "Inspect session"
+kind = "query"
+family = "Session"
+command = "session.inspect"
+
+[[node]]
+id = "sc.instrument_track"
+display = "Instrument track"
+kind = "transform"
+family = "Track"
+command = "track.new"
+description = "A new instrument track playing a built-in instrument (track.new)"
+fixed = { kind = "instrument" }
+[[node.output]]
+name = "tracks"
+type = "JSON"
+from = "tracks"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "instrument"
+type = "ENUM"
+choices = ["subtractive_synth", "drum_synth"]
+default = "subtractive_synth"
+[[node.widget]]
+name = "format"
+type = "ENUM"
+choices = ["mono", "stereo"]
+default = "stereo"
+advanced = true
+
+[[node]]
+id = "sc.notes"
+display = "MIDI notes"
+kind = "transform"
+family = "MIDI"
+command = "event.retrospective_record"
+description = "A MIDI clip of these notes on an instrument or MIDI track (event.retrospective_record): [{pitch, start_ticks, length_ticks, velocity}], 960 ticks a beat"
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "notes"
+type = "JSON"
+default = [
+    { pitch = 60, start_ticks = 0, length_ticks = 900 },
+    { pitch = 64, start_ticks = 960, length_ticks = 900 },
+    { pitch = 67, start_ticks = 1920, length_ticks = 900 },
+    { pitch = 72, start_ticks = 2880, length_ticks = 1800 },
+]
+socket = "both"
+
+[[node]]
+id = "sc.transpose"
+display = "Transpose"
+kind = "transform"
+family = "MIDI"
+command = "event.transpose"
+[[node.widget]]
+name = "semitones"
+type = "INT"
+default = 0
+min = -127.0
+max = 127.0
+
+[[node]]
+id = "sc.quantize"
+display = "Quantize"
+kind = "transform"
+family = "MIDI"
+command = "event.quantize"
+[[node.widget]]
+name = "grid"
+type = "ENUM"
+choices = ["1/4", "1/8", "1/16", "1/32"]
+default = "1/16"
+[[node.widget]]
+name = "strength"
+type = "INT"
+default = 100
+min = 0.0
+max = 100.0
+[[node.widget]]
+name = "swing"
+type = "INT"
+default = 0
+min = 0.0
+max = 100.0
+
+[[node]]
+id = "sc.velocity"
+display = "Change velocity"
+kind = "transform"
+family = "MIDI"
+command = "event.change_velocity"
+description = "Set, offset or scale (percent) the notes' velocities (event.change_velocity)"
+[[node.widget]]
+name = "set"
+type = "INT"
+min = 1.0
+max = 127.0
+optional = true
+[[node.widget]]
+name = "add"
+type = "INT"
+min = -127.0
+max = 127.0
+optional = true
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+min = 0.0
+max = 400.0
+optional = true
+
+[[node]]
+id = "sc.tempo"
+display = "Tempo"
+kind = "transform"
+family = "Time"
+command = "event.tempo"
+[[node.widget]]
+name = "bpm"
+type = "FLOAT"
+default = 120.0
+min = 5.0
+max = 999.0
+
+[[node]]
+id = "sc.meter"
+display = "Meter"
+kind = "transform"
+family = "Time"
+command = "event.meter"
+[[node.widget]]
+name = "numerator"
+type = "INT"
+default = 4
+min = 1.0
+max = 64.0
+[[node.widget]]
+name = "denominator"
+type = "INT"
+default = 4
+min = 1.0
+max = 64.0
+
+[[node]]
+id = "sc.marker"
+display = "Marker"
+kind = "transform"
+family = "Time"
+command = "markers.add"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Marker"
+[[node.widget]]
+name = "at"
+type = "STRING"
+default = "0:00.000"
+tooltip = "Where: samples, or a time like 0:12.500 or bars_beats:5|1|000"
+
+# ---- mix ----
+
+[[node]]
+id = "sc.volume"
+display = "Volume"
+kind = "transform"
+family = "Mix"
+command = "mix.volume"
+[[node.widget]]
+name = "tracks"
+type = "JSON"
+default = ["Synth"]
+[[node.widget]]
+name = "db"
+type = "FLOAT"
+default = 0.0
+min = -144.0
+max = 12.0
+
+[[node]]
+id = "sc.pan"
+display = "Pan"
+kind = "transform"
+family = "Mix"
+command = "mix.pan"
+[[node.widget]]
+name = "tracks"
+type = "JSON"
+default = ["Synth"]
+[[node.widget]]
+name = "pan"
+type = "FLOAT"
+default = 0.0
+min = -1.0
+max = 1.0
+
+[[node]]
+id = "sc.insert"
+display = "Insert plug-in"
+kind = "transform"
+family = "Mix"
+command = "mix.insert"
+description = "A built-in plug-in on a track's insert (mix.insert); params by the plug-in's parameter ids (engine.plugins lists them)"
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "plugin"
+type = "ENUM"
+choices = ["eq_1band", "eq_7band", "compressor", "expander_gate", "de_esser", "maximizer", "channel_strip", "room_reverb", "plate_reverb", "mod_delay", "auto_pan", "chorus", "flanger", "phaser", "ring_mod", "saturator", "lofi", "rectifier", "subharmonic", "pitch_shifter", "time_shift", "gain", "trim", "invert", "dc_offset_removal", "dither"]
+default = "plate_reverb"
+[[node.widget]]
+name = "params"
+type = "JSON"
+default = {}
+socket = "both"
+
+[[node]]
+id = "sc.reverb"
+display = "Reverb"
+kind = "transform"
+family = "Mix"
+command = "mix.insert"
+description = "A plate or room reverb on a track (mix.insert)"
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "plugin"
+label = "type"
+type = "ENUM"
+choices = ["plate_reverb", "room_reverb"]
+default = "plate_reverb"
+[[node.widget]]
+name = "mix"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+[[node.widget]]
+name = "decay"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+
+[[node]]
+id = "sc.delay"
+display = "Delay"
+kind = "transform"
+family = "Mix"
+command = "mix.insert"
+description = "A modulated delay on a track (mix.insert mod_delay)"
+fixed = { plugin = "mod_delay" }
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "time"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 10000.0
+optional = true
+[[node.widget]]
+name = "feedback"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+[[node.widget]]
+name = "mix"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+
+[[node]]
+id = "sc.compressor"
+display = "Compressor"
+kind = "transform"
+family = "Mix"
+command = "mix.insert"
+description = "A compressor on a track (mix.insert compressor)"
+fixed = { plugin = "compressor" }
+[[node.widget]]
+name = "track"
+type = "STRING"
+default = "Synth"
+[[node.widget]]
+name = "threshold"
+type = "FLOAT"
+into = "params"
+min = -60.0
+max = 0.0
+optional = true
+[[node.widget]]
+name = "ratio"
+type = "FLOAT"
+into = "params"
+min = 1.0
+max = 100.0
+optional = true
+
+# ---- export ----
+
+[[node]]
+id = "sc.export_wav"
+display = "Bounce WAV"
+kind = "export"
+family = "Export"
+description = "Bounce the mix to a WAV file (bounce_mix); no viewer in the editor yet"
+format = "wav"
+ext = "wav"
+media = "audio/wav"
+[[node.output]]
+name = "audio"
+type = "WAV"
+[[node.widget]]
+name = "bit_depth"
+type = "ENUM"
+choices = ["16", "24", "32f"]
+optional = true
+[[node.widget]]
+name = "normalize"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "sc.export_flac"
+display = "Bounce FLAC"
+kind = "export"
+family = "Export"
+format = "flac"
+ext = "flac"
+media = "audio/flac"
+[[node.output]]
+name = "audio"
+type = "FLAC"
+[[node.widget]]
+name = "bit_depth"
+type = "ENUM"
+choices = ["16", "24"]
+optional = true
+[[node.widget]]
+name = "normalize"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "sc.export_aiff"
+display = "Bounce AIFF"
+kind = "export"
+family = "Export"
+format = "aiff"
+ext = "aiff"
+media = "audio/aiff"
+[[node.output]]
+name = "audio"
+type = "AIFF"
+[[node.widget]]
+name = "bit_depth"
+type = "ENUM"
+choices = ["16", "24", "32f"]
+optional = true
+[[node.widget]]
+name = "normalize"
+type = "BOOL"
+default = false
+
+# Round 2: exports with their own command (the adapter sends the path and the widgets, no format).
+# The engraved score (`file.print_score`, an SVG page) is left out: packs_all denies "print".
+
+[[node]]
+id = "sc.export_midi"
+display = "Export MIDI"
+kind = "export"
+family = "Export"
+command = "file.export_midi"
+description = "The MIDI tracks as a Standard MIDI File (file.export_midi); no viewer in the editor"
+ext = "mid"
+media = "audio/midi"
+[[node.output]]
+name = "midi"
+type = "MIDI"
+[[node.widget]]
+name = "tracks"
+type = "JSON"
+optional = true
+
+[[node]]
+id = "sc.export_musicxml"
+display = "Export MusicXML"
+kind = "export"
+family = "Export"
+command = "file.export_sibelius"
+description = "The MIDI tracks as MusicXML notation (file.export_sibelius); no viewer in the editor"
+ext = "musicxml"
+media = "application/vnd.recordare.musicxml+xml"
+[[node.output]]
+name = "score"
+type = "MUSICXML"
+[[node.widget]]
+name = "tracks"
+type = "JSON"
+optional = true

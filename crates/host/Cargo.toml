@@ -1,0 +1,19 @@
+[package]
+name = "plumcraft-host"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L2: the UI side of every binding behind one Connection trait: in-process (mode 1) and a supervised separate process on a Unix socket (mode 2)"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-store = { workspace = true }
+plumcraft-scratch = { workspace = true }
+serde_json = { workspace = true }
+ureq = { workspace = true }

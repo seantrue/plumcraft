@@ -1,0 +1,17 @@
+
+    # ---------- SVG ----------
+
+    @node("Shapes")
+    def shapes(self, count: Annotated[int, Range(1, 50, invalid="clamp")] = 5, color: str = "#6a3d9a") -> Svg:
+        """A source: circles in a row. `svg()` checks the document and reads its size; the editor draws it."""
+        if not HEX_COLOR.fullmatch(color):
+            raise ConfigError(f"{color!r} isn't a colour like #6a3d9a")
+        circles = "".join(f'<circle cx="{20 + 40 * i}" cy="20" r="16" fill="{color}"/>' for i in range(count))
+        return svg(f'<svg xmlns="http://www.w3.org/2000/svg" width="{40 * count}" height="40">{circles}</svg>')
+
+    @node("Recolor")
+    def recolor(self, drawing: Svg, color: str = "#2ca02c") -> Svg:
+        """Every fill in the SVG set to one colour. An SVG arrives as a `Blob`: its bytes are in `.data`."""
+        if not HEX_COLOR.fullmatch(color):
+            raise ConfigError(f"{color!r} isn't a colour like #2ca02c")
+        return svg(re.sub(r'fill="[^"]*"', f'fill="{color}"', drawing.data.decode("utf-8")))

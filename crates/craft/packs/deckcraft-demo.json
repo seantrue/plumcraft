@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":     {"kind": "dk.new",           "pos": [0, 0],      "values": {"theme": "Harbor"}},
+    "outline": {"kind": "dk.from_outline",  "pos": [440, 0],    "values": {"text": "# Why PlumCraft\n- One editor\n- Any engine\n# How\n- Packs are data\n- Nodes are commands", "markdown": true}},
+    "title":   {"kind": "dk.replace",       "pos": [880, 0],    "values": {"text": "Any engine", "with": "Any engine, one interface"}},
+    "fade":    {"kind": "dk.transition",    "pos": [1320, 0],   "values": {"kind": "fade", "index": 1}},
+    "footer":  {"kind": "dk.header_footer", "pos": [1760, 0],   "values": {"slideNumber": true}},
+    "png":     {"kind": "dk.export_png",    "pos": [2200, 0],   "values": {"slide": 1}},
+    "pdf":     {"kind": "dk.export_pdf",    "pos": [2200, 520], "values": {}},
+    "info":    {"kind": "dk.info",          "pos": [1760, 520], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "outline", "port": "doc"}},
+    {"from": {"node": "outline", "port": "doc"}, "to": {"node": "title", "port": "doc"}},
+    {"from": {"node": "title", "port": "doc"}, "to": {"node": "fade", "port": "doc"}},
+    {"from": {"node": "fade", "port": "doc"}, "to": {"node": "footer", "port": "doc"}},
+    {"from": {"node": "footer", "port": "doc"}, "to": {"node": "png", "port": "doc"}},
+    {"from": {"node": "footer", "port": "doc"}, "to": {"node": "pdf", "port": "doc"}},
+    {"from": {"node": "footer", "port": "doc"}, "to": {"node": "info", "port": "doc"}}
+  ]
+}

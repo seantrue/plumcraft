@@ -1,0 +1,14 @@
+
+    # ---------- arrays ----------
+
+    @node("Ramp")
+    def ramp(self, width: Annotated[int, Range(1, 4096, invalid="clamp")] = 64, height: Annotated[int, Range(1, 4096, invalid="clamp")] = 64) -> Array:
+        """A source: a colour gradient, H × W × 3, 0-1. `ArrayValue` says what the array is: its colour space and channels."""
+        x, y = np.meshgrid(np.linspace(0, 1, width, dtype="f4"), np.linspace(0, 1, height, dtype="f4"))
+        return ArrayValue(np.stack([x, y, 1 - x], axis=2), space="RGB", names=("red", "green", "blue"))
+
+    @node("Normalize")
+    def normalize(self, array: Array) -> Array:
+        """The array scaled to 0-1. A flat array becomes zeros. Arithmetic gives a plain array: the space no longer holds."""
+        low, high = float(np.nanmin(array)), float(np.nanmax(array))
+        return (np.asarray(array, dtype="f4") - low) / (high - low) if high > low else np.zeros_like(array, dtype="f4")

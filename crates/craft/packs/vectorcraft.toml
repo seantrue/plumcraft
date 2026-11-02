@@ -1,0 +1,882 @@
+# The VectorCraft pack for plumcraft-craft (note 14, sections 2.3 and 3.10; D45).
+#
+# 24 curated nodes (plus vc.expand_appearance, which bakes effects), one generated node per
+# built-in effect of `effect.list`, and the vc.run escape hatch over an allowlist. Every key a node
+# sends is checked against the command's params grammar when the engine starts; a node the check
+# rejects is left out with a log line. `exclude` lists the nodes the smoke test on the corgi
+# failed (`plumcraft-craft-engine --craft vectorcraft --smoke <image>`), with why.
+
+id = "vectorcraft"
+name = "VectorCraft"
+command = ["vectorcraft-cli", "mcp"]
+hint = "install vectorcraft-cli on PATH (https://github.com/storytold/vectorcraft)"
+timeout_s = 600
+
+# The desktop app: the editor's "Open in VectorCraft" opens a copy of a document value with
+# `vectorcraft <file>` (plan 10.6, M3). PLUMCRAFT_VECTORCRAFT_APP names another build.
+[gui]
+command = ["vectorcraft"]
+env = "PLUMCRAFT_VECTORCRAFT_APP"
+label = "VectorCraft"
+hint = "install vectorcraft on PATH (https://github.com/storytold/vectorcraft)"
+
+# Saves stamp File Info's `created`/`modified` with the clock unless SOURCE_DATE_EPOCH pins it
+# (vectorcraft crates/doc/src/metadata.rs `output_time`): without it two saves a second apart
+# differ, and a document handle would not be stable (D43).
+[env]
+SOURCE_DATE_EPOCH = "0"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 4
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+open = { command = "document.open", path = "path" }
+save = { command = "document.save", path = "path", params = { compress = false } }
+close_all = { command = "file.closeAll" }
+clear_history = { command = "edit.clearHistory" }
+export = { command = "document.export", path = "path" }
+
+[selection]
+all = "select.all"
+none = "select.none"
+set = "select.set"
+color = "select.color"
+find = "document.find"
+
+[doc]
+wire = "vectorcraft.doc"
+opens_svg = true
+ext = "vectorcraft"
+media = "application/vnd.vectorcraft+json"
+app = "vectorcraft"
+stem = "document"
+
+[thumb]
+px = 120
+size_command = "document.inspect"
+size_params = { depth = 0 }
+
+[[catalogue]]
+name = "effects"
+command = "effect.list"
+path = "catalog"
+
+[[catalogue]]
+name = "presets"
+command = "imageTrace.presets"
+path = "presets"
+
+[[catalogue]]
+name = "formats"
+command = "document.formats"
+path = "formats"
+
+[[generate]]
+catalogue = "effects"
+prefix = "vc.fx."
+command = "effect.apply"
+key = "effect"
+params_key = "params"
+family = "Effect"
+select = "all"
+
+[run_node]
+id = "vc.run"
+display = "Run command"
+allow = ["object.", "path.", "paint.", "stroke.", "recolor.", "effect.", "artboard.", "imageTrace.", "shape.", "type.createOutlines", "layer.flatten", "swatch.addUsedColors", "document.find", "document.inspect", "edit.clear"]
+deny = ["object.liquify", "object.puppetWarp", "path.knife", "path.freehand", "paint.sampleColor", "imageTrace.setView", "effect.list", "object.place", "object.relink", "object.embed", "object.unembed", "object.exportSelection", "object.collectForExport", "object.export"]
+
+# ---- documents ----
+
+[[node]]
+id = "vc.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open an image, an SVG, a PDF or a VectorCraft document (document.open)"
+[[node.widget]]
+name = "cropTo"
+type = "ENUM"
+choices = ["bounding", "art", "crop", "trim", "bleed", "media"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "pages"
+type = "STRING"
+optional = true
+advanced = true
+
+[[node]]
+id = "vc.new"
+display = "New document"
+kind = "new"
+family = "Document"
+command = "file.new"
+description = "A new document (file.new, with File Info's created date pinned and a fixed name, so it is reproducible)"
+fixed = { created = 0 }
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Untitled"
+advanced = true
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+default = 612.0
+min = 1.0
+max = 16383.0
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+default = 792.0
+min = 1.0
+max = 16383.0
+[[node.widget]]
+name = "units"
+type = "ENUM"
+choices = ["Pixels", "Points", "Picas", "Inches", "Millimeters", "Centimeters", "Feet", "Yards", "Meters", "Feet & Inches"]
+default = "Points"
+[[node.widget]]
+name = "colorMode"
+type = "ENUM"
+choices = ["rgb", "cmyk"]
+default = "rgb"
+[[node.widget]]
+name = "artboards"
+type = "INT"
+default = 1
+min = 1.0
+max = 1000.0
+
+[[node]]
+id = "vc.fit_artboard"
+display = "Fit artboard to art"
+kind = "transform"
+family = "Document"
+command = "artboard.fitToArt"
+[[node.widget]]
+name = "index"
+type = "INT"
+default = 0
+min = 0.0
+max = 999.0
+
+# ---- trace and colour ----
+
+[[node]]
+id = "vc.trace"
+display = "Image Trace"
+kind = "transform"
+family = "Trace"
+command = "imageTrace.makeAndExpand"
+description = "Trace the selected image into paths (imageTrace.makeAndExpand); the overrides change the preset's settings"
+select = "all"
+content = true
+[[node.output]]
+name = "paths"
+type = "INT"
+from = "paths"
+[[node.widget]]
+name = "preset"
+type = "ENUM"
+choices_from = "presets:name"
+default = "Default"
+[[node.widget]]
+name = "enhanced"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "mode"
+type = "ENUM"
+into = "params"
+choices = ["blackAndWhite", "grayscale", "color", "logo"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "threshold"
+type = "INT"
+into = "params"
+min = 0.0
+max = 255.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "palette"
+type = "ENUM"
+into = "params"
+choices = ["limited", "fullTone", "automatic", "documentLibrary"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "colors"
+type = "INT"
+into = "params"
+min = 2.0
+max = 256.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "colorDetail"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "paths_detail"
+key = "paths"
+label = "paths"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "corners"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 100.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "noise"
+type = "INT"
+into = "params"
+min = 0.0
+max = 1000.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "method"
+type = "ENUM"
+into = "params"
+choices = ["abutting", "overlapping"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "ignoreWhite"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "snapCurvesToLines"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "shapes"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "autoGrouping"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "gradients"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "fills"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "strokes"
+type = "BOOL"
+into = "params"
+optional = true
+advanced = true
+[[node.widget]]
+name = "strokeWidth"
+type = "FLOAT"
+into = "params"
+min = 0.0
+max = 1000.0
+optional = true
+advanced = true
+
+[[node]]
+id = "vc.colors"
+display = "Colours"
+kind = "query"
+family = "Colour"
+command = "recolor.colors"
+description = "The colours the selected objects use, most used first (recolor.colors)"
+select = "all"
+[[node.output]]
+name = "colors"
+type = "JSON"
+from = "colors"
+
+[[node]]
+id = "vc.recolor"
+display = "Recolor"
+kind = "transform"
+family = "Colour"
+command = "recolor.apply"
+description = "Recolour the art by a map of colours (recolor.apply); wire vc.colors or vc.reduce_colors into map"
+select = "all"
+[[node.widget]]
+name = "map"
+type = "JSON"
+default = []
+socket = "both"
+[[node.widget]]
+name = "method"
+type = "ENUM"
+choices = ["exact", "preserveTints", "scaleTints", "tintsShades", "hueShift"]
+optional = true
+[[node.widget]]
+name = "limitTo"
+type = "STRING"
+optional = true
+advanced = true
+[[node.widget]]
+name = "includeImages"
+type = "BOOL"
+default = true
+advanced = true
+[[node.widget]]
+name = "includePatterns"
+type = "BOOL"
+default = true
+advanced = true
+
+[[node]]
+id = "vc.reduce_colors"
+display = "Reduce colours"
+kind = "transform"
+family = "Colour"
+command = "recolor.reduce"
+select = "all"
+[[node.output]]
+name = "map"
+type = "JSON"
+from = "map"
+[[node.widget]]
+name = "colors"
+type = "INT"
+min = 1.0
+max = 256.0
+optional = true
+[[node.widget]]
+name = "method"
+type = "ENUM"
+choices = ["exact", "preserveTints", "scaleTints", "tintsShades", "hueShift"]
+optional = true
+[[node.widget]]
+name = "preserve"
+type = "JSON"
+optional = true
+advanced = true
+
+[[node]]
+id = "vc.randomize_colors"
+display = "Randomize colours"
+kind = "transform"
+family = "Colour"
+command = "recolor.randomize"
+select = "all"
+[[node.output]]
+name = "map"
+type = "JSON"
+from = "map"
+[[node.widget]]
+name = "map"
+type = "JSON"
+default = []
+socket = "both"
+[[node.widget]]
+name = "order"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "saturationBrightness"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "seed"
+type = "INT"
+default = 0
+min = 0.0
+max = 4294967295.0
+
+[[node]]
+id = "vc.fill"
+display = "Fill"
+kind = "transform"
+family = "Colour"
+command = "paint.setFill"
+select = "all"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#000000"
+[[node.widget]]
+name = "none"
+type = "BOOL"
+optional = true
+
+[[node]]
+id = "vc.stroke"
+display = "Stroke"
+kind = "transform"
+family = "Colour"
+command = "stroke.set"
+select = "all"
+[[node.widget]]
+name = "weight"
+type = "FLOAT"
+default = 1.0
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "cap"
+type = "ENUM"
+choices = ["butt", "round", "square"]
+optional = true
+[[node.widget]]
+name = "join"
+type = "ENUM"
+choices = ["miter", "round", "bevel"]
+optional = true
+[[node.widget]]
+name = "align"
+type = "ENUM"
+choices = ["center", "inside", "outside"]
+optional = true
+[[node.widget]]
+name = "dash"
+type = "JSON"
+optional = true
+advanced = true
+
+# ---- paths ----
+
+[[node]]
+id = "vc.simplify"
+display = "Simplify"
+kind = "transform"
+family = "Path"
+command = "object.path.simplify"
+select = "all"
+[[node.widget]]
+name = "level"
+type = "FLOAT"
+min = 0.0
+max = 100.0
+optional = true
+[[node.widget]]
+name = "tolerance"
+type = "FLOAT"
+min = 0.0
+max = 1000.0
+optional = true
+[[node.widget]]
+name = "auto"
+type = "BOOL"
+optional = true
+[[node.widget]]
+name = "cornerAngle"
+type = "FLOAT"
+default = 30.0
+min = 0.0
+max = 180.0
+[[node.widget]]
+name = "straightLines"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "wholePaths"
+type = "BOOL"
+optional = true
+advanced = true
+
+[[node]]
+id = "vc.offset_path"
+display = "Offset path"
+kind = "transform"
+family = "Path"
+command = "object.path.offsetPath"
+select = "all"
+[[node.widget]]
+name = "offset"
+type = "FLOAT"
+default = 2.0
+min = -1000.0
+max = 1000.0
+[[node.widget]]
+name = "joins"
+type = "ENUM"
+choices = ["miter", "round", "bevel"]
+default = "miter"
+[[node.widget]]
+name = "miterLimit"
+type = "FLOAT"
+default = 4.0
+min = 1.0
+max = 500.0
+
+[[node]]
+id = "vc.outline_stroke"
+display = "Outline stroke"
+kind = "transform"
+family = "Path"
+command = "object.path.outlineStroke"
+select = "all"
+
+[[node]]
+id = "vc.pathfinder"
+display = "Pathfinder"
+kind = "transform"
+family = "Path"
+command = "object.pathfinder.{operation}"
+select = "all"
+[[node.output]]
+name = "ids"
+type = "JSON"
+from = "ids"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+template = true
+choices = ["unite", "minusFront", "intersect", "exclude", "divide", "trim", "merge", "crop", "outline", "minusBack"]
+default = "unite"
+
+[[node]]
+id = "vc.cleanup"
+display = "Clean up"
+kind = "transform"
+family = "Path"
+command = "object.path.cleanUp"
+[[node.widget]]
+name = "strayPoints"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "unpaintedObjects"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "emptyTextPaths"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "vc.expand"
+display = "Expand"
+kind = "transform"
+family = "Path"
+command = "object.expand"
+select = "all"
+[[node.widget]]
+name = "object"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "fill"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "stroke"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "gradient"
+type = "ENUM"
+choices = ["objects", "mesh"]
+optional = true
+[[node.widget]]
+name = "steps"
+type = "INT"
+default = 255
+min = 1.0
+max = 1000.0
+
+[[node]]
+id = "vc.expand_appearance"
+display = "Expand appearance"
+kind = "transform"
+family = "Effect"
+command = "effect.expandAppearance"
+description = "Bake live effects into objects (effect.expandAppearance)"
+select = "all"
+
+# ---- transform ----
+
+[[node]]
+id = "vc.move"
+display = "Move"
+kind = "transform"
+family = "Transform"
+command = "object.move"
+select = "all"
+[[node.widget]]
+name = "dx"
+type = "FLOAT"
+default = 0.0
+min = -100000.0
+max = 100000.0
+[[node.widget]]
+name = "dy"
+type = "FLOAT"
+default = 0.0
+min = -100000.0
+max = 100000.0
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "vc.scale"
+display = "Scale"
+kind = "transform"
+family = "Transform"
+command = "object.scale"
+select = "all"
+[[node.widget]]
+name = "sx"
+type = "FLOAT"
+default = 100.0
+min = -100000.0
+max = 100000.0
+[[node.widget]]
+name = "sy"
+type = "FLOAT"
+min = -100000.0
+max = 100000.0
+optional = true
+[[node.widget]]
+name = "origin"
+type = "JSON"
+optional = true
+advanced = true
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "strokes"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "corners"
+type = "BOOL"
+optional = true
+advanced = true
+
+[[node]]
+id = "vc.rotate"
+display = "Rotate"
+kind = "transform"
+family = "Transform"
+command = "object.rotate"
+select = "all"
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 0.0
+min = -360.0
+max = 360.0
+[[node.widget]]
+name = "origin"
+type = "JSON"
+optional = true
+advanced = true
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+
+# ---- stylise ----
+
+[[node]]
+id = "vc.halftone"
+display = "Vector halftone"
+kind = "transform"
+family = "Stylize"
+command = "object.vectorHalftone"
+select = "all"
+[[node.widget]]
+name = "shape"
+type = "ENUM"
+choices = ["circle", "ellipse", "square", "diamond", "line"]
+default = "circle"
+[[node.widget]]
+name = "frequency"
+type = "FLOAT"
+default = 20.0
+min = 1.0
+max = 300.0
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 45.0
+min = -360.0
+max = 360.0
+[[node.widget]]
+name = "mode"
+type = "ENUM"
+choices = ["mono", "cmyk"]
+default = "mono"
+[[node.widget]]
+name = "color"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "invert"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "clip"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "keepOriginal"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "vc.mosaic"
+display = "Object mosaic"
+kind = "transform"
+family = "Stylize"
+command = "object.createObjectMosaic"
+description = "Rectangles coloured by the selected image's tiles (object.createObjectMosaic); open an image into it"
+select = "all"
+[[node.widget]]
+name = "columns"
+type = "INT"
+default = 10
+min = 1.0
+max = 1000.0
+[[node.widget]]
+name = "rows"
+type = "INT"
+default = 10
+min = 1.0
+max = 1000.0
+[[node.widget]]
+name = "spacingX"
+type = "FLOAT"
+default = 0.0
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "spacingY"
+type = "FLOAT"
+default = 0.0
+min = 0.0
+max = 1000.0
+[[node.widget]]
+name = "gray"
+type = "BOOL"
+default = false
+
+# ---- export ----
+
+[[node]]
+id = "vc.export_svg"
+display = "Export SVG"
+kind = "export"
+family = "Export"
+format = "svg"
+ext = "svg"
+media = "image/svg+xml"
+options_from = "formats:svg"
+options = ["decimals", "embedFonts", "outlineText", "artboard"]
+[[node.output]]
+name = "svg"
+type = "SVG"
+
+[[node]]
+id = "vc.export_png"
+display = "Export PNG"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+options_from = "formats:png"
+options = ["scale", "background", "antiAlias", "artboard"]
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "vc.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+pure = false
+options_from = "formats:pdf"
+options = ["preset", "range", "compatibility"]
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+[exclude]
+
+[smoke_base]
+node = "vc.trace"
+values = { preset = "6 Colors" }
+
+# Fair smoke tests where the defaults on the traced corgi have nothing to act on.
+[smoke."vc.trace"]
+raster = true
+values = { preset = "6 Colors" }
+
+[smoke."vc.mosaic"]
+raster = true
+
+[smoke."vc.outline_stroke"]
+before = ["vc.stroke"]
+
+[smoke."vc.expand"]
+before = ["vc.stroke"]
+
+[smoke."vc.expand_appearance"]
+before = ["vc.fx.stylize.dropShadow"]
+
+[smoke."vc.halftone"]
+values = { frequency = 4.0 }
+
+[smoke."vc.fx.threeD.extrude"]
+values = { select = 'json:{"kind": "Path", "limit": 1}' }
+
+[smoke."vc.fx.threeD.inflate"]
+values = { select = 'json:{"kind": "Path", "limit": 1}' }
+
+[smoke."vc.fx.threeD.revolve"]
+values = { select = 'json:{"kind": "Path", "limit": 1}' }
+
+[smoke."vc.fx.threeD.rotate"]
+values = { select = 'json:{"kind": "Path", "limit": 1}' }

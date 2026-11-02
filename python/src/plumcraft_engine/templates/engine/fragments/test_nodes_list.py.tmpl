@@ -1,0 +1,8 @@
+
+
+def test_split_and_join_list_are_low_level_nodes():
+    words = Split().run({"text": "a corgi naps", "separator": " "}, None)["items"]
+    assert words.items == ["a", "corgi", "naps"]
+    assert JoinList().run({"items": words, "separator": "-"}, None) == {"text": "a-corgi-naps"}
+    with pytest.raises(ConfigError):
+        Split().run({"text": "x", "separator": ""}, None)

@@ -1,0 +1,43 @@
+[project]
+name = "weather-engine"
+version = "0.1.0"
+description = "Weather: a PlumCraft engine"
+requires-python = ">=3.12"
+dependencies = ["plumcraft-engine"]
+
+[project.scripts]
+weather-engine = "weather_engine.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+# Where the PlumCraft SDK comes from; README.md says how to switch.
+[tool.uv.sources]
+plumcraft-engine = { path = "{{SDK}}", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/weather_engine"]
+
+[tool.ruff]
+line-length = 160
+src = ["src"]
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# What `plumcraft-engine nodes`, `run` and `check` use here.
+[tool.plumcraft]
+engine = "weather_engine:WeatherEngine"
+demo = "examples/demo.json"
+
+[tool.plumcraft.conformance]
+slow = "weather.slow"

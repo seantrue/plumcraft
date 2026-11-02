@@ -1,0 +1,15 @@
+
+
+def png(pixels: np.ndarray) -> bytes:
+    """H × W or H × W × 3 or 4, 8 bits a channel, as PNG bytes."""
+    out = io.BytesIO()
+    Pil.fromarray(pixels).save(out, format="PNG")
+    return out.getvalue()
+
+
+def decoded(picture: Blob) -> Pil.Image:
+    """An IMAGE's pixels. Bytes the library can't read are an op error: a failure on this input."""
+    try:
+        return Pil.open(io.BytesIO(picture.data))
+    except OSError as e:
+        raise OpError(f"can't read this {picture.meta.get('media')}: {e}") from None

@@ -1,0 +1,26 @@
+[package]
+name = "plumcraft-text"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft example engine: text nodes, the thin engine the interface is proven on (in-process now, a separate process next)"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-proto = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+plumcraft-conform = { workspace = true }
+plumcraft-scratch = { workspace = true }
+plumcraft-coordinator = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-store = { workspace = true }
+
+[build-dependencies]
+md-5 = { workspace = true }

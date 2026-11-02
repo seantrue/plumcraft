@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "nodes": {
+    "n1": {"kind": "text.literal", "pos": [0, 0], "values": {"text": "the corgi naps"}},
+    "n2": {"kind": "text.slow", "pos": [300, 0], "values": {"seconds": 0.0}},
+    "n3": {"kind": "text.upper", "pos": [600, 0]},
+    "n4": {"kind": "text.words", "pos": [900, 0]}
+  },
+  "wires": [
+    {"from": {"node": "n1", "port": "text"}, "to": {"node": "n2", "port": "text"}},
+    {"from": {"node": "n2", "port": "text"}, "to": {"node": "n3", "port": "text"}},
+    {"from": {"node": "n3", "port": "text"}, "to": {"node": "n4", "port": "text"}, "via": [[700, 40]], "slice": null}
+  ],
+  "groups": {
+    "g1": {"name": "think_and_shout", "nodes": ["n2"], "promoted": [{"port": {"node": "n2", "port": "seconds"}, "label": "seconds", "doc": "how long"}],
+           "outputs": [{"from": {"node": "n3", "port": "text"}, "name": "shout"}], "checkpoints": ["n3"], "collapsed": true, "pos": [300, 0],
+           "nets": {"picture": {"from": {"node": "n2", "port": "text"}}}},
+    "g2": {"name": "shout", "nodes": ["n3"], "parent": "g1", "checkpoints": ["n3"], "collapsed": false, "pos": [600, 0]}
+  },
+  "frames": {"f1": {"title": "notes", "pos": [0, 0], "size": [100, 100]}},
+  "next_id": 5,
+  "next_group": 3
+}

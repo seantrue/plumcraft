@@ -1,0 +1,612 @@
+# The CADCraft pack (Worker B, 2026-10-28; note 14, 3.10).
+#
+# CADCraft's document is a DXF drawing (`saveas`/`open`; DWG is an export). Its `mcp` server has
+# no automation roots, so this craft is NOT confined to the CAS and the work folder: it can read
+# and write anywhere the user can. Drawing nodes take explicit coordinates (drawing units, y up);
+# modify nodes act on `select` (default all). Exports go through the `export` command (SVG, PNG,
+# PDF, DWG, DXF; all byte-stable).
+#
+# A new drawing's first save lacks some header variables that `open` fills in ($CHAMFERA, …), so
+# open → save is the identity only after one round trip: a chain run warm and the same chain run
+# cold can differ in those header lines. The memo would see that (D47), so `new` and every
+# transform are `pure = false` (memo scope none) until the adapter can save-reopen-save
+# (see claude-debug/craft-pack-cadcraft.md). Queries and exports stay pure.
+
+id = "cadcraft"
+name = "CADCraft"
+command = ["cadcraft-cli", "mcp", "--config-dir", ""]
+hint = "install cadcraft-cli on PATH (https://github.com/storytold/cadcraft)"
+timeout_s = 300
+
+# The desktop app: "Open in CADCraft" opens a copy of a drawing with `cadcraft <file>`.
+# PLUMCRAFT_CADCRAFT_APP names another build.
+[gui]
+command = ["cadcraft"]
+env = "PLUMCRAFT_CADCRAFT_APP"
+label = "CADCraft"
+hint = "install cadcraft on PATH (https://github.com/storytold/cadcraft)"
+
+[pool]
+max = 2
+
+[tools]
+list = "list_commands"
+run = { tool = "execute", id = "command", params = "params" }
+
+[actions]
+open = { command = "open", path = "path" }
+save = { command = "saveas", path = "path" }
+close_all = { command = "closeall" }
+export = { command = "export", path = "path" }
+
+# `select` takes hex handles under `handles` (`set_key`). `string_ids` keeps every id in
+# `select = "ids:…"` a string, so an all-digit handle (`ids:101`) is 0x101; CADCraft would read a
+# number as a decimal handle (101 → 0x65) and select the wrong object.
+[selection]
+all = "selectall"
+none = "ai_deselect"
+set = "select"
+set_key = "handles"
+string_ids = true
+
+[doc]
+wire = "cadcraft.dxf"
+ext = "dxf"
+media = "image/vnd.dxf"
+app = "cadcraft"
+stem = "drawing"
+color = "#0369a1"
+
+[run_node]
+id = "cad.run"
+display = "Run command"
+allow = [
+    "line", "pline", "circle", "circle.", "arc", "arc.", "rectang", "polygon", "ellipse", "ellipse.", "point", "point.multiple", "xline", "ray",
+    "spline", "donut", "text", "mtext", "divide", "measure", "revcloud", "revcloud.polygonal", "centermark", "centerline", "wipeout",
+    "dimlinear", "dimaligned", "dimradius", "dimdiameter", "dimangular", "dimarc", "dimordinate", "dimcontinue", "dimbaseline", "qdim", "mleader", "leader",
+    "hatch", "gradient", "boundary", "region", "union", "subtract", "intersect",
+    "erase", "move", "copy", "rotate", "scale", "mirror", "stretch", "offset", "trim", "extend", "fillet", "chamfer", "explode", "break", "breakatpoint", "join",
+    "array", "arrayrect", "arraypolar", "pedit", "lengthen", "align", "reverse", "overkill", "purge",
+    "layer.new", "layer.set", "layer.current", "properties.set", "matchprop", "draworder.", "group", "ungroup",
+    "selectall", "ai_deselect", "select", "drawing.inspect", "entities", "texts", "count", "area", "dist", "list", "massprop",
+    "table", "table.set", "block", "insert", "blocks.list",
+]
+# Not allowed even if a prefix above grows to cover them: files, the clipboard, scripts and LISP,
+# settings, plotting and sharing.
+deny = ["lisp", "appload", "script", "setvar", "options", "aliasedit", "copyclip", "cutclip", "pasteclip", "wblock", "bsave", "xattach", "import", "export", "plot", "publish", "share"]
+
+# ---- documents ----
+
+[[node]]
+id = "cad.new"
+display = "New drawing"
+kind = "new"
+pure = false
+family = "Drawing"
+command = "new"
+description = "A new, empty drawing (new, with no template)"
+fixed = { template = "." }
+[[node.widget]]
+name = "metric"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "cad.open"
+display = "Open"
+kind = "open"
+family = "Drawing"
+description = "Open a DXF or DWG file (open)"
+
+[[node]]
+id = "cad.inspect"
+display = "Inspect drawing"
+kind = "query"
+family = "Drawing"
+command = "drawing.inspect"
+[[node.widget]]
+name = "entities"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "limit"
+type = "INT"
+default = 100
+min = 0.0
+max = 100000.0
+advanced = true
+
+[[node]]
+id = "cad.entities"
+display = "Entities"
+kind = "query"
+family = "Drawing"
+command = "entities"
+description = "The drawing's entities, filtered by type and layer (entities)"
+[[node.output]]
+name = "count"
+type = "INT"
+from = "count"
+[[node.output]]
+name = "entities"
+type = "JSON"
+from = "entities"
+[[node.widget]]
+name = "type"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "layer"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "limit"
+type = "INT"
+default = 100
+min = 0.0
+max = 100000.0
+
+[[node]]
+id = "cad.layer"
+display = "New layer"
+kind = "transform"
+pure = false
+family = "Drawing"
+command = "layer.new"
+description = "A new layer, made current so the next objects go on it (layer.new)"
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Layer1"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "red"
+[[node.widget]]
+name = "current"
+type = "BOOL"
+default = true
+
+# ---- draw ----
+
+[[node]]
+id = "cad.line"
+display = "Line"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "line"
+[[node.widget]]
+name = "points"
+type = "JSON"
+default = [[0, 0], [100, 0], [100, 50]]
+[[node.widget]]
+name = "closed"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "cad.pline"
+display = "Polyline"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "pline"
+[[node.widget]]
+name = "vertices"
+type = "JSON"
+default = [[0, 0], [100, 0], [100, 50], [0, 50]]
+[[node.widget]]
+name = "closed"
+type = "BOOL"
+default = true
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+min = 0.0
+max = 100000.0
+optional = true
+
+[[node]]
+id = "cad.rectangle"
+display = "Rectangle"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "rectang"
+[[node.widget]]
+name = "p1"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "p2"
+type = "JSON"
+default = [100, 60]
+[[node.widget]]
+name = "fillet"
+type = "FLOAT"
+min = 0.0
+max = 100000.0
+optional = true
+[[node.widget]]
+name = "rotation"
+type = "FLOAT"
+min = -360.0
+max = 360.0
+optional = true
+
+[[node]]
+id = "cad.circle"
+display = "Circle"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "circle"
+[[node.widget]]
+name = "center"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "radius"
+type = "FLOAT"
+default = 10.0
+min = 0.0
+max = 1000000.0
+
+[[node]]
+id = "cad.polygon"
+display = "Polygon"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "polygon"
+[[node.widget]]
+name = "sides"
+type = "INT"
+default = 6
+min = 3.0
+max = 1024.0
+[[node.widget]]
+name = "center"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "radius"
+type = "FLOAT"
+default = 10.0
+min = 0.0
+max = 1000000.0
+[[node.widget]]
+name = "inscribed"
+type = "BOOL"
+optional = true
+
+[[node]]
+id = "cad.text"
+display = "Text"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "text"
+[[node.widget]]
+name = "at"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Text"
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+default = 5.0
+min = 0.0
+max = 100000.0
+[[node.widget]]
+name = "rotation"
+type = "FLOAT"
+min = -360.0
+max = 360.0
+optional = true
+[[node.widget]]
+name = "justify"
+type = "ENUM"
+choices = ["L", "C", "R", "M", "TL", "TC", "TR", "ML", "MC", "MR", "BL", "BC", "BR"]
+optional = true
+
+[[node]]
+id = "cad.dim_linear"
+display = "Linear dimension"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "dimlinear"
+[[node.widget]]
+name = "p1"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "p2"
+type = "JSON"
+default = [100, 0]
+[[node.widget]]
+name = "at"
+type = "JSON"
+default = [50, -10]
+
+[[node]]
+id = "cad.hatch"
+display = "Hatch"
+kind = "transform"
+pure = false
+family = "Draw"
+command = "hatch"
+description = "Hatch the closed areas around these internal points (hatch)"
+[[node.widget]]
+name = "points"
+type = "JSON"
+default = [[1, 1]]
+[[node.widget]]
+name = "pattern"
+type = "STRING"
+default = "ANSI31"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+min = 0.0001
+max = 100000.0
+optional = true
+
+# ---- modify (on `select`, default all) ----
+
+[[node]]
+id = "cad.move"
+display = "Move"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "move"
+select = "all"
+[[node.widget]]
+name = "delta"
+type = "JSON"
+default = [0, 0]
+
+[[node]]
+id = "cad.rotate"
+display = "Rotate"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "rotate"
+select = "all"
+[[node.widget]]
+name = "base"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 0.0
+min = -360.0
+max = 360.0
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "cad.scale"
+display = "Scale"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "scale"
+select = "all"
+[[node.widget]]
+name = "base"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "factor"
+type = "FLOAT"
+default = 1.0
+min = 0.000001
+max = 1000000.0
+[[node.widget]]
+name = "copy"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "cad.mirror"
+display = "Mirror"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "mirror"
+select = "all"
+[[node.widget]]
+name = "p1"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "p2"
+type = "JSON"
+default = [0, 1]
+[[node.widget]]
+name = "erase"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "cad.array_rect"
+display = "Rectangular array"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "arrayrect"
+select = "all"
+fixed = { associative = false }
+[[node.widget]]
+name = "rows"
+type = "INT"
+default = 2
+min = 1.0
+max = 10000.0
+[[node.widget]]
+name = "cols"
+type = "INT"
+default = 2
+min = 1.0
+max = 10000.0
+[[node.widget]]
+name = "rowSpacing"
+label = "row spacing"
+type = "FLOAT"
+default = 100.0
+min = -1000000.0
+max = 1000000.0
+[[node.widget]]
+name = "colSpacing"
+label = "column spacing"
+type = "FLOAT"
+default = 100.0
+min = -1000000.0
+max = 1000000.0
+
+[[node]]
+id = "cad.array_polar"
+display = "Polar array"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "arraypolar"
+select = "all"
+fixed = { associative = false }
+[[node.widget]]
+name = "center"
+type = "JSON"
+default = [0, 0]
+[[node.widget]]
+name = "count"
+type = "INT"
+default = 6
+min = 1.0
+max = 10000.0
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 360.0
+min = -360.0
+max = 360.0
+[[node.widget]]
+name = "rotate"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "cad.explode"
+display = "Explode"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "explode"
+select = "all"
+
+[[node]]
+id = "cad.properties"
+display = "Properties"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "properties.set"
+description = "Set colour, layer, line weight or line type on the objects (properties.set)"
+select = "all"
+[[node.widget]]
+name = "color"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "layer"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "lineweight"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "linetype"
+type = "STRING"
+optional = true
+advanced = true
+
+[[node]]
+id = "cad.overkill"
+display = "Overkill"
+kind = "transform"
+pure = false
+family = "Modify"
+command = "overkill"
+description = "Delete duplicate and overlapping objects (overkill)"
+[[node.output]]
+name = "deleted"
+type = "INT"
+from = "deleted"
+[[node.widget]]
+name = "tolerance"
+type = "FLOAT"
+min = 0.0
+max = 1000000.0
+optional = true
+
+# ---- export (the export command) ----
+
+[[node]]
+id = "cad.export_svg"
+display = "Export SVG"
+kind = "export"
+family = "Export"
+format = "svg"
+ext = "svg"
+media = "image/svg+xml"
+[[node.output]]
+name = "svg"
+type = "SVG"
+
+[[node]]
+id = "cad.export_png"
+display = "Export PNG"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "cad.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+[[node]]
+id = "cad.export_dwg"
+display = "Export DWG"
+kind = "export"
+family = "Export"
+description = "The drawing as DWG (export); no viewer in the editor"
+format = "dwg"
+ext = "dwg"
+media = "image/vnd.dwg"
+[[node.output]]
+name = "dwg"
+type = "DWG"

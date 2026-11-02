@@ -1,0 +1,27 @@
+[package]
+name = "plumcraft-engine"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L1: the minimal engine SDK (Node, Cx), the graph executor, and the in-process host (mode 1)"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-proto = { workspace = true }
+plumcraft-store = { workspace = true }
+plumcraft-svg = { workspace = true }
+image = { workspace = true }
+serde = { workspace = true }
+tiny_http = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+plumcraft-store = { workspace = true }
+
+[build-dependencies]
+md-5 = { workspace = true }

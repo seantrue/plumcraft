@@ -1,0 +1,13 @@
+# The engine manifest (docs/interface.md, section 16.6): how PlumCraft starts this engine.
+id = "weather"
+name = "Weather"
+mode = "process"
+command = ["uv", "run", "--quiet", "--project", ".", "python", "-m", "weather_engine"]
+cwd = "."
+restart = "on-crash"
+max_restarts = 5
+hint = "uv sync, in this project"
+demo = "examples/demo.json"
+
+[conformance]
+slow = "weather.slow"

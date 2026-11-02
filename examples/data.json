@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "nodes": {
+    "readme": {"kind": "text.load",    "values": {"path": "../README.md"}},
+    "story":  {"kind": "text.literal", "values": {"text": "A corgi naps on a floral carpet. "}},
+    "many":   {"kind": "text.repeat",  "values": {"times": 3000}},
+    "shout":  {"kind": "text.upper"},
+    "abc":    {"kind": "text.letters"},
+    "codes":  {"kind": "text.codes"}
+  },
+  "wires": [
+    {"from": {"node": "story", "port": "text"}, "to": {"node": "many",  "port": "text"}},
+    {"from": {"node": "many",  "port": "text"}, "to": {"node": "shout", "port": "text"}},
+    {"from": {"node": "readme", "port": "text"}, "to": {"node": "abc",  "port": "text"}},
+    {"from": {"node": "story", "port": "text"}, "to": {"node": "codes", "port": "text"}}
+  ]
+}

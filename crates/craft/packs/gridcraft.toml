@@ -1,0 +1,398 @@
+# The GridCraft pack for plumcraft-craft (note 14, 3.10): GridCraft's spreadsheet engine as nodes.
+#
+# The document is an .xlsx workbook (GridCraft's own save format: charts, tables, pivots and
+# conditional formats round-trip, and two saves of one workbook are byte-identical). Every node
+# acts on the workbook's active sheet unless it names a sheet in its range ("Sheet2!A1:C3").
+#
+# UNCONFINED: `gridcraft-cli mcp` has no --automation-read-root/--automation-write-root, so the
+# craft can read and write anywhere the user can. The nodes only ever pass it paths in the craft
+# CAS and work folder, and run_node's allow list leaves out every command that takes a path
+# (insert.picture, data.getData, data.fromTextCsv, pageLayout.background), the clipboard, links,
+# scripts, printing and file.*.
+
+id = "gridcraft"
+name = "GridCraft"
+command = ["gridcraft-cli", "mcp"]
+hint = "install gridcraft-cli on PATH (https://github.com/storytold/gridcraft)"
+timeout_s = 300
+
+[gui]
+command = ["gridcraft"]
+env = "PLUMCRAFT_GRIDCRAFT_APP"
+label = "GridCraft"
+hint = "install gridcraft on PATH (https://github.com/storytold/gridcraft)"
+
+[pool]
+max = 2
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "list_commands"
+run = { tool = "execute_command", id = "command", params = "params" }
+
+# file.saveAs picks the format from the extension (.xlsx, .csv, .tsv, .json, .html, .pdf) and
+# ignores the `format` key the adapter adds to an export.
+[actions]
+open = { command = "file.open", path = "path" }
+save = { command = "file.saveAs", path = "path" }
+close_all = { command = "file.close", params = { force = true, document = true } }
+export = { command = "file.saveAs", path = "path" }
+
+[doc]
+wire = "gridcraft.doc"
+ext = "xlsx"
+media = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+app = "gridcraft"
+stem = "workbook"
+color = "#15803d"
+
+[run_node]
+id = "gc.run"
+display = "Run command"
+allow = ["cell.", "range.", "home.", "data.", "table.", "chart.", "pivot.", "slicer.", "sheet.", "formulas.", "view.freezePanes", "view.freezeTopRow", "view.freezeFirstColumn", "view.unfreezePanes", "view.gridlines", "pageLayout.", "insert.table", "insert.chart", "insert.recommendedCharts", "insert.chartRecommendations", "insert.sparkline", "insert.pivotTable", "insert.recommendedPivotTables", "insert.pivotChart", "insert.slicer", "insert.shape", "insert.textBox", "insert.symbol", "insert.checkbox", "edit.replace", "edit.find", "edit.fill", "edit.autoFill", "edit.clearAll", "edit.clearContents", "edit.clearFormats", "edit.clearComments", "edit.clearHyperlinks", "edit.flashFill", "review.newNote", "review.newComment", "review.workbookStatistics", "review.checkAccessibility", "review.spelling", "selection.set", "document.inspect"]
+deny = ["data.getData", "data.fromTextCsv", "data.queriesConnections", "pageLayout.background", "formulas.insertFunction", "formulas.pasteName", "formulas.useInFormula", "home.addIns"]
+
+# ---- workbooks ----
+
+[[node]]
+id = "gc.open"
+display = "Open workbook"
+kind = "open"
+family = "Workbook"
+description = "Open a workbook: .xlsx, .xlsm, .xls, .xlsb, .ods, .csv, .tsv, .txt or .json (file.open)"
+
+[[node]]
+id = "gc.new"
+display = "New workbook"
+kind = "new"
+family = "Workbook"
+command = "file.new"
+description = "A new workbook: blank, or one of GridCraft's samples (file.new)"
+[[node.widget]]
+name = "sample"
+type = "ENUM"
+choices = ["budget", "sales", "grades"]
+optional = true
+
+[[node]]
+id = "gc.add_sheet"
+display = "Add sheet"
+kind = "transform"
+family = "Workbook"
+command = "home.insertSheet"
+description = "Insert a sheet; it becomes the active one (home.insertSheet)"
+[[node.widget]]
+name = "name"
+type = "STRING"
+optional = true
+
+# ---- cells ----
+
+[[node]]
+id = "gc.set_cell"
+display = "Set cell"
+kind = "transform"
+family = "Cells"
+command = "cell.set"
+description = "Enter one cell as if typed: a number, text or =formula (cell.set)"
+[[node.widget]]
+name = "cell"
+type = "STRING"
+default = "A1"
+[[node.widget]]
+name = "input"
+type = "STRING"
+default = ""
+socket = "both"
+
+[[node]]
+id = "gc.write_range"
+display = "Write range"
+kind = "transform"
+family = "Cells"
+command = "range.setValues"
+description = "Write rows of values from a top-left cell; strings starting with = are formulas (range.setValues)"
+[[node.widget]]
+name = "range"
+type = "STRING"
+default = "A1"
+[[node.widget]]
+name = "values"
+type = "JSON"
+default = [["Item", "Cost"], ["Rent", 1200], ["Food", 450]]
+[[node.widget]]
+name = "parse"
+type = "BOOL"
+default = true
+advanced = true
+
+[[node]]
+id = "gc.replace"
+display = "Find and replace"
+kind = "transform"
+family = "Cells"
+command = "edit.replace"
+fixed = { all = true }
+[[node.widget]]
+name = "what"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "with"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "matchCase"
+type = "BOOL"
+default = false
+advanced = true
+[[node.widget]]
+name = "wholeCell"
+type = "BOOL"
+default = false
+advanced = true
+[[node.widget]]
+name = "within"
+type = "ENUM"
+choices = ["sheet", "workbook"]
+default = "sheet"
+
+[[node]]
+id = "gc.number_format"
+display = "Number format"
+kind = "transform"
+family = "Format"
+command = "home.numberFormat"
+description = "A named number format (Currency, Percentage, …) or a format code such as 0.00 (home.numberFormat)"
+[[node.widget]]
+name = "range"
+type = "STRING"
+default = "A1"
+[[node.widget]]
+name = "format"
+type = "STRING"
+default = "Number"
+
+[[node]]
+id = "gc.format_as_table"
+display = "Format as table"
+kind = "transform"
+family = "Format"
+command = "insert.table"
+description = "Make a range an Excel table: banded rows, filter buttons, structured references (insert.table)"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "style"
+type = "STRING"
+default = "TableStyleMedium2"
+[[node.widget]]
+name = "header"
+type = "BOOL"
+default = true
+
+# ---- data ----
+
+[[node]]
+id = "gc.sort"
+display = "Sort"
+kind = "transform"
+family = "Data"
+command = "data.sort"
+description = "Sort a range by one or more columns (data.sort); keys: [{column: \"B\", order: asc|desc}]"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "keys"
+type = "JSON"
+default = [{ column = "A", order = "asc" }]
+[[node.widget]]
+name = "header"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "gc.remove_duplicates"
+display = "Remove duplicates"
+kind = "transform"
+family = "Data"
+command = "data.removeDuplicates"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "columns"
+type = "JSON"
+optional = true
+[[node.widget]]
+name = "header"
+type = "BOOL"
+default = true
+
+[[node]]
+id = "gc.subtotal"
+display = "Subtotal"
+kind = "transform"
+family = "Data"
+command = "data.subtotal"
+description = "Insert subtotal rows at each change of a column (data.subtotal)"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "groupBy"
+type = "STRING"
+default = "A"
+[[node.widget]]
+name = "function"
+type = "ENUM"
+choices = ["sum", "count", "average", "max", "min", "product"]
+default = "sum"
+[[node.widget]]
+name = "columns"
+type = "JSON"
+default = ["B"]
+
+[[node]]
+id = "gc.pivot"
+display = "PivotTable"
+kind = "transform"
+family = "Data"
+command = "insert.pivotTable"
+description = "A PivotTable on a new sheet, which becomes the active one (insert.pivotTable); rows/columns/values are lists of field names"
+[[node.widget]]
+name = "source"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "rows"
+type = "JSON"
+default = []
+[[node.widget]]
+name = "columns"
+type = "JSON"
+default = []
+[[node.widget]]
+name = "values"
+type = "JSON"
+default = []
+
+[[node]]
+id = "gc.chart"
+display = "Insert chart"
+kind = "transform"
+family = "Data"
+command = "insert.chart"
+description = "A chart from a data range, first row and column as series names and categories (insert.chart)"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "type"
+type = "ENUM"
+choices = ["column", "bar", "line", "pie", "doughnut", "area", "scatter", "bubble", "radar", "combo", "histogram", "waterfall", "funnel", "treemap", "sunburst", "boxWhisker", "stock"]
+default = "column"
+[[node.widget]]
+name = "title"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "at"
+type = "STRING"
+optional = true
+advanced = true
+
+# ---- queries ----
+
+[[node]]
+id = "gc.read"
+display = "Read range"
+kind = "query"
+family = "Query"
+command = "sheet.read"
+description = "The computed values of a range as rows (sheet.read; default: the used range)"
+[[node.output]]
+name = "values"
+type = "JSON"
+from = "values"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "sheet"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "formatted"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "gc.evaluate"
+display = "Evaluate formula"
+kind = "query"
+family = "Query"
+command = "formulas.evaluate"
+description = "A formula's value against the active sheet, without changing it (formulas.evaluate)"
+[[node.widget]]
+name = "formula"
+type = "STRING"
+default = "=SUM(B2:B10)"
+
+[[node]]
+id = "gc.inspect"
+display = "Inspect workbook"
+kind = "query"
+family = "Query"
+command = "document.inspect"
+description = "Sheets, used ranges, tables, charts, names and selection (document.inspect)"
+
+# ---- export ----
+
+[[node]]
+id = "gc.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+description = "The active sheet as a PDF (file.saveAs .pdf)"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+[[node]]
+id = "gc.export_csv"
+display = "Export CSV"
+kind = "export"
+family = "Export"
+description = "The active sheet as CSV (file.saveAs .csv); no viewer in the editor"
+format = "csv"
+ext = "csv"
+media = "text/csv"
+[[node.output]]
+name = "csv"
+type = "CSV"
+
+[[node]]
+id = "gc.export_html"
+display = "Export HTML"
+kind = "export"
+family = "Export"
+description = "The workbook as an HTML page (file.saveAs .html); no viewer in the editor"
+format = "html"
+ext = "html"
+media = "text/html"
+[[node.output]]
+name = "html"
+type = "HTML"

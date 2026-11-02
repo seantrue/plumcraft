@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# The same run through PlumCraft's Rust CLI, which starts this engine from its manifest.
+# It needs a built PlumCraft (see _plumcraft.sh).
+#   scripts/cli-run [GRAPH.json] [--http] [--watch NODE.PORT]...
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/_plumcraft.sh
+plumcraft=$(find_plumcraft plumcraft)
+exec "$plumcraft" run --engine-manifest plumcraft-engine.toml "$@"

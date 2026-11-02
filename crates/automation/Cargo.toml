@@ -1,0 +1,24 @@
+[package]
+name = "plumcraft-automation"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L4: the editor's --control JSON channel (loopback transport with token auth, session methods); lifted from the research software's research-automation"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-session = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+# whose token file this is, with no `unsafe` here
+rustix = { version = "1", default-features = false, features = ["std", "process"] }
+
+[dev-dependencies]
+plumcraft-scratch = { workspace = true }
+plumcraft-text = { workspace = true }

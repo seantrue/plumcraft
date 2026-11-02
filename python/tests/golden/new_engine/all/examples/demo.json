@@ -1,0 +1,385 @@
+{
+  "version": 1,
+  "nodes": {
+    "sum": {
+      "kind": "weather.add",
+      "values": {
+        "a": 2.0,
+        "b": 0.5
+      }
+    },
+    "formatted": {
+      "kind": "weather.format_number",
+      "values": {
+        "decimals": 3
+      }
+    },
+    "parsed": {
+      "kind": "weather.parse_number"
+    },
+    "source": {
+      "kind": "weather.text",
+      "values": {
+        "text": "a corgi naps"
+      }
+    },
+    "loud": {
+      "kind": "weather.shout",
+      "values": {
+        "marks": 3
+      }
+    },
+    "hex": {
+      "kind": "weather.text_to_hex"
+    },
+    "back": {
+      "kind": "weather.hex_to_text"
+    },
+    "waited": {
+      "kind": "weather.slow"
+    },
+    "sample": {
+      "kind": "weather.sample_table"
+    },
+    "sorted": {
+      "kind": "weather.sort_rows",
+      "values": {
+        "descending": true
+      }
+    },
+    "csv": {
+      "kind": "weather.table_to_csv"
+    },
+    "parsed_csv": {
+      "kind": "weather.csv_to_table"
+    },
+    "gradient": {
+      "kind": "weather.ramp"
+    },
+    "unit": {
+      "kind": "weather.normalize"
+    },
+    "numbers": {
+      "kind": "weather.table_to_array"
+    },
+    "numbers_back": {
+      "kind": "weather.array_to_table"
+    },
+    "drawing": {
+      "kind": "weather.shapes"
+    },
+    "green": {
+      "kind": "weather.recolor"
+    },
+    "svg_source": {
+      "kind": "weather.svg_to_text"
+    },
+    "svg_back": {
+      "kind": "weather.text_to_svg"
+    },
+    "board": {
+      "kind": "weather.checkerboard"
+    },
+    "board_size": {
+      "kind": "weather.image_size"
+    },
+    "pixels": {
+      "kind": "weather.image_to_array"
+    },
+    "repainted": {
+      "kind": "weather.array_to_image"
+    },
+    "beep": {
+      "kind": "weather.tone"
+    },
+    "quiet": {
+      "kind": "weather.gain"
+    },
+    "samples": {
+      "kind": "weather.audio_to_array"
+    },
+    "played": {
+      "kind": "weather.array_to_audio"
+    },
+    "settings": {
+      "kind": "weather.settings"
+    },
+    "name": {
+      "kind": "weather.get_key"
+    },
+    "as_text": {
+      "kind": "weather.json_to_text"
+    },
+    "as_json": {
+      "kind": "weather.text_to_json"
+    },
+    "words": {
+      "kind": "weather.split"
+    },
+    "sentence": {
+      "kind": "weather.join_list"
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "sum",
+        "port": "float"
+      },
+      "to": {
+        "node": "formatted",
+        "port": "value"
+      }
+    },
+    {
+      "from": {
+        "node": "formatted",
+        "port": "string"
+      },
+      "to": {
+        "node": "parsed",
+        "port": "string"
+      }
+    },
+    {
+      "from": {
+        "node": "source",
+        "port": "text"
+      },
+      "to": {
+        "node": "loud",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "loud",
+        "port": "text"
+      },
+      "to": {
+        "node": "hex",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "hex",
+        "port": "string"
+      },
+      "to": {
+        "node": "back",
+        "port": "string"
+      }
+    },
+    {
+      "from": {
+        "node": "back",
+        "port": "text"
+      },
+      "to": {
+        "node": "waited",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "sample",
+        "port": "table"
+      },
+      "to": {
+        "node": "sorted",
+        "port": "table"
+      }
+    },
+    {
+      "from": {
+        "node": "sorted",
+        "port": "table"
+      },
+      "to": {
+        "node": "csv",
+        "port": "table"
+      }
+    },
+    {
+      "from": {
+        "node": "csv",
+        "port": "text"
+      },
+      "to": {
+        "node": "parsed_csv",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "gradient",
+        "port": "array"
+      },
+      "to": {
+        "node": "unit",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "sorted",
+        "port": "table"
+      },
+      "to": {
+        "node": "numbers",
+        "port": "table"
+      }
+    },
+    {
+      "from": {
+        "node": "numbers",
+        "port": "array"
+      },
+      "to": {
+        "node": "numbers_back",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "drawing",
+        "port": "svg"
+      },
+      "to": {
+        "node": "green",
+        "port": "drawing"
+      }
+    },
+    {
+      "from": {
+        "node": "green",
+        "port": "svg"
+      },
+      "to": {
+        "node": "svg_source",
+        "port": "drawing"
+      }
+    },
+    {
+      "from": {
+        "node": "svg_source",
+        "port": "text"
+      },
+      "to": {
+        "node": "svg_back",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "board",
+        "port": "image"
+      },
+      "to": {
+        "node": "board_size",
+        "port": "picture"
+      }
+    },
+    {
+      "from": {
+        "node": "board",
+        "port": "image"
+      },
+      "to": {
+        "node": "pixels",
+        "port": "picture"
+      }
+    },
+    {
+      "from": {
+        "node": "pixels",
+        "port": "array"
+      },
+      "to": {
+        "node": "repainted",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "beep",
+        "port": "audio"
+      },
+      "to": {
+        "node": "quiet",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "quiet",
+        "port": "audio"
+      },
+      "to": {
+        "node": "samples",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "samples",
+        "port": "array"
+      },
+      "to": {
+        "node": "played",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "settings",
+        "port": "json"
+      },
+      "to": {
+        "node": "name",
+        "port": "value"
+      }
+    },
+    {
+      "from": {
+        "node": "settings",
+        "port": "json"
+      },
+      "to": {
+        "node": "as_text",
+        "port": "value"
+      }
+    },
+    {
+      "from": {
+        "node": "as_text",
+        "port": "text"
+      },
+      "to": {
+        "node": "as_json",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "source",
+        "port": "text"
+      },
+      "to": {
+        "node": "words",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "words",
+        "port": "items"
+      },
+      "to": {
+        "node": "sentence",
+        "port": "items"
+      }
+    }
+  ]
+}

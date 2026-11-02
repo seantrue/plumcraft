@@ -1,0 +1,286 @@
+# DRAFT, not a built-in pack (Worker A, 2026-10-28): the LightCraft pack as it would be once the
+# adapter can give each cold open a fresh process (see claude-debug/craft-pack-lightcraft.md).
+# Kept out of crates/craft/packs/ on purpose: with the adapter as it is, a reopened document can
+# pick up another node's edits (LightCraft dedups imports by path and content).
+#
+# LightCraft keeps edits in its catalog, not in a file. This draft makes the document the
+# developed image: a full-size 16-bit TIFF with no metadata (so no develop settings ride along
+# and a reimport starts from defaults). Each node imports it, edits, and exports it again.
+# Unconfined: `lightcraft-cli mcp` has no automation roots; its headless library is in memory
+# (library.info: persistent false), so no real catalog is touched.
+
+id = "lightcraft"
+name = "LightCraft"
+command = ["lightcraft-cli", "mcp", "--compact"]
+hint = "install lightcraft-cli on PATH (https://github.com/storytold/lightcraft)"
+timeout_s = 600
+
+[gui]
+command = ["lightcraft"]
+env = "PLUMCRAFT_LIGHTCRAFT_APP"
+label = "LightCraft"
+hint = "install lightcraft on PATH (~/bin/lightcraft)"
+
+[pool]
+max = 2
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+open = { tool = "import", path = "paths" }
+save = { tool = "export", path = "path", params = { format = "tiff", longEdge = 0, bitDepth = 16, metadata = "none", tiffCompression = "zip" } }
+clear_history = { command = "history.clear" }
+export = { tool = "export", path = "path", params = { longEdge = 0 } }
+
+[doc]
+wire = "lightcraft.image"
+ext = "tif"
+media = "image/tiff"
+app = "lightcraft"
+stem = "photo"
+color = "#b45309"
+
+[[catalogue]]
+name = "presets"
+command = "presets.list"
+path = ""
+
+[run_node]
+id = "lc.run"
+display = "Run command"
+allow = ["develop.set", "develop.auto", "develop.wb", "develop.treatment", "develop.profile", "develop.quickAdjust", "develop.curve", "develop.resetControl", "develop.resetSection", "crop.", "geometry.upright", "preset.apply", "curve.applyPreset", "mask.add", "mask.adjust", "spot.add", "develop.get"]
+deny = []
+
+[[node]]
+id = "lc.open"
+display = "Open photo"
+kind = "open"
+family = "Photo"
+description = "Import a photo (raw, JPEG, TIFF, …) into a scratch in-memory library"
+
+[[node]]
+id = "lc.light"
+display = "Light"
+kind = "transform"
+family = "Develop"
+command = "develop.set"
+[[node.widget]]
+name = "exposure"
+key = "light.exposure"
+into = "values"
+type = "FLOAT"
+min = -5.0
+max = 5.0
+default = 0.0
+[[node.widget]]
+name = "contrast"
+key = "light.contrast"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "highlights"
+key = "light.highlights"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "shadows"
+key = "light.shadows"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "whites"
+key = "light.whites"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "blacks"
+key = "light.blacks"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+
+[[node]]
+id = "lc.presence"
+display = "Presence"
+kind = "transform"
+family = "Develop"
+command = "develop.set"
+[[node.widget]]
+name = "texture"
+key = "effects.texture"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "clarity"
+key = "effects.clarity"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "dehaze"
+key = "effects.dehaze"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "vibrance"
+key = "color.vibrance"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+[[node.widget]]
+name = "saturation"
+key = "color.saturation"
+into = "values"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+default = 0.0
+
+[[node]]
+id = "lc.develop"
+display = "Develop (any sliders)"
+kind = "transform"
+family = "Develop"
+command = "develop.set"
+description = "Set any develop sliders by control id, e.g. {\"light.exposure\": 0.5, \"vignette.amount\": -30} (develop.set; ids from develop.controls)"
+[[node.widget]]
+name = "values"
+type = "JSON"
+default = { "light.exposure" = 0.0 }
+socket = "both"
+
+[[node]]
+id = "lc.auto"
+display = "Auto tone"
+kind = "transform"
+family = "Develop"
+command = "develop.auto"
+
+[[node]]
+id = "lc.white_balance"
+display = "White balance"
+kind = "transform"
+family = "Develop"
+command = "develop.wb"
+[[node.widget]]
+name = "mode"
+type = "ENUM"
+choices = ["asShot", "auto", "daylight", "cloudy", "shade", "tungsten", "fluorescent", "flash", "custom"]
+default = "auto"
+[[node.widget]]
+name = "temp"
+type = "FLOAT"
+optional = true
+[[node.widget]]
+name = "tint"
+type = "FLOAT"
+optional = true
+
+[[node]]
+id = "lc.black_white"
+display = "Black & white"
+kind = "transform"
+family = "Develop"
+command = "develop.treatment"
+fixed = { bw = true }
+
+[[node]]
+id = "lc.preset"
+display = "Preset"
+kind = "transform"
+family = "Develop"
+command = "preset.apply"
+[[node.widget]]
+name = "id"
+label = "preset"
+type = "ENUM"
+choices_from = "presets:id"
+default = "lc.warm-glow"
+[[node.widget]]
+name = "amount"
+type = "FLOAT"
+default = 100.0
+min = 0.0
+max = 200.0
+
+[[node]]
+id = "lc.crop"
+display = "Crop"
+kind = "transform"
+family = "Geometry"
+command = "crop.set"
+[[node.widget]]
+name = "rect"
+type = "JSON"
+default = [0.1, 0.1, 0.9, 0.9]
+socket = "both"
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+default = 0.0
+min = -45.0
+max = 45.0
+
+[[node]]
+id = "lc.settings"
+display = "Develop settings"
+kind = "query"
+family = "Photo"
+command = "develop.get"
+description = "The photo's develop settings as JSON (develop.get)"
+
+[[node]]
+id = "lc.export_png"
+display = "Export PNG"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "lc.export_jpg"
+display = "Export JPEG"
+kind = "export"
+family = "Export"
+format = "jpeg"
+ext = "jpg"
+media = "image/jpeg"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "quality"
+type = "INT"
+default = 92
+min = 1.0
+max = 100.0

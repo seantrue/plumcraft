@@ -1,0 +1,32 @@
+
+    # ---------- text ----------
+
+    @node("Text")
+    def text(self, text: str = "a corgi naps") -> Text:
+        """A source: the text typed into its widget."""
+        return text
+
+    @node("Shout")
+    def shout(
+        self,
+        text: Text,
+        marks: Annotated[int, Range(0, 5, invalid="clamp"), Port(tooltip="How many exclamation marks")] = 2,
+        case: Literal["upper", "title"] = "upper",
+    ) -> Text:
+        """Loud text. A socket, a clamped widget and a choice; empty text is a config error."""
+        if not text.strip():
+            raise ConfigError("there is nothing to shout")
+        return (text.upper() if case == "upper" else text.title()) + "!" * marks
+
+    @node("Text to Hex")
+    def text_to_hex(self, text: Text) -> String:
+        """Text as the hex of its UTF-8 bytes. The inverse of Hex to Text."""
+        return text.encode("utf-8").hex()
+
+    @node("Hex to Text")
+    def hex_to_text(self, string: str = "636f726769") -> Text:
+        """Hex back to text. The inverse of Text to Hex. Hex that isn't UTF-8 is an op error: a failure on this input."""
+        try:
+            return bytes.fromhex(string).decode("utf-8")
+        except ValueError as e:
+            raise OpError(f"not the hex of UTF-8 text: {e}") from None

@@ -1,0 +1,224 @@
+{
+  "version": 1,
+  "nodes": {
+    "new": {
+      "kind": "sol.new",
+      "pos": [
+        0,
+        0
+      ],
+      "values": {}
+    },
+    "width": {
+      "kind": "sol.parameter",
+      "pos": [
+        440,
+        0
+      ],
+      "values": {
+        "name": "width",
+        "expression": "40 mm"
+      }
+    },
+    "box": {
+      "kind": "sol.box",
+      "pos": [
+        880,
+        0
+      ],
+      "values": {
+        "length": "width",
+        "width": "30",
+        "height": "20"
+      }
+    },
+    "hole": {
+      "kind": "sol.cylinder",
+      "pos": [
+        1320,
+        0
+      ],
+      "values": {
+        "radius": "8",
+        "height": "20",
+        "base": [
+          "width / 2",
+          15,
+          0
+        ],
+        "axis": "Z",
+        "operation": "cut"
+      }
+    },
+    "round": {
+      "kind": "sol.fillet",
+      "pos": [
+        1760,
+        0
+      ],
+      "values": {
+        "edges": [
+          [
+            20,
+            0,
+            20
+          ],
+          [
+            40,
+            15,
+            20
+          ],
+          [
+            20,
+            30,
+            20
+          ],
+          [
+            0,
+            15,
+            20
+          ]
+        ],
+        "radius": "2"
+      }
+    },
+    "colour": {
+      "kind": "sol.appearance",
+      "pos": [
+        2200,
+        0
+      ],
+      "values": {
+        "color": "#0e7490"
+      }
+    },
+    "stl": {
+      "kind": "sol.export_stl",
+      "pos": [
+        2640,
+        0
+      ],
+      "values": {}
+    },
+    "step": {
+      "kind": "sol.export_step",
+      "pos": [
+        2640,
+        420
+      ],
+      "values": {}
+    },
+    "measure": {
+      "kind": "sol.measure",
+      "pos": [
+        2640,
+        840
+      ],
+      "values": {}
+    },
+    "png": {
+      "kind": "sol.export_png",
+      "pos": [
+        2640,
+        -420
+      ],
+      "values": {
+        "width": 480,
+        "height": 320,
+        "view": "iso"
+      }
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "new",
+        "port": "doc"
+      },
+      "to": {
+        "node": "width",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "width",
+        "port": "doc"
+      },
+      "to": {
+        "node": "box",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "box",
+        "port": "doc"
+      },
+      "to": {
+        "node": "hole",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "hole",
+        "port": "doc"
+      },
+      "to": {
+        "node": "round",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "round",
+        "port": "doc"
+      },
+      "to": {
+        "node": "colour",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "colour",
+        "port": "doc"
+      },
+      "to": {
+        "node": "stl",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "colour",
+        "port": "doc"
+      },
+      "to": {
+        "node": "step",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "colour",
+        "port": "doc"
+      },
+      "to": {
+        "node": "measure",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "colour",
+        "port": "doc"
+      },
+      "to": {
+        "node": "png",
+        "port": "doc"
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+
+
+def test_shout(engine):
+    assert engine.shout("a corgi", 1, "upper") == "A CORGI!"
+    assert engine.shout("a corgi", 0, "title") == "A Corgi"
+    with pytest.raises(ConfigError):
+        engine.shout("   ", 1, "upper")
+
+
+def test_hex_to_text_refuses_what_isnt_utf8(engine):
+    with pytest.raises(OpError):
+        engine.hex_to_text("ff")

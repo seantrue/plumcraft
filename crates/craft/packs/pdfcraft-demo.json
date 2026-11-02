@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "nodes": {
+    "open":      {"kind": "pdf.open",       "pos": [0, 0],    "values": {"file": ""}},
+    "rotate":    {"kind": "pdf.rotate",     "pos": [440, 0],  "values": {"degrees": 90}},
+    "watermark": {"kind": "pdf.watermark",  "pos": [880, 0],  "values": {"text": "DRAFT"}},
+    "pdf":       {"kind": "pdf.export_pdf", "pos": [1320, 0], "values": {}},
+    "text":      {"kind": "pdf.export_text","pos": [1320, 360], "values": {}}
+  },
+  "wires": [
+    {"from": {"node": "open", "port": "doc"}, "to": {"node": "rotate", "port": "doc"}},
+    {"from": {"node": "rotate", "port": "doc"}, "to": {"node": "watermark", "port": "doc"}},
+    {"from": {"node": "watermark", "port": "doc"}, "to": {"node": "pdf", "port": "doc"}},
+    {"from": {"node": "watermark", "port": "doc"}, "to": {"node": "text", "port": "doc"}}
+  ]
+}

@@ -1,0 +1,23 @@
+
+    # ---------- tables ----------
+
+    @node("Sample Table")
+    def sample_table(self, rows: Annotated[int, Range(1, 1000, invalid="clamp")] = 5) -> Table:
+        """A source: a small table. A table is columns of equal length: `{"columns": [{"name", "type", "values"}]}`."""
+        names = ["corgi", "heron", "otter", "wren", "vole"]
+        return {
+            "columns": [
+                {"name": "name", "type": "STRING", "values": [names[i % len(names)] for i in range(rows)]},
+                {"name": "count", "type": "FLOAT", "values": [float((i * 7) % 11) for i in range(rows)]},
+            ]
+        }
+
+    @node("Sort Rows")
+    def sort_rows(self, table: Table, column: str = "count", descending: bool = False) -> Table:
+        """The table's rows sorted by a column. A column that isn't there is a config error."""
+        columns = table["columns"]
+        key = next((c["values"] for c in columns if c["name"] == column), None)
+        if key is None:
+            raise ConfigError(f"no column {column!r}; the columns are {', '.join(c['name'] for c in columns)}")
+        order = sorted(range(len(key)), key=lambda i: key[i], reverse=descending)
+        return {"columns": [c | {"values": [c["values"][i] for i in order]} for c in columns]}

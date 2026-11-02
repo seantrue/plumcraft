@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "nodes": {
+    "sum": {
+      "kind": "weather.add",
+      "values": {
+        "a": 2.0,
+        "b": 0.5
+      }
+    },
+    "formatted": {
+      "kind": "weather.format_number",
+      "values": {
+        "decimals": 3
+      }
+    },
+    "parsed": {
+      "kind": "weather.parse_number"
+    },
+    "waited": {
+      "kind": "weather.slow"
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "sum",
+        "port": "float"
+      },
+      "to": {
+        "node": "formatted",
+        "port": "value"
+      }
+    },
+    {
+      "from": {
+        "node": "formatted",
+        "port": "string"
+      },
+      "to": {
+        "node": "parsed",
+        "port": "string"
+      }
+    },
+    {
+      "from": {
+        "node": "parsed",
+        "port": "float"
+      },
+      "to": {
+        "node": "waited",
+        "port": "value"
+      }
+    }
+  ]
+}

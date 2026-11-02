@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "nodes": {
+    "new":     {"kind": "fc.new",          "pos": [0, 0],      "values": {"name": "Demo"}},
+    "footage": {"kind": "fc.demo_footage", "pos": [400, 0],    "values": {"scene": "Aurora"}},
+    "seq":     {"kind": "fc.sequence",     "pos": [800, 0],    "values": {"name": "Aurora"}},
+    "title":   {"kind": "fc.text",         "pos": [1200, 0],   "values": {"text": "PlumCraft", "seconds": 3.0}},
+    "look":    {"kind": "fc.look",         "pos": [1600, 0],   "values": {"name": "Golden Dusk"}},
+    "mp4":     {"kind": "fc.export_mp4",   "pos": [2000, 0],   "values": {"scale": 0.25, "range": "custom", "startSeconds": 0.0, "endSeconds": 3.0}},
+    "gif":     {"kind": "fc.export_gif",   "pos": [2000, 400], "values": {"scale": 0.25}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "footage", "port": "doc"}},
+    {"from": {"node": "footage", "port": "doc"}, "to": {"node": "seq", "port": "doc"}},
+    {"from": {"node": "footage", "port": "item"}, "to": {"node": "seq", "port": "fromItem"}},
+    {"from": {"node": "seq", "port": "doc"}, "to": {"node": "title", "port": "doc"}},
+    {"from": {"node": "title", "port": "doc"}, "to": {"node": "look", "port": "doc"}},
+    {"from": {"node": "look", "port": "doc"}, "to": {"node": "mp4", "port": "doc"}},
+    {"from": {"node": "look", "port": "doc"}, "to": {"node": "gif", "port": "doc"}}
+  ]
+}

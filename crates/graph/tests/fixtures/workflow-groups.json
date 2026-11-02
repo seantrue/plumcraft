@@ -1,0 +1,78 @@
+{
+ "version": 1,
+ "nodes": {
+  "n1": {
+   "kind": "demo.load",
+   "pos": [
+    -39.374733,
+    52.68199
+   ],
+   "values": {
+    "p1": true,
+    "p2": "x",
+    "path": "sample.png"
+   },
+   "serial": 1
+  },
+  "n2": {
+   "kind": "demo.adjust",
+   "pos": [
+    327.54404,
+    71.81557
+   ],
+   "values": {
+    "p3": "x",
+    "p4": "x"
+   },
+   "serial": 1
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "n1",
+    "port": "rgb"
+   },
+   "to": {
+    "node": "n2",
+    "port": "array"
+   }
+  }
+ ],
+ "groups": {
+  "g1": {
+   "name": "LoadPrep",
+   "nodes": [
+    "n1",
+    "n2"
+   ],
+   "promoted": [
+    {
+     "port": {
+      "node": "n1",
+      "port": "image"
+     },
+     "label": "image",
+     "doc": "A picture to use instead of the file"
+    }
+   ],
+   "outputs": [
+    {
+     "from": {
+      "node": "n2",
+      "port": "curved"
+     },
+     "name": "curved"
+    }
+   ],
+   "checkpoints": [],
+   "collapsed": true,
+   "pos": [
+    -39.374733,
+    52.68199
+   ]
+  }
+ },
+ "next_id": 3,
+ "next_group": 2
+}

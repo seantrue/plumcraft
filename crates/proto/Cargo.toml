@@ -1,0 +1,31 @@
+[package]
+name = "plumcraft-proto"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L0: the UI <-> engine interface, protocol 2 (docs/interface.md): handles, data references, sessions, the catalogue, runs, events, displays and errors"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+md-5 = { workspace = true }
+toml = { workspace = true }
+
+schemars = { workspace = true, optional = true }
+
+[features]
+# JSON Schema for protocol 2 (src/schema.rs, schema/protocol2.json).
+schema = ["dep:schemars"]
+
+[[example]]
+name = "export_schema"
+required-features = ["schema"]
+
+[dev-dependencies]
+base64 = { workspace = true }

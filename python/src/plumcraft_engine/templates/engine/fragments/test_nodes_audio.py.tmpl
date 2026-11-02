@@ -1,0 +1,7 @@
+
+
+def test_tone_and_gain(engine):
+    tone = engine.tone(440.0, 0.5, 8000)
+    assert (tone.frames, tone.channels, tone.sample_rate) == (4000, 1, 8000)
+    quieter = engine.gain(tone, -6.0)
+    assert quieter.sample_rate == 8000 and abs(quieter.samples).max() < abs(tone.samples).max()

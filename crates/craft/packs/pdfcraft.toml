@@ -1,0 +1,373 @@
+# The PdfCraft pack for plumcraft-craft (worker C's draft, 2026-10-28; moved in by the
+# coordinator once the adapter had explicit document ids and JSON Schema params). Notes in
+# claude-debug/craft-pack-pdfcraft.md.
+#
+# A document is the PDF itself (saves are byte-stable). PdfCraft names every document by an id
+# that doc_open returns (1, 2, …, never reused) and every tool and command requires `doc`;
+# leaving it out is an error ("missing argument doc"), not "the active document".
+#
+# Left out on purpose (worker brief): signing and Fill & Sign (sign.*), keychain and Windows
+# identities, printing and printers, OCR (model downloads), redaction apply, JavaScript (js_*,
+# form.prepare which sets scripts), passwords (protect.*), anything reading or writing files
+# beside the document (page.insert/replace/extract/split, edit.image/attach, comment.stamp,
+# comment.summarize, measure.export, export.*, create.*, page.combine, form.merge_data).
+
+id = "pdfcraft"
+name = "PdfCraft"
+command = ["pdfcraft-cli", "mcp"]
+hint = "install pdfcraft-cli on PATH (https://github.com/storytold/pdfcraft)"
+timeout_s = 300
+# `doc` is the document's id in the process, `name` its file name.
+volatile = ["path", "index", "doc", "name", "document"]
+
+[gui]
+command = ["pdfcraft"]
+env = "PLUMCRAFT_PDFCRAFT_APP"
+label = "PdfCraft"
+hint = "install the PdfCraft app on PATH (https://github.com/storytold/pdfcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+# `returns`: the reply field with the new document's id, sent as `doc` on every later call.
+open = { tool = "doc_open", path = "path", returns = "doc" }
+# `full`: a full rewrite to the new path (byte-stable).
+save = { tool = "doc_save", path = "path", params = { full = true } }
+# Closes the open document (its id is added); a process holds one document at a time.
+close_all = { tool = "doc_close", params = { discard_changes = true } }
+clear_history = { command = "edit.undo" }
+# Export nodes name their own action (doc_export_text refuses the `format` key).
+export = { tool = "doc_export_text", path = "path" }
+
+[doc]
+wire = "pdfcraft.doc"
+ext = "pdf"
+media = "application/pdf"
+app = "pdfcraft"
+stem = "document"
+color = "#b91c1c"
+# The open document's id is sent as `doc` on every call (commands inside `params`, tools at the
+# top level).
+id_param = "doc"
+
+[errors]
+config = ["missing argument", "unknown argument", "invalid", "out of range", "no page", "not editable", "unknown command"]
+unknown_command = ["unknown command"]
+
+[run_node]
+id = "pdf.run"
+display = "Run command"
+allow = ["page.rotate", "page.delete", "page.insert_blank", "page.duplicate", "page.reverse", "page.boxes", "edit.text", "edit.link", "edit.links_from_urls", "edit.remove_links", "edit.header_footer", "edit.watermark", "edit.background", "edit.find", "edit.column_select", "edit.edit_text", "comment.hide_all", "form.detect", "form.calculation_order", "form.add.text_table", "a11y.autotag_fields", "a11y.check", "a11y.find_untagged", "a11y.tags", "a11y.alt_text", "measure.distance", "measure.perimeter", "measure.area", "measure.scale", "measure.info", "measure.snap", "file.properties", "file.word_count", "standards.pdfa", "optimize.advanced"]
+deny = ["sign.", "ocr.", "tools.", "form.prepare", "form.merge_data", "protect.", "print.", "page.extract", "page.split", "page.insert", "page.replace", "page.combine", "edit.image", "edit.attach", "comment.stamp", "comment.summarize", "measure.export", "export.", "create.", "actions.", "file.save", "file.close", "file.open", "doc.compare", "a11y.report"]
+
+# ---- document ----
+
+[[node]]
+id = "pdf.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open a PDF (doc_open)"
+
+# No "New" node: doc_create is a tool without a command id, and new nodes run commands.
+# NEEDS (optional): nodes that run a tool (`tool = "doc_create"`), which would also bring in
+# doc_set_info, doc_flatten, doc_remove_hidden, page_move and page_number.
+
+# ---- pages ----
+
+[[node]]
+id = "pdf.rotate"
+display = "Rotate pages"
+kind = "transform"
+family = "Pages"
+command = "page.rotate"
+description = "Rotate pages by a multiple of 90 degrees, clockwise (page.rotate)"
+[[node.widget]]
+name = "degrees"
+type = "ENUM"
+choices = [90, 180, 270]
+default = 90
+[[node.widget]]
+name = "pages"
+type = "JSON"
+optional = true
+socket = "both"
+tooltip = "1-based page numbers; unset: all"
+[[node.widget]]
+name = "subset"
+type = "ENUM"
+choices = ["all", "even", "odd"]
+default = "all"
+
+[[node]]
+id = "pdf.delete_pages"
+display = "Delete pages"
+kind = "transform"
+family = "Pages"
+command = "page.delete"
+description = "Delete pages (page.delete)"
+[[node.widget]]
+name = "pages"
+type = "JSON"
+default = [1]
+socket = "both"
+
+[[node]]
+id = "pdf.insert_blank"
+display = "Insert blank page"
+kind = "transform"
+family = "Pages"
+command = "page.insert_blank"
+description = "Insert a blank page so it becomes page `at` (page.insert_blank)"
+[[node.widget]]
+name = "at"
+type = "INT"
+default = 1
+min = 1.0
+max = 100000.0
+
+[[node]]
+id = "pdf.duplicate_pages"
+display = "Duplicate pages"
+kind = "transform"
+family = "Pages"
+command = "page.duplicate"
+description = "Insert copies of pages after the last of them (page.duplicate)"
+[[node.widget]]
+name = "pages"
+type = "JSON"
+default = [1]
+socket = "both"
+
+[[node]]
+id = "pdf.reverse"
+display = "Reverse pages"
+kind = "transform"
+family = "Pages"
+command = "page.reverse"
+description = "Reverse the page order (page.reverse)"
+
+[[node]]
+id = "pdf.crop"
+display = "Crop pages"
+kind = "transform"
+family = "Pages"
+command = "page.boxes"
+description = "Set the crop box by margins in points [left, bottom, right, top] (page.boxes)"
+fixed = { box = "crop" }
+[[node.widget]]
+name = "margins"
+type = "JSON"
+default = [36, 36, 36, 36]
+socket = "both"
+
+# ---- content ----
+
+[[node]]
+id = "pdf.add_text"
+display = "Add text"
+kind = "transform"
+family = "Content"
+command = "edit.text"
+description = "Add text as page content at [x, y] points from the top-left (edit.text)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello from PlumCraft"
+[[node.widget]]
+name = "page"
+type = "INT"
+default = 1
+min = 1.0
+max = 100000.0
+[[node.widget]]
+name = "at"
+type = "JSON"
+default = [72, 72]
+socket = "both"
+[[node.widget]]
+name = "size"
+type = "FLOAT"
+default = 18.0
+min = 1.0
+max = 1000.0
+[[node.widget]]
+name = "color"
+type = "STRING"
+optional = true
+
+[[node]]
+id = "pdf.header_footer"
+display = "Header and footer"
+kind = "transform"
+family = "Content"
+command = "edit.header_footer"
+description = "Header and footer text on pages; tokens such as <<1 of n>> (edit.header_footer)"
+[[node.widget]]
+name = "header_center"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "footer_center"
+type = "STRING"
+default = "<<Page 1 of n>>"
+[[node.widget]]
+name = "font_size"
+type = "FLOAT"
+default = 10.0
+min = 1.0
+max = 200.0
+
+[[node]]
+id = "pdf.watermark"
+display = "Watermark"
+kind = "transform"
+family = "Content"
+command = "edit.watermark"
+description = "A text watermark on every page (edit.watermark)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "DRAFT"
+[[node.widget]]
+name = "opacity"
+type = "FLOAT"
+default = 0.3
+min = 0.0
+max = 1.0
+[[node.widget]]
+name = "rotation"
+type = "FLOAT"
+default = 45.0
+min = -360.0
+max = 360.0
+
+[[node]]
+id = "pdf.background"
+display = "Background colour"
+kind = "transform"
+family = "Content"
+command = "edit.background"
+description = "Fill page backgrounds with a colour, behind the content (edit.background)"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#fdf6e3"
+
+[[node]]
+id = "pdf.links_from_urls"
+display = "Links from URLs"
+kind = "transform"
+family = "Content"
+command = "edit.links_from_urls"
+description = "Make every URL in the text a link (edit.links_from_urls)"
+
+[[node]]
+id = "pdf.remove_links"
+display = "Remove links"
+kind = "transform"
+family = "Content"
+command = "edit.remove_links"
+description = "Remove every link (edit.remove_links)"
+
+# ---- queries ----
+
+[[node]]
+id = "pdf.info"
+display = "Document info"
+kind = "query"
+family = "Document"
+command = "file.properties"
+description = "Metadata, page sizes, bookmarks, annotations, fields, fonts, security (doc_info)"
+
+[[node]]
+id = "pdf.word_count"
+display = "Word count"
+kind = "query"
+family = "Document"
+command = "file.word_count"
+description = "Words, characters and pages (text_word_count)"
+
+[[node]]
+id = "pdf.find"
+display = "Find text"
+kind = "query"
+family = "Text"
+command = "edit.find"
+description = "Find text: pages and rectangles of the matches (text_find)"
+[[node.widget]]
+name = "query"
+type = "STRING"
+default = "PlumCraft"
+
+[[node]]
+id = "pdf.text"
+display = "Extract text"
+kind = "query"
+family = "Text"
+command = "edit.column_select"
+description = "The text of some or all pages in reading order (text_extract)"
+[[node.widget]]
+name = "pages"
+type = "JSON"
+optional = true
+socket = "both"
+
+[[node]]
+id = "pdf.pdfa_verify"
+display = "Verify PDF/A"
+kind = "query"
+family = "Standards"
+command = "standards.pdfa"
+description = "Check conformance with a PDF/A level (pdfa_verify)"
+[[node.widget]]
+name = "level"
+type = "STRING"
+default = "2b"
+
+[[node]]
+id = "pdf.a11y_check"
+display = "Accessibility check"
+kind = "query"
+family = "Standards"
+command = "a11y.check"
+description = "The accessibility checker's findings (accessibility_check)"
+
+# ---- export ----
+
+[[node]]
+id = "pdf.export_text"
+display = "Export text"
+kind = "export"
+family = "Export"
+action = { tool = "doc_export_text", path = "path" }
+ext = "txt"
+media = "text/plain"
+[[node.output]]
+name = "text"
+type = "TXT"
+
+# The document as a PDF value (`PDF`, which the editor's viewers show): a full rewrite.
+[[node]]
+id = "pdf.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+action = { tool = "doc_save", path = "path", params = { full = true } }
+ext = "pdf"
+media = "application/pdf"
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+# No PNG of a page: no PdfCraft tool writes one page to a path today (page_render returns the
+# image inline, doc_export_images writes a folder). A craft-side proposal in the notes.

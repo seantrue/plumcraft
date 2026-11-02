@@ -1,0 +1,5 @@
+
+
+def test_table_to_array_and_back(engine):
+    table = {"columns": [{"name": "a", "type": "FLOAT", "values": [1.0, 2.5]}, {"name": "b", "type": "FLOAT", "values": [3.0, 4.0]}]}
+    assert engine.array_to_table(engine.table_to_array(table)) == table

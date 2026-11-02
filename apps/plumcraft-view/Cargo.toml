@@ -1,0 +1,27 @@
+[package]
+name = "plumcraft-view"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft: a minimal native window that runs a workflow on an engine and shows node status, progress and data in flight live"
+
+[[bin]]
+name = "plumcraft-view"
+path = "src/main.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-store = { workspace = true }
+plumcraft-text = { workspace = true }
+serde_json = { workspace = true }
+egui = { version = "0.36", default-features = false, features = ["default_fonts"] }
+eframe = { version = "0.36", default-features = false, features = ["wgpu", "accesskit", "default_fonts"] }
+png = "0.18"

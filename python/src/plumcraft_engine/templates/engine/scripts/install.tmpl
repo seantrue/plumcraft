@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Offer this engine in every editor: links the manifest into ~/.config/plumcraft/engines/.
+# A running editor sees it after Engine › Reload Engine List.
+set -euo pipefail
+cd "$$(dirname "$$0")/.."
+mkdir -p "$$HOME/.config/plumcraft/engines"
+ln -sfn "$$PWD/plumcraft-engine.toml" "$$HOME/.config/plumcraft/engines/$id.toml"
+echo "installed $id: $$HOME/.config/plumcraft/engines/$id.toml"

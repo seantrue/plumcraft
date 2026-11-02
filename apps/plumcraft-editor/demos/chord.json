@@ -1,0 +1,211 @@
+{
+  "version": 1,
+  "engines": [
+    "audio",
+    "array",
+    "text"
+  ],
+  "meta": {
+    "title": "What a chord looks like",
+    "about": "Three engines: the audio engine makes an A minor chord and its spectrum, the array engine stretches the spectrum into a picture (watch it in the heat view), and the text engine's code points of the chord's name are scaled by the array engine. Needs no craft app. Open it with plumcraft-editor --engine audio,array,text."
+  },
+  "nodes": {
+    "a": {
+      "kind": "audio.tone",
+      "values": {
+        "waveform": "sine",
+        "frequency": 220.0,
+        "seconds": 2.0
+      },
+      "pos": [
+        0,
+        0
+      ]
+    },
+    "c": {
+      "kind": "audio.tone",
+      "values": {
+        "waveform": "sine",
+        "frequency": 261.63,
+        "seconds": 2.0
+      },
+      "pos": [
+        0,
+        240
+      ]
+    },
+    "e": {
+      "kind": "audio.tone",
+      "values": {
+        "waveform": "sine",
+        "frequency": 329.63,
+        "seconds": 2.0
+      },
+      "pos": [
+        0,
+        480
+      ]
+    },
+    "ac": {
+      "kind": "audio.mix",
+      "pos": [
+        320,
+        120
+      ]
+    },
+    "chord": {
+      "kind": "audio.mix",
+      "pos": [
+        620,
+        300
+      ]
+    },
+    "spec": {
+      "kind": "audio.spectrum",
+      "values": {
+        "fft_size": 8192
+      },
+      "pos": [
+        920,
+        250
+      ]
+    },
+    "level": {
+      "kind": "array.stretch",
+      "pos": [
+        1220,
+        250
+      ]
+    },
+    "strip": {
+      "kind": "array.resize",
+      "values": {
+        "by": "size",
+        "target_width": 1024,
+        "target_height": 96,
+        "resample": "bilinear",
+        "shrink_only": false
+      },
+      "pos": [
+        1520,
+        250
+      ]
+    },
+    "name": {
+      "kind": "text.literal",
+      "values": {
+        "text": "A minor: A C E"
+      },
+      "pos": [
+        920,
+        560
+      ]
+    },
+    "codes": {
+      "kind": "text.codes",
+      "pos": [
+        1220,
+        560
+      ]
+    },
+    "scaled": {
+      "kind": "array.stretch",
+      "pos": [
+        1520,
+        560
+      ]
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "a",
+        "port": "audio"
+      },
+      "to": {
+        "node": "ac",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "c",
+        "port": "audio"
+      },
+      "to": {
+        "node": "ac",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "ac",
+        "port": "audio"
+      },
+      "to": {
+        "node": "chord",
+        "port": "a"
+      }
+    },
+    {
+      "from": {
+        "node": "e",
+        "port": "audio"
+      },
+      "to": {
+        "node": "chord",
+        "port": "b"
+      }
+    },
+    {
+      "from": {
+        "node": "chord",
+        "port": "audio"
+      },
+      "to": {
+        "node": "spec",
+        "port": "audio"
+      }
+    },
+    {
+      "from": {
+        "node": "spec",
+        "port": "spectrum"
+      },
+      "to": {
+        "node": "level",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "level",
+        "port": "stretched"
+      },
+      "to": {
+        "node": "strip",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "name",
+        "port": "text"
+      },
+      "to": {
+        "node": "codes",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "codes",
+        "port": "codes"
+      },
+      "to": {
+        "node": "scaled",
+        "port": "array"
+      }
+    }
+  ]
+}

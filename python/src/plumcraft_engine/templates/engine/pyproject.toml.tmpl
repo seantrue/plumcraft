@@ -1,0 +1,43 @@
+[project]
+name = "$project"
+version = "0.1.0"
+description = "$name: a PlumCraft engine"
+requires-python = ">=$python"
+dependencies = [$dependencies]
+
+[project.scripts]
+$project = "$package.__main__:main"
+
+[dependency-groups]
+dev = ["pytest>=8", "ruff>=0.6"]
+
+# Where the PlumCraft SDK comes from; README.md says how to switch.
+[tool.uv.sources]
+plumcraft-engine = $sdk_source
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/$package"]
+
+[tool.ruff]
+line-length = 160
+src = ["src"]
+target-version = "py$python_tag"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+# What `plumcraft-engine nodes`, `run` and `check` use here.
+[tool.plumcraft]
+engine = "$package:$cls"
+demo = "examples/demo.json"
+
+[tool.plumcraft.conformance]
+slow = "$id.slow"

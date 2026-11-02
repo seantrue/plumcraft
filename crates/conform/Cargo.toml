@@ -1,0 +1,19 @@
+[package]
+name = "plumcraft-conform"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+description = "PlumCraft's generic conformance cases (spec 19): what any engine must do on any binding, over a Connection, with graphs built from its catalogue"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-host = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-scratch = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

@@ -1,0 +1,18 @@
+
+    # ---------- audio ----------
+
+    @node("Tone")
+    def tone(
+        self,
+        hz: Annotated[float, Range(20, 20000, invalid="clamp")] = 440.0,
+        seconds: Annotated[float, Range(0.01, 10, invalid="clamp")] = 0.25,
+        rate: Annotated[int, Range(8000, 192000, invalid="clamp")] = 44100,
+    ) -> Audio:
+        """A source: a sine wave. `AudioValue` is samples, frames × channels, float32, and a sample rate."""
+        t = np.arange(int(seconds * rate)) / rate
+        return AudioValue(0.5 * np.sin(2 * np.pi * hz * t), rate)
+
+    @node("Gain")
+    def gain(self, audio: Audio, db: Annotated[float, Range(-60, 24, invalid="clamp")] = -6.0) -> Audio:
+        """Audio louder or quieter, in decibels."""
+        return AudioValue(audio.samples * 10 ** (db / 20), audio.sample_rate)

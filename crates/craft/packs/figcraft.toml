@@ -1,0 +1,451 @@
+# The FigCraft pack for plumcraft-craft (note 14, 3.10): FigCraft's design engine as nodes.
+#
+# The document is a .figcraft file (a zip of document.json and a thumbnail). Saves, PNG, SVG and
+# PDF exports are byte-stable with FIGCRAFT_NO_SYSTEM_FONTS=1 (only FigCraft's built-in fonts),
+# and the document's name follows the file stem, which the adapter keeps fixed (`document`).
+#
+# FigCraft's `list_commands` tool answers in prose lines, not JSON, so the catalogue is read from
+# the MCP resource `figcraft://commands` instead (`tools.list_resource`; an array of
+# {id, label, menu, shortcut, params, undoable}). See claude-debug/craft-pack-figcraft.md.
+
+id = "figcraft"
+name = "FigCraft"
+command = ["figcraft-cli", "mcp"]
+hint = "install figcraft-cli on PATH (https://github.com/storytold/figcraft)"
+timeout_s = 300
+
+[env]
+FIGCRAFT_NO_SYSTEM_FONTS = "1"
+
+[gui]
+command = ["figcraft"]
+env = "PLUMCRAFT_FIGCRAFT_APP"
+label = "FigCraft"
+hint = "install figcraft on PATH (https://github.com/storytold/figcraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "list_commands"
+list_resource = "figcraft://commands"
+run = { tool = "run_command", id = "command", params = "params" }
+
+# `file.export` exports the selection by default; `ids: []` exports the whole current page, so an
+# export is the same warm (selection left by the last node) and cold (nothing selected).
+[actions]
+open = { command = "file.open", path = "path" }
+save = { command = "file.saveAs", path = "path" }
+close_all = { command = "file.close", params = { force = true } }
+export = { command = "file.export", path = "path", params = { ids = [] } }
+
+# select.all/select.set answer {selection: [ids]} (no `count`); FigCraft has no find that
+# answers {matches}, so `kind:`/`name:` selections are not offered.
+[selection]
+all = "select.all"
+none = "select.none"
+set = "select.set"
+
+[doc]
+wire = "figcraft.doc"
+ext = "figcraft"
+media = "application/vnd.figcraft+zip"
+app = "figcraft"
+stem = "document"
+color = "#7c3aed"
+
+[run_node]
+id = "fig.run"
+display = "Run command"
+allow = ["node.", "frame.", "shape.", "text.", "vector.", "bool.", "layout.", "align.", "distribute.", "arrange.", "transform.", "object.", "fill.", "stroke.", "effect.", "style.", "select.", "selection.", "component.", "variable.", "page.add", "page.rename", "page.select", "page.setBackground", "page.list", "edit.findReplace", "edit.duplicate", "inspect."]
+deny = ["text.link", "node.reparent", "object.setThumbnail", "fill.copy", "fill.paste", "stroke.copy", "stroke.paste", "effect.copy", "effect.paste", "select.layersAt", "select.area"]
+
+# ---- documents ----
+
+[[node]]
+id = "fig.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open a .figcraft, .fig or .sketch file (best effort), FigCraft/REST JSON, an SVG (vectors) or an image (an image layer) (file.open)"
+
+[[node]]
+id = "fig.new"
+display = "New design file"
+kind = "new"
+family = "Document"
+command = "file.new"
+fixed = { name = "document" }
+
+# ---- layers ----
+
+[[node]]
+id = "fig.frame"
+display = "Frame"
+kind = "transform"
+family = "Layers"
+command = "frame.create"
+description = "A frame (artboard) from a preset or a box (frame.create); it becomes the selection"
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "preset"
+type = "STRING"
+optional = true
+tooltip = "A preset name from frame.presets (iPhone 16, Desktop, A4 …); leave empty for a box"
+[[node.widget]]
+name = "x"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "y"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+default = 400.0
+min = 1.0
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+default = 300.0
+min = 1.0
+[[node.widget]]
+name = "name"
+type = "STRING"
+default = "Frame"
+[[node.widget]]
+name = "props"
+type = "JSON"
+optional = true
+advanced = true
+
+[[node]]
+id = "fig.rectangle"
+display = "Rectangle"
+kind = "transform"
+family = "Layers"
+command = "shape.rectangle"
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "x"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "y"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+default = 100.0
+min = 0.0
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+default = 100.0
+min = 0.0
+[[node.widget]]
+name = "props"
+type = "JSON"
+optional = true
+tooltip = "node.set keys: fill, cornerRadius, stroke, effects …"
+
+[[node]]
+id = "fig.ellipse"
+display = "Ellipse"
+kind = "transform"
+family = "Layers"
+command = "shape.ellipse"
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "x"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "y"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+default = 100.0
+min = 0.0
+[[node.widget]]
+name = "height"
+type = "FLOAT"
+default = 100.0
+min = 0.0
+[[node.widget]]
+name = "props"
+type = "JSON"
+optional = true
+
+[[node]]
+id = "fig.text"
+display = "Text"
+kind = "transform"
+family = "Layers"
+command = "text.create"
+[[node.output]]
+name = "id"
+type = "INT"
+from = "id"
+[[node.widget]]
+name = "text"
+type = "STRING"
+default = "Hello"
+socket = "both"
+[[node.widget]]
+name = "x"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "y"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+optional = true
+tooltip = "A fixed width wraps the text"
+[[node.widget]]
+name = "props"
+type = "JSON"
+optional = true
+tooltip = "fontSize, fontFamily, fill …"
+
+[[node]]
+id = "fig.set"
+display = "Set properties"
+kind = "transform"
+family = "Layers"
+command = "node.set"
+description = "Set node.set properties (fill, opacity, cornerRadius, layout, gap, padding, fontSize …) on the selected layers"
+select = "all"
+[[node.widget]]
+name = "props"
+key = "*"
+type = "JSON"
+default = { opacity = 1.0 }
+
+# ---- arrange and layout ----
+
+[[node]]
+id = "fig.auto_layout"
+display = "Add auto layout"
+kind = "transform"
+family = "Layout"
+command = "layout.add"
+description = "Wrap the selected layers in an auto-layout frame, or turn a selected frame into one (layout.add)"
+select = "all"
+[[node.widget]]
+name = "direction"
+type = "ENUM"
+choices = ["horizontal", "vertical", "grid"]
+default = "vertical"
+
+[[node]]
+id = "fig.align"
+display = "Align"
+kind = "transform"
+family = "Layout"
+command = "align.{edge}"
+select = "all"
+[[node.widget]]
+name = "edge"
+template = true
+choices = ["left", "hcenter", "right", "top", "vcenter", "bottom"]
+default = "left"
+
+[[node]]
+id = "fig.tidy"
+display = "Tidy up"
+kind = "transform"
+family = "Layout"
+command = "arrange.tidy"
+select = "all"
+[[node.widget]]
+name = "spacing"
+type = "FLOAT"
+optional = true
+
+[[node]]
+id = "fig.group"
+display = "Group"
+kind = "transform"
+family = "Layout"
+command = "object.group"
+select = "all"
+[[node.widget]]
+name = "name"
+type = "STRING"
+optional = true
+
+[[node]]
+id = "fig.frame_selection"
+display = "Frame selection"
+kind = "transform"
+family = "Layout"
+command = "object.frameSelection"
+select = "all"
+[[node.widget]]
+name = "name"
+type = "STRING"
+optional = true
+
+# ---- paint and vector ----
+
+[[node]]
+id = "fig.fill"
+display = "Fill"
+kind = "transform"
+family = "Paint"
+command = "fill.set"
+select = "all"
+[[node.widget]]
+name = "color"
+type = "STRING"
+default = "#2563EB"
+[[node.widget]]
+name = "opacity"
+type = "FLOAT"
+optional = true
+min = 0.0
+max = 1.0
+
+[[node]]
+id = "fig.effect"
+display = "Add effect"
+kind = "transform"
+family = "Paint"
+command = "effect.add"
+select = "all"
+[[node.widget]]
+name = "type"
+type = "ENUM"
+choices = ["dropShadow", "innerShadow", "layerBlur", "backgroundBlur", "noise", "texture", "glass"]
+default = "dropShadow"
+
+[[node]]
+id = "fig.boolean"
+display = "Boolean"
+kind = "transform"
+family = "Paint"
+command = "bool.{op}"
+select = "all"
+[[node.widget]]
+name = "op"
+template = true
+choices = ["union", "subtract", "intersect", "exclude"]
+default = "union"
+
+[[node]]
+id = "fig.flatten"
+display = "Flatten"
+kind = "transform"
+family = "Paint"
+command = "vector.flatten"
+select = "all"
+
+[[node]]
+id = "fig.find_replace"
+display = "Find and replace text"
+kind = "transform"
+family = "Text"
+command = "edit.findReplace"
+fixed = { select = false }
+[[node.widget]]
+name = "find"
+type = "STRING"
+default = ""
+[[node.widget]]
+name = "replace"
+type = "STRING"
+default = ""
+socket = "both"
+
+# ---- queries ----
+
+[[node]]
+id = "fig.code"
+display = "Inspect code"
+kind = "query"
+family = "Query"
+command = "inspect.code"
+description = "Code for the selected layer: CSS, HTML, React, SwiftUI … (inspect.code)"
+select = "all"
+[[node.widget]]
+name = "language"
+type = "ENUM"
+choices = ["css", "html", "react", "leptos", "vue", "tailwind", "swiftui", "compose", "arkui"]
+default = "css"
+
+[[node]]
+id = "fig.pages"
+display = "List pages"
+kind = "query"
+family = "Query"
+command = "page.list"
+
+# ---- export ----
+
+[[node]]
+id = "fig.export_png"
+display = "Export PNG"
+kind = "export"
+family = "Export"
+description = "The current page as PNG (file.export)"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 1.0
+min = 0.01
+max = 4.0
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "fig.export_svg"
+display = "Export SVG"
+kind = "export"
+family = "Export"
+description = "The current page as SVG (file.export)"
+format = "svg"
+ext = "svg"
+media = "image/svg+xml"
+[[node.output]]
+name = "svg"
+type = "SVG"
+
+[[node]]
+id = "fig.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+description = "The current page as PDF (file.export)"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+[[node.output]]
+name = "pdf"
+type = "PDF"

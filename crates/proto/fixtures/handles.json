@@ -1,0 +1,126 @@
+{
+ "vectors": [
+  {
+   "name": "f4 2x3",
+   "recipe": "nd1",
+   "dtype": "<f4",
+   "shape": [
+    2,
+    3
+   ],
+   "bytes_b64": "AAAAAAAAgD8AAABAAABAQAAAgEAAAKBA",
+   "handle": "md5:nd1:1eb8aef891fec1de832ee1009d80f605",
+   "note": ""
+  },
+  {
+   "name": "u1 rgba 1x2",
+   "recipe": "nd1",
+   "dtype": "|u1",
+   "shape": [
+    1,
+    2,
+    4
+   ],
+   "bytes_b64": "AQID/wQFBoA=",
+   "handle": "md5:nd1:4f2b28454e6c917e7f1b30ce32833959",
+   "note": ""
+  },
+  {
+   "name": "f8 scalar",
+   "recipe": "nd1",
+   "dtype": "<f8",
+   "shape": [],
+   "bytes_b64": "AAAAAAAADEA=",
+   "handle": "md5:nd1:bfc7ea7950376deeac1be7d88b639382",
+   "note": "shape () hashes as '()'"
+  },
+  {
+   "name": "i2 one element",
+   "recipe": "nd1",
+   "dtype": "<i2",
+   "shape": [
+    1
+   ],
+   "bytes_b64": "+f8=",
+   "handle": "md5:nd1:a2e9e7a9dd606a997cd3c42ec34ccb2f",
+   "note": "shape (1,) keeps the trailing comma"
+  },
+  {
+   "name": "bool 3",
+   "recipe": "nd1",
+   "dtype": "|b1",
+   "shape": [
+    3
+   ],
+   "bytes_b64": "AQAB",
+   "handle": "md5:nd1:c1a1083c2fd825b92dbbc7183077a97c",
+   "note": ""
+  },
+  {
+   "name": "f4 empty 0x3",
+   "recipe": "nd1",
+   "dtype": "<f4",
+   "shape": [
+    0,
+    3
+   ],
+   "bytes_b64": "",
+   "handle": "md5:nd1:62c916e59cb5c985a430e739579acf05",
+   "note": ""
+  },
+  {
+   "name": "f4 big-endian",
+   "recipe": "nd1",
+   "dtype": ">f4",
+   "shape": [
+    4
+   ],
+   "bytes_b64": "AAAAAD+AAABAAAAAQEAAAA==",
+   "handle": "md5:nd1:f735eb5d96cd9b9e2e73b1f2171beede",
+   "note": "hashes as the little-endian array with dtype '<f4' (new in protocol 2)"
+  },
+  {
+   "name": "c8 big-endian",
+   "recipe": "nd1",
+   "dtype": ">c8",
+   "shape": [
+    2
+   ],
+   "bytes_b64": "P4AAAEAAAADAYAAAPoAAAA==",
+   "handle": "md5:nd1:1db6862439725e65880a2ccaf5d742fa",
+   "note": "complex: each component swapped"
+  },
+  {
+   "name": "f4 NaN -0.0",
+   "recipe": "nd1",
+   "dtype": "<f4",
+   "shape": [
+    3
+   ],
+   "bytes_b64": "AADAfwAAAIAAAIB/",
+   "handle": "md5:nd1:96e8114c88671bf8a408747ebf03956c",
+   "note": ""
+  },
+  {
+   "name": "empty",
+   "recipe": "raw",
+   "bytes_b64": "",
+   "handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e",
+   "note": "md5 of nothing"
+  },
+  {
+   "name": "text",
+   "recipe": "raw",
+   "bytes_b64": "Y29yZ2kgb24gYSBmbG9yYWwgY2FycGV0Cg==",
+   "handle": "md5:raw:7c436f9cc28d5f13d488b6a021d3924e",
+   "note": ""
+  },
+  {
+   "name": "binary",
+   "recipe": "raw",
+   "bytes_b64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w==",
+   "handle": "md5:raw:e2c865db4162bed963bfaa9ef6ac18f0",
+   "note": ""
+  }
+ ]
+}

@@ -1,0 +1,95 @@
+[workspace]
+resolver = "3"
+members = ["crates/*", "apps/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+# Not published to crates.io yet (docs/plan.md D17).
+publish = false
+
+[workspace.dependencies]
+zip = { version = "3", default-features = false, features = ["deflate"] }
+# internal
+plumcraft-proto = { path = "crates/proto" }
+plumcraft-engine = { path = "crates/engine" }
+plumcraft-text = { path = "crates/text" }
+plumcraft-array = { path = "crates/array" }
+plumcraft-audio = { path = "crates/audio" }
+plumcraft-craft = { path = "crates/craft" }
+plumcraft-coordinator = { path = "crates/coordinator" }
+plumcraft-host = { path = "crates/host" }
+plumcraft-store = { path = "crates/store" }
+plumcraft-graph = { path = "crates/graph" }
+plumcraft-layout = { path = "crates/layout" }
+plumcraft-session = { path = "crates/session" }
+plumcraft-ui = { path = "crates/ui" }
+plumcraft-automation = { path = "crates/automation" }
+plumcraft-scratch = { path = "crates/scratch" }
+plumcraft-svg = { path = "crates/svg" }
+plumcraft-conform = { path = "crates/conform" }
+
+# external
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# Engine manifests (plumcraft-proto) and craft packs (plumcraft-craft).
+toml = "1"
+md-5 = "0.10"
+sha2 = "0.10"
+base64 = "0.22"
+# Deflate for compressed raw blobs and memo records (plumcraft-store), in pure Rust (miniz_oxide).
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
+# numpy's own host numerics (PCG64 draws, pairwise reductions, histograms, sorts), bit for bit
+# (plumcraft-array); the maintainer's yapocis-rs, at a pinned revision.
+npexact = { git = "https://github.com/seantrue/yapocis-rs", rev = "1fbf919a8b6b80902214cb9837e933b93457ef00" }
+# Draw Text in the array engine: glyph outlines (skrifa, as egui's epaint uses) filled antialiased
+# (tiny-skia, as resvg uses); both already in the tree, pure Rust.
+skrifa = "0.44"
+tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
+# Picture files: the array engine's Load Image and Encode Image (PNG, JPEG, TIFF), and the editor's
+# Picture viewer, which also shows WebP and GIF. All pure Rust.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "gif"] }
+# The store's layout, publishing and reading (plumcraft-store). Without `mmap`: segments are
+# read, not mapped.
+commonkit = { version = "0.1", default-features = false }
+schemars = "1.2"
+tiny_http = "0.12"
+ureq = { version = "3", default-features = false }
+# The editor UI (plumcraft-ui and plumcraft-editor; plumcraft-view keeps its own until it retires).
+# craft-ui pinned at the crafts' rev (the research software's and photocraft's Cargo.toml).
+craft-ui = { git = "https://github.com/storytold/craft-libs", rev = "5c874d51eeb3de70e735c8ce87a59a7dedd47675", features = ["serde"] }
+egui = { version = "0.36", default-features = false }
+eframe = { version = "0.36", default-features = false }
+egui-snarl = { version = "0.12", features = ["serde"] }
+egui_extras = { version = "0.36", default-features = false }
+# PDF pages in the viewers (crates/ui/src/viewers/pdf.rs): a pure-Rust PDF rasteriser (Apache-2.0 OR MIT).
+hayro = "0.8"
+egui_kittest = "0.36"
+# Tables as plots in the viewer: 0.37 is the release built on egui 0.36, as the research software uses it.
+egui_plot = "0.37"
+# Native file dialogs for path widgets (plumcraft-ui only).
+rfd = "0.17"
+png = "0.18"
+# Control-channel tokens (plumcraft-automation).
+uuid = { version = "1", features = ["v4"] }
+# The editor's audio view (plumcraft-ui, plan 10.4 F3): spectrograms and playback.
+rustfft = "6.4"
+cpal = "0.18"
+# SVG, a core type (plumcraft-svg: the editor's SVG view and the engine SDK's SVG thumbnails):
+# pure Rust, MIT/Apache-2.0 (tiny-skia BSD-3-Clause), the version egui_extras' svg loader already
+# pulls in. raster-images draws embedded data: images; text and system-fonts draw text that isn't
+# outlined, with the system's fonts (fontdb reads them; memmap-fonts stays off).
+resvg = { version = "0.45", default-features = false, features = ["raster-images", "text", "system-fonts"] }
+# The audio engine (plumcraft-audio, plan 10.4): SoundCraft's offline DSP and file I/O, pinned at main.
+soundcraft-dsp = { git = "https://github.com/storytold/soundcraft", rev = "40f593a360d67f21022c4206df1781952db37e54" }
+soundcraft-audio-io = { git = "https://github.com/storytold/soundcraft", rev = "40f593a360d67f21022c4206df1781952db37e54" }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"

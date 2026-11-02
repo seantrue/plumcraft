@@ -1,0 +1,18 @@
+
+    @node("Table to Array")
+    def table_to_array(self, table: Table) -> Array:
+        """A table's FLOAT and INT columns as rows × columns. Text columns are left out. The inverse of Array to Table."""
+        numeric = [c for c in table["columns"] if c.get("type") in ("FLOAT", "INT")]
+        if not numeric:
+            raise ConfigError("the table has no numeric column")
+        data = np.array([c["values"] for c in numeric], dtype="f8").T
+        return ArrayValue(data, names=[c["name"] for c in numeric], table=True)
+
+    @node("Array to Table")
+    def array_to_table(self, array: Array) -> Table:
+        """A rows × columns array as a table of FLOAT columns. The inverse of Table to Array."""
+        data = np.asarray(array)
+        if data.ndim != 2:
+            raise ConfigError(f"an array of rows and columns, not {'×'.join(str(n) for n in data.shape)}")
+        names = list(getattr(array, "names", ())) or [f"c{i + 1}" for i in range(data.shape[1])]
+        return {"columns": [{"name": n, "type": "FLOAT", "values": data[:, i].tolist()} for i, n in enumerate(names)]}

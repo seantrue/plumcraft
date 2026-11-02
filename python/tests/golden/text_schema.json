@@ -1,0 +1,1173 @@
+{
+ "v": 2,
+ "engine": {
+  "id": "text",
+  "name": "Text",
+  "version": "0.1.0",
+  "salt": "py:plumcraft-text+0.1.0"
+ },
+ "wire_types": [
+  {
+   "id": "TEXT",
+   "color": "#c9a227",
+   "media": "text",
+   "thumb": true
+  },
+  {
+   "id": "STRING",
+   "media": "scalar"
+  },
+  {
+   "id": "INT",
+   "media": "scalar"
+  },
+  {
+   "id": "FLOAT",
+   "media": "scalar"
+  },
+  {
+   "id": "TABLE",
+   "color": "#4f86c6",
+   "media": "table"
+  },
+  {
+   "id": "ARRAY",
+   "color": "#8a5cc2",
+   "media": "ndarray",
+   "views": [
+    "auto",
+    "color",
+    "stretch",
+    "clip",
+    "heat",
+    "labels",
+    "angle"
+   ],
+   "view_params": {
+    "angle": [
+     {
+      "name": "turn",
+      "type": "FLOAT",
+      "label": null,
+      "tooltip": "One full turn in the array's units (1 for turns, 360 for degrees, 6.283 for radians)",
+      "default": 1.0
+     }
+    ]
+   },
+   "default_view": "auto",
+   "thumb": true
+  },
+  {
+   "id": "ANY",
+   "color": "#9ca3af",
+   "media": "bytes"
+  },
+  {
+   "id": "BOOL",
+   "media": "scalar"
+  },
+  {
+   "id": "ENUM",
+   "media": "scalar"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "file.find",
+   "display": "Find Files",
+   "category": [
+    "Building blocks",
+    "Files"
+   ],
+   "description": "The files in a folder whose names match the pattern (*.png, *.jpg: * and ?, case ignored; several separated by commas), sorted, optionally in its subfolders too. Wire it into a node's file input to run that node once per file, each result labelled with the file's name.",
+   "inputs": [
+    {
+     "name": "folder",
+     "type": "STRING",
+     "default": "",
+     "path": {
+      "mode": "dir",
+      "filters": []
+     },
+     "tooltip": "The folder to search"
+    },
+    {
+     "name": "pattern",
+     "type": "STRING",
+     "default": "*",
+     "tooltip": "File names to match: * and ?, several separated by commas (*.png, *.jpg)"
+    },
+    {
+     "name": "recursive",
+     "type": "BOOL",
+     "default": false,
+     "tooltip": "Search the subfolders too"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "files",
+     "type": "STRING",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "file.load",
+   "display": "Load Files",
+   "category": [
+    "Building blocks",
+    "Files"
+   ],
+   "description": "Read a file into a value: an image, an SVG, a PDF or any bytes, its media type from its extension. Given a list of files (Find Files, Select Files), it reads each, so wiring its value into, say, an app's Open image input opens every file.",
+   "inputs": [
+    {
+     "name": "file",
+     "type": "STRING",
+     "default": "",
+     "socket": "both",
+     "path": {
+      "mode": "open",
+      "filters": [
+       {
+        "name": "Any file",
+        "extensions": []
+       }
+      ]
+     },
+     "tooltip": "The file to read; wire Find Files or Select Files to read each"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "value",
+     "type": "ANY",
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "file.select",
+   "display": "Select Files",
+   "category": [
+    "Building blocks",
+    "Files"
+   ],
+   "description": "The files chosen with … (several at once), as a list: wire it into a node's file input to run that node once per file, each result labelled with the file's name.",
+   "inputs": [
+    {
+     "name": "files",
+     "type": "STRING",
+     "default": "",
+     "path": {
+      "mode": "files",
+      "filters": []
+     },
+     "tooltip": "The files, one path per line: choose them with …"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "files",
+     "type": "STRING",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "file.write",
+   "display": "Write Files",
+   "category": [
+    "Building blocks",
+    "Files"
+   ],
+   "description": "Write values into a folder: each file is named from basename and what made the value (trace_corgi_colors-8.svg: the file it came from and the settings varied), with its type's extension. A different file already there is an error unless overwrite is on.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "The values to write: one, or a list"
+    },
+    {
+     "name": "folder",
+     "type": "STRING",
+     "default": "",
+     "path": {
+      "mode": "dir",
+      "filters": []
+     },
+     "tooltip": "The folder to write into (made when missing)"
+    },
+    {
+     "name": "basename",
+     "type": "STRING",
+     "default": "out",
+     "tooltip": "The start of every file name; what varied follows it"
+    },
+    {
+     "name": "overwrite",
+     "type": "BOOL",
+     "default": false,
+     "tooltip": "Replace files that are already there"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "files",
+     "type": "STRING",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true,
+    "output_node": true
+   },
+   "memo": {
+    "scope": "none"
+   }
+  },
+  {
+   "id": "seq.outer",
+   "display": "Outer Join",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "Every combination of the items of a, b (and c), as one list of tuples, the first varying slowest. A single value goes with every item. Unzip splits the tuples again.",
+   "inputs": [
+    {
+     "name": "a",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A sequence, or a single value"
+    },
+    {
+     "name": "b",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A sequence, or a single value"
+    },
+    {
+     "name": "c",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A third sequence (optional)",
+     "optional": true
+    }
+   ],
+   "outputs": [
+    {
+     "name": "tuples",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true
+   }
+  },
+  {
+   "id": "seq.rows_table",
+   "display": "Rows to Table",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "Rows of values (a spreadsheet's Read range, or Table to Rows) as a table of named columns, the first row the names (without a header, c1, c2, …). A column is INT, FLOAT or BOOL when every value is one, else STRING. Table to Rows goes the other way.",
+   "inputs": [
+    {
+     "name": "rows",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "Rows: a list of lists"
+    },
+    {
+     "name": "header",
+     "type": "BOOL",
+     "default": true,
+     "tooltip": "The first row holds the column names"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "ANY",
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "seq.table_rows",
+   "display": "Table to Rows",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "A table (named columns, as Letter counts or Transients make it, or a 2-D table array, as Histogram makes it) as rows of values, the column names first: what a spreadsheet's Write range takes. Rows already in rows pass through.",
+   "inputs": [
+    {
+     "name": "table",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A table: {\"columns\": [{name, values}]}"
+    },
+    {
+     "name": "header",
+     "type": "BOOL",
+     "default": true,
+     "tooltip": "Put the column names first"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "rows",
+     "type": "ANY",
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "seq.unzip",
+   "display": "Unzip",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "A list of tuples (from Zip, Outer Join or Vary Range 2D's xy) split into its parts: a, b and c are lists that zip downstream, so the settings they feed vary together. A single tuple splits into single values.",
+   "inputs": [
+    {
+     "name": "tuples",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A list of tuples, or one tuple"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "a",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "b",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "c",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true
+   }
+  },
+  {
+   "id": "seq.zip",
+   "display": "Zip",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "The items of a, b (and c) paired up in order, as one list of tuples: (a1, b1), (a2, b2), … The lists must be the same length; a single value goes with every item. Unzip splits the tuples again.",
+   "inputs": [
+    {
+     "name": "a",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A sequence, or a single value"
+    },
+    {
+     "name": "b",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A sequence, or a single value"
+    },
+    {
+     "name": "c",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A third sequence (optional)",
+     "optional": true
+    }
+   ],
+   "outputs": [
+    {
+     "name": "tuples",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true
+   }
+  },
+  {
+   "id": "text.codes",
+   "display": "Code points",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "codes",
+     "type": "ARRAY"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.fail",
+   "display": "Fail",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.join",
+   "display": "Join",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "a",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "b",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "sep",
+     "type": "STRING",
+     "default": " "
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.letters",
+   "display": "Letter counts (a–z)",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "TABLE"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.literal",
+   "display": "Text",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "STRING",
+     "default": ""
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.load",
+   "display": "Load text",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "path",
+     "type": "STRING",
+     "default": "",
+     "path": {
+      "mode": "open"
+     }
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.lower",
+   "display": "Lower case",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.repeat",
+   "display": "Repeat",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "times",
+     "type": "INT",
+     "default": 2,
+     "min": 0.0,
+     "max": 1000000.0
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.replace",
+   "display": "Replace",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "find",
+     "type": "STRING",
+     "default": ""
+    },
+    {
+     "name": "with",
+     "type": "STRING",
+     "default": ""
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.reverse",
+   "display": "Reverse",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.slow",
+   "display": "Slow",
+   "category": [
+    "Text",
+    "Testing"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "seconds",
+     "type": "FLOAT",
+     "default": 1.0,
+     "min": 0.0,
+     "max": 600.0
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.upper",
+   "display": "Upper case",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "text.words",
+   "display": "Word count",
+   "category": [
+    "Text"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "count",
+     "type": "INT"
+    }
+   ],
+   "family": "text"
+  },
+  {
+   "id": "vary.bool",
+   "display": "Vary Bool",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "A list of on/off values to sweep a setting with: wire it into a parameter and that node runs once per value, each result labelled with its value. Several varied settings zip when they come from the same Vary node, and form every combination when they don't.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "default": "false, true",
+     "tooltip": "The values, comma-separated; true/false, yes/no, on/off or 1/0"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "BOOL",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.choices",
+   "display": "Vary Choices",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "Every choice of the ENUM setting this is wired into (blank), or a comma-separated subset of them: that node runs once per choice, each result labelled with its choice. The choices come from the input it feeds, so nothing needs typing.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "default": "",
+     "tooltip": "Blank: every choice the wired input offers. Or some of them, comma-separated, as the dropdown spells them"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "vary_choices": true
+   }
+  },
+  {
+   "id": "vary.float",
+   "display": "Vary Float",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "A list of numbers to sweep a setting with: wire it into a parameter and that node runs once per value, each result labelled with its value. Several varied settings zip when they come from the same Vary node, and form every combination when they don't.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "default": "0.5, 1, 2",
+     "tooltip": "The values, comma-separated; a range as start:stop:step (stop included when the steps land on it; step 1 if left out) or start:stop/count (count values, evenly spaced, both ends included)"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.int",
+   "display": "Vary Int",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "A list of whole numbers to sweep a setting with: wire it into a parameter and that node runs once per value, each result labelled with its value. Several varied settings zip when they come from the same Vary node, and form every combination when they don't.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "default": "1, 2, 3",
+     "tooltip": "The values, comma-separated; a range as start:stop:step (stop included when the steps land on it; step 1 if left out) or start:stop/count (count values, evenly spaced, both ends included)"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "INT",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.range",
+   "display": "Vary Range",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "num numbers evenly spaced from start to stop (stop included unless endpoint is off), as numpy's linspace. Wire it into a parameter, such as a width, to run that node once per value.",
+   "inputs": [
+    {
+     "name": "start",
+     "type": "FLOAT",
+     "label": "start",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "The first value"
+    },
+    {
+     "name": "stop",
+     "type": "FLOAT",
+     "label": "stop",
+     "default": 3.0,
+     "step": 0.1,
+     "tooltip": "The last value (included unless endpoint is off)"
+    },
+    {
+     "name": "num",
+     "type": "INT",
+     "default": 5,
+     "min": 1.0,
+     "max": 1000.0,
+     "step": 1.0,
+     "tooltip": "How many values"
+    },
+    {
+     "name": "endpoint",
+     "type": "BOOL",
+     "default": true,
+     "tooltip": "Include the stop value"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.range2d",
+   "display": "Vary Range 2D",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "num points evenly spaced from the start point to the stop point (numpy's linspace between two points): their x, y on outputs that zip, so the settings they feed vary together, and the points as tuples on xy. With grid on, every combination of num values per coordinate instead (num × num points), x varying fastest.",
+   "inputs": [
+    {
+     "name": "start_x",
+     "type": "FLOAT",
+     "label": "start x",
+     "default": 0.0,
+     "step": 0.1,
+     "tooltip": "x at the first point"
+    },
+    {
+     "name": "stop_x",
+     "type": "FLOAT",
+     "label": "stop x",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "x at the last point"
+    },
+    {
+     "name": "start_y",
+     "type": "FLOAT",
+     "label": "start y",
+     "default": 0.0,
+     "step": 0.1,
+     "tooltip": "y at the first point"
+    },
+    {
+     "name": "stop_y",
+     "type": "FLOAT",
+     "label": "stop y",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "y at the last point"
+    },
+    {
+     "name": "num",
+     "type": "INT",
+     "default": 5,
+     "min": 1.0,
+     "max": 1000.0,
+     "step": 1.0,
+     "tooltip": "How many points (with grid on: how many values per coordinate)"
+    },
+    {
+     "name": "endpoint",
+     "type": "BOOL",
+     "default": true,
+     "tooltip": "Include the stop value"
+    },
+    {
+     "name": "grid",
+     "type": "BOOL",
+     "default": false,
+     "tooltip": "Every combination of the coordinates' values, not points along a line"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "x",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "y",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "xy",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.range3d",
+   "display": "Vary Range 3D",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "num points evenly spaced from the start point to the stop point (numpy's linspace between two points): their x, y, z on outputs that zip, so the settings they feed vary together, and the points as tuples on xyz. With grid on, every combination of num values per coordinate instead (num × num × num points), x varying fastest.",
+   "inputs": [
+    {
+     "name": "start_x",
+     "type": "FLOAT",
+     "label": "start x",
+     "default": 0.0,
+     "step": 0.1,
+     "tooltip": "x at the first point"
+    },
+    {
+     "name": "stop_x",
+     "type": "FLOAT",
+     "label": "stop x",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "x at the last point"
+    },
+    {
+     "name": "start_y",
+     "type": "FLOAT",
+     "label": "start y",
+     "default": 0.0,
+     "step": 0.1,
+     "tooltip": "y at the first point"
+    },
+    {
+     "name": "stop_y",
+     "type": "FLOAT",
+     "label": "stop y",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "y at the last point"
+    },
+    {
+     "name": "start_z",
+     "type": "FLOAT",
+     "label": "start z",
+     "default": 0.0,
+     "step": 0.1,
+     "tooltip": "z at the first point"
+    },
+    {
+     "name": "stop_z",
+     "type": "FLOAT",
+     "label": "stop z",
+     "default": 1.0,
+     "step": 0.1,
+     "tooltip": "z at the last point"
+    },
+    {
+     "name": "num",
+     "type": "INT",
+     "default": 5,
+     "min": 1.0,
+     "max": 1000.0,
+     "step": 1.0,
+     "tooltip": "How many points (with grid on: how many values per coordinate)"
+    },
+    {
+     "name": "endpoint",
+     "type": "BOOL",
+     "default": true,
+     "tooltip": "Include the stop value"
+    },
+    {
+     "name": "grid",
+     "type": "BOOL",
+     "default": false,
+     "tooltip": "Every combination of the coordinates' values, not points along a line"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "x",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "y",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "z",
+     "type": "FLOAT",
+     "list": true,
+     "socket": "socket"
+    },
+    {
+     "name": "xyz",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  },
+  {
+   "id": "vary.string",
+   "display": "Vary String",
+   "category": [
+    "Building blocks",
+    "Vary"
+   ],
+   "description": "A list of texts to sweep a setting with: wire it into a parameter and that node runs once per value, each result labelled with its value. Several varied settings zip when they come from the same Vary node, and form every combination when they don't.",
+   "inputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "default": "a, b",
+     "tooltip": "The values, comma-separated; each item as typed"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "values",
+     "type": "STRING",
+     "list": true,
+     "socket": "socket"
+    }
+   ]
+  }
+ ],
+ "compat": [
+  {
+   "from": "INT",
+   "to": "FLOAT"
+  },
+  {
+   "from": "STRING",
+   "to": "ENUM"
+  },
+  {
+   "from": "ENUM",
+   "to": "STRING"
+  },
+  {
+   "from": "TEXT",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "TEXT"
+  },
+  {
+   "from": "STRING",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "STRING"
+  },
+  {
+   "from": "INT",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "INT"
+  },
+  {
+   "from": "FLOAT",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "FLOAT"
+  },
+  {
+   "from": "TABLE",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "TABLE"
+  },
+  {
+   "from": "ARRAY",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "ARRAY"
+  },
+  {
+   "from": "BOOL",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "BOOL"
+  },
+  {
+   "from": "ENUM",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "ENUM"
+  }
+ ]
+}

@@ -1,0 +1,8 @@
+
+
+def test_shapes_and_recolor(engine):
+    drawing = engine.shapes(3, "#112233")
+    assert drawing.meta["form"] == {"kind": "vector", "width": 120.0, "height": 40.0}
+    assert b'fill="#abcdef"' in engine.recolor(drawing, "#abcdef").data
+    with pytest.raises(ConfigError):
+        engine.shapes(3, "plum")

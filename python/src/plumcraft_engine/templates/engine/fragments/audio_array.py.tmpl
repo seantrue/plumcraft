@@ -1,0 +1,13 @@
+
+    @node("Audio to Array")
+    def audio_to_array(self, audio: Audio) -> Array:
+        """Audio's samples, frames × channels. An array has no sample rate. The inverse of Array to Audio."""
+        return audio.samples
+
+    @node("Array to Audio")
+    def array_to_audio(self, array: Array, rate: Annotated[int, Range(8000, 192000, invalid="clamp")] = 44100) -> Audio:
+        """Samples, frames or frames × channels, as audio at a sample rate. The inverse of Audio to Array."""
+        data = np.asarray(array)
+        if data.ndim not in (1, 2) or data.size == 0:
+            raise ConfigError(f"samples, not {'×'.join(str(n) for n in data.shape)}")
+        return AudioValue(data, rate)

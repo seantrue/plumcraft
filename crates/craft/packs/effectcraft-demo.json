@@ -1,0 +1,24 @@
+{
+  "version": 1,
+  "nodes": {
+    "new": {"kind": "ec.new", "pos": [0, 0], "values": {"width": 1280, "height": 720, "duration": 3.0}},
+    "bg": {"kind": "ec.solid", "pos": [440, 0], "values": {"color": "#1e1b4b"}},
+    "title": {"kind": "ec.text", "pos": [880, 0], "values": {"text": "PlumCraft", "size": 120.0, "fill": "#f5d0fe"}},
+    "glow": {"kind": "ec.effect", "pos": [1320, 0], "values": {"effect": "ec.stylize.glow"}},
+    "spin": {"kind": "ec.expression", "pos": [1760, 0], "values": {"path": "transform/rotation", "expression": "Math.sin(time * 2) * 10"}},
+    "orb": {"kind": "ec.shape", "pos": [2200, 0], "values": {"kind": "ellipse", "size": [160, 160], "fill": "#a21caf"}},
+    "fade": {"kind": "ec.preset", "pos": [2640, 0], "values": {"preset": "fadeIn"}},
+    "info": {"kind": "ec.info", "pos": [3080, 0], "values": {}},
+    "png": {"kind": "ec.export_png", "pos": [3080, 520], "values": {"time": 1.5}}
+  },
+  "wires": [
+    {"from": {"node": "new", "port": "doc"}, "to": {"node": "bg", "port": "doc"}},
+    {"from": {"node": "bg", "port": "doc"}, "to": {"node": "title", "port": "doc"}},
+    {"from": {"node": "title", "port": "doc"}, "to": {"node": "glow", "port": "doc"}},
+    {"from": {"node": "glow", "port": "doc"}, "to": {"node": "spin", "port": "doc"}},
+    {"from": {"node": "spin", "port": "doc"}, "to": {"node": "orb", "port": "doc"}},
+    {"from": {"node": "orb", "port": "doc"}, "to": {"node": "fade", "port": "doc"}},
+    {"from": {"node": "fade", "port": "doc"}, "to": {"node": "info", "port": "doc"}},
+    {"from": {"node": "fade", "port": "doc"}, "to": {"node": "png", "port": "doc"}}
+  ]
+}

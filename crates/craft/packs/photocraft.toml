@@ -1,0 +1,522 @@
+# The PhotoCraft pack for plumcraft-craft (note 14, 3.10): a raster image editor
+# (Photoshop-class) as PlumCraft nodes. Worker A, 2026-10-28; notes in
+# claude-debug/craft-pack-photocraft.md.
+#
+# The document is PhotoCraft's native `.pcraft` (a stored zip; the same document saved under the
+# same file name is byte-identical, so handles are stable). Open and save are the `doc_open` /
+# `doc_save` tools; exports are `doc_export` with `format` as an extension. Filters and
+# adjustments act on the active layer (an opened JPEG/PNG is one layer; `pc.flatten` merges).
+#
+# `close_all` is `file.closeAll`, which fails with "not available right now: no document open"
+# when nothing is open; the adapter then starts a fresh process instead (and skips the reset on
+# a process that has run nothing), so every cold open starts from no documents.
+
+id = "photocraft"
+name = "PhotoCraft"
+command = ["photocraft-cli", "mcp"]
+hint = "install photocraft-cli on PATH (https://github.com/storytold/photocraft)"
+timeout_s = 600
+
+[gui]
+command = ["photocraft"]
+env = "PLUMCRAFT_PHOTOCRAFT_APP"
+label = "PhotoCraft"
+hint = "install photocraft on PATH (~/bin/photocraft)"
+
+[roots]
+read = "--automation-read-root"
+write = "--automation-write-root"
+
+[pool]
+max = 2
+idle_s = 60
+clear_every = 20
+
+[tools]
+list = "command_list"
+run = { tool = "command_run", id = "id", params = "params" }
+
+[actions]
+open = { tool = "doc_open", path = "path" }
+save = { tool = "doc_save", path = "path" }
+close_all = { command = "file.closeAll" }
+clear_history = { command = "history.clear" }
+export = { tool = "doc_export", path = "path" }
+
+[doc]
+wire = "photocraft.doc"
+ext = "pcraft"
+media = "application/vnd.photocraft"
+app = "photocraft"
+stem = "document"
+color = "#0e7490"
+
+[run_node]
+id = "pc.run"
+display = "Run command"
+allow = ["filter.", "image.adjustments.", "image.imageRotation.", "image.rotation.", "image.autoTone", "image.autoContrast", "image.autoColor", "image.crop", "image.trim", "image.imageSize", "image.canvasSize", "image.mode.", "image.revealAll", "image.detectFaces", "layer.", "select.", "shape.", "type.", "path.", "document.inspect", "edit.fill", "edit.stroke", "edit.clear", "edit.transform.", "edit.contentAwareFill", "edit.contentAwareScale", "edit.fade"]
+deny = [
+  # files, app libraries and the clipboard
+  "layer.smartObjects.", "layer.videoLayers.", "shape.presets.", "layer.layerStyle.contours.",
+  "layer.quickExportAsPng", "layer.exportAs", "layer.copyToDocument",
+  "type.fonts", "type.saveDefaultTypeStyles", "type.loadDefaultTypeStyles", "type.replaceAllMissingFonts", "type.resolveMissingFonts",
+  "path.style.copyFill", "path.style.copyStroke", "path.style.pasteFill", "path.style.pasteStroke",
+  "layer.layerStyle.copyLayerStyle", "layer.layerStyle.pasteLayerStyle",
+  # ids with words the pack policy denies (harmless in-document edits, denied for the rule's sake)
+  "layer.delete", "layer.delete.hiddenLayers", "layer.layerMask.delete", "layer.vectorMask.delete", "layer.smartFilter.delete", "layer.smartFilter.deleteFilterMask",
+  "path.delete", "path.deleteAnchor", "type.characterStyle.delete", "type.paragraphStyle.delete",
+  "layer.arrange.sendBackward", "layer.arrange.sendToBack",
+]
+
+# ---- documents ----
+
+[[node]]
+id = "pc.open"
+display = "Open"
+kind = "open"
+family = "Document"
+description = "Open an image (PNG, JPEG, TIFF, PSD, WebP, EXR, …) or a PhotoCraft document (doc_open)"
+
+[[node]]
+id = "pc.new"
+display = "New document"
+kind = "new"
+family = "Document"
+command = "file.new"
+description = "A new document (file.new) with a fixed name, so it is reproducible"
+fixed = { name = "Untitled" }
+[[node.widget]]
+name = "width"
+type = "INT"
+default = 1024
+min = 1.0
+max = 300000.0
+[[node.widget]]
+name = "height"
+type = "INT"
+default = 768
+min = 1.0
+max = 300000.0
+[[node.widget]]
+name = "mode"
+type = "ENUM"
+choices = ["rgb", "grayscale", "cmyk", "lab"]
+default = "rgb"
+[[node.widget]]
+name = "depth"
+type = "INT"
+choices = [8, 16, 32]
+default = 8
+advanced = true
+[[node.widget]]
+name = "background"
+type = "STRING"
+default = "white"
+tooltip = "white, black, transparent or #rrggbb"
+[[node.widget]]
+name = "resolution"
+type = "FLOAT"
+default = 72.0
+min = 1.0
+max = 30000.0
+advanced = true
+
+[[node]]
+id = "pc.inspect"
+display = "Inspect"
+kind = "query"
+family = "Document"
+command = "document.inspect"
+description = "The document's size, mode, layers, channels and history (document.inspect)"
+
+[[node]]
+id = "pc.flatten"
+display = "Flatten image"
+kind = "transform"
+family = "Document"
+command = "layer.flattenImage"
+
+# ---- image ----
+
+[[node]]
+id = "pc.image_size"
+display = "Image size"
+kind = "transform"
+family = "Image"
+command = "image.imageSize"
+description = "Resample the image (image.imageSize): a width and/or height in pixels, or a percent"
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 1.0
+max = 300000.0
+optional = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 1.0
+max = 300000.0
+optional = true
+[[node.widget]]
+name = "percent"
+type = "FLOAT"
+min = 0.1
+max = 10000.0
+optional = true
+
+[[node]]
+id = "pc.crop"
+display = "Crop"
+kind = "transform"
+family = "Image"
+command = "image.crop"
+[[node.widget]]
+name = "x"
+type = "INT"
+default = 0
+min = -300000.0
+max = 300000.0
+[[node.widget]]
+name = "y"
+type = "INT"
+default = 0
+min = -300000.0
+max = 300000.0
+[[node.widget]]
+name = "width"
+type = "INT"
+default = 512
+min = 1.0
+max = 300000.0
+[[node.widget]]
+name = "height"
+type = "INT"
+default = 512
+min = 1.0
+max = 300000.0
+
+[[node]]
+id = "pc.rotate"
+display = "Rotate / flip canvas"
+kind = "transform"
+family = "Image"
+command = "image.imageRotation.{operation}"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+template = true
+choices = ["90cw", "90ccw", "180", "flipCanvasHorizontal", "flipCanvasVertical"]
+default = "90cw"
+
+[[node]]
+id = "pc.auto"
+display = "Auto tone / contrast / colour"
+kind = "transform"
+family = "Adjust"
+command = "image.{operation}"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+template = true
+choices = ["autoTone", "autoContrast", "autoColor"]
+default = "autoTone"
+
+# ---- adjustments ----
+
+[[node]]
+id = "pc.brightness_contrast"
+display = "Brightness / Contrast"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.brightnessContrast"
+[[node.widget]]
+name = "brightness"
+type = "INT"
+default = 0
+[[node.widget]]
+name = "contrast"
+type = "INT"
+default = 0
+
+[[node]]
+id = "pc.levels"
+display = "Levels"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.levels"
+[[node.widget]]
+name = "inBlack"
+type = "INT"
+default = 0
+[[node.widget]]
+name = "gamma"
+type = "FLOAT"
+default = 1.0
+[[node.widget]]
+name = "inWhite"
+type = "INT"
+default = 255
+[[node.widget]]
+name = "outBlack"
+type = "INT"
+default = 0
+advanced = true
+[[node.widget]]
+name = "outWhite"
+type = "INT"
+default = 255
+advanced = true
+
+[[node]]
+id = "pc.hue_saturation"
+display = "Hue / Saturation"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.hueSaturation"
+[[node.widget]]
+name = "hue"
+type = "INT"
+default = 0
+[[node.widget]]
+name = "saturation"
+type = "INT"
+default = 0
+[[node.widget]]
+name = "lightness"
+type = "INT"
+default = 0
+[[node.widget]]
+name = "colorize"
+type = "BOOL"
+default = false
+
+[[node]]
+id = "pc.exposure"
+display = "Exposure"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.exposure"
+[[node.widget]]
+name = "exposure"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "offset"
+type = "FLOAT"
+default = 0.0
+[[node.widget]]
+name = "gamma"
+type = "FLOAT"
+default = 1.0
+
+[[node]]
+id = "pc.black_white"
+display = "Black & White"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.blackWhite"
+description = "Convert to black and white with per-colour mixing (image.adjustments.blackWhite); the parameters default to the craft's"
+
+[[node]]
+id = "pc.invert"
+display = "Invert"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.invert"
+
+[[node]]
+id = "pc.posterize"
+display = "Posterize"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.posterize"
+[[node.widget]]
+name = "levels"
+type = "INT"
+default = 4
+
+[[node]]
+id = "pc.color_lookup"
+display = "Color lookup"
+kind = "transform"
+family = "Adjust"
+command = "image.adjustments.colorLookup"
+[[node.widget]]
+name = "lut"
+type = "ENUM"
+choices = ["none", "warm", "cool", "tealOrange", "bleachBypass", "fadedFilm", "dayForNight", "monoContrast", "crossProcess"]
+default = "tealOrange"
+
+# ---- filters ----
+
+[[node]]
+id = "pc.gaussian_blur"
+display = "Gaussian blur"
+kind = "transform"
+family = "Filter"
+command = "filter.blur.gaussianBlur"
+[[node.widget]]
+name = "radius"
+type = "FLOAT"
+default = 2.0
+
+[[node]]
+id = "pc.unsharp_mask"
+display = "Unsharp mask"
+kind = "transform"
+family = "Filter"
+command = "filter.sharpen.unsharpMask"
+[[node.widget]]
+name = "amount"
+type = "FLOAT"
+default = 50.0
+[[node.widget]]
+name = "radius"
+type = "FLOAT"
+default = 1.0
+[[node.widget]]
+name = "threshold"
+type = "INT"
+default = 0
+
+[[node]]
+id = "pc.add_noise"
+display = "Add noise"
+kind = "transform"
+family = "Filter"
+command = "filter.noise.addNoise"
+[[node.widget]]
+name = "amount"
+type = "FLOAT"
+default = 12.5
+[[node.widget]]
+name = "distribution"
+type = "ENUM"
+choices = ["uniform", "gaussian"]
+default = "gaussian"
+[[node.widget]]
+name = "monochromatic"
+type = "BOOL"
+default = false
+[[node.widget]]
+name = "seed"
+type = "INT"
+default = 0
+min = 0.0
+max = 4294967295.0
+
+[[node]]
+id = "pc.oil_paint"
+display = "Oil paint"
+kind = "transform"
+family = "Filter"
+command = "filter.stylize.oilPaint"
+[[node.widget]]
+name = "stylization"
+type = "FLOAT"
+default = 4.0
+[[node.widget]]
+name = "cleanliness"
+type = "FLOAT"
+default = 5.0
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+default = 1.0
+[[node.widget]]
+name = "bristleDetail"
+type = "FLOAT"
+default = 5.0
+
+[[node]]
+id = "pc.clouds"
+display = "Clouds"
+kind = "transform"
+family = "Filter"
+command = "filter.render.clouds"
+description = "Fill the active layer with clouds in the foreground and background colours (filter.render.clouds)"
+[[node.widget]]
+name = "seed"
+type = "INT"
+default = 0
+min = 0.0
+max = 4294967295.0
+
+# ---- analysis ----
+
+[[node]]
+id = "pc.detect_faces"
+display = "Detect faces"
+kind = "query"
+family = "Analysis"
+command = "image.detectFaces"
+description = "Faces in the image, best first, with rectangles and landmarks (image.detectFaces)"
+[[node.output]]
+name = "faces"
+type = "JSON"
+from = "faces"
+[[node.widget]]
+name = "minScore"
+type = "FLOAT"
+default = 0.5
+min = 0.0
+max = 1.0
+
+# ---- export ----
+
+[[node]]
+id = "pc.export_png"
+display = "Export PNG"
+kind = "export"
+family = "Export"
+format = "png"
+ext = "png"
+media = "image/png"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+
+[[node]]
+id = "pc.export_jpg"
+display = "Export JPEG"
+kind = "export"
+family = "Export"
+format = "jpg"
+ext = "jpg"
+media = "image/jpeg"
+[[node.output]]
+name = "image"
+type = "IMAGE"
+[[node.widget]]
+name = "quality"
+type = "INT"
+default = 90
+min = 1.0
+max = 100.0
+
+[[node]]
+id = "pc.export_pdf"
+display = "Export PDF"
+kind = "export"
+family = "Export"
+format = "pdf"
+ext = "pdf"
+media = "application/pdf"
+pure = false
+description = "A one-page PDF of the flattened image (PDF files carry a creation date, so not memoised)"
+[[node.output]]
+name = "pdf"
+type = "PDF"
+
+[[node]]
+id = "pc.export_psd"
+display = "Export PSD"
+kind = "export"
+family = "Export"
+format = "psd"
+ext = "psd"
+media = "image/vnd.adobe.photoshop"
+description = "A layered Photoshop file (no viewer in the editor)"
+[[node.output]]
+name = "psd"
+type = "PSD"

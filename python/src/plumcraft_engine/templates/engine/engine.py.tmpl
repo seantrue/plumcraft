@@ -1,0 +1,16 @@
+"""$name: a PlumCraft engine. Every method marked `@node` is a node: its annotations are its ports,
+its docstring its description. README.md says how to add one; the PlumCraft SDK's `python/README.md`
+has the full list of annotations."""
+
+$imports
+
+__version__ = "0.1.0"
+$helpers
+
+class $cls(Engine):
+    id = "$id"
+    name = "$name"
+    version = __version__
+    category = "$name"
+    family = "$id"
+$attrs$nodes

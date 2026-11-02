@@ -1,0 +1,6 @@
+
+
+def test_checkerboard(engine):
+    picture = engine.checkerboard(16, 2)
+    assert picture.meta["media"] == "image/png"
+    assert engine.image_size(picture) == "16x16"

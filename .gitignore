@@ -1,0 +1,17 @@
+/target/
+target/
+**/.venv/
+__pycache__/
+*.pyc
+.DS_Store
+# claude-debug: notes (.md) are tracked; code and data are not
+claude-debug/*
+!claude-debug/*.md
+# rendered reports (the .md is the source)
+docs/**/*.pdf
+.ruff_cache/
+.pytest_cache/
+
+# local, not part of the project
+/.idea/
+/synesthesia.png

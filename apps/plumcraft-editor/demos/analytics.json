@@ -1,0 +1,264 @@
+{
+  "version": 1,
+  "engines": [
+    "text",
+    "array",
+    "gridcraft"
+  ],
+  "meta": {
+    "title": "Analytics in GridCraft",
+    "about": "Three engines: the text engine counts the letters of a pangram, the array engine takes a histogram of simplex noise, and GridCraft writes both into a workbook, charts each, and exports it as a PDF. Table to Rows (a building block every engine has) runs on the engine its table comes from: each is pinned. Open it with plumcraft-editor --engine text,array,gridcraft."
+  },
+  "nodes": {
+    "passage": {
+      "kind": "text.literal",
+      "values": {
+        "text": "The quick brown fox jumps over the lazy dog, and the five boxing wizards jump quickly."
+      },
+      "pos": [
+        0,
+        0
+      ]
+    },
+    "letters": {
+      "kind": "text.letters",
+      "pos": [
+        380,
+        0
+      ]
+    },
+    "lrows": {
+      "kind": "seq.table_rows",
+      "engine": "text",
+      "pos": [
+        700,
+        0
+      ]
+    },
+    "mandel": {
+      "kind": "array.simplex_noise",
+      "values": {
+        "seed": 1,
+        "width": 384,
+        "height": 256,
+        "cells": 6.0
+      },
+      "pos": [
+        0,
+        320
+      ]
+    },
+    "hist": {
+      "kind": "array.histogram",
+      "values": {
+        "bins": 16,
+        "low": 0.0,
+        "high": 1.0
+      },
+      "pos": [
+        380,
+        320
+      ]
+    },
+    "hrows": {
+      "kind": "seq.table_rows",
+      "engine": "array",
+      "pos": [
+        700,
+        320
+      ]
+    },
+    "book": {
+      "kind": "gc.new",
+      "pos": [
+        1020,
+        -260
+      ]
+    },
+    "wl": {
+      "kind": "gc.write_range",
+      "values": {
+        "range": "A1"
+      },
+      "pos": [
+        1020,
+        0
+      ]
+    },
+    "wh": {
+      "kind": "gc.write_range",
+      "values": {
+        "range": "D1"
+      },
+      "pos": [
+        1340,
+        160
+      ]
+    },
+    "c1": {
+      "kind": "gc.chart",
+      "values": {
+        "range": "A1:B27",
+        "type": "column",
+        "title": "Letters in two pangrams",
+        "at": "A30"
+      },
+      "pos": [
+        1660,
+        0
+      ]
+    },
+    "c2": {
+      "kind": "gc.chart",
+      "values": {
+        "range": "E1:E17",
+        "type": "column",
+        "title": "Noise histogram (16 bins from 0 to 1)",
+        "at": "A52"
+      },
+      "pos": [
+        1980,
+        0
+      ]
+    },
+    "pdf": {
+      "kind": "gc.export_pdf",
+      "pos": [
+        2300,
+        -120
+      ]
+    },
+    "read": {
+      "kind": "gc.read",
+      "values": {
+        "range": "A1:E27"
+      },
+      "pos": [
+        2300,
+        200
+      ]
+    }
+  },
+  "wires": [
+    {
+      "from": {
+        "node": "passage",
+        "port": "text"
+      },
+      "to": {
+        "node": "letters",
+        "port": "text"
+      }
+    },
+    {
+      "from": {
+        "node": "letters",
+        "port": "table"
+      },
+      "to": {
+        "node": "lrows",
+        "port": "table"
+      }
+    },
+    {
+      "from": {
+        "node": "mandel",
+        "port": "noise"
+      },
+      "to": {
+        "node": "hist",
+        "port": "array"
+      }
+    },
+    {
+      "from": {
+        "node": "hist",
+        "port": "histogram"
+      },
+      "to": {
+        "node": "hrows",
+        "port": "table"
+      }
+    },
+    {
+      "from": {
+        "node": "book",
+        "port": "doc"
+      },
+      "to": {
+        "node": "wl",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "lrows",
+        "port": "rows"
+      },
+      "to": {
+        "node": "wl",
+        "port": "values"
+      }
+    },
+    {
+      "from": {
+        "node": "wl",
+        "port": "doc"
+      },
+      "to": {
+        "node": "wh",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "hrows",
+        "port": "rows"
+      },
+      "to": {
+        "node": "wh",
+        "port": "values"
+      }
+    },
+    {
+      "from": {
+        "node": "wh",
+        "port": "doc"
+      },
+      "to": {
+        "node": "c1",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "c1",
+        "port": "doc"
+      },
+      "to": {
+        "node": "c2",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "c2",
+        "port": "doc"
+      },
+      "to": {
+        "node": "pdf",
+        "port": "doc"
+      }
+    },
+    {
+      "from": {
+        "node": "c2",
+        "port": "doc"
+      },
+      "to": {
+        "node": "read",
+        "port": "doc"
+      }
+    }
+  ]
+}

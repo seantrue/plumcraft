@@ -1,0 +1,437 @@
+{
+ "version": 1,
+ "nodes": {
+  "n10": {
+   "kind": "demo.op1",
+   "pos": [
+    -78.0,
+    -158.0
+   ],
+   "values": {
+    "p1": true,
+    "p2": 0.5,
+    "p3": 0.5,
+    "p4": 0.5
+   },
+   "serial": 1
+  },
+  "n11": {
+   "kind": "demo.op2",
+   "pos": [
+    592.0,
+    -16.0
+   ],
+   "values": {
+    "p5": "x",
+    "p6": 0.5
+   },
+   "inherited": [
+    "p5"
+   ],
+   "title": "x",
+   "serial": 1
+  },
+  "n12": {
+   "kind": "demo.op3",
+   "pos": [
+    592.0,
+    273.0
+   ],
+   "values": {
+    "p7": 0.5,
+    "p8": "x",
+    "p9": 0.5,
+    "p10": 0.5,
+    "p11": 0.5,
+    "p12": 0.5,
+    "p13": 1
+   },
+   "serial": 1
+  },
+  "n13": {
+   "kind": "demo.op1",
+   "pos": [
+    -78.0,
+    44.0
+   ],
+   "values": {
+    "p1": true,
+    "p2": 0.5,
+    "p3": 0.5,
+    "p4": 0.5
+   },
+   "serial": 2
+  },
+  "n14": {
+   "kind": "demo.op2",
+   "pos": [
+    952.0,
+    -88.0
+   ],
+   "values": {
+    "p5": "x",
+    "p14": 0.5,
+    "p6": 0.5
+   },
+   "title": "x",
+   "serial": 2
+  },
+  "n15": {
+   "kind": "demo.op4",
+   "pos": [
+    1280.0,
+    273.0
+   ],
+   "values": {
+    "p15": "x",
+    "p16": 1
+   },
+   "title": "x",
+   "serial": 2
+  },
+  "n17": {
+   "kind": "demo.op5",
+   "pos": [
+    1070.0,
+    592.0
+   ],
+   "values": {
+    "p17": 0.5,
+    "p18": 1,
+    "p19": 1
+   },
+   "serial": 1
+  },
+  "n18": {
+   "kind": "demo.op6",
+   "pos": [
+    -366.0,
+    592.0
+   ],
+   "values": {},
+   "serial": 1
+  },
+  "n19": {
+   "kind": "demo.op7",
+   "pos": [
+    -49.0,
+    592.0
+   ],
+   "values": {
+    "p16": 1
+   },
+   "serial": 1
+  },
+  "n2": {
+   "kind": "demo.op8",
+   "pos": [
+    -430.0,
+    -158.0
+   ],
+   "values": {
+    "p20": true,
+    "p21": "x",
+    "path": "sample.png"
+   },
+   "serial": 1
+  },
+  "n21": {
+   "kind": "demo.op9",
+   "pos": [
+    314.0,
+    592.0
+   ],
+   "values": {},
+   "title": "x",
+   "serial": 1
+  },
+  "n22": {
+   "kind": "demo.op10",
+   "pos": [
+    1760.0,
+    592.0
+   ],
+   "values": {
+    "p22": "x"
+   },
+   "serial": 1
+  },
+  "n25": {
+   "kind": "demo.op9",
+   "pos": [
+    1418.0,
+    592.0
+   ],
+   "values": {},
+   "serial": 1
+  },
+  "n26": {
+   "kind": "demo.op11",
+   "pos": [
+    257.0,
+    -35.0
+   ],
+   "values": {
+    "p23": "x"
+   },
+   "serial": 1
+  },
+  "n27": {
+   "kind": "demo.op12",
+   "pos": [
+    682.0,
+    592.0
+   ],
+   "values": {},
+   "serial": 1
+  },
+  "n8": {
+   "kind": "demo.op4",
+   "pos": [
+    1280.0,
+    -158.0
+   ],
+   "values": {
+    "p15": "x",
+    "p16": 1
+   },
+   "title": "x",
+   "serial": 1
+  },
+  "n9": {
+   "kind": "demo.op13",
+   "pos": [
+    592.0,
+    -158.0
+   ],
+   "values": {
+    "p24": 0.5,
+    "p13": 1
+   },
+   "title": "x",
+   "serial": 1
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "n2",
+    "port": "rgb"
+   },
+   "to": {
+    "node": "n10",
+    "port": "image"
+   }
+  },
+  {
+   "from": {
+    "node": "n10",
+    "port": "p25"
+   },
+   "to": {
+    "node": "n8",
+    "port": "p25"
+   }
+  },
+  {
+   "from": {
+    "node": "n10",
+    "port": "p25"
+   },
+   "to": {
+    "node": "n9",
+    "port": "p25"
+   }
+  },
+  {
+   "from": {
+    "node": "n9",
+    "port": "p26"
+   },
+   "to": {
+    "node": "n8",
+    "port": "p26"
+   }
+  },
+  {
+   "from": {
+    "node": "n11",
+    "port": "p27"
+   },
+   "to": {
+    "node": "n8",
+    "port": "p27"
+   }
+  },
+  {
+   "from": {
+    "node": "n13",
+    "port": "p25"
+   },
+   "to": {
+    "node": "n15",
+    "port": "p25"
+   }
+  },
+  {
+   "from": {
+    "node": "n14",
+    "port": "p27"
+   },
+   "to": {
+    "node": "n15",
+    "port": "p27"
+   }
+  },
+  {
+   "from": {
+    "node": "n2",
+    "port": "rgb"
+   },
+   "to": {
+    "node": "n13",
+    "port": "image"
+   }
+  },
+  {
+   "from": {
+    "node": "n13",
+    "port": "p25"
+   },
+   "to": {
+    "node": "n12",
+    "port": "p25"
+   }
+  },
+  {
+   "from": {
+    "node": "n12",
+    "port": "p26"
+   },
+   "to": {
+    "node": "n15",
+    "port": "p26"
+   }
+  },
+  {
+   "from": {
+    "node": "n15",
+    "port": "out"
+   },
+   "to": {
+    "node": "n17",
+    "port": "base"
+   },
+   "label": "Upper"
+  },
+  {
+   "from": {
+    "node": "n8",
+    "port": "out"
+   },
+   "to": {
+    "node": "n17",
+    "port": "p28"
+   },
+   "label": "Lower"
+  },
+  {
+   "from": {
+    "node": "n8",
+    "port": "out"
+   },
+   "to": {
+    "node": "n18",
+    "port": "p18"
+   },
+   "label": "Lower"
+  },
+  {
+   "from": {
+    "node": "n18",
+    "port": "p29"
+   },
+   "to": {
+    "node": "n19",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "n19",
+    "port": "p30"
+   },
+   "to": {
+    "node": "n21",
+    "port": "p31"
+   }
+  },
+  {
+   "from": {
+    "node": "n17",
+    "port": "p32"
+   },
+   "to": {
+    "node": "n25",
+    "port": "p31"
+   }
+  },
+  {
+   "from": {
+    "node": "n25",
+    "port": "p29"
+   },
+   "to": {
+    "node": "n22",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "n26",
+    "port": "p23"
+   },
+   "to": {
+    "node": "n11",
+    "port": "p5"
+   }
+  },
+  {
+   "from": {
+    "node": "n21",
+    "port": "p29"
+   },
+   "to": {
+    "node": "n27",
+    "port": "array"
+   }
+  },
+  {
+   "from": {
+    "node": "n27",
+    "port": "p33"
+   },
+   "to": {
+    "node": "n17",
+    "port": "p34"
+   }
+  }
+ ],
+ "groups": {},
+ "next_id": 29,
+ "next_group": 1,
+ "nets": {
+  "Upper": {
+   "from": {
+    "node": "n15",
+    "port": "out"
+   }
+  },
+  "Lower": {
+   "from": {
+    "node": "n8",
+    "port": "out"
+   }
+  }
+ }
+}
