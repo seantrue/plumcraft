@@ -24,7 +24,7 @@
 //! VectorCraft app (`doc.open`, from the craft manifest's `[gui]`). The engine is hosted as in
 //! `plumcraft-view`: compiled in (mode 1, the default for text and audio), as a separate
 //! process (`--process`: the Rust engine binary, `plumcraft-text-engine` or
-//! `plumcraft-audio-engine` beside the editor; `--python`: the Python engine under `uv run`;
+//! `plumcraft-audio-engine` beside the editor, always, as the editor doesn't compile it in; `--python`: the Python engine under `uv run`;
 //! mode 2) or over HTTP (`--http`, with `--python` for the Python engine; mode 3).
 //! The flags pick the engine at startup; the Engine menu lists every engine and hosting
 //! ([`choices`]) and switches while the editor runs (`engine.switch`, `engine.reconnect`,
@@ -294,6 +294,10 @@ fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
     problems
 }
 
+/// How to get the audio engine, which is built apart from the editor: its SoundCraft crates
+/// aren't on crates.io, and the interface makes it one more process (docs/guide.md).
+const AUDIO_HINT: &str = "the audio engine is optional: in a PlumCraft checkout, cargo build -p plumcraft-audio, beside the editor";
+
 /// A workflow with no nodes, for a craft whose pack has no demo.
 const EMPTY_WORKFLOW: &str = r#"{"version": 1, "nodes": {}, "wires": []}"#;
 
@@ -347,12 +351,13 @@ impl EngineKind {
         matches!(self, EngineKind::Craft(_))
     }
 
-    /// Is there an engine `self` hosted as `mode`? Only the text engine has a Python twin; an
-    /// engine a manifest names is a process or HTTP, and one already running is only HTTP.
+    /// Is there an engine `self` hosted as `mode`? Only the text engine has a Python twin; the
+    /// audio engine and one a manifest names are a process or HTTP, and one already running is
+    /// only HTTP.
     fn hosts(self, mode: Mode) -> bool {
         match self {
             EngineKind::External(_) if self.attaches() => mode == Mode::HttpRust,
-            EngineKind::External(_) => matches!(mode, Mode::Rust | Mode::HttpRust),
+            EngineKind::External(_) | EngineKind::Audio => matches!(mode, Mode::Rust | Mode::HttpRust),
             EngineKind::Pack(i) => mode == pack(i).map_or(Mode::InProc, PackEngine::mode),
             _ => self == EngineKind::Text || !mode.python(),
         }
@@ -368,12 +373,12 @@ impl EngineKind {
         }
     }
 
-    /// How it is hosted without a flag: the craft adapter as its own process (D49), the
-    /// others compiled in.
+    /// How it is hosted without a flag: the craft adapter and the audio engine as their own
+    /// processes, the others compiled in.
     fn default_mode(self) -> Mode {
         match self {
             EngineKind::External(_) if self.attaches() => Mode::HttpRust,
-            EngineKind::External(_) => Mode::Rust,
+            EngineKind::External(_) | EngineKind::Audio => Mode::Rust,
             // An application on this library may be one file, with no adapter binary beside it.
             EngineKind::Craft(_) if PACKS.get().is_none_or(Vec::is_empty) => Mode::Rust,
             EngineKind::Pack(i) => pack(i).map_or(Mode::InProc, PackEngine::mode),
@@ -409,7 +414,7 @@ impl EngineKind {
     fn engine(self) -> Result<plumcraft_engine::Engine, String> {
         match self {
             EngineKind::Text => Ok(plumcraft_text::engine()),
-            EngineKind::Audio => Ok(plumcraft_audio::engine()),
+            EngineKind::Audio => Err("the audio engine runs as its own process, plumcraft-audio-engine".into()),
             EngineKind::Array => Ok(plumcraft_array::engine()),
             EngineKind::Craft(id) => plumcraft_craft::manifest::Manifest::named(id).and_then(|m| plumcraft_craft::engine(&m)),
             EngineKind::External(_) => Err("an engine a manifest names runs as its own process".into()),
@@ -421,7 +426,7 @@ impl EngineKind {
     fn demo(self) -> Result<String, String> {
         Ok(match self {
             EngineKind::Text => plumcraft_text::DEMO_WORKFLOW.into(),
-            EngineKind::Audio => plumcraft_audio::DEMO_WORKFLOW.into(),
+            EngineKind::Audio => include_str!("../demos/audio.json").into(),
             EngineKind::Array => plumcraft_array::DEMO_WORKFLOW.into(),
             EngineKind::Craft(id) => plumcraft_craft::manifest::demo(id).unwrap_or(EMPTY_WORKFLOW).into(),
             EngineKind::External(i) => match external(i).and_then(|e| e.resolved.demo) {
@@ -437,7 +442,7 @@ impl EngineKind {
     fn binary(self) -> Option<(&'static str, &'static str, &'static str, Vec<String>)> {
         match self {
             EngineKind::Text => Some(("text", "plumcraft-text-engine", "cargo build -p plumcraft-text", Vec::new())),
-            EngineKind::Audio => Some(("audio", "plumcraft-audio-engine", "cargo build -p plumcraft-audio", Vec::new())),
+            EngineKind::Audio => Some(("audio", "plumcraft-audio-engine", AUDIO_HINT, Vec::new())),
             EngineKind::Array => Some(("array", "plumcraft-array-engine", "cargo build -p plumcraft-array", Vec::new())),
             EngineKind::Craft(id) => Some((id, "plumcraft-craft-engine", "cargo build -p plumcraft-craft", vec!["--craft".into(), id.into()])),
             EngineKind::External(_) | EngineKind::Pack(_) => None,
@@ -473,7 +478,7 @@ fn doc_apps() -> Vec<plumcraft_session::DocApp> {
 }
 
 /// The app icon (window and Dock), the 1024 px master; credits in `plums/CREDITS.md`.
-const APP_ICON: &[u8] = include_bytes!("../../../assets/app-icon/plumcraft.png");
+const APP_ICON: &[u8] = include_bytes!("../assets/plumcraft.png");
 
 /// Flags followed by a value.
 const VALUE_FLAGS: &[&str] = &["--screenshot", "--shot-runs", "--control", "--control-token-file", "--engine", "--engine-manifest"];
@@ -543,6 +548,9 @@ fn choose(args: &[String]) -> Result<(EngineKind, Mode), String> {
         _ => kind.default_mode(),
     };
     if !kind.hosts(mode) {
+        if mode == Mode::InProc {
+            return Err(format!("--inproc: the {} engine isn't compiled in (use --process or --http)", kind.id()));
+        }
         return Err(format!("--python: there is no Python {} engine (use --process or --http for the Rust one)", kind.id()));
     }
     Ok((kind, mode))
@@ -984,7 +992,8 @@ mod tests {
     #[test]
     fn the_engine_is_chosen_by_flag() {
         assert_eq!(choose(&[]), Ok((EngineKind::Text, Mode::InProc)));
-        assert_eq!(choose(&strings(&["--engine", "audio"])), Ok((EngineKind::Audio, Mode::InProc)));
+        assert_eq!(choose(&strings(&["--engine", "audio"])), Ok((EngineKind::Audio, Mode::Rust)));
+        assert!(choose(&strings(&["--engine", "audio", "--inproc"])).unwrap_err().contains("isn't compiled in"));
         assert_eq!(choose(&strings(&["--engine", "audio", "--process"])), Ok((EngineKind::Audio, Mode::Rust)));
         assert_eq!(choose(&strings(&["--engine", "audio", "--http"])), Ok((EngineKind::Audio, Mode::HttpRust)));
         assert_eq!(choose(&strings(&["--engine", "text", "--python"])), Ok((EngineKind::Text, Mode::Python)));
@@ -1054,7 +1063,6 @@ mod tests {
             "text/python",
             "text/http",
             "text/http-python",
-            "audio/inproc",
             "audio/process",
             "audio/http",
             "array/inproc",
@@ -1195,7 +1203,7 @@ mod tests {
                 assert!(h.state().window_title().contains(&format!("Text · {}", Mode::from_id(mode).unwrap().menu_label())), "{}", h.state().window_title());
                 let v = inspect(&mut h);
                 assert_eq!((v["engine"]["engine"].as_str(), v["engine"]["mode"].as_str()), (Some("text"), Some(mode)), "{v}");
-                assert_eq!(v["engine"]["choices"].as_array().map(Vec::len), Some(11 + 3 * plumcraft_craft::manifest::BUILTIN.len()));
+                assert_eq!(v["engine"]["choices"].as_array().map(Vec::len), Some(10 + 3 * plumcraft_craft::manifest::BUILTIN.len()));
                 assert!(v["engine"]["label"].as_str().unwrap().contains(label), "{v}");
                 run_all_done(&mut h, mode);
             }
@@ -1426,16 +1434,17 @@ mod tests {
 
         #[test]
         fn text_to_audio_keeps_the_graph_and_reports_its_problems() {
+            engine_binaries();
             let mut h = text_editor(Launcher::default());
             let before = h.state().session.graph().clone();
-            let r = switch(&mut h, "audio", "inproc").unwrap();
+            let r = switch(&mut h, "audio", "process").unwrap();
             assert_eq!(h.state().session.catalog().engine.name, "Audio");
             assert_eq!(h.state().session.graph(), &before, "nothing deleted");
             let problems = r["problems"].as_array().unwrap();
             assert!(problems.len() >= before.nodes.len(), "{r}");
             assert!(problems.iter().any(|p| p.as_str().unwrap().contains("unknown kind \"text.")), "{r}");
             let e = h.state().last_error.clone().unwrap();
-            assert!(e.contains("Audio · Rust · in-process (mode 1)") && e.contains("problem(s)"), "{e}");
+            assert!(e.contains("Audio · Rust · process (mode 2)") && e.contains("problem(s)"), "{e}");
             h.get_by_label_contains("engine: Audio");
             h.get_by_label_contains("problem(s) with this engine");
             // back to text: no problems, and it runs
@@ -1465,9 +1474,9 @@ mod tests {
             // the Engine menu still works: pick in-process from it, as a person would
             h.get_by_label("Engine").click();
             h.run_steps(3);
-            // (text's comes first; audio, array and each craft pack have one too)
+            // (text's comes first; array and each craft pack have one too)
             let items: Vec<_> = h.get_all_by_role_and_label(egui::accesskit::Role::RadioButton, "Rust · in-process (mode 1)").collect();
-            assert_eq!(items.len(), 3 + plumcraft_craft::manifest::BUILTIN.len(), "text's, audio's, array's and each craft's");
+            assert_eq!(items.len(), 2 + plumcraft_craft::manifest::BUILTIN.len(), "text's, array's and each craft's");
             items[0].click();
             h.run_steps(3);
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
@@ -1830,12 +1839,13 @@ mod tests {
 
         use super::super::*;
 
-        /// The editor as `plumcraft-editor --engine audio` opens it (mode 1, the demo), with a
+        /// The editor as `plumcraft-editor --engine audio` opens it (mode 2, the demo), with a
         /// silent output so no test makes a sound.
         fn audio_editor() -> (Harness<'static, EditorApp>, Arc<AtomicUsize>) {
+            super::engine_kittest::engine_binaries();
             let (graph, name) = read_workflow(None, EngineKind::Audio).unwrap();
             let ctx = egui::Context::default();
-            let mut app = editor(&ctx, graph, None, name, EngineKind::Audio, Mode::InProc, None);
+            let mut app = editor(&ctx, graph, None, name, EngineKind::Audio, Mode::Rust, None);
             let starts = Arc::new(AtomicUsize::new(0));
             app.audio.player.set_output(Box::new(NullOutput { rate: 44_100, starts: Arc::clone(&starts) }));
             let mut h = Harness::builder().with_size(egui::vec2(1500.0, 900.0)).build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app);

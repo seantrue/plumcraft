@@ -2,7 +2,6 @@
 name = "plumcraft-array"
 version.workspace = true
 edition.workspace = true
-publish = false
 repository.workspace = true
 license.workspace = true
 rust-version.workspace = true

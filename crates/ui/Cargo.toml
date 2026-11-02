@@ -2,7 +2,6 @@
 name = "plumcraft-ui"
 version.workspace = true
 edition.workspace = true
-publish = false
 repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
@@ -26,7 +25,6 @@ plumcraft-proto = { workspace = true }
 plumcraft-automation = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }
-craft-ui = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
 egui-snarl = { workspace = true }

@@ -116,7 +116,7 @@ text.letters   Letter counts (a–z) (text:TEXT) -> (table:TABLE)
 cargo build
 cargo run -p plumcraft-editor                          # the editor on the text engine, in-process
 cargo run -p plumcraft-editor -- --python              # the same engine written in Python, as a separate process
-cargo run -p plumcraft-editor -- --engine audio        # the audio engine: waveforms, spectrogram, playback
+cargo build -p plumcraft-audio && cargo run -p plumcraft-editor -- --engine audio     # the audio engine: waveforms, spectrogram, playback
 cargo run -p plumcraft-editor -- --engine array        # the array nodes
 cargo run -p plumcraft-editor -- --engine vectorcraft  # VectorCraft through the craft adapter (any craft pack by name)
 cargo run -p plumcraft-editor -- --engine array,vectorcraft         # several engines: opens Trace and measure
@@ -156,7 +156,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | Python, memo | The text engine in Python, byte-identical on the wire to the Rust one; the memo (plan keys over a typed canonical form, shared vectors, `cached` reruns) | P01 |
 | D, the data plane | Blobs in commonkit named by handle (`md5:raw:`, `md5:nd1:`), the same-host proof, tables and arrays, file sources keyed by content; HTTP with upload-once and lazy verified download into the UI's own CAS; a run from one machine to another | P02, P03 |
 | E, the editor | Lifted from research software supporting www.virtimp.com: graph model, every action a command, egui-snarl canvas, widgets, palette, Watched panel, theme from craft-ui; the control channel; files, undo, copy and paste; groups with collapse, promotion and insert; Tidy; wire bend points | P04 |
-| F, audio | `plumcraft-audio` on SoundCraft's crates: 46 nodes; audio values with waveform peaks; spectrogram and playback in the editor | P05 |
+| F, audio | `plumcraft-audio` on SoundCraft's crates, an optional engine the editor starts as a process: 46 nodes; audio values with waveform peaks; spectrogram and playback in the editor | P05 |
 | The Engine menu | Switch engine and hosting while the editor runs, keeping the graph; Reconnect; Attach | P06 |
 | M, craft engines | The craft MCP adapter: any artcraft app's MCP server as nodes, from a manifest; VectorCraft first, then every craft with a server | P07, P08 |
 | Several engines | The coordinator: one graph across several engines, each run split into per-engine fragments joined by bindings; three demos | — |

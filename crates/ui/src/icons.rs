@@ -5,7 +5,7 @@
 
 use std::sync::OnceLock;
 
-use craft_ui::icons::{SvgIconSet, SvgStyle};
+use crate::craft_ui::icons::{SvgIconSet, SvgStyle};
 use egui::{Color32, Response, Vec2};
 
 use crate::icon_data::ICONS;

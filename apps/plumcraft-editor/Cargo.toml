@@ -2,9 +2,11 @@
 name = "plumcraft-editor"
 version.workspace = true
 edition.workspace = true
-publish = false
 repository.workspace = true
 license.workspace = true
+readme = "../../README.md"
+keywords = ["node-editor", "workflow", "graph", "egui"]
+categories = ["gui", "visualization"]
 rust-version.workspace = true
 description = "PlumCraft's node editor: open a workflow, edit it on a node canvas and run it on an engine (in-process, a separate process or over HTTP)"
 
@@ -27,7 +29,6 @@ plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-text = { workspace = true }
-plumcraft-audio = { workspace = true }
 plumcraft-array = { workspace = true }
 plumcraft-coordinator = { workspace = true }
 plumcraft-craft = { workspace = true }

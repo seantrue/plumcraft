@@ -61,26 +61,7 @@ pub const MAX_SECONDS: f64 = 600.0;
 pub const MAX_FILE: u64 = 1 << 30;
 
 /// A demo graph: a tone through a fade, gain and a reverb, with its peak, loudness and spectrum.
-pub const DEMO_WORKFLOW: &str = r#"{
-  "version": 1,
-  "nodes": {
-    "tone":   {"kind": "audio.tone",   "values": {"waveform": "saw", "frequency": 220.0, "seconds": 2.0, "channels": 2}},
-    "fade":   {"kind": "audio.fade",   "values": {"fade_in": 0.05, "fade_out": 0.5}},
-    "gain":   {"kind": "audio.gain",   "values": {"db": -6.0}},
-    "verb":   {"kind": "audio.fx.plate_reverb"},
-    "peak":   {"kind": "audio.peak"},
-    "lufs":   {"kind": "audio.loudness"},
-    "spec":   {"kind": "audio.spectrum", "values": {"fft_size": 4096}}
-  },
-  "wires": [
-    {"from": {"node": "tone", "port": "audio"}, "to": {"node": "fade", "port": "audio"}},
-    {"from": {"node": "fade", "port": "audio"}, "to": {"node": "gain", "port": "audio"}},
-    {"from": {"node": "gain", "port": "audio"}, "to": {"node": "verb", "port": "audio"}},
-    {"from": {"node": "verb", "port": "audio"}, "to": {"node": "peak", "port": "audio"}},
-    {"from": {"node": "verb", "port": "audio"}, "to": {"node": "lufs", "port": "audio"}},
-    {"from": {"node": "verb", "port": "audio"}, "to": {"node": "spec", "port": "audio"}}
-  ]
-}"#;
+pub const DEMO_WORKFLOW: &str = include_str!("../../../apps/plumcraft-editor/demos/audio.json");
 
 /// The engine, ready to host.
 pub fn engine() -> Engine {

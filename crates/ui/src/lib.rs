@@ -44,6 +44,7 @@ pub mod cache_view;
 pub mod canvas;
 pub mod compare_view;
 pub mod control;
+pub mod craft_ui;
 pub mod diff;
 pub mod edit_view;
 pub mod engine_view;
