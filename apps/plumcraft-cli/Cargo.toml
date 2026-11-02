@@ -1,9 +1,12 @@
 [package]
-name = "plumcraft-cli"
+name = "plumcraft"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
+readme = "../../README.md"
+keywords = ["node-editor", "workflow", "graph", "cli"]
+categories = ["command-line-utilities"]
 rust-version.workspace = true
 description = "PlumCraft command line: run a workflow on an engine and watch the interface live"
 
@@ -24,4 +27,4 @@ serde_json = { workspace = true }
 plumcraft-host = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
+plumcraft-scratch = { path = "../../crates/scratch" }

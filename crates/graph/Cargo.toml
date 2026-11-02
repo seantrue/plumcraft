@@ -2,7 +2,7 @@
 name = "plumcraft-graph"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft L1: the graph model (nodes, widget values, positions, typed wires, checks, workflow JSON), lifted from the research software's research-graph"

@@ -6,7 +6,7 @@
 use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 
-include!("../engine/digest.rs");
+include!("digest.rs");
 
 fn main() {
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));

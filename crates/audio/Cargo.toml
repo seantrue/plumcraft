@@ -2,7 +2,8 @@
 name = "plumcraft-audio"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+publish = false
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft example engine: audio nodes on SoundCraft's DSP and file I/O (plan 10.4, F2), in every mode the SDK serves"
@@ -18,9 +19,9 @@ soundcraft-dsp = { workspace = true }
 soundcraft-audio-io = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
-plumcraft-host = { workspace = true }
-plumcraft-store = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-host = { path = "../host" }
+plumcraft-store = { path = "../store" }
 
 [build-dependencies]
 md-5 = { workspace = true }

@@ -70,6 +70,13 @@ The full design is in `docs/plan.md`, section 10.5. `ROADMAP.md` holds asks and 
 ## Find out more
 
 ```sh
+cargo install plumcraft          # the command line, from crates.io
+pip install plumcraft-engine      # the Python engine SDK, from PyPI
+```
+
+The editor builds from a checkout:
+
+```sh
 cargo run -p plumcraft-editor     # the editor on the text engine
 ```
 

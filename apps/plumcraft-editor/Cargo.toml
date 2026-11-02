@@ -2,7 +2,8 @@
 name = "plumcraft-editor"
 version.workspace = true
 edition.workspace = true
-publish.workspace = true
+publish = false
+repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
 description = "PlumCraft's node editor: open a workflow, edit it on a node canvas and run it on an engine (in-process, a separate process or over HTTP)"
@@ -41,5 +42,5 @@ eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
 winit = { version = "0.30", default-features = false }
 
 [dev-dependencies]
-plumcraft-scratch = { workspace = true }
+plumcraft-scratch = { path = "../../crates/scratch" }
 egui_kittest = { workspace = true }

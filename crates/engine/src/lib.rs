@@ -278,7 +278,7 @@ pub const SDK_DIGEST: &str = env!("PLUMCRAFT_SDK_DIGEST");
 
 /// A memo salt (spec 14.2) that changes whenever code that can change a result does:
 /// `prefix` (the engine's name and version), the engine's own code digest (its `build.rs`
-/// bakes it, as `include!("../engine/digest.rs")` does for the text engine) and the SDK's.
+/// bakes it, as `include!("digest.rs")`, a link to this crate's, does for the text engine) and the SDK's.
 /// Persisted records outlive the process, so a salt without the code would serve a fixed
 /// node the result of the old code.
 pub fn salt(prefix: &str, code_digest: &str) -> String {
