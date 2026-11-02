@@ -22,7 +22,7 @@ toml = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { workspace = true }
-zip = { version = "3", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 plumcraft-host = { workspace = true }
 
 [build-dependencies]

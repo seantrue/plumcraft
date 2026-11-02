@@ -596,7 +596,7 @@ The maintainer chose D15 next, then **VectorCraft first** and **no craft-libs ch
 | M1 | Map and design | VectorCraft's MCP server and CLI as built today (commands, params, documents, selection, progress, cancel, export); the adapter's design: an engine (spec 16.5) that owns the graph walk, threads a document handle (a CAS key) through the wires, makes selection an explicit parameter, emits every node state itself, maps progress and cancel, pools craft processes; which commands become nodes and how their ports are inferred without `params_schema` | `docs/research/14-craft-mcp-adapter.md`, reviewed by the maintainer |
 | M2 | `plumcraft-craft` adapter | Generic over any craft (the shared `CommandSpec` model): an MCP client, a process pool, a node per pure-able command, document and export wire types (`doc` DataRefs, SVG and raster outputs), status, progress, cancel; serves modes 1–3 like any engine | Conformance for a VectorCraft graph in mode 2 (states, cancel, a cached rerun, handles stable); a raster → Trace → Recolor → SVG graph runs |
 | M3 | In the editor | VectorCraft nodes in the palette (`--engine vectorcraft` and an Engine menu choice), SVG and image previews in the Watched panel (an SVG view), a thumbnail on document nodes, and **Open in VectorCraft** on any document value: the editor opens the node's saved native file (already in the adapter CAS, named by its handle) in the desktop app with `vectorcraft <file>`, read-only by convention, so runs stay headless and reproducible (maintainer, 2026-10-27, option 1); the P08 checklist | The maintainer builds a trace-and-recolor graph by hand and opens an intermediate document in VectorCraft |
-| M4 | Live mode (planned, below) | An opt-in hosting in which the adapter drives a VectorCraft window it started itself, so each node is seen running | P09: the maintainer watches a trace-and-recolor run in the window, cancels one, and the headless engine is unaffected |
+| M4 | Live mode (planned, below) | An opt-in hosting in which the adapter drives a VectorCraft window it started itself, so each node is seen running | P10: the maintainer watches a trace-and-recolor run in the window, cancels one, and the headless engine is unaffected |
 
 **Not in M:** craft-libs source changes (deferred), SoundCraft as a second pack (after M), streaming through MCP (MCP can't stream; note 13).
 
@@ -629,7 +629,7 @@ The maintainer asked whether the craft engines can show their GUI ("Is there any
 | M4.1 | Measure: run the M2 conformance chain against a `--control` app; compare every reply and the SVG with headless; time a node; check cancel (`notifications/cancelled`), what the window shows per command, and which stores the app attaches under roots | A table in note 14: equal or which keys differ; a decision on D52 | 1 |
 | M4.2 | Hosting: `plumcraft-craft-engine --craft vectorcraft --live`; the adapter launches its own app on a free port with the adapter's CAS and work roots, waits for the port, and connects one `vectorcraft-cli mcp --connect` to it; the pool is one process; the watchdog covers the app too; an app the maintainer quits is a node `engine` error, and Reconnect relaunches it | Conformance's state, cancel and crash cases pass live | 2 |
 | M4.3 | Editor: Engine menu "VectorCraft · live (window)"; the status bar and title say live; results are marked live in the Watched panel | The maintainer switches between headless and live with the graph kept | 1 |
-| M4.4 | P09 | Accepted | 0.5 |
+| M4.4 | P10 | Accepted | 0.5 |
 
 About 4.5 days, after M3.
 

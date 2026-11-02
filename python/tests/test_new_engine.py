@@ -58,7 +58,7 @@ def tmp() -> Path:
         (["--id", "ok", "--package", "json"], "would shadow"),
         (["--id", "ok", "--package", "plumcraft_engine"], "would shadow"),
         (["--id", "ok", "--types", "nonsense"], "unknown"),
-        (["--id", "ok", "--sdk", "pip"], "path, git or git@REV"),
+        (["--id", "ok", "--sdk", "pip"], "pypi, path, git or git@REV"),
         (["--id", "ok", "--python", "3.9"], "3.11 or later"),
     ],
 )
@@ -183,8 +183,8 @@ def test_image_depends_on_pillow(tmp):
     assert gen(tmp / "a-engine", "--types", "image") == 0
     assert gen(tmp / "b-engine", "--types", "text") == 0
     deps = lambda n: tomllib.loads((tmp / n / "pyproject.toml").read_text())["project"]["dependencies"]  # noqa: E731
-    assert deps("a-engine") == ["plumcraft-engine", "pillow>=10"]
-    assert deps("b-engine") == ["plumcraft-engine"]
+    assert deps("a-engine") == ["plumcraft-engine>=0.1,<0.2", "pillow>=10"]
+    assert deps("b-engine") == ["plumcraft-engine>=0.1,<0.2"]
 
 
 @pytest.mark.parametrize("types", ["text", ALL])
@@ -236,6 +236,14 @@ def test_no_pycharm_leaves_them_out(tmp):
     dest = tmp / "weather-engine"
     assert gen(dest, "--no-pycharm") == 0
     assert not (dest / ".run").exists() and not (dest / ".idea").exists()
+
+
+def test_sdk_pypi_has_no_local_source(tmp):
+    dest = tmp / "a-engine"
+    assert gen(dest, "--sdk", "pypi") == 0
+    pyproject = tomllib.loads((dest / "pyproject.toml").read_text())
+    assert pyproject["project"]["dependencies"] == ["plumcraft-engine>=0.1,<0.2"]
+    assert "sources" not in pyproject["tool"].get("uv", {})
 
 
 def test_sdk_git_pins_a_commit(tmp):

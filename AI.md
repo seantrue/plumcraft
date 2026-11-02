@@ -20,6 +20,24 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — `zip` 9, P07–P09 closed, and the SDK ready for PyPI (Claude Opus 5.5)
+
+**What the maintainer asked for:** "Close out po7-9. Bump zip.", then "Make the fixes, then CPM and test release steps 1-4", the fixes being the AI's list for publishing `plumcraft-engine`.
+
+**What the AI did:** moved `zip` from 3.0.0 to 9.2.2, for three advisories, one of them critical (~17 LOC in `crates/session` and `crates/craft`). Ran every P07, P08 and P09 item a shell or the control channel can reach, recorded each in its checklist, and limited the smoke test to a pack's own nodes. P09's item 9 still said "no token", which HTTP engines stopped allowing, so it was corrected. The plan's unbuilt live-mode checklist is now P10, since P09 is the generator's. Full gate after all of it: Rust 1,030 passed, 0 failed, 3 ignored; Python 207 passed; clippy, fmt and ruff clean.
+
+**What `zip` 9 changed:** `enclosed_name` now strips a leading root instead of refusing, so a bundle entry named `/tmp/x` would have unpacked inside the folder rather than being refused. The hostile-bundle test caught it. `archive.rs` now refuses rooted and drive names itself. `zip` also refuses a lying size before our limit does, so that test now asserts the refusal, not the library's wording.
+
+**Closed by the maintainer's word, not accepted by hand.** PyCharm items (P09 4, 8, the debugger in 9) and what a person sees (P08's windows and mouse work) were never tried; the checklists say so.
+
+**Defects and false alarms:** the smoke exited 1 on a healthy engine, reporting 10 building blocks run with no inputs; the first run of it was also mistaken for a possible hang, when it had only been limited to 200 s beside other work. The P08 probe's three misses were its own stale checks, read one by one. A P08 run failed at first because the AI had not built the release adapter.
+
+**Getting the SDK ready for PyPI (~50 LOC, plus regenerated goldens):** licence texts in `python/`, full package metadata, an install section, a pinned SDK range in generated projects, and pointers to the Rust tools. `plumcraft-engine new` gained `--sdk pypi`, the default outside a checkout.
+
+**Two defects the AI's own PyPI advice had missed, caught by installing the wheel in a clean venv:** `new` refused to run at all outside a checkout, because its default was `--sdk path`; and it couldn't load a generated image engine, because Pillow was only a dev dependency. Pillow is now a dependency of the SDK. Publishing as first recommended would have shipped a generator that failed on its first command. The clean test then passed end to end, with `plumcraft-engine` resolved from the local wheel, since it isn't on PyPI yet.
+
+**Investigated, not resolved:** the chain-test hang of 2026-10-27 did not return in 50 runs. `a_cached_rerun_is_all_cached` failed 2 of those 50, both beside running editors, and passed 29 in a row alone; its cause isn't established.
+
 ### 2026-11-02 — The private name out of source and config, and recipes out of the plum images (Claude Opus 5.5)
 
 **What the maintainer asked for:** "Remove the references to trademark searches from research 07 and plan", then to remove the research software's old name from source and config, then "We're good" on the names that remain.

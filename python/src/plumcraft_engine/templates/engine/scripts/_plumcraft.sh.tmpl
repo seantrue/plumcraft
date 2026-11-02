@@ -18,6 +18,6 @@ find_plumcraft() {
             return
         fi
     done
-    echo "no $$name: in the PlumCraft checkout, cargo build --release -p plumcraft-cli -p plumcraft-editor" >&2
+    echo "no $$name: clone https://github.com/seantrue/plumcraft, cargo build --release -p plumcraft-cli -p plumcraft-editor there, and set PLUMCRAFT_HOME to that folder" >&2
     exit 2
 }

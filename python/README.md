@@ -2,6 +2,15 @@
 
 `plumcraft_engine` is PlumCraft's engine SDK in Python: protocol 2's executor, host, the mode 2 socket and mode 3 HTTP fronts, and blobs in commonkit. `plumcraft_text` is the text engine written with it, kept byte-identical on the wire to the Rust `plumcraft-text` by the conformance suite (`cargo test -p plumcraft-text`).
 
+## Install
+
+```sh
+pip install plumcraft-engine
+plumcraft-engine new my-engine --name Mine   # a whole engine project, with tests and scripts
+```
+
+Python 3.11 or later. Running an engine needs only this package. The editor is Rust: see [PlumCraft](https://github.com/seantrue/plumcraft) to build it.
+
 ## An engine in 20 lines
 
 ```python
@@ -109,7 +118,7 @@ uv run --project ~/workspace/plumcraft/python plumcraft-engine new ~/workspace/w
 This writes a standalone uv project that depends on this SDK, which `scripts/editor` opens in PlumCraft's editor, the editor starting the engine from its manifest: the engine with example nodes for each type, its tests (including a golden catalogue and conformance), a demo workflow, scripts for testing from the command line, PyCharm run configurations, a README for the developer, and the engine manifest. It refuses a directory with something in it and ids PlumCraft already uses, and a failure leaves nothing behind.
 
 - **`--types`:** `text`, `table`, `array`, `svg`, `image` (adds pillow), `audio`, `json`, `list` (brings `text`), `any` (the building blocks), comma-separated. Scalars are always on. A conversion is generated when both its types are chosen, always with its inverse: `table`↔`text` (CSV), `table`↔`array`, `svg`↔`text`, `image`↔`array`, `audio`↔`array`, `json`↔`text`.
-- **The other options:** `--id`, `--name`, `--package`, `--sdk path|git[@REV]`, `--python`, `--no-pycharm`, `--git`.
+- **The other options:** `--id`, `--name`, `--package`, `--sdk pypi|path|git[@REV]`, `--python`, `--no-pycharm`, `--git`.
 
 `uv run plumcraft-engine check` runs PlumCraft's conformance cases against an engine, in process and over HTTP (`--mode` for one): the session, core types declared exactly, every node on its defaults, the demo, cancel, answers off the run path, and hostile widget values. It needs only the catalogue, plus `[tool.plumcraft] demo` and `[tool.plumcraft.conformance] slow` when set; in a test, `plumcraft_engine.conformance.assert_conformant(MyEngine, demo=..., slow=...)` fails naming every failed case.
 

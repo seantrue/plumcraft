@@ -37,7 +37,7 @@ The name plays on plumbing: piping data between nodes.
 
 ![Trace and measure: an array engine and VectorCraft in one graph, with the trace's error as a heat map](docs/images/trace-and-measure.png)
 
-The maintainer has accepted checklists P01–P06 so far; P07–P09 are open (`docs/acceptance/`).
+The maintainer has accepted checklists P01–P06. P07–P09 were closed on the maintainer's word after AI runs, and each records what nobody has tried by hand, such as P09's PyCharm debugger (`docs/acceptance/`).
 
 ## Roadmap: milestone Q, streaming
 

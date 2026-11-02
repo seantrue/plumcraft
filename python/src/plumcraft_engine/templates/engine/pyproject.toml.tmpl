@@ -11,11 +11,7 @@ $project = "$package.__main__:main"
 [dependency-groups]
 dev = ["pytest>=8", "ruff>=0.6"]
 
-# Where the PlumCraft SDK comes from; README.md says how to switch.
-[tool.uv.sources]
-plumcraft-engine = $sdk_source
-
-[build-system]
+$uv_sources[build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 

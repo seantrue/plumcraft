@@ -71,7 +71,7 @@ fn set_u32(bytes: &mut [u8], at: usize, v: u32) {
 #[test]
 fn entries_that_leave_their_folder_are_refused() {
     let root = folder();
-    for (i, name) in ["../evil.txt", "a/../../evil.txt", "/tmp/plumcraft-hostile-evil.txt", "a/../../../evil.txt"].iter().enumerate() {
+    for (i, name) in ["../evil.txt", "a/../../evil.txt", "/tmp/plumcraft-hostile-evil.txt", "a/../../../evil.txt", "C:\\evil.txt"].iter().enumerate() {
         refused(&root, &format!("slip{i}.zip"), &zip_of(&[("w.json", WORKFLOW), (name, b"x")]), Limits::default(), "leaves its folder");
     }
     assert!(!root.parent().unwrap().join("evil.txt").exists());
@@ -176,7 +176,7 @@ fn an_entry_that_lies_about_its_size_leaves_nothing() {
     for at in central_headers(&bytes) {
         set_u32(&mut bytes, at + 24, 1);
     }
-    refused(&root, "liar.zip", &bytes, Limits { unpacked: 1 << 16, ..Limits::default() }, "unpacks to more than");
+    refused(&root, "liar.zip", &bytes, Limits { unpacked: 1 << 16, ..Limits::default() }, "can't unpack");
 }
 
 #[test]
