@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — Every bundled crate's licence collected (Claude Opus 5.5)
+
+The maintainer: "Collect licenses". `packaging/collect_licences.py` fetches root licences for crates that ship none, from 12 repositories into `packaging/licences/`, tracked so a release build stays offline. `third_party.py` now uses those, reads `LICENSES` folders, and collects licences deeper in a crate for what it bundles. It also tells recipients where the source of the MPL-2.0 crates is.
+
+**Checked across macOS and Linux on both architectures:** crates without licence text fell from 51 on macOS and 28 on Linux to `egui-scale` everywhere and `dispatch` on macOS. Neither repository holds a licence file, so they are marked and no notice was invented. Of 410 distinct crates, only `symphonia` (MPL-2.0, 16 crates) and `self_cell` (Apache-2.0 or GPL-2.0, used as Apache) are outside the permissive licences.
+
+**Caught by looking past the first result:** the first version reported the gap closed while nested licences were still missing: the fonts in `epaint_default_fonts`, Unicode tables, PDF assets and Wayland protocols. That first pass would also have let a crate's nested licence hide that its root licence was absent, so root and nested are now gathered separately. An engineering check, not legal advice. No Rust changed, so the gate was not rerun.
+
 ### 2026-11-02 — Scripts for releases and install images (Claude Opus 5.5)
 
 The maintainer first asked for install images, then: "Rephrase: create scripts that will create releases and install images." After the AI explained installing `appimagetool`: "Yuck. We'll stay with tarball/.deb", so the AppImage it had written was removed.
@@ -29,8 +37,6 @@ The maintainer first asked for install images, then: "Rephrase: create scripts t
 **Verified:** from a mounted, ad hoc signed DMG with an empty `PATH`, the text, array and audio engines loaded and the chord demo ran across three engines. `release.sh --upload` ran end to end against a local bare repository and a fake `gh`, and refused a dirty tree, a repeated tag and a `HEAD` other than `origin/main`. shellcheck passes. No Rust changed, so the gate was not rerun.
 
 **Not verified:** nothing has been built on Linux, so the `.deb` dependencies are an estimate; `linux.sh` was only checked for layout, with Mac binaries. Developer ID signing, notarization and `--linux-host` have not run.
-
-**Known gap:** 51 crates ship no licence file of their own, usually keeping it at the repository root. `THIRD-PARTY.txt` lists their licence, repository and authors and marks them, which may fall short of the notice MIT asks for.
 
 ### 2026-11-02 — `plumcraft-engine` 0.1.1, and the docs after the crates (Claude Opus 5.5)
 
