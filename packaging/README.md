@@ -29,6 +29,19 @@ An image that isn't notarized makes Gatekeeper warn whoever downloads it.
 Install a Rust toolchain, `pkg-config` and ALSA's headers (Debian: `libasound2-dev`). The `.deb`
 needs `dpkg-deb`, and is skipped with a warning without it.
 
+## Licences
+
+Each image carries `THIRD-PARTY.txt`, made by `third_party.py`, with the licences of every crate in
+the binaries and of what those crates bundle. Some crates keep their licence at their repository's
+root, so `collect_licences.py` fetches those into `licences/`, which is tracked so a release build
+stays offline. Run it when dependencies change:
+
+```sh
+python3 packaging/collect_licences.py
+```
+
+It fails if a crate has no licence text and isn't on its `NONE_PUBLISHED` list.
+
 ## Making a release
 
 Bump `version` under `[workspace.package]` and merge it, then, from a clean `main`:
