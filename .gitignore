@@ -15,3 +15,6 @@ docs/**/*.pdf
 # local, not part of the project
 /.idea/
 /synesthesia.png
+
+# release images (packaging/)
+/dist/

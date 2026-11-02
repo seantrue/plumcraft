@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=PlumCraft
+Comment=A node-flow editor with interchangeable engines
+Exec=plumcraft-editor %f
+Icon=plumcraft
+Terminal=false
+Categories=Development;

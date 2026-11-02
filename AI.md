@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — Scripts for releases and install images (Claude Opus 5.5)
+
+The maintainer first asked for install images, then: "Rephrase: create scripts that will create releases and install images." After the AI explained installing `appimagetool`: "Yuck. We'll stay with tarball/.deb", so the AppImage it had written was removed.
+
+**What the AI did:** `packaging/` (~340 lines): `macos.sh` builds a `.app` and DMG with the editor, CLI and all four engine binaries, signing and notarizing when credentials exist; `linux.sh` builds a tarball and `.deb`; `release.sh` runs the gate, builds, writes checksums and can make a draft GitHub release; `third_party.py` collects licence texts for the 322 crates in the binaries.
+
+**Verified:** from a mounted, ad hoc signed DMG with an empty `PATH`, the text, array and audio engines loaded and the chord demo ran across three engines. `release.sh --upload` ran end to end against a local bare repository and a fake `gh`, and refused a dirty tree, a repeated tag and a `HEAD` other than `origin/main`. shellcheck passes. No Rust changed, so the gate was not rerun.
+
+**Not verified:** nothing has been built on Linux, so the `.deb` dependencies are an estimate; `linux.sh` was only checked for layout, with Mac binaries. Developer ID signing, notarization and `--linux-host` have not run.
+
+**Known gap:** 51 crates ship no licence file of their own, usually keeping it at the repository root. `THIRD-PARTY.txt` lists their licence, repository and authors and marks them, which may fall short of the notice MIT asks for.
+
 ### 2026-11-02 — `plumcraft-engine` 0.1.1, and the docs after the crates (Claude Opus 5.5)
 
 The maintainer: "Release plumcraft-engine 0.1.1 and update the docs, then CPM". PyPI's 0.1.0 told people to build a package the rename had removed, a defect the AI's own rename caused. Generated projects now say `cargo install plumcraft plumcraft-editor`, and the README, SDK README, changelog and status describe what the crates give.
