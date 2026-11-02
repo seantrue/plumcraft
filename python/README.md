@@ -9,7 +9,7 @@ pip install plumcraft-engine
 plumcraft-engine new my-engine --name Mine   # a whole engine project, with tests and scripts
 ```
 
-Python 3.11 or later. Running an engine needs only this package. The editor is Rust: see [PlumCraft](https://github.com/seantrue/plumcraft) to build it.
+Python 3.11 or later. Running an engine needs only this package. The editor is Rust: `cargo install plumcraft-editor` ([PlumCraft](https://github.com/seantrue/plumcraft)).
 
 ## An engine in 20 lines
 

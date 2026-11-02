@@ -70,15 +70,12 @@ The full design is in `docs/plan.md`, section 10.5. `ROADMAP.md` holds asks and 
 ## Find out more
 
 ```sh
-cargo install plumcraft          # the command line, from crates.io
+cargo install plumcraft-editor    # the editor, from crates.io
+cargo install plumcraft           # the command line
 pip install plumcraft-engine      # the Python engine SDK, from PyPI
 ```
 
-The editor builds from a checkout:
-
-```sh
-cargo run -p plumcraft-editor     # the editor on the text engine
-```
+The installed editor runs the text and array engines by itself. Crafts need `cargo install plumcraft-craft` and the craft app, and the audio engine builds from a checkout: `cargo build -p plumcraft-audio`.
 
 - [`docs/guide.md`](docs/guide.md): pictures, every way to run it, what's built, the crates, and how to build and test.
 - [`docs/STATUS.md`](docs/STATUS.md): where things stand and what's next.
