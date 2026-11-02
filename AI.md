@@ -20,6 +20,10 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — `plumcraft-engine` 0.1.1, and the docs after the crates (Claude Opus 5.5)
+
+The maintainer: "Release plumcraft-engine 0.1.1 and update the docs, then CPM". PyPI's 0.1.0 told people to build a package the rename had removed, a defect the AI's own rename caused. Generated projects now say `cargo install plumcraft plumcraft-editor`, and the README, SDK README, changelog and status describe what the crates give.
+
 ### 2026-11-02 — `plumcraft` on crates.io, and the editor free of git dependencies (Claude Opus 5.5)
 
 **What the maintainer asked for:** "let's get plumcraft on to crates.io", "Publish npexact, then the 16 crates with the rename", then "Make audio optional unless the code is extractable. Extract the needful craft UI bits." and "Go for 1,2 including icon". The rename, the scope and audio's treatment were the maintainer's calls.
