@@ -1,5 +1,9 @@
 # Changelog
 
+## Installers 0.1.0, 2026-11-02
+
+[Installers](https://github.com/seantrue/plumcraft/releases/tag/app-v0.1.0) for macOS on Apple silicon and x86-64 Linux, with every engine, audio included.
+
 ## plumcraft-engine 0.1.1, 2026-11-02
 
 Generated engines now say how to get the Rust tools, `cargo install plumcraft plumcraft-editor`. 0.1.0's message named a package that was renamed.

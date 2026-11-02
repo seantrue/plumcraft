@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **Installers (2026-11-02):** `app-v0.1.0` is published, from `packaging/`: a notarized DMG for Apple silicon, and a `.deb` and tarball for x86-64 Linux. The maintainer installed the `.deb` on a Linux server and reports it works.
 - **crates.io (2026-11-02):** 19 of the 20 crates are published, with `plumcraft-editor` installable and the CLI package renamed `plumcraft`. `audio` stays unpublished, since it needs the SoundCraft crates: the editor no longer compiles it in and starts `plumcraft-audio-engine` as a process when it is built. `plumcraft-ui` carries a copy of the two `craft-ui` modules it uses (`crates/ui/src/craft_ui`).
 - **Acceptance (2026-11-02):** P07–P09 are closed on the maintainer's word ("Close out po7-9") after AI runs on `zip` 9. Never tried by a person: P09's PyCharm items (4, 8, the debugger in 9) and P08's window contents and mouse work.
 - **Open from P07:** the chain-test hang of 2026-10-27 has not come back in 50 runs and is unexplained. `a_cached_rerun_is_all_cached` failed 2 of 50, both beside running editors, and passed 29 alone in a row; the cause isn't established.

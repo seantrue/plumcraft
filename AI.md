@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-02 — The first installers published (Claude Opus 5.5)
+
+The maintainer ran `packaging/release.sh --linux-host HOST --upload` and published the draft. The maintainer also installed the `.deb` on that Linux server and ran it: "I ran it on [a server], installed from .deb -- works." That is the first install of the package, and the maintainer's test, not the AI's.
+
+**What the AI verified:** Apple accepted notarization, and Gatekeeper accepted the DMG, the app inside it, and a copy downloaded without logging in. All three public downloads match `SHA256SUMS`. The first real Linux build compiled with no source changes, and the tarball's headless commands worked on that server; the binaries need only libc, libm, libgcc and libasound, as the `.deb` declares.
+
+**Not verified by the AI:** whether the editor window was part of the maintainer's test, or sound. Intel Macs and Linux on ARM have no installers. The AI added the installers to the README, with the glibc 2.35 minimum.
+
 ### 2026-11-02 — Every bundled crate's licence collected (Claude Opus 5.5)
 
 The maintainer: "Collect licenses". `packaging/collect_licences.py` fetches root licences for crates that ship none, from 12 repositories into `packaging/licences/`, tracked so a release build stays offline. `third_party.py` now uses those, reads `LICENSES` folders, and collects licences deeper in a crate for what it bundles. It also tells recipients where the source of the MPL-2.0 crates is.
