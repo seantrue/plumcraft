@@ -171,3 +171,21 @@ fn every_soundcraft_node_runs() {
     assert_eq!(s["tempo"][0]["bpm"], 90.0);
     assert!(s["markers"].as_array().unwrap().iter().any(|mk| mk["name"] == "Intro"), "{}", s["markers"]);
 }
+
+/// Every export is a converter from the document (docs/research/20-convert.md), so a SoundCraft
+/// session reaches Audio in two steps: Bounce WAV, then WAV to Audio.
+#[test]
+fn exports_are_converters_from_the_document() {
+    let m = builtin("soundcraft").unwrap().unwrap();
+    if m.executable().is_none() {
+        eprintln!("SKIP: soundcraft-cli is not on PATH; {}", m.hint);
+        return;
+    }
+    let opts = plumcraft_craft::Options { root: Some(craft_root("soundcraft")), store: Some(Some(store_root())), include_excluded: false };
+    let (engine, _, _) = plumcraft_craft::build(&m, &opts).unwrap();
+    let cat = engine.schema();
+    let wav = cat.converters().into_iter().find(|c| c.kind == "sc.export_wav").expect("Bounce WAV converts");
+    assert_eq!((wav.from, wav.to, wav.input, wav.output, wav.lossless), ("soundcraft.session", "WAV", "doc", "audio", false));
+    let exports = cat.nodes.iter().filter(|n| n.id.starts_with("sc.export_")).count();
+    assert_eq!(cat.converters().len(), exports, "every export, and nothing else");
+}

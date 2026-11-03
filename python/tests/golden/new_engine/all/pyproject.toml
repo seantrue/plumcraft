@@ -22,6 +22,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/weather_engine"]
 
+# the demo and what it reads go in the wheel, for `weather-engine register`
+[tool.hatch.build.targets.wheel.force-include]
+"examples" = "weather_engine/examples"
+
 [tool.ruff]
 line-length = 160
 src = ["src"]

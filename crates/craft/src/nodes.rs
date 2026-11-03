@@ -48,6 +48,14 @@ pub struct WidgetPlan {
     pub allowed: Option<Vec<String>>,
 }
 
+/// A socket whose value goes to the craft as a file: staged, and its path sent as `key`.
+#[derive(Debug, Clone)]
+pub struct FilePlan {
+    pub name: String,
+    pub key: String,
+    pub optional: bool,
+}
+
 /// How a node runs.
 #[derive(Debug, Clone)]
 pub struct Plan {
@@ -55,6 +63,7 @@ pub struct Plan {
     pub command: Option<String>,
     pub select: bool,
     pub widgets: Vec<WidgetPlan>,
+    pub files: Vec<FilePlan>,
     pub fixed: Map<String, Value>,
     pub outputs: Vec<OutSpec>,
     /// Export: format (empty with its own action), extension, media.
@@ -218,6 +227,16 @@ impl Runner<'_> {
                 }
             }
         }
+        for f in &self.plan.files {
+            match inputs.get(&f.name).and_then(Data::blob) {
+                Some(b) => {
+                    let path = self.staged(&f.name, b)?;
+                    params.insert(f.key.clone(), Value::from(path.display().to_string()));
+                }
+                None if f.optional => {}
+                None => return Err(config(format!("{}: wire in a file", f.name))),
+            }
+        }
         Ok((params, command))
     }
 
@@ -229,9 +248,26 @@ impl Runner<'_> {
         lease
     }
 
+    /// A blob wired into a file socket, in the craft's work folder: its path.
+    fn staged(&self, name: &str, b: &Blob) -> Result<PathBuf, NodeError> {
+        let ext = ext_for(&b.meta.media).unwrap_or("bin");
+        let staged = match &b.source {
+            BlobSource::File(p) if self.s.cas.contains(p) => {
+                crate::cas::touch(p);
+                return Ok(p.clone());
+            }
+            BlobSource::File(p) if !p.is_file() => {
+                return Err(NodeError::new(NodeError::MISSING_SOURCE, format!("{name}: {} is gone; rerun upstream", b.handle)));
+            }
+            BlobSource::File(p) => self.s.cas.stage_file(p),
+            BlobSource::Bytes(bytes) => self.s.cas.stage_bytes(bytes, &format!("{name}.{ext}")),
+        };
+        staged.map(|(_, p)| p).map_err(|e| op(format!("staging {name}: {e}")))
+    }
+
     /// The file an open node opens: an upstream image blob, else the `file` path.
     fn source(&self, inputs: &Inputs) -> Result<PathBuf, NodeError> {
-        let staged = if let Some(b) = inputs.get("image").or_else(|| inputs.get("svg")).and_then(Data::blob) {
+        let staged = if let Some(b) = inputs.get("image").or_else(|| inputs.get("svg")).or_else(|| inputs.get("pdf")).and_then(Data::blob) {
             let ext = ext_for(&b.meta.media).unwrap_or("png");
             match &b.source {
                 BlobSource::File(p) if self.s.cas.contains(p) => {

@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use plumcraft_graph::{Graph, NodeId, PortRef, Wire};
+use plumcraft_proto::data::{DataRef, PortValue};
 use plumcraft_proto::display::{Display, Rendition, WatchRequest};
 use plumcraft_proto::error::NodeError;
 use plumcraft_proto::event::{Envelope, Event, NodeState};
@@ -172,6 +173,10 @@ pub struct RunState {
     pub watched: Vec<Option<Display>>,
     /// The latest accepted reply.
     pub last_reply: Option<RunReply>,
+    /// Documents edited in their app, by the (node, port) they replace: every request binds
+    /// them on the inputs wired from that output (`inputs`, spec 7.6 rule 10;
+    /// [`crate::doc_edits`]).
+    pub doc_edits: BTreeMap<(String, String), DataRef>,
     /// What the caches did.
     pub cache: CacheStats,
     /// A graph-level failure of the latest run (a cycle, an unknown kind, the engine gone).
@@ -194,6 +199,9 @@ pub struct RunState {
     pub superseded: u64,
     outbox: Vec<Outgoing>,
     reducer: Reducer,
+    /// How the last request's Converts were expanded: what comes back is put back through it
+    /// ([`crate::convert`]).
+    pub(crate) convert: crate::convert::Expanded,
 }
 
 /// The nodes whose results an edit from `before` to `after` invalidates: nodes added, or whose
@@ -349,13 +357,23 @@ impl RunState {
         }
         self.generation = self.generation.saturating_add(1);
         let run_id = new_run_id(self.generation);
+        let inputs = graph
+            .wires
+            .iter()
+            .filter(|w| w.slice.is_none())
+            .filter_map(|w| {
+                let d = self.doc_edits.get(&(w.from.node.0.clone(), w.from.port.clone()))?;
+                Some((format!("{}.{}", w.to.node.0, w.to.port), PortValue::Blob { data: d.clone() }))
+            })
+            .collect();
         let req = RunRequest {
             run_id: run_id.clone(),
             generation: self.generation,
             graph: GraphRef::Inline { graph: serde_json::to_value(graph).unwrap_or(Value::Null) },
-            targets,
-            watch: watch.clone(),
+            targets: self.convert.targets_out(targets),
+            watch: self.convert.watch_out(&watch),
             scope: self.scope.clone(),
+            inputs,
             ..Default::default()
         };
         self.reducer = Reducer::new(&run_id, self.generation);
@@ -372,9 +390,11 @@ impl RunState {
         self.edits_at_request = self.edits;
         self.edited_at = None;
         self.run_error = None;
-        self.total = graph.nodes.len();
-        self.nodes.retain(|id, _| graph.nodes.contains_key(&NodeId(id.clone())));
-        for id in graph.nodes.keys() {
+        // a Convert's steps are the Convert's: not counted, not shown
+        let steps = &self.convert.steps;
+        self.total = graph.nodes.keys().filter(|id| !steps.contains_key(&id.0)).count();
+        self.nodes.retain(|id, _| graph.nodes.contains_key(&NodeId(id.clone())) && !steps.contains_key(id));
+        for id in graph.nodes.keys().filter(|id| !steps.contains_key(&id.0)) {
             let n = self.nodes.entry(id.0.clone()).or_default();
             n.state = Some(NodeState::Queued);
             n.generation = self.generation;
@@ -435,6 +455,9 @@ impl RunState {
                 if !self.is_current(run_id, generation) || rec.node_id.is_empty() {
                     return false;
                 }
+                // a Convert's steps speak as the Convert
+                let Some(rec) = self.convert.record_back(rec) else { return false };
+                let rec = &rec;
                 if self.first_record.is_none() {
                     self.first_record = self.started.map(|s| now.saturating_duration_since(s));
                 }
@@ -557,6 +580,7 @@ impl RunState {
         if !self.is_current(&reply.run_id, reply.generation) {
             return false;
         }
+        let reply = &self.convert.reply_back(reply);
         self.running = false;
         self.last_wall = self.started.map(|s| now.saturating_duration_since(s));
         self.run_error = reply.error.as_ref().map(|e| e.message.clone());
@@ -647,6 +671,27 @@ impl RunState {
         true
     }
 
+    /// The value of `node.port` changed outside the graph (an edit saved in its app): what it
+    /// feeds, and everything downstream, goes stale saying `why`.
+    pub fn mark_edited(&mut self, graph: &Graph, node: &str, port: &str, why: &str) {
+        let mut set: BTreeSet<NodeId> = graph.wires.iter().filter(|w| w.from.node.0 == node && w.from.port == port).map(|w| w.to.node.clone()).collect();
+        downstream(graph, &mut set);
+        for id in set {
+            if let Some(n) = self.nodes.get_mut(&id.0) {
+                if n.stale_since.is_none() {
+                    n.stale_since = Some(self.edits);
+                }
+                if !n.stale_why.iter().any(|w| w == why) {
+                    n.stale_why.push(why.to_owned());
+                }
+                let excess = n.stale_why.len().saturating_sub(MAX_STALE_REASONS);
+                n.stale_why.drain(..excess);
+            }
+        }
+        // counted as an edit, so the next run's reply clears what it marked
+        self.edits = self.edits.saturating_add(1);
+    }
+
     /// A watch on a node that has gone goes too: an engine refuses a run watching what isn't there.
     fn forget_watches(&mut self, graph: &Graph) {
         let mut i = 0;
@@ -681,6 +726,7 @@ impl RunState {
 
     /// A different graph (new): forget every node's state.
     pub fn reset(&mut self, now: Instant) {
+        self.doc_edits.clear();
         self.watch.clear();
         self.watched.clear();
         self.roles.clear();

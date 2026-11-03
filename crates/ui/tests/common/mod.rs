@@ -39,6 +39,10 @@ pub fn catalog() -> SchemaReply {
             {"name": "picks", "type": "STRING", "default": "", "widget": "multichoice", "choices": ["x", "y", "z"], "socket": "both"}],
         "outputs": [{"name": "text", "type": "TEXT"}]});
     c.nodes.push(serde_json::from_value(dials).unwrap());
+    let notes = json!({"id": "test.notes", "display": "Notes", "category": ["Testing"], "family": "test",
+        "inputs": [{"name": "sql", "type": "STRING", "default": "SELECT 1", "widget": "multiline", "socket": "both"}],
+        "outputs": [{"name": "text", "type": "TEXT"}]});
+    c.nodes.push(serde_json::from_value(notes).unwrap());
     c
 }
 

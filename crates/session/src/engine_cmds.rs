@@ -11,6 +11,11 @@
 //! beside the current one and `engine.remove` for one added to go ([`Engines::take_change`]);
 //! the host puts them behind one coordinator, so the session still sees one catalogue. Switch
 //! and attach replace them all with one engine; reconnect keeps the added ones.
+//!
+//! **The Engine menu uses `engine.use`:** picking an engine's connection starts it when nothing
+//! is connected, adds it beside the others when it isn't there, and changes its connection when
+//! it is, keeping the others. `engine.clear` stops them all, so a complete change is a clear
+//! and a pick.
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -89,6 +94,8 @@ pub enum EngineChange {
     Remove(String),
     /// Read the engine manifests again (spec 16.6): the host's list of choices changes.
     Reload,
+    /// Stop every engine: the editor keeps the graph, with none connected.
+    Clear,
 }
 
 impl Engines {
@@ -122,6 +129,14 @@ impl Engines {
 
     pub fn find(&self, engine: &str, mode: &str) -> Option<&EngineChoice> {
         self.choices.iter().find(|c| c.engine == engine && c.mode == mode)
+    }
+
+    /// The connection `engine` is in use by, the first engine's or an added one's.
+    pub fn in_use(&self, engine: &str) -> Option<&str> {
+        self.current.iter().chain(&self.added).find_map(|t| match t {
+            EngineTarget::Choice { engine: e, mode } if e == engine => Some(mode.as_str()),
+            _ => None,
+        })
     }
 
     /// Is `engine`/`mode` the current choice?
@@ -168,6 +183,52 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
     let out = target.to_json();
     s.engines.changes.push(EngineChange::Add(target));
     Ok(out)
+}
+
+/// The Engine menu's pick: start, add, or change the connection of one engine (module docs).
+fn use_engine(s: &mut Session, p: &Value) -> Result<Value> {
+    let (engine, mode) = (str_param(p, "engine")?, str_param(p, "mode")?);
+    if s.engines.find(engine, mode).is_none() {
+        let shown = |t: &str| t.chars().take(64).collect::<String>();
+        return Err(SessionError::Params(format!("no engine {:?} hosted {:?}", shown(engine), shown(mode))));
+    }
+    let target = EngineTarget::Choice { engine: engine.to_owned(), mode: mode.to_owned() };
+    let mut out = target.to_json();
+    let first = matches!(&s.engines.current, Some(EngineTarget::Choice { engine: e, .. }) if e == engine);
+    let how = if !s.connected {
+        // nothing to keep: this is the engine now
+        s.engines.request = Some(target);
+        "start"
+    } else if s.engines.in_use(engine) == Some(mode) {
+        "unchanged"
+    } else if first {
+        // the first engine is switched; the added ones come back beside it
+        s.engines.request = Some(target);
+        let again: Vec<EngineChange> = s.engines.added.iter().cloned().map(EngineChange::Add).collect();
+        s.engines.changes.extend(again);
+        "change"
+    } else if s.engines.in_use(engine).is_some() {
+        s.engines.changes.push(EngineChange::Remove(engine.to_owned()));
+        s.engines.changes.push(EngineChange::Add(target));
+        "change"
+    } else {
+        s.engines.changes.push(EngineChange::Add(target));
+        "add"
+    };
+    out["how"] = json!(how);
+    Ok(out)
+}
+
+fn can_clear(s: &Session) -> std::result::Result<(), String> {
+    if s.engines.current.is_some() { Ok(()) } else { Err("no engine to clear".into()) }
+}
+
+fn clear(s: &mut Session, _: &Value) -> Result<Value> {
+    // whatever was asked for before is moot
+    s.engines.request = None;
+    s.engines.changes.clear();
+    s.engines.changes.push(EngineChange::Clear);
+    Ok(json!({"engines": []}))
 }
 
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
@@ -245,6 +306,17 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
         CommandSpec {
+            id: "engine.use",
+            label: "Use Engine",
+            // the Engine menu lists the choices themselves
+            menu: &[],
+            shortcut: None,
+            params: "{engine, mode} (one of engine.list's choices) -> {engine, mode, how}: what the Engine menu does: with nothing connected start it (how: start); not connected, add it beside the others (add); connected another way, change its connection and keep the others (change); else nothing (unchanged)",
+            enabled: can_switch,
+            run: use_engine,
+            journal: false,
+        },
+        CommandSpec {
             id: "engine.remove",
             label: "Remove Engine",
             menu: &[],
@@ -282,6 +354,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{} -> {reloading: true}: read the engine manifests again (--engine-manifest and ~/.config/plumcraft/engines/*.toml), so an engine just installed is offered without a restart; ui.inspect's engine and engine.list show the new choices",
             enabled: can_switch,
             run: reload,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.clear",
+            label: "Clear Engines",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{} -> {engines: []}: stop every engine; the graph stays, with none connected, and the Engine menu picks the next",
+            enabled: can_clear,
+            run: clear,
             journal: false,
         },
         CommandSpec {
@@ -384,6 +466,50 @@ mod tests {
         for bad in [json!({}), json!({"engine": "nope", "mode": "inproc"}), json!({"engine": 3})] {
             assert!(s.execute("engine.add", &bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn use_starts_adds_or_changes_an_engine() {
+        let text = |m: &str| EngineTarget::Choice { engine: "text".into(), mode: m.into() };
+        let audio = EngineTarget::Choice { engine: "audio".into(), mode: "inproc".into() };
+        // nothing connected: start it
+        let mut s = offered();
+        let r = s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap();
+        assert_eq!(r["how"], "start");
+        assert_eq!(s.engines.take_request(), Some(text("python")));
+        // connected: another engine is added, the same one is left
+        s.connected = true;
+        assert_eq!(s.execute("engine.use", &json!({"engine": "text", "mode": "inproc"})).unwrap()["how"], "unchanged");
+        assert!(!s.engines.is_pending());
+        assert_eq!(s.execute("engine.use", &json!({"engine": "audio", "mode": "inproc"})).unwrap()["how"], "add");
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(audio.clone())));
+        // the first engine's connection changes and the added one comes back
+        s.engines.added.push(audio.clone());
+        assert_eq!(s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap()["how"], "change");
+        assert_eq!(s.engines.take_request(), Some(text("python")));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(audio.clone())));
+        // an added engine's connection changes: out, and in again the new way
+        s.engines.current = Some(audio.clone());
+        s.engines.added = vec![text("inproc")];
+        s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap();
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Remove("text".into())));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(text("python"))));
+        assert_eq!(s.engines.take_change(), None);
+        for bad in [json!({}), json!({"engine": "nope", "mode": "inproc"}), json!({"engine": "audio", "mode": "python"})] {
+            assert!(s.execute("engine.use", &bad).is_err(), "{bad}");
+        }
+        assert!(s.journal().is_empty(), "not journaled");
+    }
+
+    #[test]
+    fn clear_stops_every_engine_and_drops_what_was_asked() {
+        let mut s = offered();
+        s.execute("engine.switch", &json!({"engine": "text", "mode": "python"})).unwrap();
+        s.execute("engine.clear", &Value::Null).unwrap();
+        assert_eq!(s.engines.take_request(), None);
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Clear));
+        s.engines.current = None;
+        assert!(s.execute("engine.clear", &Value::Null).unwrap_err().to_string().contains("no engine"));
     }
 
     #[test]

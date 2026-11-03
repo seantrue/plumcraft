@@ -126,4 +126,22 @@ fn gridcraft_runs_its_demo() {
     assert!(csv.contains("sum,6"), "{csv}");
     let b = go(&h, "gc-csv2", chain_g, &["w", "c"], "off");
     assert_eq!(blob(&a, "w", "doc").handle, blob(&b, "w", "doc").handle, "two saves of one workbook are byte-identical");
+
+    // Export PDF: the active sheet, or every sheet
+    let pages = |pdf: &[u8]| String::from_utf8_lossy(pdf).matches("/Type /Page").count() - String::from_utf8_lossy(pdf).matches("/Type /Pages").count();
+    let two = |sheets: &str| {
+        chain(&[
+            ("n", "gc.new", json!({})),
+            ("w", "gc.write_range", json!({"range": "A1", "values": [["first"]]})),
+            ("s", "gc.add_sheet", json!({"name": "Second"})),
+            ("v", "gc.write_range", json!({"range": "A1", "values": [["second"]]})),
+            ("p", "gc.export_pdf", json!({"sheets": sheets})),
+        ])
+    };
+    let all = go(&h, "gc-pdf-all", two("all"), &["p"], "off");
+    assert!(all.ok, "{:?}", states(&all));
+    assert_eq!(pages(&bytes(&blob(&all, "p", "pdf"))), 2, "every sheet");
+    let active = go(&h, "gc-pdf-active", two("active"), &["p"], "off");
+    assert!(active.ok, "{:?}", states(&active));
+    assert_eq!(pages(&bytes(&blob(&active, "p", "pdf"))), 1, "the active sheet");
 }

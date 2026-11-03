@@ -58,6 +58,8 @@ color = "#b91c1c"
 # The open document's id is sent as `doc` on every call (commands inside `params`, tools at the
 # top level).
 id_param = "doc"
+# Open also takes a PDF wired in from another engine (a craft's Export PDF).
+opens_pdf = true
 
 [errors]
 config = ["missing argument", "unknown argument", "invalid", "out of range", "no page", "not editable", "unknown command"]
@@ -83,6 +85,30 @@ description = "Open a PDF (doc_open)"
 # doc_set_info, doc_flatten, doc_remove_hidden, page_move and page_number.
 
 # ---- pages ----
+
+[[node]]
+id = "pdf.insert_pages"
+display = "Insert pages"
+kind = "transform"
+family = "Pages"
+command = "page.insert"
+description = "Insert the pages of another PDF, wired in, before page `at` (page.insert). To join several, insert each at 1, the last first."
+[[node.file]]
+name = "pdf"
+type = "PDF"
+key = "path"
+tooltip = "The PDF whose pages go in: a craft's Export PDF, or PdfCraft's"
+[[node.widget]]
+name = "at"
+type = "INT"
+default = 1
+min = 1.0
+tooltip = "The page they go before: 1 is the front"
+[[node.widget]]
+name = "pages"
+type = "JSON"
+optional = true
+tooltip = "1-based pages of the inserted PDF to take; unset: all"
 
 [[node]]
 id = "pdf.rotate"
@@ -213,7 +239,19 @@ family = "Content"
 command = "edit.header_footer"
 description = "Header and footer text on pages; tokens such as <<1 of n>> (edit.header_footer)"
 [[node.widget]]
+name = "header_left"
+type = "STRING"
+optional = true
+[[node.widget]]
 name = "header_center"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "header_right"
+type = "STRING"
+optional = true
+[[node.widget]]
+name = "footer_left"
 type = "STRING"
 optional = true
 [[node.widget]]
@@ -221,11 +259,35 @@ name = "footer_center"
 type = "STRING"
 default = "<<Page 1 of n>>"
 [[node.widget]]
+name = "footer_right"
+type = "STRING"
+optional = true
+[[node.widget]]
 name = "font_size"
 type = "FLOAT"
 default = 10.0
 min = 1.0
 max = 200.0
+[[node.widget]]
+name = "color"
+type = "STRING"
+optional = true
+tooltip = "#RRGGBB or a colour name"
+[[node.widget]]
+name = "font"
+type = "ENUM"
+choices = ["Helvetica", "Times", "Courier"]
+optional = true
+[[node.widget]]
+name = "pages"
+type = "JSON"
+optional = true
+tooltip = "1-based page numbers to mark; unset: every page"
+[[node.widget]]
+name = "margins"
+type = "JSON"
+optional = true
+tooltip = "Top, bottom, left, right in points; unset: 36, 36, 72, 72"
 
 [[node]]
 id = "pdf.watermark"

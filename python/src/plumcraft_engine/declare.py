@@ -197,7 +197,8 @@ class File:
 @dataclass(frozen=True)
 class Port:
     """Presentation of a port: its label, tooltip, whether it is advanced, its socket mode
-    (`widget`, `socket` or `both`), and a name other than the parameter's."""
+    (`widget`, `socket` or `both`), a name other than the parameter's, and a widget hint
+    (`widget="multiline"` for a query or a script)."""
 
     label: str | None = None
     tooltip: str | None = None
@@ -205,6 +206,8 @@ class Port:
     socket: Literal["widget", "socket", "both"] | None = None
     name: str | None = None
     decimals: int | None = None
+    #: How to edit a value its type doesn't say: `multiline` (a text box), `color`, `hexcolor`, `multichoice`.
+    widget: str | None = None
 
 
 _MISSING: Any = object()
@@ -312,6 +315,8 @@ class _Mark:
     memo: str | dict | None
     flags: dict | None
     x: dict | None
+    converts: bool | tuple[str, str] | None = None
+    lossless: bool = False
 
 
 def node(
@@ -327,6 +332,8 @@ def node(
     memo: str | dict | None = None,
     flags: dict | None = None,
     x: dict | None = None,
+    converts: bool | tuple[str, str] | None = None,
+    lossless: bool = False,
 ) -> Any:
     """Mark a method as a node. Bare (`@node`) or with options (`@node("Upper case")`).
 
@@ -340,6 +347,10 @@ def node(
     - `version`: part of the memo key; bump it when results change.
     - `memo`: a scope (`"none"`, `"session"`, `"machine"`, `"global"`) or a full `memo` object.
     - `flags`, `x`: passed through to the NodeDef.
+    - `converts`: the node turns one type into another (`docs/research/20-convert.md`), so the
+      editor can offer it on a wire whose types don't meet, and a Convert node can use it.
+      `True` takes the types from the node (its first wire-only input, its one output); or
+      `("WAV", "AUDIO")`. `lossless=True` says the inverse gives the value back.
 
     The decorator only tags the function (as impressionist's `@checkpoint` does); the engine
     class compiles it.
@@ -348,7 +359,10 @@ def node(
         return node()(display)
     cat = (category,) if isinstance(category, str) else (tuple(category) if category is not None else None)
     out = output if output is None or isinstance(output, str) else tuple(output)
-    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x)
+    pair = isinstance(converts, tuple) and len(converts) == 2 and all(isinstance(t, str) for t in converts)
+    if converts is not None and not (isinstance(converts, bool) or pair):
+        raise DeclarationError("converts must be True or a (from, to) pair of type ids")
+    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x, converts or None, bool(lossless))
 
     def tag(fn: F) -> F:
         if not inspect.isfunction(fn):
@@ -512,6 +526,8 @@ def _in_port(ctx: _Ctx, arg: str, ann: Any, default: Any, where: str) -> _In:
                 port[k] = float(getattr(rng, k))
     if meta.decimals is not None:
         port["decimals"] = meta.decimals
+    if meta.widget is not None:
+        port["widget"] = meta.widget
     if choices is not None:
         port["choices"] = list(choices)
     if optional:
@@ -639,7 +655,28 @@ def _compile_node(ctx: _Ctx, cls: type, method: str, fn: Callable[..., Any], mar
         d["memo"] = memo
     if mark.x:
         d["x"] = dict(mark.x)
+    if mark.converts:
+        d["converts"] = _converts(where, mark.converts, mark.lossless, inputs, outs)
     return NodeSpec(method, fn, d, params, cx_arg, names, tuple_out)
+
+
+def _converts(where: str, converts: bool | tuple[str, str], lossless: bool, inputs: list[dict], outs: list[dict]) -> dict:
+    """A node's `converts` mark, checked against its ports."""
+    wired = [p for p in inputs if p.get("type") not in SCALARS and p.get("socket", "socket") != "widget"]
+    if converts is True:
+        if not wired or len(outs) != 1:
+            raise DeclarationError(f"{where}: converts=True needs a wire-only input and exactly one output; name the types: converts=(from, to)")
+        frm, to = wired[0]["type"], outs[0]["type"]
+    else:
+        frm, to = converts  # type: ignore[misc]
+    inp = next((p for p in wired if p.get("type") == frm), None)
+    out = next((p for p in outs if p.get("type") == to), None)
+    if inp is None or out is None or frm == to:
+        raise DeclarationError(f"{where}: converts {frm} to {to}, but it has no wire-only {frm} input and {to} output")
+    mark = {"from": frm, "to": to, "input": inp["name"], "output": out["name"]}
+    if lossless:
+        mark["lossless"] = True
+    return mark
 
 
 def _category(cls: type) -> list[str]:

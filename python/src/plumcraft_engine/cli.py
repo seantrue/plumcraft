@@ -325,11 +325,16 @@ def check(opts: dict) -> int:
     spec = opts["engine"] or table.get("engine")
     if not isinstance(spec, str):
         raise Usage("no engine: give --engine MODULE:CLASS, or set [tool.plumcraft] engine in pyproject.toml")
-    demo = workflow_for(None)[0] if isinstance(table.get("demo"), str) else None
+    factory = load_engine(spec)
+    demo = None
+    if isinstance(table.get("demo"), str):
+        # its relative paths made absolute, as `run` does: a demo that reads a file works here too
+        workflow, folder = workflow_for(None)
+        demo = anchored(workflow, factory().schema(), folder)
     conf = table.get("conformance")
     slow = conf.get("slow") if isinstance(conf, dict) else None
     modes = (opts["mode"],) if opts["mode"] else ("process", "http")
-    results = conformance.check(load_engine(spec), demo=demo, slow=slow if isinstance(slow, str) else None, modes=modes)
+    results = conformance.check(factory, demo=demo, slow=slow if isinstance(slow, str) else None, modes=modes)
     for r in results:
         print(f"{r}{'  (' + r.why + ')' if r.ok and r.why else ''}")
     failed = sum(not r.ok for r in results)

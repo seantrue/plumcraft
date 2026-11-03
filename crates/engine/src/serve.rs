@@ -14,11 +14,43 @@ use plumcraft_proto::error::{ErrorCode, ProtoError};
 use serde_json::Value;
 
 use crate::host::{Factory, Host};
+use crate::register::Registration;
 use crate::rpc::{self, Frame, Request, Response};
 
 /// The environment variables the UI sets when it spawns an engine.
 pub const ENV_SOCKET: &str = "PLUMCRAFT_ENGINE_SOCKET";
 pub const ENV_TOKEN: &str = "PLUMCRAFT_ENGINE_TOKEN";
+
+/// The whole of an engine binary's `main`: `register`, `unregister` and `--help`
+/// ([`crate::register`]), then mode 3 with `--listen host:port [--port-file f] [--lifeline]`,
+/// else mode 2 (`--connect unix:<path>` or the environment). `program` names it in messages.
+pub fn main(program: &str, factory: Factory, registration: &Registration) -> std::process::ExitCode {
+    use std::process::ExitCode;
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(done) = crate::register::handle(registration, program, &args) {
+        return done;
+    }
+    let served = if let Some((listen, port_file)) = crate::http::listen_args(&args) {
+        let token = std::env::var(ENV_TOKEN).unwrap_or_default();
+        crate::http::lifeline(&args);
+        crate::http::serve_http(factory, &listen, &token, port_file.as_deref())
+    } else {
+        match endpoint_from_env(&args) {
+            Ok((socket, token)) => serve_unix(factory, &socket, &token),
+            Err(e) => {
+                eprintln!("{program}: {e}");
+                return ExitCode::from(2);
+            }
+        }
+    };
+    match served {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("{program}: {e}");
+            ExitCode::FAILURE
+        }
+    }
+}
 
 /// Where to connect and the token to present: `--connect unix:<path>` or the environment.
 pub fn endpoint_from_env(args: &[String]) -> Result<(String, String), String> {

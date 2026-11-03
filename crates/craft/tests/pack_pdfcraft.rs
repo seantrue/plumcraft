@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use common::*;
 use plumcraft_craft::manifest::{Kind, Manifest, builtin};
-use serde_json::json;
+use serde_json::{Value, json};
 
 fn pack() -> Manifest {
     builtin("pdfcraft").expect("pdfcraft is built in").expect("pdfcraft.toml parses")
@@ -92,4 +92,50 @@ fn pdfcraft_runs_a_chain_by_document_id() {
     assert_eq!(x.len(), y.len());
     let differ = x.iter().zip(y.iter()).filter(|(a, b)| a != b).count();
     assert!(differ < 16, "{differ} of {} bytes differ", x.len());
+}
+
+/// Two PDFs made into one, with a header and footer: Open takes a wired PDF, and Insert pages a
+/// second one through its file socket.
+#[test]
+fn pdfcraft_joins_wired_pdfs_and_marks_every_page() {
+    let Some((h, _)) = live("pdfcraft-join") else { return };
+    let g = graph(
+        json!({
+            "src": {"kind": "pdf.open", "values": {"file": fixture()}},
+            "a": {"kind": "pdf.export_pdf", "values": {}},
+            "b": {"kind": "pdf.export_pdf", "values": {}},
+            "back": {"kind": "pdf.open", "values": {}},
+            "join": {"kind": "pdf.insert_pages", "values": {"at": 1}},
+            "mark": {"kind": "pdf.header_footer", "values": {"header_left": "JOINED", "footer_right": "<<1 of n>>"}},
+            "i": {"kind": "pdf.info", "values": {}},
+            "t": {"kind": "pdf.text", "values": {}}
+        }),
+        &[
+            ("src", "doc", "a", "doc"),
+            ("src", "doc", "b", "doc"),
+            ("a", "pdf", "back", "pdf"),
+            ("back", "doc", "join", "doc"),
+            ("b", "pdf", "join", "pdf"),
+            ("join", "doc", "mark", "doc"),
+            ("mark", "doc", "i", "doc"),
+            ("mark", "doc", "t", "doc"),
+        ],
+    );
+    let one = go(
+        &h,
+        "pdf-one",
+        graph(json!({"o": {"kind": "pdf.open", "values": {"file": fixture()}}, "i": {"kind": "pdf.info", "values": {}}}), &[("o", "doc", "i", "doc")]),
+        &["i"],
+        "off",
+    );
+    assert!(one.ok, "{:?}", states(&one));
+    let pages = |r: &Value| r.get("pages").and_then(Value::as_array).map(|p| p.len() as u64);
+    let first = json_out(&one, "i", "result");
+    let single = pages(&first).unwrap_or_else(|| panic!("no page count in {first}"));
+    let r = go(&h, "pdf-join", g, &["i", "t"], "off");
+    assert!(r.ok, "{:?}", states(&r));
+    let info = json_out(&r, "i", "result");
+    assert_eq!(pages(&info), Some(2 * single), "{info}");
+    let text = json_out(&r, "t", "result").to_string();
+    assert!(text.contains("JOINED"), "the header is on the pages: {text}");
 }
