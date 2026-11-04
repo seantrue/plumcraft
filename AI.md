@@ -20,6 +20,10 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — `plumcraft-array` and `plumcraft-engine` 0.1.1 (Claude Opus 5.5)
+
+The maintainer: "Publish plumcraft-array". The dry run failed: the array engine's binary calls `plumcraft_engine::register` and `serve::main`, which arrived after `plumcraft-engine` 0.1.0 was published. So `plumcraft-engine` goes out as 0.1.1 too, since its changes are additions only (`register.rs`, +253 LOC). Each crate takes its own version and the workspace pins both at `=0.1.1`. The other crates stay at 0.1.0. `plumcraft-proto` has grown too (Convert) but was left at 0.1.0, because neither crate needs the new parts: both dry runs built against the published proto, store and svg. Before uploading, the two crates' 113 tests passed and the workspace built.
+
 ### 2026-11-03 — npexact from crates.io (Claude Opus 5.5)
 
 The maintainer said "Publish npexact", and the AI published 0.1.1 from yapocis-rs; that work is in yapocis-rs's `AI.md`. Then, with "CPM", the AI removed the `[patch.crates-io]` pin on the GitHub commit and made the workspace require `npexact = "0.1.1"`, because the array engine now calls functions that 0.1.0 doesn't have. `Cargo.lock` takes it from the registry, so `plumcraft-array` can now be published.

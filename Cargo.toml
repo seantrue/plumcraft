@@ -13,9 +13,9 @@ repository = "https://github.com/seantrue/plumcraft"
 zip = { version = "9", default-features = false, features = ["deflate"] }
 # internal
 plumcraft-proto = { path = "crates/proto", version = "=0.1.0" }
-plumcraft-engine = { path = "crates/engine", version = "=0.1.0" }
+plumcraft-engine = { path = "crates/engine", version = "=0.1.1" }
 plumcraft-text = { path = "crates/text", version = "=0.1.0" }
-plumcraft-array = { path = "crates/array", version = "=0.1.0" }
+plumcraft-array = { path = "crates/array", version = "=0.1.1" }
 plumcraft-audio = { path = "crates/audio", version = "=0.1.0" }
 plumcraft-craft = { path = "crates/craft", version = "=0.1.0" }
 plumcraft-coordinator = { path = "crates/coordinator", version = "=0.1.0" }
