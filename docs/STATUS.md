@@ -5,7 +5,34 @@
 ## Where things stand
 
 - **npexact holds the array engine's numpy behaviours (2026-11-03, npexact 0.1.1 on crates.io):** `plumcraft-array`'s hand-ported numpy code (`minimum`/`maximum`, `clip`, `sign`, `mod`, `nan_to_num`, `min`/`max`/`nanmin`/`nanmax`, int64 `cumsum`, `searchsorted`, `lexsort`, `nanpercentile`, `unique`'s inverse, `sort`, `linspace` with Python-float bounds, `fftshift`) now calls npexact (yapocis-rs PR #8), whose fixtures numpy recorded on the M4 Max and on yellowfin's Xeon (x86-64, AVX2; Yapocis3 PR #72 records them). x86-64 differs from arm64 in how `maximum`/`minimum` break a tie between `-0` and `+0` (and so in reductions) and in `sin`/`cos`'s quadrant rounding; npexact takes both as host policies. Fixed on the way: npexact's `quantile` (float64 where numpy 2 is float32 throughout) and `sin_f32` on x86-64 (1 ulp near odd multiples of π/4). npexact 0.1.1 is on crates.io and the workspace requires it, so `plumcraft-array` can be published. Left alone: the FFT (not bit-exact; npexact has no pocketfft port), Mandelbrot's complex arithmetic and the elementwise kernels (numba's, not numpy's). Pre-existing on x86-64: `mandelbrot_matches_numba` fails, 9 points (references are Mac numba, which fuses the complex multiply). Notes: `claude-debug/npexact-ports-linux.md`.
-- **More converters, and arrays that aren't pictures (2026-11-03, uncommitted).**
+- **Core pairs and video (2026-11-03).**
+  - **What the maintainer asked:** "Go for 6.3,4" (`docs/research/20-convert.md`).
+  - **6.3, in the text engine, Rust and the Python twin:** Text ↔ Table (CSV), JSON ↔ Text, Table ↔ Array (a `series`). The text engine declares JSON.
+  - **6.4, in the array engine:** MP4, MOV and GIF ↔ Array, (T, H, W, C) frames and the frame rate, with ffmpeg; 512 MiB of frames at most, refused whole; cancel kills ffmpeg.
+  - **Shapes:** a new one, `video`. The Python SDK's `@node(..., shape=…)` marks an ARRAY end.
+  - **Tried:** FilmCraft's MP4 and GIF through Convert nodes, and back out as GIF and MP4; its sequence JSON → Text (`claude-debug/convert/video-and-pairs.json`). FilmCraft's MOV and GIF exports take no range.
+  - **Tests:**
+    - text: unit tests, and the twin check now runs every pair;
+    - array: a round trip through each format (skipped without ffmpeg);
+    - the Python SDK's `shape`;
+    - the Python golden.
+
+- **File decoders (2026-11-03).**
+  - **What the maintainer asked:** "Do the file decoders in 6.2".
+  - **Text, in Rust and the Python twin:**
+    - TXT, Markdown and HTML ↔ Text;
+    - CSV ↔ Table, read by RFC 4180, with booleans in any case.
+  - **Audio:** FLAC and AIFF ↔ Audio.
+  - **Array:** Rasterize PDF and Array to PDF, using `hayro` and `flate2`.
+  - **The converters:** each is marked, each has its inverse, and each engine declares the file types as bytes.
+  - **Tried:** four craft exports through Convert nodes across six engines (`claude-debug/convert/file-decoders.json`). The run found GridCraft's `TRUE`.
+  - **Tests:**
+    - text 3, including the twin check;
+    - audio 1;
+    - array 1;
+    - the Python golden.
+
+- **More converters, and arrays that aren't pictures (2026-11-03).**
   - **What the maintainer asked:** "mark them, and ensure that arrays can be non-images (1d)".
   - **Marked:** Decode Image, Encode Image, Rasterize SVG, and every craft's Open, one mark for each of its inputs. `converts` is now one mark or a list.
   - **Shapes:** marks can say an ARRAY's shape (`image`, `series`), and paths don't cross them.
@@ -22,7 +49,7 @@
     - headless check-once 1.
   - **The Python SDK's `converts=` doesn't take shapes or several marks yet.**
 
-- **Engine › Install Engine… (2026-11-03, uncommitted).**
+- **Engine › Install Engine… (2026-11-03).**
   - **What the maintainer asked:** "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github."
   - **What it does:** `engine.install {repo}` takes `owner/repo` or its URL. The editor runs `uv tool install --reinstall git+URL`, then `register` on each command it installed, on a thread. The status bar shows a spinner, and the engine menu reloads at the end.
   - **The window:** it offers the three public engines.

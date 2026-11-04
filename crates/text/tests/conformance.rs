@@ -709,6 +709,47 @@ fn rust_and_python_engines_agree() {
     let (r_data, p_data) = (data(&rust), data(&py));
     assert!(matches!(r_data.0.iter().find(|(k, _)| k == "k").map(|(_, o)| &o["codes"]), Some(PortValue::Blob { .. })));
     assert_eq!(r_data, p_data);
+    // The converters between core types (20-convert.md 6.3), each into its inverse.
+    let pairs = graph(
+        json!({
+            "csv": {"kind": "text.literal", "values": {"text": "name,n,x,ok\nada,1,1.5,TRUE\nbob,,-2,false\n"}},
+            "t": {"kind": "text.text_to_table"}, "back": {"kind": "text.table_to_text"},
+            "a": {"kind": "text.table_to_array"}, "at": {"kind": "text.array_to_table"},
+            "codes": {"kind": "text.codes"}, "ct": {"kind": "text.array_to_table"},
+            "js": {"kind": "text.literal", "values": {"text": "{\"b\": [1, 2.5, \"é\", null], \"a\": {\"y\": true}}"}},
+            "j": {"kind": "text.text_to_json"}, "jt": {"kind": "text.json_to_text"},
+        }),
+        &[
+            ("csv", "text", "t", "text"),
+            ("t", "table", "back", "table"),
+            ("t", "table", "a", "table"),
+            ("a", "array", "at", "array"),
+            ("csv", "text", "codes", "text"),
+            ("codes", "codes", "ct", "array"),
+            ("js", "text", "j", "text"),
+            ("j", "json", "jt", "json"),
+        ],
+    );
+    let converted = |h: &ProcessHost| {
+        run(h, "pairs", 1, pairs.clone(), json!({"targets": ["back", "at", "ct", "jt"]}));
+        let (_, reply) = collect(h, "pairs", 0);
+        reply.nodes.iter().map(|(k, n)| (k.clone(), n.outputs.clone(), n.error.as_ref().map(|e| e.message.clone()))).collect::<Vec<_>>()
+    };
+    let (r_pairs, p_pairs) = (converted(&rust), converted(&py));
+    let out = |node: &str, port: &str| {
+        r_pairs.iter().find(|(k, ..)| k == node).and_then(|(_, o, _)| match o.get(port) {
+            Some(PortValue::Json { value }) => Some(value.clone()),
+            _ => None,
+        })
+    };
+    assert_eq!(out("back", "text"), Some(json!("name,n,x,ok\nada,1,1.5,true\nbob,,-2.0,false\n")), "{r_pairs:?}");
+    assert_eq!(
+        out("at", "table"),
+        Some(json!({"columns": [{"name": "n", "type": "FLOAT", "values": [1.0, null]}, {"name": "x", "type": "FLOAT", "values": [1.5, -2.0]}]}))
+    );
+    assert_eq!(out("ct", "table").map(|t| t["columns"][0]["type"].clone()), Some(json!("INT")));
+    assert_eq!(out("jt", "text"), Some(json!("{\n  \"a\": {\n    \"y\": true\n  },\n  \"b\": [\n    1,\n    2.5,\n    \"é\",\n    null\n  ]\n}")));
+    assert_eq!(r_pairs, p_pairs);
 }
 
 /// Spec 13.2: a file source uploads once (the engine says it has it after that), and a value

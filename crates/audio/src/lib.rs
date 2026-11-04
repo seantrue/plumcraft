@@ -40,6 +40,9 @@ pub const TABLE: &str = plumcraft_proto::catalogue::core_types::TABLE;
 pub const ARRAY: &str = plumcraft_proto::catalogue::core_types::ARRAY;
 /// A WAV file as a value, as SoundCraft's pack bounces one.
 pub const WAV: &str = "WAV";
+/// FLAC and AIFF files as values, as SoundCraft's pack bounces them.
+pub const FLAC: &str = "FLAC";
+pub const AIFF: &str = "AIFF";
 
 /// The SoundCraft revision this engine is built on; part of the memo salt, so a DSP upgrade
 /// never reuses an old result.
@@ -83,7 +86,9 @@ pub fn engine() -> Engine {
         .with_wire_type(scalar(ENUM))
         .with_wire_type(plumcraft_proto::catalogue::core_types::table())
         .with_wire_type(plumcraft_proto::catalogue::core_types::array())
-        .with_wire_type(WireType { id: WAV.into(), media: Media::Bytes, ..Default::default() });
+        .with_wire_type(WireType { id: WAV.into(), media: Media::Bytes, ..Default::default() })
+        .with_wire_type(WireType { id: FLAC.into(), media: Media::Bytes, ..Default::default() })
+        .with_wire_type(WireType { id: AIFF.into(), media: Media::Bytes, ..Default::default() });
     for n in nodes() {
         e = e.with_node(n);
     }

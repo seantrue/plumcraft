@@ -58,6 +58,27 @@
    "thumb": true
   },
   {
+   "id": "JSON",
+   "color": "#64748b",
+   "media": "tree"
+  },
+  {
+   "id": "TXT",
+   "media": "bytes"
+  },
+  {
+   "id": "MD",
+   "media": "bytes"
+  },
+  {
+   "id": "HTML",
+   "media": "bytes"
+  },
+  {
+   "id": "CSV",
+   "media": "bytes"
+  },
+  {
    "id": "ANY",
    "color": "#9ca3af",
    "media": "bytes"
@@ -413,6 +434,36 @@
    }
   },
   {
+   "id": "text.array_to_table",
+   "display": "Array to Table",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "A 1-D or rows × columns array as a table, a column for each array column, named by the array's names or c1, c2, …: INT, BOOL or FLOAT as the array's type, NaN as null. The inverse of Table to Array.",
+   "inputs": [
+    {
+     "name": "array",
+     "type": "ARRAY",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "TABLE"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "ARRAY",
+    "to": "TABLE",
+    "input": "array",
+    "output": "table",
+    "from_shape": "series"
+   }
+  },
+  {
    "id": "text.codes",
    "display": "Code points",
    "category": [
@@ -455,6 +506,125 @@
    "family": "text"
   },
   {
+   "id": "text.from_csv",
+   "display": "CSV to Table",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "A CSV file (as GridCraft exports one) as a table: the first row names the columns, and each column's type comes from its values.",
+   "inputs": [
+    {
+     "name": "csv",
+     "type": "CSV",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "TABLE"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "CSV",
+    "to": "TABLE",
+    "input": "csv",
+    "output": "table"
+   }
+  },
+  {
+   "id": "text.from_html",
+   "display": "HTML to Text",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "An HTML file as its source text, the markup kept: UTF-8, a byte-order mark dropped.",
+   "inputs": [
+    {
+     "name": "html",
+     "type": "HTML",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "HTML",
+    "to": "TEXT",
+    "input": "html",
+    "output": "text",
+    "lossless": true
+   }
+  },
+  {
+   "id": "text.from_md",
+   "display": "Markdown to Text",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "A Markdown file as its text, the markup kept: UTF-8, a byte-order mark dropped.",
+   "inputs": [
+    {
+     "name": "md",
+     "type": "MD",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "MD",
+    "to": "TEXT",
+    "input": "md",
+    "output": "text",
+    "lossless": true
+   }
+  },
+  {
+   "id": "text.from_txt",
+   "display": "TXT to Text",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "A TXT file (as WordCraft or PdfCraft exports one) as text: UTF-8, a byte-order mark dropped.",
+   "inputs": [
+    {
+     "name": "txt",
+     "type": "TXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TXT",
+    "to": "TEXT",
+    "input": "txt",
+    "output": "text",
+    "lossless": true
+   }
+  },
+  {
    "id": "text.join",
    "display": "Join",
    "category": [
@@ -484,6 +654,36 @@
     }
    ],
    "family": "text"
+  },
+  {
+   "id": "text.json_to_text",
+   "display": "JSON to Text",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "A JSON value as text, indented by two spaces, keys sorted. The inverse of Text to JSON.",
+   "inputs": [
+    {
+     "name": "json",
+     "type": "JSON",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "JSON",
+    "to": "TEXT",
+    "input": "json",
+    "output": "text",
+    "lossless": true
+   }
   },
   {
    "id": "text.letters",
@@ -680,6 +880,242 @@
     }
    ],
    "family": "text"
+  },
+  {
+   "id": "text.table_to_array",
+   "display": "Table to Array",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "A table's INT and FLOAT columns as a rows × columns array (float64), named by the columns; a null is NaN, and other columns are left out. The inverse of Array to Table.",
+   "inputs": [
+    {
+     "name": "table",
+     "type": "TABLE",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "array",
+     "type": "ARRAY"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TABLE",
+    "to": "ARRAY",
+    "input": "table",
+    "output": "array",
+    "to_shape": "series"
+   }
+  },
+  {
+   "id": "text.table_to_text",
+   "display": "Table to Text",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "A table as CSV text, a header line first, as Table to CSV writes a file. The inverse of Text to Table.",
+   "inputs": [
+    {
+     "name": "table",
+     "type": "TABLE",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TABLE",
+    "to": "TEXT",
+    "input": "table",
+    "output": "text"
+   }
+  },
+  {
+   "id": "text.text_to_json",
+   "display": "Text to JSON",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "Text that is JSON as its value. Text that isn't is an error. The inverse of JSON to Text.",
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "json",
+     "type": "JSON"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TEXT",
+    "to": "JSON",
+    "input": "text",
+    "output": "json"
+   }
+  },
+  {
+   "id": "text.text_to_table",
+   "display": "Text to Table",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "CSV text as a table, as CSV to Table reads a file: the first row names the columns, and each column's type comes from its values. The inverse of Table to Text.",
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "TABLE"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TEXT",
+    "to": "TABLE",
+    "input": "text",
+    "output": "table"
+   }
+  },
+  {
+   "id": "text.to_csv",
+   "display": "Table to CSV",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "A table as a CSV file, a header line first. The inverse of CSV to Table.",
+   "inputs": [
+    {
+     "name": "table",
+     "type": "TABLE",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "csv",
+     "type": "CSV"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TABLE",
+    "to": "CSV",
+    "input": "table",
+    "output": "csv"
+   }
+  },
+  {
+   "id": "text.to_html",
+   "display": "Text to HTML",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "Text (HTML source) as an HTML file, UTF-8. The inverse of HTML to Text.",
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "html",
+     "type": "HTML"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TEXT",
+    "to": "HTML",
+    "input": "text",
+    "output": "html",
+    "lossless": true
+   }
+  },
+  {
+   "id": "text.to_md",
+   "display": "Text to Markdown",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "Text as a Markdown file, UTF-8. The inverse of Markdown to Text.",
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "md",
+     "type": "MD"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TEXT",
+    "to": "MD",
+    "input": "text",
+    "output": "md",
+    "lossless": true
+   }
+  },
+  {
+   "id": "text.to_txt",
+   "display": "Text to TXT",
+   "category": [
+    "Text",
+    "Files"
+   ],
+   "description": "Text as a TXT file, UTF-8. The inverse of TXT to Text.",
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "txt",
+     "type": "TXT"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TEXT",
+    "to": "TXT",
+    "input": "text",
+    "output": "txt",
+    "lossless": true
+   }
   },
   {
    "id": "text.upper",
@@ -1152,6 +1588,46 @@
   {
    "from": "ANY",
    "to": "ARRAY"
+  },
+  {
+   "from": "JSON",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "JSON"
+  },
+  {
+   "from": "TXT",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "TXT"
+  },
+  {
+   "from": "MD",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "MD"
+  },
+  {
+   "from": "HTML",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "HTML"
+  },
+  {
+   "from": "CSV",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "CSV"
   },
   {
    "from": "BOOL",

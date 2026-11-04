@@ -136,6 +136,34 @@ fn array_to_svg_and_rasterize_svg_round_trip() {
     assert_eq!((big.w, big.h), (12, 10), "twice as wide, the shape kept");
 }
 
+/// A picture as a one-page PDF and back (docs/research/20-convert.md, 6.2): at the same dpi,
+/// the same pixels, to within 8 bits; at twice the dpi, twice the size.
+#[test]
+fn array_to_pdf_and_rasterize_pdf_round_trip() {
+    let dir = root("pdf");
+    let png = dir.join("p.png");
+    write_png(&png);
+    let e = engine(&dir);
+    let nodes = json!({
+        "l": {"kind": "array.load_image", "values": {"path": png.display().to_string(), "align": false}},
+        "p": {"kind": "array.array_to_pdf", "values": {"dpi": 72}},
+        "r": {"kind": "array.rasterize_pdf", "values": {"dpi": 72}},
+        "big": {"kind": "array.rasterize_pdf", "values": {"dpi": 144}},
+        "two": {"kind": "array.rasterize_pdf", "values": {"page": 2}},
+    });
+    let wires = [("l", "rgb", "p", "image"), ("p", "pdf", "r", "pdf"), ("p", "pdf", "big", "pdf"), ("p", "pdf", "two", "pdf")];
+    let r = run(&e, nodes, &wires, &["l", "p", "r", "big", "two"]);
+    let (a, b) = (img(&e, &r, "l", "rgb"), img(&e, &r, "r", "rgb"));
+    assert_eq!((b.h, b.w, b.c), (a.h, a.w, 3));
+    assert!(close(&b.data, &a.data, 1.0 / 255.0 + 1e-6), "{:?} -> {:?}", &a.data[..6], &b.data[..6]);
+    let (data, bytes) = blob(&e, &r, "p", "pdf");
+    assert_eq!(data.meta.media, "application/pdf");
+    assert!(bytes.starts_with(b"%PDF-1.4"));
+    let big = img(&e, &r, "big", "rgb");
+    assert_eq!((big.w, big.h), (a.w * 2, a.h * 2), "twice the dpi, twice the size");
+    assert!(error(&r, "two").contains("1 page"), "{}", error(&r, "two"));
+}
+
 #[test]
 fn split_and_stack_keep_the_space_and_names() {
     let dir = root("split");
@@ -219,4 +247,61 @@ fn constant_frame_and_crop() {
     assert_eq!((k.h, k.w), (4, 4));
     let like = img(&e, &r, "like", "constant");
     assert_eq!((like.h, like.w, like.data[0]), (4, 4, 2.0));
+}
+
+/// 6.4: a clip as (T, H, W, C) frames and back, through each format, with ffmpeg (skipped
+/// without it, as commonkit's test is).
+#[test]
+fn video_goes_to_frames_and_back() {
+    if std::process::Command::new("ffmpeg").arg("-version").output().is_err() {
+        eprintln!("ffmpeg is not installed: skipped");
+        return;
+    }
+    let dir = root("video");
+    let clip = dir.join("clip.mp4");
+    let made = std::process::Command::new("ffmpeg")
+        .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc=size=32x24:rate=10", "-t", "1", "-pix_fmt", "yuv420p"])
+        .arg(&clip)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    let e = engine(&dir);
+    let nodes = json!({
+        "f": {"kind": "file.load", "values": {"file": clip.display().to_string()}},
+        "d": {"kind": "array.mp4_to_array"},
+        "g": {"kind": "array.mp4_to_array", "values": {"pixels": "gray"}},
+        "mp4": {"kind": "array.array_to_mp4", "values": {"fps": 10.0}}, "mp4b": {"kind": "array.mp4_to_array"},
+        "mov": {"kind": "array.array_to_mov", "values": {"fps": 10.0}}, "movb": {"kind": "array.mov_to_array"},
+        "gif": {"kind": "array.array_to_gif", "values": {"fps": 10.0}}, "gifb": {"kind": "array.gif_to_array"},
+        "grey": {"kind": "array.array_to_gif", "values": {"fps": 10.0}},
+    });
+    let wires = [
+        ("f", "value", "d", "video"),
+        ("f", "value", "g", "video"),
+        ("d", "frames", "mp4", "frames"),
+        ("mp4", "video", "mp4b", "video"),
+        ("d", "frames", "mov", "frames"),
+        ("mov", "video", "movb", "video"),
+        ("d", "frames", "gif", "frames"),
+        ("gif", "video", "gifb", "video"),
+        ("g", "frames", "grey", "frames"),
+    ];
+    let r = ok(run(&e, nodes, &wires, &["d", "g", "mp4", "mov", "gif", "mp4b", "movb", "gifb", "grey"]));
+    let frames = array(&e, &r, "d", "frames");
+    assert_eq!((frames.dtype.as_str(), frames.shape.clone()), ("|u1", vec![10, 24, 32, 3]));
+    let gray = array(&e, &r, "g", "frames");
+    assert_eq!((gray.dtype.as_str(), gray.shape.clone()), ("<f4", vec![10, 24, 32, 1]));
+    let fps = |n: &str| match &r.nodes[n].outputs["fps"] {
+        plumcraft_proto::PortValue::Json { value } => value.as_f64().unwrap(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(fps("d"), 10.0);
+    for (node, media, tolerance) in [("mp4", "video/mp4", 12.0), ("mov", "video/quicktime", 6.0), ("gif", "image/gif", 24.0)] {
+        assert_eq!(blob(&e, &r, node, "video").0.meta.media, media);
+        let back = array(&e, &r, &format!("{node}b"), "frames");
+        assert_eq!(back.shape, frames.shape, "{node}");
+        assert_eq!(fps(&format!("{node}b")), 10.0, "{node}");
+        let diff = back.bytes.iter().zip(frames.bytes.iter()).map(|(a, b)| f64::from(a.abs_diff(*b))).sum::<f64>() / frames.bytes.len() as f64;
+        assert!(diff < tolerance, "{node}: a mean difference of {diff}");
+    }
 }

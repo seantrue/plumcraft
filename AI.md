@@ -20,6 +20,60 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — File decoders, core pairs and video as arrays (Claude Opus 5.5)
+
+The maintainer asked, in turn: "Do the file decoders in 6.2", then "Go for 6.3,4" (`docs/research/20-convert.md`). Afterwards: "I suspect there are a lot of *Craft commands that take parameters that we are not exposing. Evaluate."
+
+**What the AI did:**
+
+- **6.2, file decoders, each with its inverse and marked:**
+  - text (Rust and the Python twin): TXT, Markdown and HTML ↔ Text, CSV ↔ Table;
+  - audio: FLAC and AIFF ↔ Audio;
+  - array: Rasterize PDF and Array to PDF.
+- **6.3, conversions between core types,** in the text engine and its Python twin: Text ↔ Table, JSON ↔ Text, Table ↔ Array (a `series`). The Python SDK can now say a mark's array shape (`@node(converts=True, shape=…)`), which the twin needed.
+- **6.4, video as arrays,** in the array engine with ffmpeg:
+  - MP4, MOV and GIF ↔ (T, H, W, C) frames and a frame rate;
+  - a new shape, `video`;
+  - 512 MiB of frames at most, refused whole;
+  - cancel kills ffmpeg.
+- **Tried it live** across FilmCraft, SoundCraft, GridCraft and the engines, through Convert nodes (`claude-debug/convert/*.json`).
+- **The craft parameter evaluation:** a probe (untracked, `claude-debug/craft-params-probe/`) that builds all 13 packs against their CLIs. Its report is `claude-debug/craft-params-evaluation.md`:
+  - the nodes run 274 of 7,426 commands;
+  - 161 of the 295 commands they run have parameters no widget sends.
+
+**Size:** about 2,050 lines added and 50 removed, docs included, not counting `Cargo.lock` and the Python golden. The largest parts:
+
+- the Python twin, ~400 LOC;
+- `crates/text/src/files.rs`, ~390;
+- `crates/array/src/channels/video.rs`, ~350;
+- `crates/text/src/pairs.rs`, ~300;
+- `crates/array/src/channels/pdf.rs`, ~155;
+- audio `io.rs`, ~95.
+
+**Tests:**
+
+- text: unit tests, and the Rust–Python twin check now runs every new converter;
+- audio 1;
+- array 2: a PDF round trip, and a video round trip through each format, skipped without ffmpeg;
+- the SDK's `shape`;
+- the Python golden.
+
+**Defects in AI-written work, and how each was caught:**
+
+- **The CSV reader rejected GridCraft's `TRUE`** (only lower-case booleans). The live run caught it; booleans are now read in any case.
+- **The twin test's expected CSV was wrong:** it expected `-2` for a float column that gives back `-2.0`. Caught by the test itself.
+- **The video encoders weren't run targets** in the round-trip test, so their outputs were missing. Caught by the test.
+- **Compile and lint errors:** a private import path (`run::PortValue`), a nonexistent `crate::ARRAY`, and clippy's `as_chunks`. Caught by the build and clippy.
+- **Wrong size figures in the doc and a code comment:** 512 MiB was called "an hour" at small sizes and "10 s" of 1080p. It is about 6 minutes and 3 s. The AI caught it on rereading.
+- **A claim nobody had observed:** the doc stated the MP4 frames' shape, though no one had checked it directly; it was reworded. The AI caught it on rereading.
+- **Wrong figures in the evaluation's first draft:**
+  - two totals (271 and 291 for 274 and 295);
+  - only one PhotoCraft filter said to have a node, when five do;
+  - EffectCraft layers said to be unreachable, when solid, shape and text layers have nodes.
+
+  The AI caught these when it checked the report against the probe output.
+- **"Second window open" said without checking.** On "Converting soundcraft audio to array?", the AI told the maintainer a second editor window was open without having seen it. The process had exited.
+
 ### 2026-11-03 — More converters, and arrays that aren't pictures (Claude Opus 5.5)
 
 The maintainer asked what "mark the existing converters in 6.1" meant, then: "mark them, and ensure that arrays can be non-images (1d)".

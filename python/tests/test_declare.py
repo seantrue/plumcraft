@@ -10,12 +10,14 @@ import pytest
 
 import plumcraft_engine
 from plumcraft_engine import (
+    Array,
     ConfigError,
     Cx,
     DeclarationError,
     Engine,
     File,
     Float,
+    Image,
     Int,
     NodeError,
     Port,
@@ -491,3 +493,30 @@ def test_converts_marks_a_converter_and_checks_it():
 
     with pytest.raises(DeclarationError, match="converts must be"):
         node(converts="yes")
+
+
+def test_converts_says_what_its_array_end_is():
+    class Shaped(Engine):
+        id = "shaped"
+
+        @node(converts=True, shape="series")
+        def unroll(self, audio: Audio) -> Array: ...
+
+        @node(converts=True, shape="image")
+        def show(self, array: Array) -> Image: ...
+
+    nodes = {n["id"]: n for n in Shaped().schema()["nodes"]}
+    assert nodes["shaped.unroll"]["converts"]["to_shape"] == "series"
+    assert "from_shape" not in nodes["shaped.unroll"]["converts"]
+    assert nodes["shaped.show"]["converts"]["from_shape"] == "image"
+    with pytest.raises(DeclarationError, match="shape is one of"):
+        node(converts=True, shape="cube")
+    with pytest.raises(DeclarationError, match="shape is one of"):
+        node(shape="series")
+    with pytest.raises(DeclarationError, match="has none"):
+
+        class Flat(Engine):
+            id = "flat"
+
+            @node(converts=True, shape="series")
+            def speak(self, text: Text) -> Audio: ...

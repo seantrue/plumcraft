@@ -170,48 +170,88 @@ PdfCraft's Open and Export text take a PDF to text in two steps.
 - **The array engine kept turning a 1-D array into a 1 × n one.** It reads a 1-D array as one row, so its nodes gave back `(1, n)`. Its node runner now puts such a result back to `[n]` when the node was given a 1-D array of that length (`keep_flat`, `crates/array/src/op.rs`). A spectrum stays a spectrum through Arithmetic, and Array to Audio takes it as mono.
 - **A node may carry several marks** (`converts` is one or a list).
 
-### 6.2 File types that are dead ends
+### 6.2 File types that were dead ends: done 2026-11-03
 
-Craft exports make these, and nothing takes them further.
+The maintainer: "Do the file decoders in 6.2". Each decoder ships with its inverse, as every conversion does.
 
-| From | To | Note |
+| Engine | Converter and its inverse | Lossless |
 |---|---|---|
-| `TXT`, `MD`, `HTML` | TEXT | a decode |
-| `CSV` | TABLE | a parse |
-| `FLAC`, `AIFF` | AUDIO | value nodes like WAV to Audio; the audio engine already decodes them from files |
-| `PDF` | IMAGE | rasterise a page |
+| Text (Rust and its Python twin, alike) | TXT to Text, Text to TXT | yes |
+| | Markdown to Text, Text to Markdown | yes |
+| | HTML to Text, Text to HTML (the source, markup kept) | yes |
+| | CSV to Table, Table to CSV | no: a column's type comes from its values |
+| Audio | FLAC to Audio | yes |
+| | Audio to FLAC | no: 24 or 16 bits |
+| | AIFF to Audio, Audio to AIFF (float32 by default) | yes |
+| Array | Rasterize PDF (a page, at a dpi, on white) | no |
+| | Array to PDF (a picture as a one-page PDF) | no: 8 bits |
 
-### 6.3 Between core types
+Each engine declares the file types as the craft packs do (bytes), so the exports cross into it.
 
-| From | To | Note |
+**CSV** is read by RFC 4180:
+
+- The first row names the columns.
+- A column is INT, FLOAT, BOOL (`true` or `false` in any case, since a spreadsheet writes `TRUE`) or STRING.
+- An empty cell is null.
+
+**Tried across six engines** (`claude-debug/convert/file-decoders.json`). Every crossing goes through a Convert node, with nothing placed by hand:
+
+- GridCraft's CSV → Table, which Table to CSV writes back;
+- WordCraft's TXT → Text;
+- WordCraft's PDF → Rasterize PDF → Encode Image, a 1224 × 1584 page at 144 dpi, its text drawn;
+- SoundCraft's FLAC → Audio → Loudness, −27.1 LUFS.
+
+That run found two things:
+
+- **GridCraft writes booleans as `TRUE`**, so booleans are now read in any case.
+- **A Convert into Write Files passes the file through unchanged.** Write Files takes anything, so the types already meet.
+
+### 6.3 Between core types: done 2026-11-03
+
+The maintainer: "Go for 6.3,4". The text engine has them, in Rust (`crates/text/src/pairs.rs`) and in its Python twin alike, each with its inverse:
+
+| Converter and its inverse | Lossless | Note |
 |---|---|---|
-| TEXT | TABLE | CSV parse; the inverse of DuckDB's Table to CSV |
-| JSON | TEXT, and back | serialise and parse |
-| ARRAY | TABLE, and back | a 2-D table array as named columns |
+| Text to Table, Table to Text | no | the text is CSV, read and written as CSV to Table and Table to CSV do |
+| JSON to Text | yes | indented by two spaces, keys sorted |
+| Text to JSON | no | text that isn't JSON, or holds `NaN`, is an error |
+| Table to Array | no | the INT and FLOAT columns as a float64 rows × columns table array, named; a null is NaN |
+| Array to Table | no | a 1-D or rows × columns array, a column each, INT, BOOL or FLOAT as its dtype; NaN and ±Inf as null |
 
-### 6.4 Video as a 4-D array
+**Shapes:** both of Table and Array's ARRAY ends are `series`, so a picture never becomes a table through a Convert. The text engine now declares JSON.
 
-commonkit's `tests/test_ffmpeg.py` (in `../pycommonkit`) shows the convention:
+**The Python SDK** says a shape too: `@node(converts=True, shape="series")` marks the ARRAY end. It was the one thing the twin couldn't say.
 
-- ffmpeg renders raw frames, read as a `(T, H, W, C)` array: `rgb24` is `uint8` with 3 channels, and `grayf32le` is `float32` with 1.
-- The frame rate is outside the array. It goes in the key's variant (`fr10`, `fr25`), as `sr16000` carries a sample rate.
-- One frame is a view.
-- A clip over the size limit is declined whole, never truncated.
+**The twin agrees:** the conformance test runs every pair, in Rust and Python, and their outputs are equal. They differ only where the languages print a float with an exponent (`1e20` and `1e+20`).
 
-So video needs no new core type. PlumCraft's ARRAY already takes N dimensions, and its viewer gives them a slice picker. The pair mirrors Audio to Array and Array to Audio:
+### 6.4 Video as a 4-D array: done 2026-11-03
+
+The array engine (`crates/array/src/channels/video.rs`) has three pairs, using ffmpeg as commonkit's `tests/test_ffmpeg.py` does:
 
 | Converter | From → to | Note |
 |---|---|---|
-| Video to Array | `MP4`, `MOV`, `GIF` → ARRAY `(T, H, W, 3)` `uint8` | the frame rate as a second output, as Audio to Array gives the sample rate; not lossless (the encoding is gone) |
-| Array to Video | ARRAY `(T, H, W, C)` → `MP4` | the frame rate an input; a lossy encode |
+| MP4, MOV and GIF to Array | the clip → ARRAY `(T, H, W, 3)` `uint8` (`rgb24`), or `(T, H, W, 1)` `float32` (`grayf32le`, `pixels: gray`) | the frame rate a second output; every frame decoded once, at its stored size |
+| Array to MP4 | `(T, H, W, C)` → H.264, `yuv420p`, an odd side padded | the frame rate an input |
+| Array to MOV | → ProRes 422 HQ | |
+| Array to GIF | → a GIF with its own palette, looping | |
 
-They would let FilmCraft's exports (`fc.export_mp4`, `fc.export_mov`, `fc.export_gif`) reach the array engine through a Convert. A frame, `[t]`, is then an `(H, W, 3)` picture.
+None is lossless. The frames may be `uint8` or floats in 0–1, with 1, 3 or 4 channels (an alpha is dropped).
 
-Open questions:
+**The answers to the open questions:**
 
-- **The engine:** the array engine is the natural home, with ffmpeg on PATH; without it, a hint, as the commonkit test skips.
-- **A size limit:** about 1.4 MB a second at 160×120 RGB, but gigabytes for HD. Refuse rather than truncate, as commonkit does.
-- **The soundtrack:** possibly a third output, as Audio.
+- **The engine:** the array engine, with ffmpeg and ffprobe on `PATH` (or `$PLUMCRAFT_FFMPEG`, `$PLUMCRAFT_FFPROBE`). Without them, a node fails with a `config` error that says to install ffmpeg. The tests skip, as commonkit's does.
+- **A size limit:** 512 MiB of frames: about 6 minutes at 160 × 120 RGB, 25 fps, but only about 3 s of 1080p. A clip over that is refused whole, never cut short: ffmpeg is stopped at one byte over, and the result is refused.
+- **The soundtrack:** left out; Bounce or Export WAV gives it.
+- **A shape:** a new one, `video`, for (T, H, W, C). A frame stack never goes to a step that wants a picture or a series.
+- **Cancel:** the node polls the run's cancel flag and kills ffmpeg.
+
+**Tried with FilmCraft** (`claude-debug/convert/video-and-pairs.json`), three engines, every crossing through a Convert node:
+
+- **MP4:** FilmCraft's export (1 s at 10 fps, 160 × 90) → frames → Array to GIF: 10 frames, 160 × 90, at 10 fps.
+- **GIF:** FilmCraft's export → frames → Array to MP4: H.264, 160 frames, 160 × 90, 10 fps. The Aurora scene's sky survives the trip.
+- **JSON:** Inspect sequence's result → Text → Upper case (6.3's JSON to Text).
+
+It found one thing: FilmCraft's MOV and GIF export nodes take no range, so they export the whole sequence (16 s).
 
 ### 6.5 Probably never
 
@@ -222,6 +262,6 @@ Open questions:
 ### 6.6 Suggested order
 
 1. ~~The marks in 6.1.~~ Done.
-2. `TXT` and `CSV` to TEXT and TABLE, and `FLAC` and `AIFF` to AUDIO (6.2): most craft exports then lead somewhere.
-3. The core pairs (6.3).
-4. Video (6.4).
+2. ~~The file decoders (6.2).~~ Done.
+3. ~~The core pairs (6.3).~~ Done.
+4. ~~Video (6.4).~~ Done.

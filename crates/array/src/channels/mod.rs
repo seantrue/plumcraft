@@ -15,7 +15,9 @@ use plumcraft_proto::error::NodeError;
 use crate::img::Img;
 
 mod contours;
+mod pdf;
 mod svg;
+mod video;
 use crate::op::{
     Op, array_in, array_opt, array_out, array_slots, b, bool_in, config, enum_in, f, float_in, img, img_opt, int_in, many, n, one, op_error, out, path_in, s,
     slots,
@@ -51,6 +53,11 @@ pub fn guess_space(names: &[String]) -> Option<String> {
 const BACKGROUNDS: &[(&str, f32)] = &[("black", 0.0), ("white", 1.0), ("gray", 0.5)];
 /// The largest picture file read.
 const MAX_FILE: u64 = 1 << 30;
+
+/// The video file types Video to Array reads.
+pub fn video_types() -> Vec<&'static str> {
+    video::wire_types()
+}
 
 pub fn nodes() -> Vec<Box<dyn Node>> {
     let mut v: Vec<Box<dyn Node>> = vec![
@@ -200,7 +207,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
     ];
     // SVG beside the encoded pictures: after Load, Decode and Encode Image
     let at = v.iter().position(|n| n.def().id == "array.encode_image").map_or(v.len(), |i| i + 1);
-    v.splice(at..at, svg::nodes().into_iter().chain(contours::nodes()));
+    v.splice(at..at, svg::nodes().into_iter().chain(pdf::nodes()).chain(video::nodes()).chain(contours::nodes()));
     v
 }
 

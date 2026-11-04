@@ -5,6 +5,9 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod files;
+pub mod pairs;
+
 use std::time::{Duration, Instant};
 
 use plumcraft_engine::{Array, Cx, Data, Engine, Inputs, Node, Outputs};
@@ -73,8 +76,12 @@ pub fn engine() -> Engine {
         .with_wire_type(WireType { id: INT.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(WireType { id: FLOAT.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(core_types::table())
-        .with_wire_type(core_types::array());
-    for n in nodes() {
+        .with_wire_type(core_types::array())
+        .with_wire_type(core_types::json());
+    for w in files::wire_types() {
+        e = e.with_wire_type(w);
+    }
+    for n in nodes().into_iter().chain(files::nodes()).chain(pairs::nodes()) {
         e = e.with_node(n);
     }
     e.with_building_blocks()

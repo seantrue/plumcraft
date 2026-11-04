@@ -52,6 +52,12 @@ pub fn engine() -> Engine {
         ..Default::default()
     };
     let mut e = Engine::new(info).with_wire_type(core_types::array()).with_svg().with_wire_type(core_types::image());
+    // PDF, as the craft packs declare it, so their exports cross into Rasterize PDF
+    e = e.with_wire_type(WireType { id: "PDF".into(), media: Media::Bytes, ..Default::default() });
+    // and video (FilmCraft's exports), into Video to Array
+    for id in channels::video_types() {
+        e = e.with_wire_type(WireType { id: id.into(), media: Media::Bytes, ..Default::default() });
+    }
     for (id, media) in [("FLOAT", Media::Scalar), ("INT", Media::Scalar), ("BOOL", Media::Scalar), ("STRING", Media::Scalar), ("ENUM", Media::Scalar)] {
         e = e.with_wire_type(WireType { id: id.into(), media, ..Default::default() });
     }
