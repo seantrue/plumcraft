@@ -55,6 +55,9 @@ pub struct DocApp {
     pub program: std::result::Result<PathBuf, String>,
     /// Arguments before the file.
     pub args: Vec<String>,
+    /// PlumCraft has a view of its own for these documents (PdfCraft's: pages). Without one, a
+    /// pop-out opens the document in this app instead (`view.popout`).
+    pub viewer: bool,
 }
 
 /// A document opened in its app.
@@ -87,6 +90,8 @@ pub struct DocApps {
     pub last_value: Option<std::result::Result<Opened, String>>,
     pub recent_apps: Vec<PathBuf>,
     pub resolver: Option<Resolver>,
+    /// The copies opened in their apps, watched for saves ([`crate::doc_edits`]).
+    pub edits: crate::doc_edits::Edits,
 }
 
 /// Reads a value's bytes, checked against its handle (the host's engine link).
@@ -110,6 +115,7 @@ impl Default for DocApps {
             last_value: None,
             recent_apps: Vec::new(),
             resolver: None,
+            edits: Default::default(),
         }
     }
 }
@@ -158,7 +164,8 @@ impl DocApps {
             None => Value::Null,
         };
         json!({"apps": apps, "root": self.root, "pending": self.pending().map(|(n, p)| json!({"node": n, "port": p})), "last": last,
-               "value": {"pending": self.pending_value.as_ref().map(|p| json!({"node": p.node, "port": p.port, "app": p.app})), "last": last_value, "recent_apps": self.recent_apps}})
+               "value": {"pending": self.pending_value.as_ref().map(|p| json!({"node": p.node, "port": p.port, "app": p.app})), "last": last_value, "recent_apps": self.recent_apps},
+               "edits": self.edits.inspect()})
     }
 }
 
@@ -254,10 +261,11 @@ fn remote(app: &DocApp) -> String {
     format!("the document is on a remote engine (no file on this machine): Open in {} needs the engine here", app.label)
 }
 
-/// Whether `d` is on this machine: a whole file, or published to the commonkit store (a
-/// `commonkit` locator, or a `path` into a store segment). A `url` or inline value is not.
+/// Whether `d`'s bytes are here: a whole file, published to the commonkit store (a
+/// `commonkit` locator, or a `path` into a store segment), or carried inline (a small document
+/// travels in the message itself). A `url` alone is not.
 fn on_this_machine(d: &DataRef) -> bool {
-    d.at.iter().any(|l| matches!(l, Locator::Path { .. } | Locator::Commonkit { .. }))
+    d.at.iter().any(|l| matches!(l, Locator::Path { .. } | Locator::Commonkit { .. } | Locator::Inline { .. }))
 }
 
 /// Why `d` can't be opened here: it isn't `app`'s, or it is on a remote engine.
@@ -321,6 +329,10 @@ pub fn copy_for_app(
     openable(d, app)?;
     if let Ok(src) = local_file(d, app) {
         return copy_value(d, CopyFrom::File(&src), &app.ext, root, node, title);
+    }
+    // a small document travels inline: its bytes are checked against the handle as they are read
+    if let Some(b) = plumcraft_store::read_inline(d) {
+        return copy_value(d, CopyFrom::Bytes(&b.bytes.into_vec()), &app.ext, root, node, title);
     }
     let read = resolver.ok_or("the document is in the store, and there is no engine link to read it through")?;
     let bytes = read(d).ok_or_else(|| "the document is no longer in the store; run it again".to_owned())?;
@@ -428,13 +440,20 @@ fn copy_digest(stem: &str) -> Option<String> {
     (last.parse::<u32>().is_ok() && hex(prev)).then(|| prev.to_owned())
 }
 
-/// Copy the value and start the app on the copy.
+/// Copy the value and start the app on the copy, which is then watched for saves
+/// ([`crate::doc_edits`]). An output edited in the app opens its edited copy again.
 fn open_now(s: &mut Session, t: &DocTarget, d: &DataRef) -> std::result::Result<Opened, String> {
     let program = t.app.program.clone().map_err(|e| format!("{} isn't installed: {e}", t.app.label))?;
+    if let Some(path) = crate::doc_edits::edited_copy(s, &t.node, &t.port) {
+        (s.docs.launch)(&program, &t.app.args, &path).map_err(|e| format!("starting {}: {e}", t.app.label))?;
+        let handle = s.run.doc_edits.get(&(t.node.clone(), t.port.clone())).and_then(|e| e.handle.as_ref()).map(ToString::to_string).unwrap_or_default();
+        return Ok(Opened { node: t.node.clone(), port: t.port.clone(), app: t.app.label.clone(), path, handle, reused: true });
+    }
     let title = crate::node_title(s.graph(), s.catalog(), &NodeId(t.node.clone()));
     sweep_stale_copies(&s.docs.root);
     let (path, reused) = copy_for_app(d, &t.app, &s.docs.root, &t.node, &title, s.docs.resolver.as_ref())?;
     (s.docs.launch)(&program, &t.app.args, &path).map_err(|e| format!("starting {}: {e}", t.app.label))?;
+    crate::doc_edits::track(s, &t.node, &t.port, &t.app.label, &path, d);
     let handle = d.handle.as_ref().map(ToString::to_string).unwrap_or_default();
     Ok(Opened { node: t.node.clone(), port: t.port.clone(), app: t.app.label.clone(), path, handle, reused })
 }
@@ -469,7 +488,7 @@ fn has_doc_apps(s: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
 
-fn open(s: &mut Session, p: &Value) -> Result<Value> {
+pub(crate) fn open(s: &mut Session, p: &Value) -> Result<Value> {
     let node = match opt_str_param(p, "node")? {
         Some(n) => n.to_owned(),
         None => s.run.watch.first().map(|w| w.node.clone()).ok_or_else(|| SessionError::Params("\"node\" is required (nothing is watched)".into()))?,
@@ -479,7 +498,9 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
     if let Err(e) = &t.app.program {
         return Err(SessionError::File(format!("{} isn't installed: {e}", t.app.label)));
     }
-    if let Some(d) = t.value.clone() {
+    // an edited copy opens at once, whatever the node's own value is doing
+    let edited = crate::doc_edits::edited_copy(s, &node, &t.port).is_some();
+    if let Some(d) = t.value.clone().or_else(|| edited.then(DataRef::default)) {
         let opened = open_now(s, &t, &d);
         s.docs.pending = None;
         s.docs.last = Some(opened.clone());
@@ -491,7 +512,7 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
     // Watch it and run: the memo answers the rest at once; poll_doc_open opens it on arrival.
     let watch = vec![WatchRequest { node: node.clone(), port: t.port.clone(), ..Default::default() }];
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, std::time::Instant::now());
     s.docs.pending = Some((node.clone(), t.port.clone()));
     s.docs.last = None;
@@ -552,6 +573,7 @@ mod tests {
             ext: "vectorcraft".into(),
             program,
             args: Vec::new(),
+            viewer: false,
         };
         s.docs = DocApps::new(vec![app]).with_root(dir.join("open")).with_launcher(Arc::new(move |p: &Path, _: &[String], f: &Path| {
             c.lock().unwrap().push((p.to_path_buf(), f.to_path_buf()));
@@ -644,6 +666,118 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// Look at the tracked copies twice, a poll apart: a save is taken back once it holds still.
+    fn poll_twice(s: &mut Session, t0: Instant) -> Option<std::result::Result<Value, String>> {
+        use crate::doc_edits::{POLL, poll_doc_edits};
+        assert!(poll_doc_edits(s, t0).is_none(), "a change is read once it holds still");
+        assert!(poll_doc_edits(s, t0 + POLL / 2).is_none(), "polled at most every POLL");
+        poll_doc_edits(s, t0 + POLL)
+    }
+
+    /// The run request queued last.
+    fn queued(s: &mut Session) -> Box<plumcraft_proto::run::RunRequest> {
+        s.run.take_outbox().into_iter().filter_map(|o| if let Outgoing::Run(r) = o { Some(r) } else { None }).next_back().unwrap()
+    }
+
+    #[test]
+    fn a_documents_pop_out_opens_its_app_unless_plumcraft_can_show_it() {
+        let dir = tmp("popout-app");
+        let (mut s, calls) = session(&dir, Ok(PathBuf::from("/fake/vectorcraft")));
+        let d = doc(&dir, b"{\"doc\": 1}");
+        s.execute("run.start", &json!({"watch": [{"node": "o", "port": "doc"}]})).unwrap();
+        reply_with(&mut s, &d);
+        let r = s.execute("view.popout", &json!({"node": "o", "port": "doc"})).unwrap();
+        assert_eq!(r["in_app"], "VectorCraft", "{r}");
+        assert!(s.views.popouts.is_empty(), "no PlumCraft window");
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        // window: true asks for PlumCraft's window anyway
+        let r = s.execute("view.popout", &json!({"node": "o", "port": "doc", "window": true})).unwrap();
+        assert!(r["id"].is_u64() && r.get("in_app").is_none(), "{r}");
+        assert_eq!(s.views.popouts.len(), 1);
+        // a document PlumCraft has a view of (PdfCraft's pages) pops out in a window
+        s.execute("view.close", &json!({"id": r["id"]})).unwrap();
+        s.docs.apps[0].viewer = true;
+        let r = s.execute("view.popout", &json!({"node": "o", "port": "doc"})).unwrap();
+        assert!(r["id"].is_u64() && r.get("in_app").is_none(), "{r}");
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        // a value that isn't a document pops out as ever
+        s.docs.apps[0].viewer = false;
+        let r = s.execute("view.popout", &json!({"node": "o", "port": "result"})).unwrap();
+        assert!(r.get("in_app").is_none(), "{r}");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_save_in_the_app_feeds_the_nodes_downstream_and_runs() {
+        let dir = tmp("edit-save");
+        let (mut s, calls) = session(&dir, Ok(PathBuf::from("/fake/vectorcraft")));
+        s.docs.edits.store_root = Some(dir.join("store"));
+        let d = doc(&dir, b"{\"doc\": 1}");
+        s.execute("run.start", &json!({"watch": [{"node": "o", "port": "doc"}]})).unwrap();
+        reply_with(&mut s, &d);
+        let opened: Opened = serde_json::from_value(s.execute("doc.open", &json!({"node": "o"})).unwrap()).unwrap();
+        let t0 = Instant::now();
+        // nothing saved: nothing to report, and no run
+        assert!(crate::doc_edits::poll_doc_edits(&mut s, t0).is_none());
+        assert!(crate::doc_edits::poll_doc_edits(&mut s, t0 + crate::doc_edits::POLL).is_none());
+        assert!(s.run.outbox_is_empty());
+        assert!(s.execute("doc.revert", &json!({"node": "o"})).is_err(), "no edit yet");
+
+        // the app saves its copy
+        std::fs::write(&opened.path, b"{\"doc\": 2, \"edited\": true}").unwrap();
+        let applied = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 2).unwrap().unwrap();
+        let edited = Handle::md5_raw(b"{\"doc\": 2, \"edited\": true}");
+        assert_eq!(applied["edited"], true, "{applied}");
+        assert_eq!(applied["handle"], edited.to_string());
+        assert!(applied["run_id"].is_string(), "it runs: {applied}");
+        // downstream is stale, saying why; the node itself isn't
+        let sn = s.run.node("s").unwrap();
+        assert!(sn.is_stale() && sn.stale_why.iter().any(|w| w.contains("edited in VectorCraft")), "{:?}", sn.stale_why);
+        assert!(!s.run.node("o").unwrap().is_stale());
+        // the run binds the edit on the input wired from o.doc, from the store
+        let req = queued(&mut s);
+        let Some(PortValue::Blob { data }) = req.inputs.get("s.doc") else { panic!("{:?}", req.inputs) };
+        assert_eq!(data.handle.as_ref(), Some(&edited));
+        assert_eq!(data.meta.form, Form::Doc { app: "vectorcraft".into() });
+        let store = plumcraft_store::Store::new(dir.join("store"));
+        assert_eq!(store.read_handle(&edited).unwrap().bytes.into_vec(), b"{\"doc\": 2, \"edited\": true}");
+        assert_eq!(s.docs.inspect()["edits"]["tracked"][0]["edited"], true);
+
+        // reopening opens the edited copy again
+        let again: Opened = serde_json::from_value(s.execute("doc.open", &json!({"node": "o"})).unwrap()).unwrap();
+        assert_eq!(again.path, opened.path);
+        assert_eq!(again.handle, edited.to_string());
+        assert_eq!(calls.lock().unwrap().len(), 2);
+        // every later run carries it, until it is dropped
+        s.execute("run.start", &json!({})).unwrap();
+        // the run's reply clears what the edit marked stale
+        let d2 = DataRef { handle: Some(edited.clone()), ..d.clone() };
+        reply_with(&mut s, &d2);
+        assert!(!s.run.node("s").unwrap().is_stale(), "{:?}", s.run.node("s").unwrap().stale_why);
+        s.execute("run.start", &json!({})).unwrap();
+        let r = s.execute("doc.revert", &json!({"node": "o"})).unwrap();
+        assert_eq!(r["kept"], json!(opened.path));
+        assert!(queued(&mut s).inputs.is_empty(), "the revert's run feeds the node's own value");
+        assert!(opened.path.is_file(), "the edited file stays");
+
+        // saving again brings it back; saving the original bytes drops it
+        std::fs::write(&opened.path, b"{\"doc\": 3}").unwrap();
+        assert_eq!(poll_twice(&mut s, t0 + crate::doc_edits::POLL * 4).unwrap().unwrap()["edited"], true);
+        assert!(queued(&mut s).inputs.contains_key("s.doc"));
+        std::fs::write(&opened.path, b"{\"doc\": 1}").unwrap();
+        let back = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 6).unwrap().unwrap();
+        assert_eq!(back["edited"], false, "{back}");
+        assert!(queued(&mut s).inputs.is_empty());
+        assert!(s.run.node("s").unwrap().stale_why.iter().any(|w| w.contains("its own value again")));
+
+        // a new graph forgets it all
+        std::fs::write(&opened.path, b"{\"doc\": 4}").unwrap();
+        poll_twice(&mut s, t0 + crate::doc_edits::POLL * 8).unwrap().unwrap();
+        s.execute("graph.new", &json!({})).unwrap();
+        assert!(s.run.doc_edits.is_empty() && s.docs.edits.tracked.is_empty());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn a_changed_cas_file_a_remote_value_and_a_missing_app_are_errors() {
         let dir = tmp("refuse");
@@ -712,6 +846,27 @@ mod tests {
         s.docs.resolver = Some(Arc::new(|_: &DataRef| Some(b"tampered".to_vec())));
         assert!(s.execute("doc.open", &json!({"node": "o"})).unwrap_err().to_string().contains("no longer holds"));
         assert_eq!(calls.lock().unwrap().len(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_small_doc_carried_inline_opens_and_is_not_called_remote() {
+        let dir = tmp("inline");
+        let (mut s, calls) = session(&dir, Ok(PathBuf::from("/fake/vectorcraft")));
+        let mut d = doc(&dir, b"{\"doc\": 5}");
+        // as an engine sends a document under the inline limit (SoundCraft's sessions, 42 KB)
+        d.at = plumcraft_store::inline_ref(d.handle.clone().unwrap(), d.meta.clone(), b"{\"doc\": 5}").at;
+        s.execute("doc.open", &json!({"node": "o"})).unwrap();
+        reply_with(&mut s, &d);
+        assert!(open_blocker(&s, "o", None).is_ok(), "inline bytes are here");
+        let opened = poll_doc_open(&mut s).unwrap().unwrap();
+        assert_eq!(std::fs::read(&opened.path).unwrap(), b"{\"doc\": 5}");
+        assert_eq!(calls.lock().unwrap().len(), 1);
+        // inline bytes that don't hold the handle are refused
+        d.at = plumcraft_store::inline_ref(d.handle.clone().unwrap(), d.meta.clone(), b"tampered").at;
+        let t = doc_target(&s, "o", None).unwrap();
+        let e = copy_for_app(&d, &t.app, &dir.join("open2"), "o", "t", None).unwrap_err();
+        assert!(e.contains("no engine link"), "a bad inline copy is not taken: {e}");
         let _ = std::fs::remove_dir_all(dir);
     }
 

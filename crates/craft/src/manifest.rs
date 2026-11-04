@@ -276,6 +276,9 @@ pub struct DocSpec {
     /// Its open node also takes a wired SVG, as `svg`, beside `image`.
     #[serde(default)]
     pub opens_svg: bool,
+    /// Its open node also takes a wired PDF, as `pdf`, beside `image` (PdfCraft).
+    #[serde(default)]
+    pub opens_pdf: bool,
     /// For a craft with no active document, that names each by the id its open action
     /// `returns`: the parameter the id goes in on every other call (tools at the top level,
     /// commands inside their params). PdfCraft: `doc`.
@@ -403,6 +406,10 @@ pub struct NodeSpec {
     pub action: Option<Action>,
     #[serde(default, rename = "widget")]
     pub widgets: Vec<WidgetSpec>,
+    /// Sockets for files: a value wired in (another PDF, a picture) is put in the craft's work
+    /// folder and its path sent as `key`.
+    #[serde(default, rename = "file")]
+    pub files: Vec<FileSpec>,
     #[serde(default, rename = "output")]
     pub outputs: Vec<OutSpec>,
     pub timeout_s: Option<u64>,
@@ -416,6 +423,21 @@ fn yes() -> bool {
 
 fn one() -> u32 {
     1
+}
+
+/// A socket whose value reaches the craft as a file (`[[node.file]]`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FileSpec {
+    pub name: String,
+    /// The wire type it takes (`PDF`, `IMAGE`).
+    #[serde(rename = "type")]
+    pub ty: String,
+    /// The parameter the file's path goes in (default `path`).
+    pub key: Option<String>,
+    #[serde(default)]
+    pub optional: bool,
+    pub tooltip: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

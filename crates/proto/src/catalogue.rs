@@ -510,6 +510,10 @@ pub struct NodeDef {
     /// single engine's catalogue.
     #[serde(default, deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
     pub engines: Vec<String>,
+    /// This node turns one type into another (`docs/research/20-convert.md`): a mark the
+    /// editor finds conversions by. A mark that doesn't read is no mark.
+    #[serde(default, deserialize_with = "crate::de::lenient_opt", skip_serializing_if = "Option::is_none")]
+    pub converts: Option<crate::convert::Converts>,
 }
 
 impl Default for NodeDef {
@@ -531,6 +535,7 @@ impl Default for NodeDef {
             memo: MemoSpec::default(),
             x: BTreeMap::new(),
             engines: Vec::new(),
+            converts: None,
         }
     }
 }
@@ -544,6 +549,9 @@ pub mod widgets {
     /// A STRING of comma-separated choices, from `choices` or, without them, from the choices of
     /// the input its node feeds: several can be picked.
     pub const MULTICHOICE: &str = "multichoice";
+    /// A STRING of several lines (a query, a script, a paragraph): a text box, monospace, that a
+    /// click elsewhere commits, or ⌘↩ (Run), which runs with it; Enter is a new line.
+    pub const MULTILINE: &str = "multiline";
 }
 
 impl NodeDef {
@@ -631,8 +639,10 @@ pub struct SchemaReply {
 }
 
 impl SchemaReply {
+    /// The node type `id`. Core's own Convert node ([`crate::convert::KIND`]) is in every
+    /// catalogue, listed or not.
     pub fn node(&self, id: &str) -> Option<&NodeDef> {
-        self.nodes.iter().find(|n| n.id == id)
+        self.nodes.iter().find(|n| n.id == id).or_else(|| (id == crate::convert::KIND).then(crate::convert::def))
     }
 
     pub fn wire_type(&self, id: &str) -> Option<&WireType> {

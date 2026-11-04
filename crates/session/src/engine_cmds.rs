@@ -11,6 +11,11 @@
 //! beside the current one and `engine.remove` for one added to go ([`Engines::take_change`]);
 //! the host puts them behind one coordinator, so the session still sees one catalogue. Switch
 //! and attach replace them all with one engine; reconnect keeps the added ones.
+//!
+//! **The Engine menu uses `engine.use`:** picking an engine's connection starts it when nothing
+//! is connected, adds it beside the others when it isn't there, and changes its connection when
+//! it is, keeping the others. `engine.clear` stops them all, so a complete change is a clear
+//! and a pick.
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -75,6 +80,10 @@ pub struct Engines {
     pub current: Option<EngineTarget>,
     /// Attaching to a running HTTP engine is offered.
     pub can_attach: bool,
+    /// Installing an engine from GitHub is offered (the host has an installer).
+    pub can_install: bool,
+    /// The repository being installed, while it is.
+    pub installing: Option<String>,
     /// Engines connected beside [`Engines::current`], in the order they were added.
     pub added: Vec<EngineTarget>,
     request: Option<EngineTarget>,
@@ -89,6 +98,10 @@ pub enum EngineChange {
     Remove(String),
     /// Read the engine manifests again (spec 16.6): the host's list of choices changes.
     Reload,
+    /// Stop every engine: the editor keeps the graph, with none connected.
+    Clear,
+    /// Download an engine from GitHub and install it (`https://github.com/owner/repo`).
+    Install(String),
 }
 
 impl Engines {
@@ -122,6 +135,14 @@ impl Engines {
 
     pub fn find(&self, engine: &str, mode: &str) -> Option<&EngineChoice> {
         self.choices.iter().find(|c| c.engine == engine && c.mode == mode)
+    }
+
+    /// The connection `engine` is in use by, the first engine's or an added one's.
+    pub fn in_use(&self, engine: &str) -> Option<&str> {
+        self.current.iter().chain(&self.added).find_map(|t| match t {
+            EngineTarget::Choice { engine: e, mode } if e == engine => Some(mode.as_str()),
+            _ => None,
+        })
     }
 
     /// Is `engine`/`mode` the current choice?
@@ -170,6 +191,52 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
+/// The Engine menu's pick: start, add, or change the connection of one engine (module docs).
+fn use_engine(s: &mut Session, p: &Value) -> Result<Value> {
+    let (engine, mode) = (str_param(p, "engine")?, str_param(p, "mode")?);
+    if s.engines.find(engine, mode).is_none() {
+        let shown = |t: &str| t.chars().take(64).collect::<String>();
+        return Err(SessionError::Params(format!("no engine {:?} hosted {:?}", shown(engine), shown(mode))));
+    }
+    let target = EngineTarget::Choice { engine: engine.to_owned(), mode: mode.to_owned() };
+    let mut out = target.to_json();
+    let first = matches!(&s.engines.current, Some(EngineTarget::Choice { engine: e, .. }) if e == engine);
+    let how = if !s.connected {
+        // nothing to keep: this is the engine now
+        s.engines.request = Some(target);
+        "start"
+    } else if s.engines.in_use(engine) == Some(mode) {
+        "unchanged"
+    } else if first {
+        // the first engine is switched; the added ones come back beside it
+        s.engines.request = Some(target);
+        let again: Vec<EngineChange> = s.engines.added.iter().cloned().map(EngineChange::Add).collect();
+        s.engines.changes.extend(again);
+        "change"
+    } else if s.engines.in_use(engine).is_some() {
+        s.engines.changes.push(EngineChange::Remove(engine.to_owned()));
+        s.engines.changes.push(EngineChange::Add(target));
+        "change"
+    } else {
+        s.engines.changes.push(EngineChange::Add(target));
+        "add"
+    };
+    out["how"] = json!(how);
+    Ok(out)
+}
+
+fn can_clear(s: &Session) -> std::result::Result<(), String> {
+    if s.engines.current.is_some() { Ok(()) } else { Err("no engine to clear".into()) }
+}
+
+fn clear(s: &mut Session, _: &Value) -> Result<Value> {
+    // whatever was asked for before is moot
+    s.engines.request = None;
+    s.engines.changes.clear();
+    s.engines.changes.push(EngineChange::Clear);
+    Ok(json!({"engines": []}))
+}
+
 fn remove(s: &mut Session, p: &Value) -> Result<Value> {
     let engine = str_param(p, "engine")?;
     let added = s.engines.added.iter().any(|t| matches!(t, EngineTarget::Choice { engine: e, .. } if e == engine));
@@ -207,6 +274,42 @@ fn attach(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
+/// The longest owner or repository name GitHub allows.
+const MAX_GITHUB_NAME: usize = 100;
+
+/// `owner/repo`, or `https://github.com/owner/repo` (with `.git` or a trailing `/`), as the
+/// repository's https URL; `None` for anything else.
+pub fn github_repo(text: &str) -> Option<String> {
+    let t = text.trim();
+    let rest = t.strip_prefix("https://github.com/").or_else(|| t.strip_prefix("github.com/")).unwrap_or(t);
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, repo) = rest.split_once('/')?;
+    let ok = |n: &str| !n.is_empty() && n.len() <= MAX_GITHUB_NAME && !n.starts_with('.') && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    (ok(owner) && ok(repo)).then(|| format!("https://github.com/{owner}/{repo}"))
+}
+
+fn can_install(s: &Session) -> std::result::Result<(), String> {
+    match (s.engines.can_install, &s.engines.installing) {
+        (false, _) => Err("this editor can't install engines".into()),
+        (true, Some(r)) => Err(format!("installing {r}")),
+        (true, None) => Ok(()),
+    }
+}
+
+fn install(s: &mut Session, p: &Value) -> Result<Value> {
+    can_install(s).map_err(SessionError::Params)?;
+    let raw = str_param(p, "repo")?;
+    let url = github_repo(raw).ok_or_else(|| {
+        SessionError::Params(format!(
+            "{:?} isn't a GitHub repository: give owner/repo or https://github.com/owner/repo",
+            raw.chars().take(200).collect::<String>()
+        ))
+    })?;
+    s.engines.changes.push(EngineChange::Install(url.clone()));
+    Ok(json!({"installing": url}))
+}
+
 fn reload(s: &mut Session, _: &Value) -> Result<Value> {
     s.engines.changes.push(EngineChange::Reload);
     Ok(json!({"reloading": true}))
@@ -216,7 +319,7 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let e = &s.engines;
     let added: Vec<Value> = e.added.iter().map(EngineTarget::to_json).collect();
     Ok(
-        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "pending": e.is_pending()}),
+        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install, "installing": e.installing, "pending": e.is_pending()}),
     )
 }
 
@@ -242,6 +345,17 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{engine, mode} (one of engine.list's choices, an engine not connected) -> {engine, mode}: start it beside the engines there are; their catalogues merge, and a graph may use nodes of both (docs/research/15-multi-engine.md)",
             enabled: can_switch,
             run: add,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.use",
+            label: "Use Engine",
+            // the Engine menu lists the choices themselves
+            menu: &[],
+            shortcut: None,
+            params: "{engine, mode} (one of engine.list's choices) -> {engine, mode, how}: what the Engine menu does: with nothing connected start it (how: start); not connected, add it beside the others (add); connected another way, change its connection and keep the others (change); else nothing (unchanged)",
+            enabled: can_switch,
+            run: use_engine,
             journal: false,
         },
         CommandSpec {
@@ -282,6 +396,26 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{} -> {reloading: true}: read the engine manifests again (--engine-manifest and ~/.config/plumcraft/engines/*.toml), so an engine just installed is offered without a restart; ui.inspect's engine and engine.list show the new choices",
             enabled: can_switch,
             run: reload,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.clear",
+            label: "Clear Engines",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{} -> {engines: []}: stop every engine; the graph stays, with none connected, and the Engine menu picks the next",
+            enabled: can_clear,
+            run: clear,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.install",
+            label: "Install Engine…",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install git+URL`, then its own `register`), then read the engine manifests again; it runs in the background, and the status bar says when it is done (ui.inspect's engine.installing until then). It runs the package's code: install only what you trust",
+            enabled: can_install,
+            run: install,
             journal: false,
         },
         CommandSpec {
@@ -384,6 +518,69 @@ mod tests {
         for bad in [json!({}), json!({"engine": "nope", "mode": "inproc"}), json!({"engine": 3})] {
             assert!(s.execute("engine.add", &bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn use_starts_adds_or_changes_an_engine() {
+        let text = |m: &str| EngineTarget::Choice { engine: "text".into(), mode: m.into() };
+        let audio = EngineTarget::Choice { engine: "audio".into(), mode: "inproc".into() };
+        // nothing connected: start it
+        let mut s = offered();
+        let r = s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap();
+        assert_eq!(r["how"], "start");
+        assert_eq!(s.engines.take_request(), Some(text("python")));
+        // connected: another engine is added, the same one is left
+        s.connected = true;
+        assert_eq!(s.execute("engine.use", &json!({"engine": "text", "mode": "inproc"})).unwrap()["how"], "unchanged");
+        assert!(!s.engines.is_pending());
+        assert_eq!(s.execute("engine.use", &json!({"engine": "audio", "mode": "inproc"})).unwrap()["how"], "add");
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(audio.clone())));
+        // the first engine's connection changes and the added one comes back
+        s.engines.added.push(audio.clone());
+        assert_eq!(s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap()["how"], "change");
+        assert_eq!(s.engines.take_request(), Some(text("python")));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(audio.clone())));
+        // an added engine's connection changes: out, and in again the new way
+        s.engines.current = Some(audio.clone());
+        s.engines.added = vec![text("inproc")];
+        s.execute("engine.use", &json!({"engine": "text", "mode": "python"})).unwrap();
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Remove("text".into())));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(text("python"))));
+        assert_eq!(s.engines.take_change(), None);
+        for bad in [json!({}), json!({"engine": "nope", "mode": "inproc"}), json!({"engine": "audio", "mode": "python"})] {
+            assert!(s.execute("engine.use", &bad).is_err(), "{bad}");
+        }
+        assert!(s.journal().is_empty(), "not journaled");
+    }
+
+    #[test]
+    fn clear_stops_every_engine_and_drops_what_was_asked() {
+        let mut s = offered();
+        s.execute("engine.switch", &json!({"engine": "text", "mode": "python"})).unwrap();
+        s.execute("engine.clear", &Value::Null).unwrap();
+        assert_eq!(s.engines.take_request(), None);
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Clear));
+        s.engines.current = None;
+        assert!(s.execute("engine.clear", &Value::Null).unwrap_err().to_string().contains("no engine"));
+    }
+
+    #[test]
+    fn install_takes_a_github_repository_and_one_at_a_time() {
+        assert_eq!(github_repo("seantrue/plumcraft-duckdb-engine").as_deref(), Some("https://github.com/seantrue/plumcraft-duckdb-engine"));
+        assert_eq!(github_repo(" https://github.com/a/b.git/ ").as_deref(), Some("https://github.com/a/b"));
+        assert_eq!(github_repo("github.com/a-1/b_2.x").as_deref(), Some("https://github.com/a-1/b_2.x"));
+        for bad in ["", "a", "a/", "/b", "a/b/c", "https://gitlab.com/a/b", "a/b; rm -rf ~", "a/../b", "../a/b", "a b/c", &format!("a/{}", "x".repeat(101))] {
+            assert_eq!(github_repo(bad), None, "{bad}");
+        }
+        let mut s = offered();
+        assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("can't install"));
+        s.engines.can_install = true;
+        assert!(s.execute("engine.install", &json!({"repo": "nope"})).is_err());
+        assert_eq!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap(), json!({"installing": "https://github.com/a/b"}));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Install("https://github.com/a/b".into())));
+        s.engines.installing = Some("https://github.com/a/b".into());
+        assert!(s.execute("engine.install", &json!({"repo": "c/d"})).unwrap_err().to_string().contains("installing"));
+        assert!(s.journal().is_empty(), "not journaled");
     }
 
     #[test]

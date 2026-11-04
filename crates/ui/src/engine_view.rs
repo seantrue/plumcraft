@@ -16,13 +16,13 @@
 //! and leaves the editor usable on the old catalogue, with no engine; the Engine menu still
 //! works.
 //!
-//! **Several engines** (`docs/research/15-multi-engine.md`): Engine › Add Engine starts another
-//! beside the ones there are. The first add puts the engines behind a
+//! **Several engines** (`docs/research/15-multi-engine.md`): picking an engine in the Engine menu
+//! that isn't connected (`engine.use`) starts it beside the ones there are. The first add puts the engines behind a
 //! [`plumcraft_coordinator::Coordinator`], and the editor links to that instead: one catalogue
 //! (merged), one run state, a graph whose nodes run on whichever engine offers them. Remove
 //! stops an added engine. Each add or remove relinks, so the run in flight is cancelled and the
 //! results forgotten, as on a switch. Switch and Attach go back to one engine; Reconnect
-//! restarts the first and adds the others again.
+//! restarts the first and adds the others again; Clear Engines stops them all.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -46,6 +46,29 @@ pub type Connector = Box<dyn FnMut(&str, &str, Option<&egui::Context>) -> Result
 /// Reads the engine manifests again: the choices there are now, and what couldn't be read.
 pub type Reloader = Box<dyn FnMut() -> (Vec<EngineChoice>, Vec<String>)>;
 
+/// Downloads an engine from GitHub (its https URL) and installs it, off the UI thread: what to
+/// tell the person, or why it failed. The app supplies it ([`EditorApp::with_installer`]).
+pub type Installer = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
+/// Public engines the Install Engine… window offers, as `(label, owner/repo)`.
+pub const KNOWN_ENGINES: &[(&str, &str)] = &[
+    ("DuckDB: data files into tables, reshaped with SQL", "seantrue/plumcraft-duckdb-engine"),
+    ("OpenCV: filters, edges, thresholds, morphology, geometry", "seantrue/plumcraft-opencv-engine"),
+    ("Atlas: a sample engine with every type", "seantrue/plumcraft-atlas-engine"),
+];
+
+/// The Install Engine… window's field.
+#[derive(Debug, Clone, Default)]
+pub struct InstallForm {
+    pub repo: String,
+}
+
+/// An install running in the background.
+pub struct Installing {
+    pub url: String,
+    rx: std::sync::mpsc::Receiver<Result<String, String>>,
+}
+
 /// The Attach… window's fields.
 #[derive(Debug, Clone, Default)]
 pub struct AttachForm {
@@ -62,6 +85,102 @@ impl EditorApp {
         self.session.engines.can_attach = true;
         self.connector = Some(connector);
         self
+    }
+
+    /// How `engine.install` downloads and installs an engine; offers the command.
+    pub fn with_installer(mut self, installer: Installer) -> Self {
+        self.session.engines.can_install = true;
+        self.installer = Some(installer);
+        self
+    }
+
+    /// Start installing `url` on a thread of its own; [`EditorApp::poll_install`] takes the end.
+    fn start_install(&mut self, url: String) -> Result<Value, String> {
+        let Some(installer) = self.installer.clone() else { return Err("this editor can't install engines".into()) };
+        if let Some(i) = &self.installing {
+            return Err(format!("installing {}", i.url));
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (u, ctx) = (url.clone(), self.repaint.clone());
+        std::thread::Builder::new()
+            .name("plumcraft-install".into())
+            .spawn(move || {
+                let _ = tx.send(installer(&u));
+                if let Some(ctx) = ctx {
+                    ctx.request_repaint();
+                }
+            })
+            .map_err(|e| format!("can't start the install: {e}"))?;
+        self.session.engines.installing = Some(url.clone());
+        self.installing = Some(Installing { url: url.clone(), rx });
+        self.last_error = None;
+        Ok(json!({"installing": url}))
+    }
+
+    /// Take a finished install: read the engine manifests again, so the Engine menu offers what
+    /// was installed, and say how it went. Returns whether one finished.
+    pub fn poll_install(&mut self) -> bool {
+        let Some(i) = &self.installing else { return false };
+        let outcome = match i.rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the install stopped without saying why".into()),
+        };
+        let url = i.url.clone();
+        self.installing = None;
+        self.session.engines.installing = None;
+        self.last_error = Some(match outcome {
+            Ok(said) => match self.reload_engines() {
+                Ok(_) => format!("{said}. The Engine menu offers it now."),
+                Err(e) => format!("{said}, but the engine list didn't reload: {e}"),
+            },
+            Err(e) => format!("installing {url}: {e}"),
+        });
+        true
+    }
+
+    /// The Install Engine… window: a repository, the public engines to pick from, then
+    /// `engine.install`.
+    pub(crate) fn install_window(&mut self, ctx: &egui::Context) {
+        let Some(form) = &mut self.install_form else { return };
+        let (mut go, mut cancel) = (false, false);
+        let mut open = true;
+        egui::Window::new("Install an Engine")
+            .id(egui::Id::new("plumcraft-install"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .frame(egui::Frame::window(&ctx.global_style()).fill(self.tokens.panel))
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new("A Python engine from GitHub, installed with uv and registered, so every editor offers it.")
+                        .color(self.tokens.text_dim),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Repository");
+                    ui.add(egui::TextEdit::singleline(&mut form.repo).hint_text("owner/repo").desired_width(320.0));
+                });
+                ui.add_space(4.0);
+                for (label, repo) in KNOWN_ENGINES {
+                    if ui.radio(form.repo == *repo, *label).on_hover_text(format!("https://github.com/{repo}")).clicked() {
+                        form.repo = (*repo).to_owned();
+                    }
+                }
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("It runs the package's own code: install only what you trust.").small().color(self.tokens.text_dim));
+                ui.horizontal(|ui| {
+                    go = ui.add_enabled(!form.repo.trim().is_empty(), egui::Button::new("Install")).clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+            });
+        if go {
+            let p = json!({"repo": form.repo});
+            if self.run("engine.install", &p).is_some() {
+                self.install_form = None;
+            }
+        } else if cancel || !open {
+            self.install_form = None;
+        }
     }
 
     /// How `engine.manifests.reload` reads the manifests again.
@@ -101,7 +220,21 @@ impl EditorApp {
             EngineChange::Add(t) => self.add_engine(t),
             EngineChange::Remove(id) => self.remove_engine(&id),
             EngineChange::Reload => self.reload_engines(),
+            EngineChange::Clear => Ok(self.clear_engines()),
+            EngineChange::Install(url) => self.start_install(url),
         })
+    }
+
+    /// Stop every engine (`engine.clear`). The graph stays, on the catalogue it had, with none
+    /// connected; the Engine menu starts the next.
+    pub fn clear_engines(&mut self) -> Value {
+        self.coordinator = None;
+        self.session.engines.added.clear();
+        self.forget_runs(Instant::now());
+        self.session.engines.current = None;
+        self.last_error = None;
+        self.canvas.invalidate();
+        json!({"engines": [], "label": self.engine_label()})
     }
 
     /// Start `target` beside the engines there are (see the module docs).
@@ -283,9 +416,10 @@ impl EditorApp {
         Some(if self.link.is_some() { label } else { format!("{label}, not connected") })
     }
 
-    /// The Engine menu's choices, a heading per engine with the current one checked, then Add
-    /// Engine (the engines not connected) and Remove for each added one. Returns the command
-    /// clicked.
+    /// The Engine menu's choices, after its fixed commands: Remove for each added engine, then
+    /// every engine in a list that scrolls, each a submenu of its connections with the one in
+    /// use checked. A pick is `engine.use`: it starts, adds or changes that engine, so Clear
+    /// Engines and a pick make a complete change. Returns the command clicked.
     pub(crate) fn engine_choices_menu(&self, ui: &mut egui::Ui) -> Option<crate::canvas::Action> {
         let engines = &self.session.engines;
         if engines.choices.is_empty() {
@@ -293,43 +427,10 @@ impl EditorApp {
             return None;
         }
         let mut picked = None;
-        let mut heading: Option<&str> = None;
-        for c in &engines.choices {
-            if heading != Some(c.engine_label.as_str()) {
-                if heading.is_some() {
-                    ui.separator();
-                }
-                ui.label(egui::RichText::new(&c.engine_label).color(self.tokens.text_dim).small());
-                heading = Some(c.engine_label.as_str());
-            }
-            let on = engines.is_current(&c.engine, &c.mode);
-            let tip = format!("engine.switch {{engine: {:?}, mode: {:?}}}", c.engine, c.mode);
-            if ui.radio(on, &c.mode_label).on_hover_text(tip).clicked() {
-                picked = Some(("engine.switch", json!({"engine": c.engine, "mode": c.mode})));
-                ui.close();
-            }
-        }
-        ui.separator();
-        let present = engines.engine_ids();
-        let addable: Vec<&EngineChoice> = engines.choices.iter().filter(|c| !present.contains(&c.engine.as_str())).collect();
-        if self.link.is_some() && !addable.is_empty() {
-            ui.menu_button("Add Engine", |ui| {
-                let mut heading: Option<&str> = None;
-                for c in addable {
-                    if heading != Some(c.engine_label.as_str()) {
-                        ui.label(egui::RichText::new(&c.engine_label).color(self.tokens.text_dim).small());
-                        heading = Some(c.engine_label.as_str());
-                    }
-                    let tip = format!("engine.add {{engine: {:?}, mode: {:?}}}", c.engine, c.mode);
-                    if ui.button(&c.mode_label).on_hover_text(tip).clicked() {
-                        picked = Some(("engine.add", json!({"engine": c.engine, "mode": c.mode})));
-                        ui.close();
-                    }
-                }
-            });
-        }
+        let mut removable = false;
         for t in &engines.added {
             if let EngineTarget::Choice { engine, .. } = t {
+                removable = true;
                 let label = format!("Remove {}", self.target_label(t));
                 if ui.button(label).on_hover_text(format!("engine.remove {{engine: {engine:?}}}")).clicked() {
                     picked = Some(("engine.remove", json!({"engine": engine})));
@@ -337,9 +438,33 @@ impl EditorApp {
                 }
             }
         }
-        if self.link.is_some() && (!engines.added.is_empty() || !engines.choices.is_empty()) {
+        if removable {
             ui.separator();
         }
+        // after a clear, or a connect that failed, nothing is in use
+        let live = self.link.is_some();
+        let all: Vec<&EngineChoice> = engines.choices.iter().collect();
+        scrolling(ui, "engine-choices", |ui| {
+            for (label, modes) in by_engine(&all) {
+                let using = modes.first().and_then(|c| engines.in_use(&c.engine)).filter(|_| live);
+                let using = using.and_then(|m| modes.iter().copied().find(|c| c.mode == m));
+                // an engine in use says how it's connected
+                let heading = match using {
+                    Some(c) => egui::RichText::new(format!("{label} · {}", c.mode_label)).strong(),
+                    None => egui::RichText::new(label),
+                };
+                ui.menu_button(heading, |ui| {
+                    for c in &modes {
+                        let on = using.is_some_and(|u| u.mode == c.mode);
+                        let tip = format!("engine.use {{engine: {:?}, mode: {:?}}}", c.engine, c.mode);
+                        if ui.radio(on, &c.mode_label).on_hover_text(tip).clicked() {
+                            picked = Some(("engine.use", json!({"engine": c.engine, "mode": c.mode})));
+                            ui.close();
+                        }
+                    }
+                });
+            }
+        });
         picked
     }
 
@@ -390,6 +515,7 @@ impl EditorApp {
             "mode": null,
             "choices": e.choices,
             "pending": e.is_pending(),
+            "installing": e.installing,
         });
         if let Some(t) = &e.current {
             let tj = t.to_json();
@@ -415,4 +541,23 @@ fn attach(url: &str, token: &str, ctx: Option<&egui::Context>) -> Result<Link, S
     let host = HttpHost::attach(url, token, HttpOptions { remote: true, ..Default::default() })?;
     let conn: Arc<dyn Connection> = Arc::new(host);
     Link::start(conn, format!("HTTP · attached · {url}"), ctx.cloned())
+}
+
+/// Choices grouped by engine, in the order they came: each engine's label and its connections.
+fn by_engine<'a>(choices: &[&'a EngineChoice]) -> Vec<(&'a str, Vec<&'a EngineChoice>)> {
+    let mut groups: Vec<(&str, Vec<&EngineChoice>)> = Vec::new();
+    for c in choices {
+        match groups.iter_mut().find(|(_, g)| g.first().is_some_and(|f| f.engine == c.engine)) {
+            Some((_, g)) => g.push(c),
+            None => groups.push((c.engine_label.as_str(), vec![c])),
+        }
+    }
+    groups
+}
+
+/// A menu list that scrolls once it would run off the bottom of the window.
+fn scrolling(ui: &mut egui::Ui, salt: &str, add: impl FnOnce(&mut egui::Ui)) {
+    let room = (ui.ctx().content_rect().bottom() - ui.cursor().top() - 24.0).max(120.0);
+    // a menu offers less than the window, so the list asks for what is left below it
+    egui::ScrollArea::vertical().id_salt(salt).min_scrolled_height(room).max_height(room).auto_shrink([true, true]).show(ui, add);
 }

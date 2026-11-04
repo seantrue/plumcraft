@@ -46,6 +46,8 @@ Every type of value has a preview and a full viewer, and any value can be popped
 
 ![Three pop-out windows: a PDF, rows as a tree, an array's values](images/popouts.png)
 
+A craft document that PlumCraft can't show itself (a SoundCraft session, a VectorCraft drawing; PdfCraft's PDFs show as pages) pops out in its own app instead. Edit it there and save. Everything downstream of that output goes stale, saying "edited in SoundCraft", and runs again on your saved version. The node's own value is untouched, and saving the original back (or `doc.revert`) returns to it. Edits last while the graph is open; they aren't saved with the workflow.
+
 Rows and tables show in a table: sortable by a header click, with resizable columns.
 
 ![Rows in the table viewer](images/rows-as-table.png)
@@ -124,6 +126,9 @@ cargo run -p plumcraft-editor -- --engine text,audio,array          # opens What
 cargo run -p plumcraft-editor -- --engine text,array,gridcraft      # opens Analytics in GridCraft
 cargo run -p plumcraft-editor -- examples/data.json --http --python # over HTTP, as a remote engine: uploads, downloads
 cargo run -p plumcraft -- run --watch shout.text   # the interface live in the terminal
+cargo run -p plumcraft-editor -- check flow.json     # what's wrong with a workflow, on the engines it names
+cargo run -p plumcraft-editor -- run flow.json --out results   # no window: its Result nodes, or else its Write Files nodes
+cargo run -p plumcraft-editor -- tidy flow.json      # Edit › Tidy, saved
 ```
 
 **Write your own engine,** in Python, with no Rust build:
@@ -143,7 +148,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
   - `--python`: the Python engine as that process;
   - `--http [--python]`: HTTP, talked to as a remote engine would be.
 - **Craft packs:** cadcraft, deckcraft, designcraft, effectcraft, figcraft, filmcraft, gridcraft, pdfcraft, photocraft, solidcraft, soundcraft, vectorcraft and wordcraft. Each needs that app installed.
-- **While the editor runs:** Engine › Add Engine adds another engine.
+- **While the editor runs:** pick an engine that isn't connected in the Engine menu to add it; Clear Engines first to replace them all.
 - **Remote engines:** `plumcraft run --attach http://HOST:PORT` reaches an engine already running elsewhere, with `PLUMCRAFT_ENGINE_TOKEN`.
 - **Engines from files:** `--engine-manifest FILE` and `~/.config/plumcraft/engines/*.toml` name engines this build doesn't know (spec 16.6), in the editor and in `plumcraft run`.
 - **Control channel:** the editor's `--control PORT` opens it for tests and agents (`docs/control-protocol.md`).
@@ -157,7 +162,9 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | D, the data plane | Blobs in commonkit named by handle (`md5:raw:`, `md5:nd1:`), the same-host proof, tables and arrays, file sources keyed by content; HTTP with upload-once and lazy verified download into the UI's own CAS; a run from one machine to another | P02, P03 |
 | E, the editor | Lifted from research software supporting www.virtimp.com: graph model, every action a command, egui-snarl canvas, widgets, palette, Watched panel, theme from craft-ui; the control channel; files, undo, copy and paste; groups with collapse, promotion and insert; Tidy; wire bend points | P04 |
 | F, audio | `plumcraft-audio` on SoundCraft's crates, an optional engine the editor starts as a process: 46 nodes; audio values with waveform peaks; spectrogram and playback in the editor | P05 |
-| The Engine menu | Switch engine and hosting while the editor runs, keeping the graph; Reconnect; Attach | P06 |
+| Convert (`docs/research/20-convert.md`) | A refused wire offers the converters that bridge it ("Insert WAV to Audio", `wire.convert`); the Convert node takes its types from its wires, keeps its path, and runs as its converters | — |
+| Install Engine… | Engine › Install Engine… (`engine.install`): a Python engine from GitHub, by `uv tool install` and its `register`, in the background; the window offers the public engines | — |
+| The Engine menu | Switch engine and hosting while the editor runs, keeping the graph; Reconnect; Attach. The commands come first, Clear Engines among them; each engine is a submenu of its connections, in a list that scrolls in a short window. A pick adds that engine, or changes its connection when it is connected | P06 |
 | M, craft engines | The craft MCP adapter: any artcraft app's MCP server as nodes, from a manifest; VectorCraft first, then every craft with a server | P07, P08 |
 | Several engines | The coordinator: one graph across several engines, each run split into per-engine fragments joined by bindings; three demos | — |
 | Viewers | A viewer registry with a preview and a full view for every type (picture, SVG, PDF pages, array pictures and values, table, text, JSON tree, list items, audio, hex); pop-out windows; values on wires | — |
@@ -188,7 +195,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | `plumcraft-array` | L3 | The array engine (`--engine array`): general array nodes from research software supporting www.virtimp.com (51: files and channels, colour, maths, filters and edges, geometry, generators, regions, drawing and text, FFT; craft-fonts for Draw Text when built with `CRAFT_FONTS_DIR`) on the CPU, ported from yapocis's numba kernels with npexact for numpy's own numerics |
 | `plumcraft-graph` | L1 | The graph model: nodes, widget values, typed wires checked against the catalogue, wire bend points, net labels, groups, workflow JSON (lifted from research software supporting www.virtimp.com) |
 | `plumcraft-host` | L2 | The UI side of every binding behind one `Connection`: in-process, a supervised process on a Unix socket, and HTTP (spawned or attached, uploads and verified downloads) |
-| `plumcraft-coordinator` | L2 | One engine made of several (`docs/research/15-multi-engine.md`): a `Connection` over sub-engine connections. With one it passes everything through; with several it answers the merged catalogue and splits each run into per-engine fragments joined by bindings. The editor uses it from Engine › Add Engine |
+| `plumcraft-coordinator` | L2 | One engine made of several (`docs/research/15-multi-engine.md`): a `Connection` over sub-engine connections. With one it passes everything through; with several it answers the merged catalogue and splits each run into per-engine fragments joined by bindings. The editor uses it when the Engine menu adds a second engine |
 | `plumcraft-session` | L3 | The editor session: every action a command; graph, group, file, edit, run and view commands; undo; run state over the proto reducer, with watch roles for the panel, pop-outs and peeks (lifted from research software supporting www.virtimp.com) |
 | `plumcraft-ui` | L4 | The egui editor: node canvas (egui-snarl), widgets, palette, groups, wire bends, net labels, the Watched panel, the viewer registry and pop-out windows (`viewers/`, `popouts.rs`), values on wires, theme from craft-ui, control handlers, offscreen rendering (lifted from research software supporting www.virtimp.com) |
 | `plumcraft-automation` | L4 | The control channel: loopback TCP with a token |

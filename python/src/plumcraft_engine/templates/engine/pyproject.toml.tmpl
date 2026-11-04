@@ -18,6 +18,10 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/$package"]
 
+# the demo and what it reads go in the wheel, for `$project register`
+[tool.hatch.build.targets.wheel.force-include]
+"examples" = "$package/examples"
+
 [tool.ruff]
 line-length = 160
 src = ["src"]

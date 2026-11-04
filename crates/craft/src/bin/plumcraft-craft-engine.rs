@@ -7,9 +7,14 @@
 //!   runs every node with its defaults on the image (traced first for document nodes) and prints
 //!   one line per node.
 //!
-//! `--craft` takes a built-in pack (`vectorcraft`, `soundcraft`) or a manifest path.
+//! `--craft` takes a built-in pack (`vectorcraft`, `soundcraft`) or a manifest path. For a path,
+//! `plumcraft-craft-engine --craft PACK.toml register` offers that pack in every editor (a
+//! manifest starting this executable with `--craft` and the pack's absolute path); `unregister`
+//! withdraws it. A built-in pack needs neither.
 
 use std::process::ExitCode;
+
+use plumcraft_engine::register::{Own, Registration};
 
 fn arg(args: &[String], name: &str) -> Option<String> {
     args.iter().position(|a| a == name).and_then(|i| args.get(i + 1)).cloned()
@@ -44,25 +49,13 @@ fn main() -> ExitCode {
             }
         };
     }
-    let factory = Box::new(move || plumcraft_craft::engine(&manifest));
-    let served = if let Some((listen, port_file)) = plumcraft_engine::http::listen_args(&args) {
-        let token = std::env::var(plumcraft_engine::serve::ENV_TOKEN).unwrap_or_default();
-        plumcraft_engine::http::lifeline(&args);
-        plumcraft_engine::http::serve_http(factory, &listen, &token, port_file.as_deref())
+    // a pack from a file is an engine PlumCraft doesn't know: it can be registered
+    let registration = if plumcraft_craft::manifest::BUILTIN.contains(&craft.as_str()) {
+        Registration::BuiltIn
     } else {
-        match plumcraft_engine::serve::endpoint_from_env(&args) {
-            Ok((socket, token)) => plumcraft_engine::serve::serve_unix(factory, &socket, &token),
-            Err(e) => {
-                eprintln!("plumcraft-craft-engine: {e}");
-                return ExitCode::from(2);
-            }
-        }
+        let path = std::fs::canonicalize(&craft).map_or(craft.clone(), |p| p.to_string_lossy().into_owned());
+        Registration::Own(Own { id: manifest.id.clone(), name: manifest.name.clone(), args: vec!["--craft".into(), path], demo: None })
     };
-    match served {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("plumcraft-craft-engine: {e}");
-            ExitCode::FAILURE
-        }
-    }
+    let factory = Box::new(move || plumcraft_craft::engine(&manifest));
+    plumcraft_engine::serve::main("plumcraft-craft-engine", factory, &registration)
 }

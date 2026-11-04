@@ -19,6 +19,7 @@ pub mod files;
 pub mod host;
 pub mod http;
 pub mod persist;
+pub mod register;
 pub mod rpc;
 pub mod seq;
 pub mod serve;

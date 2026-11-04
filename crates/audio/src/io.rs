@@ -1,10 +1,12 @@
 //! Files: `audio.load` (any format SoundCraft's audio-io reads) and `audio.save` (WAV); and WAV
 //! values, `audio.from_wav` and its inverse `audio.to_wav`, so an app's bounce (SoundCraft's
-//! `WAV`) can cross into this engine's nodes.
+//! `WAV`) can cross into this engine's nodes; and arrays, `audio.to_array` and its inverse
+//! `audio.from_array`, so the samples reach the array engine's nodes. All four are converters
+//! (`docs/research/20-convert.md`).
 
 use std::sync::Arc;
 
-use plumcraft_engine::{Blob, BlobSource, Cx, Data, Inputs, Node, Outputs};
+use plumcraft_engine::{Array, Blob, BlobSource, Cx, Data, Inputs, Node, Outputs};
 use plumcraft_proto::Handle;
 use plumcraft_proto::catalogue::{MemoScope, MemoSpec, PathFilter, PathHint, Port};
 use plumcraft_proto::data::{BlobMeta, Form};
@@ -13,7 +15,7 @@ use serde_json::json;
 use soundcraft_audio_io::{AudioBuffer, BitDepth, EncodeOptions, FileFormat};
 
 use crate::util::{self, config, op_error};
-use crate::{AUDIO, MAX_FILE, STRING, WAV, audio_in, boolean, choice, def, one, op, output};
+use crate::{ARRAY, AUDIO, INT, MAX_CHANNELS, MAX_FILE, MAX_RATE, MIN_RATE, STRING, WAV, audio_in, boolean, choice, def, int, one, op, output};
 
 /// Extensions offered in the open dialog (audio-io reads more by content).
 const READS: &[&str] = &["wav", "wave", "bwf", "rf64", "aif", "aiff", "aifc", "flac", "mp3", "ogg", "oga", "m4a", "mp4", "aac", "caf", "mka", "mkv"];
@@ -71,28 +73,127 @@ pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
         ),
         op(save, save_wav),
         op(
-            def(
-                "audio.from_wav",
-                "WAV to Audio",
-                &["Sources"],
-                "Decodes a WAV value, such as SoundCraft's bounce, to audio. The inverse of Audio to WAV.",
-                vec![Port { name: "wav".into(), ty: WAV.into(), socket: Some(plumcraft_proto::catalogue::Socket::Socket), ..Default::default() }],
-                vec![output("audio", AUDIO)],
+            converts(
+                def(
+                    "audio.from_wav",
+                    "WAV to Audio",
+                    &["Sources"],
+                    "Decodes a WAV value, such as SoundCraft's bounce, to audio. The inverse of Audio to WAV.",
+                    vec![Port { name: "wav".into(), ty: WAV.into(), socket: Some(plumcraft_proto::catalogue::Socket::Socket), ..Default::default() }],
+                    vec![output("audio", AUDIO)],
+                ),
+                WAV,
+                AUDIO,
             ),
             from_wav,
         ),
         op(
-            def(
-                "audio.to_wav",
-                "Audio to WAV",
-                &["Output"],
-                "Encodes audio as a WAV value. The inverse of WAV to Audio.",
-                vec![audio_in("audio"), choice("bits", "Bits", DEPTHS, "float32")],
-                vec![output("wav", WAV)],
+            // lossless at its default, float32
+            converts(
+                def(
+                    "audio.to_wav",
+                    "Audio to WAV",
+                    &["Output"],
+                    "Encodes audio as a WAV value. The inverse of WAV to Audio.",
+                    vec![audio_in("audio"), choice("bits", "Bits", DEPTHS, "float32")],
+                    vec![output("wav", WAV)],
+                ),
+                AUDIO,
+                WAV,
             ),
             to_wav,
         ),
+        op(
+            // not lossless: the sample rate leaves by its own output
+            converts_as(
+                def(
+                    "audio.to_array",
+                    "Audio to Array",
+                    &["Output"],
+                    "The samples as a (frames, channels) float32 array, its columns named (mono; left, right; ch1, ch2, …), and the sample rate beside it. The inverse of Array to Audio, given that rate.",
+                    vec![audio_in("audio")],
+                    vec![output("array", ARRAY), output("sample_rate", INT)],
+                ),
+                AUDIO,
+                ARRAY,
+                false,
+            ),
+            to_array,
+        ),
+        op(
+            converts_as(
+                def(
+                    "audio.from_array",
+                    "Array to Audio",
+                    &["Sources"],
+                    "An array as audio: (frames, channels), or 1-D for mono, of any number type, each value a sample (-1 to 1 is full scale). The inverse of Audio to Array.",
+                    vec![
+                        Port { name: "array".into(), ty: ARRAY.into(), socket: Some(plumcraft_proto::catalogue::Socket::Socket), ..Default::default() },
+                        Port {
+                            socket: Some(plumcraft_proto::catalogue::Socket::Both),
+                            tooltip: Some("Wire Audio to Array's sample_rate to give the audio back as it was".into()),
+                            ..int("sample_rate", "Sample rate", 48_000, i64::from(MIN_RATE), i64::from(MAX_RATE))
+                        },
+                    ],
+                    vec![output("audio", AUDIO)],
+                ),
+                ARRAY,
+                AUDIO,
+                true,
+            ),
+            from_array,
+        ),
     ]
+}
+
+/// Names for `n` channels.
+fn channel_names(n: usize) -> Vec<String> {
+    match n {
+        1 => vec!["mono".into()],
+        2 => vec!["left".into(), "right".into()],
+        _ => (1..=n).map(|c| format!("ch{c}")).collect(),
+    }
+}
+
+fn to_array(i: &Inputs, _cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let a = util::audio(i, "audio")?;
+    let ch = usize::from(a.channels);
+    let array = Array::from_f32(vec![a.frames(), ch as u64], &a.samples).with_space(None, channel_names(ch));
+    Ok(Outputs::from([("array".to_owned(), Data::Array(array)), ("sample_rate".to_owned(), Data::Json(json!(a.sample_rate)))]))
+}
+
+fn from_array(i: &Inputs, _cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let a = match i.get("array") {
+        Some(Data::Array(a)) => a,
+        Some(_) => return Err(config("array: expected an array")),
+        None => return Err(config("array: wire an array")),
+    };
+    let rate = util::ranged(i, "sample_rate", f64::from(MIN_RATE), f64::from(MAX_RATE))?.round() as u32;
+    let channels = match a.shape.as_slice() {
+        [_] => 1,
+        [_, c] => usize::try_from(*c).unwrap_or(usize::MAX),
+        s => return Err(config(format!("array: {} dimensions; audio is (frames, channels), or 1-D for mono", s.len()))),
+    };
+    if channels == 0 || channels > MAX_CHANNELS {
+        return Err(config(format!("array: {channels} channels (1..={MAX_CHANNELS})")));
+    }
+    let values = plumcraft_engine::arrays::values(a).ok_or_else(|| config(format!("array: its {} values can't be read as samples", a.dtype)))?;
+    if values.iter().any(|v| !v.is_finite()) {
+        return Err(config("array: a value isn't a finite number"));
+    }
+    let ch: Vec<Vec<f32>> = (0..channels).map(|c| values.iter().skip(c).step_by(channels).copied().collect()).collect();
+    Ok(one("audio", util::emit(rate, &ch)?))
+}
+
+/// Marks `d` a lossless converter (`docs/research/20-convert.md`).
+fn converts(d: plumcraft_proto::catalogue::NodeDef, from: &str, to: &str) -> plumcraft_proto::catalogue::NodeDef {
+    converts_as(d, from, to, true)
+}
+
+/// Marks `d` a converter from `from` to `to`.
+fn converts_as(mut d: plumcraft_proto::catalogue::NodeDef, from: &str, to: &str, lossless: bool) -> plumcraft_proto::catalogue::NodeDef {
+    d.converts = Some(plumcraft_proto::convert::Converts::new(from, to, lossless));
+    d
 }
 
 fn depth(bits: usize) -> BitDepth {

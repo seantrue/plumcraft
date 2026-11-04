@@ -46,7 +46,7 @@ fn start(s: &mut Session, p: &Value) -> Result<Value> {
     // Relative path inputs are relative to the workflow's folder (the editor's, unsaved): the
     // engine gets them absolute.
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, targets, watch, Instant::now());
     let mut out = json!({"run_id": req.run_id, "generation": req.generation});
     if s.run.awaiting_review() {
@@ -120,7 +120,7 @@ fn item(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({"index": index}));
     }
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, Instant::now());
     Ok(json!({"index": index, "run_id": req.run_id}))
 }
@@ -163,7 +163,7 @@ fn view(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(json!({"view": id}));
     }
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, Instant::now());
     Ok(json!({"view": id, "run_id": req.run_id}))
 }

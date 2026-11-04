@@ -129,6 +129,38 @@
       },
       "type": "object"
     },
+    "Converts": {
+      "description": "A node's mark: it turns a `from` into a `to`.",
+      "properties": {
+        "from": {
+          "default": "",
+          "type": "string"
+        },
+        "input": {
+          "description": "The input that takes the `from`, when the node has more than one of that type; else its\nfirst wireable input of type `from`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "lossless": {
+          "description": "The engine says `to` back to `from` gives the value back. Only ranks paths; a path with a\nstep that isn't is reported as lossy.",
+          "type": "boolean"
+        },
+        "output": {
+          "description": "The output that gives the `to`; else its first output of type `to`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "DataInfo": {
       "description": "Where the engine's data lives.",
       "properties": {
@@ -1621,6 +1653,17 @@
             "type": "string"
           },
           "type": "array"
+        },
+        "converts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Converts"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "This node turns one type into another (`docs/research/20-convert.md`): a mark the\neditor finds conversions by. A mark that doesn't read is no mark."
         },
         "description": {
           "default": "",

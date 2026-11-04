@@ -34,9 +34,25 @@ The editor starts this engine from `plumcraft-engine.toml` and opens the demo. `
 
 **The loop:** edit a node, Engine › Reconnect (a fresh process, the same graph), run.
 
-To have every editor offer this engine, `scripts/install`, then Engine › Reload Engine List in one already running. The Engine menu lists it with two hostings, a process and HTTP. It can run beside other engines too: Engine › Add Engine.
+To have every editor offer this engine, `scripts/install`, then Engine › Reload Engine List in one already running. The Engine menu lists it with two hostings, a process and HTTP. Picking it while another engine is connected adds it beside that one.
 
 To debug, or to reach an engine on another machine, serve it yourself and attach: `scripts/serve`, then Engine › Attach…, `http://127.0.0.1:7311`, with the token from `.engine-token`, which `scripts/serve` makes on first use and git ignores. An HTTP engine always needs a token, on loopback too: a web page you have open can reach loopback.
+
+## Sharing it
+
+Publish it as a Python package. Anyone with PlumCraft then installs it and registers it:
+
+```sh
+uv build                              # dist/weather-engine-0.1.0-py3-none-any.whl and the sdist
+uv publish                            # to PyPI, or hand the wheel over
+
+uv tool install weather-engine              # on their machine: or pipx, or pip into any environment
+weather-engine register                     # every editor now offers it
+```
+
+`weather-engine register` writes `~/.config/plumcraft/engines/weather.toml`, a manifest that starts the engine with the Python it was installed with. It works wherever the tool lives, and opens the demo the wheel carries (`examples/` goes in the wheel). `weather-engine unregister` removes it, and `weather-engine register --print` shows it without writing. It leaves a checkout's `scripts/install` link alone unless given `--force`.
+
+The wheel names `plumcraft-engine` as a dependency, not this project's `[tool.uv.sources]`, so the installer gets the SDK from PyPI. It needs a release that has `register`.
 
 ## PyCharm
 

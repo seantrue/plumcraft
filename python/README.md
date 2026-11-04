@@ -58,7 +58,7 @@ That is the whole engine. The class is compiled when it is defined: each `@node`
 | `X \| None = None` | `optional: true` |
 | `Annotated[float, Range(0, 1, 0.1)]` | `min`, `max`, `step` |
 | `Annotated[str, File("open", (("Text", ("txt",)),))]` | `path: {mode, filters}`; `open`, `save` or `dir` |
-| `Annotated[T, Port(label=, tooltip=, advanced=, socket=, name=, decimals=)]` | those fields |
+| `Annotated[T, Port(label=, tooltip=, advanced=, socket=, name=, decimals=, widget=)]` | those fields; `widget="multiline"` gives a STRING a text box |
 | a parameter annotated with a `@dataclass` | one port per field (with the field's annotation and default); the method receives the dataclass |
 | a parameter named `cx` (or annotated `Cx`) | not a port: the node's `Cx`, for `cx.progress(f, stage)` and `cx.cancelled()` |
 | `with_` | the port `with` (one trailing underscore is dropped, for keywords) |
@@ -73,7 +73,7 @@ Outputs come from the return annotation:
 
 ## `@node` options
 
-`@node` alone, or `@node("Display name", ...)` with any of: `id` (default `<engine id>.<method>`), `category` (a string or a path; default the engine's `category`), `description` (default the docstring), `output`, `family` and `icon` (default the engine's), `version` (part of the memo key; bump it when results change), `memo` (a scope such as `"none"`, or a whole `memo` object), `flags`, `x` (passed through).
+`@node` alone, or `@node("Display name", ...)` with any of: `id` (default `<engine id>.<method>`), `category` (a string or a path; default the engine's `category`), `description` (default the docstring), `output`, `family` and `icon` (default the engine's), `version` (part of the memo key; bump it when results change), `memo` (a scope such as `"none"`, or a whole `memo` object), `flags`, `x` (passed through), and `converts` with `lossless`. `converts=True` marks the node a converter from its first wire-only input's type to its one output's, or `converts=("WAV", "AUDIO")` names them. The editor then offers it on a wire whose types don't meet, and the Convert node can use it (`docs/research/20-convert.md`). `lossless=True` says the inverse gives the value back.
 
 Engine class attributes: `id`, `name`, `version`, `salt` (default `py:<id>+<version>`), `dependencies` (the packages results depend on, such as `("opencv-python-headless",)`: their versions join the memo salt, so an upgrade never reuses an old result), `category`, `family`, `icon`, and `wires`: the wire types in catalogue order. Without `wires`, the catalogue lists the types in the order the nodes first use them; with it, a node using a type not listed is a `DeclarationError`. Subclasses inherit nodes and may override them.
 
@@ -90,6 +90,14 @@ Raise `ConfigError("...")` for a setting the user can fix, `OpError("...")` for 
 ## Serving
 
 `MyEngine.serve()` reads the command line: `--connect unix:<path>` (or `PLUMCRAFT_ENGINE_SOCKET` and `PLUMCRAFT_ENGINE_TOKEN`) serves mode 2, `--listen host:port [--port-file f] [--lifeline]` serves mode 3. In a test, `Host(MyEngine)` runs it in process.
+
+## Distributing an engine
+
+An engine is a Python package, so it ships as one: `uv build`, then `uv publish` or hand over the wheel. Whoever installs it (`uv tool install my-engine`, `pipx`, `pip`) runs `my-engine register` once. That writes `~/.config/plumcraft/engines/<id>.toml`, a manifest that starts the engine with the Python it was installed with, and every editor then offers it. `register` and `unregister` come with `serve()`, so every engine's console script has them (`plumcraft_engine.register`):
+
+- `register --print` shows the manifest without writing it, and `--folder DIR` writes it elsewhere.
+- The demo is the package's `examples/demo.json`. A generated project's wheel includes `examples/`.
+- A checkout's own link (`scripts/install`) is left alone unless `--force`, and `unregister` removes only a manifest `register` wrote.
 
 **Pictures on nodes:** a picture file's value shows a thumbnail when it carries one. Make it with `image(data, pixels=array)`, or override `Engine.picture_thumb(blob)` to give Load Files' values one, returning (h, w, 4) uint8; the SDK itself decodes no pictures.
 

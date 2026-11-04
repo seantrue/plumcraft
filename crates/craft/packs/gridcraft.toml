@@ -363,13 +363,19 @@ id = "gc.export_pdf"
 display = "Export PDF"
 kind = "export"
 family = "Export"
-description = "The active sheet as a PDF (file.saveAs .pdf)"
-format = "pdf"
+description = "The active sheet, or every sheet, as a PDF, each sheet's Page Setup honoured (file.exportPdf)"
 ext = "pdf"
 media = "application/pdf"
+action = { command = "file.exportPdf", path = "path" }
 [[node.output]]
 name = "pdf"
 type = "PDF"
+[[node.widget]]
+name = "sheets"
+type = "ENUM"
+choices = ["active", "all"]
+default = "active"
+tooltip = "all: every sheet, one after another"
 
 [[node]]
 id = "gc.export_csv"

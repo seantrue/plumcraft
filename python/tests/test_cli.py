@@ -89,6 +89,19 @@ def test_relative_paths_are_the_workflows(tmp, capsys, monkeypatch):
     assert "  | from beside the workflow" in capsys.readouterr().out
 
 
+def test_check_anchors_the_demos_relative_paths(tmp, capsys, monkeypatch):
+    # a demo that reads a file beside it passes `check`, as it does `run`
+    (tmp / "pyproject.toml").write_text(f'[project]\nname = "x"\n\n[tool.plumcraft]\nengine = "{TEXT}"\ndemo = "examples/demo.json"\n')
+    (tmp / "examples").mkdir()
+    (tmp / "examples" / "words.txt").write_text("from beside the demo")
+    workflow(tmp / "examples" / "demo.json", {"l": {"kind": "text.load", "values": {"path": "words.txt"}}})
+    monkeypatch.chdir(tmp)
+    code = main(["check", "--mode", "process"])
+    out = capsys.readouterr().out
+    assert "the demo" in out and "FAIL  process: the demo" not in out, out
+    assert code == 0, out
+
+
 def test_cancel_after_ends_the_run_cancelled(tmp, capsys):
     nodes = {"a": {"kind": "text.literal", "values": {"text": "x"}}, "s": {"kind": "text.slow", "values": {"seconds": 5}}}
     w = workflow(tmp / "w.json", nodes, [wire("a", "s")])

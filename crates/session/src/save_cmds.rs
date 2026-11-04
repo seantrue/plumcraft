@@ -209,8 +209,13 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
     let format = format.map(|f| f.id.clone()).unwrap_or_default();
     let path = path.to_string_lossy().into_owned();
     // The run's own graph, so what a run computed is found again.
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let graph = serde_json::to_value(&graph).map_err(|e| SessionError::Params(e.to_string()))?;
+    // a Convert's value is its last step's
+    let (node, port) = {
+        let (n, p) = s.run.convert.out(&node.0, &port);
+        (NodeId(n), p)
+    };
     if s.run.review_due {
         s.run.ask_review();
         return Err(SessionError::Params("this workflow came from elsewhere: review it before saving a result (graph.review, then graph.trust)".into()));

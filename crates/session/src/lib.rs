@@ -16,7 +16,9 @@
 pub mod archive;
 pub mod bundle_cmds;
 pub mod commands;
+pub mod convert;
 pub mod doc_cmds;
+pub mod doc_edits;
 mod edit_cmds;
 pub mod engine_cmds;
 pub mod expand_cmds;
@@ -186,11 +188,20 @@ impl Default for Session {
     }
 }
 
+/// `catalog` with core's own nodes: Convert, offered beside the engines'
+/// (docs/research/20-convert.md). An empty catalogue (no engine yet) stays empty.
+fn with_core_nodes(mut catalog: SchemaReply) -> SchemaReply {
+    if !catalog.nodes.is_empty() && !catalog.nodes.iter().any(|n| n.id == plumcraft_proto::convert::KIND) {
+        catalog.nodes.push(plumcraft_proto::convert::def().clone());
+    }
+    catalog
+}
+
 impl Session {
     /// A session with an empty graph and the node types in `catalog`.
     pub fn new(catalog: SchemaReply) -> Self {
         Session {
-            catalog,
+            catalog: with_core_nodes(catalog),
             graph: Graph::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -276,7 +287,7 @@ impl Session {
 
     /// Replace the node catalog (a new `schema` reply, an engine switched). The graph is kept.
     pub fn set_catalog(&mut self, catalog: SchemaReply) {
-        self.catalog = catalog;
+        self.catalog = with_core_nodes(catalog);
         self.generation = self.generation.wrapping_add(1);
     }
 
@@ -359,7 +370,7 @@ impl Session {
             let join = |l: &[&String]| l.iter().map(|e| e.as_str()).collect::<Vec<_>>().join(", ");
             let mut text = format!("This graph needs the engine {}, which isn't connected ({listed}).", engines.join(", "));
             if !startable.is_empty() {
-                text.push_str(&format!(" Engine › Add Engine offers {}.", join(&startable)));
+                text.push_str(&format!(" The Engine menu offers {}.", join(&startable)));
             }
             if !not.is_empty() {
                 text.push_str(&format!(" This application can't start {}.", join(&not)));
@@ -394,10 +405,12 @@ impl Session {
                     self.views.popouts.clear();
                     self.views.editors.clear();
                     viewer_cmds::clear(self);
+                    doc_edits::clear(self);
                 } else {
                     self.run.on_edit(before, &self.graph, now);
                     view_cmds::prune(self);
                     viewer_cmds::prune(self);
+                    doc_edits::prune(self);
                 }
             }
         }

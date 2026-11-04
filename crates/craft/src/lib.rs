@@ -40,7 +40,7 @@ use serde_json::{Map, Value, json};
 use crate::cas::Cas;
 use crate::manifest::{Kind, Manifest, NodeSpec, WidgetSpec};
 use crate::mcp::NoWatch;
-use crate::nodes::{CraftNode, Plan, Shared, WidgetPlan};
+use crate::nodes::{CraftNode, FilePlan, Plan, Shared, WidgetPlan};
 use crate::pool::{Launch, Pool};
 
 pub use manifest::builtin;
@@ -202,9 +202,9 @@ fn wire_types(m: &Manifest) -> Vec<WireType> {
     ];
     // What the pack's exports make (SoundCraft's WAV): bytes, declared so another engine that
     // declares the same type can take them.
-    for out in m.nodes.iter().flat_map(|n| &n.outputs) {
-        if !types.iter().any(|t| t.id == out.ty) {
-            types.push(WireType { id: out.ty.clone(), media: Media::Bytes, ..Default::default() });
+    for ty in m.nodes.iter().flat_map(|n| n.outputs.iter().map(|o| &o.ty).chain(n.files.iter().map(|f| &f.ty))) {
+        if !types.iter().any(|t| &t.id == ty) {
+            types.push(WireType { id: ty.clone(), media: Media::Bytes, ..Default::default() });
         }
     }
     types
@@ -425,7 +425,8 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         && let Some(keys) = accepted(cat, cmd)
     {
         let sent = spec.widgets.iter().filter(|w| !w.template).map(|w| w.into.clone().unwrap_or_else(|| w.key.clone().unwrap_or_else(|| w.name.clone())));
-        for k in sent.chain(spec.fixed.keys().cloned()) {
+        let files = spec.files.iter().map(|f| f.key.clone().unwrap_or_else(|| "path".into()));
+        for k in sent.chain(files).chain(spec.fixed.keys().cloned()) {
             if k != "*" && !keys.contains(&k) {
                 return Err(format!("{cmd} doesn't take `{k}`"));
             }
@@ -446,6 +447,9 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
             if m.doc.opens_svg {
                 inputs.push(Port { optional: true, ..socket("svg", SVG) });
             }
+            if m.doc.opens_pdf {
+                inputs.push(Port { optional: true, ..socket("pdf", PDF) });
+            }
         }
         Kind::New => {}
         Kind::Transform | Kind::Query | Kind::Export => inputs.push(socket("doc", &m.doc.wire)),
@@ -453,6 +457,14 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
     if let Some(sel) = &spec.select {
         inputs.extend(select_ports(sel));
     }
+    for f in &spec.files {
+        if inputs.iter().any(|p| p.name == f.name) || spec.widgets.iter().any(|w| w.name == f.name) {
+            return Err(format!("{}: two inputs are called {}", spec.id, f.name));
+        }
+        inputs.push(Port { optional: f.optional, tooltip: f.tooltip.clone(), ..socket(&f.name, &f.ty) });
+    }
+    let files: Vec<FilePlan> =
+        spec.files.iter().map(|f| FilePlan { name: f.name.clone(), key: f.key.clone().unwrap_or_else(|| "path".into()), optional: f.optional }).collect();
     let mut widgets = Vec::new();
     for w in &spec.widgets {
         let mut p = widget_port(w, target.as_deref().filter(|_| !w.template), cat)?;
@@ -519,6 +531,16 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         version: spec.version,
         memo: memo(spec.pure, spec.content),
         x: BTreeMap::from([(format!("{}.command", m.id), Value::from(spec.command.clone().unwrap_or_default()))]),
+        // An export turns the document into its file (docs/research/20-convert.md): a step on
+        // the way from a document to a value, never lossless (the document's edits stay behind).
+        converts: match (spec.kind, spec.outputs.as_slice()) {
+            (Kind::Export, [one]) if spec.files.iter().all(|f| f.optional) => Some(plumcraft_proto::convert::Converts {
+                input: Some("doc".into()),
+                output: Some(one.name.clone()),
+                ..plumcraft_proto::convert::Converts::new(&m.doc.wire, &one.ty, false)
+            }),
+            _ => None,
+        },
         ..Default::default()
     };
     let plan = Plan {
@@ -526,6 +548,7 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         command: spec.command.clone(),
         select: spec.select.is_some(),
         widgets,
+        files,
         fixed: spec.fixed.clone(),
         outputs: spec.outputs.clone(),
         export,
@@ -643,6 +666,7 @@ fn generated(m: &Manifest, g: &manifest::GenerateSpec, entry: &Value, id: &str, 
         command: Some(g.command.clone()),
         select: true,
         widgets,
+        files: Vec::new(),
         fixed,
         outputs: Vec::new(),
         export: None,
@@ -698,6 +722,7 @@ fn hatch(m: &Manifest, r: &manifest::RunNodeSpec, cat: &Catalogue, shared: &Arc<
         command: Some("{command}".into()),
         select: true,
         widgets,
+        files: Vec::new(),
         fixed: Map::new(),
         outputs: Vec::new(),
         export: None,

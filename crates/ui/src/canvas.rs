@@ -1034,6 +1034,9 @@ impl NodeViewer<'_> {
                     self.actions.push(("node.fields", json!({"node": node.id, "all": !node.all_fields})));
                 }
             }
+            if self.graph.is_convert(&node.id) {
+                self.convert_path(node, ui);
+            }
             if let Some(kind) = self.own_editor(node)
                 && ui.small_button(kind.label).on_hover_text(kind.help).clicked()
             {
@@ -1043,6 +1046,29 @@ impl NodeViewer<'_> {
                 self.footer_items(node, &n, ui);
             }
         });
+    }
+
+    /// A Convert node's path (docs/research/20-convert.md): its types and steps, or what it
+    /// still needs.
+    fn convert_path(&mut self, node: &CanvasNode, ui: &mut egui::Ui) {
+        use plumcraft_proto::convert;
+        let dim = self.tokens.text_dim;
+        match self.graph.convert_path(self.catalog, &node.id) {
+            Some(p) if p.is_empty() => {
+                ui.label(egui::RichText::new("the types meet: it passes the value on").small().color(dim));
+            }
+            Some(p) => {
+                let tip = format!("{}\nnode.convert picks again", convert::label(&p));
+                ui.label(egui::RichText::new(convert::types(&p)).small().color(dim)).on_hover_text(tip);
+                ui.label(egui::RichText::new(convert::label(&p)).small().color(dim));
+                if !convert::lossless(&p) {
+                    ui.label(egui::RichText::new("a step isn't lossless").small().color(self.tokens.warning));
+                }
+            }
+            None => {
+                ui.label(egui::RichText::new("wire both ends").small().color(dim));
+            }
+        }
     }
 
     /// The editor this node offers: the application has one for what it names, and the value
@@ -1680,6 +1706,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     fn has_footer(&mut self, node: &CanvasNode) -> bool {
         let full = self.view_of(node) == NodeView::Full;
         node.tucked > 0
+            || self.graph.is_convert(&node.id)
             || self.own_editor(node).is_some()
             || self.node_run(node).is_some_and(|n| {
                 n.error.is_some()

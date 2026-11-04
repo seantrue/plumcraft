@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from plumcraft_engine.cli import anchored
 
 from $package import $cls
 
@@ -16,5 +17,7 @@ def engine() -> $cls:
 
 
 @pytest.fixture(scope="session")
-def demo() -> dict:
-    return json.loads((ROOT / "examples" / "demo.json").read_text("utf-8"))
+def demo(engine) -> dict:
+    """The demo, its relative paths made absolute against its folder, as `plumcraft-engine run` and the editor do."""
+    folder = ROOT / "examples"
+    return anchored(json.loads((folder / "demo.json").read_text("utf-8")), engine.schema(), folder)

@@ -12,6 +12,7 @@ const SEEDS: &[&str] = &[
     r#"{"v": 2, "seq": 1043, "ts": 1.5, "kind": "node.status", "run_id": "r", "generation": 17, "body": {"node_id": "n7", "state": "preview", "thumb": {"kind": "rgba8", "ref": {"handle": "md5:nd1:9e107d9d372bb6826bd81d3542a419d6", "at": [{"kind": "path", "path": "/x"}]}, "w": 4, "h": 3}, "display": [{"media": "ndarray"}]}}"#,
     r#"{"v": 2, "run_id": "0b5e", "generation": 17, "ok": true, "order": ["n1"], "nodes": {"n1": {"state": "done", "ms": 1.0, "outputs": {"value": {"kind": "list", "items": [{"kind": "json", "value": 1}]}}}}, "watch": [{"media": "text", "renditions": [{"kind": "excerpt", "text": "hi"}]}]}"#,
     r#"{"v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}], "wire_types": [{"id": "ARRAY", "view_params": {"angle": [{"name": "turn"}]}}]}"#,
+    r#"{"v": 2, "nodes": [{"id": "w", "display": "WAV to Audio", "inputs": [{"name": "wav", "type": "WAV"}], "outputs": [{"name": "audio", "type": "AUDIO"}], "converts": {"from": "WAV", "to": "AUDIO", "input": "wav", "output": "audio", "lossless": true}, "engines": ["audio"]}, {"id": "b", "inputs": [{"name": "doc", "type": "D"}], "outputs": [{"name": "w", "type": "WAV"}], "converts": {"from": "D", "to": "WAV"}}]}"#,
     r#"{"v": 2, "op": "hello", "protocol": {"min": 2, "max": 2}, "caps": ["events.push"], "proof": {"path": "/p", "nonce": "n"}}"#,
     r#"{"v": 2, "op": "run", "run_id": "r", "generation": 1, "graph": {"kind": "inline", "graph": {}}, "watch": [{"node": "n", "want": [{"kind": "rgba8"}]}], "inputs": {"n.x": {"kind": "json", "value": 1}}}"#,
     r#"{"stream": "append", "node_id": "n", "port": "p", "offset": 5, "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e"}}"#,
@@ -55,7 +56,11 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<PlanReply>(text);
     let _ = serde_json::from_str::<SaveRequest>(text);
     let _ = serde_json::from_str::<SaveReply>(text);
-    let _ = serde_json::from_str::<SchemaReply>(text);
+    if let Ok(c) = serde_json::from_str::<SchemaReply>(text) {
+        // a catalogue's conversion marks are hostile too: searching them never panics
+        let _ = c.convert_paths("D", "AUDIO");
+        let _ = c.convert_path_of("D", &["b".to_owned(), "w".to_owned()]);
+    }
     let _ = serde_json::from_str::<Hello>(text);
     let _ = serde_json::from_str::<HelloReply>(text);
     let _ = serde_json::from_str::<EngineState>(text);
