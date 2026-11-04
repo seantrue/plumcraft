@@ -14,9 +14,10 @@
 //!
 //! **An array is not always a picture.** An ARRAY can be an image (H, W[, C]) or a series (a
 //! 1-D signal, or frames × channels, as Audio to Array makes). A mark may say which its ARRAY end
-//! is (`from_shape`, `to_shape`: [`IMAGE`] or [`SERIES`]), and a path never hands an array of
-//! one shape to a step that wants the other: Audio to Array, then Encode Image, is no path. An
-//! array whose shape nobody says (another node's output) may go either way.
+//! is (`from_shape`, `to_shape`: [`IMAGE`], [`SERIES`] or [`VIDEO`], frames (T, H, W, C)), and a
+//! path never hands an array of one shape to a step that wants another: Audio to Array, then
+//! Encode Image, is no path. An array whose shape nobody says (another node's output) may go
+//! any way.
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -41,6 +42,8 @@ pub const MAX_PATHS: usize = 8;
 pub const IMAGE: &str = "image";
 /// An array that is a series: 1-D, or (frames, channels).
 pub const SERIES: &str = "series";
+/// An array that is a video: (T, H, W, C) frames, as Video to Array makes it.
+pub const VIDEO: &str = "video";
 
 /// Where a Convert node keeps the path it was given (`"convert": ["audio.from_wav"]`), in the
 /// workflow's node.

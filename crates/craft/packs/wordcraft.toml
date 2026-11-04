@@ -422,15 +422,37 @@ type = "PDF"
 
 [[node]]
 id = "wc.export_png"
-display = "Export PNG (page 1)"
+display = "Export PNG (one page)"
 kind = "export"
 family = "Export"
-format = "png"
+description = "One page as a PNG (file.exportPng)"
+action = { command = "file.exportPng", path = "path" }
 ext = "png"
 media = "image/png"
 [[node.output]]
 name = "image"
 type = "IMAGE"
+[[node.widget]]
+name = "page"
+type = "INT"
+optional = true
+min = 1.0
+max = 9999.0
+tooltip = "1-based page; unset: page 1"
+[[node.widget]]
+name = "scale"
+type = "FLOAT"
+optional = true
+advanced = true
+min = 0.05
+max = 16.0
+tooltip = "Pixels per point (1 = 72 ppi)"
+[[node.widget]]
+name = "markup"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "The page with its comments in balloons beside it"
 
 [[node]]
 id = "wc.export_txt"

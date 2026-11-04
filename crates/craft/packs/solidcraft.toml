@@ -354,6 +354,96 @@ name = "spacing2"
 type = "STRING"
 optional = true
 
+# ---- sketches ----
+#
+# SolidCraft's sketch.* commands draw into the sketch being edited, and that editing state is not
+# saved: a design saved with a sketch open reopens with no sketch being edited (checked
+# 2026-11-04: sketch.create, circle, save, doc.open, sketch.solve: "no sketch is being edited").
+# Each node is one command on a reopened design, so the sketch commands can't be nodes one by
+# one. A whole sketch is one command instead: sketch.insert_svg makes a new sketch on `plane`
+# from an SVG (a wired one, staged in the CAS, or `text`); Extrude then makes it solid. (The
+# escape hatch denies insert_svg for its `path`, which here is only ever the staged file.)
+
+[[node]]
+id = "sol.sketch_svg"
+display = "Sketch from SVG"
+kind = "transform"
+family = "Sketch"
+command = "sketch.insert_svg"
+description = "A new sketch on a plane from an SVG drawing (sketch.insert_svg): its paths become lines, arcs and splines, ready for Extrude"
+[[node.file]]
+name = "svg"
+type = "SVG"
+key = "path"
+optional = true
+tooltip = "An SVG to draw (or give its text)"
+[[node.widget]]
+name = "text"
+type = "STRING"
+optional = true
+tooltip = "SVG text, when no SVG is wired in"
+[[node.widget]]
+name = "plane"
+type = "STRING"
+default = "XY"
+tooltip = "XY, XZ, YZ or a construction plane's name"
+[[node.widget]]
+name = "width"
+type = "FLOAT"
+optional = true
+min = 0.001
+max = 100000.0
+tooltip = "The drawing's width in mm, aspect kept (default its own size)"
+[[node.widget]]
+name = "at"
+type = "JSON"
+optional = true
+tooltip = "[x, y]: where the drawing's origin (or centre) goes"
+[[node.widget]]
+name = "angle"
+type = "FLOAT"
+optional = true
+advanced = true
+[[node.widget]]
+name = "align"
+type = "ENUM"
+choices = ["origin", "center"]
+optional = true
+advanced = true
+
+[[node]]
+id = "sol.extrude"
+display = "Extrude"
+kind = "transform"
+family = "Feature"
+command = "solid.extrude"
+description = "Extrude a sketch's profiles (solid.extrude; default the last sketch, every profile)"
+[[node.widget]]
+name = "distance"
+type = "STRING"
+default = "10"
+[[node.widget]]
+name = "operation"
+type = "ENUM"
+choices = ["auto", "new", "join", "cut", "intersect"]
+default = "auto"
+[[node.widget]]
+name = "direction"
+type = "ENUM"
+choices = ["positive", "negative", "symmetric"]
+optional = true
+[[node.widget]]
+name = "taper"
+type = "STRING"
+optional = true
+advanced = true
+[[node.widget]]
+name = "sketch"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "The sketch's id or name (default the last one)"
+
 [[node]]
 id = "sol.appearance"
 display = "Appearance"
@@ -444,6 +534,19 @@ media = "model/stl"
 [[node.output]]
 name = "stl"
 type = "STL"
+[[node.widget]]
+name = "quality"
+type = "ENUM"
+choices = ["standard", "fine", "finest"]
+optional = true
+advanced = true
+tooltip = "How closely the mesh follows curved faces: a chord tolerance of 2e-4, 5e-5 or 1e-5 of each body's size; unset: standard"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "Body names to export, such as [\"Body1\"]; unset: every body"
 
 [[node]]
 id = "sol.export_step"
@@ -457,6 +560,12 @@ media = "model/step"
 [[node.output]]
 name = "step"
 type = "STEP"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "Body names to export, such as [\"Body1\"]; unset: every body"
 
 [[node]]
 id = "sol.export_3mf"
@@ -470,6 +579,26 @@ media = "model/3mf"
 [[node.output]]
 name = "mesh"
 type = "3MF"
+[[node.widget]]
+name = "quality"
+type = "ENUM"
+choices = ["standard", "fine", "finest"]
+optional = true
+advanced = true
+tooltip = "How closely the mesh follows curved faces: a chord tolerance of 2e-4, 5e-5 or 1e-5 of each body's size; unset: standard"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "Body names to export, such as [\"Body1\"]; unset: every body"
+[[node.widget]]
+name = "objects"
+type = "ENUM"
+choices = ["body", "component"]
+optional = true
+advanced = true
+tooltip = "One object per body, or one per placed component with its bodies as parts; unset: body"
 
 [[node]]
 id = "sol.export_obj"
@@ -482,3 +611,16 @@ media = "model/obj"
 [[node.output]]
 name = "obj"
 type = "OBJ"
+[[node.widget]]
+name = "quality"
+type = "ENUM"
+choices = ["standard", "fine", "finest"]
+optional = true
+advanced = true
+tooltip = "How closely the mesh follows curved faces: a chord tolerance of 2e-4, 5e-5 or 1e-5 of each body's size; unset: standard"
+[[node.widget]]
+name = "bodies"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "Body names to export, such as [\"Body1\"]; unset: every body"

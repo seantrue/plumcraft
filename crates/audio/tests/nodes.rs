@@ -89,6 +89,10 @@ fn the_catalogue_is_the_audio_family() {
         "audio.from_wav",
         "audio.to_wav",
         "audio.to_array",
+        "audio.from_flac",
+        "audio.to_flac",
+        "audio.from_aiff",
+        "audio.to_aiff",
         "audio.from_array",
         "audio.transients",
         "audio.silence",
@@ -391,6 +395,24 @@ fn array_to_audio_takes_mono_and_refuses_what_isnt_samples() {
     assert_eq!(error_kind(&r, "a"), "config", "too many channels");
     let r = go(&h, "noarray", graph(json!({"a": {"kind": "audio.from_array"}}), &[]), &["a"]);
     assert_eq!(error_kind(&r, "a"), "config", "no wire, no value");
+}
+
+/// FLAC and AIFF values and back (docs/research/20-convert.md, 6.2): AIFF at float32 keeps
+/// every sample; FLAC at 24 bits keeps the shape, the rate and the sound to within a 24-bit step.
+#[test]
+fn flac_and_aiff_values_come_back_as_audio() {
+    let h = inproc();
+    for (enc, dec, port, bits) in [("audio.to_aiff", "audio.from_aiff", "aiff", "float32"), ("audio.to_flac", "audio.from_flac", "flac", "int24")] {
+        let nodes = json!({"t": {"kind": "audio.tone", "values": {"seconds": 0.2, "sample_rate": 44_100, "channels": 2, "frequency": 440.0, "level_db": -6.0}},
+                           "e": {"kind": enc, "values": {"bits": bits}}, "d": {"kind": dec}});
+        let r = go(&h, port, graph(nodes, &[("t", "audio", "e", "audio"), ("e", port, "d", port)]), &["t", "e", "d"]);
+        ok(&r);
+        let (was, back) = (sound(&h, &r, "t"), sound(&h, &r, "d"));
+        assert_eq!((back.rate, back.channels.len(), back.frames()), (was.rate, was.channels.len(), was.frames()), "{port}");
+        let worst = was.channels.iter().flatten().zip(back.channels.iter().flatten()).map(|(a, b)| (a - b).abs()).fold(0.0f32, f32::max);
+        let step = if port == "flac" { 1.0 / 8_388_608.0 } else { 0.0 };
+        assert!(worst <= step, "{port}: off by {worst}");
+    }
 }
 
 #[test]

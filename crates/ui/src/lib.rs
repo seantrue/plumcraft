@@ -314,7 +314,7 @@ pub enum PromptAnswer {
     Save,
     /// Do nothing.
     Cancel,
-    /// Trust the workflow, and let its run go ([`Prompt::Review`]).
+    /// Trust the workflow; its held run is dropped ([`Prompt::Review`]).
     Trust,
 }
 
@@ -553,6 +553,10 @@ impl EditorApp {
         if let Some(t) = self.prefs.prefs().theme.as_deref().and_then(theme::by_name) {
             self.set_theme(ctx, t);
         }
+        // after the first graph opened: turning it on starts what that graph needs
+        if self.prefs.prefs().auto_engines == Some(true) {
+            self.run("engine.auto", &json!({"on": true}));
+        }
     }
 
     /// Ask a dialog, starting in the folder `key` last used, and remember where it ended.
@@ -563,6 +567,15 @@ impl EditorApp {
             self.prefs.remember(key, p);
         }
         chosen
+    }
+
+    /// Keep Pick Engines Automatically in the preferences, however it was set (the menu, the
+    /// control channel). Unset stays unset until it is turned on.
+    fn save_auto_engines(&mut self) {
+        let on = self.session.engines.auto;
+        if self.prefs.prefs().auto_engines.unwrap_or(false) != on {
+            self.prefs.set_auto_engines(on);
+        }
     }
 
     /// Apply a theme asked for by `view.theme`.
@@ -1136,7 +1149,7 @@ impl EditorApp {
             }
             ui.add_space(10.0);
             ui.horizontal(|ui| {
-                if ui.button("Trust and Run").on_hover_text("Remember this workflow and run it").clicked() {
+                if ui.button("Trust").on_hover_text("Remember this workflow as safe to run; it runs when you next run it").clicked() {
                     answer = Some(PromptAnswer::Trust);
                 }
                 if ui.button("Cancel").clicked() {
@@ -1440,6 +1453,12 @@ impl EditorApp {
                     // the engines after the menu's own commands: there are many, and they scroll
                     if menu == "Engine" {
                         ui.separator();
+                        let mut auto = self.session.engines.auto;
+                        let tip = "Start the engines a workflow needs when it is opened or inserted, each hosted the fastest way it can be: in-process (mode 1), then a separate process, then HTTP";
+                        if ui.checkbox(&mut auto, "Pick Engines Automatically").on_hover_text(tip).changed() {
+                            actions.push(("engine.auto", json!({"on": auto})));
+                            ui.close();
+                        }
                         if let Some(action) = self.engine_choices_menu(ui) {
                             actions.push(action);
                         }
@@ -1714,6 +1733,7 @@ impl EditorApp {
         }
         self.poll_install();
         self.pump_theme(&ctx);
+        self.save_auto_engines();
         if let Some(text) = self.copy_out.take() {
             ctx.copy_text(text.clone());
             self.copied = Some(text);
@@ -1870,7 +1890,9 @@ impl EditorApp {
 
     fn params_window(&mut self, ctx: &egui::Context) {
         let Some(node) = self.session.views.parameters.clone() else { return };
-        let cx = params_view::Context { graph: self.session.graph(), catalog: self.session.catalog(), run: &self.session.run, tokens: &self.tokens };
+        let t = self.canvas.to_global;
+        let anchor = self.canvas.node_rects_by_id().into_iter().find(|(id, _)| *id == node).map(|(_, r)| egui::Rect::from_min_max(t * r.min, t * r.max));
+        let cx = params_view::Context { graph: self.session.graph(), catalog: self.session.catalog(), run: &self.session.run, tokens: &self.tokens, anchor };
         let actions = self.params.show(ctx, &cx, &node);
         self.run_all(actions);
     }

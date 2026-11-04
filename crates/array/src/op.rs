@@ -206,13 +206,26 @@ pub fn many(outs: Vec<(&str, Data)>) -> Outputs {
 /// shape: a picture, so a path never takes a sound's samples to Encode Image.
 fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {
     use plumcraft_proto::catalogue::core_types::{ARRAY, IMAGE, SVG};
-    use plumcraft_proto::convert::{Converts, IMAGE as PICTURE};
+    use plumcraft_proto::convert::{Converts, IMAGE as PICTURE, VIDEO};
     match id {
         // a picture's colours, 0-1: the bytes come back as the same picture
         "array.decode_image" => vec![Converts { output: Some("rgb".into()), ..Converts::new(IMAGE, ARRAY, true).to_shape(PICTURE) }],
         // 8 bits, clipped to 0-1
         "array.encode_image" => vec![Converts::new(ARRAY, IMAGE, false).from_shape(PICTURE)],
         "array.rasterize_svg" => vec![Converts { output: Some("rgb".into()), ..Converts::new(SVG, ARRAY, false).to_shape(PICTURE) }],
+        // a page drawn at a resolution
+        "array.rasterize_pdf" => vec![Converts { output: Some("rgb".into()), ..Converts::new("PDF", ARRAY, false).to_shape(PICTURE) }],
+        // 8 bits a channel
+        "array.array_to_pdf" => vec![Converts::new(ARRAY, "PDF", false).from_shape(PICTURE)],
+        // frames (T, H, W, C), and the frame rate beside them
+        "array.mp4_to_array" | "array.mov_to_array" | "array.gif_to_array" => {
+            let ty = id.trim_start_matches("array.").split('_').next().unwrap_or("").to_ascii_uppercase();
+            vec![Converts { output: Some("frames".into()), ..Converts::new(&ty, ARRAY, false).to_shape(VIDEO) }]
+        }
+        "array.array_to_mp4" | "array.array_to_mov" | "array.array_to_gif" => {
+            let ty = id.rsplit('_').next().unwrap_or("").to_ascii_uppercase();
+            vec![Converts::new(ARRAY, &ty, false).from_shape(VIDEO)]
+        }
         _ => Vec::new(),
     }
 }

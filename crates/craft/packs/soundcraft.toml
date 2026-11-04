@@ -49,6 +49,13 @@ app = "soundcraft"
 stem = "session"
 color = "#0d9488"
 
+# Every built-in plug-in with its parameters (name, default, range, unit, choices): what a
+# plug-in choice brings as fields (`brings` on sc.insert's `plugin`).
+[[catalogue]]
+name = "plugins"
+command = "engine.plugins"
+path = ""
+
 [run_node]
 id = "sc.run"
 display = "Run command"
@@ -293,6 +300,8 @@ max = 1.0
 
 [[node]]
 id = "sc.insert"
+# `slot` is a key into the session the person can't see: hidden until its choices can say what each holds (docs/research/21-document-choices.md)
+hide = ["slot"]
 display = "Insert plug-in"
 kind = "transform"
 family = "Mix"
@@ -307,6 +316,7 @@ name = "plugin"
 type = "ENUM"
 choices = ["eq_1band", "eq_7band", "compressor", "expander_gate", "de_esser", "maximizer", "channel_strip", "room_reverb", "plate_reverb", "mod_delay", "auto_pan", "chorus", "flanger", "phaser", "ring_mod", "saturator", "lofi", "rectifier", "subharmonic", "pitch_shifter", "time_shift", "gain", "trim", "invert", "dc_offset_removal", "dither"]
 default = "plate_reverb"
+brings = "plugins:id:params"
 [[node.widget]]
 name = "params"
 type = "JSON"
@@ -315,6 +325,8 @@ socket = "both"
 
 [[node]]
 id = "sc.reverb"
+# `slot` is a key into the session the person can't see: hidden until its choices can say what each holds (docs/research/21-document-choices.md)
+hide = ["slot"]
 display = "Reverb"
 kind = "transform"
 family = "Mix"
@@ -354,6 +366,8 @@ optional = true
 
 [[node]]
 id = "sc.delay"
+# `slot` is a key into the session the person can't see: hidden until its choices can say what each holds (docs/research/21-document-choices.md)
+hide = ["slot"]
 display = "Delay"
 kind = "transform"
 family = "Mix"
@@ -388,6 +402,8 @@ optional = true
 
 [[node]]
 id = "sc.compressor"
+# `slot` is a key into the session the person can't see: hidden until its choices can say what each holds (docs/research/21-document-choices.md)
+hide = ["slot"]
 display = "Compressor"
 kind = "transform"
 family = "Mix"
@@ -436,6 +452,18 @@ optional = true
 name = "normalize"
 type = "BOOL"
 default = false
+[[node.widget]]
+name = "start"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session start"
+[[node.widget]]
+name = "end"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session end"
 
 [[node]]
 id = "sc.export_flac"
@@ -457,6 +485,18 @@ optional = true
 name = "normalize"
 type = "BOOL"
 default = false
+[[node.widget]]
+name = "start"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session start"
+[[node.widget]]
+name = "end"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session end"
 
 [[node]]
 id = "sc.export_aiff"
@@ -478,6 +518,18 @@ optional = true
 name = "normalize"
 type = "BOOL"
 default = false
+[[node.widget]]
+name = "start"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session start"
+[[node.widget]]
+name = "end"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "A time such as 0:12.500 or bars_beats:5|1|000 (a bare number is not samples); unset: the session end"
 
 # Round 2: exports with their own command (the adapter sends the path and the widgets, no format).
 # The engraved score (`file.print_score`, an SVG page) is left out: packs_all denies "print".

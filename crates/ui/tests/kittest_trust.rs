@@ -39,7 +39,7 @@ fn a_stranger_asks_in_the_window() {
     let mut h = harness(EditorApp::new(s));
     h.run_steps(3);
     assert!(matches!(h.state().prompt, Some(Prompt::Review(_))), "the window asks");
-    assert!(h.query_by_label("Trust and Run").is_some());
+    assert!(h.query_by_label("Trust").is_some() && h.query_by_label("Trust and Run").is_none(), "just Trust");
     assert!(!h.state_mut().answer_prompt(PromptAnswer::Discard), "that isn't an answer to this");
     assert!(h.state_mut().answer_prompt(PromptAnswer::Cancel));
     h.run_steps(3);
@@ -52,6 +52,7 @@ fn a_stranger_asks_in_the_window() {
     assert!(h.state_mut().answer_prompt(PromptAnswer::Trust));
     h.run_steps(3);
     assert!(h.state().prompt.is_none() && !h.state().session.run.awaiting_review());
+    assert!(!h.state().session.run.running, "trusting doesn't run it");
 }
 
 /// An engine that wants a file sent, as an attached one does.

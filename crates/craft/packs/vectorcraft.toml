@@ -809,7 +809,7 @@ format = "svg"
 ext = "svg"
 media = "image/svg+xml"
 options_from = "formats:svg"
-options = ["decimals", "embedFonts", "outlineText", "artboard"]
+options = ["decimals", "embedFonts", "outlineText", "artboard", "minify", "responsive", "styling", "objectIds", "profile", "fewerTspans"]
 [[node.output]]
 name = "svg"
 type = "SVG"
@@ -823,7 +823,7 @@ format = "png"
 ext = "png"
 media = "image/png"
 options_from = "formats:png"
-options = ["scale", "background", "antiAlias", "artboard"]
+options = ["scale", "background", "antiAlias", "artboard", "width", "height", "ppi", "interlaced", "rect"]
 [[node.output]]
 name = "image"
 type = "IMAGE"
@@ -838,7 +838,7 @@ ext = "pdf"
 media = "application/pdf"
 pure = false
 options_from = "formats:pdf"
-options = ["preset", "range", "compatibility"]
+options = ["preset", "range", "compatibility", "standard", "createLayers", "preserveEditing", "includeNonPrinting", "bleed", "marks"]
 [[node.output]]
 name = "pdf"
 type = "PDF"

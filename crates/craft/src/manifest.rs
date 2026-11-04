@@ -78,6 +78,10 @@ pub struct Manifest {
     pub nodes: Vec<NodeSpec>,
     #[serde(default, rename = "generate")]
     pub generated: Vec<GenerateSpec>,
+    /// Nodes generated from the command list itself, one per matching command (PhotoCraft's
+    /// filters, EffectCraft's layer commands).
+    #[serde(default, rename = "generate_commands")]
+    pub generated_commands: Vec<GenerateCommandsSpec>,
     #[serde(default)]
     pub run_node: Option<RunNodeSpec>,
     /// Nodes left out after the smoke test, with why (note 14, 2.4 step 5).
@@ -97,6 +101,32 @@ pub struct Manifest {
     /// The craft's desktop app, which opens a copy of a document value (M3, "Open in …").
     #[serde(default)]
     pub gui: Option<GuiSpec>,
+    /// The parameters of a curated node's command its pack doesn't list, exposed as advanced
+    /// optional widgets ([`AutoWidgets`]).
+    #[serde(default)]
+    pub auto_widgets: AutoWidgets,
+}
+
+/// `[auto_widgets]`: every key a curated node's command accepts that the node doesn't send
+/// (its widgets, files, fixed values, select and export plumbing) becomes an `advanced`,
+/// `optional` widget, typed from the craft's own description of it. Unset, it isn't sent, so
+/// the node does what it did without it. Not for open nodes, templated commands, or an export
+/// whose command is shared by several formats (`file.export`); a node's `auto` overrides that.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AutoWidgets {
+    /// Off: no node gets them unless its `auto = true`.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+    /// Keys never exposed on any node (beside the built-in plumbing: `doc`, `wait`, paths).
+    #[serde(default)]
+    pub hide: Vec<String>,
+}
+
+impl Default for AutoWidgets {
+    fn default() -> Self {
+        AutoWidgets { enabled: true, hide: Vec::new() }
+    }
 }
 
 /// The craft's desktop app: `program [files…]` opens documents in a window. The editor reads
@@ -415,6 +445,13 @@ pub struct NodeSpec {
     pub timeout_s: Option<u64>,
     #[serde(default = "one")]
     pub version: u32,
+    /// Keys of the command never exposed as auto widgets ([`AutoWidgets`]).
+    #[serde(default)]
+    pub hide: Vec<String>,
+    /// Auto widgets for this node: `true` even where they are off by default (an export on a
+    /// shared command, `[auto_widgets] enabled = false`), `false` never.
+    #[serde(default)]
+    pub auto: Option<bool>,
 }
 
 fn yes() -> bool {
@@ -469,6 +506,12 @@ pub struct WidgetSpec {
     /// Used only in the command template, never sent.
     #[serde(default)]
     pub template: bool,
+    /// `<catalogue>:<field>:<list>`: each choice brings the parameters its catalogue entry
+    /// lists (the entry whose `<field>` is the choice; `<list>` of `{id, name, default, min,
+    /// max, unit, choices}`), as fields shown only while it is chosen (SoundCraft's plug-ins).
+    pub brings: Option<String>,
+    /// The parameter object the brought values go in (default `params`).
+    pub brings_into: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -500,6 +543,39 @@ pub struct GenerateSpec {
 
 fn default_all() -> String {
     "all".into()
+}
+
+/// A family of nodes generated from the command list (`[[generate_commands]]`): one transform
+/// node per command that `commands` matches and neither `deny` nor the escape hatch's `deny`
+/// does, with its widgets read from the command's own params description. The node id is
+/// `id_prefix` + the command id (`pc.filter.blur.boxBlur`), so it stays put as long as the
+/// command does. A command a curated node runs is left to that node.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GenerateCommandsSpec {
+    /// Command id prefixes (ending in `.`) or exact ids.
+    pub commands: Vec<String>,
+    /// Command id prefixes or ids left out, even when `commands` matches.
+    #[serde(default)]
+    pub deny: Vec<String>,
+    /// The node id prefix (`pc.`).
+    pub id_prefix: String,
+    #[serde(default)]
+    pub family: String,
+    /// The `select` parameter's default; absent: no `select` port.
+    #[serde(default)]
+    pub select: Option<String>,
+    /// Values for parameters by key, across the family: the widget's default, always sent
+    /// (EffectCraft's `layers = ["#1"]`: a reopened project has no selected layers).
+    #[serde(default)]
+    pub defaults: serde_json::Map<String, Value>,
+    /// Parameters never made widgets: file paths (outside the CAS) and process state (a
+    /// document index). The craft's default applies.
+    #[serde(default)]
+    pub drop_keys: Vec<String>,
+    /// Deterministic given its inputs (memo scope `machine`).
+    #[serde(default = "yes")]
+    pub pure: bool,
 }
 
 /// The escape hatch (note 14, 2.3, `vc.run`).
@@ -572,6 +648,17 @@ impl Manifest {
             }
             if n.select.is_some() && self.selection.is_none() {
                 return Err(format!("manifest: node {} has select, and the manifest no [selection]", n.id));
+            }
+        }
+        for g in &self.generated_commands {
+            if !g.id_prefix.ends_with('.') || !ident(g.id_prefix.trim_end_matches('.')) {
+                return Err(format!("manifest: generate_commands id_prefix {:?} must be a plain name and a dot", g.id_prefix));
+            }
+            if g.commands.is_empty() {
+                return Err(format!("manifest: generate_commands {} matches no commands", g.id_prefix));
+            }
+            if g.select.is_some() && self.selection.is_none() {
+                return Err(format!("manifest: generate_commands {} has select, and the manifest no [selection]", g.id_prefix));
             }
         }
         Ok(())

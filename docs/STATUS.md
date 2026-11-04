@@ -4,8 +4,70 @@
 
 ## Where things stand
 
+- **To do: choices from the document (2026-11-04).** A port that is a key into the document (an insert slot, a track, a layer) shows what each key points at, then its settings, then the key: `Compressor/Limiter: threshold -20 dB, ratio 4 [a]`. Picking a choice brings that thing's own parameters. The graph saves what was picked (plug-in and settings), not just the slot, so a different document can't silently change its meaning. Design: `docs/research/21-document-choices.md`.
+- **To do: show, while a wire is dragged, which inputs take it directly, which only through a Convert, and which not at all (2026-11-04).** The maintainer asked for it after two ports both labelled `audio` couldn't be wired. Port labels already show their type (`audio · WAV`), uncommitted. See `docs/research/20-convert.md` 7.
+
+- **Craft parameters exposed (2026-11-04).**
+  - **What the maintainer asked:** "I suspect there are a lot of *Craft commands that take parameters that we are not exposing. Evaluate." (`claude-debug/craft-params-evaluation.md`), then "Commit current, then do 1-4, in parallel if possible. Up to 4 sessions/worktrees". Four worktree agents did the work, and it was merged by hand.
+  - **1, export options:** per-format widgets on every pack's export nodes. Checked against the live crafts:
+    - FilmCraft's 1 s custom range gives 24 MOV frames, 10 GIF frames and a 1.0 s WAV;
+    - DeckCraft's `slides: "2"` gives a 1-page PDF;
+    - SolidCraft's `quality: finest` gives more STL triangles.
+  - **2, auto widgets:** `crates/craft/src/grammar.rs` reads the quoted (FilmCraft, PhotoCraft, WordCraft) and prose (SolidCraft) dialects. FilmCraft goes from 193 to 711 of 716 commands, SolidCraft from 0 to 519 of 561. That adds 569 advanced widgets on 145 nodes. Prose that is only partly read warns (`Report.warnings`) instead of dropping a node.
+  - **3, families:** `crates/craft/src/families.rs`, `[[generate_commands]]`: 132 PhotoCraft nodes and 98 EffectCraft nodes; 4 failed the smoke test and are excluded with reasons. SolidCraft sketches can't be separate nodes, because the sketch being edited isn't saved with the design. So there are two curated nodes instead, `sol.sketch_svg` and `sol.extrude`: a 20 × 10 × 5 plate with a 6 mm hole measures 858.65 mm³, as it should.
+  - **4, coverage:** `crates/craft/src/coverage.rs` (`node_keys` is now the one place a node's sent keys are worked out, and the library uses it too), `tests/params_coverage.rs`, and a baseline in `tests/fixtures/params_coverage.json`.
+  - **The editor:** typed socket labels (`audio · WAV`); a double-click on a node opens its parameters.
+  - **Found by the maintainer:** SoundCraft Compressor's auto `slot` widget offered the choices `0..9` and `a..j` as literal text, which SoundCraft rejects. The parameter reader now reads a range between two single characters as its values, and a range of numbers stays a number (unit test). `slot` is hidden on the four insert nodes: bare keys into the session are ruled out until a port can say what each choice holds (`docs/research/21-document-choices.md`).
+  - **Plug-in parameters (the maintainer: "I see an empty {} of parameters for all inserted plugins"):** a widget's `brings` turns each choice's catalogue entry into fields. Each field has `active_when` on the choice, so the editor shows only the chosen plug-in's, and the adapter sends only those (`WidgetPlan.when`, `Encode`). That makes 226 fields for SoundCraft's 30 plug-ins on Insert plug-in. Live test `a_plugin_choice_brings_its_parameters`:
+    - Threshold −30 dB and the sidechain high-pass checkbox arrive as `-30.0` and `1.0`;
+    - EQ 1-Band's `High Pass` arrives as index 3;
+    - a compressor value left on the EQ node isn't sent.
+
+    **Found on the way:** the Rust engine SDK never delivers a choice's `options` sub-ports, so they can't be used for this yet. `active_when` needs no SDK change.
+  - **Parameters window:** opens beside its node, once, and stays where it's moved.
+  - **Tweaks (the maintainer, after the VectorCraft cross-engine graph):** "Option to auto select pest performing engine instance (lower #)", "Load needed engines at graph load/insert time if engine auto selection is enabled", "Trust foreign graph should not immediately run graph if trusted. Option should be just "trust"".
+    - **Engine choice:** `engine.auto` and Engine › Pick Engines Automatically, saved in the preferences (`auto_engines`). `Engines::best` ranks hostings by `mode_rank`: in-process, process, Python, HTTP, then HTTP-Python. After `graph.open`, `graph.insert` and `graph.insertGroup`, `start_needed` starts each missing engine the host can start, once.
+    - **Trust:** `RunState::release` drops the held run, and the button is "Trust".
+    - **Tests:**
+      - session: `picking_automatically_starts_what_a_graph_needs_the_fastest_way`, and the trust tests changed to expect no run;
+      - editor: `picking_engines_automatically_starts_what_an_opened_graph_needs` (the array engine added in-process on open);
+      - `kittest_trust`.
+    - **Reading taken:** "lower #" is the hosting's mode number, as the status bar shows it ("mode 1 · in-process").
+  - **Found:** the disk filled twice while four worktrees built at once. A shared `CARGO_TARGET_DIR` also mixed their builds. Builds then ran in each worktree's own target, without debug info, two at a time.
+  - **Not done:**
+    - the coverage test counts only curated nodes, not generated families;
+    - the families' own parser for PhotoCraft's dialect should be folded into `grammar.rs`;
+    - some auto widgets are noisy (FigCraft `select`, FilmCraft `track` typed FLOAT).
+
 - **npexact holds the array engine's numpy behaviours (2026-11-03, npexact 0.1.1 on crates.io):** `plumcraft-array`'s hand-ported numpy code (`minimum`/`maximum`, `clip`, `sign`, `mod`, `nan_to_num`, `min`/`max`/`nanmin`/`nanmax`, int64 `cumsum`, `searchsorted`, `lexsort`, `nanpercentile`, `unique`'s inverse, `sort`, `linspace` with Python-float bounds, `fftshift`) now calls npexact (yapocis-rs PR #8), whose fixtures numpy recorded on the M4 Max and on yellowfin's Xeon (x86-64, AVX2; Yapocis3 PR #72 records them). x86-64 differs from arm64 in how `maximum`/`minimum` break a tie between `-0` and `+0` (and so in reductions) and in `sin`/`cos`'s quadrant rounding; npexact takes both as host policies. Fixed on the way: npexact's `quantile` (float64 where numpy 2 is float32 throughout) and `sin_f32` on x86-64 (1 ulp near odd multiples of π/4). npexact 0.1.1 is on crates.io and the workspace requires it, so `plumcraft-array` can be published. Left alone: the FFT (not bit-exact; npexact has no pocketfft port), Mandelbrot's complex arithmetic and the elementwise kernels (numba's, not numpy's). Pre-existing on x86-64: `mandelbrot_matches_numba` fails, 9 points (references are Mac numba, which fuses the complex multiply). Notes: `claude-debug/npexact-ports-linux.md`.
-- **More converters, and arrays that aren't pictures (2026-11-03, uncommitted).**
+- **Core pairs and video (2026-11-03).**
+  - **What the maintainer asked:** "Go for 6.3,4" (`docs/research/20-convert.md`).
+  - **6.3, in the text engine, Rust and the Python twin:** Text ↔ Table (CSV), JSON ↔ Text, Table ↔ Array (a `series`). The text engine declares JSON.
+  - **6.4, in the array engine:** MP4, MOV and GIF ↔ Array, (T, H, W, C) frames and the frame rate, with ffmpeg; 512 MiB of frames at most, refused whole; cancel kills ffmpeg.
+  - **Shapes:** a new one, `video`. The Python SDK's `@node(..., shape=…)` marks an ARRAY end.
+  - **Tried:** FilmCraft's MP4 and GIF through Convert nodes, and back out as GIF and MP4; its sequence JSON → Text (`claude-debug/convert/video-and-pairs.json`). FilmCraft's MOV and GIF exports take no range.
+  - **Tests:**
+    - text: unit tests, and the twin check now runs every pair;
+    - array: a round trip through each format (skipped without ffmpeg);
+    - the Python SDK's `shape`;
+    - the Python golden.
+
+- **File decoders (2026-11-03).**
+  - **What the maintainer asked:** "Do the file decoders in 6.2".
+  - **Text, in Rust and the Python twin:**
+    - TXT, Markdown and HTML ↔ Text;
+    - CSV ↔ Table, read by RFC 4180, with booleans in any case.
+  - **Audio:** FLAC and AIFF ↔ Audio.
+  - **Array:** Rasterize PDF and Array to PDF, using `hayro` and `flate2`.
+  - **The converters:** each is marked, each has its inverse, and each engine declares the file types as bytes.
+  - **Tried:** four craft exports through Convert nodes across six engines (`claude-debug/convert/file-decoders.json`). The run found GridCraft's `TRUE`.
+  - **Tests:**
+    - text 3, including the twin check;
+    - audio 1;
+    - array 1;
+    - the Python golden.
+
+- **More converters, and arrays that aren't pictures (2026-11-03).**
   - **What the maintainer asked:** "mark them, and ensure that arrays can be non-images (1d)".
   - **Marked:** Decode Image, Encode Image, Rasterize SVG, and every craft's Open, one mark for each of its inputs. `converts` is now one mark or a list.
   - **Shapes:** marks can say an ARRAY's shape (`image`, `series`), and paths don't cross them.
@@ -22,7 +84,7 @@
     - headless check-once 1.
   - **The Python SDK's `converts=` doesn't take shapes or several marks yet.**
 
-- **Engine › Install Engine… (2026-11-03, uncommitted).**
+- **Engine › Install Engine… (2026-11-03).**
   - **What the maintainer asked:** "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github."
   - **What it does:** `engine.install {repo}` takes `owner/repo` or its URL. The editor runs `uv tool install --reinstall git+URL`, then `register` on each command it installed, on a thread. The status bar shows a spinner, and the engine menu reloads at the end.
   - **The window:** it offers the three public engines.

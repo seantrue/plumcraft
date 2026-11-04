@@ -15,11 +15,13 @@ use serde_json::json;
 use soundcraft_audio_io::{AudioBuffer, BitDepth, EncodeOptions, FileFormat};
 
 use crate::util::{self, config, op_error};
-use crate::{ARRAY, AUDIO, INT, MAX_CHANNELS, MAX_FILE, MAX_RATE, MIN_RATE, STRING, WAV, audio_in, boolean, choice, def, int, one, op, output};
+use crate::{AIFF, ARRAY, AUDIO, FLAC, INT, MAX_CHANNELS, MAX_FILE, MAX_RATE, MIN_RATE, STRING, WAV, audio_in, boolean, choice, def, int, one, op, output};
 
 /// Extensions offered in the open dialog (audio-io reads more by content).
 const READS: &[&str] = &["wav", "wave", "bwf", "rf64", "aif", "aiff", "aifc", "flac", "mp3", "ogg", "oga", "m4a", "mp4", "aac", "caf", "mka", "mkv"];
 const DEPTHS: &[&str] = &["float32", "int24", "int16", "int32"];
+/// What FLAC stores: whole numbers only.
+const FLAC_DEPTHS: &[&str] = &["int24", "int16"];
 
 pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
     let path = Port {
@@ -102,6 +104,69 @@ pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
                 WAV,
             ),
             to_wav,
+        ),
+        op(
+            converts(
+                def(
+                    "audio.from_flac",
+                    "FLAC to Audio",
+                    &["Sources"],
+                    "Decodes a FLAC value, such as SoundCraft's Bounce FLAC, to audio. The inverse of Audio to FLAC.",
+                    vec![Port { name: "flac".into(), ty: FLAC.into(), socket: Some(plumcraft_proto::catalogue::Socket::Socket), ..Default::default() }],
+                    vec![output("audio", AUDIO)],
+                ),
+                FLAC,
+                AUDIO,
+            ),
+            from_flac,
+        ),
+        op(
+            // whole-number samples: float audio loses its fractions
+            converts_as(
+                def(
+                    "audio.to_flac",
+                    "Audio to FLAC",
+                    &["Output"],
+                    "Encodes audio as a FLAC value, 24 or 16 bits. The inverse of FLAC to Audio.",
+                    vec![audio_in("audio"), choice("bits", "Bits", FLAC_DEPTHS, "int24")],
+                    vec![output("flac", FLAC)],
+                ),
+                AUDIO,
+                FLAC,
+                false,
+            ),
+            to_flac,
+        ),
+        op(
+            converts(
+                def(
+                    "audio.from_aiff",
+                    "AIFF to Audio",
+                    &["Sources"],
+                    "Decodes an AIFF value, such as SoundCraft's Bounce AIFF, to audio. The inverse of Audio to AIFF.",
+                    vec![Port { name: "aiff".into(), ty: AIFF.into(), socket: Some(plumcraft_proto::catalogue::Socket::Socket), ..Default::default() }],
+                    vec![output("audio", AUDIO)],
+                ),
+                AIFF,
+                AUDIO,
+            ),
+            from_aiff,
+        ),
+        op(
+            // lossless at its default, float32
+            converts(
+                def(
+                    "audio.to_aiff",
+                    "Audio to AIFF",
+                    &["Output"],
+                    "Encodes audio as an AIFF value. The inverse of AIFF to Audio.",
+                    vec![audio_in("audio"), choice("bits", "Bits", DEPTHS, "float32")],
+                    vec![output("aiff", AIFF)],
+                ),
+                AUDIO,
+                AIFF,
+            ),
+            to_aiff,
         ),
         op(
             // not lossless: the sample rate leaves by its own output; a series, not a picture
@@ -213,20 +278,45 @@ fn from_wav(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
 }
 
 fn to_wav(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
-    let a = util::audio(i, "audio")?;
     let bit_depth = depth(util::pick(i, "bits", DEPTHS)?);
+    encode_as(i, cx, FileFormat::Wav, bit_depth, "wav", "audio/wav")
+}
+
+fn from_flac(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let blob = i.get("flac").and_then(Data::blob).ok_or_else(|| config("flac: wire a FLAC value"))?;
+    decode(blob.read(MAX_FILE)?, Some("flac".to_owned()), "flac", cx)
+}
+
+fn to_flac(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let bit_depth = if util::pick(i, "bits", FLAC_DEPTHS)? == 1 { BitDepth::Int16 } else { BitDepth::Int24 };
+    encode_as(i, cx, FileFormat::Flac, bit_depth, "flac", "audio/flac")
+}
+
+fn from_aiff(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let blob = i.get("aiff").and_then(Data::blob).ok_or_else(|| config("aiff: wire an AIFF value"))?;
+    decode(blob.read(MAX_FILE)?, Some("aiff".to_owned()), "aiff", cx)
+}
+
+fn to_aiff(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
+    let bit_depth = depth(util::pick(i, "bits", DEPTHS)?);
+    encode_as(i, cx, FileFormat::Aiff, bit_depth, "aiff", "audio/aiff")
+}
+
+/// Encode the `audio` input as a file of `format`, the value on output `port`.
+fn encode_as(i: &Inputs, cx: &mut Cx, format: FileFormat, bit_depth: BitDepth, port: &str, media: &str) -> Result<Outputs, NodeError> {
+    let a = util::audio(i, "audio")?;
     util::tick(cx, 0.0, "encoding")?;
     let buf = AudioBuffer { sample_rate: a.sample_rate, channels: a.to_channels() };
-    let bytes = soundcraft_audio_io::encode(&buf, &EncodeOptions { format: FileFormat::Wav, bit_depth, dither: false, bwf: None })
-        .map_err(|e| op_error(format!("wav: {e}")))?;
+    let bytes =
+        soundcraft_audio_io::encode(&buf, &EncodeOptions { format, bit_depth, dither: false, bwf: None }).map_err(|e| op_error(format!("{port}: {e}")))?;
     let blob = Blob {
         handle: Handle::md5_raw(&bytes),
-        meta: BlobMeta { media: "audio/wav".into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
+        meta: BlobMeta { media: media.into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
         source: BlobSource::Bytes(Arc::from(bytes)),
         publish: true,
         thumb: None,
     };
-    Ok(one("wav", Data::Blob(Box::new(blob))))
+    Ok(one(port, Data::Blob(Box::new(blob))))
 }
 
 fn load(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {

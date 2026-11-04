@@ -5,20 +5,53 @@ catalogue and the same results, so the UI cannot tell them apart except by `engi
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import time
-from typing import Annotated
+from typing import Annotated, Any
 
 import numpy as np
 
-from plumcraft_engine import Array, ConfigError, Cx, Engine, File, Float, Int, NodeError, OpError, Range, String, Table, Text, node
+from plumcraft_engine import (
+    Array,
+    ArrayValue,
+    Blob,
+    ConfigError,
+    Cx,
+    Engine,
+    File,
+    Float,
+    Int,
+    Json,
+    NodeError,
+    OpError,
+    Range,
+    String,
+    Table,
+    Text,
+    WireType,
+    node,
+)
+from plumcraft_engine.data import raw
 
 __version__ = "0.1.0"
 
 # The largest file `text.load` reads, and the longest text `text.repeat` makes.
 MAX_LOAD = 64 << 20
 MAX_REPEAT = 64 << 20
+
+# The files the craft apps export, as the craft packs declare them (bytes), so their exports
+# cross into this engine (as the Rust `files` module; docs/research/20-convert.md, 6.2).
+Txt = Annotated[object, WireType("TXT")]
+Md = Annotated[object, WireType("MD")]
+Html = Annotated[object, WireType("HTML")]
+Csv = Annotated[object, WireType("CSV")]
+_MEDIA = {"TXT": "text/plain", "MD": "text/markdown", "HTML": "text/html", "CSV": "text/csv"}
+MAX_FILE = 64 << 20
+MAX_ROWS = 1_000_000
+_INT = re.compile(r"-?[0-9]+")
+_DECIMAL = re.compile(r"-?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][-+]?[0-9]+)?")
 
 # Unicode White_Space, as Rust's `split_whitespace` uses it (Python's `str.split` also splits on
 # U+001C..U+001F, which would count words differently).
@@ -32,7 +65,7 @@ class TextEngine(Engine):
     salt = f"py:plumcraft-text+{__version__}"
     category = "Text"
     family = "text"
-    wires = (Text, String, Int, Float, Table, Array)
+    wires = (Text, String, Int, Float, Table, Array, Json, Txt, Md, Html, Csv)
     # Every building block (Vary, sequences, files), as the Rust engine's `.with_building_blocks()`.
     building_blocks = True
 
@@ -124,6 +157,369 @@ class TextEngine(Engine):
             return raw.decode("utf-8")
         except UnicodeDecodeError:
             raise OpError(f"{path}: not UTF-8 text") from None
+
+    # Files as text and tables, and back: as the Rust engine's `files` module, rule for rule.
+    @node(
+        "TXT to Text",
+        category=("Text", "Files"),
+        description="A TXT file (as WordCraft or PdfCraft exports one) as text: UTF-8, a byte-order mark dropped.",
+        converts=True,
+        lossless=True,
+    )
+    def from_txt(self, txt: Txt) -> Text:
+        return _utf8(txt, "txt")
+
+    @node("Text to TXT", category=("Text", "Files"), description="Text as a TXT file, UTF-8. The inverse of TXT to Text.", converts=True, lossless=True)
+    def to_txt(self, text: Text) -> Txt:
+        return _file("TXT", text.encode("utf-8"))
+
+    @node(
+        "Markdown to Text",
+        category=("Text", "Files"),
+        description="A Markdown file as its text, the markup kept: UTF-8, a byte-order mark dropped.",
+        converts=True,
+        lossless=True,
+    )
+    def from_md(self, md: Md) -> Text:
+        return _utf8(md, "md")
+
+    @node(
+        "Text to Markdown",
+        category=("Text", "Files"),
+        description="Text as a Markdown file, UTF-8. The inverse of Markdown to Text.",
+        converts=True,
+        lossless=True,
+    )
+    def to_md(self, text: Text) -> Md:
+        return _file("MD", text.encode("utf-8"))
+
+    @node(
+        "HTML to Text",
+        category=("Text", "Files"),
+        description="An HTML file as its source text, the markup kept: UTF-8, a byte-order mark dropped.",
+        converts=True,
+        lossless=True,
+    )
+    def from_html(self, html: Html) -> Text:
+        return _utf8(html, "html")
+
+    @node(
+        "Text to HTML",
+        category=("Text", "Files"),
+        description="Text (HTML source) as an HTML file, UTF-8. The inverse of HTML to Text.",
+        converts=True,
+        lossless=True,
+    )
+    def to_html(self, text: Text) -> Html:
+        return _file("HTML", text.encode("utf-8"))
+
+    @node(
+        "CSV to Table",
+        category=("Text", "Files"),
+        description="A CSV file (as GridCraft exports one) as a table: the first row names the columns, and each column's type comes from its values.",
+        converts=True,
+    )
+    def from_csv(self, csv: Csv) -> Table:
+        return read_csv(_utf8(csv, "csv"))
+
+    @node("Table to CSV", category=("Text", "Files"), description="A table as a CSV file, a header line first. The inverse of CSV to Table.", converts=True)
+    def to_csv(self, table: Table) -> Csv:
+        return _file("CSV", write_csv(table).encode("utf-8"))
+
+    # Converters between core types (docs/research/20-convert.md, 6.3), as the Rust `pairs`
+    # module.
+
+    @node(
+        "Text to Table",
+        category=("Text", "Convert"),
+        description=(
+            "CSV text as a table, as CSV to Table reads a file: the first row names the columns, "
+            "and each column's type comes from its values. The inverse of Table to Text."
+        ),
+        converts=True,
+    )
+    def text_to_table(self, text: Text) -> Table:
+        return read_csv(text)
+
+    @node(
+        "Table to Text",
+        category=("Text", "Convert"),
+        description="A table as CSV text, a header line first, as Table to CSV writes a file. The inverse of Text to Table.",
+        converts=True,
+    )
+    def table_to_text(self, table: Table) -> Text:
+        return write_csv(table)
+
+    @node(
+        "JSON to Text",
+        category=("Text", "Convert"),
+        description="A JSON value as text, indented by two spaces, keys sorted. The inverse of Text to JSON.",
+        converts=True,
+        lossless=True,
+    )
+    def json_to_text(self, json: Json) -> Text:
+        return json_text(json)
+
+    @node(
+        "Text to JSON",
+        category=("Text", "Convert"),
+        description="Text that is JSON as its value. Text that isn't is an error. The inverse of JSON to Text.",
+        converts=True,
+    )
+    def text_to_json(self, text: Text) -> Json:
+        return parse_json(text)
+
+    @node(
+        "Table to Array",
+        category=("Text", "Convert"),
+        description=(
+            "A table's INT and FLOAT columns as a rows × columns array (float64), named by the columns; "
+            "a null is NaN, and other columns are left out. The inverse of Array to Table."
+        ),
+        converts=True,
+        shape="series",
+    )
+    def table_to_array(self, table: Table) -> Array:
+        return table_array(table)
+
+    @node(
+        "Array to Table",
+        category=("Text", "Convert"),
+        description=(
+            "A 1-D or rows × columns array as a table, a column for each array column, named by the array's names or c1, c2, …: "
+            "INT, BOOL or FLOAT as the array's type, NaN as null. The inverse of Table to Array."
+        ),
+        converts=True,
+        shape="series",
+    )
+    def array_to_table(self, array: Array) -> Table:
+        return array_table(array)
+
+
+def _utf8(value: Any, port: str) -> str:
+    data = value.data if isinstance(value, Blob) else None
+    if data is None:
+        raise ConfigError(f"{port}: wire a {port.upper()} file")
+    if len(data) > MAX_FILE:
+        raise ConfigError(f"{port}: larger than {MAX_FILE >> 20} MiB")
+    try:
+        text = data.decode("utf-8")
+    except UnicodeDecodeError:
+        raise ConfigError(f"{port}: not UTF-8 text") from None
+    return text[1:] if text.startswith("\ufeff") else text
+
+
+def _file(ty: str, data: bytes) -> Blob:
+    return Blob(handle=raw(data), meta={"media": _MEDIA[ty], "size": len(data), "form": {"kind": "bytes"}}, data=data)
+
+
+def csv_rows(text: str) -> list[list[str]]:
+    """The rows of a CSV, as the Rust engine reads them."""
+    rows: list[list[str]] = []
+    row: list[str] = []
+    field: list[str] = []
+    quoting = quoted = False
+
+    def end_row() -> None:
+        nonlocal row, quoted
+        row.append("".join(field))
+        field.clear()
+        line, row = row, []
+        if not (len(line) == 1 and line[0] == "" and not quoted):
+            if len(rows) >= MAX_ROWS:
+                raise ConfigError(f"csv: more than {MAX_ROWS} rows")
+            rows.append(line)
+        quoted = False
+
+    i, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        i += 1
+        if quoting:
+            if c == '"':
+                if i < n and text[i] == '"':
+                    i += 1
+                    field.append('"')
+                else:
+                    quoting = False
+            else:
+                field.append(c)
+            continue
+        if c == '"' and not field and not quoted:
+            quoting = quoted = True
+        elif c == ",":
+            row.append("".join(field))
+            field.clear()
+            quoted = False
+        elif c in "\r\n":
+            if c == "\r" and i < n and text[i] == "\n":
+                i += 1
+            end_row()
+        else:
+            field.append(c)
+    if quoting:
+        raise ConfigError("csv: a quoted field doesn't end")
+    if field or row or quoted:
+        end_row()
+    return rows
+
+
+def _column(cells: list[str | None]) -> tuple[str, list[Any]]:
+    present = [c for c in cells if c is not None]
+
+    def every(f: Any) -> bool:
+        return bool(present) and all(f(c) for c in present)
+
+    def fits(s: str) -> bool:
+        return _INT.fullmatch(s) is not None and -(2**63) <= int(s) < 2**63
+
+    def finite(s: str) -> bool:
+        return _DECIMAL.fullmatch(s) is not None and abs(float(s)) != float("inf")
+
+    if every(fits):
+        return "INT", [None if c is None else int(c) for c in cells]
+    if every(finite):
+        return "FLOAT", [None if c is None else float(c) for c in cells]
+    # any case: a spreadsheet writes TRUE and FALSE
+    if every(lambda s: s.lower() in ("true", "false")):
+        return "BOOL", [None if c is None else c.lower() == "true" for c in cells]
+    return "STRING", list(cells)
+
+
+def read_csv(text: str) -> dict:
+    """A CSV as a table, as the Rust engine reads it."""
+    rows = csv_rows(text)
+    if not rows:
+        raise ConfigError("csv: no header row")
+    header, body = rows[0], rows[1:]
+    names = [n or f"column{i + 1}" for i, n in enumerate(header)]
+    for i, name in enumerate(names):
+        if name in names[:i]:
+            raise ConfigError(f"csv: two columns are called {json.dumps(name)}")
+    for r, line in enumerate(body):
+        if len(line) > len(names):
+            raise ConfigError(f"csv: row {r + 2} has {len(line)} fields; the header has {len(names)}")
+    columns = []
+    for c, name in enumerate(names):
+        cells = [line[c] if c < len(line) and line[c] != "" else None for line in body]
+        ty, values = _column(cells)
+        columns.append({"name": name, "type": ty, "values": values})
+    return {"columns": columns}
+
+
+def _cell(v: Any) -> str:
+    if v is None:
+        return ""
+    if isinstance(v, str):
+        return v
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    return json.dumps(v, separators=(",", ":"), ensure_ascii=False)
+
+
+def _quote(s: str) -> str:
+    if any(ch in s for ch in ',"\n\r') or s.startswith(" ") or s.endswith(" "):
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def write_csv(table: Any) -> str:
+    """A table as CSV, as the Rust engine writes it."""
+    columns = table.get("columns") if isinstance(table, dict) else None
+    if not isinstance(columns, list):
+        raise ConfigError("table: not a table (no columns)")
+    cols = []
+    for c in columns:
+        values = c.get("values") if isinstance(c, dict) else None
+        if not isinstance(values, list):
+            raise ConfigError("table: a column without values")
+        name = c.get("name") if isinstance(c.get("name"), str) else ""
+        cols.append((name, values))
+    n = len(cols[0][1]) if cols else 0
+    if any(len(v) != n for _, v in cols):
+        raise ConfigError("table: its columns differ in length")
+    lines = [",".join(_quote(name) for name, _ in cols)]
+    lines += [",".join(_quote(_cell(v[r])) for _, v in cols) for r in range(n)]
+    return "\n".join(lines) + "\n"
+
+
+MAX_CELLS = 16 << 20
+MAX_TEXT = 64 << 20
+
+
+def json_text(value: Any) -> str:
+    """A JSON value (inline, or a blob of JSON when large) as text, as the Rust engine writes it."""
+    if isinstance(value, Blob):
+        if value.data is None or len(value.data) > MAX_TEXT:
+            raise ConfigError("json: wire a JSON value")
+        try:
+            value = json.loads(value.data)
+        except ValueError as e:
+            raise ConfigError(f"json: the blob isn't JSON ({e})") from None
+    return json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+def _no_constant(name: str) -> Any:
+    raise ValueError(f"{name} isn't JSON")
+
+
+def parse_json(text: str) -> Any:
+    """Text that is JSON, as its value; NaN and Infinity are refused, as the Rust engine does."""
+    if len(text.encode("utf-8")) > MAX_TEXT:
+        raise ConfigError(f"text: longer than {MAX_TEXT >> 20} MiB")
+    try:
+        return json.loads(text, parse_constant=_no_constant)
+    except ValueError as e:
+        raise ConfigError(f"text: not JSON ({e})") from None
+
+
+def table_array(table: Any) -> ArrayValue:
+    """A table's INT and FLOAT columns as a float64 (rows, columns) table array."""
+    columns = table.get("columns") if isinstance(table, dict) else None
+    if not isinstance(columns, list):
+        raise ConfigError("table: not a table (no columns)")
+    numeric = [
+        (c.get("name") if isinstance(c.get("name"), str) else "", c["values"])
+        for c in columns
+        if isinstance(c, dict) and c.get("type") in ("INT", "FLOAT") and isinstance(c.get("values"), list)
+    ]
+    if not numeric:
+        raise ConfigError("table: it has no INT or FLOAT column")
+    rows = len(numeric[0][1])
+    if any(len(v) != rows for _, v in numeric):
+        raise ConfigError("table: its columns differ in length")
+    if rows * len(numeric) > MAX_CELLS:
+        raise ConfigError(f"table: more than {MAX_CELLS >> 20} M cells")
+
+    def num(v: Any) -> float:
+        return float(v) if isinstance(v, int | float) and not isinstance(v, bool) else float("nan")
+
+    data = np.array([[num(v[r]) for _, v in numeric] for r in range(rows)], dtype="<f8").reshape(rows, len(numeric))
+    return ArrayValue(data, names=[n for n, _ in numeric], table=True)
+
+
+def array_table(array: Any) -> dict:
+    """A 1-D or 2-D array as a table, as the Rust engine makes it."""
+    a = np.asarray(array)
+    if a.ndim == 1:
+        a = a.reshape(-1, 1)
+    if a.ndim != 2:
+        raise ConfigError(f"array: a 1-D or rows × columns array, not {'×'.join(str(n) for n in np.shape(array))}")
+    rows, cols = a.shape
+    if rows * cols > MAX_CELLS:
+        raise ConfigError(f"array: more than {MAX_CELLS >> 20} M cells")
+    kind = a.dtype.kind
+    if not ((kind == "f" and a.dtype.itemsize in (4, 8)) or (kind in "iu" and a.dtype.itemsize in (1, 2, 4, 8)) or kind == "b"):
+        raise ConfigError(f"array: its type {a.dtype.str} isn't one a table holds")
+    ty = "INT" if kind in "iu" else "BOOL" if kind == "b" else "FLOAT"
+    names = list(getattr(array, "names", ()) or ())
+    if len(names) != cols:
+        names = [f"c{i + 1}" for i in range(cols)]
+
+    def value(v: Any) -> Any:
+        return None if isinstance(v, float) and not np.isfinite(v) else v
+
+    return {"columns": [{"name": n, "type": ty, "values": [value(v) for v in a[:, i].tolist()]} for i, n in enumerate(names)]}
 
 
 def engine() -> TextEngine:

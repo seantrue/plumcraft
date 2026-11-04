@@ -165,3 +165,72 @@ fn a_multiline_field_takes_new_lines_and_commits_before_a_shortcut_runs() {
     assert!(card(&h) <= card_before + 1.0, "the node stays {card_before}: {}", card(&h));
     assert!(row(&h) <= 340.0, "the editor's box scrolls past 320 ({row_before} before): {}", row(&h));
 }
+
+/// Two presses and releases at `at`, close enough together to be a double click.
+fn double_click_at(h: &mut Harness<'static, EditorApp>, at: egui::Pos2) {
+    h.hover_at(at);
+    h.run_steps(2);
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE });
+        h.step();
+    }
+    h.run_steps(3);
+}
+
+/// 60 frames a second: kittest's default step puts two clicks too far apart for a double.
+fn quick(s: plumcraft_session::Session) -> Harness<'static, EditorApp> {
+    let mut h = Harness::builder()
+        .with_size(egui::vec2(1400.0, 800.0))
+        .with_step_dt(1.0 / 60.0)
+        .build_ui_state(|ui, app: &mut EditorApp| app.show(ui), EditorApp::new(s));
+    h.run_steps(8);
+    h
+}
+
+#[test]
+fn a_double_click_on_a_node_opens_its_parameters() {
+    let mut s = session();
+    let id = add(&mut s, "test.dials", 40.0, 40.0);
+    let mut h = quick(s);
+    assert!(h.state().session.views.parameters.is_none());
+    // its title: a label, so the click is the node's own
+    // its title (which answers a click itself), then a bare part of its frame
+    let title = h.get_by_label("Dials").rect();
+    let at = common::on_screen(&h, title).center();
+    double_click_at(&mut h, at);
+    assert_eq!(h.state().session.views.parameters.as_ref().map(|n| n.0.as_str()), Some(id.as_str()), "the title opens it");
+    h.state_mut().session.execute("node.parameters", &json!({})).unwrap();
+    h.run_steps(3);
+    let node = h.state().canvas.node_rects_by_id().into_iter().find(|(n, _)| n.0 == id).map(|(_, r)| r).expect("its rect");
+    let frame = common::on_screen(&h, node);
+    let at = egui::pos2(frame.right() - 3.0, frame.bottom() - 3.0);
+    double_click_at(&mut h, at);
+    assert_eq!(h.state().session.views.parameters.as_ref().map(|n| n.0.as_str()), Some(id.as_str()), "the frame opens it");
+}
+
+#[test]
+fn a_double_click_on_a_field_in_a_node_is_the_fields() {
+    let mut s = session();
+    add(&mut s, "text.join", 40.0, 40.0);
+    let mut h = quick(s);
+    let field = h.query_all_by_role(egui::accesskit::Role::TextInput).next().map(|n| n.rect()).expect("join's sep field");
+    let at = common::on_screen(&h, field).center();
+    double_click_at(&mut h, at);
+    assert!(h.state().session.views.parameters.is_none(), "the field took the double click");
+}
+
+#[test]
+fn the_window_opens_beside_its_node() {
+    let mut s = session();
+    let id = add(&mut s, "test.dials", 40.0, 40.0);
+    let mut h = quick(s);
+    let at = common::on_screen(&h, h.get_by_label("Dials").rect()).center();
+    double_click_at(&mut h, at);
+    h.run_steps(3);
+    let node = h.state().canvas.node_rects_by_id().into_iter().find(|(n, _)| n.0 == id).map(|(_, r)| r).expect("its rect");
+    let node = common::on_screen(&h, node);
+    let title = h.get_by_label_contains("· parameters").rect();
+    assert!((title.left() - node.right()).abs() < 40.0, "window title at {title:?}, node at {node:?}");
+    // level with the node, or moved up just enough to stay on screen (the window is 660 tall here)
+    assert!(title.top() <= node.top() + 1.0 && title.bottom() >= node.bottom(), "beside the node, on screen: {title:?} vs {node:?}");
+}

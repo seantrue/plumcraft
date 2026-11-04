@@ -131,4 +131,36 @@ fn deckcraft_lists_and_runs_its_nodes() {
     let t: Vec<&str> = targets.iter().map(String::as_str).collect();
     let r = go(&h, "all", json!({"version": 1, "nodes": nodes, "wires": wires}), &t, "off");
     assert!(r.ok && errors(&r).is_empty(), "{:?}", errors(&r));
+
+    // The export options: a PDF of one chosen slide (1-based) has one page, and a GIF of two
+    // slides that doesn't loop.
+    let g = graph(
+        json!({
+            "n": {"kind": "dk.new", "values": {"template": "Pitch"}},
+            "every": {"kind": "dk.export_pdf", "values": {}},
+            "one": {"kind": "dk.export_pdf", "values": {"slides": "2"}},
+            "gif": {"kind": "dk.export_gif", "values": {"slides": "1-2", "loop": false}}
+        }),
+        &[("n", "doc", "every", "doc"), ("n", "doc", "one", "doc"), ("n", "doc", "gif", "doc")],
+    );
+    let r = go(&h, "options", g, &["every", "one", "gif"], "off");
+    assert!(r.ok, "{:?} {:?}", states(&r), errors(&r));
+    // Page objects: `/Type /Page` (or `/Type/Page`) not followed by `s` (the page tree).
+    let pages = |node: &str| {
+        let pdf = h.resolve(&blob(&r, node, "pdf")).expect("the PDF resolves").bytes;
+        let mut n = 0;
+        for (i, _) in pdf.windows(5).enumerate().filter(|(_, w)| w == b"/Type") {
+            let rest = pdf[i + 5..].trim_ascii_start();
+            if rest.starts_with(b"/Page") && rest.get(5) != Some(&b's') {
+                n += 1;
+            }
+        }
+        n
+    };
+    let (every, one) = (pages("every"), pages("one"));
+    assert!(every > 1 && one == 1, "{every} pages, then {one}");
+    let gif = h.resolve(&blob(&r, "gif", "gif")).expect("the GIF resolves").bytes;
+    // One graphic control extension a frame: two slides, two frames.
+    let frames = gif.windows(3).filter(|w| w == b"\x21\xf9\x04").count();
+    assert!(gif.starts_with(b"GIF8") && frames == 2, "{frames} frames");
 }

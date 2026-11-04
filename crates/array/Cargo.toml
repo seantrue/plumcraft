@@ -20,6 +20,8 @@ skrifa = { workspace = true }
 tiny-skia = { workspace = true }
 plumcraft-svg = { workspace = true }
 base64 = { workspace = true }
+hayro = { workspace = true }
+flate2 = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }

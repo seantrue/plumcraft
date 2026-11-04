@@ -110,6 +110,30 @@ fn no_pack_exposes_outward_facing_or_destructive_commands() {
                 assert!(denied_word(a).is_none(), "{id}: run_node allows {a:?} ({:?})", denied_word(a));
             }
         }
+        // a generated family is a node per matching command: the same rule as an allowlist
+        for g in &m.generated_commands {
+            for c in &g.commands {
+                assert!(denied_word(c).is_none(), "{id}: generate_commands matches {c:?} ({:?})", denied_word(c));
+            }
+            assert!(!g.id_prefix.is_empty() && g.id_prefix.ends_with('.'), "{id}: generate_commands id_prefix {:?}", g.id_prefix);
+        }
+    }
+}
+
+/// The families the packs generate: PhotoCraft's filters and adjustments, EffectCraft's layer
+/// commands; never the selection, and each exclusion says why.
+#[test]
+fn the_generated_families_are_declared() {
+    let blocks = |id: &str| builtin(id).unwrap().unwrap().generated_commands;
+    let pc: Vec<Vec<String>> = blocks("photocraft").into_iter().map(|g| g.commands).collect();
+    assert_eq!(pc, [vec!["filter.".to_owned()], vec!["image.adjustments.".to_owned()]]);
+    let ec = blocks("effectcraft");
+    assert_eq!(ec.len(), 1);
+    assert!(ec[0].deny.iter().any(|d| d == "layer.select"), "{:?}", ec[0].deny);
+    for id in BUILTIN {
+        for (node, why) in &builtin(id).unwrap().unwrap().exclude {
+            assert!(why.len() > 10, "{id}: {node} is excluded without a reason");
+        }
     }
 }
 
@@ -145,7 +169,14 @@ fn node_ids_and_prefixes_are_unique_across_packs() {
     let mut prefixes: std::collections::BTreeMap<String, &str> = std::collections::BTreeMap::new();
     for id in BUILTIN {
         let m = builtin(id).unwrap().unwrap();
-        let ids = m.nodes.iter().map(|n| n.id.clone()).chain(m.run_node.iter().map(|r| r.id.clone())).chain(m.generated.iter().map(|g| g.prefix.clone()));
+        let ids = m
+            .nodes
+            .iter()
+            .map(|n| n.id.clone())
+            .chain(m.run_node.iter().map(|r| r.id.clone()))
+            .chain(m.generated.iter().map(|g| g.prefix.clone()))
+            // a family's prefix once (PhotoCraft's two blocks share theirs)
+            .chain(m.generated_commands.iter().map(|g| format!("{}*", g.id_prefix)).collect::<std::collections::BTreeSet<_>>());
         let mut mine = std::collections::BTreeSet::new();
         for nid in ids {
             if let Some(other) = owner.insert(nid.clone(), id) {

@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Craft nodes take every parameter their command does.** A curated node's leftover parameters are now advanced widgets, inferred from the craft's own description of the command. Unset widgets aren't sent, so existing workflows run and cache as before. The catalogue check can now read FilmCraft's, WordCraft's, PhotoCraft's and SolidCraft's descriptions, where before it silently checked nothing. A pack can hide a key (`hide`) or turn this off (`auto = false`, `[auto_widgets]`).
+- **Export nodes take their own format's options.**
+  - FilmCraft's MOV, GIF and WAV exports take a time range, as MP4 did; before, they always exported the whole sequence. Its exports also take size, frame rate, loudness and, for MOV, audio and the ProRes profile.
+  - DeckCraft exports choose slides.
+  - SolidCraft's STL, 3MF and OBJ take a tessellation quality.
+  - DesignCraft, VectorCraft, FigCraft, GridCraft, EffectCraft, SoundCraft, WordCraft and PdfCraft exports gain their formats' options too.
+  - GridCraft's CSV export now runs `file.exportCsv` (`sheet`, `values`), and WordCraft's PNG export runs `file.exportPng` (`page`, `scale`, `markup`).
+- **Node families generated from a craft's command list** (`[[generate_commands]]`): 132 PhotoCraft filters and adjustments, and 98 EffectCraft layer commands. Each is a node with widgets from the command's description; curated nodes win.
+- **SolidCraft: Sketch from SVG and Extrude**, so a part can start from a drawn profile.
+- **A parameter-coverage test** (`crates/craft/tests/params_coverage.rs`) fails when a craft node starts hiding a parameter. To accept a new baseline, run it with `PLUMCRAFT_BLESS=1`.
+- **A craft choice can bring its own parameters** (`brings = "<catalogue>:<field>:<list>"` on a widget). SoundCraft's Insert plug-in now shows the chosen plug-in's parameters from `engine.plugins`, each with its default: Compressor/Limiter's Threshold, Ratio, Attack and so on. Only the chosen plug-in's are sent. Choices are shown by name, toggles as checkboxes. Before, it showed an empty `params` object.
+- **The editor:**
+  - Engine › Pick Engines Automatically (`engine.auto`): opening or inserting a workflow starts the engines it needs, each hosted the fastest way (in-process, then a process, then HTTP). `engine.use` without a `mode` picks the fastest too.
+  - A workflow from elsewhere asks to be trusted with just **Trust**, not Trust and Run: trusting it no longer runs it. The held run is dropped, and it runs at the next run.
+  - A socket's label names its type when its name doesn't (`audio · WAV`), and every port's tooltip starts with its type.
+  - A double-click on a node opens Edit Parameters, and the window opens beside the node.
 - `plumcraft-editor run FILE` runs a workflow's Write Files nodes (any `output_node`) when it has no Result node, so a graph of craft, array or audio nodes runs headless as it does in the window. `--out DIR` points their folders there. Before, such a run stopped with "this engine doesn't save files".
 - `run`, `check` and `tidy` start the engines the workflow names in its `engines` list when no `--engine` is given.
 - `plumcraft-editor check FILE` reports unknown node types and inputs, wires the type rules refuse, wire-only inputs left unwired, and nodes no output depends on, without running anything.
@@ -18,6 +34,15 @@
   - The new core node, Convert, takes its types from its wires and keeps the path it picks in the workflow. Before a run it is replaced by its converters, which may be on several engines, and their results come back as the Convert's. A SoundCraft session wired through a Convert into an Audio input runs as Bounce WAV, then WAV to Audio.
 - The audio engine has Audio to Array (`audio.to_array`) and its inverse, Array to Audio (`audio.from_array`). Audio to Array gives the samples as a (frames, channels) float32 array, its columns named, with the sample rate as a second output. Array to Audio takes (frames, channels), or 1-D for mono, and a sample rate, 48 kHz unless wired. So a WAV, or a SoundCraft session, reaches the array engine through a Convert.
 - Engines ship as Python packages. Every engine's console script has `register`, which writes a manifest into `~/.config/plumcraft/engines/` that starts the installed engine with its own Python, and `unregister`, which removes it. A generated project's wheel carries its `examples/`, so the demo comes along. So `uv tool install my-engine` then `my-engine register` offers it in every editor. A checkout's `scripts/install` link is left alone unless `--force`.
+- Converters between core types, in the text engine (Rust and Python alike), each with its inverse: Text to Table and back (the text as CSV), JSON to Text and back, and Table to Array and back. The text engine declares JSON.
+- Video as arrays, in the array engine, with ffmpeg: MP4, MOV and GIF to Array give a clip's frames as one (T, H, W, 3) array (or float gray) and its frame rate; Array to MP4 (H.264), Array to MOV (ProRes) and Array to GIF are their inverses. A clip over 512 MiB of frames is refused whole. FilmCraft's exports now reach the array engine through a Convert node.
+- A mark's ARRAY end may also be `video`, (T, H, W, C). The Python SDK says a mark's shape: `@node(converts=True, shape="series")`.
+- File decoders, each with its inverse, all converters:
+  - **Text, in Rust and Python alike:** TXT, Markdown and HTML to Text and back, and CSV to Table and back.
+  - **Audio:** FLAC and AIFF to Audio and back.
+  - **Array:** Rasterize PDF (a page as a picture) and Array to PDF.
+
+  Craft exports in those formats now reach other engines through a Convert node.
 - More converters marked: Decode Image, Encode Image and Rasterize SVG, and every craft's Open (from a picture, an SVG or a PDF). A node may carry several marks.
 - An ARRAY end of a mark may say its shape, `image` or `series`, and a path never crosses them. A sound never becomes a picture through Convert, or the reverse.
 - The array engine keeps a 1-D array 1-D. Its nodes used to give back a 1-D input as a 1 × n array.

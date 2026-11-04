@@ -153,6 +153,66 @@ fn photocraft_lists_the_nodes_and_runs_a_chain() {
     assert_eq!(blob(&r, "back", "image").meta.form, Form::Image { width: 40, height: 80 }, "rotated 90°");
 }
 
+/// The generated families: every filter and adjustment a curated node doesn't run is a node
+/// (`pc.<command id>`), and a few of them really change the pixels.
+#[test]
+fn photocraft_generates_its_filters_and_adjustments() {
+    let Some((h, report)) = live("photocraft-families") else { return };
+    let filters = report.generated.iter().filter(|id| id.starts_with("pc.filter.")).count();
+    let adjustments = report.generated.iter().filter(|id| id.starts_with("pc.image.adjustments.")).count();
+    eprintln!("PhotoCraft families: {filters} filters, {adjustments} adjustments; dropped {:?}", report.dropped);
+    assert!(filters >= 110, "{filters} filter nodes");
+    assert!(adjustments >= 12, "{adjustments} adjustment nodes");
+    for id in
+        ["pc.filter.blur.boxBlur", "pc.filter.stylize.findEdges", "pc.filter.distort.twirl", "pc.image.adjustments.threshold", "pc.image.adjustments.curves"]
+    {
+        assert!(report.generated.iter().any(|g| g == id), "no {id}");
+    }
+    // curated wins: Gaussian blur is pc.gaussian_blur only; denied commands are never nodes
+    for id in ["pc.filter.blur.gaussianBlur", "pc.image.adjustments.levels", "pc.filter.lastFilter"] {
+        assert!(!report.generated.iter().any(|g| g == id), "{id} generated");
+    }
+    assert!(report.dropped.iter().any(|(id, why)| id == "pc.filter.blur.gaussianBlur" && why.contains("pc.gaussian_blur")), "{:?}", report.dropped);
+
+    // New → Clouds → PNG, and the same through generated filters and an adjustment: each changes
+    // the pixels.
+    let g = graph(
+        json!({
+            "n": {"kind": "pc.new", "values": {"width": 64, "height": 48}},
+            "c": {"kind": "pc.clouds", "values": {"seed": 3}},
+            "plain": {"kind": "pc.export_png", "values": {}},
+            "box": {"kind": "pc.filter.blur.boxBlur", "values": {"radius": 6}},
+            "boxed": {"kind": "pc.export_png", "values": {}},
+            "edges": {"kind": "pc.filter.stylize.findEdges", "values": {}},
+            "edged": {"kind": "pc.export_png", "values": {}},
+            "th": {"kind": "pc.image.adjustments.threshold", "values": {"level": 128}},
+            "thd": {"kind": "pc.export_png", "values": {}},
+            "tw": {"kind": "pc.filter.distort.twirl", "values": {}},
+            "twd": {"kind": "pc.export_png", "values": {}}
+        }),
+        &[
+            ("n", "doc", "c", "doc"),
+            ("c", "doc", "plain", "doc"),
+            ("c", "doc", "box", "doc"),
+            ("box", "doc", "boxed", "doc"),
+            ("c", "doc", "edges", "doc"),
+            ("edges", "doc", "edged", "doc"),
+            ("c", "doc", "th", "doc"),
+            ("th", "doc", "thd", "doc"),
+            ("c", "doc", "tw", "doc"),
+            ("tw", "doc", "twd", "doc"),
+        ],
+    );
+    let r = go(&h, "pcfam", g, &["plain", "boxed", "edged", "thd", "twd"], "off");
+    assert!(r.ok, "{:?}", states(&r));
+    let plain = blob(&r, "plain", "image");
+    for n in ["boxed", "edged", "thd", "twd"] {
+        let out = blob(&r, n, "image");
+        assert_eq!(out.meta.form, Form::Image { width: 64, height: 48 }, "{n}");
+        assert_ne!(out.handle, plain.handle, "{n} left the pixels as they were");
+    }
+}
+
 #[test]
 fn photocraft_runs_its_demo() {
     let Some((h, _)) = live("photocraft-demo") else { return };

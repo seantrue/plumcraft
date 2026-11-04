@@ -1351,6 +1351,30 @@ mod tests {
             if r["ok"] == true { Ok(r["result"].clone()) } else { Err(r["error"].as_str().unwrap_or_default().to_owned()) }
         }
 
+        /// Engine › Pick Engines Automatically: a graph that names an engine not connected starts
+        /// it on open, in-process (mode 1, the fastest), beside the text engine.
+        #[test]
+        fn picking_engines_automatically_starts_what_an_opened_graph_needs() {
+            let mut h = text_editor(Launcher::default());
+            assert_eq!(command(&mut h, "engine.auto", json!({"on": true})).unwrap()["on"], true);
+            let g = json!({"version": 1, "engines": ["text", "array"], "nodes": {
+                "lit": {"kind": "text.literal", "values": {"text": "corgi"}, "pos": [0, 0]},
+                "twice": {"kind": "array.arithmetic", "pos": [300, 0]}}});
+            let path = plumcraft_scratch::root().join("needs-array.json");
+            std::fs::write(&path, g.to_string()).unwrap();
+            let opened = command(&mut h, "graph.open", json!({"path": path, "discard": true})).unwrap();
+            // (what comes back is the engine pump's: the array engine, added and connected)
+            assert_eq!((opened["added"].clone(), opened["connected"].clone()), (json!({"engine": "array", "mode": "inproc"}), json!(true)), "{opened}");
+            h.run_steps(4);
+            assert!(h.state().session.catalog().node("array.arithmetic").is_some(), "the array engine is connected");
+            assert_eq!(
+                h.state().session.engines.added,
+                [plumcraft_session::EngineTarget::Choice { engine: "array".into(), mode: "inproc".into() }],
+                "hosted in-process"
+            );
+            assert!(h.state().session.missing_engines().is_none());
+        }
+
         /// Engine › Add Engine (docs/research/15-multi-engine.md): the array engine beside the
         /// text engine, behind a coordinator; one merged catalogue; the text demo still runs; a
         /// graph across both (Text → Code points → Arithmetic) runs, each node on its engine;

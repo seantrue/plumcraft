@@ -70,6 +70,8 @@ F = TypeVar("F", bound=Callable[..., Any])
 
 # The scalar types the UI knows without a catalogue (spec 7.4); every other type is a socket.
 SCALARS = ("FLOAT", "INT", "BOOL", "STRING", "ENUM")
+# What an ARRAY end of a converter is (`plumcraft_proto::convert::IMAGE`, `SERIES`, `VIDEO`).
+SHAPES = ("image", "series", "video")
 
 
 class DeclarationError(TypeError):
@@ -317,6 +319,7 @@ class _Mark:
     x: dict | None
     converts: bool | tuple[str, str] | None = None
     lossless: bool = False
+    shape: str | None = None
 
 
 def node(
@@ -334,6 +337,7 @@ def node(
     x: dict | None = None,
     converts: bool | tuple[str, str] | None = None,
     lossless: bool = False,
+    shape: str | None = None,
 ) -> Any:
     """Mark a method as a node. Bare (`@node`) or with options (`@node("Upper case")`).
 
@@ -350,7 +354,9 @@ def node(
     - `converts`: the node turns one type into another (`docs/research/20-convert.md`), so the
       editor can offer it on a wire whose types don't meet, and a Convert node can use it.
       `True` takes the types from the node (its first wire-only input, its one output); or
-      `("WAV", "AUDIO")`. `lossless=True` says the inverse gives the value back.
+      `("WAV", "AUDIO")`. `lossless=True` says the inverse gives the value back. `shape`
+      (`"image"`, `"series"` or `"video"`) says what its ARRAY end is, so a path never hands a picture to
+      a step that wants a signal or a table.
 
     The decorator only tags the function (as impressionist's `@checkpoint` does); the engine
     class compiles it.
@@ -362,7 +368,9 @@ def node(
     pair = isinstance(converts, tuple) and len(converts) == 2 and all(isinstance(t, str) for t in converts)
     if converts is not None and not (isinstance(converts, bool) or pair):
         raise DeclarationError("converts must be True or a (from, to) pair of type ids")
-    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x, converts or None, bool(lossless))
+    if shape is not None and (not converts or shape not in SHAPES):
+        raise DeclarationError(f"shape is one of {', '.join(SHAPES)}, on a node that converts")
+    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x, converts or None, bool(lossless), shape)
 
     def tag(fn: F) -> F:
         if not inspect.isfunction(fn):
@@ -656,11 +664,11 @@ def _compile_node(ctx: _Ctx, cls: type, method: str, fn: Callable[..., Any], mar
     if mark.x:
         d["x"] = dict(mark.x)
     if mark.converts:
-        d["converts"] = _converts(where, mark.converts, mark.lossless, inputs, outs)
+        d["converts"] = _converts(where, mark.converts, mark.lossless, inputs, outs, mark.shape)
     return NodeSpec(method, fn, d, params, cx_arg, names, tuple_out)
 
 
-def _converts(where: str, converts: bool | tuple[str, str], lossless: bool, inputs: list[dict], outs: list[dict]) -> dict:
+def _converts(where: str, converts: bool | tuple[str, str], lossless: bool, inputs: list[dict], outs: list[dict], shape: str | None = None) -> dict:
     """A node's `converts` mark, checked against its ports."""
     wired = [p for p in inputs if p.get("type") not in SCALARS and p.get("socket", "socket") != "widget"]
     if converts is True:
@@ -676,6 +684,13 @@ def _converts(where: str, converts: bool | tuple[str, str], lossless: bool, inpu
     mark = {"from": frm, "to": to, "input": inp["name"], "output": out["name"]}
     if lossless:
         mark["lossless"] = True
+    if shape is not None:
+        if "ARRAY" not in (frm, to):
+            raise DeclarationError(f"{where}: shape {shape} says what an ARRAY end is, and {frm} to {to} has none")
+        if frm == "ARRAY":
+            mark["from_shape"] = shape
+        if to == "ARRAY":
+            mark["to_shape"] = shape
     return mark
 
 

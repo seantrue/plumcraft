@@ -417,6 +417,12 @@ media = "text/plain"
 [[node.output]]
 name = "text"
 type = "TXT"
+[[node.widget]]
+name = "pages"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "1-based page numbers, such as [1, 3]; unset: every page"
 
 # The document as a PDF value (`PDF`, which the editor's viewers show): a full rewrite.
 [[node]]

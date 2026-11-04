@@ -10,7 +10,7 @@ use std::time::Duration;
 use common::*;
 use plumcraft_craft::manifest::{Manifest, builtin, demo};
 use plumcraft_proto::data::{DataRef, Form, Locator};
-use serde_json::Value;
+use serde_json::{Value, json};
 
 const CURATED: &[&str] = &[
     "sol.open",
@@ -26,6 +26,8 @@ const CURATED: &[&str] = &[
     "sol.move",
     "sol.mirror",
     "sol.pattern",
+    "sol.sketch_svg",
+    "sol.extrude",
     "sol.appearance",
     "sol.measure",
     "sol.inspect",
@@ -138,6 +140,44 @@ fn solidcraft_runs_its_demo() {
     let vol = m.pointer("/bodies/0/volume_mm3").or_else(|| m.pointer("/total/volume_mm3")).and_then(Value::as_f64).unwrap_or_else(|| panic!("{m}"));
     let hole = std::f64::consts::PI * 64.0 * 20.0;
     assert!(vol < 24000.0 - hole && vol > 24000.0 - hole - 500.0, "volume {vol}");
-    let again = go(&h, "sol-demo2", g, &["colour"], "off");
+    let again = go(&h, "sol-demo2", g.clone(), &["colour"], "off");
     assert_eq!(blob(&again, "colour", "doc").handle, doc.handle, "SolidCraft saves are byte-stable");
+
+    // The export options: `quality: finest` follows the hole and the fillets more closely.
+    let mut fine = g;
+    fine["nodes"]["stl"]["values"]["quality"] = json!("finest");
+    let r = go(&h, "sol-finest", fine, &["stl"], "off");
+    assert!(r.ok, "{:?}", r.nodes.iter().map(|(k, n)| (k, n.error.as_ref().map(|e| e.message.clone()))).collect::<Vec<_>>());
+    let finest = bytes(&blob(&r, "stl", "stl"));
+    let more = u32::from_le_bytes([finest[80], finest[81], finest[82], finest[83]]) as usize;
+    assert!(more > tris && finest.len() == 84 + 50 * more, "{more} triangles at finest, {tris} at standard");
+}
+
+/// A whole sketch is one node: an SVG (a 20 × 10 plate with a Ø6 hole) becomes a sketch on XY,
+/// and Extrude makes it 5 mm thick: 20·10·5 − π·3²·5 mm³.
+#[test]
+fn solidcraft_sketches_an_svg_and_extrudes_it() {
+    let Some(m) = solidcraft() else { return };
+    let opts = plumcraft_craft::Options { root: Some(craft_root("solidcraft-svg")), store: Some(Some(store_root())), include_excluded: false };
+    let (engine, _, _) = plumcraft_craft::build(&m, &opts).unwrap();
+    let mut once = Some(engine);
+    let h = plumcraft_engine::host::Host::start(Box::new(move || once.take().ok_or_else(|| "built once".to_owned())), None);
+    let _ = h.wait_ready(Duration::from_secs(60));
+    let h: Conn = Box::new(plumcraft_host::InProc(h));
+    let svg = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 10"><rect x="0" y="0" width="20" height="10"/><circle cx="10" cy="5" r="3"/></svg>"#;
+    let g = graph(
+        json!({
+            "new": {"kind": "sol.new", "values": {}},
+            "sk": {"kind": "sol.sketch_svg", "values": {"text": svg, "plane": "XY", "width": 20.0}},
+            "ex": {"kind": "sol.extrude", "values": {"distance": "5"}},
+            "measure": {"kind": "sol.measure", "values": {}}
+        }),
+        &[("new", "doc", "sk", "doc"), ("sk", "doc", "ex", "doc"), ("ex", "doc", "measure", "doc")],
+    );
+    let r = go(&h, "sol-svg", g, &["measure"], "off");
+    assert!(r.ok, "{:?}", r.nodes.iter().map(|(k, n)| (k, n.state, n.error.as_ref().map(|e| e.message.clone()))).collect::<Vec<_>>());
+    let m = json_out(&r, "measure", "result");
+    let vol = m.pointer("/bodies/0/volume_mm3").or_else(|| m.pointer("/total/volume_mm3")).and_then(Value::as_f64).unwrap_or_else(|| panic!("{m}"));
+    let want = 1000.0 - std::f64::consts::PI * 9.0 * 5.0;
+    assert!((vol - want).abs() < 0.5, "volume {vol}, expected {want}");
 }

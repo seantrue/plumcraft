@@ -20,6 +20,8 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod cas;
+pub mod coverage;
+mod families;
 pub mod grammar;
 pub mod manifest;
 pub mod mcp;
@@ -81,6 +83,11 @@ pub struct Report {
     pub salt: String,
     /// The craft's command catalogue: id → params description.
     pub commands: BTreeMap<String, String>,
+    /// id → params as a JSON Schema, for crafts whose list gives schemas (PdfCraft).
+    pub schemas: BTreeMap<String, Value>,
+    /// Nodes built with a doubt, with why: a key the catalogue check couldn't confirm because
+    /// the command's description is prose the grammar reads only in part.
+    pub warnings: Vec<(String, String)>,
 }
 
 /// The command catalogue and the typed catalogues, read once.
@@ -91,6 +98,8 @@ pub struct Catalogue {
     /// id → params as a JSON Schema object, for crafts whose list gives schemas (PdfCraft).
     pub schemas: BTreeMap<String, Value>,
     pub lists: BTreeMap<String, Vec<Value>>,
+    /// id → its label and menu path, where the list gives them (generated nodes' names).
+    pub info: BTreeMap<String, (String, Vec<String>)>,
 }
 
 /// The engine for a manifest, in the default places.
@@ -112,14 +121,20 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
         env!("PLUMCRAFT_CODE_DIGEST"),
     );
     let shared = Arc::new(Shared { manifest: manifest.clone(), pool, cas: cas.clone(), timeout: Duration::from_secs(manifest.timeout_s.max(1)) });
-    let mut report = Report { server_version: server_version.clone(), salt: salt.clone(), commands: catalogue.commands.clone(), ..Default::default() };
+    let mut report = Report {
+        server_version: server_version.clone(),
+        salt: salt.clone(),
+        commands: catalogue.commands.clone(),
+        schemas: catalogue.schemas.clone(),
+        ..Default::default()
+    };
     let mut nodes: Vec<CraftNode> = Vec::new();
     for spec in &manifest.nodes {
         if let Some(why) = manifest.exclude.get(&spec.id).filter(|_| !opts.include_excluded) {
             report.dropped.push((spec.id.clone(), why.clone()));
             continue;
         }
-        match curated(manifest, spec, &catalogue, &shared) {
+        match curated(manifest, spec, &catalogue, &shared, &mut report.warnings) {
             Ok(n) => {
                 report.curated.push(spec.id.clone());
                 nodes.push(n);
@@ -142,6 +157,25 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
                 Ok(n) => {
                     report.generated.push(id);
                     nodes.push(n);
+                }
+                Err(why) => report.dropped.push((id, why)),
+            }
+        }
+    }
+    for g in &manifest.generated_commands {
+        for (command, id, why) in families::family(manifest, g, &catalogue) {
+            if let Err(why) = why {
+                report.dropped.push((id, why));
+                continue;
+            }
+            if let Some(why) = manifest.exclude.get(&id).filter(|_| !opts.include_excluded) {
+                report.dropped.push((id, why.clone()));
+                continue;
+            }
+            match families::node(manifest, g, &command, &id, &catalogue) {
+                Ok((def, plan)) => {
+                    report.generated.push(id);
+                    nodes.push(CraftNode { def, plan, shared: Arc::clone(&shared) });
                 }
                 Err(why) => report.dropped.push((id, why)),
             }
@@ -234,6 +268,10 @@ fn read_catalogue(m: &Manifest, pool: &Pool) -> Result<(Catalogue, String), Stri
     let mut cat = Catalogue::default();
     for c in items.iter().take(MAX_ENTRIES) {
         let Some(id) = c.get("id").and_then(Value::as_str) else { continue };
+        let label = c.get("label").and_then(Value::as_str).unwrap_or_default().chars().take(200).collect::<String>();
+        let menu: Vec<String> =
+            c.get("menu").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).take(8).map(str::to_owned).collect()).unwrap_or_default();
+        cat.info.insert(id.to_owned(), (label, menu));
         match c.get("params") {
             Some(Value::String(params)) => {
                 cat.commands.insert(id.to_owned(), params.clone());
@@ -271,8 +309,11 @@ fn key_text(cat: &Catalogue, command: &str, key: &str) -> Option<String> {
         return schema.get("properties")?.get(key)?.get("description")?.as_str().map(str::to_owned);
     }
     let doc = cat.commands.get(command)?;
-    let keys = grammar::doc_keys(doc).ok()?;
-    keys.keys.iter().find(|k| k.0 == key).map(|k| k.2.to_owned())
+    // Its own keys first; then those it imports (`…as other.command`).
+    if let Some(text) = grammar::doc_keys(doc).ok().and_then(|k| k.keys.iter().find(|k| k.0 == key).map(|k| k.2.to_owned())) {
+        return Some(text);
+    }
+    grammar::key_texts(doc, &|id| cat.commands.get(id).cloned(), 0)?.into_iter().find(|k| k.0 == key).map(|k| k.1)
 }
 
 /// A key's port from a command's JSON Schema: type, range, choices and default.
@@ -340,7 +381,8 @@ fn widget_port(w: &WidgetSpec, command: Option<&str>, cat: &Catalogue) -> Result
         None if ty == JSON => Some(Socket::Both),
         None => None,
     };
-    let tooltip = w.tooltip.clone().or_else(|| (!text.is_empty()).then(|| text.trim_start_matches(['?', ':', ' ']).chars().take(300).collect()));
+    let about = text.trim_start_matches(['?', ':', ' ']).trim_end();
+    let tooltip = w.tooltip.clone().or_else(|| (!about.is_empty()).then(|| about.chars().take(300).collect()));
     Ok(Port {
         name: w.name.clone(),
         ty: if ty == "ENUM" && choices.is_none() { "STRING".into() } else { ty },
@@ -388,46 +430,26 @@ fn memo(pure: bool, content: bool) -> MemoSpec {
 }
 
 /// A curated node: its NodeDef and how it runs, checked against the catalogue.
-fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>) -> Result<CraftNode, String> {
-    let templated: Vec<&WidgetSpec> = spec.widgets.iter().filter(|w| w.template).collect();
+fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>, warnings: &mut Vec<(String, String)>) -> Result<CraftNode, String> {
     // Every command the node can run exists.
-    let mut commands: Vec<String> = Vec::new();
-    if let Some(c) = &spec.command {
-        if templated.is_empty() {
-            commands.push(c.clone());
-        } else {
-            for w in &templated {
-                for choice in w.choices.iter().flatten().filter_map(Value::as_str) {
-                    commands.push(c.replace(&format!("{{{}}}", w.name), choice));
-                }
-            }
-        }
-    }
-    if let Some(c) = spec.action.as_ref().and_then(|a| a.command.clone()) {
-        commands.push(c);
-    }
-    for c in &commands {
+    let keys = coverage::node_keys(m, spec);
+    for c in &keys.runs {
         if !cat.commands.contains_key(c) {
             return Err(format!("{} has no command {c}", m.name));
         }
     }
     // Every key it sends is one the command accepts (the craft rejects any other, note 14, 1.4).
-    let target = match spec.kind {
-        Kind::Open => m.actions.open.command.clone(),
-        Kind::Export => match (&spec.action, &spec.command) {
-            (Some(a), _) => a.command.clone(),
-            (None, Some(c)) => Some(c.clone()),
-            (None, None) => m.actions.export.as_ref().and_then(|a| a.command.clone()),
-        },
-        _ => commands.first().cloned(),
-    };
+    let target = keys.target;
     if let Some(cmd) = &target
-        && let Some(keys) = accepted(cat, cmd)
+        && let Some(accepts) = accepted(cat, cmd)
     {
-        let sent = spec.widgets.iter().filter(|w| !w.template).map(|w| w.into.clone().unwrap_or_else(|| w.key.clone().unwrap_or_else(|| w.name.clone())));
-        let files = spec.files.iter().map(|f| f.key.clone().unwrap_or_else(|| "path".into()));
-        for k in sent.chain(files).chain(spec.fixed.keys().cloned()) {
-            if k != "*" && !keys.contains(&k) {
+        for k in &keys.checked {
+            if k != "*" && !accepts.contains(k) {
+                // Prose read only in part may not list a key it takes: warn, don't drop.
+                if cat.commands.get(cmd).is_some_and(|d| grammar::incomplete(d)) {
+                    warnings.push((spec.id.clone(), format!("{cmd} may not take `{k}` (its description is prose, read in part)")));
+                    continue;
+                }
                 return Err(format!("{cmd} doesn't take `{k}`"));
             }
         }
@@ -466,7 +488,11 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
     let files: Vec<FilePlan> =
         spec.files.iter().map(|f| FilePlan { name: f.name.clone(), key: f.key.clone().unwrap_or_else(|| "path".into()), optional: f.optional }).collect();
     let mut widgets = Vec::new();
+    let mut brought: Vec<(Port, WidgetPlan)> = Vec::new();
     for w in &spec.widgets {
+        if let Some(from) = &w.brings {
+            brought.extend(brings(w, from, cat)?);
+        }
         let mut p = widget_port(w, target.as_deref().filter(|_| !w.template), cat)?;
         if w.template {
             p.ty = "ENUM".into();
@@ -480,14 +506,37 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
             optional: w.optional,
             template: w.template,
             allowed: w.template.then(|| w.choices.iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()),
+            ..Default::default()
         });
+    }
+    // after the node's own widgets, so they land inside the object a JSON widget sets
+    for (p, w) in brought {
+        if inputs.iter().any(|q| q.name == p.name) {
+            return Err(format!("{}: two inputs are called {}", spec.id, p.name));
+        }
+        inputs.push(p);
+        widgets.push(w);
     }
     if spec.kind == Kind::Export
         && let Some(from) = &spec.options_from
     {
         for p in export_options(from, &spec.options, cat)? {
-            widgets.push(WidgetPlan { name: p.name.clone(), key: p.name.clone(), into: None, optional: p.optional, template: false, allowed: None });
+            widgets.push(WidgetPlan {
+                name: p.name.clone(),
+                key: p.name.clone(),
+                into: None,
+                optional: p.optional,
+                template: false,
+                allowed: None,
+                ..Default::default()
+            });
             inputs.push(p);
+        }
+    }
+    if let Some(cmd) = target.as_deref().filter(|_| auto_on(m, spec)) {
+        for (p, w) in auto_widgets(m, spec, cmd, cat, &inputs) {
+            inputs.push(p);
+            widgets.push(w);
         }
     }
     let mut outputs: Vec<Port> = Vec::new();
@@ -549,6 +598,165 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         timeout: spec.timeout_s.map(Duration::from_secs),
     };
     Ok(CraftNode { def, plan, shared: Arc::clone(shared) })
+}
+
+/// Keys no auto widget ever exposes: the adapter's plumbing (the document, waiting) and files,
+/// which reach a craft only through file sockets (a raw path names nothing in the CAS).
+const AUTO_HIDDEN: &[&str] = &["doc", "document", "wait", "path", "paths", "file", "files", "folder", "dir", "directory", "destination", "url"];
+
+/// The command an export node runs: its own, or the manifest's export action's.
+fn export_command(m: &Manifest, spec: &NodeSpec) -> Option<String> {
+    match (&spec.action, &spec.command) {
+        (Some(a), _) => a.command.clone(),
+        (None, Some(c)) => Some(c.clone()),
+        (None, None) => m.actions.export.as_ref().and_then(|a| a.command.clone()),
+    }
+}
+
+/// Whether a curated node gets auto widgets ([`manifest::AutoWidgets`]): its `auto`, else on
+/// when the manifest's are, except for open nodes, templated commands, and an export whose
+/// command the export action or another export node also runs (its options are per format).
+fn auto_on(m: &Manifest, spec: &NodeSpec) -> bool {
+    if let Some(on) = spec.auto {
+        return on;
+    }
+    if !m.auto_widgets.enabled || spec.kind == Kind::Open || spec.widgets.iter().any(|w| w.template) {
+        return false;
+    }
+    if spec.kind == Kind::Export {
+        let Some(cmd) = export_command(m, spec) else { return false };
+        let shared_action = spec.action.is_none() && spec.command.is_none();
+        let shared = shared_action
+            || m.actions.export.as_ref().and_then(|a| a.command.as_ref()) == Some(&cmd)
+            || m.nodes.iter().any(|n| n.id != spec.id && n.kind == Kind::Export && export_command(m, n).as_ref() == Some(&cmd));
+        return !shared;
+    }
+    true
+}
+
+/// The keys a curated node sends of itself ([`coverage::node_keys`], the one place that works
+/// them out), and `format` on every export: an export with a command of its own is never offered
+/// one, since the node is one format.
+fn sent_keys(m: &Manifest, spec: &NodeSpec) -> Vec<String> {
+    let mut sent: Vec<String> = coverage::node_keys(m, spec).sent.into_iter().collect();
+    if spec.kind == Kind::Export && !sent.iter().any(|k| k == "format") {
+        sent.push("format".into());
+    }
+    sent
+}
+
+/// The rest of a curated node's command (spec: "generate a node's remaining parameters"): an
+/// `advanced`, `optional` widget for each key the command accepts and the node doesn't send,
+/// typed from the craft's description of it. Unset widgets aren't sent, so a workflow without
+/// them runs and keys as before. Left out: keys the node or the manifest `hide`, plumbing
+/// ([`AUTO_HIDDEN`], the document id, the selection's keys on a node with `select`), and a key
+/// whose name another input already has. Arrays and objects are JSON widgets (a socket too), so
+/// a list can be typed or wired in.
+fn auto_widgets(m: &Manifest, spec: &NodeSpec, command: &str, cat: &Catalogue, inputs: &[Port]) -> Vec<(Port, WidgetPlan)> {
+    let Some(keys) = accepted(cat, command) else { return Vec::new() };
+    let sent = sent_keys(m, spec);
+    let mut hidden: Vec<&str> = AUTO_HIDDEN.to_vec();
+    hidden.extend(spec.hide.iter().map(String::as_str));
+    hidden.extend(m.auto_widgets.hide.iter().map(String::as_str));
+    hidden.extend(m.doc.id_param.as_deref());
+    if spec.select.is_some() {
+        hidden.extend(["ids", "id"]);
+        hidden.extend(m.selection.as_ref().and_then(|s| s.set_key.as_deref()));
+    }
+    let mut out: Vec<(Port, WidgetPlan)> = Vec::new();
+    for key in keys {
+        let taken = inputs.iter().any(|p| p.name == key) || out.iter().any(|(p, _)| p.name == key);
+        if taken || sent.contains(&key) || hidden.contains(&key.as_str()) || !grammar_key(&key) {
+            continue;
+        }
+        let w = WidgetSpec { name: key.clone(), optional: true, advanced: true, ..Default::default() };
+        let Ok(port) = widget_port(&w, Some(command), cat) else { continue };
+        out.push((port, WidgetPlan { name: key.clone(), key, into: None, optional: true, template: false, allowed: None, ..Default::default() }));
+    }
+    out
+}
+
+/// The fields a choice widget's choices bring (`brings = "<catalogue>:<field>:<list>"`): for
+/// each choice, its catalogue entry's parameters, shown only while it is chosen (`active_when`)
+/// and sent only then, inside `brings_into` (default `params`). A parameter with `choices` is a
+/// choice the craft takes by index; unit `Toggle` is a checkbox it takes as 0 or 1.
+fn brings(w: &WidgetSpec, from: &str, cat: &Catalogue) -> Result<Vec<(Port, WidgetPlan)>, String> {
+    let mut parts = from.splitn(3, ':');
+    let (Some(list), Some(field), Some(params)) = (parts.next(), parts.next(), parts.next()) else {
+        return Err(format!("{}: brings is <catalogue>:<field>:<list>", w.name));
+    };
+    let entries = cat.lists.get(list).ok_or_else(|| format!("{}: no catalogue {list}", w.name))?;
+    let into = w.brings_into.clone().unwrap_or_else(|| "params".into());
+    let choices: Vec<&str> = w.choices.iter().flatten().filter_map(Value::as_str).collect();
+    let mut out = Vec::new();
+    for e in entries {
+        let Some(id) = e.get(field).and_then(Value::as_str) else { continue };
+        if !choices.is_empty() && !choices.contains(&id) {
+            continue;
+        }
+        for q in e.get(params).and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default() {
+            let Some(key) = q.get("id").and_then(Value::as_str) else { continue };
+            let name = format!("{id}_{key}");
+            if !grammar_key(&name) {
+                continue;
+            }
+            let num = |k: &str| q.get(k).and_then(Value::as_f64);
+            let unit = q.get("unit").and_then(Value::as_str).unwrap_or_default();
+            let labels: Vec<String> =
+                q.get("choices").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+            let shown = q.get("name").and_then(Value::as_str).unwrap_or(key);
+            let suffix = match unit {
+                "Db" => " (dB)",
+                "Ms" => " (ms)",
+                "Hz" => " (Hz)",
+                "Percent" => " (%)",
+                "Semitones" => " (semitones)",
+                "Seconds" => " (s)",
+                _ => "",
+            };
+            let mut port = Port {
+                name: name.clone(),
+                label: Some(format!("{shown}{suffix}")),
+                tooltip: Some(format!("{shown}: a parameter of {}, sent while it is chosen", e.get("name").and_then(Value::as_str).unwrap_or(id))),
+                active_when: Some(std::iter::once((w.name.clone(), vec![Value::from(id)])).collect()),
+                ..Default::default()
+            };
+            let encode = if !labels.is_empty() {
+                port.ty = "ENUM".into();
+                port.default = num("default").and_then(|d| labels.get(d.max(0.0) as usize)).map_or(Value::Null, |l| Value::from(l.as_str()));
+                port.choices = Some(labels.iter().map(|l| Value::from(l.as_str())).collect());
+                nodes::Encode::Index(labels)
+            } else if unit == "Toggle" {
+                port.ty = "BOOL".into();
+                port.default = Value::Bool(num("default").is_some_and(|d| d >= 0.5));
+                nodes::Encode::BoolAsNumber
+            } else {
+                port.ty = "FLOAT".into();
+                port.default = num("default").map_or(Value::Null, Value::from);
+                port.min = num("min");
+                port.max = num("max");
+                nodes::Encode::AsIs
+            };
+            let plan = WidgetPlan {
+                name,
+                key: key.to_owned(),
+                into: Some(into.clone()),
+                optional: false,
+                template: false,
+                allowed: None,
+                when: Some((w.name.clone(), Value::from(id))),
+                encode,
+            };
+            out.push((port, plan));
+        }
+    }
+    Ok(out)
+}
+
+/// A key fit to be a port name: letters, digits and `_`, starting with a letter or `_`.
+fn grammar_key(k: &str) -> bool {
+    let mut c = k.chars();
+    c.next().is_some_and(|f| f.is_ascii_alphabetic() || f == '_') && c.all(|x| x.is_ascii_alphanumeric() || x == '_') && k.len() <= 64
 }
 
 /// What a curated node converts (docs/research/20-convert.md). An export turns the document into
@@ -654,7 +862,15 @@ fn generated(m: &Manifest, g: &manifest::GenerateSpec, entry: &Value, id: &str, 
             socket: (ty == JSON).then_some(Socket::Both),
             ..Default::default()
         });
-        widgets.push(WidgetPlan { name: key.clone(), key: key.clone(), into: Some(g.params_key.clone()), optional, template: false, allowed: None });
+        widgets.push(WidgetPlan {
+            name: key.clone(),
+            key: key.clone(),
+            into: Some(g.params_key.clone()),
+            optional,
+            template: false,
+            allowed: None,
+            ..Default::default()
+        });
     }
     let menu: Vec<String> =
         entry.get("menu").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
@@ -731,8 +947,8 @@ fn hatch(m: &Manifest, r: &manifest::RunNodeSpec, cat: &Catalogue, shared: &Arc<
         ..Default::default()
     };
     let widgets = vec![
-        WidgetPlan { name: "command".into(), key: "command".into(), into: None, optional: false, template: true, allowed: Some(allowed) },
-        WidgetPlan { name: "params".into(), key: "*".into(), into: None, optional: true, template: false, allowed: None },
+        WidgetPlan { name: "command".into(), key: "command".into(), into: None, optional: false, template: true, allowed: Some(allowed), ..Default::default() },
+        WidgetPlan { name: "params".into(), key: "*".into(), into: None, optional: true, template: false, allowed: None, ..Default::default() },
     ];
     let plan = Plan {
         kind: Kind::Transform,

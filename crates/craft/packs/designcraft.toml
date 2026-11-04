@@ -562,6 +562,69 @@ type = "ENUM"
 choices = ["none", "x4", "x1a", "a2b"]
 optional = true
 advanced = true
+[[node.widget]]
+name = "spreads"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Facing pages as one PDF page each"
+[[node.widget]]
+name = "bleed"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Include the document bleed"
+[[node.widget]]
+name = "marks"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Printer's marks (crop, bleed, page info)"
+[[node.widget]]
+name = "compressImages"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "tagged"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Tagged PDF: stories as paragraphs, figures with alt text"
+[[node.widget]]
+name = "flatten"
+type = "ENUM"
+choices = ["high", "medium", "low"]
+optional = true
+advanced = true
+tooltip = "Transparency flattener resolution (high 300, medium 150, low 72 ppi)"
+[[node.widget]]
+name = "pageLayout"
+type = "ENUM"
+choices = ["single", "continuous", "twoUp", "twoUpCover", "twoUpContinuous"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "view"
+type = "ENUM"
+choices = ["fitPage", "fitWidth", "actual"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "bookmarksPanel"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "title"
+type = "STRING"
+optional = true
+advanced = true
+[[node.widget]]
+name = "author"
+type = "STRING"
+optional = true
+advanced = true
 
 [[node]]
 id = "dsc.export_png"

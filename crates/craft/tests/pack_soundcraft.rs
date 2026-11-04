@@ -189,3 +189,43 @@ fn exports_are_converters_from_the_document() {
     let exports = cat.nodes.iter().filter(|n| n.id.starts_with("sc.export_")).count();
     assert_eq!(cat.converters().len(), exports, "every export, and nothing else");
 }
+
+/// Insert plug-in's choice brings that plug-in's parameters (`brings`, from `engine.plugins`):
+/// fields shown only while it is chosen, a toggle as a checkbox, a choice by name, and only the
+/// chosen plug-in's values sent.
+#[test]
+fn a_plugin_choice_brings_its_parameters() {
+    let Some(m) = soundcraft() else { return };
+    let root = craft_root("pack-soundcraft-brings");
+    let opts = plumcraft_craft::Options { root: Some(root), store: Some(Some(store_root())), include_excluded: false };
+    let (engine, _, _) = plumcraft_craft::build(&m, &opts).unwrap();
+    let def = engine.schema().nodes.into_iter().find(|n| n.id == "sc.insert").unwrap();
+    let port = |name: &str| def.inputs.iter().find(|p| p.name == name).cloned().unwrap_or_else(|| panic!("no {name}"));
+    let threshold = port("compressor_threshold");
+    assert_eq!((threshold.ty.as_str(), threshold.default.clone(), threshold.label.as_deref()), ("FLOAT", json!(-20.0), Some("Threshold (dB)")));
+    assert_eq!(threshold.active_when, Some([("plugin".to_owned(), vec![json!("compressor")])].into_iter().collect()));
+    assert_eq!(port("compressor_sc_hpf_on").ty, "BOOL", "a Toggle is a checkbox");
+    let eq_type = port("eq_1band_type");
+    assert_eq!((eq_type.ty.as_str(), eq_type.default.clone()), ("ENUM", json!("Peak")), "a choice by name");
+    assert!(def.inputs.iter().all(|p| p.name != "slot"), "slot stays hidden");
+    let mut once = Some(engine);
+    let h = plumcraft_engine::host::Host::start(Box::new(move || once.take().ok_or_else(|| "built once".to_owned())), None);
+    let _ = h.wait_ready(Duration::from_secs(30));
+    let h: Conn = Box::new(plumcraft_host::InProc(h));
+    let steps: Vec<(&str, &str, Value)> = vec![
+        ("n", "sc.new", json!({"sample_rate": 48000})),
+        ("t", "sc.instrument_track", json!({"name": "Synth", "instrument": "subtractive_synth"})),
+        ("c", "sc.insert", json!({"track": "Synth", "plugin": "compressor", "compressor_threshold": -30.0, "compressor_sc_hpf_on": true})),
+        ("e", "sc.insert", json!({"track": "Synth", "plugin": "eq_1band", "eq_1band_type": "High Pass", "compressor_threshold": -5.0})),
+        ("i", "sc.inspect", json!({"detail": "full"})),
+    ];
+    let r = go(&h, "sc-brings", chain(&steps), &["i"], "off");
+    assert!(r.ok, "{:?}", r.nodes.iter().map(|(k, n)| (k, n.state, n.error.clone())).collect::<Vec<_>>());
+    let s = json_out(&r, "i", "result");
+    let synth = s["tracks"].as_array().unwrap().iter().find(|t| t["name"] == "Synth").unwrap();
+    let insert = |plugin: &str| synth["inserts"].as_array().unwrap().iter().find(|i| i["plugin"] == plugin).cloned().unwrap();
+    let comp = insert("compressor");
+    assert_eq!((comp["params"]["threshold"].clone(), comp["params"]["sc_hpf_on"].clone()), (json!(-30.0), json!(1.0)), "{comp}");
+    // the EQ's own choice went as its index; the compressor value on the EQ node wasn't sent
+    assert_eq!(insert("eq_1band")["params"]["type"], json!(3.0), "High Pass is choice 3");
+}

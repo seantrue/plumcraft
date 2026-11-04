@@ -20,6 +20,138 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — Craft parameters exposed, plug-in fields, engine picking and editor fixes (Claude Opus 5.5)
+
+**What the maintainer asked for, in order:**
+
+- "I suspect there are a lot of *Craft commands that take parameters that we are not exposing. Evaluate." The answer is `claude-debug/craft-params-evaluation.md`, from the previous commit.
+- "Commit current, then do 1-4, in parallel if possible. Up to 4 sessions/worktrees."
+- Then, as the maintainer used the result:
+  - typed port labels ("At a minimum, they should have a label that makes the actual type clear");
+  - "Make shift-click on a node open the parameters dialog", changed to "Use double-click on the node for parameters";
+  - "Parameters dialog should popup next to node";
+  - a SoundCraft slot that was rejected, then "I see an empty {} of parameters for all inserted plugins", then "The insert plugins show all the parameters for all?";
+  - the selection frame drawn over the parameters dialog;
+  - "Option to auto select pest performing engine instance (lower #)";
+  - "Load needed engines at graph load/insert time if engine auto selection is enabled";
+  - "Trust foreign graph should not immediately run graph if trusted. Option should be just "trust"".
+- **The maintainer's design calls, on which keys a document holds:**
+  - "If it's a key to an invisible map, shouldn't we set a list of descriptors/labels instead of an opaque key?"
+  - "I want "Compressor"", with "companion parameters" added.
+  - Those parameters should be changeable only if SoundCraft's own editor allows it.
+  - Show the slot "at the end of the text"; "we need to capture the value/parameters for the graph, not just the slot".
+
+  These became `docs/research/21-document-choices.md`, which is a design only.
+- **A model clean-up, in another part of the stack:** "Look through the models in /Volumes/DotCache …", then the removals the maintainer named. The report is `claude-debug/dotcache-models.md`.
+
+**What the AI did.** Four worktree agents did items 1–4. The coordinating session merged them by hand and did the rest.
+
+- **Export options (item 1):** each pack's export nodes get their own format's options. FilmCraft's MOV, GIF and WAV gain a time range. Before this, they always exported the whole sequence, and a workflow's range values were dropped. Checked against the live crafts: a 1 s range gives 24 MOV frames, 10 GIF frames and a 1.0 s WAV.
+- **Auto widgets (item 2):** `grammar.rs` reads the quoted dialect of FilmCraft, PhotoCraft and WordCraft, and SolidCraft's prose.
+  - FilmCraft goes from 193 to 711 of its 716 commands, SolidCraft from 0 to 519 of 561.
+  - That gives 569 advanced widgets on 145 nodes.
+  - Before, the catalogue check had silently checked nothing for those crafts.
+- **Node families (item 3, `families.rs`):** 132 PhotoCraft nodes and 98 EffectCraft nodes. SolidCraft gets Sketch from SVG and Extrude: the agent showed live that sketch edits can't be separate nodes.
+- **Coverage test (item 4, `coverage.rs`, `tests/params_coverage.rs`):** `node_keys` is the one place a node's sent keys are worked out, and the library uses it too.
+- **Merge:** three conflicts. In `lib.rs`, auto widgets were moved onto `node_keys`. In `grammar.rs`, the families agent's unit-and-shape fix was carried into the auto-widget agent's restructured `entry_keys`. The third was in `effectcraft.toml`.
+- **Plug-in parameters:** a widget's `brings` makes fields from SoundCraft's `engine.plugins`. That is 226 parameters for 30 plug-ins, each field shown and sent only while its plug-in is chosen (`active_when`, `WidgetPlan.when`, `Encode`). Choices go by name and toggles are checkboxes, sent as index and 0/1.
+- **Editor:**
+  - typed socket labels (`audio · WAV`);
+  - double-click to open Edit Parameters;
+  - the parameters window opens beside its node;
+  - the selection outline drawn on the canvas layer, under windows;
+  - `tucked` honours `active_when` on any node.
+- **Session:**
+  - `engine.auto` and Engine › Pick Engines Automatically, with hostings ranked by mode and missing engines started on open and insert;
+  - Trust drops the held run instead of sending it.
+- **Size:** about 3,750 lines added and 110 removed, the coverage baseline left out. The largest parts:
+  - `grammar.rs`, ~500;
+  - `families.rs`, ~460;
+  - `lib.rs`, ~260;
+  - `auto_widgets.rs`, ~250;
+  - the pack TOMLs, ~700.
+- **Tests:**
+  - **at the end:** 134 suites, 1,116 passed, 0 failed, 5 ignored; Python 216 passed; clippy and fmt clean;
+  - **new live tests:** FilmCraft range, DeckCraft slides, SolidCraft quality and the sketch-and-extrude plate (858.65 mm³), PhotoCraft and EffectCraft families, SoundCraft plug-in parameters;
+  - **new UI tests:** double-click and window placement;
+  - **new session and editor tests:** automatic engine choice.
+
+**Defects in AI-written work, and how each was caught:**
+
+- **Four parallel worktree builds filled the 926 GiB disk twice.** The plumcraft target alone reached 90 GiB. Each agent stopped and reported. After asking the maintainer each time, the coordinator removed the incremental cache, then ran `cargo clean`. Builds then ran without debug info, two at a time. The maintainer made that a standing rule.
+- **A shared `CARGO_TARGET_DIR` mixed builds from different worktrees.** The families agent caught it: a test binary held another worktree's code.
+- **SoundCraft's slot offered the literal text `0..9` and `a..j`.** The auto-widget reader took a range for a choice. **Caught by the maintainer** ("the selection was rejected"). The first fix listed all 20 names, but `0`–`9` and `a`–`j` name the same ten slots; the AI caught that against SoundCraft.
+- **A stopgap of bare letters `a`–`j` aimed at the wrong target.** The maintainer: "I don't want to see the slot numbers w/o knowing what the refer to". Slot is hidden until the design in note 21 is built.
+- **Every plug-in's fields showed on every Insert plug-in node.** `tucked` handled `active_when` only beside a filling choice. **Caught by the maintainer** from a screenshot.
+- **The selection outline was drawn over the parameters window,** on a Middle layer of its own. **Caught by the maintainer.**
+- **A screenshot taken with no engines connected,** so the nodes were empty. The AI caught it and retook it.
+- **Test assertions written wrong by the AI:** a session test that started with `text` connected, and an editor test that read the wrong reply. Both were caught by running them and fixed in the test, not the code. An older bundles test assumed where the parameters window sits, and broke when it moved; the test caught it.
+- **A first cross-engine VectorCraft graph came out almost black** (Sobel edges of a traced image). The AI looked at the output and took that step out.
+- **Agents' scratch claims:** two agents reported the editor audio test failing in their worktrees. It passes in the main checkout, three runs out of three, and the cause wasn't found.
+
+**Not resolved:**
+
+- One craft test failed once and passed on every rerun. Which test it was wasn't captured.
+- The coverage test counts curated nodes only, not the generated families.
+- The families' PhotoCraft parser should be folded into `grammar.rs`.
+- Some auto widgets are noisy, for example a FigCraft `select`, and FilmCraft `track` typed FLOAT.
+- The Rust engine SDK never delivers `options` sub-ports. `active_when` was used instead.
+- Labels that say what a document's key holds, from the document itself, are the design in note 21 and aren't built.
+
+### 2026-11-03 — File decoders, core pairs and video as arrays (Claude Opus 5.5)
+
+The maintainer asked, in turn: "Do the file decoders in 6.2", then "Go for 6.3,4" (`docs/research/20-convert.md`). Afterwards: "I suspect there are a lot of *Craft commands that take parameters that we are not exposing. Evaluate."
+
+**What the AI did:**
+
+- **6.2, file decoders, each with its inverse and marked:**
+  - text (Rust and the Python twin): TXT, Markdown and HTML ↔ Text, CSV ↔ Table;
+  - audio: FLAC and AIFF ↔ Audio;
+  - array: Rasterize PDF and Array to PDF.
+- **6.3, conversions between core types,** in the text engine and its Python twin: Text ↔ Table, JSON ↔ Text, Table ↔ Array (a `series`). The Python SDK can now say a mark's array shape (`@node(converts=True, shape=…)`), which the twin needed.
+- **6.4, video as arrays,** in the array engine with ffmpeg:
+  - MP4, MOV and GIF ↔ (T, H, W, C) frames and a frame rate;
+  - a new shape, `video`;
+  - 512 MiB of frames at most, refused whole;
+  - cancel kills ffmpeg.
+- **Tried it live** across FilmCraft, SoundCraft, GridCraft and the engines, through Convert nodes (`claude-debug/convert/*.json`).
+- **The craft parameter evaluation:** a probe (untracked, `claude-debug/craft-params-probe/`) that builds all 13 packs against their CLIs. Its report is `claude-debug/craft-params-evaluation.md`:
+  - the nodes run 274 of 7,426 commands;
+  - 161 of the 295 commands they run have parameters no widget sends.
+
+**Size:** about 2,050 lines added and 50 removed, docs included, not counting `Cargo.lock` and the Python golden. The largest parts:
+
+- the Python twin, ~400 LOC;
+- `crates/text/src/files.rs`, ~390;
+- `crates/array/src/channels/video.rs`, ~350;
+- `crates/text/src/pairs.rs`, ~300;
+- `crates/array/src/channels/pdf.rs`, ~155;
+- audio `io.rs`, ~95.
+
+**Tests:**
+
+- text: unit tests, and the Rust–Python twin check now runs every new converter;
+- audio 1;
+- array 2: a PDF round trip, and a video round trip through each format, skipped without ffmpeg;
+- the SDK's `shape`;
+- the Python golden.
+
+**Defects in AI-written work, and how each was caught:**
+
+- **The CSV reader rejected GridCraft's `TRUE`** (only lower-case booleans). The live run caught it; booleans are now read in any case.
+- **The twin test's expected CSV was wrong:** it expected `-2` for a float column that gives back `-2.0`. Caught by the test itself.
+- **The video encoders weren't run targets** in the round-trip test, so their outputs were missing. Caught by the test.
+- **Compile and lint errors:** a private import path (`run::PortValue`), a nonexistent `crate::ARRAY`, and clippy's `as_chunks`. Caught by the build and clippy.
+- **Wrong size figures in the doc and a code comment:** 512 MiB was called "an hour" at small sizes and "10 s" of 1080p. It is about 6 minutes and 3 s. The AI caught it on rereading.
+- **A claim nobody had observed:** the doc stated the MP4 frames' shape, though no one had checked it directly; it was reworded. The AI caught it on rereading.
+- **Wrong figures in the evaluation's first draft:**
+  - two totals (271 and 291 for 274 and 295);
+  - only one PhotoCraft filter said to have a node, when five do;
+  - EffectCraft layers said to be unreachable, when solid, shape and text layers have nodes.
+
+  The AI caught these when it checked the report against the probe output.
+- **"Second window open" said without checking.** On "Converting soundcraft audio to array?", the AI told the maintainer a second editor window was open without having seen it. The process had exited.
+
 ### 2026-11-03 — More converters, and arrays that aren't pictures (Claude Opus 5.5)
 
 The maintainer asked what "mark the existing converters in 6.1" meant, then: "mark them, and ensure that arrays can be non-images (1d)".
