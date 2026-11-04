@@ -78,6 +78,13 @@ fn find_program(name: &str, dir: &Path, dirs: &[PathBuf]) -> Option<PathBuf> {
     dirs.iter().map(|d| d.join(name)).find(|p| executable(p))
 }
 
+/// Where the bare program `name` is, looked for as a manifest's `command` is: `$PLUMCRAFT_UV`
+/// for `uv`, PATH, then the usual install folders (an app started from the desktop doesn't
+/// have the shell's PATH).
+pub fn program(name: &str) -> Option<PathBuf> {
+    find_program(name, Path::new("/"), &search_path(std::env::var_os("PATH"), std::env::var_os("HOME")))
+}
+
 /// Read and resolve the manifest at `path`.
 pub fn load(path: &Path) -> Result<Resolved, String> {
     let shown = path.display();

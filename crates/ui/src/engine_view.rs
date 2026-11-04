@@ -46,6 +46,29 @@ pub type Connector = Box<dyn FnMut(&str, &str, Option<&egui::Context>) -> Result
 /// Reads the engine manifests again: the choices there are now, and what couldn't be read.
 pub type Reloader = Box<dyn FnMut() -> (Vec<EngineChoice>, Vec<String>)>;
 
+/// Downloads an engine from GitHub (its https URL) and installs it, off the UI thread: what to
+/// tell the person, or why it failed. The app supplies it ([`EditorApp::with_installer`]).
+pub type Installer = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
+
+/// Public engines the Install Engine… window offers, as `(label, owner/repo)`.
+pub const KNOWN_ENGINES: &[(&str, &str)] = &[
+    ("DuckDB: data files into tables, reshaped with SQL", "seantrue/plumcraft-duckdb-engine"),
+    ("OpenCV: filters, edges, thresholds, morphology, geometry", "seantrue/plumcraft-opencv-engine"),
+    ("Atlas: a sample engine with every type", "seantrue/plumcraft-atlas-engine"),
+];
+
+/// The Install Engine… window's field.
+#[derive(Debug, Clone, Default)]
+pub struct InstallForm {
+    pub repo: String,
+}
+
+/// An install running in the background.
+pub struct Installing {
+    pub url: String,
+    rx: std::sync::mpsc::Receiver<Result<String, String>>,
+}
+
 /// The Attach… window's fields.
 #[derive(Debug, Clone, Default)]
 pub struct AttachForm {
@@ -62,6 +85,102 @@ impl EditorApp {
         self.session.engines.can_attach = true;
         self.connector = Some(connector);
         self
+    }
+
+    /// How `engine.install` downloads and installs an engine; offers the command.
+    pub fn with_installer(mut self, installer: Installer) -> Self {
+        self.session.engines.can_install = true;
+        self.installer = Some(installer);
+        self
+    }
+
+    /// Start installing `url` on a thread of its own; [`EditorApp::poll_install`] takes the end.
+    fn start_install(&mut self, url: String) -> Result<Value, String> {
+        let Some(installer) = self.installer.clone() else { return Err("this editor can't install engines".into()) };
+        if let Some(i) = &self.installing {
+            return Err(format!("installing {}", i.url));
+        }
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (u, ctx) = (url.clone(), self.repaint.clone());
+        std::thread::Builder::new()
+            .name("plumcraft-install".into())
+            .spawn(move || {
+                let _ = tx.send(installer(&u));
+                if let Some(ctx) = ctx {
+                    ctx.request_repaint();
+                }
+            })
+            .map_err(|e| format!("can't start the install: {e}"))?;
+        self.session.engines.installing = Some(url.clone());
+        self.installing = Some(Installing { url: url.clone(), rx });
+        self.last_error = None;
+        Ok(json!({"installing": url}))
+    }
+
+    /// Take a finished install: read the engine manifests again, so the Engine menu offers what
+    /// was installed, and say how it went. Returns whether one finished.
+    pub fn poll_install(&mut self) -> bool {
+        let Some(i) = &self.installing else { return false };
+        let outcome = match i.rx.try_recv() {
+            Ok(r) => r,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the install stopped without saying why".into()),
+        };
+        let url = i.url.clone();
+        self.installing = None;
+        self.session.engines.installing = None;
+        self.last_error = Some(match outcome {
+            Ok(said) => match self.reload_engines() {
+                Ok(_) => format!("{said}. The Engine menu offers it now."),
+                Err(e) => format!("{said}, but the engine list didn't reload: {e}"),
+            },
+            Err(e) => format!("installing {url}: {e}"),
+        });
+        true
+    }
+
+    /// The Install Engine… window: a repository, the public engines to pick from, then
+    /// `engine.install`.
+    pub(crate) fn install_window(&mut self, ctx: &egui::Context) {
+        let Some(form) = &mut self.install_form else { return };
+        let (mut go, mut cancel) = (false, false);
+        let mut open = true;
+        egui::Window::new("Install an Engine")
+            .id(egui::Id::new("plumcraft-install"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .frame(egui::Frame::window(&ctx.global_style()).fill(self.tokens.panel))
+            .show(ctx, |ui| {
+                ui.label(
+                    egui::RichText::new("A Python engine from GitHub, installed with uv and registered, so every editor offers it.")
+                        .color(self.tokens.text_dim),
+                );
+                ui.horizontal(|ui| {
+                    ui.label("Repository");
+                    ui.add(egui::TextEdit::singleline(&mut form.repo).hint_text("owner/repo").desired_width(320.0));
+                });
+                ui.add_space(4.0);
+                for (label, repo) in KNOWN_ENGINES {
+                    if ui.radio(form.repo == *repo, *label).on_hover_text(format!("https://github.com/{repo}")).clicked() {
+                        form.repo = (*repo).to_owned();
+                    }
+                }
+                ui.add_space(4.0);
+                ui.label(egui::RichText::new("It runs the package's own code: install only what you trust.").small().color(self.tokens.text_dim));
+                ui.horizontal(|ui| {
+                    go = ui.add_enabled(!form.repo.trim().is_empty(), egui::Button::new("Install")).clicked();
+                    cancel = ui.button("Cancel").clicked();
+                });
+            });
+        if go {
+            let p = json!({"repo": form.repo});
+            if self.run("engine.install", &p).is_some() {
+                self.install_form = None;
+            }
+        } else if cancel || !open {
+            self.install_form = None;
+        }
     }
 
     /// How `engine.manifests.reload` reads the manifests again.
@@ -102,6 +221,7 @@ impl EditorApp {
             EngineChange::Remove(id) => self.remove_engine(&id),
             EngineChange::Reload => self.reload_engines(),
             EngineChange::Clear => Ok(self.clear_engines()),
+            EngineChange::Install(url) => self.start_install(url),
         })
     }
 
@@ -395,6 +515,7 @@ impl EditorApp {
             "mode": null,
             "choices": e.choices,
             "pending": e.is_pending(),
+            "installing": e.installing,
         });
         if let Some(t) = &e.current {
             let tj = t.to_json();

@@ -437,6 +437,12 @@ pub struct EditorApp {
     pub connector: Option<engine_view::Connector>,
     /// The Attach… window, while it is open.
     pub attach_form: Option<engine_view::AttachForm>,
+    /// Installs engines from GitHub ([`EditorApp::with_installer`]).
+    pub(crate) installer: Option<engine_view::Installer>,
+    /// The Install Engine… window, while it is open.
+    pub install_form: Option<engine_view::InstallForm>,
+    /// An install running in the background.
+    pub installing: Option<engine_view::Installing>,
     /// The context a new engine link wakes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
@@ -491,6 +497,9 @@ impl EditorApp {
             reloader: None,
             connector: None,
             attach_form: None,
+            installer: None,
+            install_form: None,
+            installing: None,
             repaint: None,
         }
     }
@@ -800,6 +809,11 @@ impl EditorApp {
                 }
             }
             "app.quit" => self.quit(),
+            "engine.install" => {
+                if self.install_form.is_none() {
+                    self.install_form = Some(engine_view::InstallForm::default());
+                }
+            }
             "engine.attach" => {
                 if self.attach_form.is_none() {
                     self.attach_form = Some(engine_view::AttachForm { url: "http://127.0.0.1:".into(), token: String::new() });
@@ -1547,6 +1561,11 @@ impl EditorApp {
             ui.painter().circle_filled(rect.center(), 5.0, dot);
             ui.label(self.engine_label());
             ui.separator();
+            if let Some(i) = &self.installing {
+                ui.spinner();
+                ui.label(format!("installing {}…", i.url.trim_start_matches("https://github.com/")));
+                ui.separator();
+            }
             // the workflow, as the window title names it (the title isn't in screenshots)
             let dot = if self.session.is_dirty() { " •" } else { "" };
             let doc = ui.colored_label(self.tokens.text, format!("{}{dot}", self.document_name()));
@@ -1693,6 +1712,7 @@ impl EditorApp {
         if let Some(Err(e)) = self.pump_engine() {
             self.last_error = Some(e);
         }
+        self.poll_install();
         self.pump_theme(&ctx);
         if let Some(text) = self.copy_out.take() {
             ctx.copy_text(text.clone());
@@ -1733,6 +1753,7 @@ impl EditorApp {
         self.rename_window(&ctx);
         self.browse_for_path();
         self.attach_window(&ctx);
+        self.install_window(&ctx);
         self.params_window(&ctx);
         self.value_editor_windows(&ctx);
         if self.session.views.cache_report {

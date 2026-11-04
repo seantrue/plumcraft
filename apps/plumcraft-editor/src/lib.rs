@@ -756,10 +756,11 @@ fn editor_with(
     app.setup_context(ctx);
     // The Engine menu: every engine and hosting, this one checked.
     let manifests = launcher.manifests.clone();
-    let mut app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
+    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
         let problems = load_manifests(&manifests, manifest_folder().as_deref());
         (choices(), problems)
     }));
+    let mut app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
     match link {
         Ok(link) => app.with_link(link),
         Err(e) => {
@@ -767,6 +768,56 @@ fn editor_with(
             app
         }
     }
+}
+
+/// The commands `uv tool install` says it installed ("Installed 2 executables: a, b").
+fn installed_executables(said: &str) -> Vec<String> {
+    said.lines()
+        .filter_map(|l| l.trim().strip_prefix("Installed ")?.split_once(": ").map(|(_, names)| names.to_owned()))
+        .flat_map(|names| names.split(", ").map(|n| n.trim().to_owned()).collect::<Vec<_>>())
+        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)))
+        .collect()
+}
+
+/// The last lines of a command's output, for an error.
+fn tail(out: &std::process::Output) -> String {
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(4)..].join("\n")
+}
+
+/// Engine › Install Engine…: `uv tool install --reinstall git+URL`, then `register` on each
+/// command it installed, so the engine's manifest is in `~/.config/plumcraft/engines/`. `env` is
+/// set on both (a test's own tool and config folders).
+fn install_engine(url: &str, env: &[(&str, &std::path::Path)]) -> Result<String, String> {
+    use std::process::Command;
+    let uv = plumcraft_host::manifest::program("uv").ok_or("needs uv (https://docs.astral.sh/uv), or set PLUMCRAFT_UV")?;
+    let run = |cmd: &mut Command| -> Result<std::process::Output, String> {
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        cmd.output().map_err(|e| e.to_string())
+    };
+    let out = run(Command::new(&uv).args(["tool", "install", "--reinstall"]).arg(format!("git+{url}")))?;
+    if !out.status.success() {
+        return Err(format!("uv tool install failed: {}", tail(&out)));
+    }
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let exes = installed_executables(&said);
+    if exes.is_empty() {
+        return Err(format!("uv installed it but named no command: {}", tail(&out)));
+    }
+    let bin = run(Command::new(&uv).args(["tool", "dir", "--bin"]))?;
+    let bin = std::path::PathBuf::from(String::from_utf8_lossy(&bin.stdout).trim());
+    let mut registered = Vec::new();
+    for exe in &exes {
+        let out = run(Command::new(bin.join(exe)).arg("register"))?;
+        if !out.status.success() {
+            return Err(format!("installed {exe}, but `{exe} register` failed: {}", tail(&out)));
+        }
+        registered.push(exe.as_str());
+    }
+    Ok(format!("installed and registered {} from {url}", registered.join(", ")))
 }
 
 /// The engines a workflow file names (`"engines": [...]`), for a headless command given no
@@ -2096,5 +2147,38 @@ mod tests {
             let r = h.state_mut().control_now(&ctx, "ui.audio", &json!({"play": false}));
             assert_eq!(r["ok"], true, "stopping is always fine: {r}");
         }
+    }
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    #[test]
+    fn the_commands_uv_installed_are_read_from_what_it_said() {
+        let said = "Resolved 20 packages in 1.2s\n + duckdb-engine==0.1.0\nInstalled 1 executable: duckdb-engine\n";
+        assert_eq!(installed_executables(said), ["duckdb-engine"]);
+        assert_eq!(installed_executables("Installed 2 executables: a-engine, b_tool\n"), ["a-engine", "b_tool"]);
+        assert!(installed_executables("Installed 1 executable: ../../evil; rm\n").is_empty(), "only plain names");
+        assert!(installed_executables("nothing to say\n").is_empty());
+    }
+
+    /// The real thing: DuckDB from GitHub into a scratch tool folder and a scratch HOME, so
+    /// nothing of the person's changes. Needs uv and the network:
+    /// `cargo test -p plumcraft-editor -- --ignored a_public_engine_installs_from_github`
+    #[test]
+    #[ignore = "downloads from GitHub"]
+    fn a_public_engine_installs_from_github() {
+        let root = plumcraft_scratch::dir("install-github");
+        let (tools, bin, home) = (root.join("tools"), root.join("bin"), root.join("home"));
+        // the person's uv cache, so it needn't download everything again
+        let cache = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/uv")).unwrap();
+        let env: [(&str, &std::path::Path); 4] = [("UV_TOOL_DIR", &tools), ("UV_TOOL_BIN_DIR", &bin), ("HOME", &home), ("UV_CACHE_DIR", &cache)];
+        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &env).unwrap();
+        assert!(said.contains("duckdb-engine"), "{said}");
+        let manifest = home.join(".config/plumcraft/engines/duckdb.toml");
+        let resolved = plumcraft_host::manifest::load(&manifest).unwrap();
+        assert_eq!(resolved.manifest.id, "duckdb");
+        assert!(resolved.demo.as_ref().is_some_and(|d| d.is_file()), "the wheel's demo: {:?}", resolved.demo);
     }
 }

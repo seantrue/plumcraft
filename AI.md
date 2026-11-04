@@ -20,6 +20,31 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — Engine › Install Engine…, and the public engines in the README (Claude Opus 5.5)
+
+The maintainer asked for one public repo per Python engine, named `plumcraft-<name>-engine`, and the AI made them: DuckDB, OpenCV (renamed and made public) and Atlas. Then the maintainer asked: "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github." The maintainer then ran it in the editor and installed DuckDB with it: "This is good".
+
+**The command.** `engine.install {repo}` (Engine › Install Engine…) takes `owner/repo` or a GitHub URL. Off the UI thread, it runs `uv tool install --reinstall git+URL`, then `register` on each command that installed, then reloads the Engine menu, with a spinner in the status bar. The window offers the three public engines. The app supplies the installer (`EditorApp::with_installer`), as it supplies Reload, so the editor's tests use a stand-in. `plumcraft_host::manifest::program` finds `uv` as manifests do.
+
+**Size:**
+
+| Where | Lines |
+|---|---|
+| UI | ~140 |
+| Session | ~70 |
+| The app's installer, and its tests | ~85 |
+| The kittest | ~80 |
+| Docs and README | ~35 |
+
+**Tests:**
+
+- session repo checks, including names with `..` and `;`;
+- two kittests with a stand-in installer: the window, the spinner, the reload, a failure;
+- the parser of what `uv` says it installed;
+- a live install of DuckDB from GitHub into scratch folders. It is `#[ignore]` because it needs the network; the AI ran it and it passed.
+
+**Defects:** none found by the tests. The maintainer's run in the editor was the first by a person.
+
 ### 2026-11-03 — Headless runs, documents edited in their apps, Convert, and engines that register themselves (Claude Opus 5.5)
 
 One branch, `headless-write-files`, holding two days of requests. Pushed unmerged at the maintainer's request, so the public engines can pin the SDK commit: "Commit and push the branch".

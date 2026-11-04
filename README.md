@@ -29,7 +29,16 @@ The name plays on plumbing: piping data between nodes.
   - audio, on SoundCraft's crates;
   - array, general array nodes from the research software;
   - 13 craft apps through their MCP servers, each of which needs that app installed.
-- **Your own engine:** `plumcraft-engine new` generates a standalone Python engine project with tests, a conformance check and PyCharm run configurations. There's no Rust build involved.
+- **More engines, from GitHub:** each is its own repository, named `plumcraft-<name>-engine`.
+
+  | Engine | Repository | What it does |
+  |---|---|---|
+  | DuckDB | [plumcraft-duckdb-engine](https://github.com/seantrue/plumcraft-duckdb-engine) | reads data files into tables and reshapes them with SQL |
+  | OpenCV | [plumcraft-opencv-engine](https://github.com/seantrue/plumcraft-opencv-engine) | filters, edges, thresholds, morphology and geometry |
+  | Atlas | [plumcraft-atlas-engine](https://github.com/seantrue/plumcraft-atlas-engine) | a sample engine with every type, a starting point to copy |
+
+  In the editor, Engine › Install Engine… installs one: it runs `uv tool install` and the engine's `register`, then reloads the Engine menu. From a shell, `uv tool install git+https://github.com/seantrue/plumcraft-duckdb-engine` then `duckdb-engine register` does the same. Both need [uv](https://docs.astral.sh/uv/).
+- **Your own engine:** `plumcraft-engine new` generates a standalone Python engine project with tests, a conformance check and PyCharm run configurations. There's no Rust build involved. Publish it as a package or a GitHub repository; `<engine> register` offers it in every editor.
 - **Hosting:** any engine runs in-process, as a separate process on a Unix socket, or over HTTP, including on another machine. The AMQP (pipekit) binding is planned, not built.
 - **Several engines in one graph:** a coordinator splits each run across the engines and passes values between them. In the picture below, the array engine draws text over noise, VectorCraft traces it, and the array engine measures what the trace lost.
 - **Viewers:** every type of value has a preview and a full viewer, from pictures and PDF pages to audio and sortable tables. Any value can pop out into a window that updates on every run, and pictures have a pixel probe and A/B compare.

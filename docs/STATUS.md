@@ -4,6 +4,28 @@
 
 ## Where things stand
 
+- **Engine › Install Engine… (2026-11-03, uncommitted).**
+  - **What the maintainer asked:** "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github."
+  - **What it does:** `engine.install {repo}` takes `owner/repo` or its URL. The editor runs `uv tool install --reinstall git+URL`, then `register` on each command it installed, on a thread. The status bar shows a spinner, and the engine menu reloads at the end.
+  - **The window:** it offers the three public engines.
+  - **Where the code is:**
+    - the app's installer: `install_engine` in `apps/plumcraft-editor`;
+    - the editor side: `EditorApp::with_installer`, which a test can give a stand-in;
+    - the lookup of `uv`: `plumcraft_host::manifest::program`.
+  - **Tests:**
+    - session 1;
+    - kittest 2 with a stand-in installer;
+    - the output parser 1;
+    - a live install from GitHub into scratch folders (`#[ignore]`, run and passing).
+  - **The README** lists the public engine repositories.
+
+- **The Python engines are public (2026-11-03).** The maintainer asked for "one or more public repos" and chose the name pattern `plumcraft-<name>-engine`. The repos are:
+  - [plumcraft-duckdb-engine](https://github.com/seantrue/plumcraft-duckdb-engine);
+  - [plumcraft-opencv-engine](https://github.com/seantrue/plumcraft-opencv-engine), renamed from the private `opencv-engine` and made public;
+  - [plumcraft-atlas-engine](https://github.com/seantrue/plumcraft-atlas-engine), the generated sample.
+
+  Each pins the SDK to this branch's pushed commit `3995cb7` and is licensed MIT or Apache 2.0. `uv tool install git+https://github.com/seantrue/plumcraft-<name>-engine` then `<name>-engine register` was tried for all three into scratch folders: the editor started each, and `check` passed on each packaged demo.
+
 - **Engines ship as Python packages (2026-11-03, branch `headless-write-files`, uncommitted).**
   - **What the maintainer asked:** "How can I distribute new engines? Do we have packaging tech already in place?", then "Yes" to the Python path.
   - **What was there:** manifests, `plumcraft-engine new`, and `scripts/install`, which worked from a checkout only.

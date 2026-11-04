@@ -80,6 +80,10 @@ pub struct Engines {
     pub current: Option<EngineTarget>,
     /// Attaching to a running HTTP engine is offered.
     pub can_attach: bool,
+    /// Installing an engine from GitHub is offered (the host has an installer).
+    pub can_install: bool,
+    /// The repository being installed, while it is.
+    pub installing: Option<String>,
     /// Engines connected beside [`Engines::current`], in the order they were added.
     pub added: Vec<EngineTarget>,
     request: Option<EngineTarget>,
@@ -96,6 +100,8 @@ pub enum EngineChange {
     Reload,
     /// Stop every engine: the editor keeps the graph, with none connected.
     Clear,
+    /// Download an engine from GitHub and install it (`https://github.com/owner/repo`).
+    Install(String),
 }
 
 impl Engines {
@@ -268,6 +274,42 @@ fn attach(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(out)
 }
 
+/// The longest owner or repository name GitHub allows.
+const MAX_GITHUB_NAME: usize = 100;
+
+/// `owner/repo`, or `https://github.com/owner/repo` (with `.git` or a trailing `/`), as the
+/// repository's https URL; `None` for anything else.
+pub fn github_repo(text: &str) -> Option<String> {
+    let t = text.trim();
+    let rest = t.strip_prefix("https://github.com/").or_else(|| t.strip_prefix("github.com/")).unwrap_or(t);
+    let rest = rest.trim_end_matches('/');
+    let rest = rest.strip_suffix(".git").unwrap_or(rest);
+    let (owner, repo) = rest.split_once('/')?;
+    let ok = |n: &str| !n.is_empty() && n.len() <= MAX_GITHUB_NAME && !n.starts_with('.') && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c));
+    (ok(owner) && ok(repo)).then(|| format!("https://github.com/{owner}/{repo}"))
+}
+
+fn can_install(s: &Session) -> std::result::Result<(), String> {
+    match (s.engines.can_install, &s.engines.installing) {
+        (false, _) => Err("this editor can't install engines".into()),
+        (true, Some(r)) => Err(format!("installing {r}")),
+        (true, None) => Ok(()),
+    }
+}
+
+fn install(s: &mut Session, p: &Value) -> Result<Value> {
+    can_install(s).map_err(SessionError::Params)?;
+    let raw = str_param(p, "repo")?;
+    let url = github_repo(raw).ok_or_else(|| {
+        SessionError::Params(format!(
+            "{:?} isn't a GitHub repository: give owner/repo or https://github.com/owner/repo",
+            raw.chars().take(200).collect::<String>()
+        ))
+    })?;
+    s.engines.changes.push(EngineChange::Install(url.clone()));
+    Ok(json!({"installing": url}))
+}
+
 fn reload(s: &mut Session, _: &Value) -> Result<Value> {
     s.engines.changes.push(EngineChange::Reload);
     Ok(json!({"reloading": true}))
@@ -277,7 +319,7 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let e = &s.engines;
     let added: Vec<Value> = e.added.iter().map(EngineTarget::to_json).collect();
     Ok(
-        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "pending": e.is_pending()}),
+        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install, "installing": e.installing, "pending": e.is_pending()}),
     )
 }
 
@@ -364,6 +406,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{} -> {engines: []}: stop every engine; the graph stays, with none connected, and the Engine menu picks the next",
             enabled: can_clear,
             run: clear,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.install",
+            label: "Install Engine…",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install git+URL`, then its own `register`), then read the engine manifests again; it runs in the background, and the status bar says when it is done (ui.inspect's engine.installing until then). It runs the package's code: install only what you trust",
+            enabled: can_install,
+            run: install,
             journal: false,
         },
         CommandSpec {
@@ -510,6 +562,25 @@ mod tests {
         assert_eq!(s.engines.take_change(), Some(EngineChange::Clear));
         s.engines.current = None;
         assert!(s.execute("engine.clear", &Value::Null).unwrap_err().to_string().contains("no engine"));
+    }
+
+    #[test]
+    fn install_takes_a_github_repository_and_one_at_a_time() {
+        assert_eq!(github_repo("seantrue/plumcraft-duckdb-engine").as_deref(), Some("https://github.com/seantrue/plumcraft-duckdb-engine"));
+        assert_eq!(github_repo(" https://github.com/a/b.git/ ").as_deref(), Some("https://github.com/a/b"));
+        assert_eq!(github_repo("github.com/a-1/b_2.x").as_deref(), Some("https://github.com/a-1/b_2.x"));
+        for bad in ["", "a", "a/", "/b", "a/b/c", "https://gitlab.com/a/b", "a/b; rm -rf ~", "a/../b", "../a/b", "a b/c", &format!("a/{}", "x".repeat(101))] {
+            assert_eq!(github_repo(bad), None, "{bad}");
+        }
+        let mut s = offered();
+        assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("can't install"));
+        s.engines.can_install = true;
+        assert!(s.execute("engine.install", &json!({"repo": "nope"})).is_err());
+        assert_eq!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap(), json!({"installing": "https://github.com/a/b"}));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Install("https://github.com/a/b".into())));
+        s.engines.installing = Some("https://github.com/a/b".into());
+        assert!(s.execute("engine.install", &json!({"repo": "c/d"})).unwrap_err().to_string().contains("installing"));
+        assert!(s.journal().is_empty(), "not journaled");
     }
 
     #[test]
