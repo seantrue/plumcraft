@@ -160,22 +160,11 @@ pub fn fft2(p: &mut Complex, forward: bool, cancel: &dyn Fn() -> bool) -> Option
     lines(p, false, forward, cancel)
 }
 
-/// `np.fft.fftshift` (`inverse` false) or `ifftshift` of an `h` × `w` plane.
+/// `np.fft.fftshift` (`inverse` false) or `ifftshift` of an `h` × `w` plane (npexact); a plane
+/// whose size doesn't match comes back unchanged.
 pub fn shift(v: &[f32], h: usize, w: usize, inverse: bool) -> Vec<f32> {
-    if h == 0 || w == 0 {
-        return v.to_vec();
-    }
-    let (sh, sw) = if inverse { (h - h / 2, w - w / 2) } else { (h / 2, w / 2) };
-    let mut out = vec![0.0f32; v.len()];
-    for y in 0..h {
-        for x in 0..w {
-            let (ty, tx) = ((y + sh) % h, (x + sw) % w);
-            if let (Some(o), Some(s)) = (out.get_mut(ty * w + tx), v.get(y * w + x)) {
-                *o = *s;
-            }
-        }
-    }
-    out
+    let shifted = if inverse { npexact::fft::ifftshift_2d(v, h, w) } else { npexact::fft::fftshift_2d(v, h, w) };
+    shifted.unwrap_or_else(|| v.to_vec())
 }
 
 /// FFT of one plane: magnitude, phase and log(1 + magnitude), zero frequency centred.

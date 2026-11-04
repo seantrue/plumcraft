@@ -85,9 +85,9 @@ fn color_matrix(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     Ok(one("transformed", Img { data, space: None, names: Vec::new(), labels: false, ..a }))
 }
 
-/// numpy `clip(v, 0, None)`: NaN stays NaN.
+/// numpy `clip(v, 0, None)` (npexact): NaN stays NaN, and -0 becomes +0.
 fn clip0(v: f32) -> f32 {
-    if v < 0.0 { 0.0 } else { v }
+    npexact::elementwise::clip_min_f32(v, 0.0)
 }
 
 fn srgb_decode(v: f32) -> f32 {

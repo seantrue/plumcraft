@@ -20,6 +20,29 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — The array engine's numpy behaviours move into npexact (Claude Opus 5.5)
+
+The maintainer asked first to "assess the gap between npexact and all of numpy". That assessment is `claude-debug/npexact-numpy-gap.md`. Then they asked: "Move the hand-ported behaviours into npexact, record fixtures on Linux and test."
+
+**What the AI did.** `plumcraft-array` had copied 15 families of numpy behaviour into its own code. They now live in npexact (yapocis-rs PR #8), held to fixtures numpy recorded on the M4 Max and on yellowfin's Xeon (Yapocis3 PR #72). The engine calls them through its existing function names, so its nodes and tests didn't change. The PlumCraft side is a net deletion: ~60 LOC added and ~180 removed across `math/kernels.rs`, `filters/kernels.rs`, `filters/trace.rs`, `generate/{fft,noise,regions}.rs` and `colour/mod.rs`. `Cargo.toml` patches `npexact` to the merged yapocis-rs commit until the next release is on crates.io. Notes: `claude-debug/npexact-ports-linux.md`.
+
+**Defect in AI-written PlumCraft code, caught by the new fixtures:** `clip(v, 0, None)` returned `-0` for `-0`, but numpy gives `+0`. The move fixes it. The x86 fixtures also caught two npexact bugs, `quantile` and `sin`/`cos` on x86-64, which yapocis-rs's `AI.md` records.
+
+**Investigated, not caused by this work:** on yellowfin, `mandelbrot_matches_numba` fails at 9 points. Unmodified code fails the same way: the references come from the Mac's numba, which fuses the complex multiply, and x86 doesn't. The test was left alone.
+
+**Left in PlumCraft:**
+
+- the FFT, which is held to 1e-6 rather than bit for bit;
+- Mandelbrot's complex arithmetic and the elementwise kernels, which copy numba, not numpy.
+
+**Tests.** On the Mac:
+
+- `cargo test --all-features`: 1,037 passed, 3 ignored.
+- clippy with `-D warnings` and fmt: clean.
+- pytest: 208 passed. ruff: clean.
+
+Those runs used the local path patch. After the patch moved to the git `rev`, `plumcraft-array`'s 52 tests were run again and passed. On yellowfin, `plumcraft-array` had 51 passed and 1 failed (the Mandelbrot test above).
+
 ### 2026-11-03 — Engine › Install Engine…, and the public engines in the README (Claude Opus 5.5)
 
 The maintainer asked for one public repo per Python engine, named `plumcraft-<name>-engine`, and the AI made them: DuckDB, OpenCV (renamed and made public) and Atlas. Then the maintainer asked: "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github." The maintainer then ran it in the editor and installed DuckDB with it: "This is good".

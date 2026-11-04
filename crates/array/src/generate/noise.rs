@@ -142,14 +142,10 @@ pub(super) fn simplex_noise(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError
 
 // ---------- Mandelbrot ----------
 
-/// `np.linspace(start, stop, num, dtype=np.float32)`: computed in float64, then rounded.
+/// `np.linspace(start, stop, num, dtype=np.float32)` with Python-float bounds (npexact):
+/// computed in float64, then rounded.
 pub fn linspace_f32(start: f64, stop: f64, num: usize) -> Vec<f32> {
-    if num <= 1 {
-        return vec![start as f32; num];
-    }
-    let div = (num - 1) as f64;
-    let step = (stop - start) / div;
-    (0..num).map(|k| if k == num - 1 { stop as f32 } else { (k as f64 * step + start) as f32 }).collect()
+    npexact::hist::linspace_f64_as_f32(start, stop, num)
 }
 
 /// `|z| > nextafter(2, inf)` as numpy decides it (`np.abs` of a complex64 is its hypot).

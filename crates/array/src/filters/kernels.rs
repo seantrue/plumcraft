@@ -182,32 +182,14 @@ pub fn pm_step(p: &[f32], h: usize, w: usize, kappa: f64, step: f64) -> Vec<f32>
     out
 }
 
-/// The largest value, NaN when there is one (numpy's `max`).
+/// The largest value, NaN when there is one (numpy's `max`, npexact); -inf when empty.
 pub fn nan_max(p: &[f32]) -> f32 {
-    let mut m = f32::NEG_INFINITY;
-    for v in p {
-        if v.is_nan() {
-            return f32::NAN;
-        }
-        if *v > m {
-            m = *v;
-        }
-    }
-    m
+    npexact::extrema::max_f32(p).unwrap_or(f32::NEG_INFINITY)
 }
 
-/// The smallest value, NaN when there is one (numpy's `min`).
+/// The smallest value, NaN when there is one (numpy's `min`, npexact); +inf when empty.
 pub fn nan_min(p: &[f32]) -> f32 {
-    let mut m = f32::INFINITY;
-    for v in p {
-        if v.is_nan() {
-            return f32::NAN;
-        }
-        if *v < m {
-            m = *v;
-        }
-    }
-    m
+    npexact::extrema::min_f32(p).unwrap_or(f32::INFINITY)
 }
 
 /// yapocis `Anisodiff.anisodiff_n` (`filterImageN`) of one plane: scaled by 256 unless its
@@ -282,17 +264,9 @@ pub fn gradient(p: &[f32], h: usize, w: usize, reach: usize) -> (Vec<f32>, Vec<f
 
 // ---------- zcs ----------
 
-/// `np.sign` of a float32: -1, 0 or 1, NaN for NaN.
+/// `np.sign` of a float32 (npexact): -1, 0 or 1, NaN for NaN.
 fn sign(v: f32) -> f32 {
-    if v.is_nan() {
-        f32::NAN
-    } else if v > 0.0 {
-        1.0
-    } else if v < 0.0 {
-        -1.0
-    } else {
-        0.0
-    }
+    npexact::elementwise::sign_f32(v)
 }
 
 /// yapocis `zcs1` (numba backend, numpy): 1 where the squared differences across the pixel,
