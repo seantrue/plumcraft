@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **crates.io 0.2.0 (2026-11-04):** all 19 published crates go to 0.2.0 together, with the workspace pins at `=0.2.0`; `plumcraft-audio` stays unpublished. The maintainer chose 0.2.0 over patch bumps: public structs gained fields (`plumcraft-craft`'s `Report`, `WidgetPlan`), a breaking change. The installers are `app-v0.2.0`, from `packaging/release.sh --linux-host yellowfin`.
 - **To do: choices from the document (2026-11-04).** A port that is a key into the document (an insert slot, a track, a layer) shows what each key points at, then its settings, then the key: `Compressor/Limiter: threshold -20 dB, ratio 4 [a]`. Picking a choice brings that thing's own parameters. The graph saves what was picked (plug-in and settings), not just the slot, so a different document can't silently change its meaning. Design: `docs/research/21-document-choices.md`.
 - **To do: show, while a wire is dragged, which inputs take it directly, which only through a Convert, and which not at all (2026-11-04).** The maintainer asked for it after two ports both labelled `audio` couldn't be wired. Port labels already show their type (`audio · WAV`), uncommitted. See `docs/research/20-convert.md` 7.
 
