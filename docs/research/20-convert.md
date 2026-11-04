@@ -150,18 +150,25 @@ Steps 1 to 5 are the first slice and stand on their own. Step 6 follows only if 
 
 The maintainer asked "What converters need to be implemented?", then, of video, "Check commonkit tests for an example of video as a 4d array" and "add to the list".
 
-### 6.1 Nodes that exist but aren't marked yet
+### 6.1 Nodes that existed but weren't marked: done 2026-11-03
 
-These need only the mark.
+The maintainer: "mark them, and ensure that arrays can be non-images (1d)".
 
 | Node | Converts | Lossless |
 |---|---|---|
-| `array.decode_image` | IMAGE → ARRAY | yes |
-| `array.encode_image` | ARRAY → IMAGE | no (8 bits, clipped to 0–1) |
-| `array.rasterize_svg` | SVG → ARRAY | no |
-| Each craft's Open, by its `image`, `svg` and `pdf` inputs | IMAGE, SVG or PDF → that craft's document | no |
+| `array.decode_image` | IMAGE → ARRAY (`image`) | yes |
+| `array.encode_image` | ARRAY (`image`) → IMAGE | no (8 bits, clipped to 0–1) |
+| `array.rasterize_svg` | SVG → ARRAY (`image`) | no |
+| Each craft's Open, one mark for each of its `image`, `svg` and `pdf` inputs | IMAGE, SVG or PDF → that craft's document | no |
 
-The craft Open nodes would also make a PDF reach text in two steps: PdfCraft's Open, then its Export text.
+PdfCraft's Open and Export text take a PDF to text in two steps.
+
+**Arrays that aren't pictures.**
+
+- **Marks can say an ARRAY's shape** (`from_shape`, `to_shape`): `image` or `series`. Audio to Array gives a `series` and Array to Audio takes one.
+- **A path never crosses shapes.** A sound never becomes a picture through a Convert, and a picture never becomes a sound. `check` says "no connected engine converts AUDIO to IMAGE".
+- **The array engine kept turning a 1-D array into a 1 × n one.** It reads a 1-D array as one row, so its nodes gave back `(1, n)`. Its node runner now puts such a result back to `[n]` when the node was given a 1-D array of that length (`keep_flat`, `crates/array/src/op.rs`). A spectrum stays a spectrum through Arithmetic, and Array to Audio takes it as mono.
+- **A node may carry several marks** (`converts` is one or a list).
 
 ### 6.2 File types that are dead ends
 
@@ -214,7 +221,7 @@ Open questions:
 
 ### 6.6 Suggested order
 
-1. The marks in 6.1.
+1. ~~The marks in 6.1.~~ Done.
 2. `TXT` and `CSV` to TEXT and TABLE, and `FLAC` and `AIFF` to AUDIO (6.2): most craft exports then lead somewhere.
 3. The core pairs (6.3).
 4. Video (6.4).

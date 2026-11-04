@@ -152,4 +152,5 @@ fn check_names_the_converter_a_refused_wire_needs() {
     let text = says(&o);
     assert_eq!(o.status.code(), Some(1), "{text}");
     assert!(text.contains("wire wav.wav -> gain.audio") && text.contains("wire.convert would insert WAV to Audio"), "{text}");
+    assert_eq!(text.matches("wire wav.wav -> gain.audio").count(), 1, "said once: {text}");
 }

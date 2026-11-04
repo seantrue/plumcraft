@@ -35,13 +35,41 @@ impl Node for Op {
             family: "array".into(),
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
+            converts: marks(self.id),
             ..Default::default()
         }
     }
 
     fn run(&self, inputs: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
-        (self.run)(inputs, cx)
+        (self.run)(inputs, cx).map(|out| keep_flat(inputs, out))
     }
+}
+
+/// An array is not always a picture: a 1-D array (a series: a spectrum, a mono signal) is read
+/// as one row ([`Img::from_array`]), so what a node makes of it comes back (1, n). Put such a
+/// result back to `[n]` when the node was given a 1-D array of that length, so a series stays a
+/// series through the array nodes. Tables keep their shape.
+pub(crate) fn keep_flat(inputs: &Inputs, mut out: Outputs) -> Outputs {
+    let lengths: Vec<u64> = inputs
+        .values()
+        .filter_map(|d| match d {
+            Data::Array(a) if a.shape.len() == 1 => a.shape.first().copied(),
+            _ => None,
+        })
+        .collect();
+    if lengths.is_empty() {
+        return out;
+    }
+    for d in out.values_mut() {
+        if let Data::Array(a) = d
+            && !a.table
+            && let [1, n] = a.shape.as_slice()
+            && lengths.contains(n)
+        {
+            a.shape = vec![*n];
+        }
+    }
+    out
 }
 
 pub fn config(message: impl Into<String>) -> NodeError {
@@ -172,4 +200,49 @@ pub fn one(name: &str, a: Img) -> Outputs {
 /// Several outputs.
 pub fn many(outs: Vec<(&str, Data)>) -> Outputs {
     outs.into_iter().map(|(k, v)| (k.to_owned(), v)).collect()
+}
+
+/// The array nodes that convert between types (docs/research/20-convert.md), with their arrays'
+/// shape: a picture, so a path never takes a sound's samples to Encode Image.
+fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {
+    use plumcraft_proto::catalogue::core_types::{ARRAY, IMAGE, SVG};
+    use plumcraft_proto::convert::{Converts, IMAGE as PICTURE};
+    match id {
+        // a picture's colours, 0-1: the bytes come back as the same picture
+        "array.decode_image" => vec![Converts { output: Some("rgb".into()), ..Converts::new(IMAGE, ARRAY, true).to_shape(PICTURE) }],
+        // 8 bits, clipped to 0-1
+        "array.encode_image" => vec![Converts::new(ARRAY, IMAGE, false).from_shape(PICTURE)],
+        "array.rasterize_svg" => vec![Converts { output: Some("rgb".into()), ..Converts::new(SVG, ARRAY, false).to_shape(PICTURE) }],
+        _ => Vec::new(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plumcraft_engine::Array;
+
+    use super::*;
+
+    #[test]
+    fn a_series_stays_a_series() {
+        let series = Array::from_f32(vec![4], &[1.0, 2.0, 3.0, 4.0]);
+        let inputs = Inputs::from([("a".to_owned(), Data::Array(series))]);
+        let row = Array::from_f32(vec![1, 4], &[2.0, 4.0, 6.0, 8.0]);
+        let other = Array::from_f32(vec![1, 3], &[0.0; 3]);
+        let mut table = Array::from_f32(vec![1, 4], &[0.0; 4]);
+        table.table = true;
+        let out =
+            keep_flat(&inputs, Outputs::from([("r".to_owned(), Data::Array(row)), ("o".to_owned(), Data::Array(other)), ("t".to_owned(), Data::Array(table))]));
+        let shape = |k: &str| match &out[k] {
+            Data::Array(a) => a.shape.clone(),
+            _ => vec![],
+        };
+        assert_eq!(shape("r"), [4], "(1, 4) from a 4-long series is the series");
+        assert_eq!(shape("o"), [1, 3], "another length is left");
+        assert_eq!(shape("t"), [1, 4], "a table keeps its shape");
+        // a picture in: nothing changes
+        let pic = Inputs::from([("a".to_owned(), Data::Array(Array::from_f32(vec![1, 4], &[0.0; 4])))]);
+        let out = keep_flat(&pic, Outputs::from([("r".to_owned(), Data::Array(Array::from_f32(vec![1, 4], &[0.0; 4])))]));
+        assert!(matches!(&out["r"], Data::Array(a) if a.shape == [1, 4]));
+    }
 }
