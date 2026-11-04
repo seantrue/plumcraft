@@ -20,6 +20,10 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — npexact from crates.io (Claude Opus 5.5)
+
+The maintainer said "Publish npexact", and the AI published 0.1.1 from yapocis-rs; that work is in yapocis-rs's `AI.md`. Then, with "CPM", the AI removed the `[patch.crates-io]` pin on the GitHub commit and made the workspace require `npexact = "0.1.1"`, because the array engine now calls functions that 0.1.0 doesn't have. `Cargo.lock` takes it from the registry, so `plumcraft-array` can now be published.
+
 ### 2026-11-03 — The array engine's numpy behaviours move into npexact (Claude Opus 5.5)
 
 The maintainer asked first to "assess the gap between npexact and all of numpy". That assessment is `claude-debug/npexact-numpy-gap.md`. Then they asked: "Move the hand-ported behaviours into npexact, record fixtures on Linux and test."
