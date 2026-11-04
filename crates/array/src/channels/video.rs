@@ -131,7 +131,8 @@ fn media(ty: &str) -> &'static str {
 }
 
 fn tool(name: &str, var: &str) -> PathBuf {
-    std::env::var_os(var).map_or_else(|| PathBuf::from(name), PathBuf::from)
+    // ffmpeg is usually in /opt/homebrew/bin, which an editor opened from the Finder doesn't have
+    std::env::var_os(var).map_or_else(|| plumcraft_proto::programs::find_program(name).unwrap_or_else(|| PathBuf::from(name)), PathBuf::from)
 }
 
 /// A folder for one conversion's files, removed when dropped.

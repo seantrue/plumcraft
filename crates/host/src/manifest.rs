@@ -48,15 +48,10 @@ fn against(dir: &Path, p: &str) -> PathBuf {
     if e.is_absolute() { e } else { dir.join(e) }
 }
 
-/// Where a bare program may be, in order, for an app that doesn't have the shell's PATH.
-fn search_path(path: Option<std::ffi::OsString>, home: Option<std::ffi::OsString>) -> Vec<PathBuf> {
-    let mut dirs: Vec<PathBuf> = path.as_deref().map(|p| std::env::split_paths(p).collect()).unwrap_or_default();
-    if let Some(h) = home {
-        let h = PathBuf::from(h);
-        dirs.extend([h.join(".local/bin"), h.join(".cargo/bin")]);
-    }
-    dirs.push(PathBuf::from("/opt/homebrew/bin"));
-    dirs
+/// Where a bare program may be, in order, for an app that doesn't have the shell's PATH
+/// ([`plumcraft_proto::programs::search_path`]: PATH, the login shell's, the usual folders).
+fn search_path() -> Vec<PathBuf> {
+    std::env::split_paths(plumcraft_proto::programs::search_path()).collect()
 }
 
 fn executable(p: &Path) -> bool {
@@ -82,7 +77,7 @@ fn find_program(name: &str, dir: &Path, dirs: &[PathBuf]) -> Option<PathBuf> {
 /// for `uv`, PATH, then the usual install folders (an app started from the desktop doesn't
 /// have the shell's PATH).
 pub fn program(name: &str) -> Option<PathBuf> {
-    find_program(name, Path::new("/"), &search_path(std::env::var_os("PATH"), std::env::var_os("HOME")))
+    find_program(name, Path::new("/"), &search_path())
 }
 
 /// Read and resolve the manifest at `path`.
@@ -117,7 +112,7 @@ fn start_of(m: &EngineManifest, dir: &Path) -> Result<Start, String> {
         };
         return Ok(Start::Attach { url, token });
     }
-    let dirs = search_path(std::env::var_os("PATH"), std::env::var_os("HOME"));
+    let dirs = search_path();
     let Some((name, args)) = m.command.split_first() else { return Err("no command".into()) };
     let program =
         find_program(name, dir, &dirs).ok_or_else(|| format!("{name} wasn't found{}", if hint.is_empty() { String::new() } else { format!(" ({hint})") }))?;
@@ -177,8 +172,9 @@ mod tests {
         program(&d.join("tool"));
         assert_eq!(find_program("tool", &d, &[PathBuf::from("/nowhere"), d.clone()]), Some(d.join("tool")));
         assert_eq!(find_program("nothing", &d, std::slice::from_ref(&d)), None);
-        let dirs = search_path(Some("/a:/b".into()), Some("/home/x".into()));
-        assert_eq!(dirs, ["/a", "/b", "/home/x/.local/bin", "/home/x/.cargo/bin", "/opt/homebrew/bin"].map(PathBuf::from));
+        // the shared search path (plumcraft_proto::programs): PATH first, then the usual folders
+        let dirs = search_path();
+        assert!(dirs.contains(&PathBuf::from("/opt/homebrew/bin")) && dirs.contains(&PathBuf::from("/usr/local/bin")), "{dirs:?}");
         write(&d.join("plain"), "not executable");
         assert_eq!(find_program("plain", &d, std::slice::from_ref(&d)), None);
     }

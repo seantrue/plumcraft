@@ -190,6 +190,7 @@ pub fn spawn_app(program: &Path, args: &[String], file: &Path) -> std::result::R
     log.push(".log");
     let log = std::fs::OpenOptions::new().create(true).append(true).open(PathBuf::from(log)).ok();
     let mut cmd = std::process::Command::new(program);
+    plumcraft_proto::programs::apply(&mut cmd);
     cmd.args(args).arg(file).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null());
     match log {
         Some(l) => cmd.stderr(l),

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- The editor opened from the Finder or the Dock finds the craft apps, uv, ffmpeg and engine programs: an app there gets only the system's `PATH`, so the installed 0.2.0 said SoundCraft wasn't installed though `soundcraft-cli` was in `~/bin`. Programs are now looked for in `PATH`, then the login shell's `PATH` (asked once, only when not started from a terminal), then `~/bin`, `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; every program PlumCraft starts is given that `PATH` too (`plumcraft_proto::programs`).
+
 ## 0.2.0 (2026-11-04)
 
 - **Craft nodes take every parameter their command does.** A curated node's leftover parameters are now advanced widgets, inferred from the craft's own description of the command. Unset widgets aren't sent, so existing workflows run and cache as before. The catalogue check can now read FilmCraft's, WordCraft's, PhotoCraft's and SolidCraft's descriptions, where before it silently checked nothing. A pack can hide a key (`hide`) or turn this off (`auto = false`, `[auto_widgets]`).

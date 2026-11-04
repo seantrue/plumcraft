@@ -28,6 +28,7 @@ pub mod handle;
 pub mod manifest;
 pub mod media;
 pub mod memo;
+pub mod programs;
 pub mod reducer;
 pub mod run;
 #[cfg(feature = "schema")]
