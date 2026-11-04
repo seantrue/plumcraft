@@ -84,6 +84,11 @@ resvg = { version = "0.45", default-features = false, features = ["raster-images
 soundcraft-dsp = { git = "https://github.com/storytold/soundcraft", rev = "40f593a360d67f21022c4206df1781952db37e54" }
 soundcraft-audio-io = { git = "https://github.com/storytold/soundcraft", rev = "40f593a360d67f21022c4206df1781952db37e54" }
 
+# npexact's next release (the hand-ported numpy behaviours moved there, Linux fixtures), pinned to
+# the merged yapocis-rs commit until it is published; drop this once crates.io has it.
+[patch.crates-io]
+npexact = { git = "https://github.com/seantrue/yapocis-rs", rev = "a8be7233474fe3ba2a808e138549be22b7504d62" }
+
 [workspace.lints.rust]
 unsafe_code = "forbid"
 

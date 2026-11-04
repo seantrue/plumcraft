@@ -1,9 +1,10 @@
 # Status
 
-*Updated 2026-11-02.*
+*Updated 2026-11-03.*
 
 ## Where things stand
 
+- **npexact holds the array engine's numpy behaviours (2026-11-03, unreleased):** `plumcraft-array`'s hand-ported numpy code (`minimum`/`maximum`, `clip`, `sign`, `mod`, `nan_to_num`, `min`/`max`/`nanmin`/`nanmax`, int64 `cumsum`, `searchsorted`, `lexsort`, `nanpercentile`, `unique`'s inverse, `sort`, `linspace` with Python-float bounds, `fftshift`) now calls npexact (yapocis-rs PR #8), whose fixtures numpy recorded on the M4 Max and on yellowfin's Xeon (x86-64, AVX2; Yapocis3 PR #72 records them). x86-64 differs from arm64 in how `maximum`/`minimum` break a tie between `-0` and `+0` (and so in reductions) and in `sin`/`cos`'s quadrant rounding; npexact takes both as host policies. Fixed on the way: npexact's `quantile` (float64 where numpy 2 is float32 throughout) and `sin_f32` on x86-64 (1 ulp near odd multiples of π/4). `Cargo.toml` patches `npexact` to the merged yapocis-rs commit (git `rev`) until it is published; `cargo publish` of `plumcraft-array` needs that release first. Left alone: the FFT (not bit-exact; npexact has no pocketfft port), Mandelbrot's complex arithmetic and the elementwise kernels (numba's, not numpy's). Pre-existing on x86-64: `mandelbrot_matches_numba` fails, 9 points (references are Mac numba, which fuses the complex multiply). Notes: `claude-debug/npexact-ports-linux.md`.
 - **Installers (2026-11-02):** `app-v0.1.0` is published, from `packaging/`: a notarized DMG for Apple silicon, and a `.deb` and tarball for x86-64 Linux. The maintainer installed the `.deb` on a Linux server and reports it works.
 - **crates.io (2026-11-02):** 19 of the 20 crates are published, with `plumcraft-editor` installable and the CLI package renamed `plumcraft`. `audio` stays unpublished, since it needs the SoundCraft crates: the editor no longer compiles it in and starts `plumcraft-audio-engine` as a process when it is built. `plumcraft-ui` carries a copy of the two `craft-ui` modules it uses (`crates/ui/src/craft_ui`).
 - **Acceptance (2026-11-02):** P07–P09 are closed on the maintainer's word ("Close out po7-9") after AI runs on `zip` 9. Never tried by a person: P09's PyCharm items (4, 8, the debugger in 9) and P08's window contents and mouse work.

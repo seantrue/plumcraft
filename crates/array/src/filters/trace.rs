@@ -156,17 +156,17 @@ pub fn marching_squares(dist: &[f32], h: usize, w: usize, iso: f32, max_segments
     Some(segs)
 }
 
-/// `sort_segments`: by x0, then y0, x1, y1 (a stable sort, as `np.lexsort`).
+/// `sort_segments`: by x0, then y0, x1, y1 (`np.lexsort((y1, x1, y0, x0))`, npexact: stable, NaN
+/// last).
 pub fn sort_segments(segs: &mut [[f32; 4]]) {
-    segs.sort_by(|a, b| {
-        for k in 0..4 {
-            match a[k].partial_cmp(&b[k]) {
-                Some(std::cmp::Ordering::Equal) | None => continue,
-                Some(o) => return o,
-            }
+    let key = |k: usize| -> Vec<f32> { segs.iter().map(|s| s[k]).collect() };
+    let (x0, y0, x1, y1) = (key(0), key(1), key(2), key(3));
+    if let Some(order) = npexact::order::lexsort_f32(&[&y1, &x1, &y0, &x0]) {
+        let sorted: Vec<[f32; 4]> = order.iter().filter_map(|&i| segs.get(i).copied()).collect();
+        if sorted.len() == segs.len() {
+            segs.copy_from_slice(&sorted);
         }
-        std::cmp::Ordering::Equal
-    });
+    }
 }
 
 /// The outline `offset` pixels outside a mask (nonzero = inside), as sorted segments; `None`

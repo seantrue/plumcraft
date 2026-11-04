@@ -87,22 +87,10 @@ pub fn connected_components_of(edges: &[f32], h: usize, w: usize) -> Vec<f32> {
             }
         }
     }
-    // renumber in order of value (np.unique's inverse)
-    let mut rank = vec![0u32; count];
-    for &l in &labels {
-        if let Some(r) = rank.get_mut(l) {
-            *r = 1;
-        }
-    }
-    let mut next = 0u32;
-    for r in rank.iter_mut() {
-        let used = *r == 1;
-        *r = next;
-        if used {
-            next += 1;
-        }
-    }
-    labels.iter().map(|l| rank.get(*l).copied().unwrap_or(0) as f32).collect()
+    // renumber in order of value (np.unique's inverse, npexact)
+    let labels: Vec<i64> = labels.iter().map(|&l| l as i64).collect();
+    let (_, inverse) = npexact::order::unique_inverse_i64(&labels);
+    inverse.into_iter().map(|r| r as f32).collect()
 }
 
 pub(super) fn connected_components(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
@@ -227,8 +215,8 @@ pub fn segment_average_of(img: &[f32], h: usize, w: usize, segments: &[[i64; 5]]
                 if buf.is_empty() {
                     continue;
                 }
-                // np.sort: NaN last
-                buf.sort_by(|a, b| a.partial_cmp(b).unwrap_or_else(|| a.is_nan().cmp(&b.is_nan())));
+                // np.sort (npexact): NaN last
+                let buf = npexact::order::sort_f32(&buf);
                 let mid = buf.len() / 2;
                 buf.get(mid).copied().unwrap_or(0.0)
             } else {
