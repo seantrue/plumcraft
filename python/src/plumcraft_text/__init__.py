@@ -35,7 +35,7 @@ from plumcraft_engine import (
 )
 from plumcraft_engine.data import raw
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 # The largest file `text.load` reads, and the longest text `text.repeat` makes.
 MAX_LOAD = 64 << 20

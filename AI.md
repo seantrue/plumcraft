@@ -29,6 +29,7 @@ The maintainer: "CPM, publish to crates.io", then "0.2.0 for all", then "CPM, sw
   - renamed the changelog's Unreleased section to 0.2.0.
 - **Checked:** `cargo publish --workspace --dry-run` packaged and compiled all 19 crates.
 - **A defect in the order of work:** the AI first made the version bump before CPM had run, in the same working tree as the feature commit. The maintainer stopped it: "Did we CPM first?" The bump was undone, the feature work went through CPM as it stood, and the bump became this separate commit.
+- **A missed version:** the bump left the Python text twin at 0.1.0 (`plumcraft_text.__version__`, and the golden `text_schema.json`). Its version must match the Rust text engine's. Caught by the release script's checks (`rust_and_python_engines_agree`) before anything was built or tagged, and fixed in a follow-up commit.
 - **Blocked:** Claude Code's auto-mode classifier refused the CPM push twice as "Out-of-Place Publication", and refused an allow rule for it in the settings as "Self-Modification". The maintainer pushed by hand.
 
 ### 2026-11-04 — Craft parameters exposed, plug-in fields, engine picking and editor fixes (Claude Opus 5.5)
