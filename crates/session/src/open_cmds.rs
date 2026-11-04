@@ -196,7 +196,7 @@ fn open(s: &mut Session, p: &Value) -> Result<Value> {
     }
     let watch = vec![WatchRequest { node: node.clone(), port: t.port.clone(), ..Default::default() }];
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, std::time::Instant::now());
     s.docs.pending_value = Some(PendingOpen { node: node.clone(), port: t.port.clone(), app });
     s.docs.last_value = None;

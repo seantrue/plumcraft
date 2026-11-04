@@ -366,6 +366,9 @@ pub struct EditorApp {
     pub tokens: Tokens,
     /// The last command error, shown in the status bar.
     pub last_error: Option<String>,
+    /// A refused wire's way through (`wire.convert`'s params and the path's label), offered
+    /// beside the error (docs/research/20-convert.md).
+    pub convert_offer: Option<(Value, String)>,
     /// The engine connection, when one was started.
     pub link: Option<Link>,
     /// With engines added beside the first: the coordinator the link goes through
@@ -401,6 +404,9 @@ pub struct EditorApp {
     pub prompt: Option<Prompt>,
     /// The run waiting on [`Prompt::Uploads`].
     upload_held: Option<Box<plumcraft_proto::run::RunRequest>>,
+    /// Commands a shortcut fired while a text field had focus: they run on the next frame,
+    /// after the field, losing focus, has committed what was typed (⌘↩ in a query runs it).
+    after_typing: Vec<&'static str>,
     /// The rename window ([`rename_view`]), when open.
     pub rename: Option<rename_view::RenameDialog>,
     /// What Copy or Cut last put on the clipboard.
@@ -431,6 +437,12 @@ pub struct EditorApp {
     pub connector: Option<engine_view::Connector>,
     /// The Attach… window, while it is open.
     pub attach_form: Option<engine_view::AttachForm>,
+    /// Installs engines from GitHub ([`EditorApp::with_installer`]).
+    pub(crate) installer: Option<engine_view::Installer>,
+    /// The Install Engine… window, while it is open.
+    pub install_form: Option<engine_view::InstallForm>,
+    /// An install running in the background.
+    pub installing: Option<engine_view::Installing>,
     /// The context a new engine link wakes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
@@ -451,6 +463,7 @@ impl EditorApp {
             canvas,
             tokens: theme::DEFAULT,
             last_error: None,
+            convert_offer: None,
             link: None,
             coordinator: None,
             engine: EngineState::Off,
@@ -468,6 +481,7 @@ impl EditorApp {
             document: "Untitled".into(),
             prompt: None,
             upload_held: None,
+            after_typing: Vec::new(),
             rename: None,
             copied: None,
             copy_out: None,
@@ -483,6 +497,9 @@ impl EditorApp {
             reloader: None,
             connector: None,
             attach_form: None,
+            installer: None,
+            install_form: None,
+            installing: None,
             repaint: None,
         }
     }
@@ -572,9 +589,17 @@ impl EditorApp {
 
     /// [`EditorApp::run`], returning the error too (the control channel's `command.run`).
     pub fn try_run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
-        match self.session.execute(id, params) {
+        let result = self.session.execute(id, params);
+        // an offer lasts until the next command
+        self.convert_offer = None;
+        match result {
             Ok(v) => {
                 self.last_error = None;
+                if id == "wire.convert"
+                    && let Some(w) = v.get("warning").and_then(Value::as_str)
+                {
+                    self.last_error = Some(w.to_owned());
+                }
                 if id == "graph.new" || id == "graph.open" {
                     if id == "graph.new" {
                         self.document = "Untitled".into();
@@ -626,18 +651,44 @@ impl EditorApp {
                     self.last_error = Some(said);
                 }
                 // The session recorded an engine switch: perform it now, so the caller gets
-                // its outcome (crate::engine_view).
-                if let Some(outcome) = self.pump_engine() {
-                    return outcome;
+                // its outcome (crate::engine_view). A pick can take steps (out, then in again
+                // the new way); the caller gets the last, and how the pick was taken.
+                let mut done = None;
+                while let Some(outcome) = self.pump_engine() {
+                    done = Some(outcome?);
                 }
-                Ok(v)
+                match done {
+                    Some(mut out) => {
+                        if let (Some(how), Some(o)) = (v.get("how"), out.as_object_mut()) {
+                            o.insert("how".into(), how.clone());
+                        }
+                        Ok(out)
+                    }
+                    None => Ok(v),
+                }
             }
             Err(e) => {
                 let e = e.to_string();
                 self.last_error = Some(e.clone());
+                if id == "wire.connect" {
+                    self.convert_offer = self.offer_for(params);
+                }
                 Err(e)
             }
         }
+    }
+
+    /// What `wire.convert` would place for a refused `wire.connect`, if anything.
+    fn offer_for(&self, params: &Value) -> Option<(Value, String)> {
+        let port = |k: &str| -> Option<plumcraft_graph::PortRef> {
+            let v = params.get(k)?;
+            Some(plumcraft_graph::PortRef::new(plumcraft_graph::NodeId(v.get("node")?.as_str()?.to_owned()), v.get("port")?.as_str()?))
+        };
+        let (from, to) = (port("from")?, port("to")?);
+        let best = plumcraft_session::convert::offers(&self.session, &from, &to).into_iter().next()?;
+        let label = best.get("label")?.as_str()?.to_owned();
+        let p = json!({"from": params["from"], "to": params["to"], "kinds": best["kinds"]});
+        Some((p, label))
     }
 
     fn run_all(&mut self, actions: Vec<Action>) {
@@ -758,6 +809,11 @@ impl EditorApp {
                 }
             }
             "app.quit" => self.quit(),
+            "engine.install" => {
+                if self.install_form.is_none() {
+                    self.install_form = Some(engine_view::InstallForm::default());
+                }
+            }
             "engine.attach" => {
                 if self.attach_form.is_none() {
                     self.attach_form = Some(engine_view::AttachForm { url: "http://127.0.0.1:".into(), token: String::new() });
@@ -1229,6 +1285,15 @@ impl EditorApp {
             Some(Ok(_)) => self.last_error = None,
             None => {}
         }
+        // a document saved in its app: fed downstream and run (session doc_edits)
+        match plumcraft_session::doc_edits::poll_doc_edits(&mut self.session, std::time::Instant::now()) {
+            Some(Err(e)) => self.last_error = Some(e),
+            Some(Ok(_)) => self.last_error = None,
+            None => {}
+        }
+        if plumcraft_session::doc_edits::watching(&self.session) {
+            ctx.request_repaint_after(plumcraft_session::doc_edits::POLL);
+        }
         // an Open or Open with… waiting for its value (session value.open)
         match plumcraft_session::open_cmds::poll_value_open(&mut self.session) {
             Some(Err(e)) => self.last_error = Some(e),
@@ -1319,6 +1384,10 @@ impl EditorApp {
         if self.prompt.is_some() {
             return;
         }
+        // last frame's, from a text field that has committed since
+        for id in std::mem::take(&mut self.after_typing) {
+            self.invoke(id);
+        }
         let mut fired = Vec::new();
         // egui matches Shift and Alt as wildcards when a shortcut doesn't name them, so the most
         // specific go first: Cmd+Shift+Z is Redo, not Undo; Cmd+Shift+S is Save As, not Save.
@@ -1335,6 +1404,13 @@ impl EditorApp {
             if ctx.input_mut(|i| i.consume_shortcut(&sc)) && (spec.enabled)(&self.session).is_ok() {
                 fired.push(spec.id);
             }
+        }
+        if typing && !fired.is_empty() {
+            // the field commits when it loses focus this frame; the commands run after that
+            ctx.memory_mut(|m| m.stop_text_input());
+            ctx.request_repaint();
+            self.after_typing = fired;
+            return;
         }
         for id in fired {
             self.invoke(id);
@@ -1360,12 +1436,14 @@ impl EditorApp {
         egui::MenuBar::new().ui(ui, |ui| {
             for menu in menus {
                 ui.menu_button(menu, |ui| {
-                    if menu == "Engine"
-                        && let Some(action) = self.engine_choices_menu(ui)
-                    {
-                        actions.push(action);
-                    }
                     command_menu(ui, &self.session, menu, 1, &mut invoked);
+                    // the engines after the menu's own commands: there are many, and they scroll
+                    if menu == "Engine" {
+                        ui.separator();
+                        if let Some(action) = self.engine_choices_menu(ui) {
+                            actions.push(action);
+                        }
+                    }
                     match menu {
                         "Edit" => edit_op = edit_view::edit_menu(ui, selected),
                         "View" => {
@@ -1483,6 +1561,11 @@ impl EditorApp {
             ui.painter().circle_filled(rect.center(), 5.0, dot);
             ui.label(self.engine_label());
             ui.separator();
+            if let Some(i) = &self.installing {
+                ui.spinner();
+                ui.label(format!("installing {}…", i.url.trim_start_matches("https://github.com/")));
+                ui.separator();
+            }
             // the workflow, as the window title names it (the title isn't in screenshots)
             let dot = if self.session.is_dirty() { " •" } else { "" };
             let doc = ui.colored_label(self.tokens.text, format!("{}{dot}", self.document_name()));
@@ -1560,6 +1643,12 @@ impl EditorApp {
                 ui.separator();
                 ui.colored_label(self.tokens.error, err);
             }
+            if let Some((p, label)) = &self.convert_offer {
+                let tip = format!("wire.convert: place {label} between them, wired, as one undo step");
+                if ui.button(format!("Insert {label}")).on_hover_text(tip).clicked() {
+                    commands.push(("wire.convert", p.clone()));
+                }
+            }
         });
         for (id, p) in commands {
             self.run(id, &p);
@@ -1623,6 +1712,7 @@ impl EditorApp {
         if let Some(Err(e)) = self.pump_engine() {
             self.last_error = Some(e);
         }
+        self.poll_install();
         self.pump_theme(&ctx);
         if let Some(text) = self.copy_out.take() {
             ctx.copy_text(text.clone());
@@ -1663,6 +1753,7 @@ impl EditorApp {
         self.rename_window(&ctx);
         self.browse_for_path();
         self.attach_window(&ctx);
+        self.install_window(&ctx);
         self.params_window(&ctx);
         self.value_editor_windows(&ctx);
         if self.session.views.cache_report {

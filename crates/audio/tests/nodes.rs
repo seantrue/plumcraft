@@ -88,6 +88,8 @@ fn the_catalogue_is_the_audio_family() {
         "audio.spectrogram",
         "audio.from_wav",
         "audio.to_wav",
+        "audio.to_array",
+        "audio.from_array",
         "audio.transients",
         "audio.silence",
         "audio.fx.compressor",
@@ -349,6 +351,46 @@ fn audio_to_wav_and_back_keeps_every_sample() {
     assert_eq!(&wav.bytes[..4], b"RIFF");
     let (was, back) = (h.resolve(&blob(&r, "t", "audio")).unwrap(), h.resolve(&blob(&r, "a", "audio")).unwrap());
     assert_eq!((back.shape.as_slice(), &back.bytes), (was.shape.as_slice(), &was.bytes));
+}
+
+/// Audio as an array and back (docs/research/20-convert.md): (frames, channels) float32, the rate
+/// beside it, and every sample the same when the rate is wired back.
+#[test]
+fn audio_to_array_and_back_keeps_every_sample() {
+    let h = inproc();
+    let nodes = json!({"t": {"kind": "audio.tone", "values": {"seconds": 0.2, "sample_rate": 44_100, "channels": 2, "frequency": 440.0, "level_db": -6.0}},
+                       "x": {"kind": "audio.to_array"}, "a": {"kind": "audio.from_array"}});
+    let wires = [("t", "audio", "x", "audio"), ("x", "array", "a", "array"), ("x", "sample_rate", "a", "sample_rate")];
+    let r = go(&h, "arrayback", graph(nodes, &wires), &["t", "x", "a"]);
+    ok(&r);
+    let arr = h.resolve(&blob(&r, "x", "array")).unwrap();
+    assert_eq!((arr.dtype.as_str(), arr.shape.as_slice()), ("<f4", &[8820u64, 2][..]));
+    assert_eq!(float_out(&r, "x", "sample_rate"), 44_100.0);
+    let (was, back) = (h.resolve(&blob(&r, "t", "audio")).unwrap(), h.resolve(&blob(&r, "a", "audio")).unwrap());
+    assert_eq!((back.shape.as_slice(), &back.bytes), (was.shape.as_slice(), &was.bytes));
+    // both are converters, so a Convert finds them
+    let schema: plumcraft_proto::catalogue::SchemaReply = serde_json::from_value(call(&h, "schema", json!({}))).unwrap();
+    let path = schema.convert_paths("WAV", "ARRAY");
+    assert_eq!(path.first().map(|p| p.iter().map(|c| c.kind).collect::<Vec<_>>()), Some(vec!["audio.from_wav", "audio.to_array"]));
+}
+
+#[test]
+fn array_to_audio_takes_mono_and_refuses_what_isnt_samples() {
+    let h = inproc();
+    let through = |id: &str, kind: &str, values: Value, out: &str| {
+        let nodes = json!({"t": {"kind": "audio.tone", "values": {"seconds": 0.1, "sample_rate": 48_000, "channels": 1, "frequency": 1000.0, "level_db": -20.0}},
+                           "s": {"kind": kind, "values": values}, "a": {"kind": "audio.from_array"}});
+        go(&h, id, graph(nodes, &[("t", "audio", "s", "audio"), ("s", out, "a", "array")]), &["t", "s", "a"])
+    };
+    // a 1-D spectrum is mono audio
+    let r = through("mono", "audio.spectrum", json!({"fft_size": 1024}), "spectrum");
+    ok(&r);
+    assert_eq!(h.resolve(&blob(&r, "a", "audio")).unwrap().shape, [513u64, 1]);
+    // a (16, 32) picture would be 32 channels
+    let r = through("wide", "audio.spectrogram", json!({"width": 32, "height": 16}), "spectrogram");
+    assert_eq!(error_kind(&r, "a"), "config", "too many channels");
+    let r = go(&h, "noarray", graph(json!({"a": {"kind": "audio.from_array"}}), &[]), &["a"]);
+    assert_eq!(error_kind(&r, "a"), "config", "no wire, no value");
 }
 
 #[test]

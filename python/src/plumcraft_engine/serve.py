@@ -172,8 +172,16 @@ def _lifeline() -> None:
 
 def main(factory: Factory, argv: list[str] | None = None) -> int:
     """The entry point of an engine process: `--listen host:port [--port-file f] [--token-file f]` serves HTTP
-    (mode 3); otherwise it connects back to the UI's socket (mode 2)."""
+    (mode 3); otherwise it connects back to the UI's socket (mode 2). `register` and `unregister`
+    offer an installed engine to PlumCraft and withdraw it (`plumcraft_engine.register`)."""
     args = sys.argv[1:] if argv is None else argv
+    # `register` and `unregister`: offer the installed engine to PlumCraft (register.py)
+    if isinstance(factory, type):
+        from .register import main as register_main
+
+        done = register_main(factory, args)
+        if done is not None:
+            return done
     from .http import file_token, listen_args, serve_http
 
     listen = listen_args(args)

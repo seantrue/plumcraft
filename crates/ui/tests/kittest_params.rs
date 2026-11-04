@@ -128,3 +128,40 @@ fn the_canvas_tucks_what_the_choice_doesnt_use() {
     assert!(h.state().session.graph().node(&id.as_str().into()).unwrap().all_fields);
     assert!(has(&h, "Fewer fields") && has(&h, "spare"));
 }
+
+#[test]
+fn a_multiline_field_takes_new_lines_and_commits_before_a_shortcut_runs() {
+    let mut s = session();
+    let id = add(&mut s, "test.notes", 40.0, 40.0);
+    s.execute("node.parameters", &json!({"node": id})).unwrap();
+    let mut h = harness(EditorApp::new(s));
+    h.run_steps(4);
+    // one on the node, one in the parameter editor
+    let boxes = h.query_all_by_role(egui::accesskit::Role::MultilineTextInput).count();
+    assert_eq!(boxes, 2, "a text box on the node and in the editor");
+    let field = h.query_all_by_role(egui::accesskit::Role::MultilineTextInput).last().unwrap().rect();
+    click_at(&mut h, field.center());
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.event(egui::Event::Text("SELECT *".into()));
+    h.key_press(egui::Key::Enter);
+    h.event(egui::Event::Text("FROM a".into()));
+    h.run_steps(2);
+    assert_eq!(current(&h, &id, "sql"), json!("SELECT 1"), "Enter is a new line, not the end");
+    // A shortcut while the box has focus (⌘↩ Run, here ⌘⇧L Tidy, which needs no engine): the
+    // box commits first, then the command runs, so a run has what was typed.
+    h.key_press_modifiers(egui::Modifiers::COMMAND | egui::Modifiers::SHIFT, egui::Key::L);
+    h.run_steps(3);
+    assert_eq!(current(&h, &id, "sql"), json!("SELECT *\nFROM a"));
+    // the commit went first: Tidy is the step Undo takes back
+    let last = h.state().session.undo_label().map(str::to_owned);
+    assert!(last.as_deref().is_some_and(|l| l.contains("Tidy")), "{last:?}");
+    // a long query scrolls in its box: neither the node nor the editor's row grows with it
+    let card = |h: &Harness<'_, EditorApp>| h.state().canvas.node_rects_by_id().into_iter().find(|(n, _)| n.0 == id).map(|(_, r)| r.height()).unwrap();
+    let row = |h: &Harness<'_, EditorApp>| h.state().params.rects.iter().find(|(k, _)| k == "sql").map(|(_, r)| r.height()).unwrap();
+    let (card_before, row_before) = (card(&h), row(&h));
+    let long: String = (1..=30).map(|i| format!("-- line {i}\n")).collect();
+    h.state_mut().session.execute("node.set", &json!({"node": id, "port": "sql", "value": long})).unwrap();
+    h.run_steps(3);
+    assert!(card(&h) <= card_before + 1.0, "the node stays {card_before}: {}", card(&h));
+    assert!(row(&h) <= 340.0, "the editor's box scrolls past 320 ({row_before} before): {}", row(&h));
+}

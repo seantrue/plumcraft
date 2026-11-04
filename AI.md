@@ -20,6 +20,105 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — Engine › Install Engine…, and the public engines in the README (Claude Opus 5.5)
+
+The maintainer asked for one public repo per Python engine, named `plumcraft-<name>-engine`, and the AI made them: DuckDB, OpenCV (renamed and made public) and Atlas. Then the maintainer asked: "Add the engine repos to the PlumCraft README, add an engine command to the editor to download and install an engine from github." The maintainer then ran it in the editor and installed DuckDB with it: "This is good".
+
+**The command.** `engine.install {repo}` (Engine › Install Engine…) takes `owner/repo` or a GitHub URL. Off the UI thread, it runs `uv tool install --reinstall git+URL`, then `register` on each command that installed, then reloads the Engine menu, with a spinner in the status bar. The window offers the three public engines. The app supplies the installer (`EditorApp::with_installer`), as it supplies Reload, so the editor's tests use a stand-in. `plumcraft_host::manifest::program` finds `uv` as manifests do.
+
+**Size:**
+
+| Where | Lines |
+|---|---|
+| UI | ~140 |
+| Session | ~70 |
+| The app's installer, and its tests | ~85 |
+| The kittest | ~80 |
+| Docs and README | ~35 |
+
+**Tests:**
+
+- session repo checks, including names with `..` and `;`;
+- two kittests with a stand-in installer: the window, the spinner, the reload, a failure;
+- the parser of what `uv` says it installed;
+- a live install of DuckDB from GitHub into scratch folders. It is `#[ignore]` because it needs the network; the AI ran it and it passed.
+
+**Defects:** none found by the tests. The maintainer's run in the editor was the first by a person.
+
+### 2026-11-03 — Headless runs, documents edited in their apps, Convert, and engines that register themselves (Claude Opus 5.5)
+
+One branch, `headless-write-files`, holding two days of requests. Pushed unmerged at the maintainer's request, so the public engines can pin the SDK commit: "Commit and push the branch".
+
+**Headless runs.** Prompted by `../plumcraft-graphs`, which needed graphs to run without a window:
+
+- `plumcraft-editor run` runs a graph's Write Files nodes when it has no Result node.
+- `run`, `check` and `tidy` take their engines from the file.
+- `check` reports unknown kinds and inputs, refused wires, wire-only inputs left unwired, and nodes nothing uses.
+- `tidy` lays a graph out and saves it.
+
+**Documents edited in their apps.** The maintainer: "For documents without an internal view type, popout should use the appropriate craft app to view. saving an edited version of the doc should trigger…". A pop-out opens the craft's app, and a save there flows to the nodes downstream (`crates/session/src/doc_edits.rs`).
+
+**For the maintainer's one-document report** ("This needs to be one document. Pdf…"):
+
+- GridCraft's Export PDF can export every sheet.
+- Craft packs can take wired files (`[[node.file]]`).
+- PdfCraft's Open takes a PDF, a new Insert pages node joins PDFs, and Header and footer gained options.
+
+**Smaller requests:**
+
+- **A `multiline` text box** ("Add a multiline text entry, usable in node parameter Dialog"). Making it exposed a real bug: ⌘↩ pressed in a text field ran with the old value. Shortcuts pressed while typing now wait for the field to commit.
+- **The Engine menu** ("The engines menu is very long, and does not scroll…", then "Isn't every selection an 'Add engine'? Clear engines and add engine would allow a complete change"):
+  - commands first, then a list that scrolls, each engine a submenu of its connections;
+  - a pick is `engine.use`, which starts, adds or changes an engine;
+  - `engine.clear` stops them all.
+
+**Convert** (`docs/research/20-convert.md`). The maintainer asked whether "a core node that will transform between all conformant data types" made sense, then decided: both slices; the path names kinds only, leaving engines to the coordinator; a warning for lossy paths; and craft exports count, "two steps for consistency".
+
+- Engines mark converters (`converts` on a NodeDef).
+- A refused wire offers Insert (`wire.convert`), and `check` names the fix.
+- The core Convert node takes its types from its wires and keeps its path. It is expanded into its converters before a run, and what comes back is put back on it.
+- At "No conversion from audio or wave to array?", the audio engine gained Audio to Array and Array to Audio.
+
+**Engines that register themselves.** The maintainer asked "How can I distribute new engines?", then "Add register to the Rust engines too". `register` and `unregister` were added to every Python engine's console script (`plumcraft_engine.register`) and to Rust engines (`plumcraft_engine::register`, used through the shared `serve::main`). Generated wheels now carry `examples/`.
+
+**Size, from `git diff --numstat` against `main`:**
+
+| Area | Added | Removed |
+|---|---|---|
+| `crates/session` | ~1140 | ~25 |
+| `apps/plumcraft-editor` | ~470 | ~20 |
+| `crates/proto` | ~390 | — |
+| `crates/ui` | ~320 | ~55 |
+| `crates/graph` | ~290 | — |
+| `crates/craft` | ~255 | ~30 |
+| `crates/engine` | ~250 | — |
+| `crates/audio` | ~165 | ~40 |
+| `python` | ~440 (code and tests) | ~20 |
+| `docs` | ~280 | — |
+
+**Defects in AI-written code, and how they were caught:**
+
+- **The maintainer caught three:**
+  - dates shown as `####` in the workbook, because the columns were too narrow ("Column widths should be adjusted so data is visible");
+  - the report as several files instead of one document;
+  - the Engine menu's Add Engine submenu, which repeated what every pick could do.
+- **Tests and runs caught the rest:**
+  - the workbook PDF exported 1 page of 4;
+  - a duplicate egui widget id;
+  - ⌘↩ swallowed before a multiline field saw it;
+  - an `--engine-manifest` flag that switched off the file's own engines;
+  - demos whose relative paths failed `check`;
+  - Convert's core node injected into an empty catalogue, which broke "no engine connected" checks (a session test);
+  - a test helper that wires by port name;
+  - clippy, rustfmt and ruff findings.
+- **Correct work aimed at the wrong target:** a Rust DuckDB crate, abandoned when the maintainer said "Build in python instead".
+
+**Not done:**
+
+- a Convert's steps run with their options' defaults;
+- engines that aren't connected aren't offered;
+- `register` needs releases of the SDKs before it helps anyone installing from an index.
+
 ### 2026-11-02 — The first installers published (Claude Opus 5.5)
 
 The maintainer ran `packaging/release.sh --linux-host HOST --upload` and published the draft. The maintainer also installed the `.deb` on that Linux server and ran it: "I ran it on [a server], installed from .deb -- works." That is the first install of the package, and the maintainer's test, not the AI's.

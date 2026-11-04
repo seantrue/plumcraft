@@ -97,13 +97,29 @@ pub(crate) fn refresh(s: &mut Session) -> Option<String> {
         return None;
     }
     let base = crate::paths::base_folder(s.path());
-    let graph = crate::paths::with_absolute_paths(s.graph(), s.catalog(), base.as_deref());
+    let graph = crate::convert::runnable(s, base.as_deref());
     let watch = s.run.watch.clone();
     Some(s.run.request(&graph, Vec::new(), watch, Instant::now()).run_id)
 }
 
+/// The app a document at `w` opens in, when PlumCraft has no view of its own for it.
+fn opens_in_app(s: &Session, w: &WatchRequest) -> Option<String> {
+    let n = s.graph().node(&NodeId(w.node.clone()))?;
+    let out = s.catalog().node(&n.kind)?.output(&w.port)?;
+    s.docs.for_wire(&out.ty).filter(|a| !a.viewer).map(|a| a.label.clone())
+}
+
 fn popout(s: &mut Session, p: &Value) -> Result<Value> {
     let w = target(s, p)?;
+    // A craft document PlumCraft can't show opens in its app, whose saves flow downstream
+    // (doc_edits); `window: true` asks for PlumCraft's window anyway.
+    if p.get("window").and_then(Value::as_bool) != Some(true)
+        && let Some(app) = opens_in_app(s, &w)
+    {
+        let mut out = crate::doc_cmds::open(s, &json!({"node": w.node, "port": w.port}))?;
+        out["in_app"] = json!(app);
+        return Ok(out);
+    }
     let viewer = viewer_param(p)?;
     // The same port and item already open: bring that one forward.
     if let Some(open) =
@@ -206,7 +222,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Pop Out",
             menu: &[],
             shortcut: None,
-            params: "{node, port?, index?, viewer?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor. viewer picks one of the value's viewers (array.grid, table.grid, …)",
+            params: "{node, port?, index?, viewer?, window?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor. viewer picks one of the value's viewers (array.grid, table.grid, …). A craft document PlumCraft has no view of its own for opens in its app instead, as doc.open does ({in_app, path, …}, or {pending, in_app, run_id}), and a save there feeds the nodes downstream; window: true asks for PlumCraft's window anyway",
             enabled: always,
             run: popout,
             journal: false,

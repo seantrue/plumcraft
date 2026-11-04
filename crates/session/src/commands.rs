@@ -103,7 +103,9 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(crate::view_cmds::specs());
         v.extend(crate::viewer_cmds::specs());
         v.extend(crate::doc_cmds::specs());
+        v.extend(crate::doc_edits::specs());
         v.extend(crate::open_cmds::specs());
+        v.extend(crate::convert::specs());
         v.extend(crate::file_cmds::about_specs());
         let added = ADDED.lock().map(|mut a| std::mem::take(&mut *a)).unwrap_or_default();
         let _ = APP_IDS.set(added.iter().map(|c| c.id).collect());

@@ -472,9 +472,23 @@ fn doc_apps() -> Vec<plumcraft_session::DocApp> {
                 ext: m.doc.ext.clone(),
                 program: gui.executable(),
                 args: gui.program().into_iter().skip(1).collect(),
+                viewer: has_own_view(&m.doc.wire, &m.doc.media, &m.doc.app),
             })
         })
         .collect()
+}
+
+/// Whether one of PlumCraft's viewers, besides the document's rendition and its bytes, shows a
+/// craft's documents (PdfCraft's PDFs: pages). Without one, a pop-out opens the app.
+fn has_own_view(wire: &str, media: &str, app: &str) -> bool {
+    use plumcraft_proto::data::{BlobMeta, DataRef, Form};
+    let d = plumcraft_proto::display::Display {
+        media: plumcraft_proto::catalogue::Media::Doc,
+        ty: wire.to_owned(),
+        full: Some(DataRef { meta: BlobMeta { media: media.to_owned(), form: Form::Doc { app: app.to_owned() }, ..Default::default() }, ..Default::default() }),
+        ..Default::default()
+    };
+    plumcraft_ui::viewers::kinds_for(&d).iter().any(|k| !matches!(k.id, "doc" | "hex"))
 }
 
 /// The app icon (window and Dock), the 1024 px master; credits in `plums/CREDITS.md`.
@@ -742,10 +756,11 @@ fn editor_with(
     app.setup_context(ctx);
     // The Engine menu: every engine and hosting, this one checked.
     let manifests = launcher.manifests.clone();
-    let mut app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
+    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
         let problems = load_manifests(&manifests, manifest_folder().as_deref());
         (choices(), problems)
     }));
+    let mut app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
     match link {
         Ok(link) => app.with_link(link),
         Err(e) => {
@@ -755,9 +770,90 @@ fn editor_with(
     }
 }
 
+/// The commands `uv tool install` says it installed ("Installed 2 executables: a, b").
+fn installed_executables(said: &str) -> Vec<String> {
+    said.lines()
+        .filter_map(|l| l.trim().strip_prefix("Installed ")?.split_once(": ").map(|(_, names)| names.to_owned()))
+        .flat_map(|names| names.split(", ").map(|n| n.trim().to_owned()).collect::<Vec<_>>())
+        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)))
+        .collect()
+}
+
+/// The last lines of a command's output, for an error.
+fn tail(out: &std::process::Output) -> String {
+    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
+    lines[lines.len().saturating_sub(4)..].join("\n")
+}
+
+/// Engine › Install Engine…: `uv tool install --reinstall git+URL`, then `register` on each
+/// command it installed, so the engine's manifest is in `~/.config/plumcraft/engines/`. `env` is
+/// set on both (a test's own tool and config folders).
+fn install_engine(url: &str, env: &[(&str, &std::path::Path)]) -> Result<String, String> {
+    use std::process::Command;
+    let uv = plumcraft_host::manifest::program("uv").ok_or("needs uv (https://docs.astral.sh/uv), or set PLUMCRAFT_UV")?;
+    let run = |cmd: &mut Command| -> Result<std::process::Output, String> {
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        cmd.output().map_err(|e| e.to_string())
+    };
+    let out = run(Command::new(&uv).args(["tool", "install", "--reinstall"]).arg(format!("git+{url}")))?;
+    if !out.status.success() {
+        return Err(format!("uv tool install failed: {}", tail(&out)));
+    }
+    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+    let exes = installed_executables(&said);
+    if exes.is_empty() {
+        return Err(format!("uv installed it but named no command: {}", tail(&out)));
+    }
+    let bin = run(Command::new(&uv).args(["tool", "dir", "--bin"]))?;
+    let bin = std::path::PathBuf::from(String::from_utf8_lossy(&bin.stdout).trim());
+    let mut registered = Vec::new();
+    for exe in &exes {
+        let out = run(Command::new(bin.join(exe)).arg("register"))?;
+        if !out.status.success() {
+            return Err(format!("installed {exe}, but `{exe} register` failed: {}", tail(&out)));
+        }
+        registered.push(exe.as_str());
+    }
+    Ok(format!("installed and registered {} from {url}", registered.join(", ")))
+}
+
+/// The engines a workflow file names (`"engines": [...]`), for a headless command given no
+/// `--engine`: the first argument that isn't a flag (or a flag's value) is the file.
+fn file_engines(args: &[String]) -> Option<Vec<String>> {
+    let mut it = args.iter();
+    let mut file = None;
+    while let Some(a) = it.next() {
+        if ["--out", "--node", "--format", "--engine-manifest"].contains(&a.as_str()) {
+            it.next();
+        } else if !a.starts_with('-') {
+            file = Some(a);
+            break;
+        }
+    }
+    let text = std::fs::read_to_string(file?).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let ids: Vec<String> = v.get("engines")?.as_array()?.iter().filter_map(|e| e.as_str().map(str::to_owned)).collect();
+    if ids.is_empty() { None } else { Some(ids) }
+}
+
 /// `--engine-manifest`'s files, in order.
 fn manifest_args(args: &[String]) -> Vec<PathBuf> {
     args.windows(2).filter(|w| w[0] == "--engine-manifest").map(|w| PathBuf::from(&w[1])).collect()
+}
+
+/// `args`, with `--engine` naming the engines the workflow names, for `run`, `check` and `tidy`
+/// given no `--engine`. A manifest given (`--engine-manifest`) only says how to start one of them.
+fn with_file_engines(mut args: Vec<String>) -> Vec<String> {
+    if matches!(args.first().map(String::as_str), Some("run" | "check" | "tidy"))
+        && !args.iter().any(|a| a == "--engine")
+        && let Some(ids) = file_engines(&args[1..])
+    {
+        args.extend(["--engine".to_owned(), ids.join(",")]);
+    }
+    args
 }
 
 /// `args`, with `--engine <id>` of the first manifest given when `--engine` names none.
@@ -782,7 +878,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         eprintln!("{program}: {e}");
         return ExitCode::FAILURE;
     }
-    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == WORKER_FLAG) {
         let id = args.get(1).cloned().unwrap_or_default();
         return match serve_worker(&id, &args) {
@@ -801,6 +897,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         print!("{}{help}", usage(program));
         return ExitCode::SUCCESS;
     }
+    let mut args = with_file_engines(args);
     if let Some(engine) = default_engine.filter(|_| !args.iter().any(|a| a == "--engine" || a == "--engine-manifest")) {
         args.extend(["--engine".to_owned(), engine.to_owned()]);
     }
@@ -820,6 +917,8 @@ pub fn run(config: AppConfig) -> ExitCode {
     match args.first().map(String::as_str) {
         Some("run") => return headless::run(program, &args[1..], kind, mode, &extras, manifests),
         Some("nodes") => return headless::nodes(program, kind, mode, &extras, manifests),
+        Some("check") => return headless::check(program, &args[1..], kind, mode, &extras, manifests),
+        Some("tidy") => return headless::tidy(program, &args[1..], kind, mode, &extras, manifests),
         _ => {}
     }
     let shot_runs = flag_value(&args, "--shot-runs").and_then(|n| n.parse().ok()).unwrap_or(1);
@@ -913,15 +1012,23 @@ fn usage(program: &str) -> String {
         "usage: {program} [WORKFLOW] [--engine ID[,ID...]] [--engine-manifest FILE]... [--inproc | --process | --python | --http]
                [--screenshot OUT.png [--shot-runs N]] [--control PORT [--control-token-file PATH]]
        {program} run FILE [--out DIR] [--node NODE[.PORT]]... [--format EXT] [--sheet] [--engine ID[,ID...]]
+       {program} check FILE [--engine ID[,ID...]]
+       {program} tidy FILE [--engine ID[,ID...]]
        {program} nodes [--engine ID[,ID...]]
 
   WORKFLOW          a workflow, a .zip bundle, or a file this application opens as one
-  run FILE          no window: compute FILE's results and write each as Save Result would
-    --out DIR       where (default: the current folder; made if missing)
+  run FILE          no window: compute FILE's results and write each as Save Result would;
+                    with no Result node, run its Write Files nodes instead
+    --out DIR       where (default: the current folder; made if missing); also where the
+                    Write Files nodes write when given
     --node N[.P]    this output instead of every Result node's (repeatable)
     --format EXT    a format's extension (default: the engine's first)
     --sheet         lists as one contact sheet instead of numbered files
+  check FILE        no window: say what is wrong with FILE (types, wires, unwired inputs,
+                    nodes nothing uses) without running it; exit 1 when anything is
+  tidy FILE         no window: lay FILE out as Edit › Tidy does, and save it
   nodes             no window: list the engine's node types
+    --engine        default for run, check and tidy: the engines FILE names in its engines list
   -V, --version     show the version and what this build is made of
   -h, --help        show this help
 "
@@ -1028,6 +1135,26 @@ mod tests {
     }
 
     #[test]
+    fn a_headless_run_takes_the_files_engines_beside_a_manifest() {
+        let dir = plumcraft_scratch::dir("editor-file-engines");
+        let wf = dir.join("wf.json");
+        std::fs::write(&wf, r#"{"version": 1, "engines": ["duckdb", "gridcraft"], "nodes": {}, "wires": []}"#).unwrap();
+        let wf = wf.display().to_string();
+        let engines = |args: &[&str]| {
+            let a = with_file_engines(strings(args));
+            a.windows(2).find(|w| w[0] == "--engine").map(|w| w[1].clone())
+        };
+        assert_eq!(engines(&["run", &wf]), Some("duckdb,gridcraft".into()));
+        // a manifest says how to start one of them: the file still names them all, and the
+        // manifest's path before the file isn't taken for it
+        assert_eq!(engines(&["run", "--engine-manifest", "duckdb.toml", &wf]), Some("duckdb,gridcraft".into()));
+        assert_eq!(engines(&["check", &wf, "--engine-manifest", "duckdb.toml"]), Some("duckdb,gridcraft".into()));
+        // --engine wins, and a window's arguments are left alone
+        assert_eq!(engines(&["run", &wf, "--engine", "text"]), Some("text".into()));
+        assert_eq!(engines(&[&wf]), None);
+    }
+
+    #[test]
     fn the_audio_demo_opens_with_every_node_placed() {
         let (g, name) = read_workflow(None, EngineKind::Audio).unwrap();
         assert_eq!(name, "Demo");
@@ -1051,6 +1178,9 @@ mod tests {
         assert_eq!(apps.len(), with_gui);
         let vc = apps.iter().find(|a| a.app == "vectorcraft").expect("VectorCraft's [gui]");
         assert_eq!((vc.wire.as_str(), vc.label.as_str(), vc.ext.as_str()), ("vectorcraft.doc", "VectorCraft", "vectorcraft"));
+        // PlumCraft shows PdfCraft's documents itself (pages); every other craft's pop out in its app
+        let own: Vec<&str> = apps.iter().filter(|a| a.viewer).map(|a| a.app.as_str()).collect();
+        assert_eq!(own, ["pdfcraft"]);
     }
 
     #[test]
@@ -1291,6 +1421,47 @@ mod tests {
             assert!(h.state().coordinator.is_none() && h.state().session.engines.added.is_empty());
         }
 
+        /// The Engine menu's picks (`engine.use`): another engine is added, a connected one
+        /// changes its connection and keeps the others, and Clear Engines then a pick is a
+        /// complete change.
+        #[test]
+        fn a_pick_adds_or_changes_an_engine_and_clear_starts_over() {
+            let mut h = text_editor(Launcher::default());
+            run_all_done(&mut h, "text alone");
+            let r = command(&mut h, "engine.use", json!({"engine": "array", "mode": "inproc"})).unwrap();
+            assert_eq!(r["how"], "add", "{r}");
+            assert_eq!(h.state().session.engines.engine_ids(), ["text", "array"]);
+            // the first engine's connection changes; the array engine comes back beside it
+            assert_eq!(command(&mut h, "engine.use", json!({"engine": "text", "mode": "process"})).unwrap()["how"], "change");
+            h.run_steps(3);
+            assert!(h.state().session.engines.is_current("text", "process"), "{:?}", h.state().last_error);
+            assert_eq!(h.state().session.engines.engine_ids(), ["text", "array"]);
+            assert!(h.state().session.connected && h.state().session.catalog().node("array.arithmetic").is_some());
+            assert_eq!(command(&mut h, "engine.use", json!({"engine": "array", "mode": "inproc"})).unwrap()["how"], "unchanged");
+            run_all_done(&mut h, "text by process beside array");
+
+            // Clear: no engine, the graph kept, nothing to reconnect
+            let nodes = h.state().session.graph().nodes.len();
+            command(&mut h, "engine.clear", json!({})).unwrap();
+            assert!(!h.state().session.connected && h.state().link.is_none() && h.state().coordinator.is_none());
+            assert!(h.state().session.engines.engine_ids().is_empty());
+            assert_eq!(h.state().session.graph().nodes.len(), nodes);
+            assert!(!h.state().enabled("engine.reconnect") && !h.state().enabled("engine.clear") && !h.state().enabled("run.start"));
+
+            // then a pick from the menu, as a person would: the one engine there is
+            h.get_by_label("Engine").click();
+            h.run_steps(3);
+            assert!(h.query_by_label("Add Engine ⏵").is_none(), "every pick adds; no Add Engine");
+            h.get_by_label("Text ⏵").hover();
+            h.run_steps(3);
+            h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Rust · in-process (mode 1)").click();
+            h.run_steps(3);
+            assert!(h.state().session.connected, "{:?}", h.state().last_error);
+            assert!(h.state().session.engines.is_current("text", "inproc"));
+            assert!(h.state().session.engines.added.is_empty());
+            run_all_done(&mut h, "after a clear and a pick");
+        }
+
         #[test]
         fn a_switch_cancels_the_run_in_flight() {
             let mut h = text_editor(Launcher::default());
@@ -1474,14 +1645,37 @@ mod tests {
             // the Engine menu still works: pick in-process from it, as a person would
             h.get_by_label("Engine").click();
             h.run_steps(3);
-            // (text's comes first; array and each craft pack have one too)
-            let items: Vec<_> = h.get_all_by_role_and_label(egui::accesskit::Role::RadioButton, "Rust · in-process (mode 1)").collect();
-            assert_eq!(items.len(), 2 + plumcraft_craft::manifest::BUILTIN.len(), "text's, array's and each craft's");
-            items[0].click();
+            // the menu's own commands come first, then the engines, each a submenu of its
+            // connections; the failed one isn't in use, so it names no connection
+            let reload = h.get_by_label("Reload Engine List").rect().top();
+            let text = h.get_by_label("Text ⏵");
+            assert!(reload < text.rect().top(), "the fixed commands are above the engines");
+            assert!(h.query_by_label("Rust · in-process (mode 1)").is_none(), "connections wait in submenus");
+            text.hover();
+            h.run_steps(3);
+            h.get_by_role_and_label(egui::accesskit::Role::RadioButton, "Rust · in-process (mode 1)").click();
             h.run_steps(3);
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
             assert!(h.state().session.engines.is_current("text", "inproc"));
             run_all_done(&mut h, "after the failed switch");
+        }
+
+        #[test]
+        fn a_short_window_scrolls_the_engine_list_and_keeps_its_commands() {
+            engine_binaries();
+            let (graph, name) = read_workflow(None, EngineKind::Text).unwrap();
+            let ctx = egui::Context::default();
+            let app = editor_with(&ctx, graph, None, name, EngineKind::Text, Mode::InProc, None, Launcher::default());
+            let mut h = harness(app, egui::vec2(900.0, 320.0));
+            h.get_by_label("Engine").click();
+            h.run_steps(3);
+            // the commands are all there, at the top
+            for fixed in ["Reconnect", "Attach…", "Reload Engine List"] {
+                assert!(h.get_by_label(fixed).rect().bottom() < 320.0, "{fixed} shows");
+            }
+            // every engine is in the list, but the last ones are scrolled out of sight
+            let last = h.get_by_label("WordCraft ⏵").rect();
+            assert!(last.top() > 320.0, "the list scrolls rather than running on: {last:?}");
         }
 
         #[test]
@@ -1953,5 +2147,38 @@ mod tests {
             let r = h.state_mut().control_now(&ctx, "ui.audio", &json!({"play": false}));
             assert_eq!(r["ok"], true, "stopping is always fine: {r}");
         }
+    }
+}
+
+#[cfg(test)]
+mod install_tests {
+    use super::*;
+
+    #[test]
+    fn the_commands_uv_installed_are_read_from_what_it_said() {
+        let said = "Resolved 20 packages in 1.2s\n + duckdb-engine==0.1.0\nInstalled 1 executable: duckdb-engine\n";
+        assert_eq!(installed_executables(said), ["duckdb-engine"]);
+        assert_eq!(installed_executables("Installed 2 executables: a-engine, b_tool\n"), ["a-engine", "b_tool"]);
+        assert!(installed_executables("Installed 1 executable: ../../evil; rm\n").is_empty(), "only plain names");
+        assert!(installed_executables("nothing to say\n").is_empty());
+    }
+
+    /// The real thing: DuckDB from GitHub into a scratch tool folder and a scratch HOME, so
+    /// nothing of the person's changes. Needs uv and the network:
+    /// `cargo test -p plumcraft-editor -- --ignored a_public_engine_installs_from_github`
+    #[test]
+    #[ignore = "downloads from GitHub"]
+    fn a_public_engine_installs_from_github() {
+        let root = plumcraft_scratch::dir("install-github");
+        let (tools, bin, home) = (root.join("tools"), root.join("bin"), root.join("home"));
+        // the person's uv cache, so it needn't download everything again
+        let cache = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/uv")).unwrap();
+        let env: [(&str, &std::path::Path); 4] = [("UV_TOOL_DIR", &tools), ("UV_TOOL_BIN_DIR", &bin), ("HOME", &home), ("UV_CACHE_DIR", &cache)];
+        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &env).unwrap();
+        assert!(said.contains("duckdb-engine"), "{said}");
+        let manifest = home.join(".config/plumcraft/engines/duckdb.toml");
+        let resolved = plumcraft_host::manifest::load(&manifest).unwrap();
+        assert_eq!(resolved.manifest.id, "duckdb");
+        assert!(resolved.demo.as_ref().is_some_and(|d| d.is_file()), "the wheel's demo: {:?}", resolved.demo);
     }
 }

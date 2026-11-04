@@ -27,6 +27,7 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod convert;
 pub mod frames;
 pub mod groups;
 pub mod insert;
@@ -106,6 +107,8 @@ pub enum GraphError {
     BadRange { label: String, reason: String },
     #[error("{0}")]
     Broken(String),
+    #[error("can't wire {from} to {to}: {reason}")]
+    Convert { from: String, to: String, reason: String },
     #[error("the wire {from} -> {to} can't be sliced: {reason}")]
     BadSlice { from: String, to: String, reason: String },
     #[error("bad bend points: {0}")]
@@ -910,7 +913,17 @@ impl Graph {
             Ok(p) => p,
             Err(reason) => return Err(GraphError::BadSlice { from: from.to_string(), to: to.to_string(), reason }),
         };
-        check_sliced_wire(catalog, &from, out, self.output_is_list(catalog, &from), parsed.as_ref(), &to, inp)?;
+        if self.is_convert(&from.node) || self.is_convert(&to.node) {
+            if parsed.is_some() {
+                return Err(GraphError::BadSlice { from: from.to_string(), to: to.to_string(), reason: "a Convert's wires take no slice".into() });
+            }
+            // the wire being replaced doesn't count
+            let mut without = self.clone();
+            without.wires.retain(|w| w.to != to);
+            without.check_convert_wire(catalog, &from, &out.ty, &to, &inp.ty)?;
+        } else {
+            check_sliced_wire(catalog, &from, out, self.output_is_list(catalog, &from), parsed.as_ref(), &to, inp)?;
+        }
         if self.reaches(&to.node, &from.node) {
             return Err(GraphError::Cycle { from, to });
         }
@@ -920,7 +933,12 @@ impl Graph {
         {
             node.inherited.insert(to.port.clone());
         }
+        let ends = [from.node.clone(), to.node.clone()];
         self.wires.push(Wire { slice: parsed.map(|p| p.to_string()), ..Wire::new(from, to) });
+        // a Convert wired at both ends keeps a path that fits
+        for id in &ends {
+            self.repin_convert(catalog, id, false);
+        }
         self.touch();
         Ok(replaced)
     }
@@ -988,6 +1006,17 @@ impl Graph {
                 Ok(p) => p,
                 Err(reason) => return Err(GraphError::BadSlice { from: w.from.to_string(), to: w.to.to_string(), reason }),
             };
+            if self.is_convert(&w.from.node) || self.is_convert(&w.to.node) {
+                let mut without = self.clone();
+                without.wires.retain(|x| x.to != w.to);
+                without.check_convert_wire(catalog, &w.from, &out.ty, &w.to, &inp.ty)?;
+                // the pin's problem goes on the first wire out of the node
+                let first_out = self.wires.iter().find(|x| x.from.node == w.from.node).is_some_and(|x| x.to == w.to);
+                if first_out && let Some(why) = self.convert_pin_problem(catalog, &w.from.node) {
+                    return Err(GraphError::Broken(why));
+                }
+                return Ok(());
+            }
             check_sliced_wire(catalog, &w.from, out, self.output_is_list(catalog, &w.from), parsed.as_ref(), &w.to, inp)
         };
         self.wires.iter().filter_map(|w| check(w).err().map(|e| (w.clone(), e.to_string()))).collect()

@@ -58,7 +58,10 @@ class Kinds(Engine):
 
     @node
     def presented(
-        self, with_: Annotated[str, Port(label="With", tooltip="the new text", advanced=True)] = "", w: Annotated[Float, Port(socket="widget")] = 1.0
+        self,
+        with_: Annotated[str, Port(label="With", tooltip="the new text", advanced=True)] = "",
+        w: Annotated[Float, Port(socket="widget")] = 1.0,
+        sql: Annotated[str, Port(widget="multiline")] = "SELECT 1",
     ) -> None: ...
 
     @node(output="n")
@@ -104,6 +107,7 @@ def test_range_file_and_port_metadata():
     assert ports(Kinds, "k.presented")[0] == [
         {"name": "with", "type": "STRING", "label": "With", "tooltip": "the new text", "default": "", "advanced": True},
         {"name": "w", "type": "FLOAT", "default": 1.0, "socket": "widget"},
+        {"name": "sql", "type": "STRING", "default": "SELECT 1", "widget": "multiline"},
     ]
 
 
@@ -459,3 +463,31 @@ def test_a_new_dependency_version_changes_the_digest(monkeypatch):
     before = plumcraft_engine.dependency_digest(("numpy",))
     monkeypatch.setattr(metadata, "version", lambda dist: "999.0")
     assert plumcraft_engine.dependency_digest(("numpy",)) != before
+
+
+def test_converts_marks_a_converter_and_checks_it():
+    Wav = Annotated[object, WireType("WAV", media="audio")]
+
+    class Conv(Engine):
+        id = "conv"
+
+        @node(converts=True, lossless=True)
+        def decode(self, wav: Wav, gain: float = 1.0) -> Audio: ...
+
+        @node(converts=("TEXT", "AUDIO"))
+        def speak(self, text: Text) -> Audio: ...
+
+    nodes = {n["id"]: n for n in Conv().schema()["nodes"]}
+    assert nodes["conv.decode"]["converts"] == {"from": "WAV", "to": "AUDIO", "input": "wav", "output": "audio", "lossless": True}
+    assert nodes["conv.speak"]["converts"] == {"from": "TEXT", "to": "AUDIO", "input": "text", "output": "audio"}
+
+    with pytest.raises(DeclarationError, match="no wire-only TABLE input"):
+
+        class Wrong(Engine):
+            id = "wrong"
+
+            @node(converts=("TABLE", "AUDIO"))
+            def speak(self, text: Text) -> Audio: ...
+
+    with pytest.raises(DeclarationError, match="converts must be"):
+        node(converts="yes")

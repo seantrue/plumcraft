@@ -131,7 +131,7 @@ fn a_graph_needing_an_engine_says_which_and_a_session_with_it_says_nothing() {
     // offered by the Engine menu, it says that instead
     s.engines.choices = vec![EngineChoice { engine: "vectorcraft".into(), mode: "process".into(), engine_label: "VectorCraft".into(), mode_label: "".into() }];
     let text = s.missing_engines().unwrap().text;
-    assert!(text.contains("Add Engine") && !text.contains("can't start"), "{text}");
+    assert!(text.contains("The Engine menu offers") && !text.contains("can't start"), "{text}");
 
     // once it's connected nothing is missing
     let mut merged = s.catalog().clone();

@@ -234,13 +234,27 @@ fn text_widget(
     let narrow = if port.path.is_some() { 116.0 } else { 140.0 };
     let width = if wide { (ui.available_width() - if port.path.is_some() { 32.0 } else { 8.0 }).max(narrow) } else { narrow };
     // a minimum width too: a narrow node mustn't squeeze the field to nothing
-    // several files (Select Files): one path per line
-    let edit = if port.path.as_ref().is_some_and(PathHint::is_many) {
-        egui::TextEdit::multiline(&mut text).desired_rows(3)
+    let r = if port.widget.as_deref() == Some(hints::MULTILINE) {
+        // Several lines: Enter is a new line, so a click elsewhere commits, or ⌘↩, which also
+        // runs (the shortcut waits for the commit). A node has room for a few lines; the
+        // parameter editor for more. Past that the box scrolls, so a long query never grows its
+        // node.
+        // the node and the parameter editor each have one: their own ids
+        let id = ui.id().with(("multiline", key));
+        let (rows, most) = if wide { (8, 320.0) } else { (3, 64.0) };
+        let edit = egui::TextEdit::multiline(&mut text).id(id).desired_rows(rows).font(egui::TextStyle::Monospace).desired_width(width);
+        let inner =
+            egui::ScrollArea::vertical().id_salt(("multiline-scroll", key)).max_height(most).show(ui, |ui| ui.add(edit.min_size(egui::vec2(width, 0.0))));
+        with_tip(inner.inner)
     } else {
-        egui::TextEdit::singleline(&mut text)
+        // several files (Select Files): one path per line
+        let edit = if port.path.as_ref().is_some_and(PathHint::is_many) {
+            egui::TextEdit::multiline(&mut text).desired_rows(3)
+        } else {
+            egui::TextEdit::singleline(&mut text)
+        };
+        with_tip(ui.add(edit.desired_width(width).min_size(egui::vec2(width, 0.0))))
     };
-    let r = with_tip(ui.add(edit.desired_width(width).min_size(egui::vec2(width, 0.0))));
     if let Some(hint) = &port.path
         && ui.small_button("…").on_hover_text("Choose with a file dialog").clicked()
     {
