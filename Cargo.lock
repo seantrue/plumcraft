@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-array"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "base64 0.22.1",
  "image",
@@ -2984,7 +2984,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-engine"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "image",
  "md-5",
