@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — Release 0.2.1 (Claude Opus 5.5)
+
+The maintainer chose "0.2.1 release" to ship the Finder PATH fix.
+
+- **The bump:** every crate and pin, the Python text twin and its golden catalogue (the version 0.2.0 missed), and the changelog section.
+- **Checked before committing:** the twin test and Python's 216 tests.
+- **Housekeeping:** the 0.2.0 draft release and its tag go.
+
 ### 2026-11-04 — Programs found from a Finder launch (Claude Opus 5.5)
 
 The maintainer, running the installed 0.2.0: "Installed version says that soundcraft is not installed."

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 (2026-11-04)
 
 - The editor opened from the Finder or the Dock finds the craft apps, uv, ffmpeg and engine programs: an app there gets only the system's `PATH`, so the installed 0.2.0 said SoundCraft wasn't installed though `soundcraft-cli` was in `~/bin`. Programs are now looked for in `PATH`, then the login shell's `PATH` (asked once, only when not started from a terminal), then `~/bin`, `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; every program PlumCraft starts is given that `PATH` too (`plumcraft_proto::programs`).
 
