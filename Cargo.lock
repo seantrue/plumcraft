@@ -2233,8 +2233,9 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "npexact"
-version = "0.1.0"
-source = "git+https://github.com/seantrue/yapocis-rs?rev=a8be7233474fe3ba2a808e138549be22b7504d62#a8be7233474fe3ba2a808e138549be22b7504d62"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77b300ff0552338de5d67f194238d1b3a472164047a41b0b2ee74c8465b0cb54"
 
 [[package]]
 name = "num-complex"
