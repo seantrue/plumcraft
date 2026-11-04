@@ -340,6 +340,8 @@ fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> s
     let (program, args) = m.command.split_first().ok_or_else(|| std::io::Error::other("the manifest has no command"))?;
     let mut cmd = Command::new(program);
     cmd.args(args)
+        // the shell's PATH and the usual folders, for an editor opened from the Finder
+        .env("PATH", plumcraft_proto::programs::search_path())
         .envs(m.env.iter().cloned())
         .env(ENV_SOCKET, socket)
         .env(ENV_TOKEN, &inner.token)

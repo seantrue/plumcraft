@@ -675,7 +675,8 @@ impl Manifest {
         if prog.components().count() > 1 {
             return prog.is_file().then_some(prog);
         }
-        std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(&prog)).find(|c| c.is_file()))
+        // PATH, the login shell's and the usual folders: an app from the Finder has none of them
+        plumcraft_proto::programs::find_program(&prog)
     }
 }
 
@@ -695,11 +696,7 @@ impl GuiSpec {
         let program = self.program();
         let first = program.first().cloned().unwrap_or_default();
         let prog = PathBuf::from(&first);
-        let found = if prog.components().count() > 1 {
-            prog.is_file().then_some(prog)
-        } else {
-            std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join(&prog)).find(|c| c.is_file()))
-        };
+        let found = if prog.components().count() > 1 { prog.is_file().then_some(prog) } else { plumcraft_proto::programs::find_program(&prog) };
         let via = self.env.as_deref().map(|e| format!(" (or set {e})")).unwrap_or_default();
         found.ok_or_else(|| {
             let hint = if self.hint.is_empty() { String::new() } else { format!("; {}", self.hint) };

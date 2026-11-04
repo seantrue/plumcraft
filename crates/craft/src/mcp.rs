@@ -199,6 +199,8 @@ impl Client {
         let (program, args) = command.split_first().ok_or_else(|| std::io::Error::other("empty command"))?;
         let mut child = Command::new(program)
             .args(args)
+            // the shell's PATH and the usual folders, for an editor opened from the Finder
+            .env("PATH", plumcraft_proto::programs::search_path())
             .envs(env.iter().map(|(k, v)| (k, v)))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

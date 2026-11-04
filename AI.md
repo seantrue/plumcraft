@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — Programs found from a Finder launch (Claude Opus 5.5)
+
+The maintainer, running the installed 0.2.0: "Installed version says that soundcraft is not installed."
+
+- **The cause:** a macOS app opened from the Finder gets `PATH=/usr/bin:/bin:/usr/sbin:/sbin`. The craft adapter searched only `PATH`, so `soundcraft-cli` in `~/bin` wasn't found. The host's engine-manifest lookup had a partial list of folders, without `~/bin`. ffmpeg, uv and the craft apps were exposed in the same way.
+- **The fix:** `plumcraft_proto::programs`. It searches `PATH`, then the login shell's `PATH` (asked once with `$SHELL -l -c`, three seconds at most, only when there is no `TERM`), then `~/bin`, `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin` and `/usr/local/bin`. The craft manifests, the host and ffmpeg look programs up there, and every child process is given that `PATH`. The process's own environment isn't changed, since that is `unsafe` in Rust 2024.
+- **Size:** about 150 lines, most of it the new module with three unit tests.
+- **Checked:** the editor run under `env -i` with the Finder's `PATH` listed 43 SoundCraft and FilmCraft nodes. The installed 0.2.0 app, in the same environment, failed to start the SoundCraft engine. 393 tests in the affected crates pass, and clippy and fmt are clean.
+- **The defect:** the 0.2.0 installers were built and drafted without anyone trying them from the Finder. **Caught by the maintainer**, on the installed app.
+
 ### 2026-11-04 — Release 0.2.0 (Claude Opus 5.5)
 
 The maintainer: "CPM, publish to crates.io", then "0.2.0 for all", then "CPM, switch to main, the continue with publish. If possible start a installable release to git at the same time".

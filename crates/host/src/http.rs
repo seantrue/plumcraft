@@ -115,6 +115,7 @@ impl HttpHost {
         cmd.args(args)
             .args(["--lifeline", "--listen", "127.0.0.1:0", "--port-file"])
             .arg(&port_file)
+            .env("PATH", plumcraft_proto::programs::search_path())
             .envs(m.env.iter().cloned())
             .env(ENV_TOKEN, &token)
             .stdin(Stdio::piped())
