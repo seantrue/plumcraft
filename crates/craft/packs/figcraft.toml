@@ -420,6 +420,24 @@ type = "FLOAT"
 default = 1.0
 min = 0.01
 max = 4.0
+[[node.widget]]
+name = "size"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "2x, 512w or 512h: a scale, or a width or height in pixels (wins over scale)"
+[[node.widget]]
+name = "contentsOnly"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Unset: true; false also draws the layers that show in the area"
+[[node.widget]]
+name = "includeBoundingBox"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Only the layers' own boxes, cutting off shadows and outside strokes"
 [[node.output]]
 name = "image"
 type = "IMAGE"
@@ -436,6 +454,24 @@ media = "image/svg+xml"
 [[node.output]]
 name = "svg"
 type = "SVG"
+[[node.widget]]
+name = "svgOutlineText"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Text as outlines; unset: true"
+[[node.widget]]
+name = "svgSimplifyStroke"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Unset: true"
+[[node.widget]]
+name = "svgIdAttribute"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Write layer names as SVG ids"
 
 [[node]]
 id = "fig.export_pdf"
@@ -449,3 +485,25 @@ media = "application/pdf"
 [[node.output]]
 name = "pdf"
 type = "PDF"
+[[node.widget]]
+name = "bleed"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "Points, or with a unit: 3mm, 0.125in, 9pt"
+[[node.widget]]
+name = "cropMarks"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "bleedMarks"
+type = "BOOL"
+optional = true
+advanced = true
+[[node.widget]]
+name = "cmyk"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Convert to CMYK for print"

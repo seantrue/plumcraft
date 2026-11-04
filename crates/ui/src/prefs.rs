@@ -57,6 +57,9 @@ pub struct Prefs {
     pub theme: Option<String>,
     /// The last folder by dialog kind ([`keys`]).
     pub dirs: BTreeMap<String, PathBuf>,
+    /// Engine › Pick Engines Automatically (`engine.auto`); off when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_engines: Option<bool>,
     /// Fields this build doesn't know, kept for the file.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -155,6 +158,13 @@ impl Store {
             && self.prefs.dirs.get(key).map(PathBuf::as_path) != Some(dir)
         {
             self.prefs.dirs.insert(key.to_owned(), dir.to_path_buf());
+            self.save();
+        }
+    }
+
+    pub fn set_auto_engines(&mut self, on: bool) {
+        if self.prefs.auto_engines != Some(on) {
+            self.prefs.auto_engines = Some(on);
             self.save();
         }
     }

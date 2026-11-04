@@ -137,8 +137,10 @@ fn the_parameter_editor_has_the_badge_too() {
     // the node's row and the editor's: the editor's is the window's, on top
     let rects: Vec<egui::Rect> = h.query_all_by_label("Reset").map(|n| n.rect()).collect();
     assert_eq!(rects.len(), 2, "{rects:?}");
-    let right = rects.iter().map(|r| r.center()).max_by(|a, b| a.x.total_cmp(&b.x)).unwrap();
-    common::click_at(&mut h, right);
+    // the window opens beside its node, so pick the button inside the window, not the rightmost
+    let window = h.get_by_label_contains("· parameters").rect();
+    let inside = rects.iter().map(|r| r.center()).find(|c| window.contains(*c)).expect("a Reset in the window");
+    common::click_at(&mut h, inside);
     h.run_steps(4);
     assert!(h.state().session.graph().wire_into(&PortRef::new(down.as_str(), "ink.width")).is_none());
 }

@@ -424,12 +424,18 @@ impl RunState {
         self.review_asked = true;
     }
 
-    /// The graph is approved: what was held goes out.
+    /// The graph is approved. What was held is dropped, not sent: trusting a workflow says it may
+    /// run, not that it should run now (the maintainer: "Trust foreign graph should not immediately
+    /// run graph"). Its nodes go back to not run, and the next run goes out as any other.
     pub(crate) fn release(&mut self) {
         self.review_due = false;
         self.review_asked = false;
-        if let Some(req) = self.held.take() {
-            self.outbox.push(Outgoing::Run(req));
+        if self.held.take().is_some() {
+            self.running = false;
+            self.started = None;
+            for n in self.nodes.values_mut().filter(|n| n.generation == self.generation && n.is_active()) {
+                n.state = None;
+            }
         }
     }
 

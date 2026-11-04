@@ -64,8 +64,10 @@ fn a_stranger_is_held_and_says_what_it_touches() {
     assert_eq!(review["writes"][0]["path"], "/home/me/.config");
     assert_eq!(review["actions"][0]["kind"], "t.write");
     s.execute("graph.trust", &json!({})).unwrap();
-    assert_eq!(runs(&mut s), 1, "what was held goes out");
-    assert!(!s.run.awaiting_review());
+    assert_eq!(runs(&mut s), 0, "trusting doesn't run it: what was held is dropped");
+    assert!(!s.run.awaiting_review() && !s.run.running);
+    s.execute("run.start", &json!({})).unwrap();
+    assert_eq!(runs(&mut s), 1, "the next run goes out");
 }
 
 #[test]
@@ -78,7 +80,9 @@ fn auto_run_and_a_second_start_stay_held() {
     s.execute("run.start", &json!({})).unwrap();
     assert_eq!(runs(&mut s), 0);
     s.execute("graph.trust", &json!({})).unwrap();
-    assert_eq!(runs(&mut s), 1, "latest wins, and only it");
+    assert_eq!(runs(&mut s), 0, "neither held start goes out");
+    s.execute("run.start", &json!({})).unwrap();
+    assert_eq!(runs(&mut s), 1, "and the next one does");
 }
 
 #[test]

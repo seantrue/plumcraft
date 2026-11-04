@@ -56,6 +56,10 @@ Rows and tables show in a table: sortable by a header click, with resizable colu
 
 Hovering a wire previews the value on it. A click on a wire watches it, and a double-click pops it out.
 
+A double-click on a node, on its title or a bare part of it, opens Edit Parameters: every input of the node in a window of its own. A double-click in one of its fields stays with the field. A single click on the title still watches the node's output, so a double-click there also watches it.
+
+A socket's label names its type when its name doesn't, such as `audio · WAV` beside an `audio` that is an AUDIO. Two ports with the same name and different types then look different.
+
 ![A tooltip on a wire showing its value](images/wire-preview.png)
 
 Wires can be bent around nodes: right-click › Add Bend Point, then drag.
@@ -149,6 +153,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
   - `--http [--python]`: HTTP, talked to as a remote engine would be.
 - **Craft packs:** cadcraft, deckcraft, designcraft, effectcraft, figcraft, filmcraft, gridcraft, pdfcraft, photocraft, solidcraft, soundcraft, vectorcraft and wordcraft. Each needs that app installed.
 - **While the editor runs:** pick an engine that isn't connected in the Engine menu to add it; Clear Engines first to replace them all.
+- **Engine › Pick Engines Automatically:** a workflow you open or insert starts the engines it names that aren't connected, each hosted the fastest way there is: in-process (mode 1), then a separate process, then HTTP. Each is tried once; one that can't start is said in the status bar, as before. The setting is saved with the editor's preferences.
 - **Remote engines:** `plumcraft run --attach http://HOST:PORT` reaches an engine already running elsewhere, with `PLUMCRAFT_ENGINE_TOKEN`.
 - **Engines from files:** `--engine-manifest FILE` and `~/.config/plumcraft/engines/*.toml` name engines this build doesn't know (spec 16.6), in the editor and in `plumcraft run`.
 - **Control channel:** the editor's `--control PORT` opens it for tests and agents (`docs/control-protocol.md`).

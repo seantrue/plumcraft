@@ -376,19 +376,43 @@ type = "ENUM"
 choices = ["active", "all"]
 default = "active"
 tooltip = "all: every sheet, one after another"
+[[node.widget]]
+name = "range"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "Cells of the active sheet, such as A1:F40; unset: the print area"
+[[node.widget]]
+name = "fitToPage"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Shrink the printout to one page wide"
 
 [[node]]
 id = "gc.export_csv"
 display = "Export CSV"
 kind = "export"
 family = "Export"
-description = "The active sheet as CSV (file.saveAs .csv); no viewer in the editor"
-format = "csv"
+description = "The active sheet as CSV (file.exportCsv); no viewer in the editor"
+action = { command = "file.exportCsv", path = "path" }
 ext = "csv"
 media = "text/csv"
 [[node.output]]
 name = "csv"
 type = "CSV"
+[[node.widget]]
+name = "sheet"
+type = "STRING"
+optional = true
+advanced = true
+tooltip = "Sheet name; unset: the active sheet"
+[[node.widget]]
+name = "values"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Raw values (full precision, ISO dates) instead of the cells as displayed"
 
 [[node]]
 id = "gc.export_html"

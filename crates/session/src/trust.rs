@@ -7,7 +7,8 @@
 //!   change made elsewhere doesn't match, and asks again. Saving an unapproved graph adds nothing.
 //! - **The gate is in [`crate::run::RunState`]:** every run a session starts goes through
 //!   `request`, which holds it while a review is due. A held run isn't sent, so no command can get
-//!   round this. `graph.trust` lets it go, and an agent on the control channel may call it: its
+//!   round this. `graph.trust` approves it (the held run is dropped, not sent: nothing runs until
+//!   the next run), and an agent on the control channel may call it: its
 //!   token already carries the owner's authority.
 //! - **Off without a trust file:** a library or test session has none. The command line's `run`
 //!   and `--screenshot` have none on purpose, since naming the file there is the approval.
@@ -223,7 +224,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Trust Workflow",
             menu: &[],
             shortcut: None,
-            params: "{} -> {trusted, remembered} (approve this graph: a held run goes out, and its hash goes in the trust file)",
+            params: "{} -> {trusted, remembered} (approve this graph: its hash goes in the trust file; a held run is dropped, so nothing runs until the next run)",
             enabled: always,
             run: graph_trust,
             journal: true,

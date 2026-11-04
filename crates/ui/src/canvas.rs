@@ -106,6 +106,23 @@ fn port_label(p: &Port) -> String {
     }
 }
 
+/// A socket's label with its wire type after it (`audio · WAV`), unless the label already
+/// names the type (`audio` on an AUDIO port) or the type is a scalar a widget shows. Two ports
+/// both called `audio` that can't be wired together then say why at a glance.
+fn typed_label(label: &str, ty: &str) -> String {
+    let norm = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
+    let scalar = matches!(ty, "FLOAT" | "INT" | "BOOL" | "STRING" | "ENUM" | "ANY" | "");
+    if scalar || norm(label) == norm(ty) { label.to_owned() } else { format!("{label} · {ty}") }
+}
+
+/// A port's tooltip with its type on the first line.
+fn typed_tip(ty: &str, tip: Option<&str>) -> String {
+    match tip.filter(|t| !t.is_empty()) {
+        Some(t) => format!("Type: {ty}\n{t}"),
+        None => format!("Type: {ty}"),
+    }
+}
+
 /// The save buttons, on a result node and in the Watched panel.
 pub const SAVE_RESULT: &str = "Save Result…";
 /// Characters of the engine's text shown on a node; the rest is on hover.
@@ -604,6 +621,15 @@ impl Canvas {
         let wire_clicked = viewer.wire_clicked.take();
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
         let mut actions = viewer.actions;
+        // A double-click on a node (its frame or header, not a field or button in it, which take
+        // the click themselves) opens its parameters window. egui reports a click within 0.6 s of
+        // the one before last as a triple click and no double, so that counts too.
+        for (sid, n) in self.snarl.nodes_ids_data() {
+            let frame = egui::Id::new(CANVAS_ID).with(("snarl-node", sid)).with("frame");
+            if n.value.proxy.is_none() && ctx.read_response(frame).is_some_and(|r| r.double_clicked() || r.triple_clicked()) {
+                actions.push(("node.parameters", json!({"node": n.value.id})));
+            }
+        }
         // A ⌘-drag moved or dropped wires (crate::edit_view).
         self.reconcile_wires(&ctx, catalog, &mut actions);
         let live: std::collections::HashSet<SnarlId> = self.snarl.nodes_ids_data().map(|(id, _)| id).collect();
@@ -954,7 +980,8 @@ impl NodeViewer<'_> {
                 }
             }
             (_, Socket::Socket) => {
-                pin_label(ui, &label, tip, SOCKET_LABEL_WIDTH);
+                let tip = typed_tip(&port.ty, tip);
+                pin_label(ui, &typed_label(&label, &port.ty), Some(&tip), SOCKET_LABEL_WIDTH);
             }
             (None, _) if let Source::Inherited(value) = &source => {
                 // The bundle's value goes over the widget's, so the widget gives way to it.
@@ -1010,8 +1037,10 @@ impl NodeViewer<'_> {
                 (node.id.clone(), port, label)
             }
         };
+        let label = typed_label(&label, &port.ty);
         let label = if port.list { format!("[ ] {label}") } else { label };
-        let r = pin_label(ui, &label, port.tooltip.as_deref(), PIN_LABEL_WIDTH).interact(egui::Sense::click());
+        let tip = typed_tip(&port.ty, port.tooltip.as_deref());
+        let r = pin_label(ui, &label, Some(&tip), PIN_LABEL_WIDTH).interact(egui::Sense::click());
         r.context_menu(|ui| {
             if ui.button(format!("Watch {}", port.name)).clicked() {
                 self.actions.push(("run.watch", json!({"node": node_id, "port": port.name})));
@@ -1549,9 +1578,15 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         let has_outputs = n.proxy.is_none() && self.def(&n).is_some_and(|d| !d.outputs.is_empty());
         let rich = egui::RichText::new(&title).color(self.tokens.text).strong();
         if has_outputs {
-            let r = ui.add(egui::Label::new(rich).selectable(false).sense(egui::Sense::click())).on_hover_text("Click to watch this node's output");
+            let r = ui
+                .add(egui::Label::new(rich).selectable(false).sense(egui::Sense::click()))
+                .on_hover_text("Click to watch this node's output; double-click for its parameters");
             if r.clicked() {
                 self.actions.push(("run.watch", json!({"node": n.id})));
+            }
+            // the title takes the click from the frame, so it answers a double click itself
+            if r.double_clicked() || r.triple_clicked() {
+                self.actions.push(("node.parameters", json!({"node": n.id})));
             }
         } else {
             ui.add(egui::Label::new(rich).selectable(false));
@@ -1804,6 +1839,16 @@ fn node_about(ui: &mut egui::Ui, def: &NodeDef, catalog: &SchemaReply) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_label_names_its_type_when_the_name_doesnt() {
+        assert_eq!(typed_label("audio", "WAV"), "audio · WAV");
+        assert_eq!(typed_label("audio", "AUDIO"), "audio");
+        assert_eq!(typed_label("Image", "IMAGE"), "Image");
+        assert_eq!(typed_label("doc", "soundcraft.session"), "doc · soundcraft.session");
+        assert_eq!(typed_label("gain", "FLOAT"), "gain");
+        assert_eq!(typed_tip("WAV", Some("The mix")), "Type: WAV\nThe mix");
+    }
 
     fn catalog() -> SchemaReply {
         serde_json::from_str(

@@ -265,3 +265,15 @@ It found one thing: FilmCraft's MOV and GIF export nodes take no range, so they 
 2. ~~The file decoders (6.2).~~ Done.
 3. ~~The core pairs (6.3).~~ Done.
 4. ~~Video (6.4).~~ Done.
+
+## 7. To do (2026-11-04)
+
+The maintainer, after FilmCraft's `audio` (a WAV) and the audio engine's `audio` (an AUDIO) looked alike: "It's a massive UX issue if ports with same label (audio) can't be connected because they actually have different underlying structures with no available conversion. At a minimum, they should have a label that makes the actual type clear."
+
+- **Done, the minimum (uncommitted):** a socket's label shows its type when its name doesn't (`audio · WAV`, but `audio` on an AUDIO port), and every port's tooltip starts with its type (`crates/ui/src/canvas.rs`, `typed_label`).
+- **To do, the drag:** while a wire is dragged, mark every input by what happens on a drop:
+  - wires directly;
+  - wires through a Convert (name the path, e.g. "Bounce WAV → WAV to Audio");
+  - can't be wired, and why (no engine offers a path, or the engine that would isn't connected).
+
+  The type graph already answers it (`docs/research/20-convert.md` 2.2, `plumcraft_proto::convert`); the canvas needs the dragged output's type and a per-input verdict, cached for the drag.

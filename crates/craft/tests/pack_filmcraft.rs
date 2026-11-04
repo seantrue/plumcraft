@@ -241,3 +241,70 @@ fn a_png_frame_and_a_selection_by_clip_id() {
     assert_eq!(applied.as_array().map(Vec::len), Some(1), "only the chosen clip: {applied}");
     assert_eq!(applied[0]["clip"], json!(clip));
 }
+
+/// A WAV file's length in seconds, from its `fmt ` and `data` chunks.
+fn wav_seconds(b: &[u8]) -> f64 {
+    let (mut at, mut rate, mut align, mut data) = (12, 0u32, 0u16, 0u32);
+    while at + 8 <= b.len() {
+        let size = u32::from_le_bytes([b[at + 4], b[at + 5], b[at + 6], b[at + 7]]);
+        match &b[at..at + 4] {
+            b"fmt " => {
+                rate = u32::from_le_bytes([b[at + 12], b[at + 13], b[at + 14], b[at + 15]]);
+                align = u16::from_le_bytes([b[at + 20], b[at + 21]]);
+            }
+            b"data" => data = size,
+            _ => {}
+        }
+        at += 8 + size as usize + (size as usize & 1);
+    }
+    assert!(rate > 0 && align > 0, "a WAV with a fmt chunk");
+    f64::from(data) / f64::from(align) / f64::from(rate)
+}
+
+/// The export options: a one-second custom range on MOV, GIF and WAV (from a four-second
+/// sequence), the MOV without audio, and the GIF at its own size and frame rate.
+#[test]
+fn a_custom_range_exports_one_second() {
+    let Some(m) = filmcraft() else { return };
+    let (h, _) = connect(&m, "pack-filmcraft-range");
+    let one = |extra: Value| {
+        let mut v = json!({"range": "custom", "startSeconds": 1.0, "endSeconds": 2.0});
+        v.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        v
+    };
+    let g = graph(
+        json!({
+            "a": {"kind": "fc.new", "values": {}},
+            "b": {"kind": "fc.sequence", "values": {"width": 320, "height": 180, "fps": 24.0}},
+            "c": {"kind": "fc.bars_tone", "values": {"seconds": 4.0}},
+            "d": {"kind": "fc.place", "values": {"track": "V1", "seconds": 0.0}},
+            "mov": {"kind": "fc.export_mov", "values": one(json!({"proresProfile": "proxy", "audio": false}))},
+            "gif": {"kind": "fc.export_gif", "values": one(json!({"width": 80, "height": 45, "fps": 10.0}))},
+            "wav": {"kind": "fc.export_wav", "values": one(json!({}))},
+            "all": {"kind": "fc.export_wav", "values": {}}
+        }),
+        &[
+            ("a", "doc", "b", "doc"),
+            ("b", "doc", "c", "doc"),
+            ("c", "doc", "d", "doc"),
+            ("c", "item", "d", "item"),
+            ("d", "doc", "mov", "doc"),
+            ("d", "doc", "gif", "doc"),
+            ("d", "doc", "wav", "doc"),
+            ("d", "doc", "all", "doc"),
+        ],
+    );
+    let r = go(&h, "fc-range", g, &["mov", "gif", "wav", "all"], "off");
+    assert!(r.ok, "{:?}", failures(&r));
+    let mov = json_out(&r, "mov", "result");
+    assert_eq!(mov["result"]["frames"], 24, "1 s at 24 fps: {mov}");
+    let gif = json_out(&r, "gif", "result");
+    assert_eq!(gif["result"]["frames"], 10, "1 s at 10 fps: {gif}");
+    let bytes = h.resolve(&blob(&r, "gif", "image")).unwrap().bytes;
+    let size = (u16::from_le_bytes([bytes[6], bytes[7]]), u16::from_le_bytes([bytes[8], bytes[9]]));
+    assert_eq!((&bytes[0..4], size), (&b"GIF8"[..], (80, 45)));
+    let wav = wav_seconds(&h.resolve(&blob(&r, "wav", "audio")).unwrap().bytes);
+    assert!((wav - 1.0).abs() < 0.01, "the range: {wav} s");
+    let all = wav_seconds(&h.resolve(&blob(&r, "all", "audio")).unwrap().bytes);
+    assert!((all - 4.0).abs() < 0.05, "the whole sequence: {all} s");
+}

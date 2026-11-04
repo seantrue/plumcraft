@@ -254,7 +254,8 @@ impl Session {
         r
     }
 
-    /// Approve this graph: what was held goes out. Returns whether the approval was written down;
+    /// Approve this graph: what was held is dropped, and the next run goes out. Returns whether
+    /// the approval was written down;
     /// without that it lasts as long as the session.
     pub fn trust_graph(&mut self) -> bool {
         self.run.release();
@@ -393,7 +394,19 @@ impl Session {
         }
         // Journaled commands may change the graph: compare to see what they made stale.
         let before = spec.journal.then(|| self.graph.clone());
-        let result = (spec.enabled)(self).map_err(|reason| SessionError::Disabled { id: id.to_owned(), reason }).and_then(|()| (spec.run)(self, params));
+        let mut result = (spec.enabled)(self).map_err(|reason| SessionError::Disabled { id: id.to_owned(), reason }).and_then(|()| (spec.run)(self, params));
+        // a graph that came in names its engines: start them when engines are picked automatically
+        if self.engines.auto
+            && matches!(id, "graph.open" | "graph.insert" | "graph.insertGroup")
+            && let Ok(out) = &mut result
+        {
+            let started = engine_cmds::start_needed(self);
+            if !started.is_empty()
+                && let Some(o) = out.as_object_mut()
+            {
+                o.insert("startedEngines".into(), serde_json::json!(started));
+            }
+        }
         if result.is_ok() {
             self.generation = self.generation.wrapping_add(1);
             if let Some(before) = &before {

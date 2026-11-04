@@ -87,13 +87,22 @@ pub fn drop_filled(def: &NodeDef, node: &mut Node) -> Vec<String> {
 /// The inputs of `node` a canvas tucks under "more fields": those a filling choice with `shows`
 /// doesn't use. A port shows when it is wired, is the choice itself, or holds a value other than
 /// the choice's; else, with `active_when`, when that holds; else when the choice's `shows` lists
-/// it. Empty for nodes without such a choice.
+/// it. A node without such a choice still tucks a port whose `active_when` doesn't hold (the
+/// parameters a SoundCraft plug-in choice brings, for the plug-ins not chosen).
 pub fn tucked(def: &NodeDef, node: &Node, wired: impl Fn(&str) -> bool) -> BTreeSet<String> {
-    let Some(chooser) = def.inputs.iter().find(|p| p.fills.is_some() && p.shows.is_some()) else { return BTreeSet::new() };
+    let value = |p: &Port| current_value(def, node, &p.name, p);
+    let Some(chooser) = def.inputs.iter().find(|p| p.fills.is_some() && p.shows.is_some()) else {
+        return def
+            .inputs
+            .iter()
+            .filter(|p| p.variadic.is_none() && p.has_widget() && !wired(&p.name))
+            .filter(|p| p.active_when.as_ref().is_some_and(|when| !when.iter().all(|(k, vals)| def.input(k).is_none_or(|q| vals.contains(&value(q))))))
+            .map(|p| p.name.clone())
+            .collect();
+    };
     let choice = active_choice(chooser, node);
     let filled = chooser.fills.as_ref().and_then(|f| f.get(&choice));
     let shows = chooser.shows.as_ref().and_then(|s| s.get(&choice));
-    let value = |p: &Port| current_value(def, node, &p.name, p);
     def.inputs
         .iter()
         .filter(|p| p.name != chooser.name && p.variadic.is_none() && p.has_widget() && !wired(&p.name))

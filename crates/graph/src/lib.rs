@@ -1287,6 +1287,26 @@ mod tests {
     }
 
     #[test]
+    fn a_field_for_another_choice_is_tucked_without_a_filling_choice() {
+        // SoundCraft's Insert plug-in: each plug-in's parameters, shown only while it is chosen
+        let c: SchemaReply = serde_json::from_value(json!({"v": 2, "nodes": [{"id": "ins", "inputs": [
+            {"name": "plugin", "type": "ENUM", "choices": ["eq", "comp"], "default": "eq"},
+            {"name": "eq_gain", "type": "FLOAT", "default": 0.0, "active_when": {"plugin": ["eq"]}},
+            {"name": "comp_ratio", "type": "FLOAT", "default": 4.0, "active_when": {"plugin": ["comp"]}},
+            {"name": "track", "type": "STRING", "default": "Synth"}
+        ]}]}))
+        .unwrap();
+        let mut g = Graph::default();
+        let id = g.add_node(c.node("ins").unwrap(), [0.0, 0.0]);
+        let def = c.node("ins").unwrap();
+        let tucked = |g: &Graph, wired: &[&str]| ports::tucked(def, g.node(&id).unwrap(), |p| wired.contains(&p)).into_iter().collect::<Vec<_>>();
+        assert_eq!(tucked(&g, &[]), ["comp_ratio"], "only the chosen plug-in's fields show");
+        assert!(tucked(&g, &["comp_ratio"]).is_empty(), "a wired field shows");
+        g.set_value_checked(&c, &PortRef::new(id.clone(), "plugin"), json!("comp")).unwrap();
+        assert_eq!(tucked(&g, &[]), ["eq_gain"], "another choice, its fields");
+    }
+
+    #[test]
     fn all_fields_is_saved_only_when_set() {
         let c = preset_catalogue();
         let mut g = Graph::default();

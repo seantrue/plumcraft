@@ -498,6 +498,13 @@ default = 1.0
 min = 0.1
 max = 8.0
 tooltip = "Pixels per point (1: 960×540 for 16:9)"
+[[node.widget]]
+name = "transparentBackground"
+label = "transparent background"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Leave the slide background out; unset: drawn"
 
 [[node]]
 id = "dk.export_pdf"
@@ -515,6 +522,61 @@ name = "layout"
 type = "ENUM"
 choices = ["slides", "notes", "handouts"]
 default = "slides"
+[[node.widget]]
+name = "slides"
+type = "STRING"
+optional = true
+tooltip = "Which slides, such as 1-3,5 (1-based); unset: all"
+[[node.widget]]
+name = "perPage"
+label = "per page"
+type = "ENUM"
+choices = [1, 2, 3, 4, 6, 9]
+optional = true
+advanced = true
+tooltip = "Handouts: slides per page; unset: 6"
+[[node.widget]]
+name = "paper"
+type = "ENUM"
+choices = ["letter", "a4", "legal", "a3"]
+optional = true
+advanced = true
+tooltip = "Notes and handouts: paper size; unset: letter"
+[[node.widget]]
+name = "orientation"
+type = "ENUM"
+choices = ["portrait", "landscape"]
+optional = true
+advanced = true
+tooltip = "Notes and handouts: page orientation; unset: portrait"
+[[node.widget]]
+name = "frame"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Notes and handouts: a thin frame around each slide; unset: on"
+[[node.widget]]
+name = "dpi"
+type = "FLOAT"
+min = 36.0
+max = 600.0
+optional = true
+advanced = true
+tooltip = "Raster resolution of slide artwork; unset: 200"
+[[node.widget]]
+name = "textLayer"
+label = "text layer"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "An invisible text layer for search, select and copy; unset: on"
+[[node.widget]]
+name = "includeHidden"
+label = "include hidden"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Include hidden slides; unset: left out"
 
 [[node]]
 id = "dk.export_pptx"
@@ -550,6 +612,24 @@ type = "FLOAT"
 default = 2.0
 min = 0.1
 max = 600.0
+[[node.widget]]
+name = "slides"
+type = "STRING"
+optional = true
+tooltip = "Which slides, such as 1-3,5 (1-based); unset: all"
+[[node.widget]]
+name = "loop"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "false: play once; unset: loop forever"
+[[node.widget]]
+name = "includeHidden"
+label = "include hidden"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Include hidden slides; unset: left out"
 
 [[node]]
 id = "dk.export_outline"

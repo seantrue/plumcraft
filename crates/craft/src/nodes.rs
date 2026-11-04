@@ -35,8 +35,19 @@ pub struct Shared {
     pub timeout: Duration,
 }
 
+/// How a widget's value goes to the craft, when not as it is.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub enum Encode {
+    #[default]
+    AsIs,
+    /// A checkbox the craft takes as a number: `true` is 1, `false` 0.
+    BoolAsNumber,
+    /// A choice the craft takes as its index in this list.
+    Index(Vec<String>),
+}
+
 /// One widget of a node, as the run sends it.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct WidgetPlan {
     pub name: String,
     /// The craft's key; `*` merges a JSON object into the params.
@@ -46,6 +57,9 @@ pub struct WidgetPlan {
     pub template: bool,
     /// Allowed values of a template widget (the escape hatch's allowlist).
     pub allowed: Option<Vec<String>>,
+    /// Sent only while that widget has this value (a parameter a choice brings, `brings`).
+    pub when: Option<(String, Value)>,
+    pub encode: Encode,
 }
 
 /// A socket whose value goes to the craft as a file: staged, and its path sent as `key`.
@@ -204,6 +218,20 @@ impl Runner<'_> {
             if v.is_null() && w.optional {
                 continue;
             }
+            // a parameter another choice brings isn't this node's to send
+            if let Some((ctrl, want)) = &w.when
+                && inputs.get(ctrl).and_then(Data::json) != Some(want)
+            {
+                continue;
+            }
+            let v = match &w.encode {
+                Encode::AsIs => v,
+                Encode::BoolAsNumber => json!(if v.as_bool().unwrap_or(false) { 1.0 } else { 0.0 }),
+                Encode::Index(labels) => match labels.iter().position(|l| Some(l.as_str()) == v.as_str()) {
+                    Some(i) => json!(i as f64),
+                    None => return Err(config(format!("{} must be one of {}", w.name, labels.join(", ")))),
+                },
+            };
             if w.key == "*" {
                 match v {
                     Value::Object(m) => params.extend(m),

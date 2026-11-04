@@ -88,6 +88,19 @@ pub struct Engines {
     pub added: Vec<EngineTarget>,
     request: Option<EngineTarget>,
     changes: Vec<EngineChange>,
+    /// Pick engines automatically (`engine.auto`): an engine started on the editor's own account
+    /// is hosted the fastest way it can be ([`mode_rank`]), and a graph opened or inserted starts
+    /// the engines it names that aren't connected.
+    pub auto: bool,
+    /// Engines a graph asked for that were already started on its account (each once, so one
+    /// that fails to start isn't tried every time): cleared when nothing is missing.
+    pub(crate) tried: std::collections::BTreeSet<String>,
+}
+
+/// How fast a hosting is: mode 1 (compiled in) first, then a separate process (Rust before
+/// Python), then HTTP. An unknown hosting comes last.
+pub fn mode_rank(mode: &str) -> usize {
+    ["inproc", "process", "python", "http", "http-python"].iter().position(|m| *m == mode).unwrap_or(usize::MAX)
 }
 
 /// An engine to add beside the current one, or an added one to remove.
@@ -105,6 +118,11 @@ pub enum EngineChange {
 }
 
 impl Engines {
+    /// The fastest way the host can start `engine` ([`mode_rank`]).
+    pub fn best(&self, engine: &str) -> Option<&EngineChoice> {
+        self.choices.iter().filter(|c| c.engine == engine).min_by_key(|c| mode_rank(&c.mode))
+    }
+
     /// Take the switch asked for, if any (the host connects it).
     pub fn take_request(&mut self) -> Option<EngineTarget> {
         self.request.take()
@@ -193,7 +211,13 @@ fn add(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// The Engine menu's pick: start, add, or change the connection of one engine (module docs).
 fn use_engine(s: &mut Session, p: &Value) -> Result<Value> {
-    let (engine, mode) = (str_param(p, "engine")?, str_param(p, "mode")?);
+    let engine = str_param(p, "engine")?;
+    // no mode: the fastest the host has
+    let best = s.engines.best(engine).map(|c| c.mode.clone());
+    let mode = match p.get("mode") {
+        Some(_) => str_param(p, "mode")?,
+        None => best.as_deref().unwrap_or_default(),
+    };
     if s.engines.find(engine, mode).is_none() {
         let shown = |t: &str| t.chars().take(64).collect::<String>();
         return Err(SessionError::Params(format!("no engine {:?} hosted {:?}", shown(engine), shown(mode))));
@@ -223,6 +247,42 @@ fn use_engine(s: &mut Session, p: &Value) -> Result<Value> {
     };
     out["how"] = json!(how);
     Ok(out)
+}
+
+/// `engine.auto {on?}`: pick engines automatically, or not (no `on`: say which). Turning it on
+/// starts what the graph there is needs.
+fn engine_auto(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(on) = p.get("on") {
+        s.engines.auto = on.as_bool().ok_or_else(|| SessionError::Params("on must be true or false".into()))?;
+    }
+    let started = if s.engines.auto { start_needed(s) } else { Vec::new() };
+    Ok(json!({"on": s.engines.auto, "started": started}))
+}
+
+/// With [`Engines::auto`] on: start each engine the graph names that isn't connected and the host
+/// can start, once, hosted the fastest way ([`Engines::best`]). The first starts the editor's
+/// engine when none is connected; the rest go beside it. Returns what was asked for.
+pub(crate) fn start_needed(s: &mut Session) -> Vec<String> {
+    let Some(missing) = s.engines.auto.then(|| s.missing_engines()).flatten() else {
+        s.engines.tried.clear();
+        return Vec::new();
+    };
+    let mut started = Vec::new();
+    for e in missing.engines {
+        if s.engines.tried.contains(&e) {
+            continue;
+        }
+        s.engines.tried.insert(e.clone());
+        let Some(choice) = s.engines.best(&e) else { continue };
+        let target = EngineTarget::Choice { engine: e.clone(), mode: choice.mode.clone() };
+        if !s.connected && s.engines.request.is_none() {
+            s.engines.request = Some(target);
+        } else {
+            s.engines.changes.push(EngineChange::Add(target));
+        }
+        started.push(e);
+    }
+    started
 }
 
 fn can_clear(s: &Session) -> std::result::Result<(), String> {
@@ -353,9 +413,20 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             // the Engine menu lists the choices themselves
             menu: &[],
             shortcut: None,
-            params: "{engine, mode} (one of engine.list's choices) -> {engine, mode, how}: what the Engine menu does: with nothing connected start it (how: start); not connected, add it beside the others (add); connected another way, change its connection and keep the others (change); else nothing (unchanged)",
+            params: "{engine, mode?} (one of engine.list's choices; no mode: the fastest hosting there is) -> {engine, mode, how}: what the Engine menu does: with nothing connected start it (how: start); not connected, add it beside the others (add); connected another way, change its connection and keep the others (change); else nothing (unchanged)",
             enabled: can_switch,
             run: use_engine,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.auto",
+            label: "Pick Engines Automatically",
+            // the Engine menu draws it as a checkbox
+            menu: &[],
+            shortcut: None,
+            params: "{on?: bool} -> {on, started}: an engine the editor starts on its own is hosted the fastest way it can be (in-process, then a process, then HTTP), and a graph opened or inserted starts the engines it names that aren't connected; no on: say which",
+            enabled: always,
+            run: engine_auto,
             journal: false,
         },
         CommandSpec {
@@ -518,6 +589,46 @@ mod tests {
         for bad in [json!({}), json!({"engine": "nope", "mode": "inproc"}), json!({"engine": 3})] {
             assert!(s.execute("engine.add", &bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn picking_automatically_starts_what_a_graph_needs_the_fastest_way() {
+        let mut s = offered();
+        // audio is offered over HTTP and as a process too: the process is faster than HTTP,
+        // in-process faster still
+        for mode in ["http", "process"] {
+            s.engines.choices.push(EngineChoice { engine: "audio".into(), mode: mode.into(), engine_label: "audio".into(), mode_label: mode.into() });
+        }
+        s.engines.choices.push(EngineChoice { engine: "film".into(), mode: "http".into(), engine_label: "film".into(), mode_label: "http".into() });
+        assert_eq!(s.engines.best("audio").map(|c| c.mode.as_str()), Some("inproc"));
+        assert_eq!(s.engines.best("film").map(|c| c.mode.as_str()), Some("http"), "the only way there is");
+        s.connected = true;
+        s.graph = plumcraft_graph::Graph::from_json(
+            r#"{"version": 1, "engines": ["audio", "film", "nowhere"], "nodes": {"a": {"kind": "audio.tone"}, "f": {"kind": "fc.new"}}}"#,
+        )
+        .unwrap();
+        // off: nothing starts
+        assert!(start_needed(&mut s).is_empty() && s.engines.take_change().is_none());
+        let r = s.execute("engine.auto", &json!({"on": true})).unwrap();
+        assert_eq!(r["started"], json!(["audio", "film"]), "what the host can start; not `nowhere`");
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(EngineTarget::Choice { engine: "audio".into(), mode: "inproc".into() })));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(EngineTarget::Choice { engine: "film".into(), mode: "http".into() })));
+        assert!(start_needed(&mut s).is_empty(), "each once: one that failed isn't tried every time");
+        // nothing connected: the first is the editor's engine, the rest go beside it
+        let mut s2 = offered();
+        s2.engines.current = None;
+        s2.engines.auto = true;
+        s2.graph = plumcraft_graph::Graph::from_json(
+            r#"{"version": 1, "engines": ["audio", "text"], "nodes": {"a": {"kind": "audio.tone"}, "t": {"kind": "text.upper"}}}"#,
+        )
+        .unwrap();
+        assert_eq!(start_needed(&mut s2), ["audio", "text"]);
+        assert_eq!(s2.engines.take_request(), Some(EngineTarget::Choice { engine: "audio".into(), mode: "inproc".into() }));
+        assert_eq!(s2.engines.take_change(), Some(EngineChange::Add(EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() })));
+        // engine.use without a mode: the fastest
+        let mut s3 = offered();
+        s3.connected = true;
+        assert_eq!(s3.execute("engine.use", &json!({"engine": "audio"})).unwrap()["mode"], "inproc");
     }
 
     #[test]

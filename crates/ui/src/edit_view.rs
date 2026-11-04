@@ -309,7 +309,12 @@ impl Canvas {
         if self.picked.is_empty() {
             return;
         }
-        let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Middle, egui::Id::new("plumcraft-selection"))).with_clip_rect(self.rect);
+        // On the canvas's own layer, right after snarl's nodes: over them, under every window
+        // (a Middle layer of its own was drawn over the parameters window).
+        let nodes = egui::LayerId::new(egui::Order::Background, egui::Id::new(crate::canvas::CANVAS_ID));
+        let layer = egui::LayerId::new(egui::Order::Background, egui::Id::new("plumcraft-selection"));
+        ctx.set_sublayer(nodes, layer);
+        let painter = ctx.layer_painter(layer).with_clip_rect(self.rect);
         let t = self.to_global;
         for (sid, r) in self.snarl_rects() {
             if self.snarl.get_node(sid).is_some_and(|n| self.picked.contains(n)) {

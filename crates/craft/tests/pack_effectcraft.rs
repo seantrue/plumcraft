@@ -41,7 +41,7 @@ fn the_pack_parses() {
     assert_eq!(m.doc.ext, "ecproj");
     let ids: Vec<&str> = m.nodes.iter().map(|n| n.id.as_str()).collect();
     assert_eq!(ids, LISTED);
-    assert!(m.exclude.is_empty());
+    assert_eq!(m.exclude.keys().collect::<Vec<_>>(), ["ec.layer.style.convertToEditable"]);
     let d: serde_json::Value = serde_json::from_str(demo("effectcraft").expect("a demo")).unwrap();
     for n in d["nodes"].as_object().unwrap().values() {
         let kind = n["kind"].as_str().unwrap();
@@ -113,6 +113,41 @@ fn effectcraft_lists_the_nodes_and_runs_a_chain() {
     assert_eq!(info["width"].as_u64(), Some(320), "{info}");
     assert_eq!(json_out(&r, "i", "layers").as_array().map(Vec::len), Some(2));
     assert_eq!(blob(&r, "png", "image").meta.form, Form::Image { width: 320, height: 180 });
+}
+
+/// The generated layer family: one node per layer command a curated node doesn't run
+/// (`ec.<command id>`), each on the top layer by default; a generated New Null adds a layer and
+/// a generated Rename renames it.
+#[test]
+fn effectcraft_generates_its_layer_commands() {
+    let Some((h, report)) = live("effectcraft-families") else { return };
+    let layer = report.generated.iter().filter(|id| id.starts_with("ec.layer.")).count();
+    eprintln!("EffectCraft layer family: {layer} nodes; generated {:?}; dropped {:?}", report.generated, report.dropped);
+    assert!(layer >= 60, "{layer} layer nodes");
+    for id in ["ec.layer.newNull", "ec.layer.rename", "ec.layer.addMask", "ec.layer.newCamera"] {
+        assert!(report.generated.iter().any(|g| g == id), "no {id}");
+    }
+    // curated wins, and the selection is never a node
+    for id in ["ec.layer.newText", "ec.layer.newSolid", "ec.layer.select"] {
+        assert!(!report.generated.iter().any(|g| g == id), "{id} generated");
+    }
+
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/effectcraft-hello.ecproj");
+    let g = chain(&[("o", "ec.open", json!({"file": fixture.display().to_string()})), ("before", "ec.info", json!({}))]);
+    let r = go(&h, "ecfam0", g, &["before"], "off");
+    assert!(r.ok, "{:?}", states(&r));
+    let before = json_out(&r, "before", "layers").as_array().map(Vec::len).unwrap_or_default();
+    let g = chain(&[
+        ("o", "ec.open", json!({"file": fixture.display().to_string()})),
+        ("null", "ec.layer.newNull", json!({"name": "Rig"})),
+        ("mv", "ec.layer.rename", json!({"name": "Rig 2"})),
+        ("i", "ec.info", json!({})),
+    ]);
+    let r = go(&h, "ecfam1", g, &["i"], "off");
+    assert!(r.ok, "{:?}", r.nodes.iter().map(|(k, n)| (k, n.state, n.error.as_ref().map(|e| e.message.clone()))).collect::<Vec<_>>());
+    let layers = json_out(&r, "i", "layers");
+    assert_eq!(layers.as_array().map(Vec::len), Some(before + 1), "{layers}");
+    assert!(layers.to_string().contains("Rig 2"), "{layers}");
 }
 
 #[test]

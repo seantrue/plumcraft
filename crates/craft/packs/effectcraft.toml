@@ -404,3 +404,127 @@ name = "scale"
 type = "FLOAT"
 optional = true
 advanced = true
+[[node.widget]]
+name = "transparent"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Keep the alpha channel; unset: true"
+
+# ---- generated family (crates/craft/src/families.rs) ----
+#
+# One node per layer command, `ec.<command id>`, its widgets read from the command's params. A
+# reopened project has no selected layers, so `layers` and `layer` default to the top layer. A
+# command a curated node above runs is left to it.
+
+[[generate_commands]]
+commands = ["layer."]
+deny = [
+  # the selection (not saved with the project) and the window
+  "layer.select", "layer.selectNext", "layer.selectPrevious", "layer.mask.selectNext", "layer.mask.selectPrevious",
+  "layer.openLayer", "layer.openSource", "layer.revealInFinder", "layer.revealSource", "layer.revealExpressionErrors",
+  "layer.mask.hideLocked",
+  # files and project items outside the document, and background jobs
+  "layer.newModel", "layer.addItem", "layer.replaceSource", "layer.alignVideoToData",
+  "layer.newContentAwareFill", "layer.sceneEditDetection",
+]
+id_prefix = "ec."
+family = "Layer"
+drop_keys = ["outputDir", "path"]
+# properties: Animate Text needs at least one
+defaults = { layers = ["#1"], layer = "#1", properties = ["opacity"] }
+
+# ---- smoke test (plumcraft-craft-engine --craft effectcraft --smoke tests/fixtures/effectcraft-hello.ecproj) ----
+#
+# The fixture's one layer is a text layer. A command that needs another kind of layer, or a mask,
+# animator or style on it, runs after the node that makes one; a required key the craft gives no
+# default for gets a value.
+
+[smoke."ec.layer.addShapeItem"]
+before = ["ec.shape"]
+values = { kind = "rect" }
+[smoke."ec.layer.addTextAnimatorProperty"]
+before = ["ec.layer.addTextAnimator"]
+values = { property = "opacity" }
+[smoke."ec.layer.addTextSelector"]
+before = ["ec.layer.addTextAnimator"]
+values = { kind = "range" }
+[smoke."ec.layer.cameraSettings"]
+before = ["ec.layer.newCamera"]
+[smoke."ec.layer.lightSettings"]
+before = ["ec.layer.newLight"]
+[smoke."ec.layer.castsShadows"]
+before = ["ec.layer.new3dPrimitive"]
+[smoke."ec.layer.create"]
+values = { op = "shapesFromText" }
+[smoke."ec.layer.distribute"]
+before = ["ec.solid", "ec.solid"]
+values = { layers = ["#1", "#2", "#3"] }
+[smoke."ec.layer.sequence"]
+before = ["ec.solid"]
+values = { layers = ["#1", "#2"] }
+[smoke."ec.layer.enableTimeRemap"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.freezeFrame"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.freezeOnLastFrame"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.slip"]
+before = ["ec.layer.precompose"]
+values = { delta = 0.1 }
+[smoke."ec.layer.slipBack"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.slipForward"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.updateMarkersFromSource"]
+before = ["ec.layer.precompose"]
+[smoke."ec.layer.mask.featherFalloff"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.invert"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.lock"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.mode"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.motionBlur"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.reset"]
+before = ["ec.layer.addMask"]
+[smoke."ec.layer.mask.set"]
+before = ["ec.layer.addMask"]
+values = { value = 5 }
+[smoke."ec.layer.mask.shape"]
+before = ["ec.layer.addMask"]
+values = { rect = [0, 0, 50, 50] }
+[smoke."ec.layer.setMask"]
+before = ["ec.layer.addMask"]
+values = { mask = "Mask 1" }
+[smoke."ec.layer.quickOffset"]
+before = ["ec.solid"]
+values = { delta = 0.5, layers = ["#1", "#2"] }
+[smoke."ec.layer.rename"]
+values = { name = "Renamed" }
+[smoke."ec.layer.setBlendMode"]
+values = { mode = "Multiply" }
+[smoke."ec.layer.setComment"]
+values = { comment = "a note" }
+[smoke."ec.layer.setParent"]
+before = ["ec.solid"]
+values = { parent = "#2" }
+[smoke."ec.layer.setTrackMatte"]
+before = ["ec.solid"]
+values = { matte = "#2" }
+[smoke."ec.layer.setTransform"]
+values = { prop = "opacity", value = 50 }
+[smoke."ec.layer.style.remove"]
+before = ["ec.layer.style.dropShadow"]
+values = { style = "Drop Shadow" }
+[smoke."ec.layer.style.toggle"]
+before = ["ec.layer.style.dropShadow"]
+values = { style = "Drop Shadow" }
+[smoke."ec.layer.expressions"]
+values = { enabled = true }
+
+# Generated nodes that fail on any document PlumCraft can make (the smoke test, 2026-11-04).
+[exclude]
+"ec.layer.style.convertToEditable" = "converts Photoshop layer styles, which only an imported PSD layer has"

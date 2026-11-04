@@ -450,6 +450,58 @@ type = "FLOAT"
 min = 0.0
 optional = true
 advanced = true
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame width in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame height in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "fps"
+type = "FLOAT"
+min = 1.0
+max = 240.0
+tooltip = "Frame rate; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "bitrateMode"
+type = "ENUM"
+choices = ["cbr", "vbr1Pass", "vbr2Pass", "crf"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "bitrateKbps"
+type = "INT"
+min = 100.0
+max = 500000.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "hardwareEncoding"
+type = "ENUM"
+choices = ["off", "auto"]
+optional = true
+advanced = true
+[[node.widget]]
+name = "loudnessLufs"
+type = "FLOAT"
+label = "loudness (LUFS)"
+min = -70.0
+max = 0.0
+tooltip = "Normalise the sound to this integrated loudness; unset: as mixed"
+optional = true
+advanced = true
 
 [[node]]
 id = "fc.export_mov"
@@ -474,6 +526,70 @@ type = "FLOAT"
 min = 0.05
 max = 1.0
 optional = true
+[[node.widget]]
+name = "audio"
+type = "BOOL"
+tooltip = "false: leave the sound out; unset: with sound"
+optional = true
+advanced = true
+[[node.widget]]
+name = "alpha"
+type = "BOOL"
+tooltip = "Keep transparency (profiles 4444 and 4444xq); unset: off"
+optional = true
+advanced = true
+[[node.widget]]
+name = "range"
+type = "ENUM"
+choices = ["entire", "inOut", "workArea", "custom"]
+tooltip = "custom: from startSeconds to endSeconds; unset: the whole sequence"
+optional = true
+advanced = true
+[[node.widget]]
+name = "startSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "endSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame width in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame height in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "fps"
+type = "FLOAT"
+min = 1.0
+max = 240.0
+tooltip = "Frame rate; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "loudnessLufs"
+type = "FLOAT"
+label = "loudness (LUFS)"
+min = -70.0
+max = 0.0
+tooltip = "Normalise the sound to this integrated loudness; unset: as mixed"
+optional = true
+advanced = true
 
 [[node]]
 id = "fc.export_gif"
@@ -492,6 +608,49 @@ type = "FLOAT"
 default = 0.25
 min = 0.05
 max = 1.0
+[[node.widget]]
+name = "range"
+type = "ENUM"
+choices = ["entire", "inOut", "workArea", "custom"]
+tooltip = "custom: from startSeconds to endSeconds; unset: the whole sequence"
+optional = true
+advanced = true
+[[node.widget]]
+name = "startSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "endSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "width"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame width in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "height"
+type = "INT"
+min = 16.0
+max = 8192.0
+tooltip = "Frame height in pixels; unset: the sequence's"
+optional = true
+advanced = true
+[[node.widget]]
+name = "fps"
+type = "FLOAT"
+min = 1.0
+max = 240.0
+tooltip = "Frame rate; unset: the sequence's"
+optional = true
+advanced = true
 
 [[node]]
 id = "fc.export_wav"
@@ -505,6 +664,34 @@ media = "audio/wav"
 [[node.output]]
 name = "audio"
 type = "WAV"
+[[node.widget]]
+name = "range"
+type = "ENUM"
+choices = ["entire", "inOut", "workArea", "custom"]
+tooltip = "custom: from startSeconds to endSeconds; unset: the whole sequence"
+optional = true
+advanced = true
+[[node.widget]]
+name = "startSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "endSeconds"
+type = "FLOAT"
+min = 0.0
+optional = true
+advanced = true
+[[node.widget]]
+name = "loudnessLufs"
+type = "FLOAT"
+label = "loudness (LUFS)"
+min = -70.0
+max = 0.0
+tooltip = "Normalise the sound to this integrated loudness; unset: as mixed"
+optional = true
+advanced = true
 
 [[node]]
 id = "fc.export_png"
@@ -524,3 +711,10 @@ name = "time"
 type = "INT"
 min = 0.0
 optional = true
+[[node.widget]]
+name = "depth"
+type = "ENUM"
+choices = [8, 16]
+tooltip = "Bits per channel; unset: 8"
+optional = true
+advanced = true

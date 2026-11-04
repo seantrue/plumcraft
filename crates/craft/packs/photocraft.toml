@@ -520,3 +520,33 @@ description = "A layered Photoshop file (no viewer in the editor)"
 [[node.output]]
 name = "psd"
 type = "PSD"
+
+# ---- generated families (crates/craft/src/families.rs) ----
+#
+# One node per filter and adjustment command, `pc.<command id>`, its widgets read from the
+# command's params (`{"radius":0.1..1000=1,…}`). A command a curated node above runs is left to
+# it; the escape hatch's deny list applies too. Keys that name a file or another open document
+# are never widgets.
+
+[[generate_commands]]
+commands = ["filter."]
+# lastFilter repeats whatever ran last in the process: not a function of the inputs
+deny = ["filter.lastFilter"]
+id_prefix = "pc."
+family = "Filter"
+drop_keys = ["mapPath", "mapDocument", "path", "file"]
+
+[[generate_commands]]
+commands = ["image.adjustments."]
+# colorLookup.list lists the built-in LUTs (Color lookup's choices); it edits nothing
+deny = ["image.adjustments.colorLookup.list"]
+id_prefix = "pc."
+family = "Adjust"
+# matchColor's source is another open document's index (process state); file is a path
+drop_keys = ["source", "sourceLayer", "file", "path"]
+
+# Generated nodes that fail with their defaults (the smoke test, 2026-11-04: 156 of 159 pass).
+[exclude]
+"pc.filter.distort.displace" = "needs a displacement map file or another open document (mapPath / mapDocument), never a widget"
+"pc.filter.filterGallery" = "needs `effects`, a list of filter steps, with no default"
+"pc.filter.vanishingPoint" = "needs `planes` (four corners each) with no default"

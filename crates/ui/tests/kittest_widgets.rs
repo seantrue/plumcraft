@@ -115,8 +115,11 @@ fn every_pin_has_a_label_and_wired_widgets_say_where_from() {
     s.execute("wire.connect", &json!({"from": {"node": join, "port": "text"}, "to": {"node": words, "port": "text"}})).unwrap();
     let h = harness(EditorApp::new(s));
     for label in ["a", "b", "sep", "count", "table", "text"] {
-        assert!(h.query_all_by_label(label).count() >= 1, "no label {label:?}");
+        assert!(h.query_all_by_label_contains(label).count() >= 1, "no label {label:?}");
     }
+    // A socket whose name doesn't say its type says it after the name; one whose name does, doesn't.
+    assert!(h.query_by_label("a · TEXT").is_some(), "join's `a` names its type");
+    assert!(h.query_by_label("table · TABLE").is_none(), "a name that is its type isn't repeated");
     // A widget row's caption sits left of its widget, never over it.
     let caption = h.get_by_label("sep").rect();
     let fields: Vec<egui::Rect> = h.query_all_by_role(Role::TextInput).map(|n| n.rect()).collect();

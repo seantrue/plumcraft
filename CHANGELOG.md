@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **Craft nodes take every parameter their command does.** A curated node's leftover parameters are now advanced widgets, inferred from the craft's own description of the command. Unset widgets aren't sent, so existing workflows run and cache as before. The catalogue check can now read FilmCraft's, WordCraft's, PhotoCraft's and SolidCraft's descriptions, where before it silently checked nothing. A pack can hide a key (`hide`) or turn this off (`auto = false`, `[auto_widgets]`).
+- **Export nodes take their own format's options.**
+  - FilmCraft's MOV, GIF and WAV exports take a time range, as MP4 did; before, they always exported the whole sequence. Its exports also take size, frame rate, loudness and, for MOV, audio and the ProRes profile.
+  - DeckCraft exports choose slides.
+  - SolidCraft's STL, 3MF and OBJ take a tessellation quality.
+  - DesignCraft, VectorCraft, FigCraft, GridCraft, EffectCraft, SoundCraft, WordCraft and PdfCraft exports gain their formats' options too.
+  - GridCraft's CSV export now runs `file.exportCsv` (`sheet`, `values`), and WordCraft's PNG export runs `file.exportPng` (`page`, `scale`, `markup`).
+- **Node families generated from a craft's command list** (`[[generate_commands]]`): 132 PhotoCraft filters and adjustments, and 98 EffectCraft layer commands. Each is a node with widgets from the command's description; curated nodes win.
+- **SolidCraft: Sketch from SVG and Extrude**, so a part can start from a drawn profile.
+- **A parameter-coverage test** (`crates/craft/tests/params_coverage.rs`) fails when a craft node starts hiding a parameter. To accept a new baseline, run it with `PLUMCRAFT_BLESS=1`.
+- **A craft choice can bring its own parameters** (`brings = "<catalogue>:<field>:<list>"` on a widget). SoundCraft's Insert plug-in now shows the chosen plug-in's parameters from `engine.plugins`, each with its default: Compressor/Limiter's Threshold, Ratio, Attack and so on. Only the chosen plug-in's are sent. Choices are shown by name, toggles as checkboxes. Before, it showed an empty `params` object.
+- **The editor:**
+  - Engine › Pick Engines Automatically (`engine.auto`): opening or inserting a workflow starts the engines it needs, each hosted the fastest way (in-process, then a process, then HTTP). `engine.use` without a `mode` picks the fastest too.
+  - A workflow from elsewhere asks to be trusted with just **Trust**, not Trust and Run: trusting it no longer runs it. The held run is dropped, and it runs at the next run.
+  - A socket's label names its type when its name doesn't (`audio · WAV`), and every port's tooltip starts with its type.
+  - A double-click on a node opens Edit Parameters, and the window opens beside the node.
 - `plumcraft-editor run FILE` runs a workflow's Write Files nodes (any `output_node`) when it has no Result node, so a graph of craft, array or audio nodes runs headless as it does in the window. `--out DIR` points their folders there. Before, such a run stopped with "this engine doesn't save files".
 - `run`, `check` and `tidy` start the engines the workflow names in its `engines` list when no `--engine` is given.
 - `plumcraft-editor check FILE` reports unknown node types and inputs, wires the type rules refuse, wire-only inputs left unwired, and nodes no output depends on, without running anything.

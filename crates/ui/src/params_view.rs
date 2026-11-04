@@ -41,6 +41,8 @@ pub struct Context<'a> {
     pub catalog: &'a SchemaReply,
     pub run: &'a RunState,
     pub tokens: &'a Tokens,
+    /// The node on screen, when it is: the window opens beside it.
+    pub anchor: Option<egui::Rect>,
 }
 
 #[derive(Default)]
@@ -87,7 +89,8 @@ impl ParamsPanel {
     pub fn show(&mut self, ctx: &egui::Context, cx: &Context<'_>, node: &NodeId) -> Vec<Action> {
         let mut actions = Vec::new();
         self.rects.clear();
-        if self.shown.as_ref() != Some(node) {
+        let fresh = self.shown.as_ref() != Some(node);
+        if fresh {
             self.filter.clear();
             self.shown = Some(node.clone());
         }
@@ -99,7 +102,12 @@ impl ParamsPanel {
         let title = plumcraft_session::node_title(cx.graph, cx.catalog, node);
         let mut open = true;
         let content = ctx.content_rect();
-        egui::Window::new(RichText::new(format!("{title} · parameters")).strong())
+        let mut window = egui::Window::new(RichText::new(format!("{title} · parameters")).strong());
+        // Opened on a node (or moved to another): beside it, once; after that it stays where it's put.
+        if fresh && let Some(at) = cx.anchor.map(|node| beside(node, content)) {
+            window = window.current_pos(at);
+        }
+        window
             .id(egui::Id::new(WINDOW))
             .open(&mut open)
             .collapsible(false)
@@ -115,7 +123,20 @@ impl ParamsPanel {
         }
         actions
     }
+}
 
+/// Where the window's top left goes for a node at `node` (screen): right of it, or left when
+/// there isn't room on the right, its top level with the node's, kept on screen.
+fn beside(node: egui::Rect, content: egui::Rect) -> egui::Pos2 {
+    const GAP: f32 = 12.0;
+    let size = egui::vec2(580.0, 660.0_f32.min(content.height() - 40.0));
+    let right = node.right() + GAP;
+    let x = if right + size.x <= content.right() { right } else { (node.left() - GAP - size.x).max(content.left()) };
+    let y = node.top().clamp(content.top(), (content.bottom() - size.y).max(content.top()));
+    egui::pos2(x, y)
+}
+
+impl ParamsPanel {
     fn body(&mut self, ui: &mut egui::Ui, cx: &Context<'_>, node: &NodeId, def: &NodeDef, title: &str, actions: &mut Vec<Action>) {
         header(ui, cx, node, def, title);
         ui.add_space(6.0);
