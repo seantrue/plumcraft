@@ -20,6 +20,36 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-03 — More converters, and arrays that aren't pictures (Claude Opus 5.5)
+
+The maintainer asked what "mark the existing converters in 6.1" meant, then: "mark them, and ensure that arrays can be non-images (1d)".
+
+**What the AI did:**
+
+- **Marked the converters that already existed:** Decode Image, Encode Image, Rasterize SVG, and every craft's Open, one mark for each of its picture, SVG and PDF inputs. Supporting Open meant changing `converts` to one mark or a list.
+- **Read "arrays can be non-images" as two problems,** and fixed both:
+  - **Paths could cross shapes.** With Encode Image marked, Convert would have offered Audio → Array → Encode Image, a sound made into a picture. Marks now say an ARRAY end's shape (`image` or `series`), and paths don't cross them.
+  - **The array engine turned 1-D into 2-D.** It read a 1-D array as one row of a picture, so its nodes gave a 1-D input back as `(1, n)`. Its runner restores `[n]` (`keep_flat`).
+- **Fixed `check` saying every problem twice,** an older defect, and dropped the article from "converts a AUDIO to a IMAGE".
+
+**Size:** about 350 lines added and 115 removed. Most is in `crates/proto/src/convert.rs` (~130 added) and `crates/array/src/op.rs` (~75 added).
+
+**Tests:**
+
+- proto 2: shapes, and several marks;
+- array 1: 1-D stays 1-D;
+- PdfCraft and VectorCraft Open 1, run live;
+- headless 1: a problem said once.
+
+**Runs:** a mono spectrum through Arithmetic and back to Audio; Audio into Decode Image, refused; the ringtone through the array engine, still −6.02 dB.
+
+**Defects caught:**
+
+- the stale protocol schema, caught by its test;
+- the doubled `check` lines, seen in the AI's own run.
+
+**Investigated:** PdfCraft's chain test failed once in a full run and passed three times alone. The test's own comment says PdfCraft's saves depend on the clock, so it is timing, not this change.
+
 ### 2026-11-03 — `plumcraft-array` and `plumcraft-engine` 0.1.1 (Claude Opus 5.5)
 
 The maintainer: "Publish plumcraft-array". The dry run failed: the array engine's binary calls `plumcraft_engine::register` and `serve::main`, which arrived after `plumcraft-engine` 0.1.0 was published. So `plumcraft-engine` goes out as 0.1.1 too, since its changes are additions only (`register.rs`, +253 LOC). Each crate takes its own version and the workspace pins both at `=0.1.1`. The other crates stay at 0.1.0. `plumcraft-proto` has grown too (Convert) but was left at 0.1.0, because neither crate needs the new parts: both dry runs built against the published proto, store and svg. Before uploading, the two crates' 113 tests passed and the workspace built.

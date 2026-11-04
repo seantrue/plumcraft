@@ -139,3 +139,32 @@ fn pdfcraft_joins_wired_pdfs_and_marks_every_page() {
     let text = json_out(&r, "t", "result").to_string();
     assert!(text.contains("JOINED"), "the header is on the pages: {text}");
 }
+
+/// Open is a converter from each value it takes (docs/research/20-convert.md): PdfCraft's from a
+/// picture and from a PDF, VectorCraft's from a picture and from an SVG. So a PDF reaches text in
+/// two steps, Open then Export text.
+#[test]
+fn open_converts_from_each_value_it_takes() {
+    for (craft, from) in [("pdfcraft", vec!["IMAGE", "PDF"]), ("vectorcraft", vec!["IMAGE", "SVG"])] {
+        let m = builtin(craft).unwrap().unwrap();
+        if m.executable().is_none() {
+            eprintln!("SKIP: {craft} is not on PATH; {}", m.hint);
+            continue;
+        }
+        let opts = plumcraft_craft::Options { root: Some(craft_root(craft)), store: Some(Some(store_root())), include_excluded: false };
+        let (engine, _, _) = plumcraft_craft::build(&m, &opts).unwrap();
+        let cat = engine.schema();
+        let open: Vec<(&str, &str)> = cat.converters().into_iter().filter(|c| c.kind.ends_with(".open")).map(|c| (c.from, c.input)).collect();
+        let input = |t: &str| match t {
+            "IMAGE" => "image",
+            "PDF" => "pdf",
+            _ => "svg",
+        };
+        let want: Vec<(&str, &str)> = from.iter().map(|t| (*t, input(t))).collect();
+        assert_eq!(open, want, "{craft}");
+        if craft == "pdfcraft" {
+            let p = cat.convert_paths("PDF", "TXT");
+            assert_eq!(p.first().map(|p| p.iter().map(|c| c.kind).collect::<Vec<_>>()), Some(vec!["pdf.open", "pdf.export_text"]), "a PDF to text");
+        }
+    }
+}

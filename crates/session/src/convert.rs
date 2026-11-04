@@ -241,6 +241,11 @@ fn wire_convert(s: &mut Session, p: &Value) -> Result<Value> {
     };
     let kinds: Vec<String> =
         picked.get("kinds").and_then(Value::as_array).map(|k| k.iter().filter_map(|x| x.as_str().map(str::to_owned)).collect()).unwrap_or_default();
+    // the steps as marks, so a node with several takes the right input
+    let steps: Vec<(String, String, String)> = output_type(s, &from)
+        .and_then(|t| s.catalog().convert_path_of(&t, &kinds))
+        .map(|p| p.iter().map(|c| (c.kind.to_owned(), c.input.to_owned(), c.output.to_owned())).collect())
+        .ok_or_else(|| SessionError::Params("that path no longer fits".into()))?;
     let (a, b) = (s.graph().nodes.get(&from.node).map(|n| n.pos), s.graph().nodes.get(&to.node).map(|n| n.pos));
     let (Some(a), Some(b)) = (a, b) else { return Err(SessionError::Params("no such node".into())) };
     let catalog = s.catalog().clone();
@@ -248,15 +253,13 @@ fn wire_convert(s: &mut Session, p: &Value) -> Result<Value> {
     let placed = s.edit(&format!("Insert {label}"), |g, _| {
         let mut at = from.clone();
         let mut placed = Vec::new();
-        let n = kinds.len() as f32 + 1.0;
-        for (k, kind) in kinds.iter().enumerate() {
+        let n = steps.len() as f32 + 1.0;
+        for (k, (kind, input, output)) in steps.iter().enumerate() {
             let def = catalog.node(kind).ok_or_else(|| SessionError::Params(format!("no node type {kind}")))?;
             let t = (k as f32 + 1.0) / n;
             let id = g.add_node(def, [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
-            let c =
-                catalog.converters().into_iter().find(|c| c.kind == kind.as_str()).ok_or_else(|| SessionError::Params(format!("{kind} isn't a converter")))?;
-            g.connect(&catalog, at.clone(), PortRef::new(id.clone(), c.input))?;
-            at = PortRef::new(id.clone(), c.output);
+            g.connect(&catalog, at.clone(), PortRef::new(id.clone(), input.as_str()))?;
+            at = PortRef::new(id.clone(), output.as_str());
             placed.push(id.0);
         }
         g.connect(&catalog, at, to.clone())?;
@@ -341,7 +344,7 @@ mod tests {
             display: id.into(),
             inputs: ins.iter().map(|(n, t)| Port { name: (*n).into(), ty: (*t).into(), socket: Some(Socket::Socket), ..Default::default() }).collect(),
             outputs: outs.iter().map(|(n, t)| Port { name: (*n).into(), ty: (*t).into(), ..Default::default() }).collect(),
-            converts: converts.map(|(f, t, l)| Converts::new(f, t, l)),
+            converts: converts.map(|(f, t, l)| Converts::new(f, t, l)).into_iter().collect(),
             ..Default::default()
         }
     }

@@ -190,7 +190,9 @@ fn file_for(s: &Session, ask: &Ask, node: &NodeId, taken: &mut Vec<PathBuf>) -> 
 }
 
 /// A file opened: its engines must all be here; other problems are the run's to report.
-fn check_opened(file: &Path, opened: &Value, extras: &str) -> Result<(), String> {
+/// Refuse a file whose engines aren't here; say its other problems when `say` (`check` says them
+/// itself, once, with the fix where there is one).
+fn check_opened(file: &Path, opened: &Value, extras: &str, say: bool) -> Result<(), String> {
     if let Some(m) = opened.get("missingEngines") {
         let engines: Vec<&str> = m["engines"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
         let kinds: Vec<&str> = m["kinds"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
@@ -198,7 +200,7 @@ fn check_opened(file: &Path, opened: &Value, extras: &str) -> Result<(), String>
         let what = if engines.is_empty() { "an engine this run hasn't got".to_owned() } else { format!("the engine {}", engines.join(", ")) };
         return Err(format!("{} needs {what} ({}){how}", file.display(), kinds.join(", ")));
     }
-    for p in opened["problems"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+    for p in opened["problems"].as_array().into_iter().flatten().filter_map(Value::as_str).filter(|_| say) {
         eprintln!("{}: {p}", file.display());
     }
     Ok(())
@@ -208,7 +210,7 @@ fn check_opened(file: &Path, opened: &Value, extras: &str) -> Result<(), String>
 type Opened = (Vec<Link>, Arc<dyn Connection>, Session);
 
 /// Start the engines and open `file` in a session on them, as the window does.
-fn open(program: &str, file: &Path, kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> Result<Opened, String> {
+fn open(program: &str, file: &Path, kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>, say: bool) -> Result<Opened, String> {
     let (links, conn) = connect(kind, mode, extras, manifests)?;
     let catalog = catalogue(conn.as_ref())?;
     if let Some(notice) = catalog.text(texts::ENGINE_NOTICE).filter(|n| !n.is_empty()) {
@@ -221,7 +223,7 @@ fn open(program: &str, file: &Path, kind: EngineKind, mode: Mode, extras: &[Engi
     s.engines.added = extras.iter().map(|e| EngineTarget::Choice { engine: e.id(), mode: e.default_mode().id().into() }).collect();
     let opened = s.execute("graph.open", &json!({"path": file})).map_err(|e| e.to_string())?;
     let ids: Vec<String> = std::iter::once(kind).chain(extras.iter().copied()).map(EngineKind::id).collect();
-    check_opened(file, &opened, &ids.join(","))?;
+    check_opened(file, &opened, &ids.join(","), say)?;
     Ok((links, conn, s))
 }
 
@@ -372,7 +374,7 @@ pub(crate) fn check(program: &str, args: &[String], kind: EngineKind, mode: Mode
             return ExitCode::from(2);
         }
     };
-    match open(program, &file, kind, mode, extras, manifests) {
+    match open(program, &file, kind, mode, extras, manifests, false) {
         Ok((links, _, s)) => {
             let p = problems(&s);
             drop(links);
@@ -397,7 +399,7 @@ pub(crate) fn tidy(program: &str, args: &[String], kind: EngineKind, mode: Mode,
             return ExitCode::from(2);
         }
     };
-    let tidied = open(program, &file, kind, mode, extras, manifests).and_then(|(links, _, mut s)| {
+    let tidied = open(program, &file, kind, mode, extras, manifests, true).and_then(|(links, _, mut s)| {
         s.execute("graph.tidy", &json!({})).map_err(|e| e.to_string())?;
         s.execute("graph.save", &json!({})).map_err(|e| e.to_string())?;
         drop(links);
@@ -415,7 +417,7 @@ pub(crate) fn tidy(program: &str, args: &[String], kind: EngineKind, mode: Mode,
 /// Open, then write each output. What it wrote is printed as it goes, so a failure part way says
 /// how far it got.
 fn write_all(program: &str, ask: &Ask, kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> Result<(), String> {
-    let (links, conn, mut s) = open(program, &ask.file, kind, mode, extras, manifests)?;
+    let (links, conn, mut s) = open(program, &ask.file, kind, mode, extras, manifests, true)?;
 
     if let Some(e) = &ask.format
         && format_of(s.catalog(), Path::new(&format!("x.{}", e.trim_start_matches('.')))).is_none()
@@ -513,10 +515,10 @@ mod tests {
     #[test]
     fn a_file_needing_an_engine_says_how_to_ask_for_it() {
         let opened = json!({"missingEngines": {"engines": ["vectorcraft"], "kinds": ["vc.open"]}, "problems": []});
-        let e = check_opened(Path::new("a.png"), &opened, "vi").unwrap_err();
+        let e = check_opened(Path::new("a.png"), &opened, "vi", true).unwrap_err();
         assert!(e.contains("vectorcraft") && e.contains("vc.open") && e.contains("--engine vi,vectorcraft"), "{e}");
         let unnamed = json!({"missingEngines": {"engines": [], "kinds": ["vc.open"]}});
-        assert!(check_opened(Path::new("a.png"), &unnamed, "vi").unwrap_err().contains("vc.open"));
-        assert!(check_opened(Path::new("a.png"), &json!({"problems": []}), "vi").is_ok());
+        assert!(check_opened(Path::new("a.png"), &unnamed, "vi", true).unwrap_err().contains("vc.open"));
+        assert!(check_opened(Path::new("a.png"), &json!({"problems": []}), "vi", true).is_ok());
     }
 }

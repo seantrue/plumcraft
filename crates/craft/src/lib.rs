@@ -533,14 +533,7 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         x: BTreeMap::from([(format!("{}.command", m.id), Value::from(spec.command.clone().unwrap_or_default()))]),
         // An export turns the document into its file (docs/research/20-convert.md): a step on
         // the way from a document to a value, never lossless (the document's edits stay behind).
-        converts: match (spec.kind, spec.outputs.as_slice()) {
-            (Kind::Export, [one]) if spec.files.iter().all(|f| f.optional) => Some(plumcraft_proto::convert::Converts {
-                input: Some("doc".into()),
-                output: Some(one.name.clone()),
-                ..plumcraft_proto::convert::Converts::new(&m.doc.wire, &one.ty, false)
-            }),
-            _ => None,
-        },
+        converts: converts(m, spec),
         ..Default::default()
     };
     let plan = Plan {
@@ -556,6 +549,30 @@ fn curated(m: &Manifest, spec: &NodeSpec, cat: &Catalogue, shared: &Arc<Shared>)
         timeout: spec.timeout_s.map(Duration::from_secs),
     };
     Ok(CraftNode { def, plan, shared: Arc::clone(shared) })
+}
+
+/// What a curated node converts (docs/research/20-convert.md). An export turns the document into
+/// its file: a step from a document to a value, never lossless (the document's edits stay
+/// behind). An Open turns a picture, an SVG or a PDF into a document, one mark for each socket
+/// it has.
+fn converts(m: &Manifest, spec: &NodeSpec) -> Vec<plumcraft_proto::convert::Converts> {
+    use plumcraft_proto::convert::Converts;
+    match (spec.kind, spec.outputs.as_slice()) {
+        (Kind::Export, [one]) if spec.files.iter().all(|f| f.optional) => {
+            vec![Converts { output: Some(one.name.clone()), ..Converts::new(&m.doc.wire, &one.ty, false).input("doc") }]
+        }
+        (Kind::Open, _) => {
+            let mut from = vec![("image", IMAGE)];
+            if m.doc.opens_svg {
+                from.push(("svg", SVG));
+            }
+            if m.doc.opens_pdf {
+                from.push(("pdf", PDF));
+            }
+            from.into_iter().map(|(input, ty)| Converts { output: Some("doc".into()), ..Converts::new(ty, &m.doc.wire, false).input(input) }).collect()
+        }
+        _ => Vec::new(),
+    }
 }
 
 fn media_for(ext: &str) -> &'static str {

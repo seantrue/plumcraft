@@ -9,7 +9,14 @@
 //! nodes. Nothing here converts anything: what runs is always an engine's node.
 //!
 //! A mark is hostile input like any other: one that names a port the node lacks, or a port of
-//! another type, is ignored ([`SchemaReply::converters`]), never fatal.
+//! another type, is ignored ([`SchemaReply::converters`]), never fatal. A node may carry several
+//! (a craft's Open takes a picture, an SVG or a PDF): `converts` is one mark or a list.
+//!
+//! **An array is not always a picture.** An ARRAY can be an image (H, W[, C]) or a series (a
+//! 1-D signal, or frames × channels, as Audio to Array makes). A mark may say which its ARRAY end
+//! is (`from_shape`, `to_shape`: [`IMAGE`] or [`SERIES`]), and a path never hands an array of
+//! one shape to a step that wants the other: Audio to Array, then Encode Image, is no path. An
+//! array whose shape nobody says (another node's output) may go either way.
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -30,6 +37,11 @@ pub const TYPE: &str = "CONVERT";
 pub const MAX_HOPS: usize = 4;
 /// The most paths [`SchemaReply::convert_paths`] returns.
 pub const MAX_PATHS: usize = 8;
+/// An array that is a picture: (H, W) or (H, W, C).
+pub const IMAGE: &str = "image";
+/// An array that is a series: 1-D, or (frames, channels).
+pub const SERIES: &str = "series";
+
 /// Where a Convert node keeps the path it was given (`"convert": ["audio.from_wav"]`), in the
 /// workflow's node.
 pub const PIN: &str = "convert";
@@ -54,11 +66,60 @@ pub struct Converts {
     /// step that isn't is reported as lossy.
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
     pub lossless: bool,
+    /// What the `from` array is, when it is one: [`IMAGE`] or [`SERIES`].
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from_shape: Option<String>,
+    /// What the `to` array is, when it is one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub to_shape: Option<String>,
 }
 
 impl Converts {
     pub fn new(from: &str, to: &str, lossless: bool) -> Self {
-        Converts { from: from.into(), to: to.into(), input: None, output: None, lossless }
+        Converts { from: from.into(), to: to.into(), lossless, ..Default::default() }
+    }
+
+    /// This mark taking input `name`.
+    pub fn input(mut self, name: &str) -> Self {
+        self.input = Some(name.into());
+        self
+    }
+
+    /// This mark's `from` array is a `shape`.
+    pub fn from_shape(mut self, shape: &str) -> Self {
+        self.from_shape = Some(shape.into());
+        self
+    }
+
+    /// This mark's `to` array is a `shape`.
+    pub fn to_shape(mut self, shape: &str) -> Self {
+        self.to_shape = Some(shape.into());
+        self
+    }
+}
+
+/// `converts` on a NodeDef: one mark (an object) or several (a list). What doesn't read as a
+/// mark is dropped, never fatal; one is written as an object.
+pub mod marks {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+    use serde_json::Value;
+
+    use super::Converts;
+
+    pub fn serialize<S: Serializer>(v: &[Converts], s: S) -> Result<S::Ok, S::Error> {
+        match v {
+            [one] => one.serialize(s),
+            many => many.serialize(s),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Converts>, D::Error> {
+        let v = Value::deserialize(d)?;
+        Ok(match v {
+            Value::Array(items) => items.into_iter().filter_map(|i| serde_json::from_value(i).ok()).collect(),
+            o @ Value::Object(_) => serde_json::from_value(o).ok().into_iter().collect(),
+            _ => Vec::new(),
+        })
     }
 }
 
@@ -72,8 +133,18 @@ pub struct Converter<'a> {
     pub input: &'a str,
     pub output: &'a str,
     pub lossless: bool,
+    pub from_shape: Option<&'a str>,
+    pub to_shape: Option<&'a str>,
     /// The engine that runs it, in a merged catalogue; `None` in a single engine's.
     pub engine: Option<&'a str>,
+}
+
+/// Can an array said to be `have` go where `want` is wanted? Yes unless both are said and differ.
+fn shapes_meet(have: Option<&str>, want: Option<&str>) -> bool {
+    match (have, want) {
+        (Some(a), Some(b)) => a == b,
+        _ => true,
+    }
 }
 
 /// A way from one type to another: its converters, in order. Empty when the types already meet.
@@ -99,8 +170,7 @@ pub fn lossless(path: &[Converter<'_>]) -> bool {
     path.iter().all(|c| c.lossless)
 }
 
-fn validated(n: &NodeDef) -> Option<Converter<'_>> {
-    let m = n.converts.as_ref()?;
+fn validated<'a>(n: &'a NodeDef, m: &'a Converts) -> Option<Converter<'a>> {
     let plain = |t: &str| !t.is_empty() && t != "ANY" && t != TYPE;
     if n.id == KIND || !plain(&m.from) || !plain(&m.to) || m.from == m.to {
         return None;
@@ -122,6 +192,8 @@ fn validated(n: &NodeDef) -> Option<Converter<'_>> {
         input: &input.name,
         output: &output.name,
         lossless: m.lossless,
+        from_shape: m.from_shape.as_deref(),
+        to_shape: m.to_shape.as_deref(),
         engine: n.engines.first().map(String::as_str),
     })
 }
@@ -129,7 +201,7 @@ fn validated(n: &NodeDef) -> Option<Converter<'_>> {
 impl SchemaReply {
     /// The catalogue's converters, in its order: the marks that hold (module docs).
     pub fn converters(&self) -> Vec<Converter<'_>> {
-        self.nodes.iter().filter_map(validated).collect()
+        self.nodes.iter().flat_map(|n| n.converts.iter().filter_map(move |m| validated(n, m))).collect()
     }
 
     /// The ways from a value of type `from` to one that `done` accepts, best first: fewest
@@ -147,8 +219,10 @@ impl SchemaReply {
             if path.len() >= MAX_HOPS {
                 continue;
             }
+            // what the last step said its array is
+            let shape = path.last().and_then(|c| c.to_shape);
             for c in &all {
-                if !self.accepts(&at, c.from) || seen.contains(c.to) {
+                if !self.accepts(&at, c.from) || !shapes_meet(shape, c.from_shape) || seen.contains(c.to) {
                     continue;
                 }
                 let mut next = path.clone();
@@ -161,7 +235,7 @@ impl SchemaReply {
                 stack.push((c.to.to_owned(), next, seen));
             }
         }
-        let order = |p: &Path<'_>| p.iter().map(|c| all.iter().position(|a| a.kind == c.kind).unwrap_or(usize::MAX)).collect::<Vec<_>>();
+        let order = |p: &Path<'_>| p.iter().map(|c| all.iter().position(|a| a == c).unwrap_or(usize::MAX)).collect::<Vec<_>>();
         let crossings = |p: &Path<'_>| p.windows(2).filter(|w| w[0].engine != w[1].engine).count();
         found.sort_by_key(|p| (p.len(), p.iter().filter(|c| !c.lossless).count(), crossings(p), order(p)));
         found.dedup_by(|a, b| a.iter().map(|c| c.kind).eq(b.iter().map(|c| c.kind)));
@@ -189,12 +263,11 @@ impl SchemaReply {
     pub fn convert_path_of(&self, from: &str, kinds: &[String]) -> Option<Path<'_>> {
         let all = self.converters();
         let mut at = from.to_owned();
-        let mut path = Vec::new();
+        let mut path: Path<'_> = Vec::new();
         for k in kinds {
-            let c = all.iter().find(|c| c.kind == k)?;
-            if !self.accepts(&at, c.from) {
-                return None;
-            }
+            // a node with several marks: the one that takes what there is
+            let shape = path.last().and_then(|c| c.to_shape);
+            let c = all.iter().find(|c| c.kind == k && self.accepts(&at, c.from) && shapes_meet(shape, c.from_shape))?;
             at = c.to.to_owned();
             path.push(c.clone());
         }
@@ -242,7 +315,7 @@ mod tests {
                 Port { name: "bits".into(), ty: "INT".into(), ..Default::default() },
             ],
             outputs: vec![Port { name: "y".into(), ty: to.into(), ..Default::default() }],
-            converts: Some(Converts::new(from, to, lossless)),
+            converts: vec![Converts::new(from, to, lossless)],
             ..Default::default()
         }
     }
@@ -298,9 +371,9 @@ mod tests {
     #[test]
     fn a_mark_that_lies_is_ignored() {
         let mut wrong_port = conv("a", "WAV", "AUDIO", true);
-        wrong_port.converts = Some(Converts { input: Some("nope".into()), ..Converts::new("WAV", "AUDIO", true) });
+        wrong_port.converts = vec![Converts::new("WAV", "AUDIO", true).input("nope")];
         let mut wrong_type = conv("b", "WAV", "AUDIO", true);
-        wrong_type.converts = Some(Converts::new("TEXT", "AUDIO", true));
+        wrong_type.converts = vec![Converts::new("TEXT", "AUDIO", true)];
         let mut widget_in = conv("c", "WAV", "AUDIO", true);
         widget_in.inputs[0].socket = Some(Socket::Widget);
         let same = conv("d", "WAV", "WAV", true);
@@ -316,12 +389,52 @@ mod tests {
     fn the_mark_reads_leniently() {
         // a mark that doesn't read is no mark; the node still reads
         let n: NodeDef = serde_json::from_value(json!({"id": "k", "converts": {"from": "WAV", "to": "AUDIO", "lossless": "yes"}})).unwrap();
-        assert_eq!((n.id.as_str(), n.converts.as_ref()), ("k", None));
+        assert_eq!((n.id.as_str(), n.converts.len()), ("k", 0));
         let n: NodeDef = serde_json::from_value(json!({"id": "k", "converts": 7})).unwrap();
-        assert!(n.converts.is_none());
+        assert!(n.converts.is_empty());
         let n: NodeDef = serde_json::from_value(json!({"id": "k", "converts": {"from": "WAV", "to": "AUDIO", "lossless": true}})).unwrap();
-        assert_eq!(n.converts, Some(Converts::new("WAV", "AUDIO", true)));
-        assert_eq!(serde_json::to_value(&n).unwrap()["converts"], json!({"from": "WAV", "to": "AUDIO", "lossless": true}));
+        assert_eq!(n.converts, [Converts::new("WAV", "AUDIO", true)]);
+        assert_eq!(serde_json::to_value(&n).unwrap()["converts"], json!({"from": "WAV", "to": "AUDIO", "lossless": true}), "one mark is an object");
+        // several: a list, and a bad one among them is dropped
+        let n: NodeDef =
+            serde_json::from_value(json!({"id": "k", "converts": [{"from": "A", "to": "B"}, 3, {"from": "C", "to": "B", "to_shape": "image"}]})).unwrap();
+        assert_eq!(n.converts.len(), 2);
+        assert_eq!(n.converts[1].to_shape.as_deref(), Some(IMAGE));
+        assert!(serde_json::to_value(&n).unwrap()["converts"].is_array());
+    }
+
+    /// An array is not always a picture: a sound made an array never becomes an image, nor a
+    /// picture a sound; an array nobody describes may go either way.
+    #[test]
+    fn an_array_of_one_shape_never_goes_where_the_other_is_wanted() {
+        let mut to_array = conv("to_array", "AUDIO", "ARRAY", false);
+        to_array.converts = vec![Converts::new("AUDIO", "ARRAY", false).to_shape(SERIES)];
+        let mut from_array = conv("from_array", "ARRAY", "AUDIO", true);
+        from_array.converts = vec![Converts::new("ARRAY", "AUDIO", true).from_shape(SERIES)];
+        let mut decode = conv("decode", "IMAGE", "ARRAY", true);
+        decode.converts = vec![Converts::new("IMAGE", "ARRAY", true).to_shape(IMAGE)];
+        let mut encode = conv("encode", "ARRAY", "IMAGE", false);
+        encode.converts = vec![Converts::new("ARRAY", "IMAGE", false).from_shape(IMAGE)];
+        let c = SchemaReply { nodes: vec![to_array, from_array, decode, encode], ..Default::default() };
+        assert!(c.convert_paths("AUDIO", "IMAGE").is_empty(), "a sound isn't a picture");
+        assert!(c.convert_paths("IMAGE", "AUDIO").is_empty(), "nor a picture a sound");
+        assert_eq!(c.convert_paths("AUDIO", "ARRAY").first().map(kinds), Some(vec!["to_array".to_owned()]));
+        // an array from anywhere else: either
+        assert_eq!(c.convert_paths("ARRAY", "IMAGE").first().map(kinds), Some(vec!["encode".to_owned()]));
+        assert_eq!(c.convert_paths("ARRAY", "AUDIO").first().map(kinds), Some(vec!["from_array".to_owned()]));
+        assert!(c.convert_path_of("AUDIO", &["to_array".to_owned(), "encode".to_owned()]).is_none(), "a pin can't cross shapes either");
+    }
+
+    #[test]
+    fn a_node_with_several_marks_converts_from_each() {
+        let mut open = conv("open", "IMAGE", "DOC", false);
+        open.inputs.push(Port { name: "svg".into(), ty: "SVG".into(), socket: Some(Socket::Socket), ..Default::default() });
+        open.converts = vec![Converts::new("IMAGE", "DOC", false).input("x"), Converts::new("SVG", "DOC", false).input("svg")];
+        let c = SchemaReply { nodes: vec![open], ..Default::default() };
+        assert_eq!(c.converters().len(), 2);
+        assert_eq!(c.convert_paths("SVG", "DOC")[0][0].input, "svg");
+        assert_eq!(c.convert_paths("IMAGE", "DOC")[0][0].input, "x");
+        assert_eq!(c.convert_path_of("SVG", &["open".to_owned()]).map(|p| p[0].input), Some("svg"));
     }
 
     #[test]

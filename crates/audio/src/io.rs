@@ -104,8 +104,8 @@ pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
             to_wav,
         ),
         op(
-            // not lossless: the sample rate leaves by its own output
-            converts_as(
+            // not lossless: the sample rate leaves by its own output; a series, not a picture
+            marked(
                 def(
                     "audio.to_array",
                     "Audio to Array",
@@ -114,14 +114,12 @@ pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
                     vec![audio_in("audio")],
                     vec![output("array", ARRAY), output("sample_rate", INT)],
                 ),
-                AUDIO,
-                ARRAY,
-                false,
+                plumcraft_proto::convert::Converts::new(AUDIO, ARRAY, false).to_shape(plumcraft_proto::convert::SERIES),
             ),
             to_array,
         ),
         op(
-            converts_as(
+            marked(
                 def(
                     "audio.from_array",
                     "Array to Audio",
@@ -137,9 +135,7 @@ pub(crate) fn nodes() -> Vec<Box<dyn Node>> {
                     ],
                     vec![output("audio", AUDIO)],
                 ),
-                ARRAY,
-                AUDIO,
-                true,
+                plumcraft_proto::convert::Converts::new(ARRAY, AUDIO, true).from_shape(plumcraft_proto::convert::SERIES),
             ),
             from_array,
         ),
@@ -190,9 +186,15 @@ fn converts(d: plumcraft_proto::catalogue::NodeDef, from: &str, to: &str) -> plu
     converts_as(d, from, to, true)
 }
 
+/// Marks `d` a converter with `mark` (an array end's shape, say).
+fn marked(mut d: plumcraft_proto::catalogue::NodeDef, mark: plumcraft_proto::convert::Converts) -> plumcraft_proto::catalogue::NodeDef {
+    d.converts = vec![mark];
+    d
+}
+
 /// Marks `d` a converter from `from` to `to`.
 fn converts_as(mut d: plumcraft_proto::catalogue::NodeDef, from: &str, to: &str, lossless: bool) -> plumcraft_proto::catalogue::NodeDef {
-    d.converts = Some(plumcraft_proto::convert::Converts::new(from, to, lossless));
+    d.converts = vec![plumcraft_proto::convert::Converts::new(from, to, lossless)];
     d
 }
 

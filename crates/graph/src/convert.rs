@@ -122,22 +122,22 @@ impl Graph {
             let targets = self.convert_to_types(catalog, &to.node, None);
             if targets.is_empty() {
                 if !catalog.converts_from(out_ty) {
-                    return refuse(format!("no connected engine converts a {out_ty}"));
+                    return refuse(format!("no connected engine converts {out_ty}"));
                 }
             } else if catalog.convert_paths_where(out_ty, |t| targets.iter().all(|u| catalog.accepts(t, u))).is_empty() {
-                return refuse(format!("no connected engine converts a {out_ty} to {}", targets.join(" and ")));
+                return refuse(format!("no connected engine converts {out_ty} to {}", targets.join(" and ")));
             }
         }
         if feeds {
             let others = self.convert_to_types(catalog, &from.node, Some(to));
             match self.convert_from_type(catalog, &from.node) {
-                None if !catalog.converts_to(in_ty) => return refuse(format!("no connected engine converts anything to a {in_ty}")),
+                None if !catalog.converts_to(in_ty) => return refuse(format!("no connected engine converts anything to {in_ty}")),
                 None => {}
                 Some(t) => {
                     let fits = |x: &str| catalog.accepts(x, in_ty) && others.iter().all(|u| catalog.accepts(x, u));
                     if catalog.convert_paths_where(&t, fits).is_empty() {
                         let more = if others.is_empty() { String::new() } else { format!(" (and to {}, which it feeds too)", others.join(", ")) };
-                        return refuse(format!("no connected engine converts a {t} to a {in_ty}{more}"));
+                        return refuse(format!("no connected engine converts {t} to {in_ty}{more}"));
                     }
                 }
             }
@@ -169,7 +169,7 @@ mod tests {
             display: id.into(),
             inputs: ins.iter().map(|(n, t)| Port { name: (*n).into(), ty: (*t).into(), socket: Some(Socket::Socket), ..Default::default() }).collect(),
             outputs: outs.iter().map(|(n, t)| Port { name: (*n).into(), ty: (*t).into(), ..Default::default() }).collect(),
-            converts: converts.map(|(f, t)| Converts::new(f, t, true)),
+            converts: converts.map(|(f, t)| Converts::new(f, t, true)).into_iter().collect(),
             ..Default::default()
         }
     }
@@ -204,7 +204,7 @@ mod tests {
         assert!(g.convert_pin(&conv).is_none(), "one end: nothing to pin yet");
         // the input's type decides what the output may feed
         let e = g.connect(&c, p(&conv, PORT), p(&upper, "text")).unwrap_err().to_string();
-        assert!(e.contains("converts a DOC to a TEXT"), "{e}");
+        assert!(e.contains("converts DOC to TEXT"), "{e}");
         g.connect(&c, p(&conv, PORT), p(&gain, "audio")).unwrap();
         assert_eq!(g.convert_pin(&conv), Some(vec!["bounce".to_owned(), "from_wav".to_owned()]));
         assert_eq!(g.convert_path(&c, &conv).map(|p| convert::label(&p)), Some("bounce → from_wav".to_owned()));
@@ -227,11 +227,11 @@ mod tests {
         let gain = g.add_node(c.node("gain").unwrap(), [400.0, 0.0]);
         let upper = g.add_node(c.node("upper").unwrap(), [400.0, 0.0]);
         let e = g.connect(&c, p(&conv, PORT), p(&upper, "text")).unwrap_err().to_string();
-        assert!(e.contains("converts anything to a TEXT"), "{e}");
+        assert!(e.contains("converts anything to TEXT"), "{e}");
         g.connect(&c, p(&conv, PORT), p(&gain, "audio")).unwrap();
         let text = g.add_node(c.node("upper").unwrap(), [0.0, 0.0]);
         let e = g.connect(&c, p(&text, "text"), p(&conv, PORT)).unwrap_err().to_string();
-        assert!(e.contains("converts a TEXT to AUDIO"), "{e}");
+        assert!(e.contains("converts TEXT to AUDIO"), "{e}");
         let e = g.connect(&c, p(&conv2, PORT), p(&conv, PORT)).unwrap_err().to_string();
         assert!(e.contains("can't feed another Convert"), "{e}");
     }

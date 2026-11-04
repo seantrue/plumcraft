@@ -512,8 +512,10 @@ pub struct NodeDef {
     pub engines: Vec<String>,
     /// This node turns one type into another (`docs/research/20-convert.md`): a mark the
     /// editor finds conversions by. A mark that doesn't read is no mark.
-    #[serde(default, deserialize_with = "crate::de::lenient_opt", skip_serializing_if = "Option::is_none")]
-    pub converts: Option<crate::convert::Converts>,
+    /// One mark or several (`crate::convert::marks`).
+    #[serde(default, with = "crate::convert::marks", skip_serializing_if = "Vec::is_empty")]
+    #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
+    pub converts: Vec<crate::convert::Converts>,
 }
 
 impl Default for NodeDef {
@@ -535,7 +537,7 @@ impl Default for NodeDef {
             memo: MemoSpec::default(),
             x: BTreeMap::new(),
             engines: Vec::new(),
-            converts: None,
+            converts: Vec::new(),
         }
     }
 }
