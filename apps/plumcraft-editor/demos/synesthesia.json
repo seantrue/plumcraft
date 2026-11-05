@@ -1440,7 +1440,7 @@
   ],
   "next_id": 1,
   "meta": {
-    "about": "Music and a voice become a painting become a poster: SoundCraft composes and mixes, the audio engine turns the bounce and a spoken line into spectrograms, the array engine colours the music cool and the voice hot and adds them as light, PhotoCraft paints the result, the array engine finds its contours as a vector drawing, and VectorCraft refines the curves. Change a note or the voice and the poster changes. Open it with plumcraft-editor apps/plumcraft-editor/demos/synesthesia.json --engine array,audio,photocraft,soundcraft,vectorcraft.",
+    "about": "Music and a voice become an impression become a poster: SoundCraft composes and mixes, the audio engine turns the bounce and a spoken line into spectrograms, the array engine colours the music cool and the voice hot and adds them as light, PhotoCraft paints the result, the array engine finds its contours as a vector drawing, and VectorCraft refines the curves. Change a note or the voice and the poster changes. Open it with plumcraft-editor apps/plumcraft-editor/demos/synesthesia.json --engine array,audio,photocraft,soundcraft,vectorcraft.",
     "title": "Synesthesia"
   },
   "engines": [

@@ -20,6 +20,11 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — "Impression", not "painting" (Claude Opus 5.5)
+
+**What the maintainer asked:** "Where we say "painting" say "impression"".
+
+**What the AI did:** one line. The synesthesia demo's description (`apps/plumcraft-editor/demos/synesthesia.json`) now says music and a voice "become an impression become a poster". The other three uses of the word were left, and the AI said why: the verb (ROADMAP's "Mask painting through PhotoCraft", the ComfyUI note's "mask painting"), ComfyUI's own term ("Inpainting"), and a stock image's style name ("Oil painting" in `plums/CREDITS.md`). PhotoCraft's `pc.oil_paint` kind is that app's name and stays.
 ### 2026-11-05 — An XML viewer (B4, #26) (Claude Opus 5.5)
 
 **What the maintainer asked:** "bug: No build in viewer for XML files.", then "Fix B1 and B4". The AI read "build in" as "built-in" and recorded that reading in the bug.
