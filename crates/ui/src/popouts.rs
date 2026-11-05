@@ -62,7 +62,7 @@ impl EditorApp {
     pub fn show_popouts(&mut self, ctx: &egui::Context) {
         let mut asks = Vec::new();
         let mut closed = Vec::new();
-        let tokens = self.tokens;
+        let tokens = self.tokens.clone();
         for w in &mut self.popouts {
             let (id, title) = (w.id, w.title.clone());
             let vid = egui::ViewportId::from_hash_of(("plumcraft-popout", id));
