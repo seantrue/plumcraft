@@ -20,6 +20,21 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — CI runs the gate on every PR, and main is protected (Claude Opus 5.5)
+
+**What the maintainer asked:** "How do I start a process for automatically fixing issues in github? How could I just approve them for fix and then for merge?" The AI offered two routes: the Claude GitHub Action triggered by a label, or a local flow on this Mac. The maintainer chose "local+CI workflow", then "CP workflow alone, add branch protection".
+
+**What the AI did:**
+
+- **`.github/workflows/ci.yml` (~62 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `macos-latest` and `ubuntu-latest`: clippy with `-D warnings`, `cargo test --all-features`, the Python SDK's pytest and ruff, and `cargo fmt --check` on Ubuntu.
+  - Ubuntu needs `pkg-config` and ALSA's headers, as `packaging/linux.sh` does.
+  - The build drops debug info, following the maintainer's build-footprint rule.
+  - Before writing it, the AI checked that the workspace's only outside dependency, `storytold/soundcraft`, is public, so a runner can fetch it.
+- **Branch protection on `main`:** merging needs both `gate` jobs to pass. No review is required, because GitHub won't let the maintainer approve a PR opened under their own account, so their merge is the approval. Auto-merge is enabled for the repository.
+- **The approval labels:** `fix-approved` marks an issue the maintainer has approved for a fix, and `fix-ready` marks an open fix PR. The local fix flow lives in an untracked project skill (`.claude/` is excluded here) and in a line of `CLAUDE.md`, which this commit leaves out.
+
+**Not yet checked:** the workflow has not run on GitHub. It first runs when this branch is opened as a PR, and that run is the test. The likeliest failure is a kittest needing a graphics adapter the runners lack. The YAML only parses.
+
 ### 2026-11-04 — Release 0.2.2, and the Python SDK 0.1.2 (Claude Opus 5.5)
 
 **What the maintainer asked:** "prepare the crates.io and PyPI releases", then "CPM, publish crates and PyPI, then the installers". The point is to get the Windows binding to the engines that can't take it from a checkout: PlumImpress (crates `=0.2.1`), and engines generated outside a checkout (PyPI's SDK 0.1.1).
