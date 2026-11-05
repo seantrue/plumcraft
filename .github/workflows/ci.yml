@@ -47,10 +47,13 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+      # --no-fail-fast: one run lists every failing test, not just the first failing binary's
       - name: cargo test
-        run: cargo test --all-features
+        run: cargo test --all-features --no-fail-fast
 
+      # runs even when cargo test fails, so a run reports both halves of the gate
       - name: python
+        if: ${{ !cancelled() }}
         working-directory: python
         run: |
           uv run pytest

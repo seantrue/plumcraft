@@ -26,8 +26,9 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did:**
 
-- **`.github/workflows/ci.yml` (~57 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `ubuntu-latest`: `cargo fmt --check`, clippy with `-D warnings`, `cargo test --all-features`, and the Python SDK's pytest and ruff.
+- **`.github/workflows/ci.yml` (~60 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `ubuntu-latest`: `cargo fmt --check`, clippy with `-D warnings`, `cargo test --all-features`, and the Python SDK's pytest and ruff.
   - **Defect, caught by the maintainer:** the AI first ran it on macOS as well. The maintainer stopped that: "No running of CI jobs on github macos. Too expensive. CI only needs to pass on Linux." The macOS job was cancelled mid-run, the workflow is Linux only, and macOS is checked locally.
+  - **The first Linux run failed** on `mandelbrot_matches_numba`: its numpy golden was recorded on arm64, where numpy fuses multiply-adds and x86_64's doesn't (B5, #27). Cargo stopped at that test binary and the Python step was skipped, so the test step now runs `--no-fail-fast` and the Python step runs whatever cargo did, so one run reports every failure.
   - Ubuntu needs `pkg-config` and ALSA's headers, as `packaging/linux.sh` does.
   - The build drops debug info, following the maintainer's build-footprint rule.
   - Before writing it, the AI checked that the workspace's only outside dependency, `storytold/soundcraft`, is public, so a runner can fetch it.
