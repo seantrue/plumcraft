@@ -200,7 +200,7 @@ def test_the_text_engine_catalogue_is_unchanged():
     """The parity contract: the declared text engine says exactly what the hand-written one did."""
     e = TextEngine()
     salt = e.info["salt"]
-    golden = json.loads((pathlib.Path(__file__).parent / "golden" / "text_schema.json").read_text())
+    golden = json.loads((pathlib.Path(__file__).parent / "golden" / "text_schema.json").read_text("utf-8"))
     # The salt carries the code digest (it changes with the code, by design): its prefix is fixed.
     assert salt.startswith(golden["engine"]["salt"] + "+code:"), salt
     got = json.dumps({**e.schema(), "engine": {**e.info, "salt": golden["engine"]["salt"]}}, indent=1, ensure_ascii=False) + "\n"

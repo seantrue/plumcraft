@@ -4,6 +4,7 @@ processes go; the living, the unrelated and plain files stay."""
 import os
 import subprocess
 
+import pytest
 import scratch
 
 
@@ -17,6 +18,7 @@ def test_owners():
         assert scratch.owner(name) is None, name
 
 
+@pytest.mark.skipif(os.name == "nt", reason="nothing is swept on Windows: os.kill(pid, 0) would end the process (scratch.alive)")
 def test_sweeps_the_dead_and_keeps_the_living():
     tmp = scratch.mkdtemp("sweep-")
     p = subprocess.Popen(["true"])

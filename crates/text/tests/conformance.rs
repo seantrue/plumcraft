@@ -804,7 +804,11 @@ fn mode3_a_wrong_token_is_refused() {
 fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
     let m = Manifest {
         name: "broken".into(),
-        command: vec!["/bin/sh".into(), "-c".into(), "echo 'no models found' >&2; exit 3".into()],
+        command: if cfg!(windows) {
+            vec!["cmd".into(), "/C".into(), "echo no models found 1>&2 & exit 3".into()]
+        } else {
+            vec!["/bin/sh".into(), "-c".into(), "echo 'no models found' >&2; exit 3".into()]
+        },
         env: Vec::new(),
         hint: "install the models".into(),
         store: None,
@@ -812,8 +816,11 @@ fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
     };
     let h = ProcessHost::start(m).unwrap();
     let t = Instant::now();
-    let state = h.wait_ready(Duration::from_secs(3));
-    assert!(t.elapsed() <= Duration::from_secs(4));
+    // Five starts and 1.5 s of backoff before the host gives up: under 3 s here, but a process
+    // start costs more on Windows.
+    let wait = if cfg!(windows) { Duration::from_secs(10) } else { Duration::from_secs(3) };
+    let state = h.wait_ready(wait);
+    assert!(t.elapsed() <= wait + Duration::from_secs(1));
     assert!(!matches!(state, EngineState::Connected { .. }));
     let EngineState::EngineDown { reason, stderr_tail, hint, .. } = h.state() else { panic!("{:?}", h.state()) };
     assert!(reason.contains("exit 3"), "{reason}");

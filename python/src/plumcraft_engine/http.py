@@ -34,15 +34,18 @@ UNAUTHORIZED, TOO_LARGE, INTEGRITY, NOT_FOUND, BAD_PARAMS, UNAVAILABLE, UNKNOWN_
 
 def file_token(path: str) -> str:
     """The token in `path`, made there (readable by this user alone) when there is none yet. A file
-    others can reach is refused: they would hold the engine's key."""
+    others can reach is refused: they would hold the engine's key. On Windows, whose files have no
+    owner id or mode bits here (that is in ACLs, which the standard library can't read), only a
+    plain file is required: keep it in a folder of your own, such as under `%LOCALAPPDATA%`."""
     p = Path(path)
     try:
         fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     except FileExistsError:
         info = p.stat(follow_symlinks=False)
-        if not stat.S_ISREG(info.st_mode) or info.st_uid != os.getuid() or info.st_mode & 0o077:
+        private = os.name == "nt" or (info.st_uid == os.getuid() and not info.st_mode & 0o077)
+        if not stat.S_ISREG(info.st_mode) or not private:
             raise SystemExit(f"{path}: a token file must be a plain file of yours that nobody else can reach") from None
-        return p.read_text().strip()
+        return p.read_text("utf-8").strip()
     token = secrets.token_hex(32)
     with os.fdopen(fd, "w") as f:
         f.write(token + "\n")

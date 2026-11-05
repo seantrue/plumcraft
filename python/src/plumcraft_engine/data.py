@@ -125,7 +125,7 @@ class Plane:
         if self._store is None or not (self.shm or self.urls):
             raise NodeError("unavailable", f"a {arr.nbytes} byte value needs the shared store, and this session's same-host proof didn't pass")
         key = key_for(handle)
-        path = self._store.path_for(key)
+        path = _store_path(self._store, key)
         store = large_store(self.root) if arr.nbytes > MAX_READ else self._store
         if not os.path.isfile(path) and not store.publish(key, arr):
             raise NodeError("unavailable", "the store declined the value")
@@ -345,10 +345,18 @@ def _touch(path: str) -> None:
         pass
 
 
+def _store_path(store: Any, key: str) -> str:
+    """Where `store` keeps `key`, in this platform's form. pyuncommonkit 0.1.0 joins the segment's
+    relative path with `/` (`keys.relpath`), so on Windows a path locator came out as
+    `...\\store\\plumarr/91/...` where Rust's says `...\\plumarr\\91\\...`: the same file, but
+    not the same locator. A no-op on Unix."""
+    return os.path.normpath(store.path_for(key))
+
+
 def locate(store: Any, handle: str) -> list[dict] | None:
     """The locators of a value already in `store`, touching it; None when it isn't there."""
     key = key_for(handle)
-    path = store.path_for(key)
+    path = _store_path(store, key)
     if os.path.isfile(path):
         _touch(path)
         return [{"kind": "commonkit", "key": key}, {"kind": "path", "path": path, "offset": _payload_offset(path)}]

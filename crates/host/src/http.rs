@@ -32,7 +32,8 @@ use serde_json::{Value, json};
 use ureq::Agent;
 
 use crate::Connection;
-use crate::process::{DataSession, Manifest, kill_group};
+use crate::process::{DataSession, Manifest};
+use plumcraft_proto::programs::kill_tree as kill_group;
 
 /// The longest call: a long-poll (30 s) plus slack.
 const CALL_TIMEOUT: Duration = Duration::from_secs(45);
@@ -109,7 +110,7 @@ impl HttpHost {
         plumcraft_scratch::sweep_once();
         let dir = crate::process::private_dir("plumcraft-http").map_err(|e| e.to_string())?;
         let port_file = dir.join("port");
-        let token = crate::process::token().map_err(|e| e.to_string())?;
+        let token = plumcraft_proto::random::hex(32).map_err(|e| e.to_string())?;
         let (program, args) = m.command.split_first().ok_or("the manifest has no command")?;
         let mut cmd = Command::new(program);
         cmd.args(args)
@@ -127,7 +128,7 @@ impl HttpHost {
         if let Some(root) = &m.store {
             cmd.env(plumcraft_store::ROOT_ENV, root);
         }
-        std::os::unix::process::CommandExt::process_group(&mut cmd, 0);
+        plumcraft_proto::programs::own_group(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| format!("could not start the engine: {e}"))?;
         let lifeline = child.stdin.take();
         let deadline = Instant::now() + Duration::from_secs(20);

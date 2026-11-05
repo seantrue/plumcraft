@@ -334,7 +334,9 @@ pub fn kill_9_mid_run_recovers(h: &ProcessHost, graphs: &Graphs) -> Outcome {
     ensure!(t.elapsed() < Duration::from_secs(2), "the failure took {:?}", t.elapsed());
     let err = reply.error.ok_or("no error in the reply")?;
     ensure!(err.kind == "engine", "kind {}", err.kind);
-    ensure!(err.message.contains("signal 9"), "{}", err.message);
+    // SIGKILL on Unix; Windows has no signals, and `taskkill /F` ends a process with exit code 1
+    let killed = if cfg!(windows) { "exit 1" } else { "signal 9" };
+    ensure!(err.message.contains(killed), "{}", err.message);
     let running = events.iter().any(|e| matches!(&e.event, Event::Status(r) if r.node_id == "s" && r.state == NodeState::Progress));
     ensure!(running, "it wasn't really running");
     // run.get still answers for the dead run, from the host.

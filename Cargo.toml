@@ -56,6 +56,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 commonkit = { version = "0.1", default-features = false }
 schemars = "1.2"
 tiny_http = "0.12"
+# Tokens and nonces from the OS's generator, on every platform (/dev/urandom is Unix-only).
+getrandom = "0.3"
 ureq = { version = "3", default-features = false }
 # The editor UI (plumcraft-ui and plumcraft-editor; plumcraft-view keeps its own until it retires).
 egui = { version = "0.36", default-features = false }

@@ -987,8 +987,13 @@ fn materialize_source(store: Option<&plumcraft_store::Store>, src: &Value) -> Re
     let path = dir.join(name);
     if !path.is_file() {
         std::fs::create_dir_all(&dir).map_err(|e| NodeError::new(NodeError::OP, format!("source: {e}")))?;
-        let tmp = dir.join(format!(".{name}.{}.tmp", std::process::id()));
-        std::fs::write(&tmp, &blob.bytes).and_then(|()| std::fs::rename(&tmp, &path)).map_err(|e| NodeError::new(NodeError::OP, format!("source: {e}")))?;
+        // unique per call: two runs in this process may write the same source at once
+        static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let tmp = dir.join(format!(".{name}.{}-{}.tmp", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+        std::fs::write(&tmp, &blob.bytes).and_then(|()| plumcraft_store::rename_addressed(&tmp, &path)).map_err(|e| {
+            let _ = std::fs::remove_file(&tmp);
+            NodeError::new(NodeError::OP, format!("source: {e}"))
+        })?;
     }
     Ok((handle.to_string(), path.display().to_string()))
 }

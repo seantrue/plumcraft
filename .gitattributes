@@ -1,0 +1,13 @@
+# Text is LF in every checkout, Windows included: tests compare bytes with checked-in files
+# (schema/protocol2.json, fixtures, golden outputs), and Git for Windows' default
+# core.autocrlf=true would turn them CRLF.
+* text=auto eol=lf
+
+# Binary: never converted.
+*.npy binary
+*.png binary
+*.jpg binary
+*.icns binary
+*.ttf binary
+*.wav binary
+*.pdf binary

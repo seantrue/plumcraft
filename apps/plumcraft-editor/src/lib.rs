@@ -583,6 +583,9 @@ fn choices() -> Vec<EngineChoice> {
 /// `target/<profile>/deps`) one folder up.
 fn engine_binary(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+    // `plumcraft-text-engine.exe` on Windows
+    let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
+    let name = name.as_str();
     let beside = exe.with_file_name(name);
     if beside.exists() {
         return Ok(beside);

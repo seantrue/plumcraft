@@ -24,6 +24,8 @@ scripts/run --watch parsed.float   # the demo, events as they come
 
 "A built PlumCraft" means the Rust editor and CLI: `cargo install plumcraft plumcraft-editor`, or a checkout with `PLUMCRAFT_HOME` set to it. The other scripts need only uv.
 
+On Windows the scripts are bash: run them from Git Bash, or as `bash scripts/check` with Git for Windows' `bash.exe`.
+
 ## Using it in the editor
 
 ```sh

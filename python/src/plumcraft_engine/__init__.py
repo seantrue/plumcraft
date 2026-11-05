@@ -350,7 +350,7 @@ class Engine:
     @classmethod
     def serve(cls, argv: list[str] | None = None) -> int:
         """Run this engine as a process: mode 2 (connect back to the UI's socket, from
-        `--connect unix:<path>` or the environment) or mode 3 (`--listen host:port`)."""
+        `--connect unix:<path>`, `--connect tcp:127.0.0.1:<port>` or the environment) or mode 3 (`--listen host:port`)."""
         from .serve import main
 
         return main(cls, argv)

@@ -18,6 +18,7 @@ pub mod exec;
 pub mod files;
 pub mod host;
 pub mod http;
+pub mod local;
 pub mod persist;
 pub mod register;
 pub mod rpc;

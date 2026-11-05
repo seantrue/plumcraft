@@ -112,7 +112,7 @@ def register(cls: type, args: list[str], script: str) -> int:
     if target.is_symlink():
         target.unlink()
     tmp = target.with_suffix(".toml.tmp")
-    tmp.write_text(text, "utf-8")
+    tmp.write_text(text, "utf-8", newline="\n")
     tmp.replace(target)
     print(f"registered {cls.id}: {target}\nA running editor offers it after Engine › Reload Engine List.")
     return 0

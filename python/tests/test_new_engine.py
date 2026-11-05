@@ -6,6 +6,7 @@ scripts and PyCharm files are well-formed."""
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -21,6 +22,8 @@ from plumcraft_engine.cli import main
 GOLDEN = Path(__file__).parent / "golden" / "new_engine"
 REPO = Path(__file__).resolve().parents[2]
 SDK = str(REPO / "python")
+# as the generator writes it into pyproject.toml: with `/` (new.sdk_source)
+SDK_POSIX = (REPO / "python").as_posix()
 ALL = "text,table,array,svg,image,audio,json,list,any"
 
 
@@ -32,7 +35,7 @@ def tree(root: Path) -> dict[str, str]:
     """Every file under `root`, by relative path, with this checkout's path normalised."""
     skip = {"__pycache__", ".venv", ".pytest_cache", ".ruff_cache"}
     files = [f for f in sorted(root.rglob("*")) if f.is_file() and not skip & set(f.relative_to(root).parts)]
-    return {str(f.relative_to(root)): f.read_text("utf-8").replace(SDK, "{{SDK}}") for f in files}
+    return {f.relative_to(root).as_posix(): f.read_text("utf-8").replace(SDK_POSIX, "{{SDK}}").replace(SDK, "{{SDK}}") for f in files}
 
 
 @pytest.fixture
@@ -109,7 +112,7 @@ def test_the_output_is_the_golden(tmp, case, types):
     if os.environ.get("UPDATE_GOLDEN"):
         for rel, text in got.items():
             (root / rel).parent.mkdir(parents=True, exist_ok=True)
-            (root / rel).write_text(text, "utf-8")
+            (root / rel).write_text(text, "utf-8", newline="\n")
     assert got == tree(root)
 
 
@@ -130,7 +133,7 @@ def test_the_output_is_well_formed_and_its_own_tests_pass(tmp, types):
     for f in dest.rglob("*.py"):
         compile(f.read_text("utf-8"), str(f), "exec")
     pyproject = tomllib.loads((dest / "pyproject.toml").read_text())
-    assert pyproject["tool"]["uv"]["sources"]["plumcraft-engine"] == {"path": SDK, "editable": True}
+    assert pyproject["tool"]["uv"]["sources"]["plumcraft-engine"] == {"path": SDK_POSIX, "editable": True}
     manifest = tomllib.loads((dest / "plumcraft-engine.toml").read_text())
     assert manifest["id"] == "weather" and manifest["mode"] == "process"
     assert manifest["demo"] == "examples/demo.json" and manifest["conformance"]["slow"] == "weather.slow"
@@ -202,9 +205,11 @@ def test_the_scripts_are_executable_and_parse(tmp):
     assert gen(dest) == 0
     names = {f.name for f in (dest / "scripts").iterdir()}
     assert names == {"check", "nodes", "run", "serve", "conform", "cli-run", "editor", "install", "uninstall", "_plumcraft.sh"}
+    bash = shutil.which("bash") or r"C:\Program Files\Git\bin\bash.exe"  # Git for Windows' bash
     for f in (dest / "scripts").iterdir():
-        assert subprocess.run(["bash", "-n", str(f)], check=False).returncode == 0, f.name
-        assert os.access(f, os.X_OK) == (f.name != "_plumcraft.sh"), f.name
+        assert subprocess.run([bash, "-n", str(f)], check=False).returncode == 0, f.name
+        if os.name != "nt":  # no executable bit on Windows
+            assert os.access(f, os.X_OK) == (f.name != "_plumcraft.sh"), f.name
     assert "python -m weather_engine --listen" in (dest / "scripts" / "serve").read_text()
     assert "engines/weather.toml" in (dest / "scripts" / "install").read_text()
 

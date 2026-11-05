@@ -160,8 +160,10 @@ fn fast_never_session_too_big_and_setup_bound_results_are_not_persisted() {
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 1, "ms": 0}})), (NodeState::Done, 2), "fast");
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 2, "ms": 60}, "cache": "never"})), (NodeState::Done, 2), "never");
     assert_eq!(twice(&store, json!({"kind": "t.session", "values": {"n": 3, "ms": 60}})), (NodeState::Done, 2), "session scope");
-    // 8 MB made in 60 ms: writing and reading it back (~80 ms) isn't worth it.
-    assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 8_000_000}})), (NodeState::Done, 2), "too big");
+    // 32 MB made in 60 ms: writing and reading it back (~320 ms) isn't worth it. (8 MB, ~80 ms,
+    // left too little margin: on a Windows VM the 60 ms node measured over 80 ms in debug builds,
+    // from sleep overshoot and the allocation, and was persisted two runs in three.)
+    assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 32_000_000}})), (NodeState::Done, 2), "too big");
     // 60 ms, all of it setup (a process start): the work itself was trivial.
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 5, "ms": 60, "setup": 60}})), (NodeState::Done, 2), "setup");
     // `always` persists a fast one, and a junk `cache` value is `auto`.

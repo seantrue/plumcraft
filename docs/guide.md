@@ -233,4 +233,11 @@ cargo fmt --all --check
   - git-pinned dependencies: craft-ui from `storytold/craft-libs`, and SoundCraft's crates from `storytold/soundcraft`.
 - Craft engines need the craft app installed. Tests that need one skip without it.
 
+**On Windows** (x86-64, MSVC toolchain), PlumCraft builds from a checkout, with no installer yet:
+
+- Clone with real symlinks: `git clone -c core.symlinks=true https://github.com/seantrue/plumcraft.git`. Some crates share `digest.rs` and the licence files through links, and Git for Windows writes a link as a one-line text file unless symlinks are on. That needs Developer Mode, or an elevated shell.
+- `.gitattributes` keeps text files LF whatever `core.autocrlf` says, since tests compare bytes with checked-in files.
+- Process engines connect over loopback TCP, not a Unix socket (`docs/interface.md`, section 16.3, which also says what that trusts).
+- `pyuncommonkit` 0.1.0 has no Windows store root, and its fallback (`\dev\shm\commonkit` on the current drive) isn't the Rust side's (`%LOCALAPPDATA%\commonkit\store`). Set `COMMONKIT_STORE_ROOT` until a release has commonkit's fix.
+
 Engines in other languages can check their messages against `crates/proto/schema/protocol2.json` (JSON Schema 2020-12).

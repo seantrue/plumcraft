@@ -27,7 +27,6 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 use std::io::{Read, Write};
-use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
@@ -549,15 +548,32 @@ pub fn inline_ref(handle: Handle, meta: BlobMeta, bytes: &[u8]) -> DataRef {
 /// How long a nonce file may live (spec 5.4); older ones are swept when a new one is written.
 pub const NONCE_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 
+/// Move `tmp` to `dest`, a content-addressed path (its name holds the digest of what it holds).
+/// When the rename fails but `dest` is there, another writer of the same bytes got there first:
+/// that is success, and `tmp` goes. Windows refuses to replace a file another rename or reader
+/// holds ("Access is denied"), where Unix replaces it; two threads staging one document met that.
+/// On any other failure `tmp` goes too and the error is returned.
+pub fn rename_addressed(tmp: &Path, dest: &Path) -> std::io::Result<()> {
+    match std::fs::rename(tmp, dest) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            let _ = std::fs::remove_file(tmp);
+            if dest.is_file() { Ok(()) } else { Err(e) }
+        }
+    }
+}
+
 pub fn write_nonce(root: &Path, who: &str) -> std::io::Result<(String, String)> {
     let dir = root.join(".hello");
     std::fs::create_dir_all(&dir)?;
     sweep_nonces(&dir, NONCE_TTL);
-    let mut b = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
-    let nonce: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    let nonce = plumcraft_proto::random::hex(32)?;
     let path = dir.join(format!("{who}-{}-{}.nonce", std::process::id(), &nonce[..8]));
-    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path)?;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    let mut f = o.open(&path)?;
     f.write_all(nonce.as_bytes())?;
     Ok((path.display().to_string(), nonce))
 }
@@ -771,8 +787,11 @@ mod tests {
         assert!(check_nonce(&path, &nonce));
         assert!(!check_nonce(&path, "wrong"));
         assert!(!check_nonce("/nonexistent/x.nonce", &nonce));
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600);
+        }
     }
 
     /// Spec 5.4: nonce files don't accumulate; a stale one is swept when a new one is written.
