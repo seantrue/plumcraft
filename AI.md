@@ -26,11 +26,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did:**
 
-- **`.github/workflows/ci.yml` (~62 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `macos-latest` and `ubuntu-latest`: clippy with `-D warnings`, `cargo test --all-features`, the Python SDK's pytest and ruff, and `cargo fmt --check` on Ubuntu.
+- **`.github/workflows/ci.yml` (~57 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `ubuntu-latest`: `cargo fmt --check`, clippy with `-D warnings`, `cargo test --all-features`, and the Python SDK's pytest and ruff.
+  - **Defect, caught by the maintainer:** the AI first ran it on macOS as well. The maintainer stopped that: "No running of CI jobs on github macos. Too expensive. CI only needs to pass on Linux." The macOS job was cancelled mid-run, the workflow is Linux only, and macOS is checked locally.
   - Ubuntu needs `pkg-config` and ALSA's headers, as `packaging/linux.sh` does.
   - The build drops debug info, following the maintainer's build-footprint rule.
   - Before writing it, the AI checked that the workspace's only outside dependency, `storytold/soundcraft`, is public, so a runner can fetch it.
-- **Branch protection on `main`:** merging needs both `gate` jobs to pass. No review is required, because GitHub won't let the maintainer approve a PR opened under their own account, so their merge is the approval. Auto-merge is enabled for the repository.
+- **Branch protection on `main`:** merging needs the `gate` job to pass. No review is required, because GitHub won't let the maintainer approve a PR opened under their own account, so their merge is the approval. Auto-merge is enabled for the repository.
 - **The approval labels:** `fix-approved` marks an issue the maintainer has approved for a fix, and `fix-ready` marks an open fix PR. The local fix flow lives in an untracked project skill (`.claude/` is excluded here) and in a line of `CLAUDE.md`, which this commit leaves out.
 
 **Not yet checked:** the workflow has not run on GitHub. It first runs when this branch is opened as a PR, and that run is the test. The likeliest failure is a kittest needing a graphics adapter the runners lack. The YAML only parses.

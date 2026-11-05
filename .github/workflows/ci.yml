@@ -1,5 +1,5 @@
 # The gate from AGENTS.md, on every pull request and every push to main. A PR merges only once it
-# passes (branch protection names the `gate` jobs).
+# passes (branch protection names the `gate` job).
 name: CI
 
 on:
@@ -24,17 +24,13 @@ env:
 
 jobs:
   gate:
-    name: gate (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [macos-latest, ubuntu-latest]
-    runs-on: ${{ matrix.os }}
+    name: gate
+    # Linux only: macOS runners cost too much (maintainer, 2026-11-05). macOS is checked locally.
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       - name: Linux packages
-        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
 
       - uses: dtolnay/rust-toolchain@stable
@@ -46,7 +42,6 @@ jobs:
       - uses: astral-sh/setup-uv@v6
 
       - name: cargo fmt
-        if: runner.os == 'Linux'
         run: cargo fmt --all --check
 
       - name: cargo clippy
