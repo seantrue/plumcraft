@@ -4,6 +4,8 @@
 
 ## Where things stand
 
+- **An XML viewer (2026-11-05, B4, #26).** XML text and XML bytes open as an outline (`xml`, `crates/ui/src/viewers/xml.rs`), ahead of Text; roxmltree, DTDs refused, bounded.
+- **A pop-out over a full-screen editor (2026-11-05, B1, #22).** macOS made it a tab of the full-screen window; `no_window_tabbing()` turns automatic window tabbing off at startup, so it opens as a window of its own (checked with `claude-debug/popout_fullscreen_probe.py`).
 - **Themes and a Settings window (2026-11-05).** Research 22 (`docs/research/22-themes.md`) implemented on the maintainer's decisions.
   - **Themes:** Paper (warm light, the default), Pewter (mid grey) and Dusk (dark) replace Medium and Dark, with every token from the proposal and three new ones (`header_text`, `wire`, `grid`). Preferences naming `medium` or `dark` open in Pewter or Dusk. `apply()` starts from egui's light visuals for Paper and sets both of egui's themes, so the system's mode can't swap the palette; the canvas and grid are the theme's (snarl drew egui's field colour before).
   - **Fruit headers:** a family hashes (FNV-1a) into twelve OKLCH fruits, a clash in one catalogue steps by 5; olive is the quiet one and plum the groups'. An engine's wire-type colour keeps its hue at the theme's lightness and chroma; a user's pin beats both.

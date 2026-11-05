@@ -14,12 +14,12 @@ pub const MAX_TREE_NODES: usize = 5000;
 /// The most bytes the hex view reads.
 pub const MAX_HEX_BYTES: usize = 64 << 20;
 
-fn dim(ui: &mut egui::Ui, text: impl Into<String>, tokens: &Tokens) {
+pub(crate) fn dim(ui: &mut egui::Ui, text: impl Into<String>, tokens: &Tokens) {
     ui.label(egui::RichText::new(text.into()).color(tokens.text_dim));
 }
 
 /// The value's text: the full bytes when read, else the engine's excerpt.
-fn text_of(v: &ViewInput<'_>) -> Option<String> {
+pub(crate) fn text_of(v: &ViewInput<'_>) -> Option<String> {
     v.full.map(|b| String::from_utf8_lossy(&b.bytes).into_owned()).or_else(|| {
         v.display.renditions.iter().find_map(|r| match r {
             Rendition::Excerpt { text, .. } => Some(text.clone()),

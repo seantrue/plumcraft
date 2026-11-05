@@ -21,6 +21,7 @@ pub mod grid;
 pub mod pdf;
 pub mod plot;
 pub mod wrap;
+pub mod xml;
 pub mod yaml;
 
 use plumcraft_proto::catalogue::Media;
@@ -169,6 +170,8 @@ fn builtin() -> Vec<ViewerKind> {
             make: || Box::new(basic::Table::default()),
             panel_builtin: false,
         },
+        // XML text reads as an outline first; its text stays a tab away (B4)
+        ViewerKind { id: "xml", label: "XML", accepts: xml::accepts, make: || Box::new(xml::Xml::default()), panel_builtin: false },
         ViewerKind {
             id: "text.plain",
             label: "Text",

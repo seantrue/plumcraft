@@ -71,6 +71,12 @@ egui_kittest = "0.36"
 egui_plot = "0.37"
 # Native file dialogs for path widgets (plumcraft-ui only).
 rfd = "0.17"
+# The XML viewer (plumcraft-ui): the parser usvg already brings in.
+roxmltree = "0.20"
+# macOS: turn off automatic window tabbing, so a pop-out never becomes a tab of a full-screen
+# editor (plumcraft-ui only; the versions eframe and rfd already pull in).
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSResponder", "NSWindow"] }
 png = "0.18"
 # Control-channel tokens (plumcraft-automation).
 uuid = { version = "1", features = ["v4"] }

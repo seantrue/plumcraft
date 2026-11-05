@@ -25,6 +25,30 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **What the maintainer asked:** "Where we say "painting" say "impression"".
 
 **What the AI did:** one line. The synesthesia demo's description (`apps/plumcraft-editor/demos/synesthesia.json`) now says music and a voice "become an impression become a poster". The other three uses of the word were left, and the AI said why: the verb (ROADMAP's "Mask painting through PhotoCraft", the ComfyUI note's "mask painting"), ComfyUI's own term ("Inpainting"), and a stock image's style name ("Oil painting" in `plums/CREDITS.md`). PhotoCraft's `pc.oil_paint` kind is that app's name and stays.
+### 2026-11-05 — An XML viewer (B4, #26) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: No build in viewer for XML files.", then "Fix B1 and B4". The AI read "build in" as "built-in" and recorded that reading in the bug.
+
+**What the AI did:** a new `xml` viewer (`crates/ui/src/viewers/xml.rs`, ~377 lines with its tests), registered ahead of `text.plain`.
+
+- **What it takes:** XML text (a declaration, or an element after a byte order mark and comments, checked on the value's first excerpt) and bytes whose media type is `application/xml`, `text/xml` or `…+xml`. SVG keeps its own viewer.
+- **What it shows:** an outline of elements with their attributes, text and comments. Short leaves sit on one line, and the outline opens two levels deep. The source is a checkbox away, and a value that isn't well-formed shows the parse error's position over its source.
+- **Hostile input:** roxmltree parses it, already in the build through usvg. DTDs are refused, so there is no entity expansion, and there is a 2,000,000-node limit. The outline stops at depth 256 and 20,000 nodes, and the view reads at most 16 MB.
+- **Tests:** the outline of a sample with a namespace prefix, what is accepted and refused (prose with `<`, an excerpt from the middle of a value, SVG, JSON), its place ahead of Text in the registry, and a hostile sweep: every truncation, every flipped byte, an entity bomb, deep and wide documents, and an oversized value.
+- **Checked in the real editor** with `claude-debug/xml_viewer_probe.py`: XML set on the demo's `story` node, popped out with `viewer: "xml"`. `ui.inspect` reported `xml` offered first (7 elements, root `shelf`), and the screenshot showed the outline. The screenshot also showed gaps around inline leaf text, which the AI then closed.
+- `docs/control-protocol.md` lists the `xml` viewer id, and `yaml`, which was missing from that list.
+
+**On the way:** this branch is stacked on B1's (#22), because both add to the same places in `docs/BUGS.md`, `docs/STATUS.md` and `AI.md`.
+
+### 2026-11-05 — A pop-out no longer takes over a full-screen editor (B1, #22) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: popout when editor is full screen covers up whole screen", then "Fix B1 and B4".
+
+**What the AI did:** it reproduced the bug in the real editor before changing anything. `claude-debug/popout_fullscreen_probe.py` launches the editor with a control channel, sets full screen through the accessibility attribute, opens `view.popout`, and takes screenshots. The cause wasn't a full-screen window: macOS's automatic window tabbing made the pop-out a tab of the full-screen editor's window, so it hid the editor. `no_window_tabbing()` (`crates/ui/src/lib.rs`, ~12 LOC, called from `setup_context`) turns automatic tabbing off with objc2-app-kit's safe `NSWindow::setAllowsAutomaticWindowTabbing`. Off the main thread, as in a kittest, nothing happens. That needs no `unsafe` and no new crates: objc2 0.6 and objc2-app-kit 0.3 were already built for eframe and rfd, and are now direct macOS-only dependencies. The probe now shows the pop-out as a 760×592 window of its own over the full-screen editor.
+
+**Tested:** a unit test only that the call is harmless off the main thread. A kittest can't reach AppKit's main thread, so the fix itself is checked by the probe.
+
+**On the way:** the AI first made the B4 viewer in the same working tree, then set it aside so each fix has its own branch.
 
 ### 2026-11-05 — Paper, Pewter and Dusk themes, fruit headers, Inter, and a Settings window (Claude Opus 5.5)
 
