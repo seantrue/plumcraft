@@ -20,6 +20,44 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — Paper, Pewter and Dusk themes, fruit headers, Inter, and a Settings window (Claude Opus 5.5)
+
+**What the maintainer asked:** "The current color scheme is very dark (echos photocraft) and fonts are a little small and low contrast. Look at the color schemes from other dataflow applications (node red, abinitio GDE, etc) and propose an alternative. Desaturated fruit colors would be nice for node headings … out-of-the-box themes that are attractive is more important." On the proposal's swatches: "THose are all good, paper is the right default. Start up a session to implement them. Move the configuration, and other settings (automatic engine), and reports to a settings/preferences item." The maintainer chose the light default and approved the three themes. The AI took its own recommendations on the five open questions (old prefs move to Pewter and Dusk, engine colours keep only their hue, a clashing family steps to a free fruit, only Inter SemiBold bundled), and said so before starting.
+
+**Research (`docs/research/22-themes.md`, ~440 lines, with PDF):** a survey of fifteen node editors' palettes and type, with Node-RED's and Blender's colours from their source; a diagnosis of the old themes (title text 3.4:1 on headers, captions 2.0–2.7:1, panel and canvas 1.09–1.25:1, body in Ubuntu Light 12.5 pt); three themes with every token; a 12+2 fruit palette set in OKLCH; type sizes; and a Settings design. A probe in `claude-debug/` checked 117 contrast pairs and drew a swatch per theme.
+
+**Implementation (~1,170 lines changed in tracked files, plus ~1,030 in three new ones):**
+
+- **`crates/ui/src/theme.rs` (+809 −206):** Paper, Pewter and Dusk replace Medium and Dark, adding `header_text`, `wire` and `grid` tokens. The fruit mapping (FNV-1a into twelve fruits, with a clash stepping by 5) is here, and `apply()` uses egui's light visuals for Paper.
+- **New files:**
+  - `crates/ui/src/appearance.rs` (~363): overrides, pins and `.plumtheme.json` files.
+  - `crates/ui/src/settings_view.rs` (~420): the window, with Appearance, Engines and Cache tabs.
+  - `crates/session/src/settings_cmds.rs` (~245): `app.settings`, `view.textSize`, `view.zoom` and `theme.*`.
+- **Elsewhere:**
+  - The canvas, fonts (Inter primary, Inter SemiBold bundled), prefs (an `appearance` key) and menus. View › Theme, Engine › Pick Engines Automatically and View › Cache Report moved into Settings; their commands stay.
+  - The docs: guide, control protocol and interface.
+- **Tests:** contrast for all three themes, header text on all 14 fruits and on engine hues, the closest fruit pair at ΔE_ok ≥ 4, a hostile sweep of theme files, prefs junk cases, and kittests for the menus, ⌘, and every command. Pictures of the real editor are in `claude-debug/themes/impl-*.png`.
+
+**Defects and limits found on the way:**
+
+- egui panics on a font family it has no fonts for, so SemiBold is used only once it is installed.
+- egui's `has_glyph` says no for every monospace character, so the glyph test checks the proportional faces only.
+- **Not done:** named user themes, palette sliders, a font choice. Net tags stay 11 pt mono, because Tidy's width estimate depends on it.
+
+**Division of labor:** the maintainer set the direction, picked the default and approved the swatches. A research subagent and an implementation subagent did the work, each under a brief from the main session, which also reviewed the pictures.
+
+### 2026-11-05 — An Intel Mac DMG from Apple silicon (Claude Opus 5.5)
+
+**What the maintainer asked:** "Can you build plumcraft for x86 Mac?", then "Build a separate x86 version ...".
+
+**What the AI did (~23 lines in `packaging/`):** `CARGO_BUILD_TARGET=x86_64-apple-darwin packaging/macos.sh` builds and signs `PlumCraft-VERSION-macos-x86_64.dmg`. `common.sh` takes the binaries from the target's directory, `macos.sh` names the DMG and refuses other targets, and `packaging/README.md` documents it. A 0.2.2 DMG built from the working tree, which held the uncommitted theme work, was signed with the Developer ID and copied to the maintainer's Google Drive. `lipo` showed all six binaries are x86_64.
+
+**Not verified:** the DMG has never run. This Mac has no Rosetta, and no Intel Mac was tried. `release.sh` doesn't build it yet (B2, #23).
+
+### 2026-11-05 — Docs carried from earlier sessions
+
+Committed with the above, as found in the working tree. `README.md` gains the Windows installer line, from the 0.2.2 release. `ROADMAP.md` gains "Next: BLAKE3 handles for large local arrays", from the maintainer's "add it to the roadmap as the next thing" (2026-11-04). `docs/scheduler.md` (~99 lines) describes how a run is scheduled. These were written by AI sessions before this one, and this session didn't re-check them. `docs/BUGS.md` moves B5 and B7–B9 to Fixed. `CLAUDE.md` gains the `bug:` line, and `claude-debug/` two status notes.
+
 ### 2026-11-05 — The first Linux CI run's failures: Mandelbrot on x86-64, generic fonts, and a full runner disk (Claude Opus 5.5)
 
 **What the maintainer asked:** after the first `--no-fail-fast` run failed 15 Rust tests and 1 Python test, "Go for 2,3-5": Mesa for the rendering tests, then record and fix the rest. Before that: "Record mandelbrot test data on yellowfin", and for the fix, "In PlumCraft, but remember as bug for future fix in npexact".
