@@ -639,6 +639,7 @@ impl EditorApp {
         self.tokens.apply(ctx);
         fonts::install(ctx);
         icons::ensure_loaders(ctx);
+        no_window_tabbing();
     }
 
     /// Run a command, keeping its error for the status bar. A watch that succeeds runs the
@@ -1990,6 +1991,18 @@ impl eframe::App for EditorApp {
     }
 }
 
+/// Turn off macOS's automatic window tabbing for this process. With it on, a window opened
+/// while the editor is full screen joins it as a tab, so a pop-out took the whole screen and
+/// hid the editor (docs/BUGS.md B1, #22); off, it opens as a window of its own. Off the main
+/// thread (a kittest) there is no AppKit to ask, and nothing happens; elsewhere than macOS it's
+/// nothing. Safe to call more than once.
+pub fn no_window_tabbing() {
+    #[cfg(target_os = "macos")]
+    if let Some(mtm) = objc2::MainThreadMarker::new() {
+        objc2_app_kit::NSWindow::setAllowsAutomaticWindowTabbing(false, mtm);
+    }
+}
+
 /// Save a screenshot as PNG.
 pub fn save_png(image: &egui::ColorImage, path: &Path) -> Result<(), String> {
     let [w, h] = image.size;
@@ -2095,6 +2108,15 @@ pub fn parse_shortcut(s: &str) -> Option<egui::KeyboardShortcut> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn turning_off_window_tabbing_off_the_main_thread_does_nothing() {
+        // A test thread isn't AppKit's main thread: no marker, no call, no panic. That it works
+        // on the main thread is checked in the real editor (claude-debug/popout_fullscreen_probe.py:
+        // full screen, then a pop-out opens as a window of its own, not a tab; B1).
+        no_window_tabbing();
+        no_window_tabbing();
+    }
 
     #[test]
     fn shortcuts_parse() {
