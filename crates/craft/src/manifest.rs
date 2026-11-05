@@ -710,10 +710,8 @@ pub fn builtin(name: &str) -> Option<Result<Manifest, String>> {
     PACKS.iter().find(|p| p.0 == name).map(|p| Manifest::parse(p.1))
 }
 
-/// `~/x` → `$HOME/x`.
+/// `~/x` → the home folder's `x` (`plumcraft_proto::programs::expand_home`: `USERPROFILE` when
+/// there is no `HOME`, as on Windows).
 pub fn expand_home(s: &str) -> String {
-    match (s.strip_prefix("~/"), std::env::var("HOME")) {
-        (Some(rest), Ok(home)) => format!("{home}/{rest}"),
-        _ => s.to_owned(),
-    }
+    plumcraft_proto::programs::expand_home(s).display().to_string()
 }

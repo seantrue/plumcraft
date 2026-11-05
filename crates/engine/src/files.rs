@@ -66,12 +66,10 @@ fn files_out() -> Port {
     Port { name: "files".into(), ty: "STRING".into(), list: true, socket: Some(Socket::Socket), ..Default::default() }
 }
 
-/// `~` expanded.
+/// `~` expanded (`USERPROFILE` when there is no `HOME`; `~\` too on Windows), as the Python SDK's
+/// `files._expand`.
 fn expand(p: &str) -> PathBuf {
-    match (p.strip_prefix('~'), std::env::var_os("HOME")) {
-        (Some(rest), Some(home)) if rest.is_empty() || rest.starts_with('/') => PathBuf::from(home).join(rest.trim_start_matches('/')),
-        _ => PathBuf::from(p),
-    }
+    plumcraft_proto::programs::expand_home(p)
 }
 
 /// A file's name without its extension: the label it gives the values made from it.

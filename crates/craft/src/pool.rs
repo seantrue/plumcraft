@@ -281,7 +281,7 @@ pub fn default_root(id: &str) -> PathBuf {
     if let Some(r) = std::env::var_os("PLUMCRAFT_CRAFT_ROOT").filter(|r| !r.is_empty()) {
         return PathBuf::from(r).join(id);
     }
-    let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+    let home = plumcraft_proto::programs::home().unwrap_or_else(std::env::temp_dir);
     let base = if cfg!(target_os = "macos") { home.join("Library/Caches") } else { home.join(".cache") };
     base.join("plumcraft/craft").join(id)
 }

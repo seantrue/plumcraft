@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Shared by packaging/macos.sh and packaging/linux.sh; sourced, not run.
+# Shared by packaging/macos.sh, linux.sh and windows.sh; sourced, not run.
 
 set -euo pipefail
 
@@ -7,6 +7,10 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC2034 # used by the scripts that source this
 DIST=${PLUMCRAFT_DIST:-$ROOT/dist}
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
+# Windows' executables end in .exe (windows.sh runs under Git for Windows' bash).
+case $(uname -s) in MINGW* | MSYS* | CYGWIN*) EXE=.exe ;; *) EXE='' ;; esac
+# The Python that runs third_party.py; windows.sh points it at a real one.
+PYTHON=${PYTHON:-python3}
 
 # What an image holds. The engines sit beside the editor, where it looks for them.
 BINARIES=(plumcraft-editor plumcraft plumcraft-text-engine plumcraft-array-engine plumcraft-audio-engine plumcraft-craft-engine)
@@ -30,7 +34,7 @@ build_binaries() {
 copy_binaries() {
     local name
     for name in "${BINARIES[@]}"; do
-        cp "$TARGET/release/$name" "$1/$name"
+        cp "$TARGET/release/$name$EXE" "$1/$name$EXE"
     done
 }
 
@@ -41,5 +45,5 @@ write_licences() {
     cp "$ROOT/LICENSE-MIT" "$ROOT/LICENSE-APACHE" "$1/"
     cp "$ROOT/crates/ui/assets/fonts/OFL-Inter.txt" "$1/"
     cp "$ROOT/crates/ui/src/craft_ui/NOTICE" "$1/NOTICE-craft-libs"
-    python3 "$ROOT/packaging/third_party.py" "$ROOT" "${CRATES[@]}" >"$1/THIRD-PARTY.txt"
+    "$PYTHON" "$ROOT/packaging/third_party.py" "$ROOT" "${CRATES[@]}" >"$1/THIRD-PARTY.txt"
 }
