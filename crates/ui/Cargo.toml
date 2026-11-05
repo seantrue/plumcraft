@@ -43,6 +43,8 @@ cpal = { workspace = true, optional = true }
 # The Watched panel's SVG view (crate::media): usvg + resvg + tiny-skia.
 resvg = { workspace = true }
 plumcraft-svg = { workspace = true }
+# The XML viewer (crate::viewers::xml).
+roxmltree = { workspace = true }
 image = { workspace = true }
 # The offscreen renderer (crate::offscreen): `ui.screenshot` and `--screenshot` fall back to it
 # when the window never delivers its picture (a locked screen).

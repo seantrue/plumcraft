@@ -20,6 +20,21 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — An XML viewer (B4, #26) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: No build in viewer for XML files.", then "Fix B1 and B4". The AI read "build in" as "built-in" and recorded that reading in the bug.
+
+**What the AI did:** a new `xml` viewer (`crates/ui/src/viewers/xml.rs`, ~330 lines with its tests), registered ahead of `text.plain`.
+
+- **What it takes:** XML text (a declaration, or an element after a byte order mark and comments, checked on the value's first excerpt) and bytes whose media type is `application/xml`, `text/xml` or `…+xml`. SVG keeps its own viewer.
+- **What it shows:** an outline of elements with their attributes, text and comments. Short leaves sit on one line, and the outline opens two levels deep. The source is a checkbox away, and a value that isn't well-formed shows the parse error's position over its source.
+- **Hostile input:** roxmltree parses it, already in the build through usvg. DTDs are refused, so there is no entity expansion, and there is a 2,000,000-node limit. The outline stops at depth 256 and 20,000 nodes, and the view reads at most 16 MB.
+- **Tests:** the outline of a sample with a namespace prefix, what is accepted and refused (prose with `<`, an excerpt from the middle of a value, SVG, JSON), its place ahead of Text in the registry, and a hostile sweep: every truncation, every flipped byte, an entity bomb, deep and wide documents, and an oversized value.
+- **Checked in the real editor** with `claude-debug/xml_viewer_probe.py`: XML set on the demo's `story` node, popped out with `viewer: "xml"`. `ui.inspect` reported `xml` offered first (7 elements, root `shelf`), and the screenshot showed the outline. The screenshot also showed gaps around inline leaf text, which the AI then closed.
+- `docs/control-protocol.md` lists the `xml` viewer id, and `yaml`, which was missing from that list.
+
+**On the way:** this branch is stacked on B1's (#22), because both add to the same places in `docs/BUGS.md`, `docs/STATUS.md` and `AI.md`.
+
 ### 2026-11-05 — A pop-out no longer takes over a full-screen editor (B1, #22) (Claude Opus 5.5)
 
 **What the maintainer asked:** "bug: popout when editor is full screen covers up whole screen", then "Fix B1 and B4".

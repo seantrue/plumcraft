@@ -18,13 +18,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the setting is Settings › Engines › Pick Engines Automatically (`crates/ui/src/settings_view.rs:225`, `engine.auto`); the Engine menu's list of engines and their hostings comes from `engine_choices_menu` (`crates/ui/src/engine_view.rs:423`, called from `crates/ui/src/lib.rs:1509`). Expected: with the setting on, choosing an engine starts it the fastest way it can be hosted (in-process, then a process, then HTTP) without a submenu of implementations.
 - Issue: #24
 
-### B4. No built-in viewer for XML files
-
-- Reported: 2026-11-05
-- Report: "No build in viewer for XML files."
-- Context: the built-in viewers are in `crates/ui/src/viewers/` (`basic`, `grid`, `pdf`, `plot`, `wrap`, `yaml`); there is a YAML one but nothing for XML. SVG, which is XML, is drawn as a picture (`crates/ui/src/media.rs`). Read here as "built-in"; no detail yet on where the XML came from (a file node, an engine's value) or what it showed instead.
-- Issue: #26
-
 ### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
 
 - Reported: 2026-11-05
@@ -41,6 +34,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #28
 
 ## Fixed
+
+### B4. No built-in viewer for XML files
+
+- Reported: 2026-11-05
+- Report: "No build in viewer for XML files."
+- Context: the built-in viewers are in `crates/ui/src/viewers/` (`basic`, `grid`, `pdf`, `plot`, `wrap`, `yaml`); there is a YAML one but nothing for XML. SVG, which is XML, is drawn as a picture (`crates/ui/src/media.rs`). Read here as "built-in"; no detail yet on where the XML came from (a file node, an engine's value) or what it showed instead.
+- Issue: #26
+- Fixed: 2026-11-05, branch `fix/26-xml-viewer`. A new `xml` viewer (`crates/ui/src/viewers/xml.rs`) takes XML text (a declaration, or an element after comments) and bytes typed `application/xml`, `text/xml` or `…+xml` (SVG keeps its own), ahead of Text. It shows an outline of elements, attributes, text and comments, with the source a checkbox away and a parse error's position. roxmltree parses it (already in the build through usvg), with DTDs refused, a node limit, and the outline bounded in depth, nodes and bytes; tests sweep truncations, flipped bytes and an entity bomb. Checked in the real editor with `claude-debug/xml_viewer_probe.py` (XML into the demo's `story` node, popped out with `viewer: "xml"`).
 
 ### B1. A popout covers the whole screen when the editor is full screen
 

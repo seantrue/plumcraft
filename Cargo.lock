@@ -3128,6 +3128,7 @@ dependencies = [
  "png 0.18.1",
  "resvg",
  "rfd",
+ "roxmltree",
  "rustfft",
  "serde",
  "serde_json",
