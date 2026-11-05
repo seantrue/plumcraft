@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.2.3 (2026-11-05)
+
+The crates and the Python text twin are 0.2.3; the Python SDK stays 0.1.2.
+
+- **Behaviour changes in the editor:**
+  - **Three themes:** Paper (warm light, the new default), Pewter (mid grey) and Dusk (dark) replace Medium and Dark. Preferences that name `medium` or `dark` open in Pewter or Dusk.
+  - **Header colours:** node headers take one of twelve desaturated fruit colours, which a family's id picks. An engine's wire-type colour keeps its hue.
+  - **Type:** Inter is the text face at 14 pt, with Inter SemiBold (OFL, bundled) for titles.
+  - **Settings** (File › Settings…, ⌘,) holds Appearance (theme, text size, zoom, colours with contrast badges, fruit colours and pins, `.plumtheme.json` files), Engines (Pick Engines Automatically, moved from the Engine menu) and Cache (the Cache Report, moved from the View menu). View › Theme is gone. `view.theme`, `engine.auto` and `run.cacheReport` stay as commands, joined by `app.settings`, `view.textSize`, `view.zoom` and `theme.*`. Research 22 (`docs/research/22-themes.md`) is the design.
+- **An XML viewer:** XML text, and bytes typed `application/xml`, `text/xml` or `…+xml`, open as an outline (viewer id `xml`, ahead of Text). It parses with roxmltree, DTDs refused and bounded.
+- **A pop-out over a full-screen editor on macOS** opens as a window of its own. macOS's automatic window tabbing had made it a tab that hid the editor.
+- **The array engine's Mandelbrot is exact on x86-64:** it fuses its complex multiply wherever numpy's SIMD loop does, now through `npexact::complex` (npexact 0.1.2).
+- **SVG text in a generic family** (`sans-serif` and the others) draws on Linux machines whose fontconfig names a family that isn't installed.
+- **CI:** every pull request runs the gate on Linux, and `main` merges only once it passes.
+- **Packaging:** `CARGO_BUILD_TARGET=x86_64-apple-darwin packaging/macos.sh` builds an Intel Mac DMG on Apple silicon. `release.sh` doesn't build it yet.
+
 ## 0.2.2 (2026-11-04)
 
 The crates and the Python text twin are 0.2.2; the Python SDK, `plumcraft-engine` on PyPI, is 0.1.2. Both carry the Windows binding, which an engine needs to run as a process on Windows.
