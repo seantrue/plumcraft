@@ -955,7 +955,7 @@ An engine with capability `run.stats` puts `stats` on every `RunReply`, so a cli
 - `NodeReport.memo` adds `source` (`memory`, `store`, `content`; absent when the node ran), and `computed_ms`.
 - A coordinator sums its fragments into `stats` and keeps each engine's share in `RunReply.engine_stats`.
 
-The editor shows a summary in the status line, with refused writes as a warning, and the whole in the Cache Report (View › Cache Report, `run.cacheReport`); `run.stats` returns the same numbers.
+The editor shows a summary in the status line, with refused writes as a warning, and the whole in the Cache Report (Settings › Cache, `run.cacheReport`); `run.stats` returns the same numbers.
 
 ## 15. Engine-specific operations
 

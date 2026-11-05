@@ -336,7 +336,13 @@ impl CompareView {
         painter.rect_filled(area, 0.0, tokens.canvas);
         for (i, cell) in cells.iter().enumerate() {
             let (cap, pic) = rect_of(i);
-            painter.text(cap.left_center() + vec2(4.0, 0.0), egui::Align2::LEFT_CENTER, &cell.caption, egui::FontId::proportional(12.0), tokens.text_dim);
+            painter.text(
+                cap.left_center() + vec2(4.0, 0.0),
+                egui::Align2::LEFT_CENTER,
+                &cell.caption,
+                tokens.font(crate::theme::Text::Caption),
+                tokens.text_dim,
+            );
             let image = self.zoom.place(pic, vec2(cell.grid.cols as f32, cell.grid.rows as f32));
             let split_x = (image.min.x + image.width() * self.state.split).clamp(pic.min.x, pic.max.x);
             for (k, t) in cell.layers.iter().enumerate() {

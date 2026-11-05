@@ -32,6 +32,23 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the built-in viewers are in `crates/ui/src/viewers/` (`basic`, `grid`, `pdf`, `plot`, `wrap`, `yaml`); there is a YAML one but nothing for XML. SVG, which is XML, is drawn as a picture (`crates/ui/src/media.rs`). Read here as "built-in"; no detail yet on where the XML came from (a file node, an engine's value) or what it showed instead.
 - Issue: #26
 
+### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
+
+- Reported: 2026-11-05
+- Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
+- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
+- Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
+- Issue: none
+
+### B10. Hashing makes content-addressed storage slow for large arrays
+
+- Reported: 2026-11-05
+- Report: "Fix the slow hashing issues for content addressed storage."
+- Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
+- Issue: #28
+
+## Fixed
+
 ### B5. The Mandelbrot kernel doesn't fuse on x86-64, though numpy does
 
 - Reported: 2026-11-05
@@ -41,14 +58,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: numpy's complex64 multiply fuses its multiply-adds on any CPU numpy dispatches its AVX2/FMA3 loop to, not just on arm64. `claude-debug/complex64_fma_probe.py` matched a fused model on 100% of 200,000 products on both machines and an unfused one on 71%. The kernel (`crates/array/src/generate/noise.rs:163`) picks fusion with `npexact::random::Contraction::host_default()`, a compile-time rule (fused on aarch64, plain elsewhere) that fits numpy.random's compiled C, not the runtime-dispatched SIMD loop. So on x86-64 it runs plain while numpy fuses. The test data is right; the kernel is wrong on x86-64.
 - Fix: fuse when numpy's loop would: aarch64, or x86-64 with FMA3 and AVX2 at run time. The rule may belong in npexact, beside `Contraction`. yellowfin and the CI runners both have FMA3 and AVX2.
 - Issue: #27
-
-### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
-
-- Reported: 2026-11-05
-- Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
-- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
-- Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
-- Issue: none
+- Fixed: 2026-11-05, PR #25 (`ba68b25`); #27 closed
 
 ### B7. The editor's audio tests time out on Linux CI
 
@@ -58,6 +68,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause, found on yellowfin: not the missing sound card (`ALSA_CARD=NoSuchCard` passes, as does 4 CPUs) but the runner's disk. commonkit's store declines to publish when the disk has under `MIN_FREE_GB` (8 GB) free, and after the workspace's build the runner has less, so the watched audio never arrives. With a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`, yellowfin times out the same three tests the same way. Same cause as B9.
 - Fix: CI sets `COMMONKIT_STORE_MIN_FREE_GB=2` for the job. The store behaves as designed; that the editor waits rather than saying the value is unavailable may be worth a look.
 - Issue: none
+- Fixed: 2026-11-05, PR #25 (`ba68b25`), the CI floor
 
 ### B8. An SVG label in `sans-serif` draws nothing on Linux
 
@@ -67,6 +78,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause, likely: fontdb takes the generic families from fontconfig on Linux (on yellowfin `sans-serif` is FreeSans, installed, so it passes there), and nothing checks that the family it names is installed. Where it isn't, the label matches no face and isn't drawn. Not reproduced off the runner; the next CI run's failure message names the family if this is wrong.
 - Fix: `installed_generics` in `crates/svg/src/lib.rs` points each generic family that names a missing family at an installed one, with a test that sets them all to a missing family.
 - Issue: none
+- Fixed: 2026-11-05, PR #25 (`ba68b25`); the next Linux CI run passed it
 
 ### B9. Large JSON crosses the Python binding as `opaque`, not `blob`, on Linux
 
@@ -76,5 +88,4 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: the same as B7. The store declines the large JSON because the runner's disk is under commonkit's 8 GB floor, so `Plane` reports it `opaque` (`python/src/plumcraft_engine/data.py:239`). Reproduced on yellowfin with a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`; without the raised floor it passes.
 - Fix: as B7.
 - Issue: none
-
-## Fixed
+- Fixed: 2026-11-05, PR #25 (`ba68b25`), the CI floor

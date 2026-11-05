@@ -78,7 +78,7 @@ The full design is in `docs/plan.md`, section 10.5. `ROADMAP.md` holds asks and 
 
 ## Find out more
 
-[Installers for macOS and Linux](https://github.com/seantrue/plumcraft/releases/latest) hold the editor, the command line and every engine, audio included: a notarized DMG for Apple silicon, and a `.deb` and a tarball for x86-64 Linux with glibc 2.35 or later, such as Ubuntu 22.04 or Debian 12.
+[Installers for macOS, Windows and Linux](https://github.com/seantrue/plumcraft/releases/latest) hold the editor, the command line and every engine, audio included: a notarized DMG for Apple silicon, a setup program and a zip for x86-64 Windows (not yet signed, so SmartScreen warns), and a `.deb` and a tarball for x86-64 Linux with glibc 2.35 or later, such as Ubuntu 22.04 or Debian 12.
 
 From source:
 

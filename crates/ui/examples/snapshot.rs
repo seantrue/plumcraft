@@ -4,12 +4,15 @@
 //! `crates/ui-egui/examples/snapshot.rs`.
 //!
 //! ```sh
-//! cargo run -p plumcraft-ui --example snapshot -- --out claude-debug/editor/shot.png [--size 1600x900] [--scale 2] [--runs N] [--watch NODE] [--palette QUERY] [--theme dark] [--engine audio]
+//! cargo run -p plumcraft-ui --example snapshot -- --out claude-debug/editor/shot.png [--size 1600x900] [--scale 2] [--runs N] [--watch NODE] [--palette QUERY] [--theme paper|pewter|dusk] [--engine audio]
+//!     [--tidy] [--settings appearance|engines|cache]
 //!     [--open WORKFLOW.json] [--command 'ID {"json": "params"}']...
 //! ```
 //!
 //! `--open` opens a workflow file with `graph.open` instead of the demo; each `--command` runs a
-//! session command (an edit, say) after it, before the runs.
+//! session command (an edit, say) after it, before the runs. `--tidy` runs Edit › Tidy
+//! (`graph.tidy`, as `ui.invoke` does) after the runs, before the fit; `--settings` opens the
+//! Settings window on a tab.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -47,6 +50,8 @@ fn main() {
     let runs: u32 = arg(&args, "--runs").and_then(|s| s.parse().ok()).unwrap_or(1);
     let watch = arg(&args, "--watch");
     let palette = arg(&args, "--palette");
+    let tidy = args.iter().any(|a| a == "--tidy");
+    let settings = arg(&args, "--settings");
     let theme = arg(&args, "--theme").and_then(|t| plumcraft_ui::theme::by_name(&t));
 
     let open = arg(&args, "--open");
@@ -92,6 +97,10 @@ fn main() {
         harness.state_mut().start_run_if_enabled();
         settle(&mut harness, Duration::from_secs(30));
     }
+    if tidy {
+        harness.state_mut().invoke("graph.tidy");
+        harness.run_steps(8);
+    }
     // nodes grew with their results: fit them as they are now
     harness.state_mut().canvas.request_fit();
     harness.run_steps(8);
@@ -102,6 +111,11 @@ fn main() {
         if let Some(p) = &mut app.canvas.palette {
             p.query = q;
         }
+        harness.run_steps(8);
+    }
+    if let Some(tab) = &settings {
+        let r = harness.state_mut().try_run("app.settings", &json!({"tab": tab}));
+        println!("app.settings {tab}: {}", r.map(|v| v.to_string()).unwrap_or_else(|e| e));
         harness.run_steps(8);
     }
     let img = harness.render().expect("render");

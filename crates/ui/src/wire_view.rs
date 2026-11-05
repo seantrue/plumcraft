@@ -129,7 +129,7 @@ impl EditorApp {
             .and_then(|d| d.output(&from.port))
             .map(|p| p.ty.clone())
             .unwrap_or_default();
-        let tokens = self.tokens;
+        let tokens = self.tokens.clone();
         let asking = rested >= PEEK_AFTER && self.session.connected;
         let pane = &mut self.wires.pane;
         egui::Area::new(egui::Id::new("plumcraft-wire-preview")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(

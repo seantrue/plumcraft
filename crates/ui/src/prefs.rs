@@ -1,4 +1,4 @@
-//! Preferences kept between runs: the theme, and the folder each kind of file dialog last used.
+//! Preferences kept between runs: the theme and the rest of the look ([`crate::appearance`]), and the folder each kind of file dialog last used.
 //! Read and write folders are remembered apart, and pictures apart from workflows, so opening a
 //! picture from one place and saving results to another needs no re-navigating.
 //!
@@ -53,11 +53,16 @@ const PICTURE_EXTS: &[&str] = &["png", "jpg", "jpeg", "tif", "tiff", "psd", "web
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Prefs {
-    /// The theme's name ([`crate::theme::by_name`]); none means the default.
+    /// The theme's name ([`crate::theme::by_name`]); none means the default. Older builds
+    /// wrote `medium` and `dark`, read as Pewter and Dusk.
     pub theme: Option<String>,
+    /// Text size, zoom, colour overrides and pinned families (Settings › Appearance). Junk here
+    /// is the defaults, and costs nothing else in the file.
+    #[serde(default, deserialize_with = "crate::appearance::lenient", skip_serializing_if = "crate::appearance::Appearance::is_default")]
+    pub appearance: crate::appearance::Appearance,
     /// The last folder by dialog kind ([`keys`]).
     pub dirs: BTreeMap<String, PathBuf>,
-    /// Engine › Pick Engines Automatically (`engine.auto`); off when unset.
+    /// Settings › Engines › Pick Engines Automatically (`engine.auto`); off when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_engines: Option<bool>,
     /// Fields this build doesn't know, kept for the file.
@@ -169,6 +174,14 @@ impl Store {
         }
     }
 
+    /// Change the appearance settings, and keep them.
+    pub fn set_appearance(&mut self, appearance: crate::appearance::Appearance) {
+        if self.prefs.appearance != appearance {
+            self.prefs.appearance = appearance;
+            self.save();
+        }
+    }
+
     pub fn set_theme(&mut self, name: &str) {
         if self.prefs.theme.as_deref() != Some(name) {
             self.prefs.theme = Some(name.to_owned());
@@ -216,7 +229,11 @@ mod tests {
         let mut s = Store::at(file.clone());
         s.remember(keys::PICTURE_READ, &a.join("corgi.jpg"));
         s.remember(keys::PICTURE_WRITE, &b);
-        s.set_theme("dark");
+        s.set_theme("dusk");
+        let mut look = crate::appearance::Appearance { text_size: Some(16.0), ..Default::default() };
+        look.set_token("dusk", "accent", Some("#123456"));
+        look.pin("x.audio", Some("pear"));
+        s.set_appearance(look);
         let back = Store::at(file.clone());
         assert_eq!(back.prefs(), s.prefs());
         assert_eq!(back.dir(keys::PICTURE_READ), Some(a));
@@ -236,6 +253,24 @@ mod tests {
             std::fs::write(&file, junk).unwrap();
             assert_eq!(Prefs::load_from(&file), Prefs::default(), "{}", junk.chars().take(32).collect::<String>());
         }
+        // junk under appearance costs only the appearance
+        for junk in [
+            r#"{"appearance": 7}"#,
+            r#"{"appearance": "paper"}"#,
+            r#"{"appearance": {"text_size": "huge"}}"#,
+            r#"{"appearance": {"zoom": -3}}"#,
+            r##"{"appearance": {"overrides": {"paper": ["#000000"]}}}"##,
+            r#"{"appearance": {"families": {"x": 3}}}"#,
+            r#"{"appearance": {"fruits": 1}}"#,
+        ] {
+            std::fs::write(&file, junk).unwrap();
+            let p = Prefs::load_from(&file);
+            assert!(p.appearance.is_default(), "{junk}");
+            assert_eq!(p.theme, None, "{junk}");
+        }
+        std::fs::write(&file, r#"{"theme": "medium", "appearance": {"text_size": "huge"}, "dirs": {}}"#).unwrap();
+        assert_eq!(Prefs::load_from(&file).theme.as_deref(), Some("medium"), "the theme survives junk beside it");
+        assert_eq!(crate::theme::by_name("medium").map(|t| t.name), Some("pewter"), "and reads as Pewter");
         std::fs::write(&file, [0xFF, 0xFE, 0x00]).unwrap();
         assert_eq!(Prefs::load_from(&file), Prefs::default(), "not text");
         assert_eq!(Prefs::load_from(&dir), Prefs::default(), "a folder");

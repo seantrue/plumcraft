@@ -1356,7 +1356,7 @@ mod tests {
             if r["ok"] == true { Ok(r["result"].clone()) } else { Err(r["error"].as_str().unwrap_or_default().to_owned()) }
         }
 
-        /// Engine › Pick Engines Automatically: a graph that names an engine not connected starts
+        /// Settings › Engines › Pick Engines Automatically: a graph that names an engine not connected starts
         /// it on open, in-process (mode 1, the fastest), beside the text engine.
         #[test]
         fn picking_engines_automatically_starts_what_an_opened_graph_needs() {

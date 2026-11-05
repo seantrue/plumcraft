@@ -501,7 +501,7 @@ impl AudioView {
             Some(p) => draw_waveform(&painter, rect, &p, tokens, missing),
             None => {
                 painter.rect_filled(rect, f32::from(tokens.radius), tokens.waveform_bg);
-                painter.text(rect.center(), egui::Align2::CENTER_CENTER, "no waveform", egui::FontId::proportional(11.0), tokens.text_dim);
+                painter.text(rect.center(), egui::Align2::CENTER_CENTER, "no waveform", tokens.font(crate::theme::Text::Caption), tokens.text_dim);
             }
         }
         let seconds = self.clip.as_ref().map(|c| c.seconds()).or_else(|| d.full.as_ref().and_then(|f| form_seconds(&f.meta.form))).unwrap_or(0.0);
@@ -592,7 +592,7 @@ impl AudioView {
                 let p = ui.painter_at(rect);
                 for (frac, text) in [(0.0, hz(nyquist)), (0.5, hz(nyquist / 2.0))] {
                     let y = rect.top() + rect.height() * frac;
-                    p.text(pos2(rect.left() + 4.0, y + 2.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(10.0), tokens.text);
+                    p.text(pos2(rect.left() + 4.0, y + 2.0), egui::Align2::LEFT_TOP, text, tokens.font(crate::theme::Text::Small), tokens.text);
                 }
                 if let Some(b) = spec.peak_bin() {
                     resp.on_hover_text(format!("loudest around {}", hz(spec.bin_hz(b))));
@@ -637,7 +637,7 @@ fn time_axis(ui: &mut egui::Ui, left: f32, width: f32, seconds: f64, tokens: &To
         let x = left + (t / seconds) as f32 * width;
         p.line_segment([Pos2::new(x, rect.top()), Pos2::new(x, rect.top() + 4.0)], Stroke::new(1.0, tokens.text_faint));
         let align = if n == 0 { egui::Align2::LEFT_TOP } else { egui::Align2::CENTER_TOP };
-        p.text(Pos2::new(x, rect.top() + 4.0), align, format!("{t:.decimals$} s"), egui::FontId::proportional(10.0), tokens.text_dim);
+        p.text(Pos2::new(x, rect.top() + 4.0), align, format!("{t:.decimals$} s"), tokens.font(crate::theme::Text::Small), tokens.text_dim);
         n += 1;
         t = step * n as f64;
     }
@@ -751,7 +751,7 @@ mod tests {
             let s = spectrogram(&v, 8000, 1024, 256, SPEC_MAX_FRAMES);
             assert_eq!(s.frames, v.len().saturating_sub(1024) / 256 + 1);
             assert!(s.db.iter().all(|d| d.is_finite()));
-            let _ = s.image(&crate::theme::DARK);
+            let _ = s.image(&crate::theme::DUSK);
         }
     }
 

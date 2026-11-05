@@ -37,6 +37,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod about_view;
+pub mod appearance;
 pub mod array_view;
 pub mod audio;
 pub mod bundle_view;
@@ -69,6 +70,7 @@ pub mod probe;
 pub mod recipe_view;
 pub mod rename_view;
 pub mod run_view;
+pub mod settings_view;
 pub mod slice_view;
 pub mod theme;
 pub mod value_editors;
@@ -142,6 +144,14 @@ pub trait FileDialogs {
     fn save_output(&mut self, _formats: &[SaveFormat], _suggested: &Path) -> Option<PathBuf> {
         None
     }
+    /// A theme file to import (Settings › Appearance › Import…).
+    fn open_theme(&mut self) -> Option<PathBuf> {
+        None
+    }
+    /// Where to export a theme file, offered `name` (`paper.plumtheme.json`).
+    fn save_theme(&mut self, _name: &str) -> Option<PathBuf> {
+        None
+    }
 }
 
 /// The name it had in E1.
@@ -210,6 +220,14 @@ impl FileDialogs for NativeDialogs {
         exts.extend(openers.iter().flat_map(|o| o.extensions.iter().copied()));
         let name = std::iter::once("Workflow or bundle").chain(openers.iter().map(|o| o.label)).collect::<Vec<_>>().join(", ");
         self.dialog().set_title("Open Workflow").add_filter(&name, &exts).pick_file()
+    }
+
+    fn open_theme(&mut self) -> Option<PathBuf> {
+        self.dialog().set_title("Import Theme").add_filter("PlumCraft theme", &["json"]).pick_file()
+    }
+
+    fn save_theme(&mut self, name: &str) -> Option<PathBuf> {
+        self.dialog().set_title("Export Theme").add_filter("PlumCraft theme", &["json"]).set_can_create_directories(true).set_file_name(name).save_file()
     }
 
     fn save_bundle(&mut self, current: Option<&Path>) -> Option<PathBuf> {
@@ -363,7 +381,12 @@ pub struct EditorApp {
     pub params: params_view::ParamsPanel,
     /// The nodes' own editors (`node.editor`).
     pub value_editors: value_editors::ValueEditors,
+    /// The theme in use, with the user's appearance settings over it.
     pub tokens: Tokens,
+    /// The tokens changed since they were last installed on the context ([`Tokens::apply`]).
+    pub(crate) restyle: bool,
+    /// The Settings window's own state (what isn't a setting).
+    pub(crate) settings_ui: settings_view::SettingsUi,
     /// The last command error, shown in the status bar.
     pub last_error: Option<String>,
     /// A refused wire's way through (`wire.convert`'s params and the path's label), offered
@@ -462,6 +485,8 @@ impl EditorApp {
             session,
             canvas,
             tokens: theme::DEFAULT,
+            restyle: false,
+            settings_ui: settings_view::SettingsUi::default(),
             last_error: None,
             convert_offer: None,
             link: None,
@@ -537,22 +562,41 @@ impl EditorApp {
         }
     }
 
-    /// Switch themes.
-    pub fn set_theme(&mut self, ctx: &egui::Context, tokens: Tokens) {
-        self.tokens = tokens;
+    /// Switch themes (the user's appearance settings go over it), and keep the choice.
+    pub fn set_theme(&mut self, ctx: &egui::Context, tokens: &Tokens) {
         self.prefs.set_theme(tokens.name);
-        tokens.apply(ctx);
-        self.canvas.invalidate();
-        self.audio.recolor(ctx, &tokens);
+        self.retheme();
+        self.restyle_now(ctx);
     }
 
-    /// Keep preferences in `store`, and take the theme it names. An application calls this with
-    /// its own ([`prefs::Store::for_app`]).
+    /// The tokens again from the theme and the appearance settings; installed on the next frame.
+    pub(crate) fn retheme(&mut self) {
+        let semibold = self.tokens.semibold;
+        self.tokens = self.prefs.prefs().appearance.resolve(self.tokens.name);
+        self.tokens.semibold = semibold;
+        self.restyle = true;
+    }
+
+    /// Install the tokens, the text sizes and the zoom on the context, and redraw what caches
+    /// colours.
+    pub(crate) fn restyle_now(&mut self, ctx: &egui::Context) {
+        self.restyle = false;
+        self.tokens.apply(ctx);
+        self.canvas.wire_default = self.tokens.wire;
+        ctx.set_zoom_factor(self.prefs.prefs().appearance.zoom.unwrap_or(1.0));
+        self.canvas.invalidate();
+        self.audio.recolor(ctx, &self.tokens);
+    }
+
+    /// Keep preferences in `store`, and take the theme and the look it names. An application
+    /// calls this with its own ([`prefs::Store::for_app`]).
     pub fn use_prefs(&mut self, store: prefs::Store, ctx: &egui::Context) {
         self.prefs = store;
-        if let Some(t) = self.prefs.prefs().theme.as_deref().and_then(theme::by_name) {
-            self.set_theme(ctx, t);
-        }
+        let name = self.prefs.prefs().theme.as_deref().and_then(theme::by_name).map_or(theme::DEFAULT.name, |t| t.name);
+        let semibold = self.tokens.semibold;
+        self.tokens = self.prefs.prefs().appearance.resolve(name);
+        self.tokens.semibold = semibold;
+        self.restyle_now(ctx);
         // after the first graph opened: turning it on starts what that graph needs
         if self.prefs.prefs().auto_engines == Some(true) {
             self.run("engine.auto", &json!({"on": true}));
@@ -582,7 +626,10 @@ impl EditorApp {
     fn pump_theme(&mut self, ctx: &egui::Context) {
         let Some(name) = self.session.views.theme_asked.take() else { return };
         match theme::by_name(&name) {
-            Some(t) => self.set_theme(ctx, t),
+            Some(t) => {
+                self.tokens.name = t.name;
+                self.set_theme(ctx, &t);
+            }
             None => self.last_error = Some(format!("no theme called {name:?}")),
         }
     }
@@ -608,6 +655,14 @@ impl EditorApp {
         match result {
             Ok(v) => {
                 self.last_error = None;
+                // the window's own: the look (crate::settings_view)
+                let v = match self.window_command(id, v) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        self.last_error = Some(e.clone());
+                        return Err(e);
+                    }
+                };
                 if id == "wire.convert"
                     && let Some(w) = v.get("warning").and_then(Value::as_str)
                 {
@@ -1435,8 +1490,6 @@ impl EditorApp {
         let mut actions: Vec<Action> = Vec::new();
         let mut fit = false;
         let mut edit_op = None;
-        let mut theme_pick: Option<Tokens> = None;
-        let current_theme = self.tokens.name;
         let selected = self.canvas.picked.nodes().len() + self.canvas.picked.groups().len();
         let mut menus: Vec<&str> = MENUS.to_vec();
         for spec in command_specs() {
@@ -1453,12 +1506,6 @@ impl EditorApp {
                     // the engines after the menu's own commands: there are many, and they scroll
                     if menu == "Engine" {
                         ui.separator();
-                        let mut auto = self.session.engines.auto;
-                        let tip = "Start the engines a workflow needs when it is opened or inserted, each hosted the fastest way it can be: in-process (mode 1), then a separate process, then HTTP";
-                        if ui.checkbox(&mut auto, "Pick Engines Automatically").on_hover_text(tip).changed() {
-                            actions.push(("engine.auto", json!({"on": auto})));
-                            ui.close();
-                        }
                         if let Some(action) = self.engine_choices_menu(ui) {
                             actions.push(action);
                         }
@@ -1471,14 +1518,6 @@ impl EditorApp {
                                 fit = true;
                                 ui.close();
                             }
-                            ui.menu_button("Theme", |ui| {
-                                for t in theme::ALL {
-                                    if ui.radio(t.name == current_theme, t.label).clicked() {
-                                        theme_pick = Some(*t);
-                                        ui.close();
-                                    }
-                                }
-                            });
                         }
                         "Node" => {
                             ui.menu_button("Add", |ui| {
@@ -1501,9 +1540,6 @@ impl EditorApp {
         });
         if fit {
             self.canvas.request_fit();
-        }
-        if let Some(t) = theme_pick {
-            self.run("view.theme", &json!({"name": t.name}));
         }
         if let Some(op) = edit_op {
             let ctx = ui.ctx().clone();
@@ -1732,7 +1768,15 @@ impl EditorApp {
             self.last_error = Some(e);
         }
         self.poll_install();
+        let semibold = fonts::has_semibold(&ctx);
+        if semibold != self.tokens.semibold {
+            self.tokens.semibold = semibold;
+            self.restyle = true;
+        }
         self.pump_theme(&ctx);
+        if self.restyle {
+            self.restyle_now(&ctx);
+        }
         self.save_auto_engines();
         if let Some(text) = self.copy_out.take() {
             ctx.copy_text(text.clone());
@@ -1783,6 +1827,8 @@ impl EditorApp {
         }
         self.prompt_modal(&ctx);
         about_view::show(&ctx, &mut self.session);
+        let asks = self.settings_window(&ctx);
+        self.run_all(asks);
         self.pump_runs(&ctx);
         let title = self.window_title();
         if title != self.title {

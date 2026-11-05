@@ -35,6 +35,7 @@ pub mod paths;
 pub mod run;
 pub mod run_cmds;
 pub mod save_cmds;
+pub mod settings_cmds;
 pub mod trust;
 pub mod view_cmds;
 pub mod viewer_cmds;

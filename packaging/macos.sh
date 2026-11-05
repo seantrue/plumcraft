@@ -8,13 +8,20 @@
 # NOTARY_PROFILE     a `xcrun notarytool store-credentials` profile. With one, the DMG is notarized
 #                    and stapled. Without one, Gatekeeper will warn whoever downloads it.
 # SKIP_BUILD=1       use the binaries already in target/release.
+# CARGO_BUILD_TARGET build for another Mac: x86_64-apple-darwin on Apple silicon makes an Intel
+#                    image (aarch64-apple-darwin the reverse). Needs `rustup target add` once.
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
 [[ $(uname -s) == Darwin ]] || { echo "macos.sh runs on macOS" >&2; exit 2; }
 
 VERSION=$(version)
-ARCH=$(uname -m)
+case ${CARGO_BUILD_TARGET:-} in
+    '') ARCH=$(uname -m) ;;
+    x86_64-apple-darwin) ARCH=x86_64 ;;
+    aarch64-apple-darwin) ARCH=arm64 ;;
+    *) echo "macos.sh builds for x86_64-apple-darwin or aarch64-apple-darwin, not $CARGO_BUILD_TARGET" >&2; exit 2 ;;
+esac
 APP="$DIST/stage-macos/PlumCraft.app"
 DMG="$DIST/PlumCraft-$VERSION-macos-$ARCH.dmg"
 

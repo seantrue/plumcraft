@@ -216,9 +216,9 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         CommandSpec {
             id: "run.cacheReport",
             label: "Cache Report",
-            menu: &["View"],
+            menu: &[],
             shortcut: None,
-            params: "{open?: bool} (toggles when left out) -> {open}: the Cache Report window",
+            params: "{open?: bool} (toggles when left out) -> {open}: the Cache Report window (Settings › Cache, or the status line's cache summary)",
             enabled: always,
             run: cache_report,
             journal: false,

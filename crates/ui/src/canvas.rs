@@ -39,7 +39,7 @@ use serde_json::{Value, json};
 use crate::bundle_view::{self, Source};
 use crate::palette::{self, PaletteIndex, PaletteOutcome, PaletteState};
 use crate::run_view::{self, PinKey, PinSink, Thumbs, TrackedPin};
-use crate::theme::{CLEAR, FamilyTint, Tokens, parse_hex};
+use crate::theme::{CLEAR, FamilyTint, Text, Tokens, parse_hex};
 use crate::value_editors;
 use crate::widgets::{self, EditBuffers};
 
@@ -199,6 +199,9 @@ pub struct WireMenu {
 /// The snarl, how it maps to the graph, and the canvas's own state.
 pub struct Canvas {
     pub snarl: Snarl<CanvasNode>,
+    /// The colour of a wire whose type has none (the theme's `wire`), for the wires the canvas
+    /// draws itself (bends, net labels).
+    pub wire_default: egui::Color32,
     synced: Option<u64>,
     pub edits: EditBuffers,
     /// Node rects in graph coordinates, from the last frame.
@@ -257,6 +260,7 @@ impl Default for Canvas {
     fn default() -> Self {
         Canvas {
             snarl: Snarl::new(),
+            wire_default: crate::theme::DEFAULT.wire,
             synced: None,
             edits: EditBuffers::default(),
             node_rects: HashMap::new(),
@@ -356,7 +360,8 @@ impl Canvas {
         let mut labelled = Vec::new();
         for w in &graph.wires {
             let Some((from, to)) = crate::groups_view::wire_ends(&snarl, catalog, graph, &vis, &ids, &proxies, w) else { continue };
-            let color = || crate::wire_route::wire_color(graph, catalog, &w.from, crate::theme::DEFAULT.pin_default);
+            let wire_default = self.wire_default;
+            let color = || crate::wire_route::wire_color(graph, catalog, &w.from, wire_default);
             // a label means nothing outside its group: an end in a collapsed group is a wire
             let shown = vis.proxy_of(&w.from.node).is_none() && vis.proxy_of(&w.to.node).is_none();
             if let Some(net) = graph.net_of_wire(w).filter(|_| shown) {
@@ -616,7 +621,7 @@ impl Canvas {
             group_frames: &self.group_frames,
             routed_paths,
         };
-        SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style()).show(&mut self.snarl, &mut viewer, ui);
+        SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style(tokens)).show(&mut self.snarl, &mut viewer, ui);
         self.to_global = viewer.to_global;
         let wire_clicked = viewer.wire_clicked.take();
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
@@ -824,7 +829,9 @@ impl Canvas {
 ///
 /// snarl's own selection outline is hidden: PlumCraft keeps the selection itself and draws it
 /// ([`crate::edit_view`]); snarl's may name nodes by stale indices.
-pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {
+///
+/// The canvas and its grid are the theme's (`canvas`, `grid`), not egui's field colour.
+pub fn snarl_style(tokens: &Tokens) -> egui_snarl::ui::SnarlStyle {
     let hidden = egui_snarl::ui::SelectionStyle { margin: egui::Margin::ZERO, rounding: egui::CornerRadius::ZERO, fill: CLEAR, stroke: egui::Stroke::NONE };
     egui_snarl::ui::SnarlStyle {
         pin_placement: Some(egui_snarl::ui::PinPlacement::Edge),
@@ -835,6 +842,8 @@ pub fn snarl_style() -> egui_snarl::ui::SnarlStyle {
         // thicker than snarl's default: easier to see, and snarl's own hover (wire ends,
         // its right-click) is as wide as the wire
         wire_width: Some(WIRE_WIDTH),
+        bg_frame: Some(egui::Frame::new().fill(tokens.canvas)),
+        bg_pattern_stroke: Some(egui::Stroke::new(1.0, tokens.grid)),
         ..egui_snarl::ui::SnarlStyle::new()
     }
 }
@@ -934,9 +943,9 @@ impl NodeViewer<'_> {
     /// A pin in its wire type's colour (the engine's, else the theme's): round for scalars,
     /// square for everything else.
     fn pin(&self, ty: &str) -> PinInfo {
-        let color = self.catalog.wire_type(ty).and_then(|w| w.color.as_deref()).and_then(parse_hex).unwrap_or(self.tokens.pin_default);
+        let typed = self.catalog.wire_type(ty).and_then(|w| w.color.as_deref()).and_then(parse_hex);
         let pin = if scalars::is_scalar(ty) { PinInfo::circle() } else { PinInfo::square() };
-        pin.with_fill(color)
+        pin.with_fill(typed.unwrap_or(self.tokens.pin_default)).with_wire_color(typed.unwrap_or(self.tokens.wire))
     }
 
     fn track(&self, info: PinInfo, key: PinKey) -> TrackedPin {
@@ -1425,7 +1434,7 @@ impl NodeViewer<'_> {
         let clicked = match self.thumbs.peaks(data, self.resolve) {
             Ok(peaks) => {
                 crate::audio::draw_waveform(ui.painter(), rect, &peaks, self.tokens, faded);
-                let tokens = *self.tokens;
+                let tokens = self.tokens.clone();
                 r.on_hover_ui(|ui| {
                     let (big, _) = ui.allocate_exact_size(crate::audio::THUMB_HOVER_SIZE, egui::Sense::hover());
                     crate::audio::draw_waveform(ui.painter(), big, &peaks, &tokens, faded);
@@ -1440,7 +1449,7 @@ impl NodeViewer<'_> {
                 };
                 let p = ui.painter();
                 p.rect_filled(rect, f32::from(self.tokens.radius), self.tokens.placeholder);
-                p.text(rect.center(), egui::Align2::CENTER_CENTER, &text, egui::FontId::proportional(11.0), self.tokens.text_dim);
+                p.text(rect.center(), egui::Align2::CENTER_CENTER, &text, self.tokens.font(Text::Caption), self.tokens.text_dim);
                 r.on_hover_text(text).clicked()
             }
         };
@@ -1486,7 +1495,7 @@ impl NodeViewer<'_> {
                 let r = ui.interact(rect, id, egui::Sense::click());
                 let p = ui.painter();
                 p.rect_filled(rect, f32::from(self.tokens.radius), self.tokens.placeholder);
-                p.text(rect.center(), egui::Align2::CENTER_CENTER, &text, egui::FontId::proportional(11.0), self.tokens.text_dim);
+                p.text(rect.center(), egui::Align2::CENTER_CENTER, &text, self.tokens.font(Text::Caption), self.tokens.text_dim);
                 let label = format!("Preview of {} ({text})", node.id);
                 r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
                 r.on_hover_text(format!("{summary}\nThe preview is gone (reaped); the next run publishes it again.")).clicked()
@@ -1536,17 +1545,17 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         // (PlumCraft's own collapse chevron: snarl's triangle would sit under the band; a
         // collapsed group's > expands the group, as an open group's V collapses it)
         if let Some(p) = &n.proxy {
-            if crate::icons::button(ui, "chevron-right", HEADER_ICON, self.tokens.text, "Expand group").clicked() {
+            if crate::icons::button(ui, "chevron-right", HEADER_ICON, self.tokens.header_text, "Expand group").clicked() {
                 self.actions.push(("group.collapse", json!({"group": p.group, "collapsed": false})));
             }
         } else {
             let (icon, label) = if open { ("chevron-down", "Collapse node") } else { ("chevron-right", "Expand node") };
-            if crate::icons::button(ui, icon, HEADER_ICON, self.tokens.text, label).clicked() {
+            if crate::icons::button(ui, icon, HEADER_ICON, self.tokens.header_text, label).clicked() {
                 snarl.open_node(node, !open);
             }
         }
         // the icon says what the node is: its doc, its family, where it sits in the palette
-        let about = crate::icons::icon(ui, self.icon_name(&n), HEADER_ICON, self.tokens.text, "");
+        let about = crate::icons::icon(ui, self.icon_name(&n), HEADER_ICON, self.tokens.header_text, "");
         match (&n.proxy, self.def(&n)) {
             (Some(p), _) => {
                 about.on_hover_text(format!("Collapsed group {}\n\nExpand it (>) to edit its nodes in place, or enter it (pencil) to see only them", p.name));
@@ -1576,7 +1585,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         }
         // the title: a click watches the node's first output (and runs)
         let has_outputs = n.proxy.is_none() && self.def(&n).is_some_and(|d| !d.outputs.is_empty());
-        let rich = egui::RichText::new(&title).color(self.tokens.text).strong();
+        let rich = egui::RichText::new(&title).color(self.tokens.header_text).font(self.tokens.font(Text::Title));
         if has_outputs {
             let r = ui
                 .add(egui::Label::new(rich).selectable(false).sense(egui::Sense::click()))
@@ -1613,13 +1622,13 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
             match (run.state, run.ms) {
                 (Some(NodeState::Cached), fetched) => {
                     let (short, hover) = run_view::cached_text(run.computed_ms, fetched);
-                    ui.label(egui::RichText::new(short).small().color(self.tokens.text)).on_hover_text(hover);
+                    ui.label(egui::RichText::new(short).small().color(self.tokens.header_text)).on_hover_text(hover);
                 }
                 (Some(NodeState::Done | NodeState::Error), Some(ms)) => {
-                    ui.label(egui::RichText::new(run_view::format_ms(ms)).small().color(self.tokens.text));
+                    ui.label(egui::RichText::new(run_view::format_ms(ms)).small().color(self.tokens.header_text));
                 }
                 (Some(s @ (NodeState::Queued | NodeState::Skipped | NodeState::Cancelled)), _) => {
-                    ui.label(egui::RichText::new(run_view::state_name(s)).small().color(self.tokens.text));
+                    ui.label(egui::RichText::new(run_view::state_name(s)).small().color(self.tokens.header_text));
                 }
                 _ => {}
             }
@@ -1639,11 +1648,11 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         let mut right = ui.new_child(egui::UiBuilder::new().max_rect(at).layout(egui::Layout::left_to_right(egui::Align::Center)));
         right.spacing_mut().item_spacing.x = 2.0;
         if let Some(p) = &n.proxy
-            && crate::icons::button(&mut right, crate::groups_view::ENTER_ICON, HEADER_ICON, self.tokens.text, "Enter group").clicked()
+            && crate::icons::button(&mut right, crate::groups_view::ENTER_ICON, HEADER_ICON, self.tokens.header_text, "Enter group").clicked()
         {
             self.canvas_requests.push(crate::groups_view::CanvasRequest::Enter(p.group.clone()));
         }
-        crate::icons::menu(&mut right, "ellipsis-vertical", HEADER_ICON, self.tokens.text, "Node actions", |ui| self.node_menu_items(&n, ui));
+        crate::icons::menu(&mut right, "ellipsis-vertical", HEADER_ICON, self.tokens.header_text, "Node actions", |ui| self.node_menu_items(&n, ui));
         // the band: the node's width (inside its border), from its top to below the header
         let frame = egui::Frame::window(ui.style());
         let m = frame.inner_margin;
@@ -1707,6 +1716,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     }
 
     fn show_input(&mut self, pin: &InPin, ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) -> impl SnarlPin + 'static {
+        ui.style_mut().override_font_id = Some(self.tokens.font(Text::Port));
         let info = self.input_pin(pin, ui, snarl);
         self.track(info, PinKey::In(pin.id))
     }
@@ -1730,6 +1740,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     }
 
     fn show_output(&mut self, pin: &OutPin, ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) -> impl SnarlPin + 'static {
+        ui.style_mut().override_font_id = Some(self.tokens.font(Text::Port));
         let info = self.output_pin(pin, ui, snarl);
         // room on the left of each output row for the thumbnail beside them
         if let Some(size) = snarl.get_node(pin.id.node).and_then(|n| self.shown_thumb(n)) {

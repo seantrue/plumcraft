@@ -1,5 +1,5 @@
 //! What the caches did, on screen (crate::cache_view): the status line's summary and warning, and
-//! the Cache Report from View and from the summary.
+//! the Cache Report from Settings › Cache and from the summary.
 
 mod common;
 

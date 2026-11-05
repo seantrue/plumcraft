@@ -56,6 +56,11 @@ pub struct Views {
     pub compare: Compare,
     /// A theme asked for, until the window applies it.
     pub theme_asked: Option<String>,
+    /// The Settings window's tab, while it is open (`app.settings`).
+    pub settings: Option<String>,
+    /// Appearance commands (`view.textSize`, `theme.*`) for the window to carry out, with
+    /// their parameters ([`crate::settings_cmds`]).
+    pub ui_asks: Vec<(String, Value)>,
     next: u64,
 }
 
