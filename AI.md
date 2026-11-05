@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — A pop-out no longer takes over a full-screen editor (B1, #22) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: popout when editor is full screen covers up whole screen", then "Fix B1 and B4".
+
+**What the AI did:** it reproduced the bug in the real editor before changing anything. `claude-debug/popout_fullscreen_probe.py` launches the editor with a control channel, sets full screen through the accessibility attribute, opens `view.popout`, and takes screenshots. The cause wasn't a full-screen window: macOS's automatic window tabbing made the pop-out a tab of the full-screen editor's window, so it hid the editor. `no_window_tabbing()` (`crates/ui/src/lib.rs`, ~12 LOC, called from `setup_context`) turns automatic tabbing off with objc2-app-kit's safe `NSWindow::setAllowsAutomaticWindowTabbing`. Off the main thread, as in a kittest, nothing happens. That needs no `unsafe` and no new crates: objc2 0.6 and objc2-app-kit 0.3 were already built for eframe and rfd, and are now direct macOS-only dependencies. The probe now shows the pop-out as a 760×592 window of its own over the full-screen editor.
+
+**Tested:** a unit test only that the call is harmless off the main thread. A kittest can't reach AppKit's main thread, so the fix itself is checked by the probe.
+
+**On the way:** the AI first made the B4 viewer in the same working tree, then set it aside so each fix has its own branch.
+
 ### 2026-11-05 — Paper, Pewter and Dusk themes, fruit headers, Inter, and a Settings window (Claude Opus 5.5)
 
 **What the maintainer asked:** "The current color scheme is very dark (echos photocraft) and fonts are a little small and low contrast. Look at the color schemes from other dataflow applications (node red, abinitio GDE, etc) and propose an alternative. Desaturated fruit colors would be nice for node headings … out-of-the-box themes that are attractive is more important." On the proposal's swatches: "THose are all good, paper is the right default. Start up a session to implement them. Move the configuration, and other settings (automatic engine), and reports to a settings/preferences item." The maintainer chose the light default and approved the three themes. The AI took its own recommendations on the five open questions (old prefs move to Pewter and Dusk, engine colours keep only their hue, a clashing family steps to a free fruit, only Inter SemiBold bundled), and said so before starting.

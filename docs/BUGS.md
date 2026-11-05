@@ -4,13 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B1. A popout covers the whole screen when the editor is full screen
-
-- Reported: 2026-11-05
-- Report: "popout when editor is full screen covers up whole screen"
-- Context: the editor (`target/debug/plumcraft-editor`, working tree with the theme and Settings changes) on macOS in full screen; popouts are `crates/ui/src/popouts.rs`
-- Issue: #22
-
 ### B2. No installer for Intel (x86_64) Macs
 
 - Reported: 2026-11-05
@@ -38,7 +31,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
 - Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
 - Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
-- Issue: none
+- Issue: seantrue/yapocis-rs#10
 
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
@@ -48,6 +41,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #28
 
 ## Fixed
+
+### B1. A popout covers the whole screen when the editor is full screen
+
+- Reported: 2026-11-05
+- Report: "popout when editor is full screen covers up whole screen"
+- Context: the editor (`target/debug/plumcraft-editor`, working tree with the theme and Settings changes) on macOS in full screen; popouts are `crates/ui/src/popouts.rs`
+- Issue: #22
+- Cause: not a full-screen window of its own. With the editor full screen, macOS's automatic window tabbing made the new pop-out a tab of the editor's window, so it filled the screen and hid the editor. Reproduced in the real editor with `claude-debug/popout_fullscreen_probe.py` (full screen through the accessibility attribute, then `view.popout`): the tab bar showed "Demo — PlumCraft" and "shout.text — PlumCraft".
+- Fixed: 2026-11-05, branch `fix/22-popout-fullscreen`. `no_window_tabbing()` (`crates/ui/src/lib.rs`, from `setup_context`) turns automatic tabbing off with objc2-app-kit's safe `NSWindow::setAllowsAutomaticWindowTabbing`; the probe then shows the pop-out as a 760×592 window of its own over the full-screen editor.
 
 ### B5. The Mandelbrot kernel doesn't fuse on x86-64, though numpy does
 
