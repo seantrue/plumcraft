@@ -24,7 +24,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the maintainer asked:** "bug: No build in viewer for XML files.", then "Fix B1 and B4". The AI read "build in" as "built-in" and recorded that reading in the bug.
 
-**What the AI did:** a new `xml` viewer (`crates/ui/src/viewers/xml.rs`, ~330 lines with its tests), registered ahead of `text.plain`.
+**What the AI did:** a new `xml` viewer (`crates/ui/src/viewers/xml.rs`, ~377 lines with its tests), registered ahead of `text.plain`.
 
 - **What it takes:** XML text (a declaration, or an element after a byte order mark and comments, checked on the value's first excerpt) and bytes whose media type is `application/xml`, `text/xml` or `…+xml`. SVG keeps its own viewer.
 - **What it shows:** an outline of elements with their attributes, text and comments. Short leaves sit on one line, and the outline opens two levels deep. The source is a checkbox away, and a value that isn't well-formed shows the parse error's position over its source.
