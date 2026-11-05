@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — Release 0.2.3 to crates.io (Claude Opus 5.5)
+
+**What the maintainer asked:** "publish to crates.io". Asked which release, the maintainer chose "0.2.3, with #34" over releasing without #34 or a 0.3.0.
+
+**What the AI did:**
+
+- **Merged #34** (npexact 0.1.2) after its CI passed.
+- **Version bump:** the 20 crates, their `=0.2.3` pins and the Python text twin and its golden went to 0.2.3, as 0.2.2's release did. The Python SDK stays 0.1.2, since this release is crates.io only.
+- **Changelog:** a 0.2.3 entry from the 17 commits since 0.2.2. It names the behaviour changes: themes Medium and Dark replaced, and View › Theme, Engine › Pick Engines Automatically and View › Cache Report moved into Settings, with their commands kept.
+- **Checked:** the gate (1,150 Rust tests, 0 failed, 5 ignored; clippy, fmt; 218 Python tests, ruff) and `cargo publish --workspace --dry-run`.
+- **Release:** a PR, then the tag `v0.2.3` on `main`, then `cargo publish --workspace`.
+
 ### 2026-11-05 — The Mandelbrot kernel takes numpy's rule from npexact 0.1.2 (B6) (Claude Opus 5.5)
 
 **What the maintainer asked:** B6 got the `fix approved` label in yapocis-rs, then came "fix approved bugs", then "release npexact 0.1.2", then "Go" for PlumCraft to use it.

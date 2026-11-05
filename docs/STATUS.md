@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **Release 0.2.3 (2026-11-05, branch `release-0.2.3`).** The maintainer: "publish to crates.io", as 0.2.3 with #34. The 20 crates and the Python text twin go to 0.2.3; the SDK stays 0.1.2. Gate: 1,150 Rust tests, 218 Python.
 - **npexact 0.1.2 (2026-11-05, B6).** The Mandelbrot kernel takes numpy's complex64 rule from `npexact::complex` (seantrue/yapocis-rs#11) instead of its own copy.
 - **An XML viewer (2026-11-05, B4, #26).** XML text and XML bytes open as an outline (`xml`, `crates/ui/src/viewers/xml.rs`), ahead of Text; roxmltree, DTDs refused, bounded.
 - **A pop-out over a full-screen editor (2026-11-05, B1, #22).** macOS made it a tab of the full-screen window; `no_window_tabbing()` turns automatic window tabbing off at startup, so it opens as a window of its own (checked with `claude-debug/popout_fullscreen_probe.py`).
