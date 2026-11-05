@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — Release 0.2.2, and the Python SDK 0.1.2 (Claude Opus 5.5)
+
+**What the maintainer asked:** "prepare the crates.io and PyPI releases", then "CPM, publish crates and PyPI, then the installers". The point is to get the Windows binding to the engines that can't take it from a checkout: PlumImpress (crates `=0.2.1`), and engines generated outside a checkout (PyPI's SDK 0.1.1).
+
+**What the AI did:**
+
+- **Versions:** 20 crates and their pins went to 0.2.2, as did the Python text twin and its golden. The SDK `plumcraft-engine` went to 0.1.2. The lockfile changed only PlumCraft's own packages.
+- **Why a patch release:** the API diff since 0.2.1 is additive, reviewed by hand since there is no semver tool here. The one behaviour change, `endpoint_from_env` returning the locator as given, is in CHANGELOG.
+- **Checked before publishing:**
+  - the gate (1,126 Rust, 218 Python);
+  - `cargo publish --workspace --dry-run`, which verify-built all 19 crates;
+  - the SDK's wheel and sdist pass `twine check`, and the wheel works in a fresh Python 3.11 (`parse_endpoint`, twin 0.2.2).
+- **Found on the way:** the disk filled during the gate, with 562 MB left. Under the maintainer's build rule the AI ran `cargo clean` (89.6 GB). On the maintainer's "Yes" it also removed four old agent worktrees (42 GB), after checking that their uncommitted changes were already in `main` (98–100% of their added lines, the rest explained). Their diffs are kept in `claude-debug/`.
+
 ### 2026-11-04 — A Windows installer, engines found from the desktop, and old SDKs named (Claude Opus 5.5)
 
 **What the maintainer asked:** "yes, install InnoSetup. GUI only is fine for now". Then, after trying it on `win11-dev`: "Installing OpenCV engine appeared to succeed, but engine does not show up". Then the engine's `AF_UNIX` traceback. Then "PM, bump the engine pins, and add the clearer error".

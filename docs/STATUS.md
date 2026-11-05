@@ -4,6 +4,11 @@
 
 ## Where things stand
 
+- **Release 0.2.2 prepared (2026-11-04, branch `release-0.2.2`, uncommitted, nothing published).** The maintainer: "prepare the crates.io and PyPI releases", so that PlumImpress (crates `=0.2.1`) and engines generated outside a checkout (PyPI's SDK 0.1.1) get the Windows binding.
+  - **Versions:** 20 crates to 0.2.2, the Python text twin to 0.2.2, and the Python SDK `plumcraft-engine` to 0.1.2.
+  - **Why a patch release:** the public API diff since 0.2.1 is additive, checked by hand since no semver tool is installed. The one behaviour change, `endpoint_from_env` returning the locator as given, is in CHANGELOG.
+  - **Checked:** the gate (1,126 Rust, 218 Python); the SDK's wheel and sdist pass `twine check`, and the wheel works in a fresh Python 3.11 with `parse_endpoint`; the crates' `cargo publish --workspace --dry-run`.
+  - **Still to do, on the maintainer's word:** commit, merge, `cargo publish --workspace`, the SDK to PyPI (tag `v0.1.2`), and then the app installers (`app-v0.2.2`).
 - **Windows (2026-11-04, uncommitted, branch `windows`).** The maintainer: "You can build plumcraft on Windows", on yellowfin's `win11-dev` VM (x86-64, MSVC). They chose loopback TCP for process engines, and asked for the port and tests, then a stop before committing.
   - **Transport:** mode 2 takes a locator, `unix:<path>` or `tcp:127.0.0.1:<port>` (`plumcraft_engine::local`, Python `serve.parse_endpoint`). The host offers TCP on Windows. `docs/interface.md` 16.3 says what a loopback port trusts that a 0700 socket doesn't. **Open:** the host can't yet tell its own engine from another local process that connects first.
   - **Processes:** `plumcraft_proto::programs` has `own_group`, `kill_tree` (`taskkill /T /F` on Windows), `describe_exit`, `PATHEXT` lookup and `home()` (`USERPROFILE`). The craft watchdog has a PowerShell form. Tokens and nonces come from `getrandom` (`plumcraft_proto::random`).
