@@ -20,6 +20,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — "Impression", not "painting" (Claude Opus 5.5)
+
+**What the maintainer asked:** "Where we say "painting" say "impression"".
+
+**What the AI did:** one line. The synesthesia demo's description (`apps/plumcraft-editor/demos/synesthesia.json`) now says music and a voice "become an impression become a poster". The other three uses of the word were left, and the AI said why: the verb (ROADMAP's "Mask painting through PhotoCraft", the ComfyUI note's "mask painting"), ComfyUI's own term ("Inpainting"), and a stock image's style name ("Oil painting" in `plums/CREDITS.md`). PhotoCraft's `pc.oil_paint` kind is that app's name and stays.
+
 ### 2026-11-05 — Paper, Pewter and Dusk themes, fruit headers, Inter, and a Settings window (Claude Opus 5.5)
 
 **What the maintainer asked:** "The current color scheme is very dark (echos photocraft) and fonts are a little small and low contrast. Look at the color schemes from other dataflow applications (node red, abinitio GDE, etc) and propose an alternative. Desaturated fruit colors would be nice for node headings … out-of-the-box themes that are attractive is more important." On the proposal's swatches: "THose are all good, paper is the right default. Start up a session to implement them. Move the configuration, and other settings (automatic engine), and reports to a settings/preferences item." The maintainer chose the light default and approved the three themes. The AI took its own recommendations on the five open questions (old prefs move to Pewter and Dusk, engine colours keep only their hue, a clashing family steps to a free fruit, only Inter SemiBold bundled), and said so before starting.
