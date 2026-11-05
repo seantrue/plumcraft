@@ -157,12 +157,36 @@ fn escaped(zr: f32, zi: f32, threshold: f32) -> bool {
     ((a * a + b * b).sqrt() as f32) > threshold
 }
 
+/// Whether numpy's complex64 multiply fuses its multiply-adds on this machine. Its SIMD loop is
+/// chosen at run time: on arm64 it always fuses, and on x86-64 it fuses when the CPU has FMA3
+/// and AVX2, the loop numpy dispatches to there. Checked with numpy 2.5.3 on an M4 Max and on a
+/// Xeon E5-2698 v4 (`claude-debug/complex64_fma_probe.py`: every one of 200,000 products matched
+/// the fused model on both).
+///
+/// Not npexact's `random::Contraction::host_default()`, which decides by architecture at
+/// compile time (fused on aarch64 only): that fits numpy.random's compiled C, not this loop. The
+/// rule belongs in npexact beside it (docs/BUGS.md B6).
+fn numpy_complex_fma() -> bool {
+    #[cfg(target_arch = "aarch64")]
+    {
+        true
+    }
+    #[cfg(target_arch = "x86_64")]
+    {
+        std::arch::is_x86_feature_detected!("fma") && std::arch::is_x86_feature_detected!("avx2")
+    }
+    #[cfg(not(any(target_arch = "aarch64", target_arch = "x86_64")))]
+    {
+        false
+    }
+}
+
 /// The escape iteration of each point of `re` × `im` (yapocis numba `mandelbrot`: numpy
 /// complex64 steps, the first iteration at which `|z| > 2`, 0 inside the set; a point escaping at
 /// iteration 0 keeps going, as the kernel's `out == 0` test lets it). Row-major, `im.len()` rows.
 pub fn mandelbrot_iterations(re: &[f32], im: &[f32], maxiter: i64, cancel: &dyn Fn() -> bool) -> Option<Vec<i16>> {
     let threshold = f32::from_bits(2.0f32.to_bits() + 1);
-    let fused = npexact::random::Contraction::host_default() == npexact::random::Contraction::Fma;
+    let fused = numpy_complex_fma();
     let mut out = Vec::with_capacity(re.len() * im.len());
     for &ci in im {
         if cancel() {
@@ -173,8 +197,8 @@ pub fn mandelbrot_iterations(re: &[f32], im: &[f32], maxiter: i64, cancel: &dyn 
             let mut found = 0i16;
             for it in 0..maxiter {
                 // z * z + c, as numpy multiplies complex64: (a·a - b·b, a·b + b·a), the
-                // products contracted into fused multiply-adds where numpy's wheels are built so
-                // (arm64; npexact's Contraction policy)
+                // products contracted into fused multiply-adds wherever numpy's SIMD loop is
+                // ([`numpy_complex_fma`])
                 let (r, m) = if fused { (zr.mul_add(zr, -(zi * zi)), zr.mul_add(zi, zi * zr)) } else { (zr * zr - zi * zi, zr * zi + zi * zr) };
                 zr = r + cr;
                 zi = m + ci;

@@ -65,8 +65,9 @@ fn simplex_matches_numba() {
 
 #[test]
 fn mandelbrot_matches_numba() {
-    // the numba backend is numpy's complex64 steps: exact, with numpy's FMA contraction on arm64
-    // (npexact's policy)
+    // the numba backend is numpy's complex64 steps: exact, with the fused multiply-adds numpy's
+    // SIMD loop uses on arm64 and on x86-64 with FMA3 and AVX2. One golden serves both: recorded
+    // again on yellowfin (x86-64), it matched the M4 Max's in every pixel (docs/BUGS.md B5)
     for case in fixture("mandelbrot").as_array().unwrap() {
         let (w, h) = (case["width"].as_u64().unwrap() as usize, case["height"].as_u64().unwrap() as usize);
         let out = noise::mandelbrot_view(

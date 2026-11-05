@@ -21,6 +21,9 @@ env:
   CARGO_PROFILE_DEV_DEBUG: 0
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_INCREMENTAL: 0
+  # commonkit's store declines to publish under 8 GB free, and after the build the runner has
+  # less, so blobs (watched audio, large JSON) would never cross (docs/BUGS.md B7, B9).
+  COMMONKIT_STORE_MIN_FREE_GB: 2
 
 jobs:
   gate:
@@ -30,8 +33,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # ALSA's headers for the audio engine; Mesa's software Vulkan (lavapipe) as the GPU the
+      # rendering kittests need, since the runner has none ("No adapter found")
       - name: Linux packages
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev mesa-vulkan-drivers libvulkan1
 
       - uses: dtolnay/rust-toolchain@stable
         with:
