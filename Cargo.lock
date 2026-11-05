@@ -2233,9 +2233,9 @@ checksum = "2bf50223579dc7cdcfb3bfcacf7069ff68243f8c363f62ffa99cf000a6b9c451"
 
 [[package]]
 name = "npexact"
-version = "0.1.1"
+version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "77b300ff0552338de5d67f194238d1b3a472164047a41b0b2ee74c8465b0cb54"
+checksum = "365618f434210b59a373deb16ad4eed2755860e0120c3739120898dfa0d2e13c"
 
 [[package]]
 name = "num-complex"

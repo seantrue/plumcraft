@@ -43,7 +43,7 @@ base64 = "0.22"
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 # numpy's own host numerics (PCG64 draws, pairwise reductions, histograms, sorts), bit for bit
 # (plumcraft-array); from the maintainer's yapocis-rs.
-npexact = "0.1.1"
+npexact = "0.1.2"
 # Draw Text in the array engine: glyph outlines (skrifa, as egui's epaint uses) filled antialiased
 # (tiny-skia, as resvg uses); both already in the tree, pure Rust.
 skrifa = "0.44"

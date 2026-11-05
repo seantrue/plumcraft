@@ -18,14 +18,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the setting is Settings › Engines › Pick Engines Automatically (`crates/ui/src/settings_view.rs:225`, `engine.auto`); the Engine menu's list of engines and their hostings comes from `engine_choices_menu` (`crates/ui/src/engine_view.rs:423`, called from `crates/ui/src/lib.rs:1509`). Expected: with the setting on, choosing an engine starts it the fastest way it can be hosted (in-process, then a process, then HTTP) without a submenu of implementations.
 - Issue: #24
 
-### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
-
-- Reported: 2026-11-05
-- Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
-- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
-- Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
-- Issue: seantrue/yapocis-rs#10
-
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
 - Reported: 2026-11-05
@@ -33,7 +25,24 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
 - Issue: #28
 
+### B11. `a_panicking_node_rebuilds_the_engine` fails at random on CI
+
+- Reported: 2026-11-05
+- Report: "Add as B11" (after the test failed the first CI run of both #30 and #31)
+- Context: `crates/text/tests/conformance.rs:254`, `assert!(matches!(c.0.wait_ready(Duration::from_secs(5)), EngineState::Connected { .. }))`. A node panics, the host rebuilds the engine, and the test allows 5 s for it to be connected again. On ubuntu-latest that failed on the first run of PR #30 (run https://github.com/seantrue/plumcraft/actions/runs/42102535342) and of PR #31 (run 42102561899), with nothing else failing, and both passed when rerun with no change. It passed in the runs for #25, #29 and #32, and passes locally. Likely too short a wait on a loaded 4-CPU runner, not a wrong rebuild; not yet confirmed.
+- Issue: #33
+
 ## Fixed
+
+### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
+
+- Reported: 2026-11-05
+- Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
+- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
+- Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
+- Issue: seantrue/yapocis-rs#10
+- Fixed in npexact: 2026-11-05, seantrue/yapocis-rs#11 (`5a51589`), with the recorder in seantrue/yapocis3#74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
+- Fixed in PlumCraft: 2026-11-05, branch `fix/b6-npexact-complex`. The Mandelbrot kernel calls `npexact::complex::Mul::array_default()` and `mul_c64` (npexact 0.1.2) in place of its own `numpy_complex_fma()`; the golden test passes on the M4 Max and on yellowfin.
 
 ### B4. No built-in viewer for XML files
 
