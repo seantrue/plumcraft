@@ -1,5 +1,5 @@
-# The gate from AGENTS.md, on every pull request and every push to main. A PR merges only once it
-# passes (branch protection names the `gate` job).
+# The gate from AGENTS.md, on every pull request and every push to main. A PR merges only once
+# both jobs pass (branch protection names `gate` and `python`).
 name: CI
 
 on:
@@ -25,18 +25,23 @@ env:
   # less, so blobs (watched audio, large JSON) would never cross (docs/BUGS.md B7, B9).
   COMMONKIT_STORE_MIN_FREE_GB: 2
 
+# Linux only: macOS runners cost too much (maintainer, 2026-11-05). macOS is checked locally.
 jobs:
+  # The Rust half: fmt, clippy and every test, the test binaries run in parallel by nextest.
   gate:
     name: gate
-    # Linux only: macOS runners cost too much (maintainer, 2026-11-05). macOS is checked locally.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
       # ALSA's headers for the audio engine; Mesa's software Vulkan (lavapipe) as the GPU the
-      # rendering kittests need, since the runner has none ("No adapter found")
+      # rendering kittests need, since the runner has none ("No adapter found"). Cached, as
+      # Ubuntu's mirrors sometimes take minutes to answer.
       - name: Linux packages
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev mesa-vulkan-drivers libvulkan1
+        uses: awalsh128/cache-apt-pkgs-action@v1
+        with:
+          packages: pkg-config libasound2-dev mesa-vulkan-drivers libvulkan1
+          version: 1
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -44,7 +49,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-nextest
+
+      # the Rust tests that build Python engines (engine_manifest, generated_engine) use uv
       - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
 
       - name: cargo fmt
         run: cargo fmt --all --check
@@ -52,14 +65,28 @@ jobs:
       - name: cargo clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
-      # --no-fail-fast: one run lists every failing test, not just the first failing binary's
-      - name: cargo test
-        run: cargo test --all-features --no-fail-fast
+      # every test binary in parallel, each test in its own process; --no-fail-fast lists every
+      # failing test in one run. There are no doc tests (cargo test --doc finds none).
+      - name: cargo nextest
+        run: cargo nextest run --all-features --no-fail-fast
 
-      # runs even when cargo test fails, so a run reports both halves of the gate
-      - name: python
+  # The Python SDK's tests and lint: they don't use the Rust build, so they run beside it.
+  python:
+    name: python
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          cache-dependency-glob: "**/uv.lock"
+
+      - name: pytest
+        working-directory: python
+        run: uv run pytest
+
+      - name: ruff
         if: ${{ !cancelled() }}
         working-directory: python
-        run: |
-          uv run pytest
-          uv run ruff check .
+        run: uv run ruff check .

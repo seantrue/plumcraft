@@ -20,6 +20,23 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — Faster CI: two jobs, nextest, cached apt and uv (Claude Opus 5.5)
+
+**What the maintainer asked:** "Gate tests take a long time on github. How can we shorten that?", then "Yes. Do those things."
+
+**What the AI measured first:** from the step timings of eight recent runs, a typical run took about 5½ minutes:
+
+- `cargo test` took 200–280 s: 61 s compiling with a warm cache, then 145 s running 116 test binaries one after another. `engine_manifest`, `generated_engine` and a `panic_hunt` took half of that.
+- Python took 55 s, run after all of the Rust steps although it uses none of the Rust build.
+- The 12–15 minute runs were the apt install, which took 391 s and 556 s in two runs against 8 s otherwise.
+
+**What the AI changed (`.github/workflows/ci.yml`):**
+
+- **Two jobs,** `gate` (fmt, clippy, the Rust tests) and `python` (pytest, ruff), side by side. Branch protection requires both.
+- **cargo-nextest** runs the test binaries in parallel. Locally the whole suite passed under it first: 1,150 run, 1,150 passed, 5 skipped, the same count as `cargo test`, and 55 s of tests. `cargo test --doc` finds no doc tests, so no separate doc step is needed.
+- **Caches:** the apt packages are cached (`awalsh128/cache-apt-pkgs-action`), and so is uv's cache, keyed on every `uv.lock`, in both jobs.
+- **No retries:** nextest doesn't retry failures, so the flaky B11 test still fails a run until it's fixed.
+
 ### 2026-11-05 — Release 0.2.3 to crates.io (Claude Opus 5.5)
 
 **What the maintainer asked:** "publish to crates.io". Asked which release, the maintainer chose "0.2.3, with #34" over releasing without #34 or a 0.3.0.
