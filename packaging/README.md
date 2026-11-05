@@ -25,6 +25,14 @@ NOTARY_PROFILE=plumcraft packaging/macos.sh
 
 An image that isn't notarized makes Gatekeeper warn whoever downloads it.
 
+It builds for the Mac it runs on. For an Intel image on Apple silicon, add the target once and name
+it:
+
+```sh
+rustup target add x86_64-apple-darwin
+CARGO_BUILD_TARGET=x86_64-apple-darwin packaging/macos.sh
+```
+
 ## Linux
 
 Install a Rust toolchain, `pkg-config` and ALSA's headers (Debian: `libasound2-dev`). The `.deb`

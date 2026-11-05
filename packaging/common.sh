@@ -7,6 +7,10 @@ ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 # shellcheck disable=SC2034 # used by the scripts that source this
 DIST=${PLUMCRAFT_DIST:-$ROOT/dist}
 TARGET=${CARGO_TARGET_DIR:-$ROOT/target}
+# Where the release binaries land: cargo builds for CARGO_BUILD_TARGET (a triple such as
+# x86_64-apple-darwin) when it is set, into a directory of that name.
+# shellcheck disable=SC2034 # used by the scripts that source this
+RELEASE=$TARGET/${CARGO_BUILD_TARGET:+$CARGO_BUILD_TARGET/}release
 # Windows' executables end in .exe (windows.sh runs under Git for Windows' bash).
 case $(uname -s) in MINGW* | MSYS* | CYGWIN*) EXE=.exe ;; *) EXE='' ;; esac
 # The Python that runs third_party.py; windows.sh points it at a real one.
@@ -34,11 +38,12 @@ build_binaries() {
 copy_binaries() {
     local name
     for name in "${BINARIES[@]}"; do
-        cp "$TARGET/release/$name$EXE" "$1/$name$EXE"
+        cp "$RELEASE/$name$EXE" "$1/$name$EXE"
     done
 }
 
-# Everything a binary distribution must carry: PlumCraft's licences, the bundled font's and the
+# Everything a binary distribution must carry: PlumCraft's licences, the bundled fonts' (Inter Regular
+# and SemiBold: one OFL 1.1 covers both) and the
 # copied craft-libs modules', and every dependency's, into $1.
 write_licences() {
     mkdir -p "$1"
