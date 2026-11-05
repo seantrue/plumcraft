@@ -20,6 +20,54 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — PlumCraft on Windows (Claude Opus 5.5)
+
+**What the maintainer asked:** "You can build plumcraft on Windows. See yellowfin ~/sysadmin/docs/windows-dev-vm-runbook.md". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."
+
+**What the AI did** (~830 lines added and ~160 removed, over 40 files, plus `.gitattributes`):
+
+- **The local binding on Windows** (`crates/engine/src/local.rs`, ~210 LOC with tests). An `Endpoint` and `Stream` that are a Unix socket or loopback TCP. Locators are `unix:<path>` and `tcp:127.0.0.1:<port>`; a bare path is still a Unix socket. Both SDKs read either (Python `serve.parse_endpoint`). The host offers TCP on Windows. `docs/interface.md` 16.3 says what a loopback port trusts that a 0700 socket doesn't. **The model raised a gap and left it open, and the maintainer tabled it:** the host can't yet tell its own engine from another local process that connects first.
+- **Processes** (`plumcraft_proto::programs`): `own_group` (on Windows a new process group with no console), `kill_tree` (`taskkill /T /F`), `describe_exit`, `PATHEXT` lookup and `home()`. The craft watchdog has a PowerShell form. Tokens and nonces come from `getrandom` (`plumcraft_proto::random`).
+- **Docs:** `docs/guide.md` has Windows build notes (clone with `core.symlinks=true`); also STATUS and CHANGELOG.
+- **Test harness:** syncing to the VM by patch, with no push, and LF checkouts there.
+
+**Found on Windows, and fixed:**
+
+- **The hostile-input sweep found a panic in the `zip` crate:** zip 9.2.2's `is_windows_reserved_device_name` calls `split_at(3)` inside a character. **The model claimed that 9.3.0 still had the bug, and shipped that claim in the commit.** It had grepped only the `split_at` line, not the guard above it. When the maintainer asked for it to be filed upstream, a check of zip's master showed the fix (`is_char_boundary(3)`, merged privately 2026-11-02), and the 9.3.0 crate has it. So nothing was filed. PlumCraft now requires `zip` 9.3 and dropped its workaround (`archive::trips_zip_on_windows`) and that workaround's unit test. The model's first version of that unit test had also listed `a╤.json` as safe; it isn't, and the Windows run caught that.
+- **A real race.** Two threads staging one document into the craft CAS failed: Windows refuses a rename over a file another rename holds. Losing that race to the same bytes is now success (`plumcraft_store::rename_addressed`), in all four content-addressed writes.
+- **The Python SDK:**
+  - `os.kill(pid, 0)` would have ended the processes its scratch sweep checked;
+  - `file_token` called `os.getuid`;
+  - the generator wrote CRLF files and backslash paths into `pyproject.toml`;
+  - store path locators mixed separators, because pyuncommonkit's `keys.relpath` joins with `/`.
+- **Engine binaries** were looked up without `.exe`.
+- **Tests that held Unix's behaviour as the rule:**
+  - `signal 9`;
+  - `/bin/sh`, `/bin/sleep`, `pgrep`;
+  - mode bits;
+  - path separators;
+  - a 3 s budget for five process starts.
+  These now say what each platform does.
+- **The persist test's 20 ms margin** flaked two runs in three on the VM. It has a bigger value now; the rule under test is unchanged.
+
+**Defects in the model's own work, caught by running it:**
+
+- The first full Windows run used a stale Python SDK, because the model synced after starting it.
+- The model's Windows watchdog test query matched its own command line.
+- Its sync left the top-level files of the VM's tree CRLF, so a patch didn't apply.
+- Its new README line broke the generator goldens. They were regenerated, and the golden writer now writes LF.
+
+**Investigated:**
+
+- commonkit's Windows fix (`d8198ae`, old `seantrue/commonkit`): pycommonkit has its free-space, `S_ISREG` and mapped-unlink parts, but not the Windows default root.
+- The 395 ms `hello` over HTTP: the first `hello` waits for the engine to build (about 300 ms). Later ones took 6–30 ms. It passed on rerun.
+
+**Left:** `mandelbrot_matches_numba` fails on x86-64, because its fixture is arm64's FMA output. The maintainer said to ignore it.
+
+**Tests:** on `win11-dev`, the first run had 48 failures and the second 12. The last full run had 1,119 Rust passing and 2 failing (Mandelbrot, and the race, since fixed), and 215 Python passing and 1 failing (`file_token`, since fixed). The fixed targets were rerun on Windows: the race test passed three times. The Mac gate passes: 1,125 Rust, 218 Python.
+
+**Division of labour:** the maintainer chose the platform, the transport and the scope; the model ported, ran and fixed.
+
 ### 2026-11-04 — Release 0.2.1 (Claude Opus 5.5)
 
 The maintainer chose "0.2.1 release" to ship the Finder PATH fix.

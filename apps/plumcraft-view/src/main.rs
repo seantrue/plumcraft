@@ -102,7 +102,7 @@ fn connect(mode: Mode, ctx: &egui::Context) -> Result<Link, String> {
     let manifest = match mode {
         Mode::InProc => None,
         Mode::Rust | Mode::HttpRust => {
-            let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("plumcraft-text-engine");
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name(format!("plumcraft-text-engine{}", std::env::consts::EXE_SUFFIX));
             Some(Manifest {
                 name: "text".into(),
                 command: vec![exe.display().to_string()],

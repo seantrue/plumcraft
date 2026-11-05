@@ -1,8 +1,29 @@
 # Status
 
-*Updated 2026-11-03.*
+*Updated 2026-11-04.*
 
 ## Where things stand
+
+- **Windows (2026-11-04, uncommitted, branch `windows`).** The maintainer: "You can build plumcraft on Windows", on yellowfin's `win11-dev` VM (x86-64, MSVC). They chose loopback TCP for process engines, and asked for the port and tests, then a stop before committing.
+  - **Transport:** mode 2 takes a locator, `unix:<path>` or `tcp:127.0.0.1:<port>` (`plumcraft_engine::local`, Python `serve.parse_endpoint`). The host offers TCP on Windows. `docs/interface.md` 16.3 says what a loopback port trusts that a 0700 socket doesn't. **Open:** the host can't yet tell its own engine from another local process that connects first.
+  - **Processes:** `plumcraft_proto::programs` has `own_group`, `kill_tree` (`taskkill /T /F` on Windows), `describe_exit`, `PATHEXT` lookup and `home()` (`USERPROFILE`). The craft watchdog has a PowerShell form. Tokens and nonces come from `getrandom` (`plumcraft_proto::random`).
+  - **Found by running it:**
+    - `zip` 9.2.2 panics on some entry names on Windows. 9.3.0 (2026-11-03) fixed it, through zip's private advisory process, so PlumCraft now requires `zip` 9.3 and has no workaround;
+    - the Python SDK's `os.kill(pid, 0)` would end the process it checks;
+    - `file_token` called `os.getuid`;
+    - two threads staging the same document raced: Windows refuses a rename over a file another rename holds (`plumcraft_store::rename_addressed`: losing that race to the same bytes is success);
+    - generated files were written CRLF;
+    - the SDK path in a generated `pyproject.toml` had backslashes;
+    - CRLF checkouts broke byte comparisons (now `.gitattributes`).
+  - **Tests on `win11-dev`:**
+    - The first run had 48 failures, the second 12.
+    - The last full run had 1,119 Rust passing and 2 failing, then the CAS race fix. The two failures were Mandelbrot and the CAS race.
+    - Python: 215 passed and 1 failed (`file_token`), then fixed. Both fixed targets pass on rerun, the race test three times over.
+    - On the Mac the gate passes: 1,125 Rust, 218 Python.
+  - **Elsewhere:**
+    - pyuncommonkit 0.1.0 has no Windows store root (`\dev\shm\commonkit` on the current drive; Rust uses `%LOCALAPPDATA%\commonkit\store`). The fix is in the old `seantrue/commonkit` repo (`d8198ae`) but not in pycommonkit. Free space, `S_ISREG` and mapped-unlink did carry over.
+    - `keys.relpath` joins with `/` (normalised on PlumCraft's side, `data._store_path`).
+    - `mandelbrot_matches_numba` fails on x86-64: its fixture is arm64's FMA output. Left as is, at the maintainer's word.
 
 - **crates.io and installers 0.2.1 (2026-11-04):** 0.2.1 replaces the 0.2.0 installers, which couldn't find the crafts from a Finder launch; the `app-v0.2.0` draft and tag are deleted. All 19 crates and the Python text twin are at 0.2.1.
 - **Programs found from a Finder launch (2026-11-04).** The maintainer: "Installed version says that soundcraft is not installed." An app opened from the Finder gets `PATH=/usr/bin:/bin:/usr/sbin:/sbin`, and the craft adapter looked only there, so `soundcraft-cli` in `~/bin` wasn't found. `plumcraft_proto::programs` has `search_path` (PATH, the login shell's when there is no `TERM`, then the usual install folders), `find_program` and `apply`. The craft manifests, the host's engine manifests (which had a partial list without `~/bin`), and ffmpeg use them, and every child process is given that `PATH`. Checked with the editor under `env -i` with the Finder's PATH: 43 SoundCraft and FilmCraft nodes, where the installed 0.2.0 app's SoundCraft engine failed to start.

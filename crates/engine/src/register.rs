@@ -190,7 +190,10 @@ mod tests {
         // a checkout's link is left alone unless forced, and never unregistered
         let checkout = dir.parent().unwrap().join("plumcraft-engine.toml");
         std::fs::write(&checkout, "id = \"river\"\n").unwrap();
+        #[cfg(unix)]
         std::os::unix::fs::symlink(&checkout, dir.join("river.toml")).unwrap();
+        #[cfg(windows)]
+        std::os::windows::fs::symlink_file(&checkout, dir.join("river.toml")).unwrap();
         assert_eq!(handle(&reg, "river-engine", &args(&["register"], &dir)), Some(ExitCode::FAILURE));
         assert_eq!(handle(&reg, "river-engine", &args(&["unregister"], &dir)), Some(ExitCode::FAILURE));
         assert!(dir.join("river.toml").is_symlink());

@@ -1,4 +1,5 @@
-//! Mode 2 (spec 16.3): an engine in its own process, on a Unix socket in a private directory.
+//! Mode 2 (spec 16.3): an engine in its own process, on a Unix socket in a private directory
+//! (loopback TCP on Windows, [`plumcraft_engine::local`]).
 //!
 //! - **Launch:** the host listens, spawns the engine with `PLUMCRAFT_ENGINE_SOCKET` and a 256-bit
 //!   `PLUMCRAFT_ENGINE_TOKEN`, and the engine connects back and presents the token in `hello`.
@@ -11,9 +12,7 @@
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::io::{BufReader, Read};
-use std::os::unix::net::{UnixListener, UnixStream};
-use std::os::unix::process::{CommandExt, ExitStatusExt};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Sender, channel};
@@ -21,6 +20,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use plumcraft_engine::local::{Endpoint, Listener, Stream};
 use plumcraft_engine::rpc::{self, Frame, Request};
 use plumcraft_engine::serve::{ENV_SOCKET, ENV_TOKEN};
 use plumcraft_proto::PROTOCOL;
@@ -65,7 +65,7 @@ type Reply = Result<Value, ProtoError>;
 struct Inner {
     manifest: Manifest,
     token: String,
-    writer: Mutex<Option<UnixStream>>,
+    writer: Mutex<Option<Stream>>,
     pending: Mutex<HashMap<u64, Sender<Reply>>>,
     next_id: AtomicU64,
     ring: Ring,
@@ -159,19 +159,18 @@ impl ProcessHost {
     pub fn start(manifest: Manifest) -> std::io::Result<ProcessHost> {
         let manifest_store = manifest.store.clone();
         let dir = private_dir("plumcraft")?;
-        let socket = dir.join("e.sock");
-        let listener = UnixListener::bind(&socket)?;
+        let (listener, socket) = Listener::bind_private(&dir)?;
         listener.set_nonblocking(true)?;
         let inner = Arc::new(Inner {
             manifest,
-            token: token()?,
+            token: plumcraft_proto::random::hex(32)?,
             writer: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             ring: Ring::default(),
             live: Mutex::new(BTreeMap::new()),
             synthesised: Mutex::new(BTreeMap::new()),
-            state: Mutex::new(EngineState::Connecting { url: format!("unix:{}", socket.display()) }),
+            state: Mutex::new(EngineState::Connecting { url: socket.locator() }),
             state_cv: Condvar::new(),
             child: Mutex::new(None),
             stderr: Arc::new(Mutex::new(VecDeque::new())),
@@ -211,7 +210,7 @@ impl ProcessHost {
     /// Kill the engine process with SIGKILL (tests, and a stuck engine).
     pub fn kill_engine(&self) {
         if let Some(c) = lock(&self.inner.child).as_mut() {
-            kill_group(c);
+            plumcraft_proto::programs::kill_tree(c);
         }
     }
 }
@@ -296,7 +295,7 @@ impl Drop for ProcessHost {
     }
 }
 
-fn supervise(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) {
+fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
     let mut crashes: VecDeque<Instant> = VecDeque::new();
     while !inner.stop.load(Ordering::SeqCst) {
         let why = match connect_once(inner, listener, socket) {
@@ -330,12 +329,12 @@ fn supervise(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) {
         // Backoff: 100 ms, 200, 400 … up to 2 s.
         let shift = u32::try_from(crashes.len().saturating_sub(1)).unwrap_or(4).min(4);
         std::thread::sleep(Duration::from_millis(100u64 << shift).min(Duration::from_secs(2)));
-        inner.set_state(EngineState::Connecting { url: format!("unix:{} (restarting)", socket.display()) });
+        inner.set_state(EngineState::Connecting { url: format!("{} (restarting)", socket.locator()) });
     }
 }
 
 /// Spawn, accept, read until the connection ends. Returns why it ended.
-fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> std::io::Result<String> {
+fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> std::io::Result<String> {
     let m = &inner.manifest;
     let (program, args) = m.command.split_first().ok_or_else(|| std::io::Error::other("the manifest has no command"))?;
     let mut cmd = Command::new(program);
@@ -343,13 +342,13 @@ fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> s
         // the shell's PATH and the usual folders, for an editor opened from the Finder
         .env("PATH", plumcraft_proto::programs::search_path())
         .envs(m.env.iter().cloned())
-        .env(ENV_SOCKET, socket)
+        .env(ENV_SOCKET, socket.locator())
         .env(ENV_TOKEN, &inner.token)
         .env(plumcraft_store::ROOT_ENV, inner.store.root())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::piped())
-        .process_group(0); // its own group, so supervision can signal all of it
+        .stderr(Stdio::piped());
+    plumcraft_proto::programs::own_group(&mut cmd); // so supervision can stop all of it
     if let Some(dir) = &m.cwd {
         cmd.current_dir(dir);
     }
@@ -376,7 +375,7 @@ fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> s
     let deadline = Instant::now() + CONNECT_TIMEOUT;
     let stream = loop {
         match listener.accept() {
-            Ok((s, _)) => break s,
+            Ok(s) => break s,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 if let Some(status) = lock(&inner.child).as_mut().and_then(|c| c.try_wait().ok().flatten()) {
                     return Ok(format!("the engine exited before connecting ({})", describe(status)));
@@ -442,7 +441,7 @@ fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> s
                 break;
             }
             if Instant::now() > deadline {
-                kill_group(child);
+                plumcraft_proto::programs::kill_tree(child);
                 status = child.wait().ok();
                 break;
             }
@@ -459,30 +458,16 @@ fn connect_once(inner: &Arc<Inner>, listener: &UnixListener, socket: &Path) -> s
 
 fn kill(inner: &Inner) {
     if let Some(c) = lock(&inner.child).as_mut() {
-        kill_group(c);
+        plumcraft_proto::programs::kill_tree(c);
         let _ = c.wait();
     }
 }
 
-/// SIGKILL the engine's whole process group (spec 16.3, "Supervision: process group"): an
-/// engine started through a wrapper (`uv run`, a shell) has its real process as a child, which
-/// a kill of the wrapper alone would orphan, still holding the socket. std has no `killpg`, and
-/// this crate allows no `unsafe`, so the group is signalled with `kill(1)`; the direct kill
-/// follows in case that isn't available.
-pub(crate) fn kill_group(c: &mut Child) {
-    let _ = Command::new("kill").args(["-KILL", "--", &format!("-{}", c.id())]).stdout(Stdio::null()).stderr(Stdio::null()).status();
-    let _ = c.kill();
-}
-
 fn describe(s: std::process::ExitStatus) -> String {
-    match (s.code(), s.signal()) {
-        (Some(c), _) => format!("exit {c}"),
-        (None, Some(sig)) => format!("signal {sig}"),
-        _ => "unknown".into(),
-    }
+    plumcraft_proto::programs::describe_exit(s)
 }
 
-fn read_loop(inner: &Inner, stream: UnixStream) {
+fn read_loop(inner: &Inner, stream: Stream) {
     let mut r = BufReader::new(stream);
     while let Ok(Some(line)) = rpc::read_frame(&mut r, rpc::MAX_FRAME) {
         match rpc::parse(&line) {
@@ -506,28 +491,24 @@ fn read_loop(inner: &Inner, stream: UnixStream) {
     }
 }
 
-/// A fresh 0700 directory for the socket.
-/// A new folder only this user can enter, `<prefix>-<pid>-<n>`. It must be new: one already there
-/// may be someone else's, with files planted in it.
+/// A new folder only this user can enter (0700 on Unix; on Windows the user's own temp folder
+/// already is), `<prefix>-<pid>-<n>`. It must be new: one already there may be someone else's,
+/// with files planted in it.
 pub(crate) fn private_dir(prefix: &str) -> std::io::Result<PathBuf> {
-    use std::os::unix::fs::DirBuilderExt;
     static N: AtomicU64 = AtomicU64::new(0);
     // the directories of hosts whose process died before dropping them
     plumcraft_scratch::sweep_once();
     let mut tries = 0;
     loop {
         let dir = std::env::temp_dir().join(format!("{prefix}-{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst)));
-        match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+        #[cfg_attr(not(unix), allow(unused_mut))]
+        let mut b = std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut b, 0o700);
+        match b.create(&dir) {
             Ok(()) => return Ok(dir),
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries < 64 => tries += 1,
             Err(e) => return Err(e),
         }
     }
-}
-
-/// 256 random bits as hex.
-pub(crate) fn token() -> std::io::Result<String> {
-    let mut b = [0u8; 32];
-    std::fs::File::open("/dev/urandom")?.read_exact(&mut b)?;
-    Ok(b.iter().map(|x| format!("{x:02x}")).collect())
 }

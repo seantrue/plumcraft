@@ -195,9 +195,10 @@ impl Client {
     /// stand in a process they can kill).
     #[doc(hidden)]
     pub fn spawn_watched(command: &[String], env: &[(String, String)], parent: u32) -> std::io::Result<Client> {
-        use std::os::unix::process::CommandExt;
         let (program, args) = command.split_first().ok_or_else(|| std::io::Error::other("empty command"))?;
-        let mut child = Command::new(program)
+        let mut cmd = Command::new(program);
+        plumcraft_proto::programs::own_group(&mut cmd);
+        let mut child = cmd
             .args(args)
             // the shell's PATH and the usual folders, for an editor opened from the Finder
             .env("PATH", plumcraft_proto::programs::search_path())
@@ -205,7 +206,6 @@ impl Client {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .process_group(0)
             .spawn()?;
         let (Some(stdin), Some(stdout), Some(stderr)) = (child.stdin.take(), child.stdout.take(), child.stderr.take()) else {
             let _ = child.kill();
@@ -384,6 +384,7 @@ impl Drop for Client {
 /// craft running with no parent: a cancelled or abandoned trace doesn't read its stdin. The
 /// watchdog sits in the craft's group, not the engine's, so killing the engine's group doesn't
 /// take it too; it exits by itself once the child is gone. Pure `std`: no `unsafe`, no libc.
+#[cfg(unix)]
 fn watchdog(parent: u32, child: u32) -> std::io::Result<Child> {
     use std::os::unix::process::CommandExt;
     let script = r#"while kill -0 "$1" 2>/dev/null && kill -0 "$2" 2>/dev/null; do sleep 1; done; kill -0 "$1" 2>/dev/null || kill -9 -"$2" 2>/dev/null"#;
@@ -394,6 +395,21 @@ fn watchdog(parent: u32, child: u32) -> std::io::Result<Child> {
         .stderr(Stdio::null())
         .process_group(i32::try_from(child).map_err(std::io::Error::other)?)
         .spawn()
+}
+
+/// The Windows watchdog: the same loop in PowerShell, ending with `taskkill /T /F` on the
+/// craft's tree once `parent` is gone. A supervisor's `taskkill /T` of the engine takes the craft
+/// and this watchdog with it (both descend from the engine); the watchdog is for an engine that
+/// died on its own, leaving the craft without a parent.
+#[cfg(windows)]
+fn watchdog(parent: u32, child: u32) -> std::io::Result<Child> {
+    let script = format!(
+        "while ((Get-Process -Id {parent} -ErrorAction SilentlyContinue) -and (Get-Process -Id {child} -ErrorAction SilentlyContinue)) {{ Start-Sleep -Seconds 1 }}; \
+         if (-not (Get-Process -Id {parent} -ErrorAction SilentlyContinue)) {{ taskkill /T /F /PID {child} | Out-Null }}"
+    );
+    let mut cmd = Command::new("powershell");
+    plumcraft_proto::programs::own_group(&mut cmd);
+    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn()
 }
 
 fn stop_watch(watch: &Mutex<Option<Child>>) {

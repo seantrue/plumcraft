@@ -183,7 +183,7 @@ impl Cas {
                 std::fs::remove_file(tmp)?;
                 touch(&dest);
             } else {
-                std::fs::rename(tmp, &dest)?;
+                plumcraft_store::rename_addressed(tmp, &dest)?;
             }
             Ok((h, dest, size))
         });
@@ -203,7 +203,7 @@ impl Cas {
             let dir = dest.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
             std::fs::create_dir_all(dir)?;
             let tmp = temp_in(dir);
-            std::fs::copy(src, &tmp).and_then(|_| std::fs::rename(&tmp, &dest)).inspect_err(|_| {
+            std::fs::copy(src, &tmp).and_then(|_| plumcraft_store::rename_addressed(&tmp, &dest)).inspect_err(|_| {
                 let _ = std::fs::remove_file(&tmp);
             })?;
         } else {
@@ -220,7 +220,7 @@ impl Cas {
             let dir = dest.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
             std::fs::create_dir_all(dir)?;
             let tmp = temp_in(dir);
-            std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, &dest)).inspect_err(|_| {
+            std::fs::write(&tmp, bytes).and_then(|()| plumcraft_store::rename_addressed(&tmp, &dest)).inspect_err(|_| {
                 let _ = std::fs::remove_file(&tmp);
             })?;
         } else {
@@ -403,7 +403,13 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let cas = Cas::new(&dir).unwrap();
         let (stale, live) = (cas.tmp_dir().unwrap(), cas.tmp_dir().unwrap());
-        std::fs::File::open(&stale).unwrap().set_modified(SystemTime::now() - Duration::from_secs(7200)).unwrap();
+        let mut o = std::fs::OpenOptions::new();
+        o.read(true);
+        // Windows opens a folder only with backup semantics, and setting its time needs
+        // FILE_WRITE_ATTRIBUTES
+        #[cfg(windows)]
+        std::os::windows::fs::OpenOptionsExt::custom_flags(std::os::windows::fs::OpenOptionsExt::access_mode(&mut o, 0x0100), 0x0200_0000);
+        o.open(&stale).unwrap().set_modified(SystemTime::now() - Duration::from_secs(7200)).unwrap();
         cas.reap(SystemTime::now());
         assert!(!stale.exists() && live.exists());
         let _ = std::fs::remove_dir_all(&dir);

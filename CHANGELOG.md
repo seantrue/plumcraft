@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- **PlumCraft builds and runs on Windows** (x86-64, from a checkout; no installer yet; `docs/guide.md`, "Build and test").
+  - Process engines (mode 2) connect over loopback TCP on Windows, where neither Rust's std nor Python has Unix sockets. The engine is given a locator, `tcp:127.0.0.1:<port>` or `unix:<path>` (a bare path is still a Unix socket), and both SDKs read either (`plumcraft_engine::local`, `serve.parse_endpoint`). `docs/interface.md` section 16.3 says what a loopback port trusts that a private socket doesn't.
+  - Engines and crafts start in a process group of their own with no console window, and are stopped with their descendants (`taskkill /T` on Windows, the group on Unix; `plumcraft_proto::programs::own_group`, `kill_tree`). The craft watchdog has a PowerShell form.
+  - Programs are found with their Windows extensions (`PATHEXT`), and `~` is `USERPROFILE` when there is no `HOME`.
+  - Tokens and nonces come from the OS's generator (`getrandom`), not `/dev/urandom`.
+  - `.gitattributes` keeps text LF in every checkout.
+- **A bundle can't crash the editor on Windows.** `zip` 9.2.2's Windows name check panicked on a name whose third byte is inside a character (`zip::path::is_windows_reserved_device_name`). The hostile-input sweep found it on its first Windows run. zip 9.3.0 fixes it, and PlumCraft now requires `zip` 9.3.
+- Two writers of the same bytes into a content-addressed folder (the craft CAS, an engine's `.sources`) no longer fail on Windows, which refuses to rename over a file another rename holds. The one that loses the race finds the file there, and that is success (`plumcraft_store::rename_addressed`). An engine's `.sources` temp name is now unique per write, not per process.
+- The Python SDK's `--token-file` works on Windows; it called `os.getuid`. A Windows file has no owner id or mode bits to check, so only a plain file is required there.
+- The Python SDK no longer kills a process while checking whether it is alive on Windows (`os.kill(pid, 0)` terminates it there); its scratch sweep skips Windows, as the Rust one does.
+- An engine generated with `--sdk path` names the SDK's folder with `/`. On Windows its backslashes were read as escapes in `pyproject.toml`, and `uv` refused the file.
+
 ## 0.2.1 (2026-11-04)
 
 - The editor opened from the Finder or the Dock finds the craft apps, uv, ffmpeg and engine programs: an app there gets only the system's `PATH`, so the installed 0.2.0 said SoundCraft wasn't installed though `soundcraft-cli` was in `~/bin`. Programs are now looked for in `PATH`, then the login shell's `PATH` (asked once, only when not started from a terminal), then `~/bin`, `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin` and `/usr/local/bin`; every program PlumCraft starts is given that `PATH` too (`plumcraft_proto::programs`).

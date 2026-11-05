@@ -149,7 +149,8 @@ def sdk_source(sdk: str) -> str:
     if sdk == "path":
         if root is None:
             raise Refused("--sdk path: this SDK isn't installed from a PlumCraft checkout; use --sdk pypi or git@REV")
-        return f'{{ path = "{root}", editable = true }}'
+        # forward slashes: a Windows path's backslashes would be escapes in a TOML string
+        return f'{{ path = "{root.as_posix()}", editable = true }}'
     if sdk == "git" or sdk.startswith("git@"):
         rev = sdk.partition("@")[2]
         if not rev:
@@ -359,12 +360,13 @@ def write_files(p: Plan, root: Path) -> None:
     for rel, text in files.items():
         f = root / rel
         f.parent.mkdir(parents=True, exist_ok=True)
-        f.write_text(text, "utf-8")
+        # LF on every platform: Windows' text mode would write CRLF, and bash refuses a CRLF script
+        f.write_text(text, "utf-8", newline="\n")
         if rel.startswith("scripts/") and not rel.endswith(".sh"):
             f.chmod(0o755)
     golden = root / "tests" / "golden" / "schema.json"
     golden.parent.mkdir()
-    golden.write_text(catalogue(p, root), "utf-8")
+    golden.write_text(catalogue(p, root), "utf-8", newline="\n")
 
 
 def pycharm_files(p: Plan) -> dict[str, str]:

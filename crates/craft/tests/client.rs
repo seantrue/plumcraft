@@ -228,18 +228,18 @@ fn cancel_notifies_then_kills_within_the_grace() {
 
 #[test]
 fn a_child_that_never_answers_is_killed() {
-    let mut c = Client::spawn(&["/bin/sleep".into(), "30".into()], &[]).unwrap();
+    let mut c = Client::spawn(&sleeper(30), &[]).unwrap();
     let pid = c.pid().unwrap();
     let t = Instant::now();
     assert!(matches!(c.initialize(Duration::from_millis(300)), Err(CallError::Timeout { .. })));
     assert!(t.elapsed() < Duration::from_secs(3));
-    let alive = std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().unwrap().success();
-    assert!(!alive, "the child {pid} was killed and reaped");
+    assert!(!alive(pid), "the child {pid} was killed and reaped");
 }
 
 #[test]
 fn a_child_that_exits_is_dead_with_its_stderr() {
-    let mut c = Client::spawn(&["/bin/sh".into(), "-c".into(), "echo boom on stderr >&2; exit 3".into()], &[]).unwrap();
+    let script = if cfg!(windows) { "echo boom on stderr 1>&2 & exit 3" } else { "echo boom on stderr >&2; exit 3" };
+    let mut c = Client::spawn(&shell(script), &[]).unwrap();
     match c.initialize(T) {
         Err(CallError::Dead { stderr, .. } | CallError::Io(stderr)) => {
             // The stderr ring fills on its own thread; give it a moment.
@@ -262,8 +262,13 @@ fn a_missing_binary_is_an_error() {
 /// is gone. The engine is stood in for by a `sleep` the test kills.
 #[test]
 fn a_craft_dies_with_its_engine() {
-    let mut engine = std::process::Command::new("/bin/sleep").arg("30").spawn().unwrap();
-    let c = Client::spawn_watched(&["/bin/sh".into(), "-c".into(), "trap '' TERM; while :; do sleep 1; done".into()], &[], engine.id()).unwrap();
+    let mut engine = command(&sleeper(30)).spawn().unwrap();
+    let busy = if cfg!(windows) {
+        vec!["powershell".into(), "-NoProfile".into(), "-Command".into(), "while ($true) { Start-Sleep -Seconds 1 }".into()]
+    } else {
+        shell("trap '' TERM; while :; do sleep 1; done")
+    };
+    let c = Client::spawn_watched(&busy, &[], engine.id()).unwrap();
     std::thread::sleep(Duration::from_millis(300));
     assert!(!c.has_exited(), "the craft runs while its engine does");
     engine.kill().unwrap();
@@ -278,9 +283,47 @@ fn a_craft_dies_with_its_engine() {
 /// The watchdog goes with its craft: dropping the client leaves no `plumcraft-craft-watch`.
 #[test]
 fn the_watchdog_goes_with_its_craft() {
-    let c = Client::spawn(&["/bin/sleep".into(), "30".into()], &[]).unwrap();
+    let c = Client::spawn(&sleeper(30), &[]).unwrap();
     let pid = c.pid().unwrap();
     drop(c);
-    let watching = std::process::Command::new("pgrep").args(["-f", &format!("plumcraft-craft-watch {} {pid}", std::process::id())]).output().unwrap();
-    assert!(watching.stdout.is_empty(), "a watchdog was left: {}", String::from_utf8_lossy(&watching.stdout));
+    let watching = if cfg!(windows) {
+        // the Windows watchdog is a PowerShell loop naming the craft's pid
+        let q = format!(
+            "Get-CimInstance Win32_Process -Filter \"Name = 'powershell.exe'\" | Where-Object {{ $_.ProcessId -ne $PID -and $_.CommandLine -like '*-Id {pid} *' }} | ForEach-Object {{ $_.ProcessId }}"
+        );
+        std::process::Command::new("powershell").args(["-NoProfile", "-Command", &q]).output().unwrap()
+    } else {
+        std::process::Command::new("pgrep").args(["-f", &format!("plumcraft-craft-watch {} {pid}", std::process::id())]).output().unwrap()
+    };
+    assert!(watching.stdout.iter().all(u8::is_ascii_whitespace), "a watchdog was left: {}", String::from_utf8_lossy(&watching.stdout));
+}
+
+/// A command that sleeps `secs` seconds.
+fn sleeper(secs: u32) -> Vec<String> {
+    if cfg!(windows) {
+        vec!["powershell".into(), "-NoProfile".into(), "-Command".into(), format!("Start-Sleep -Seconds {secs}")]
+    } else {
+        vec!["/bin/sleep".into(), secs.to_string()]
+    }
+}
+
+/// `script` run by the platform's shell.
+fn shell(script: &str) -> Vec<String> {
+    if cfg!(windows) { vec!["cmd".into(), "/C".into(), script.into()] } else { vec!["/bin/sh".into(), "-c".into(), script.into()] }
+}
+
+fn command(argv: &[String]) -> std::process::Command {
+    let mut c = std::process::Command::new(&argv[0]);
+    c.args(&argv[1..]);
+    c
+}
+
+/// Whether process `pid` still runs.
+fn alive(pid: u32) -> bool {
+    if cfg!(windows) {
+        let out = std::process::Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]).output().unwrap();
+        String::from_utf8_lossy(&out.stdout).contains(&format!("\"{pid}\""))
+    } else {
+        std::process::Command::new("kill").args(["-0", &pid.to_string()]).status().unwrap().success()
+    }
 }

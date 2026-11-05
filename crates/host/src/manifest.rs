@@ -33,11 +33,12 @@ pub struct Resolved {
     pub demo: Option<PathBuf>,
 }
 
-/// `~` and `~/…` expanded.
+/// `~` and `~/…` expanded (`~\…` too on Windows, where home is `USERPROFILE`).
 fn expand(p: &str) -> PathBuf {
-    match (p.strip_prefix('~'), std::env::var_os("HOME")) {
-        (Some(""), Some(home)) => PathBuf::from(home),
-        (Some(rest), Some(home)) if rest.starts_with('/') => PathBuf::from(home).join(rest.trim_start_matches('/')),
+    let sep = |c: char| c == '/' || (cfg!(windows) && c == '\\');
+    match (p.strip_prefix('~'), plumcraft_proto::programs::home()) {
+        (Some(""), Some(home)) => home,
+        (Some(rest), Some(home)) if rest.starts_with(sep) => home.join(rest.trim_start_matches(sep)),
         _ => PathBuf::from(p),
     }
 }
@@ -54,23 +55,34 @@ fn search_path() -> Vec<PathBuf> {
     std::env::split_paths(plumcraft_proto::programs::search_path()).collect()
 }
 
+/// A file this user may run: on Unix an executable bit, on Windows a file at all (what runs is
+/// decided by its extension, [`plumcraft_proto::programs::with_extensions`]).
 fn executable(p: &Path) -> bool {
-    use std::os::unix::fs::PermissionsExt;
-    p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        p.metadata().is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    }
+    #[cfg(not(unix))]
+    {
+        p.is_file()
+    }
 }
 
-/// The program `name` names: itself when it has a `/` (against `dir` when relative), else found
-/// in `dirs`. `None` when it isn't there.
+/// The program `name` names: itself when it has a path separator (against `dir` when relative),
+/// else found in `dirs` (on Windows with `PATHEXT`'s extensions). `None` when it isn't there.
 fn find_program(name: &str, dir: &Path, dirs: &[PathBuf]) -> Option<PathBuf> {
-    if name.contains('/') || name.starts_with('~') {
-        return Some(against(dir, name)).filter(|p| executable(p));
+    if name.contains('/') || (cfg!(windows) && name.contains('\\')) || name.starts_with('~') {
+        let p = against(dir, name);
+        return plumcraft_proto::programs::with_extensions(&p).into_iter().find(|p| executable(p));
     }
     if name == "uv"
         && let Some(uv) = std::env::var_os("PLUMCRAFT_UV").map(PathBuf::from).filter(|p| executable(p))
     {
         return Some(uv);
     }
-    dirs.iter().map(|d| d.join(name)).find(|p| executable(p))
+    let names = plumcraft_proto::programs::with_extensions(Path::new(name));
+    dirs.iter().find_map(|d| names.iter().map(|n| d.join(n)).find(|p| executable(p)))
 }
 
 /// Where the bare program `name` is, looked for as a manifest's `command` is: `$PLUMCRAFT_UV`
@@ -133,6 +145,7 @@ fn read_token(f: &Path) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
     use std::os::unix::fs::{PermissionsExt, symlink};
 
     use super::*;
@@ -147,11 +160,13 @@ mod tests {
         std::fs::write(p, text).unwrap();
     }
 
+    #[cfg(unix)]
     fn program(p: &Path) {
         write(p, "#!/bin/sh\n");
         std::fs::set_permissions(p, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    #[cfg(unix)]
     #[test]
     fn a_link_resolves_against_the_real_project() {
         let (project, config) = (dir("project"), dir("config"));
@@ -166,6 +181,17 @@ mod tests {
         assert_eq!(m.name, "W");
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn a_bare_program_is_found_with_its_extension() {
+        let d = dir("found-win");
+        write(&d.join("tool.exe"), "");
+        assert_eq!(find_program("tool", &d, &[PathBuf::from(r"C:\nowhere"), d.clone()]), Some(d.join("tool.exe")));
+        assert_eq!(find_program(r".\tool", &d, &[]), Some(d.join(r".\tool.exe")));
+        assert_eq!(find_program("nothing", &d, std::slice::from_ref(&d)), None);
+    }
+
+    #[cfg(unix)]
     #[test]
     fn a_bare_program_is_found_without_the_shells_path() {
         let d = dir("found");

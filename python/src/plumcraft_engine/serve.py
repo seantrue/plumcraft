@@ -1,6 +1,7 @@
 """The engine side of the local socket binding (mode 2, spec 16.3), as `crates/engine/src/serve.rs`.
 
-The engine process connects back to the UI's socket, presents its token in `hello`, and serves
+The engine process connects back to the UI's socket (a Unix socket, or loopback TCP on Windows,
+whose Python has no `AF_UNIX`), presents its token in `hello`, and serves
 every operation through a `Host`. Each request runs on its own thread, so nothing waits behind a
 run; every event is pushed as a `{"method": "event"}` notification. The process exits when the
 socket closes, so a UI that crashes leaves no orphan.
@@ -11,6 +12,7 @@ Framing: one JSON-RPC 2.0 object per line, at most `MAX_FRAME` bytes.
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import json
 import os
 import socket
@@ -27,16 +29,54 @@ MAX_FRAME = 16 << 20
 
 
 def endpoint_from_env(argv: list[str]) -> tuple[str, str]:
-    """Where to connect and the token to present: `--connect unix:<path>` or the environment."""
-    path = None
+    """Where to connect and the token to present: `--connect <locator>` or the environment. The
+    locator is `unix:<path>`, `tcp:127.0.0.1:<port>` or a bare socket path (`parse_endpoint`)."""
+    loc = None
     if "--connect" in argv:
         i = argv.index("--connect")
-        if i + 1 < len(argv) and argv[i + 1].startswith("unix:"):
-            path = argv[i + 1][len("unix:") :]
-    path = path or os.environ.get(ENV_SOCKET)
+        if i + 1 < len(argv) and argv[i + 1].startswith(("unix:", "tcp:")):
+            loc = argv[i + 1]
+    loc = loc or os.environ.get(ENV_SOCKET)
+    if not loc:
+        raise SystemExit(f"no socket: pass --connect unix:<path> (or tcp:127.0.0.1:<port>) or set {ENV_SOCKET}")
+    return loc, os.environ.get(ENV_TOKEN, "")
+
+
+def parse_endpoint(loc: str) -> tuple[str, str | tuple[str, int]]:
+    """A locator, as `crates/engine/src/local.rs`: `("unix", path)` for `unix:<path>` or a bare path,
+    `("tcp", (host, port))` for `tcp:<loopback>:<port>` (`[::1]:<port>` for IPv6). Anything else, or
+    an address off loopback, raises `ValueError`."""
+    if loc.startswith("tcp:"):
+        rest = loc[len("tcp:") :]
+        host, sep, port = rest.rpartition(":")
+        host = host[1:-1] if host.startswith("[") and host.endswith("]") else host
+        if not sep or not port.isdigit():
+            raise ValueError(f"{loc!r} is not an address")
+        try:
+            loopback = ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            raise ValueError(f"{loc!r} is not an address") from None
+        if not loopback:
+            raise ValueError(f"{loc!r}: the local binding is loopback only")
+        return "tcp", (host, int(port))
+    path = loc[len("unix:") :] if loc.startswith("unix:") else loc
     if not path:
-        raise SystemExit(f"no socket: pass --connect unix:<path> or set {ENV_SOCKET}")
-    return path, os.environ.get(ENV_TOKEN, "")
+        raise ValueError("an empty socket path")
+    return "unix", path
+
+
+def _connect(loc: str) -> socket.socket:
+    kind, addr = parse_endpoint(loc)
+    if kind == "tcp":
+        host, port = addr  # type: ignore[misc]
+        sock = socket.create_connection((host, port))
+        sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        return sock
+    if not hasattr(socket, "AF_UNIX"):
+        raise OSError(f"{addr}: Unix sockets aren't available here; the host must offer tcp:")
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.connect(addr)
+    return sock
 
 
 class _Writer:
@@ -98,9 +138,9 @@ def _read_lines(sock: socket.socket):
 
 
 def serve_unix(factory: Factory, path: str, token: str) -> None:
-    """Serve until the UI closes the socket."""
-    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    sock.connect(path)
+    """Serve until the UI closes the connection. `path` is a locator (`parse_endpoint`); the name is
+    from when the binding was Unix sockets only."""
+    sock = _connect(path)
     writer = _Writer(sock)
     host = Host(factory, in_process=False)
 

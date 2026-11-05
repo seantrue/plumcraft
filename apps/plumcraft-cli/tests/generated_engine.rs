@@ -21,9 +21,23 @@ fn uv() -> String {
 }
 
 fn in_project(dest: &Path, program: &str, args: &[&str]) -> Output {
-    let o = Command::new(program).args(args).current_dir(dest).output().unwrap_or_else(|e| panic!("{program}: {e}"));
+    let mut cmd = script(program);
+    let o = cmd.args(args).current_dir(dest).output().unwrap_or_else(|e| panic!("{program}: {e}"));
     assert!(o.status.success(), "{program} {args:?}\n{}", text(&o));
     o
+}
+
+/// A command for `program`. The generated scripts are bash; Windows runs them with Git for
+/// Windows' bash (`$PLUMCRAFT_BASH`, else its usual place), as the generated README says.
+fn script(program: &str) -> Command {
+    if cfg!(windows) && program.starts_with("scripts/") {
+        let bash = std::env::var("PLUMCRAFT_BASH").unwrap_or_else(|_| r"C:\Program Files\Git\bin\bash.exe".into());
+        let mut c = Command::new(bash);
+        c.arg(program);
+        c
+    } else {
+        Command::new(program)
+    }
 }
 
 fn generate(dest: &Path, types: &str) {

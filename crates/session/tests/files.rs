@@ -302,21 +302,21 @@ fn relative_paths_follow_the_workflow() {
         v["graph"]["graph"]["nodes"][&load]["values"]["path"].clone()
     };
     let abs = dir.path().join("notes/corgi.txt");
-    assert_eq!(sent(&mut s), json!(abs.to_string_lossy()));
+    assert_eq!(sent(&mut s), json!(slashed(&abs)));
     assert_eq!(s.graph().node(&NodeId::from(load.as_str())).unwrap().values["path"], json!("notes/corgi.txt"), "the graph keeps it relative");
     // Save As into a subfolder: the path goes up again; into the same folder: unchanged
     std::fs::create_dir_all(dir.path().join("sub")).unwrap();
     s.execute("graph.saveAs", &json!({"path": dir.path().join("sub/w.json")})).unwrap();
     assert_eq!(s.undo_label(), Some("Save As"));
     let p = s.graph().node(&NodeId::from(load.as_str())).unwrap().values["path"].clone();
-    assert_eq!(p, json!(abs.to_string_lossy()), "outside the new folder: absolute");
+    assert_eq!(p, json!(slashed(&abs)), "outside the new folder: absolute");
     s.execute("graph.saveAs", &json!({"path": dir.path().join("w2.json")})).unwrap();
     assert_eq!(s.graph().node(&NodeId::from(load.as_str())).unwrap().values["path"], p, "absolute stays absolute");
     let saved: Value = serde_json::from_str(&std::fs::read_to_string(dir.path().join("w.json")).unwrap()).unwrap();
     assert_eq!(saved["nodes"][&load]["values"]["path"], json!("notes/corgi.txt"), "saved relative");
     // a fresh file in the folder, set relative, runs absolute
     s.execute("node.set", &json!({"node": load, "port": "path", "value": "notes/corgi.txt"})).unwrap();
-    assert_eq!(sent(&mut s), json!(abs.to_string_lossy()));
+    assert_eq!(sent(&mut s), json!(slashed(&abs)));
 }
 
 /// Frames through a real file: what a person did to them is what the next session reads; opening
@@ -443,5 +443,10 @@ fn an_unsaved_workflows_paths_are_rebased_on_save_as() {
     s.execute("node.set", &json!({"node": load, "port": "path", "value": "README.md"})).unwrap();
     s.execute("graph.saveAs", &json!({"path": dir.path().join("w.json")})).unwrap();
     let cwd = std::env::current_dir().unwrap();
-    assert_eq!(s.graph().node(&NodeId::from(load.as_str())).unwrap().values["path"], json!(cwd.join("README.md").to_string_lossy()));
+    assert_eq!(s.graph().node(&NodeId::from(load.as_str())).unwrap().values["path"], json!(slashed(&cwd.join("README.md"))));
+}
+
+/// A path as the session writes it: with `/` (on Windows too, which takes either).
+fn slashed(p: &std::path::Path) -> String {
+    p.to_string_lossy().replace('\\', "/")
 }

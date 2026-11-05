@@ -134,13 +134,20 @@ def test_node_error_kinds():
 class _Ui:
     """The UI end of the socket: listen, let the engine connect, and talk lines."""
 
-    def __init__(self, token):
-        self.dir = scratch.mkdtemp("ui-")
-        path = os.path.join(self.dir, "e.sock")
-        srv = socket.socket(socket.AF_UNIX)
-        srv.bind(path)
+    def __init__(self, token, kind=None):
+        """`kind` is "unix" or "tcp"; by default Unix where the platform has it (not Windows)."""
+        kind = kind or ("unix" if hasattr(socket, "AF_UNIX") else "tcp")
+        if kind == "unix":
+            self.dir = scratch.mkdtemp("ui-")
+            loc = os.path.join(self.dir, "e.sock")
+            srv = socket.socket(socket.AF_UNIX)
+            srv.bind(loc)
+        else:
+            srv = socket.socket(socket.AF_INET)
+            srv.bind(("127.0.0.1", 0))
+            loc = f"tcp:127.0.0.1:{srv.getsockname()[1]}"
         srv.listen(1)
-        self.thread = threading.Thread(target=serve_unix, args=(engine, path, token), daemon=True)
+        self.thread = threading.Thread(target=serve_unix, args=(engine, loc, token), daemon=True)
         self.thread.start()
         srv.settimeout(5)
         self.sock, _ = srv.accept()
@@ -168,8 +175,11 @@ class _Ui:
         self.thread.join(5)
 
 
-def test_wrong_token_is_refused_and_right_token_is_served():
-    ui = _Ui("s3cret")
+@pytest.mark.parametrize("kind", ["unix", "tcp"])
+def test_wrong_token_is_refused_and_right_token_is_served(kind):
+    if kind == "unix" and not hasattr(socket, "AF_UNIX"):
+        pytest.skip("no Unix sockets here (Windows): the local binding is TCP")
+    ui = _Ui("s3cret", kind)
     assert ui.call("schema", {})["error"]["code"] == -32005, "nothing before hello"
     assert ui.call("hello", {"v": 2, "op": "hello", "token": "wrong"})["error"]["code"] == -32005
     assert ui.call("schema", {})["error"]["code"] == -32005
@@ -177,6 +187,19 @@ def test_wrong_token_is_refused_and_right_token_is_served():
     assert "nodes" in ui.call("schema", {})["result"]
     ui.close()
     assert not ui.thread.is_alive(), "the engine stops when the UI closes the socket"
+
+
+def test_locators_are_unix_paths_or_loopback_tcp():
+    from plumcraft_engine.serve import endpoint_from_env, parse_endpoint
+
+    assert parse_endpoint("unix:/tmp/x/e.sock") == ("unix", "/tmp/x/e.sock")
+    assert parse_endpoint("/tmp/x/e.sock") == ("unix", "/tmp/x/e.sock")
+    assert parse_endpoint("tcp:127.0.0.1:4100") == ("tcp", ("127.0.0.1", 4100))
+    assert parse_endpoint("tcp:[::1]:9") == ("tcp", ("::1", 9))
+    for bad in ["tcp:192.168.2.5:80", "tcp:nonsense", "tcp:127.0.0.1:x", "unix:"]:
+        with pytest.raises(ValueError):
+            parse_endpoint(bad)
+    assert endpoint_from_env(["--connect", "tcp:127.0.0.1:1"])[0] == "tcp:127.0.0.1:1"
 
 
 def test_an_over_long_frame_drops_the_connection():
@@ -215,8 +238,11 @@ def test_a_token_file_is_made_private_and_reused(tmp_path):
 
     path = tmp_path / "token"
     token = file_token(str(path))
-    assert len(token) == 64 and path.stat().st_mode & 0o777 == 0o600
+    assert len(token) == 64
     assert file_token(str(path)) == token
+    if os.name == "nt":
+        return  # no owner id or mode bits to check (http.file_token): the folder keeps it private
+    assert path.stat().st_mode & 0o777 == 0o600
     path.chmod(0o644)
     with pytest.raises(SystemExit, match="nobody else"):
         file_token(str(path))

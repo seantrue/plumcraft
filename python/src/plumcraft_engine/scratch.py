@@ -21,6 +21,10 @@ def owner(name: str) -> int | None:
 
 
 def alive(pid: int) -> bool:
+    """Whether process `pid` may still run. On Windows always (nothing is swept, as in Rust):
+    `os.kill(pid, 0)` there would terminate the process, not test it."""
+    if os.name == "nt":
+        return True
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
