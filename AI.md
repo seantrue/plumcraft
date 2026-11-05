@@ -37,6 +37,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 - **Caches:** the apt packages are cached (`awalsh128/cache-apt-pkgs-action`), and so is uv's cache, keyed on every `uv.lock`, in both jobs.
 - **No retries:** nextest doesn't retry failures, so the flaky B11 test still fails a run until it's fixed.
 
+**Defect in AI-written records, caught by this PR's first run:** the AI had recorded B11 (#33) as "likely too short a 5 s wait", read from the line number alone. Under nextest the test failed a third time, and its message shows the assertion that fails: lines 254–256, the `EngineDown` event or the second build, checked the moment the reply arrives. That's a race between the reply and the rebuild, which a longer wait wouldn't fix. `docs/BUGS.md` and #33 (retitled, with a correction comment) now say so.
+
 ### 2026-11-05 — Release 0.2.3 to crates.io (Claude Opus 5.5)
 
 **What the maintainer asked:** "publish to crates.io". Asked which release, the maintainer chose "0.2.3, with #34" over releasing without #34 or a 0.3.0.

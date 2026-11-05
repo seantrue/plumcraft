@@ -29,7 +29,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 - Reported: 2026-11-05
 - Report: "Add as B11" (after the test failed the first CI run of both #30 and #31)
-- Context: `crates/text/tests/conformance.rs:254`, `assert!(matches!(c.0.wait_ready(Duration::from_secs(5)), EngineState::Connected { .. }))`. A node panics, the host rebuilds the engine, and the test allows 5 s for it to be connected again. On ubuntu-latest that failed on the first run of PR #30 (run https://github.com/seantrue/plumcraft/actions/runs/42102535342) and of PR #31 (run 42102561899), with nothing else failing, and both passed when rerun with no change. It passed in the runs for #25, #29 and #32, and passes locally. Likely too short a wait on a loaded 4-CPU runner, not a wrong rebuild; not yet confirmed.
+- Context: `crates/text/tests/conformance.rs`, `a_panicking_node_rebuilds_the_engine`. A node panics and the host rebuilds the engine. On ubuntu-latest that failed on the first run of PR #30 (run https://github.com/seantrue/plumcraft/actions/runs/42102535342) and of PR #31 (run 42102561899), with nothing else failing, and both passed when rerun with no change. It passed in the runs for #25, #29 and #32, and passes locally. First diagnosis, wrong: too short a 5 s wait.
+- Cause, from the third failure (PR #36's first run, under cargo-nextest; run https://github.com/seantrue/plumcraft/actions/runs/42122511058): the assertion that fails is at lines 254–256, `events.iter().any(EngineDown) || builds == 2`, checked as soon as the panicking run's reply arrives. Sometimes neither has happened yet: the reply races the rebuild. The 5 s `wait_ready` after it was never the line that failed. Fix: wait for the rebuild (or the `EngineDown` event) rather than check it the moment the reply lands, or say in the host which comes first.
 - Issue: #33
 
 ## Fixed
