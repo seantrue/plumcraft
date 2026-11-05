@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — The Mandelbrot kernel takes numpy's rule from npexact 0.1.2 (B6) (Claude Opus 5.5)
+
+**What the maintainer asked:** B6 got the `fix approved` label in yapocis-rs, then came "fix approved bugs", then "release npexact 0.1.2", then "Go" for PlumCraft to use it.
+
+**What the AI did:** this is the PlumCraft side of B6. The work in npexact was seantrue/yapocis-rs#11 (`npexact::complex`, with fixtures from both machines) and the 0.1.2 release (#12). The fixtures came from Yapocis3's recorder (seantrue/yapocis3#74).
+
+- **The kernel:** the Mandelbrot kernel (`crates/array/src/generate/noise.rs`) now calls `npexact::complex::Mul::array_default()` and `mul_c64`. They replace the local `numpy_complex_fma()` that B5's fix had added (~22 lines removed, 3 added). The two compute the same arithmetic.
+- **npexact found more than the issue asked for:** numpy scalars, which go through compiled C, are not fused on x86-64. npexact's `Mul::scalar_default()` covers that; the kernel only needs the array rule.
+- **Checked:** the golden test (`mandelbrot_matches_numba`) passes on the M4 Max and on yellowfin. The full gate passes locally.
+- **Records:** `docs/BUGS.md` moves B6 to Fixed and adds B11 (#33), and `docs/STATUS.md` notes the change.
+
 ### 2026-11-05 — "Impression", not "painting" (Claude Opus 5.5)
 
 **What the maintainer asked:** "Where we say "painting" say "impression"".
