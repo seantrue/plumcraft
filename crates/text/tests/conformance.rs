@@ -241,6 +241,11 @@ fn a_panicking_node_rebuilds_the_engine() {
     let counter = std::sync::Arc::clone(&builds);
     let h = Host::start(
         Box::new(move || {
+            // the rebuild is slow, as on a loaded CI runner: the reply always comes before it
+            // ends, and the count goes up only when it does
+            if counter.load(std::sync::atomic::Ordering::SeqCst) > 0 {
+                std::thread::sleep(Duration::from_millis(300));
+            }
             counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             Ok(plumcraft_text::engine().with_node(Box::new(Boom)))
         }),
@@ -249,11 +254,16 @@ fn a_panicking_node_rebuilds_the_engine() {
     h.wait_ready(Duration::from_secs(5));
     let c = InProc(h);
     run(&c, "bang", 1, graph(json!({"x": {"kind": "test.boom"}}), &[]), json!({}));
-    let (events, reply) = collect(&c, "bang", 0);
+    let (_, reply) = collect(&c, "bang", 0);
     assert_eq!(reply.error.unwrap().kind, "engine");
-    assert!(
-        events.iter().any(|e| matches!(&e.event, Event::EngineState(EngineState::EngineDown { .. }))) || builds.load(std::sync::atomic::Ordering::SeqCst) == 2
-    );
+    // The host says the engine went down before it replies, and rebuilds after. The state is a
+    // session event, so the run's own poll (`collect`) never sees it: read the session's. The
+    // rebuild may still be going (#33: checking for it here raced the reply).
+    let session = c.0.poll(0, 0, None).events;
+    let seq_of = |pred: &dyn Fn(&Event) -> bool| session.iter().find(|e| pred(&e.event)).map(|e| e.seq);
+    let down = seq_of(&|e| matches!(e, Event::EngineState(EngineState::EngineDown { .. })));
+    let replied = seq_of(&|e| matches!(e, Event::RunReply(r) if r.run_id == "bang"));
+    assert!(matches!((down, replied), (Some(d), Some(r)) if d < r), "EngineDown before the reply: {down:?}, {replied:?}");
     assert!(matches!(c.0.wait_ready(Duration::from_secs(5)), EngineState::Connected { .. }));
     run(&c, "after", 2, chain(), json!({}));
     assert!(collect(&c, "after", 0).1.ok, "the rebuilt engine runs");

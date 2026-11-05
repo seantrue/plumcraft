@@ -25,14 +25,17 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
 - Issue: #28
 
-### B11. `a_panicking_node_rebuilds_the_engine` fails at random on CI
+## Fixed
+
+### B11. `a_panicking_node_rebuilds_the_engine` raced the engine's rebuild on CI
 
 - Reported: 2026-11-05
 - Report: "Add as B11" (after the test failed the first CI run of both #30 and #31)
-- Context: `crates/text/tests/conformance.rs:254`, `assert!(matches!(c.0.wait_ready(Duration::from_secs(5)), EngineState::Connected { .. }))`. A node panics, the host rebuilds the engine, and the test allows 5 s for it to be connected again. On ubuntu-latest that failed on the first run of PR #30 (run https://github.com/seantrue/plumcraft/actions/runs/42102535342) and of PR #31 (run 42102561899), with nothing else failing, and both passed when rerun with no change. It passed in the runs for #25, #29 and #32, and passes locally. Likely too short a wait on a loaded 4-CPU runner, not a wrong rebuild; not yet confirmed.
+- Context: `crates/text/tests/conformance.rs`, `a_panicking_node_rebuilds_the_engine`: a node panics and the host rebuilds the engine. It failed the first runs of PR #30 and #31 (runs 42102535342, 42102561899) and both runs of #36 under cargo-nextest (42122511058, 42123346098), and passed on rerun and locally.
+- First diagnosis, wrong: too short a 5 s wait.
+- Cause: after the panicking run's reply, the test asserted `events.iter().any(EngineDown) || builds == 2`. The `EngineDown` half could never hold: the host pushes it as a session event (no run id), and `collect` polls the run's events only. The other half raced the host, which replies and then rebuilds (`crates/engine/src/host.rs`: `going_down`, `finish`, `rebuild`). Reproduced every time by making the rebuild take 300 ms before it counts; under load on the M4 Max it never failed in 40 runs.
+- Fixed: 2026-11-05, branch `fix/33-panic-rebuild-race`. The test reads the session's events and asserts `EngineDown` comes before the run's reply, the order the host guarantees, then waits for the rebuild as before. The slow rebuild stays in the test, so the reply always comes first; 0 of 30 runs failed under load.
 - Issue: #33
-
-## Fixed
 
 ### B6. npexact has no contraction rule for numpy's runtime-dispatched SIMD loops
 

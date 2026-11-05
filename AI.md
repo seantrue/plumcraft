@@ -20,6 +20,19 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — B11: the panicking-node test raced the rebuild (#33) (Claude Opus 5.5)
+
+**What the maintainer asked:** "Add as B11", then "Fix B11". Under cargo-nextest (#36) the test was failing every run.
+
+**What the AI did:** it read the host before changing the test. On a panic the host sends `EngineDown`, then the reply, then rebuilds (`going_down`, `finish`, `rebuild` in `crates/engine/src/host.rs`). The test asserted, the moment the reply arrived, that either `EngineDown` was among the run's events or the engine had been rebuilt. `EngineDown` is a session event that a run's poll filters out, so it relied on the rebuild alone, which comes after the reply: a race.
+
+- **Reproduced:** under full CPU load on the M4 Max the test never failed (0 of 40). So the test's factory now sleeps 300 ms on the rebuild before it counts, and with the old assertion that fails every time. A first attempt slept after counting and didn't reproduce it.
+- **The fix (`crates/text/tests/conformance.rs`, ~20 lines):** read the session's events (`poll` with no run filter) and assert that `EngineDown` comes before the run's reply, which the host guarantees. Then wait for the rebuild as before. The slow rebuild stays in, so every run takes the path CI hit.
+- **Checked:** 0 of 30 runs failed under load, and the full gate passes (nextest: 1,150 passed, 5 skipped; clippy, fmt; 218 Python tests, ruff).
+- **Ruled out:** the Python SDK's rebuild test counts builds only after the next run's reply, which is queued behind the rebuild, so it's safe.
+
+The AI's first diagnosis, "too short a 5 s wait", is recorded as wrong in `docs/BUGS.md` and on #33.
+
 ### 2026-11-05 — Release 0.2.3 to crates.io (Claude Opus 5.5)
 
 **What the maintainer asked:** "publish to crates.io". Asked which release, the maintainer chose "0.2.3, with #34" over releasing without #34 or a 0.3.0.
