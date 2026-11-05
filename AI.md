@@ -20,6 +20,41 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — The first Linux CI run's failures: Mandelbrot on x86-64, generic fonts, and a full runner disk (Claude Opus 5.5)
+
+**What the maintainer asked:** after the first `--no-fail-fast` run failed 15 Rust tests and 1 Python test, "Go for 2,3-5": Mesa for the rendering tests, then record and fix the rest. Before that: "Record mandelbrot test data on yellowfin", and for the fix, "In PlumCraft, but remember as bug for future fix in npexact".
+
+**What the AI did:** each failure was reproduced on yellowfin (x86-64 Ubuntu) from a scratch copy, so the cause was known before anything changed.
+
+- **Mandelbrot on x86-64 (B5, #27; `crates/array/src/generate/noise.rs`, ~27 LOC):** the kernel fused its complex multiply only on aarch64, by borrowing `npexact::random::Contraction::host_default()`. That rule is decided at compile time and fits numpy.random's compiled C. numpy's complex64 multiply is a SIMD loop picked at run time, and it fuses on x86-64 too when the CPU has FMA3 and AVX2: a probe of 200,000 products matched the fused model 100% of the time on both machines, against 71% for the unfused one. The new `numpy_complex_fma()` follows numpy. The test passes on the Mac and on yellowfin. The rule belongs in npexact (B6).
+- **SVG generic fonts (B8; `crates/svg/src/lib.rs`, ~63 LOC):** fontdb takes the generic families from fontconfig on Linux, but nothing checks that the family it names is installed. `installed_generics` points any generic family naming a missing family at an installed one. A new test recreates the runner's case, every generic naming a missing family.
+- **A full runner disk (B7, B9):** the three editor audio tests that time out and the Python `test_large_json_crosses_as_a_blob` have one cause. commonkit's store declines to publish with under 8 GB free, and after the workspace's build the runner has less. A fresh store root with `COMMONKIT_STORE_MIN_FREE_GB=100000` reproduced all four failures on yellowfin; a missing sound card (`ALSA_CARD=NoSuchCard`) and 4 CPUs did not. CI now sets the floor to 2 GB.
+- **No GPU (10 rendering kittests):** CI installs Mesa's software Vulkan (lavapipe).
+
+**Defects in AI-written work:**
+
+- **The first diagnosis of B5 was wrong.** The AI wrote, in `docs/BUGS.md` and in issue #27, that the golden was arm64-only and that x86-64 needed its own. The yellowfin recording the maintainer asked for disproved this, since the goldens were identical. The issue was retitled and given a correction comment, and the entry rewritten.
+- **The B8 fix is a likely cause, not a reproduced one.** yellowfin's fontconfig names an installed family, so the runner's case was only recreated in a test. The test's failure message now names the resolved family, in case the next CI run disagrees.
+
+**Not yet run:** the full gate, and CI on these changes.
+
+### 2026-11-05 — CI runs the gate on every PR, and main is protected (Claude Opus 5.5)
+
+**What the maintainer asked:** "How do I start a process for automatically fixing issues in github? How could I just approve them for fix and then for merge?" The AI offered two routes: the Claude GitHub Action triggered by a label, or a local flow on this Mac. The maintainer chose "local+CI workflow", then "CP workflow alone, add branch protection".
+
+**What the AI did:**
+
+- **`.github/workflows/ci.yml` (~65 LOC):** the repository had no CI. This runs the gate from `AGENTS.md` on every pull request and every push to `main`, on `ubuntu-latest`: `cargo fmt --check`, clippy with `-D warnings`, `cargo test --all-features`, and the Python SDK's pytest and ruff.
+  - **Defect, caught by the maintainer:** the AI first ran it on macOS as well. The maintainer stopped that: "No running of CI jobs on github macos. Too expensive. CI only needs to pass on Linux." The macOS job was cancelled mid-run, the workflow is Linux only, and macOS is checked locally.
+  - **The first Linux run failed** on `mandelbrot_matches_numba`: its numpy golden was recorded on arm64, where numpy fuses multiply-adds and x86_64's doesn't (B5, #27). Cargo stopped at that test binary and the Python step was skipped, so the test step now runs `--no-fail-fast` and the Python step runs whatever cargo did, so one run reports every failure.
+  - Ubuntu needs `pkg-config` and ALSA's headers, as `packaging/linux.sh` does.
+  - The build drops debug info, following the maintainer's build-footprint rule.
+  - Before writing it, the AI checked that the workspace's only outside dependency, `storytold/soundcraft`, is public, so a runner can fetch it.
+- **Branch protection on `main`:** merging needs the `gate` job to pass. No review is required, because GitHub won't let the maintainer approve a PR opened under their own account, so their merge is the approval. Auto-merge is enabled for the repository.
+- **The approval labels:** `fix-approved` marks an issue the maintainer has approved for a fix, and `fix-ready` marks an open fix PR. The local fix flow lives in an untracked project skill (`.claude/` is excluded here) and in a line of `CLAUDE.md`, which this commit leaves out.
+
+**Not yet checked:** the workflow has not run on GitHub. It first runs when this branch is opened as a PR, and that run is the test. The likeliest failure is a kittest needing a graphics adapter the runners lack. The YAML only parses.
+
 ### 2026-11-04 — Release 0.2.2, and the Python SDK 0.1.2 (Claude Opus 5.5)
 
 **What the maintainer asked:** "prepare the crates.io and PyPI releases", then "CPM, publish crates and PyPI, then the installers". The point is to get the Windows binding to the engines that can't take it from a checkout: PlumImpress (crates `=0.2.1`), and engines generated outside a checkout (PyPI's SDK 0.1.1).

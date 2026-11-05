@@ -1,0 +1,65 @@
+# The gate from AGENTS.md, on every pull request and every push to main. A PR merges only once it
+# passes (branch protection names the `gate` job).
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # The least disk: no debug info (the global build rules), and no incremental state in CI.
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+  CARGO_INCREMENTAL: 0
+  # commonkit's store declines to publish under 8 GB free, and after the build the runner has
+  # less, so blobs (watched audio, large JSON) would never cross (docs/BUGS.md B7, B9).
+  COMMONKIT_STORE_MIN_FREE_GB: 2
+
+jobs:
+  gate:
+    name: gate
+    # Linux only: macOS runners cost too much (maintainer, 2026-11-05). macOS is checked locally.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # ALSA's headers for the audio engine; Mesa's software Vulkan (lavapipe) as the GPU the
+      # rendering kittests need, since the runner has none ("No adapter found")
+      - name: Linux packages
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pkg-config libasound2-dev mesa-vulkan-drivers libvulkan1
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: cargo fmt
+        run: cargo fmt --all --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      # --no-fail-fast: one run lists every failing test, not just the first failing binary's
+      - name: cargo test
+        run: cargo test --all-features --no-fail-fast
+
+      # runs even when cargo test fails, so a run reports both halves of the gate
+      - name: python
+        if: ${{ !cancelled() }}
+        working-directory: python
+        run: |
+          uv run pytest
+          uv run ruff check .

@@ -48,14 +48,49 @@ impl Raster {
 }
 
 /// The system's fonts, loaded on first use (a few hundred milliseconds; call it off the UI
-/// thread). Generic families keep fontdb's defaults (Times New Roman, Arial, Courier New).
+/// thread). Generic families take fontdb's choice (fontconfig's on Linux, else Times New Roman,
+/// Arial, Courier New) when it is installed, and otherwise an installed one ([`installed_generics`]).
 pub fn fonts() -> Arc<usvg::fontdb::Database> {
     static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
     Arc::clone(FONTS.get_or_init(|| {
         let mut db = usvg::fontdb::Database::new();
         db.load_system_fonts();
+        installed_generics(&mut db);
         Arc::new(db)
     }))
+}
+
+/// Point each generic family (`serif`, `sans-serif`, `monospace`, `cursive`, `fantasy`) that
+/// names a family this machine doesn't have at one it does: the first installed of a list of
+/// common faces, else the first face loaded. Without it a label in `sans-serif` draws nothing
+/// where the named family is missing (GitHub's Ubuntu runner: docs/BUGS.md B8).
+pub fn installed_generics(db: &mut usvg::fontdb::Database) {
+    use usvg::fontdb::{Family, Query};
+    const SANS: &[&str] = &["Arial", "Helvetica", "Liberation Sans", "DejaVu Sans", "Noto Sans", "FreeSans", "Ubuntu", "Inter"];
+    const SERIF: &[&str] = &["Times New Roman", "Times", "Liberation Serif", "DejaVu Serif", "Noto Serif", "FreeSerif"];
+    const MONO: &[&str] = &["Courier New", "Courier", "Menlo", "Liberation Mono", "DejaVu Sans Mono", "Noto Sans Mono", "FreeMono", "Ubuntu Mono"];
+    let resolves = |db: &usvg::fontdb::Database, family: Family| db.query(&Query { families: &[family], ..Default::default() }).is_some();
+    let installed = |db: &usvg::fontdb::Database, names: &[&str]| names.iter().find(|n| resolves(db, Family::Name(n))).map(|n| (*n).to_owned());
+    let first = db.faces().next().and_then(|f| f.families.first()).map(|(name, _)| name.clone());
+    let Some(first) = first else { return };
+    if !resolves(db, Family::SansSerif) {
+        db.set_sans_serif_family(installed(db, SANS).unwrap_or_else(|| first.clone()));
+    }
+    if !resolves(db, Family::Serif) {
+        db.set_serif_family(installed(db, SERIF).unwrap_or_else(|| first.clone()));
+    }
+    if !resolves(db, Family::Monospace) {
+        db.set_monospace_family(installed(db, MONO).unwrap_or_else(|| first.clone()));
+    }
+    // cursive and fantasy have no common faces worth listing: whatever sans-serif became
+    if !resolves(db, Family::Cursive) {
+        let sans = db.family_name(&Family::SansSerif).to_owned();
+        db.set_cursive_family(sans);
+    }
+    if !resolves(db, Family::Fantasy) {
+        let sans = db.family_name(&Family::SansSerif).to_owned();
+        db.set_fantasy_family(sans);
+    }
 }
 
 /// The usvg options for hostile SVGs: no external files (only `data:` images), the system's
@@ -166,7 +201,35 @@ mod tests {
         if fonts().is_empty() {
             return; // a machine with no fonts at all draws no text, and that's all
         }
-        assert!(inked > 200, "{inked} inked pixels");
+        let sans = fonts().family_name(&usvg::fontdb::Family::SansSerif).to_owned();
+        assert!(inked > 200, "{inked} inked pixels; sans-serif is {sans:?} of {} faces", fonts().len());
+    }
+
+    #[test]
+    fn generic_families_name_an_installed_font() {
+        use usvg::fontdb::{Database, Family, Query};
+        // as GitHub's Ubuntu runner: the generic families name families that aren't installed
+        let mut db = Database::new();
+        db.load_font_data(std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../ui/assets/fonts/Inter-Regular.ttf")).unwrap());
+        for set in [
+            Database::set_sans_serif_family,
+            Database::set_serif_family,
+            Database::set_monospace_family,
+            Database::set_cursive_family,
+            Database::set_fantasy_family,
+        ] {
+            set(&mut db, "Not Installed".to_owned());
+        }
+        installed_generics(&mut db);
+        for g in [Family::SansSerif, Family::Serif, Family::Monospace, Family::Cursive, Family::Fantasy] {
+            assert!(db.query(&Query { families: &[g], ..Default::default() }).is_some(), "{g:?} is {:?}", db.family_name(&g));
+        }
+        assert_eq!(db.family_name(&Family::SansSerif), "Inter", "the one installed face, as no listed one is");
+        // a family that is installed is kept, and an empty database is left alone
+        db.set_serif_family("Inter".to_owned());
+        installed_generics(&mut db);
+        assert_eq!(db.family_name(&Family::Serif), "Inter");
+        installed_generics(&mut Database::new());
     }
 
     #[test]
