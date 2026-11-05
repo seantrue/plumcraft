@@ -243,19 +243,6 @@ fn rooted(name: &str) -> bool {
     name.starts_with(['/', '\\']) || matches!(name.as_bytes(), [drive, b':', ..] if drive.is_ascii_alphabetic())
 }
 
-/// Would `zip`'s Windows name check panic on `name`? On Windows, `enclosed_name` checks each
-/// component for a DOS device name with `stem.split_at(3)` (`zip::path`,
-/// `is_windows_reserved_device_name`, zip 9.2.2 and 9.3.0), which panics when the stem's third
-/// byte is inside a character. Such an entry is refused before `zip` sees it. Not a Windows rule:
-/// the same name is checked normally elsewhere.
-fn trips_zip_on_windows(name: &str) -> bool {
-    cfg!(windows)
-        && name.split(['/', '\\']).any(|component| {
-            let stem = component.split(['.', ':']).next().unwrap_or(component).trim_end_matches([' ', '.']);
-            stem.len() >= 4 && !stem.is_char_boundary(3)
-        })
-}
-
 /// Check every entry, before anything is written. Returns the workflow's name in the bundle.
 fn survey<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, limits: Limits) -> std::result::Result<PathBuf, String> {
     if zip.len() > limits.entries {
@@ -266,9 +253,6 @@ fn survey<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, limits: Limits)
     for i in 0..zip.len() {
         let entry = zip.by_index_raw(i).map_err(|e| e.to_string())?;
         let raw = entry.name().unwrap_or("?".into());
-        if trips_zip_on_windows(&raw) {
-            return Err(format!("entry {:?} has a name this system can't check", raw.chars().take(200).collect::<String>()));
-        }
         let Some(name) = entry.enclosed_name().filter(|_| !rooted(&raw)) else {
             return Err(format!("entry {:?} leaves its folder", raw.chars().take(200).collect::<String>()));
         };
@@ -362,20 +346,6 @@ mod tests {
     use super::*;
     use plumcraft_graph::PortRef;
     use serde_json::json;
-
-    /// Found by the hostile sweep on Windows: an entry `a╤x.json` panicked inside `zip`.
-    #[test]
-    fn names_that_would_panic_zip_on_windows_are_refused_there() {
-        // `a╤` is four bytes, its third inside `╤`
-        let trips = ["a\u{2564}x.json", "dir/a\u{2564}x", "a\u{2564}xy:stream", "a\u{2564}.json"];
-        let fine = ["workflow.json", "abc\u{2564}.json", "\u{65e5}\u{672c}\u{8a9e}.json", "COM1", "notes/corgi.txt"];
-        for n in trips {
-            assert_eq!(trips_zip_on_windows(n), cfg!(windows), "{n}");
-        }
-        for n in fine {
-            assert!(!trips_zip_on_windows(n), "{n}");
-        }
-    }
 
     fn catalog() -> SchemaReply {
         serde_json::from_value(json!({"nodes": [

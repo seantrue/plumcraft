@@ -8,7 +8,7 @@
   - Programs are found with their Windows extensions (`PATHEXT`), and `~` is `USERPROFILE` when there is no `HOME`.
   - Tokens and nonces come from the OS's generator (`getrandom`), not `/dev/urandom`.
   - `.gitattributes` keeps text LF in every checkout.
-- **A bundle can't crash the editor on Windows.** The `zip` crate's Windows name check panics on a name whose third byte is inside a character (`zip::path::is_windows_reserved_device_name`, in 9.2.2 and 9.3.0). Such an entry is now refused first. The hostile-input sweep found it on its first Windows run.
+- **A bundle can't crash the editor on Windows.** `zip` 9.2.2's Windows name check panicked on a name whose third byte is inside a character (`zip::path::is_windows_reserved_device_name`). The hostile-input sweep found it on its first Windows run. zip 9.3.0 fixes it, and PlumCraft now requires `zip` 9.3.
 - Two writers of the same bytes into a content-addressed folder (the craft CAS, an engine's `.sources`) no longer fail on Windows, which refuses to rename over a file another rename holds. The one that loses the race finds the file there, and that is success (`plumcraft_store::rename_addressed`). An engine's `.sources` temp name is now unique per write, not per process.
 - The Python SDK's `--token-file` works on Windows; it called `os.getuid`. A Windows file has no owner id or mode bits to check, so only a plain file is required there.
 - The Python SDK no longer kills a process while checking whether it is alive on Windows (`os.kill(pid, 0)` terminates it there); its scratch sweep skips Windows, as the Rust one does.

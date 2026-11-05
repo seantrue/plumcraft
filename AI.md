@@ -33,7 +33,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Found on Windows, and fixed:**
 
-- **The hostile-input sweep found a panic in the `zip` crate:** `is_windows_reserved_device_name` calls `split_at(3)` inside a character, and it still does in 9.3.0. Such names are now refused before zip sees them (`archive::trips_zip_on_windows`). The model's first unit test for the guard listed `a╤.json` as safe; it isn't, and the Windows run caught that.
+- **The hostile-input sweep found a panic in the `zip` crate:** zip 9.2.2's `is_windows_reserved_device_name` calls `split_at(3)` inside a character. **The model claimed that 9.3.0 still had the bug, and shipped that claim in the commit.** It had grepped only the `split_at` line, not the guard above it. When the maintainer asked for it to be filed upstream, a check of zip's master showed the fix (`is_char_boundary(3)`, merged privately 2026-11-02), and the 9.3.0 crate has it. So nothing was filed. PlumCraft now requires `zip` 9.3 and dropped its workaround (`archive::trips_zip_on_windows`) and that workaround's unit test. The model's first version of that unit test had also listed `a╤.json` as safe; it isn't, and the Windows run caught that.
 - **A real race.** Two threads staging one document into the craft CAS failed: Windows refuses a rename over a file another rename holds. Losing that race to the same bytes is now success (`plumcraft_store::rename_addressed`), in all four content-addressed writes.
 - **The Python SDK:**
   - `os.kill(pid, 0)` would have ended the processes its scratch sweep checked;

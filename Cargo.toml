@@ -10,7 +10,7 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/seantrue/plumcraft"
 
 [workspace.dependencies]
-zip = { version = "9", default-features = false, features = ["deflate"] }
+zip = { version = "9.3", default-features = false, features = ["deflate"] }
 # internal
 plumcraft-proto = { path = "crates/proto", version = "=0.2.1" }
 plumcraft-engine = { path = "crates/engine", version = "=0.2.1" }

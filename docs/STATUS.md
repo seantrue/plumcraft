@@ -8,7 +8,7 @@
   - **Transport:** mode 2 takes a locator, `unix:<path>` or `tcp:127.0.0.1:<port>` (`plumcraft_engine::local`, Python `serve.parse_endpoint`). The host offers TCP on Windows. `docs/interface.md` 16.3 says what a loopback port trusts that a 0700 socket doesn't. **Open:** the host can't yet tell its own engine from another local process that connects first.
   - **Processes:** `plumcraft_proto::programs` has `own_group`, `kill_tree` (`taskkill /T /F` on Windows), `describe_exit`, `PATHEXT` lookup and `home()` (`USERPROFILE`). The craft watchdog has a PowerShell form. Tokens and nonces come from `getrandom` (`plumcraft_proto::random`).
   - **Found by running it:**
-    - the `zip` crate panics on some entry names on Windows (refused first, `archive::trips_zip_on_windows`; still in zip 9.3.0, not yet reported upstream);
+    - `zip` 9.2.2 panics on some entry names on Windows. 9.3.0 (2026-11-03) fixed it, through zip's private advisory process, so PlumCraft now requires `zip` 9.3 and has no workaround;
     - the Python SDK's `os.kill(pid, 0)` would end the process it checks;
     - `file_token` called `os.getuid`;
     - two threads staging the same document raced: Windows refuses a rename over a file another rename holds (`plumcraft_store::rename_addressed`: losing that race to the same bytes is success);
