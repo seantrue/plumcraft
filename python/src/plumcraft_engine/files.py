@@ -76,10 +76,13 @@ def _files_out() -> dict:
 
 
 def _expand(p: str) -> str:
-    """`~` expanded."""
-    home = os.environ.get("HOME")
-    if p.startswith("~") and home is not None and (p == "~" or p[1:].startswith("/")):
-        return os.path.join(home, p[1:].lstrip("/"))
+    """`~` expanded, as the Rust SDK's (`plumcraft_proto::programs::expand_home`): `HOME`, else
+    `USERPROFILE` (Windows sets no `HOME` for a program started from the desktop); `~\\` too on
+    Windows."""
+    home = os.environ.get("HOME") or os.environ.get("USERPROFILE")
+    seps = ("/", "\\") if os.name == "nt" else ("/",)
+    if p.startswith("~") and home and (p == "~" or p[1:].startswith(seps)):
+        return os.path.join(home, p[1:].lstrip("".join(seps)))
     return p
 
 

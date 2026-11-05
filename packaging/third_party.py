@@ -22,13 +22,13 @@ REPOSITORIES = {"zune-core": "github.com/etemesi254/zune-image"}
 
 
 def host() -> str:
-    out = subprocess.run(["rustc", "-vV"], capture_output=True, text=True, check=True).stdout
+    out = subprocess.run(["rustc", "-vV"], capture_output=True, text=True, encoding="utf-8", check=True).stdout
     return next(line.split()[1] for line in out.splitlines() if line.startswith("host:"))
 
 
 def metadata(root: Path, platform: str) -> dict:
     command = ["cargo", "metadata", "--format-version", "1", "--locked", "--filter-platform", platform]
-    return json.loads(subprocess.run(command, cwd=root, capture_output=True, text=True, check=True).stdout)
+    return json.loads(subprocess.run(command, cwd=root, capture_output=True, text=True, encoding="utf-8", check=True).stdout)
 
 
 def repository(package: dict) -> str | None:
@@ -88,6 +88,8 @@ def licence_files(package: dict) -> list[Path]:
 
 
 def main() -> int:
+    # UTF-8 whatever the console says: Windows writes its code page, which has no "ł"
+    sys.stdout.reconfigure(encoding="utf-8")
     root, roots = Path(sys.argv[1]), set(sys.argv[2:])
     packages = reached(metadata(root, host()), roots)
     print(f"Third-party crates in PlumCraft's binaries: {len(packages)}.")

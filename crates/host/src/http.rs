@@ -61,7 +61,7 @@ impl Default for HttpOptions {
 
 /// The UI's durable CAS root.
 pub fn default_cas() -> PathBuf {
-    let home = std::env::var_os("HOME").map_or_else(|| PathBuf::from("/tmp"), PathBuf::from);
+    let home = plumcraft_proto::programs::home().unwrap_or_else(std::env::temp_dir);
     if cfg!(target_os = "macos") { home.join("Library/Caches/plumcraft/cas") } else { home.join(".cache/plumcraft/cas") }
 }
 

@@ -40,6 +40,15 @@ pub fn home() -> Option<PathBuf> {
     std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE")).filter(|h| !h.is_empty()).map(PathBuf::from)
 }
 
+/// `~` and `~/…` (and `~\…` on Windows) with [`home`]; anything else, or no home, unchanged.
+pub fn expand_home(p: &str) -> PathBuf {
+    let sep = |c: char| c == '/' || (cfg!(windows) && c == '\\');
+    match (p.strip_prefix('~'), home()) {
+        (Some(rest), Some(h)) if rest.is_empty() || rest.starts_with(sep) => h.join(rest.trim_start_matches(sep)),
+        _ => PathBuf::from(p),
+    }
+}
+
 /// The folders programs are usually installed in: under `home`, `bin`, `.local/bin` (uv's) and
 /// `.cargo/bin`, then on Unix Homebrew's and `/usr/local/bin`.
 fn usual_folders(home: Option<&Path>) -> Vec<PathBuf> {
@@ -224,6 +233,18 @@ mod tests {
         let cmd = find_program("cmd").expect("cmd.exe is on every PATH");
         assert_eq!(cmd.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref(), Some("exe"));
         assert_eq!(find_program(r"C:\no\such\program.exe"), None);
+    }
+
+    #[test]
+    fn a_tilde_is_home_and_nothing_else_is() {
+        let Some(h) = home() else { return };
+        assert_eq!(expand_home("~"), h);
+        assert_eq!(expand_home("~/a/b"), h.join("a/b"));
+        assert_eq!(expand_home("~other/x"), PathBuf::from("~other/x"));
+        assert_eq!(expand_home("/abs/x"), PathBuf::from("/abs/x"));
+        if cfg!(windows) {
+            assert_eq!(expand_home(r"~\a"), h.join("a"));
+        }
     }
 
     #[test]

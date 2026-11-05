@@ -259,7 +259,9 @@ fn external(i: u16) -> Option<External> {
 
 /// The folder engines install their manifests in.
 fn manifest_folder() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/plumcraft/engines"))
+    // home(), not $HOME: Windows sets no HOME for an app started from the desktop, so the folder
+    // `register` had just written to was never read there
+    plumcraft_proto::programs::home().map(|h| h.join(".config").join("plumcraft").join("engines"))
 }
 
 /// Fill [`EXTERNALS`] from `files`, then every `*.toml` in `folder`. What can't be used (it won't

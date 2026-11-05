@@ -305,6 +305,12 @@ fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
         if inner.stop.load(Ordering::SeqCst) {
             break;
         }
+        // what stderr says, when it is a cause we know (an engine built on an SDK too old for
+        // this platform's binding, say)
+        let why = match known_cause(&inner.stderr_tail()) {
+            Some(cause) => format!("{why}: {cause}"),
+            None => why,
+        };
         inner.fail_everything(&why);
         inner.set_state(EngineState::EngineDown {
             reason: why.clone(),
@@ -331,6 +337,15 @@ fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
         std::thread::sleep(Duration::from_millis(100u64 << shift).min(Duration::from_secs(2)));
         inner.set_state(EngineState::Connecting { url: format!("{} (restarting)", socket.locator()) });
     }
+}
+
+/// A cause an engine's stderr shows that its own words don't make plain. An engine built on a
+/// Python SDK from before PlumCraft ran on Windows asks for a Unix socket, which Windows Python
+/// doesn't have, and dies with an `AttributeError` about `AF_UNIX`; the cure is a newer SDK.
+fn known_cause(stderr: &str) -> Option<&'static str> {
+    (stderr.contains("AF_UNIX") && stderr.contains("AttributeError")).then_some(
+        "its plumcraft-engine SDK is from before PlumCraft ran on Windows (it asks for a Unix socket, which Windows Python lacks). Reinstall the engine, or update its SDK pin to PlumCraft 81dd28f (2026-11-04) or later",
+    )
 }
 
 /// Spawn, accept, read until the connection ends. Returns why it ended.
@@ -510,5 +525,20 @@ pub(crate) fn private_dir(prefix: &str) -> std::io::Result<PathBuf> {
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && tries < 64 => tries += 1,
             Err(e) => return Err(e),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::known_cause;
+
+    /// The maintainer's report: the OpenCV engine, installed on Windows with an SDK pinned before
+    /// the Windows port, died with this, and the banner showed only the traceback.
+    #[test]
+    fn an_sdk_too_old_for_windows_is_named() {
+        let tail = "  File \"...\\plumcraft_engine\\serve.py\", line 102, in serve_unix\n    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)\nAttributeError: module 'socket' has no attribute 'AF_UNIX'";
+        assert!(known_cause(tail).is_some_and(|c| c.contains("SDK") && c.contains("Reinstall")));
+        assert_eq!(known_cause("Traceback ...\nValueError: no models found"), None);
+        assert_eq!(known_cause(""), None);
     }
 }

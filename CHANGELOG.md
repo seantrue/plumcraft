@@ -2,7 +2,11 @@
 
 ## Unreleased
 
-- **PlumCraft builds and runs on Windows** (x86-64, from a checkout; no installer yet; `docs/guide.md`, "Build and test").
+- **PlumCraft builds and runs on Windows** (x86-64; `docs/guide.md`, "Build and test").
+  - **An installer** (`PlumCraft-VERSION-windows-x86_64-setup.exe`, Inno Setup) and a zip, from `packaging/windows.sh`. `release.sh --windows-host HOST [--windows-jump JUMP]` builds them on a Windows machine. The installer installs for the user without an administrator, adds a Start menu entry, and optionally a desktop icon and the folder on PATH; the uninstaller removes them. Neither is signed yet.
+  - The editor is a windowed app in Windows release builds, so it opens no console. `plumcraft-editor run FILE` prints nothing there; the `plumcraft` command line does.
+  - **An installed engine shows up on Windows.** The editor read its engine folder (`~/.config/plumcraft/engines`) only through `HOME`, which Windows doesn't set for a program started from the desktop. So Engine › Install Engine… registered an engine the editor never listed. Eight places read `HOME` directly; they all fall back to `USERPROFILE` now (`plumcraft_proto::programs::home`, `expand_home`), the Python SDK's `~` included.
+  - **An engine whose SDK predates Windows support** says so in its banner, and that reinstalling it or updating its SDK pin is the cure. Before, the banner showed only the traceback about `AF_UNIX`. The public OpenCV, Atlas and DuckDB engines now pin `81dd28f`.
   - Process engines (mode 2) connect over loopback TCP on Windows, where neither Rust's std nor Python has Unix sockets. The engine is given a locator, `tcp:127.0.0.1:<port>` or `unix:<path>` (a bare path is still a Unix socket), and both SDKs read either (`plumcraft_engine::local`, `serve.parse_endpoint`). `docs/interface.md` section 16.3 says what a loopback port trusts that a private socket doesn't.
   - Engines and crafts start in a process group of their own with no console window, and are stopped with their descendants (`taskkill /T` on Windows, the group on Unix; `plumcraft_proto::programs::own_group`, `kill_tree`). The craft watchdog has a PowerShell form.
   - Programs are found with their Windows extensions (`PATHEXT`), and `~` is `USERPROFILE` when there is no `HOME`.

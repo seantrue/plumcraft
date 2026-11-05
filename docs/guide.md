@@ -233,7 +233,7 @@ cargo fmt --all --check
   - git-pinned dependencies: craft-ui from `storytold/craft-libs`, and SoundCraft's crates from `storytold/soundcraft`.
 - Craft engines need the craft app installed. Tests that need one skip without it.
 
-**On Windows** (x86-64, MSVC toolchain), PlumCraft builds from a checkout, with no installer yet:
+**On Windows** (x86-64, MSVC toolchain), PlumCraft builds from a checkout; `packaging/windows.sh` makes the installer (`packaging/README.md`):
 
 - Clone with real symlinks: `git clone -c core.symlinks=true https://github.com/seantrue/plumcraft.git`. Some crates share `digest.rs` and the licence files through links, and Git for Windows writes a link as a one-line text file unless symlinks are on. That needs Developer Mode, or an elevated shell.
 - `.gitattributes` keeps text files LF whatever `core.autocrlf` says, since tests compare bytes with checked-in files.

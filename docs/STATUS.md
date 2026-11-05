@@ -15,6 +15,12 @@
     - generated files were written CRLF;
     - the SDK path in a generated `pyproject.toml` had backslashes;
     - CRLF checkouts broke byte comparisons (now `.gitattributes`).
+  - **The installer (2026-11-04):** the maintainer said "yes, install InnoSetup. GUI only is fine for now."
+    - `packaging/windows.sh` (Git for Windows' bash, sharing `common.sh`) and `packaging/plumcraft.iss` (Inno Setup 6.7.3, installed per-user on `win11-dev` with winget). There is a new `assets/app-icon/plumcraft.ico`.
+    - `release.sh --windows-host win11-dev --windows-jump yellowfin.lan`.
+    - Checked on `win11-dev`: a silent per-user install; the installed `plumcraft` CLI ran the demo compiled in, as a process (loopback TCP) and over HTTP; the installed editor opened on the RDP desktop with no console; the silent uninstall left no folder, shortcut, uninstall entry or PATH entry.
+    - Fixed on the way: Git Bash rewrote ISCC's `/Q` and `/D…` into paths, and `third_party.py` wrote and read in the code page (it crashed on `ł`).
+    - Not yet: code signing (SmartScreen will warn), an icon in the exe itself (the shortcuts and the setup program have it), the editor's output in a console.
   - **Tests on `win11-dev`:**
     - The first run had 48 failures, the second 12.
     - The last full run had 1,119 Rust passing and 2 failing, then the CAS race fix. The two failures were Mandelbrot and the CAS race.

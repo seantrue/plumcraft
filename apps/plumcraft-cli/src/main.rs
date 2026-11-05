@@ -9,10 +9,11 @@
 //!         · --engine-manifest FILE [--http]
 //! ```
 //!
-//! `--process` runs the engine as a separate process on a Unix socket (mode 2) instead of
-//! compiled in (mode 1); `--python` runs the same engine written in Python (`python/`) as that
-//! process, under `uv run`. `--http` starts the engine over HTTP (mode 3) and talks to it as a UI
-//! on another machine would: sources upload by handle, values download by URL into the UI's CAS.
+//! `--process` runs the engine as a separate process (mode 2: a Unix socket, or loopback TCP on
+//! Windows) instead of compiled in (mode 1); `--python` runs the same engine written in Python
+//! (`python/`) as that process, under `uv run`. `--http` starts the engine over HTTP (mode 3) and
+//! talks to it as a UI on another machine would: sources upload by handle, values download by URL
+//! into the UI's CAS.
 //! `--attach` reaches an HTTP engine already running, with `PLUMCRAFT_ENGINE_TOKEN`.
 //! `--engine-manifest` starts the engine a manifest names (spec 16.6), on a socket, or over HTTP
 //! with `--http`; without a workflow, `run` opens its `demo`. Nothing else changes.

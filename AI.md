@@ -20,6 +20,32 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-04 — A Windows installer, engines found from the desktop, and old SDKs named (Claude Opus 5.5)
+
+**What the maintainer asked:** "yes, install InnoSetup. GUI only is fine for now". Then, after trying it on `win11-dev`: "Installing OpenCV engine appeared to succeed, but engine does not show up". Then the engine's `AF_UNIX` traceback. Then "PM, bump the engine pins, and add the clearer error".
+
+**What the AI did** (~355 lines added and ~37 removed over 22 files, plus `plumcraft.ico`):
+
+- **The installer:** `packaging/windows.sh` runs under Git for Windows' bash and shares `common.sh`, which now knows `.exe` and `$PYTHON`. `packaging/plumcraft.iss` is for Inno Setup 6.7.3, which the AI installed per-user on `win11-dev` with winget. It installs per-user with no administrator, adds a Start menu entry, and optionally a desktop icon and a PATH entry, which the uninstaller removes. `release.sh` gets `--windows-host` and `--windows-jump`, and ships a `git archive` with links dereferenced. There is an `.ico` from the app icon, and the editor is a windowed app in Windows release builds.
+- **Checked on `win11-dev`:**
+  - a silent per-user install;
+  - the installed CLI ran the demo compiled in, as a process over loopback TCP, and over HTTP;
+  - the installed editor opened on the RDP desktop with no console;
+  - the silent uninstall left nothing, and PATH was otherwise unchanged;
+  - `release.sh --skip-gate --windows-host win11-dev --windows-jump yellowfin.lan` made the DMG, the setup program, the zip and `SHA256SUMS`, run in a scratch clone with a throwaway commit, since the script refuses a dirty tree.
+- **Engines from the desktop.** The maintainer's report traced to `manifest_folder()` reading only `HOME`. Windows doesn't set `HOME` for a desktop program, though SSH sessions have it, which is why the model's own runs never saw it. Eight places read `HOME` directly; they now use `plumcraft_proto::programs::home` and `expand_home`, which fall back to `USERPROFILE`, and the Python SDK's `files._expand` matches.
+- **Old SDKs named.** The OpenCV engine pinned the SDK to PlumCraft `3995cb7`, from before the port. The host now recognises the `AF_UNIX` `AttributeError` in an engine's stderr, and the banner says to reinstall it or update its pin (`known_cause`, with a test). The three public engines were re-pinned to `81dd28f` in their own repos. A fresh install from GitHub on `win11-dev` then got the new SDK.
+
+**Defects in the AI's work, caught by running it:**
+
+- Git Bash rewrote ISCC's `/Q` and `/D…` arguments into paths, so the first installer build failed ("more than one script filename"). Fixed with `MSYS2_ARG_CONV_EXCL`.
+- `third_party.py` wrote, and read `cargo metadata`, in the Windows code page. It crashed on `ł`, leaving a truncated licence file, and authors' names would have been garbled without any error.
+- The first `windows.sh` had a `PYTHON_SET` check that nothing set.
+- The model's sync script didn't carry new files under `assets/`.
+- **The maintainer found** that an installed engine never appeared. The model's checks had run from SSH, where `HOME` is set.
+
+**Tests:** the Mac gate passes, 1,126 Rust and 218 Python. On `win11-dev` the install, run and uninstall checks above pass.
+
 ### 2026-11-04 — PlumCraft on Windows (Claude Opus 5.5)
 
 **What the maintainer asked:** "You can build plumcraft on Windows. See yellowfin ~/sysadmin/docs/windows-dev-vm-runbook.md". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."

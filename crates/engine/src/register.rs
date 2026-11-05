@@ -50,7 +50,7 @@ fn folder(args: &[String]) -> Option<PathBuf> {
     if let Some(dir) = args.iter().position(|a| a == "--folder").and_then(|i| args.get(i + 1)) {
         return Some(PathBuf::from(dir));
     }
-    std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config/plumcraft/engines"))
+    plumcraft_proto::programs::home().map(|h| h.join(".config").join("plumcraft").join("engines"))
 }
 
 /// A TOML basic string (JSON's escapes are TOML's).
