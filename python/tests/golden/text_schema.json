@@ -3,8 +3,8 @@
  "engine": {
   "id": "text",
   "name": "Text",
-  "version": "0.2.1",
-  "salt": "py:plumcraft-text+0.2.1"
+  "version": "0.2.2",
+  "salt": "py:plumcraft-text+0.2.2"
  },
  "wire_types": [
   {

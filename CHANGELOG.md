@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.2.2 (2026-11-04)
 
+The crates and the Python text twin are 0.2.2; the Python SDK, `plumcraft-engine` on PyPI, is 0.1.2. Both carry the Windows binding, which an engine needs to run as a process on Windows.
+
+- **One behaviour change:** `plumcraft_engine::serve::endpoint_from_env` (and Python's `serve.endpoint_from_env`) return the locator as given. For `--connect unix:/p` that is `unix:/p`, where it was `/p`. `serve_unix` takes either, and a bare path is still a Unix socket.
 - **PlumCraft builds and runs on Windows** (x86-64; `docs/guide.md`, "Build and test").
   - **An installer** (`PlumCraft-VERSION-windows-x86_64-setup.exe`, Inno Setup) and a zip, from `packaging/windows.sh`. `release.sh --windows-host HOST [--windows-jump JUMP]` builds them on a Windows machine. The installer installs for the user without an administrator, adds a Start menu entry, and optionally a desktop icon and the folder on PATH; the uninstaller removes them. Neither is signed yet.
   - The editor is a windowed app in Windows release builds, so it opens no console. `plumcraft-editor run FILE` prints nothing there; the `plumcraft` command line does.
