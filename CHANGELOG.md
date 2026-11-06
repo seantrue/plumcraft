@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0 (2026-11-06)
+
+The crates and the Python text twin are 0.4.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_session::commands::Hooks` gained a public field.
+
+- **Status bar messages** (#47):
+  - The status bar's messages are chips with a background by severity, in the ordinary text colour, most serious first.
+  - One cut short or left out shows `more…` (`+N more…`).
+  - Clicking it, or a message, opens the Messages window (`view.messages`, View › Messages), with every message in full.
+  - `Hooks::status_tone` says how serious an application's segment is.
+- **Breaking:** a `Hooks { … }` literal without `..Default::default()` needs `status_tone`.
+
 ## 0.3.1 (2026-11-06)
 
 The crates and the Python text twin are 0.3.1; the Python SDK stays 0.1.2. Crates only: no new installers.
