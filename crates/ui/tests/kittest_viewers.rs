@@ -221,3 +221,40 @@ fn tables_show_in_a_table_builder_and_sort_by_a_header_click() {
     tidy(&mut h);
     shot(&mut h, "rows-as-table");
 }
+
+/// An STL file read by Load Files opens in the Mesh viewer (#38): parsed, drawn, turned by a
+/// drag and fitted again by a double-click, with its bytes a tab away.
+#[test]
+fn an_stl_file_shows_as_a_mesh_to_turn() {
+    use plumcraft_proto::mesh::{tetrahedron, write_binary_stl};
+    let dir = plumcraft_scratch::dir("kittest-stl");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("tetra.stl");
+    std::fs::write(&file, write_binary_stl("solid but binary", &tetrahedron())).unwrap();
+    let (mut h, _) = editor();
+    let load = cmd(&mut h, "node.add", json!({"kind": "file.load", "pos": [20.0, 600.0]}))["id"].as_str().unwrap().to_owned();
+    cmd(&mut h, "node.set", json!({"node": load, "port": "file", "value": file.to_string_lossy()}));
+    cmd(&mut h, "run.watch", json!({"node": load}));
+    h.state_mut().start_run_if_enabled();
+    until(&mut h, "the mesh", |s| idle(s) && s.panel_pane.current() == Some("mesh") && s.panel_pane.inspect()["state"]["rendered"].is_array());
+    let state = h.state().panel_pane.inspect()["state"].clone();
+    assert_eq!((state["state"].as_str(), state["triangles"].as_u64(), state["ascii"].as_bool()), (Some("ok"), Some(4), Some(false)), "{state}");
+    assert_eq!(state["bounds"], json!([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0]]));
+    h.get_by_label("Bytes");
+    h.get_by_label_contains("4 triangles · binary · 1 × 1 × 1");
+    shot(&mut h, "stl-mesh");
+    // a drag turns it, a double-click fits it again
+    let yaw = state["camera"]["yaw"].as_f64().unwrap();
+    let at = h.get_by_label_contains("4 triangles").rect().center() + egui::vec2(0.0, 150.0);
+    h.drag_at(at);
+    h.run_steps(1);
+    h.hover_at(at + egui::vec2(60.0, 0.0));
+    h.run_steps(1);
+    h.drop_at(at + egui::vec2(60.0, 0.0));
+    h.run_steps(3);
+    let turned = h.state().panel_pane.inspect()["state"]["camera"]["yaw"].as_f64().unwrap();
+    assert!((turned - yaw).abs() > 0.1, "dragged: {yaw} → {turned}");
+    common::click(&mut h, "Fit");
+    h.run_steps(2);
+    assert_eq!(h.state().panel_pane.inspect()["state"]["camera"]["yaw"].as_f64(), Some(yaw));
+}

@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub mod basic;
 pub mod grid;
+pub mod mesh;
 pub mod pdf;
 pub mod plot;
 pub mod wrap;
@@ -144,6 +145,8 @@ fn builtin() -> Vec<ViewerKind> {
         },
         ViewerKind { id: "svg", label: "SVG", accepts: |d| media_is(d, &[Media::Vector]), make: || Box::new(wrap::Svg::default()), panel_builtin: true },
         ViewerKind { id: "pdf.pages", label: "Pages", accepts: is_pdf, make: || Box::new(pdf::Pages::default()), panel_builtin: false },
+        // an STL file is a mesh to turn and zoom; its bytes stay a tab away (#38)
+        ViewerKind { id: "mesh", label: "Mesh", accepts: mesh::accepts, make: || Box::new(mesh::MeshView::default()), panel_builtin: false },
         ViewerKind { id: "doc", label: "Document", accepts: |d| media_is(d, &[Media::Doc]), make: || Box::new(wrap::Doc::default()), panel_builtin: true },
         // an (N, k) table of positions plots first; its numbers stay a tab away
         ViewerKind { id: "array.plot", label: "Plot", accepts: plot::accepts, make: || Box::new(plot::TablePlot::default()), panel_builtin: false },

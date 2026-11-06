@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — B12: a viewer for STL files (#38) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: Add viewer for STL files", then "yes, both. Be sure to research before writing an STL viewer from scratch :-)". Shown the research, the maintainer chose "Own bounded parser" and, for drawing, asked "Look at SolidCraft ... is there something there?"
+
+**What the AI researched first (a subagent):** nothing ready-made fits egui 0.36 with wgpu. three-d pins egui 0.34 and glow, Bevy is far too big, drew-sim draws wireframe only. Among the parsers, stl_io is maintained and doesn't pre-allocate from the count, but it has no triangle cap and reads a binary file whose header starts with `solid` as bad ASCII. Drawing straight into egui's render pass would need a depth buffer that egui_kittest's renderer doesn't have. The subagent missed that SolidCraft is open source; the maintainer's question found it. SolidCraft (MIT OR Apache-2.0, not on crates.io, built on git dependencies, so not a dependency a published crate can have) has a bounded `read_stl` and a CPU z-buffer rasteriser for its headless pictures. The AI adapted both.
+
+**What the AI built:**
+
+- `crates/proto/src/mesh.rs` (243 lines with tests): binary when the size is exactly what the count says, else ASCII when it starts with `solid` and has facets; tokens rather than lines, so CRLF and odd layouts read; caps of 256 MB and 5 million triangles; nothing reserved past what the bytes hold; non-finite or absurd vertices drop their triangle. In the hostile sweep (`stl_files_never_panic`: every truncation, seven byte values at every offset, a count of 2³²−1, over the cap both ways).
+- `crates/ui/src/viewers/mesh.rs` (459 lines with tests): the `mesh` viewer, ahead of Bytes for values typed `model/stl` (and older names). It is orthographic and Z-up, flat-shaded two-sided, because STL windings are often wrong. Pictures are drawn at 2× and averaged down, or at 1× while being turned. Parsing and drawing run on worker threads, one picture at a time. The body is the theme's plum. `ui.inspect` reports triangles, bounds, `ascii`, `dropped` and the camera.
+- Tests: unit tests for both (round trips, `solid` headers, wrong counts, bad vertices, the nearer face winning whatever the order, degenerate and huge input); kittest `an_stl_file_shows_as_a_mesh_to_turn` (Load Files → Mesh tab, drag turns it, Fit restores it).
+- Checked in the real editor with `claude-debug/stl_viewer_probe.py`, which runs on files from `claude-debug/make_torus_stl.py`; the torus picture is in `docs/guide.md`. `THIRD-PARTY.md` carries SolidCraft's MIT notice.
+- **Not done:** `MeshLod` renditions for large meshes; OBJ, 3MF and glTF.
+
+**Defect, caught before commit:** the first colour, the theme's accent (dark navy), made the mesh too dark to read; the plum group colour and more ambient light replaced it after a screenshot.
+
 ### 2026-11-05 — Faster CI: two jobs, nextest, cached apt and uv (Claude Opus 5.5)
 
 **What the maintainer asked:** "Gate tests take a long time on github. How can we shorten that?", then "Yes. Do those things."
