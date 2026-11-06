@@ -18,7 +18,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-05
 - Report: "No installer for x86 arch on Mac"
 - Context: releases carry only `PlumCraft-VERSION-macos-arm64.dmg`, as `packaging/release.sh` builds this machine's architecture. On 2026-11-05 `packaging/macos.sh` gained `CARGO_BUILD_TARGET=x86_64-apple-darwin` (uncommitted) and a test `PlumCraft-0.2.2-macos-x86_64.dmg` was built from the working tree, but it was never run on an Intel Mac and `release.sh` doesn't build or upload it.
-- Fixed: 2026-11-05, branch `fix/23-intel-mac-dmg`. `release.sh` on a Mac builds both DMGs (`arm64` in `target/release`, `x86_64` with `CARGO_BUILD_TARGET`), checks both Rust targets are installed before building, and checksums and uploads both. `macos.sh` checks every binary's architecture with `lipo` and runs the Intel CLI when Rosetta 2 is installed. Both 0.2.3 DMGs built, signed and verified on the M4 Max. **Not yet run on an Intel Mac** (this Mac has no Rosetta 2).
+- Fixed: 2026-11-05, PR #41. `release.sh` on a Mac builds both DMGs (`arm64` in `target/release`, `x86_64` with `CARGO_BUILD_TARGET`), checks both Rust targets are installed before building, and checksums and uploads both. `macos.sh` checks every binary's architecture with `lipo` and runs the Intel CLI when Rosetta 2 is installed. Both 0.2.3 DMGs built, signed and verified on the M4 Max. **Not yet run on an Intel Mac** (this Mac has no Rosetta 2).
 - Issue: #23
 
 ### B12. No viewer for STL files
