@@ -44,6 +44,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 - **Tests:** the hostile test changed to refuse `ANY` only as a `to`, and a new test covers the last resort.
 - **Checked:** the headless editor ran Word count → Convert → Bytes as Array and gave `[51]`.
 - **Docs:** interface.md and `20-convert.md` 6.7.
+### 2026-11-06 — B14 (#49): a port's value on hover, and click to watch (Claude Opus 5.5)
+
+**What the maintainer asked:** "ports should hover reveal the available value even if no wire is connected, click should watch the port value" (B14), then "Do B14, B15".
+
+**What the AI did:**
+
+- **`canvas.rs`** (~90 LOC): `port_at` finds the pin under the pointer from the pins' drawn positions. An output gives itself; a wired input gives its source. A port is hovered before a wire, since a pin sits on its node's edge, and an output's name counts as hovered too. A click on a pin, or on an output's name, runs `run.watch`. `pin_screen` is for tests.
+- **`wire_view.rs`:** the preview takes an optional input. A port on its own is titled `node.port`, with "click: watch".
+- **Test** (~35 LOC): an unwired output's value peeked and previewed; a click that watches it and makes no wire; a wired input previewing its source.
+- **Docs:** guide, control-protocol, STATUS, BUGS.
+
+**Seen, not changed:** in the test's GPU render, the preview's first line (the port's name) is hard to read on the dark tooltip. Wire previews already had this.
 
 ### 2026-11-06 — No CI for bookkeeping Markdown; bugs B14, B15 (Claude Opus 5.5)
 
