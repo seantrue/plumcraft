@@ -1,5 +1,6 @@
 //! Files, channels and stacks (the research software's Arrays and Utilities groups): Load Image, Encode
-//! Image, Split, Pick Channel, Stack, Constant, Frame, Crop to Multiple.
+//! Image, Split, Pick Channel, Stack, Constant, Frame, Crop to Multiple; and any value as bytes,
+//! read back as an array ([`bytes`]: To Bytes, Slice, Bytes as Array).
 //!
 //! Picture files are read and written with the `image` crate. Encode Image makes an encoded
 //! picture (an `IMAGE` blob) that Write Files saves, so file naming and overwrite rules are the
@@ -14,6 +15,7 @@ use plumcraft_proto::error::NodeError;
 
 use crate::img::Img;
 
+pub mod bytes;
 mod contours;
 mod pdf;
 mod svg;
@@ -207,7 +209,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
     ];
     // SVG beside the encoded pictures: after Load, Decode and Encode Image
     let at = v.iter().position(|n| n.def().id == "array.encode_image").map_or(v.len(), |i| i + 1);
-    v.splice(at..at, svg::nodes().into_iter().chain(pdf::nodes()).chain(video::nodes()).chain(contours::nodes()));
+    v.splice(at..at, svg::nodes().into_iter().chain(pdf::nodes()).chain(video::nodes()).chain(contours::nodes()).chain(bytes::nodes()));
     v
 }
 

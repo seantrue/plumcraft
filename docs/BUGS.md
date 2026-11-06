@@ -26,14 +26,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the node canvas (`crates/ui/src/canvas.rs`), seen while working in PlumPipe's window on PlumCraft 0.4.0. Today a node's output is watched by clicking the node's title, which watches its default output (`run.watch {node, port?}`).
 - Issue: #49
 
+## Fixed
+
 ### B15. Not every value can be turned into an array; a binary file can't be cut and reshaped
 
 - Reported: 2026-11-06
 - Report: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape."
 - Context: core types and Convert (`core.convert`, `docs/research/20-convert.md`), and the array engine (`crates/array`). The chain asked for is any value → its bytes as a 1-D `uint8` ARRAY → a slice (to cut a binary file short) → a reinterpretation as an array of a chosen dtype and shape.
 - Issue: #50
-
-## Fixed
+- Fixed: 2026-11-06, branch `fix/50-bytes-as-array`
 
 ### B2. No installer for Intel (x86_64) Macs
 

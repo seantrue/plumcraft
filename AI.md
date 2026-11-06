@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — B15 (#50): To Bytes, Slice, Bytes as Array (Claude Opus 5.5)
+
+**What the maintainer asked:** "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape" (B15), then "Do B14, B15".
+
+**What the AI did:**
+
+- **`crates/array/src/channels/bytes.rs`** (~220 LOC, new):
+  - **To Bytes** takes any value (an ANY input) to `|u1` bytes, with a rule per kind of value.
+  - **Slice** cuts the first axis with Python's semantics; stop 0 is the end.
+  - **Bytes as Array** reads 11 dtypes, little- or big-endian, into a shape with one free side. Extra bytes are an error or dropped.
+  - **Limits:** inputs are capped at 1 GiB, and every size uses checked arithmetic.
+- **Tests:** `crates/array/tests/bytes.rs` (5, ~130 LOC), including hostile settings.
+- **Docs:** STATUS, BUGS.
+
+**Checked:** the gate, and `plumcraft-editor run` on a raw float32 picture behind a header and junk. It came out as a PNG, exact at its corners.
+
+**Defect in AI-written work, caught by its test:** the file test first expected 12 uint16s from a 19-byte file. The code was right, 9, and the test's arithmetic was wrong.
+
+**Left for the maintainer:** making every type reach ARRAY through Convert would mean letting Convert use an `ANY` mark, which it refuses by design today.
+
 ### 2026-11-06 — No CI for bookkeeping Markdown; bugs B14, B15 (Claude Opus 5.5)
 
 **What the maintainer asked:** "Pushing BUGS.md should not require a CI cycle", then "CPM". Before that, two bug reports, each with "yes, file it".

@@ -4,6 +4,18 @@
 
 ## Where things stand
 
+- **B15 (#50): any value as bytes, sliced and read as an array (2026-11-06, branch `fix/50-bytes-as-array`).** The maintainer: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape", then "Do B14, B15". The array engine gains three nodes (`crates/array/src/channels/bytes.rs`), in a new palette group, Array › Bytes:
+  - **To Bytes** (`array.to_bytes`): any value (an ANY input) → a 1-D `|u1` array of its bytes. An array gives its stored numbers, a sound its `<f4` samples, a file or encoded value its bytes, text its UTF-8, other JSON its text. At most 1 GiB.
+  - **Slice** (`array.slice`): any array along its first axis, as `a[start:stop:step]`, with stop 0 as the end.
+  - **Bytes as Array** (`array.from_bytes`): the bytes read as one of 11 dtypes, little- or big-endian, in a shape (`480, 640, 3`, one side may be `-1`). Extra bytes are an error, or dropped.
+  - **Tests:** `crates/array/tests/bytes.rs` (5):
+    - Python's slice rules;
+    - shapes;
+    - a binary file with a header and junk, read as big-endian int16 (2 × 3);
+    - an array going round through its bytes;
+    - hostile settings.
+  - **Checked end to end** with `plumcraft-editor run`: a raw float32 picture behind a header became a PNG, exact at its corners (`claude-debug/b15/`).
+  - **Not done:** a Convert path from every type through bytes. Convert refuses `ANY` marks by design (`a_mark_that_lies_is_ignored`), and lifting that is a decision for the maintainer.
 - **No CI for the bookkeeping Markdown (2026-11-06, branch `ci-skip-bookkeeping`).** The maintainer: "Pushing BUGS.md should not require a CI cycle".
   - `ci.yml` ignores pushes to `main` that touch only `docs/BUGS.md`, `docs/STATUS.md`, `AI.md`, `CHANGELOG.md` or `ROADMAP.md`. No code reads them.
   - A pull request can't simply ignore paths, because branch protection waits for `gate` and `python`. Instead a `changes` job diffs the PR, and when only those files changed, both jobs are skipped, which counts as passing.
