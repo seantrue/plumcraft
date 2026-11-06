@@ -4,7 +4,20 @@
 
 ## Where things stand
 
-- **B16 (#54): anything tabular to a Table (2026-11-06, branch `fix/54-tabular-to-table`).** The maintainer: "anything tabular should be convertible to a TABLE (csv, grid objects, etc)", then "Do B16".
+- **Craft apps' new parameters in the packs (2026-11-06, branch `craft-baselines`).** The maintainer installed the latest *Craft apps: "check base lines for all", then "Edit the packs to add the parameters".
+  - **The craft suite** ran against all 13 apps (`PLUMCRAFT_CORGI` set): 118 tests pass. The only change was four node commands whose apps gained parameters.
+  - **New settings:**
+    - PhotoCraft Image size: `units` (px or pt) and `scaleStyles`.
+    - SoundCraft Instrument track: `rows`, for more tracks at once.
+    - VectorCraft Recolor: Global Adjust's saturation, brightness, temperature and luminosity, sent `into = "globalAdjust"`.
+    - VectorCraft Stroke: `aligned`.
+  - **Checked against the apps** (`claude-debug/baselines/`):
+    - 150 pt at 144 ppi exported 300 px;
+    - `rows` made two tracks;
+    - saturation −60 and temperature +40 desaturated and warmed the recoloured fills;
+    - Stroke with `aligned` applied.
+  - **Left hidden:** Stroke's `widthPoints` and `gradientMode`. VectorCraft ignores them in `stroke.set` (they exist so `document.inspect` output reads back), so they are now in the coverage baseline.
+- **B16 (#54): anything tabular to a Table (2026-11-06, #55).** The maintainer: "anything tabular should be convertible to a TABLE (csv, grid objects, etc)", then "Do B16".
   - **Already working:** CSV files, CSV text, series arrays and GridCraft workbooks (Export CSV → CSV to Table) reached TABLE.
   - **JSON to Table and Table to JSON:** new in the text engine (`pairs.rs`) and its Python twin. JSON to Table reads rows, records, a columns object or a table, typed by its values. Before, JSON went through Text and was parsed as CSV.
   - **Separators:** CSV readers take a tab or a semicolon as the separator when the first line has no comma (`files::separator`, and its Python twin).

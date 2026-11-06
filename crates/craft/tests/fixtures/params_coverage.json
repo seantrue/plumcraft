@@ -296,7 +296,7 @@
     "vc.rotate object.rotate": ["absolute","ids","objects","patterns","typeAreas"],
     "vc.scale object.scale": ["ids","objects","patterns","typeAreas"],
     "vc.simplify object.path.simplify": [],
-    "vc.stroke stroke.set": ["alignDashes","arrowAlign","dashOffset","endArrow","id","ids","item","miterLimit","profile","startArrow","target"],
+    "vc.stroke stroke.set": ["alignDashes","arrowAlign","dashOffset","endArrow","gradientMode","id","ids","item","miterLimit","profile","startArrow","target","widthPoints"],
     "vc.trace imageTrace.makeAndExpand": ["id","ids","savedPreset","view"]
   },
   "wordcraft": {
