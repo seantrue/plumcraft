@@ -3050,6 +3050,7 @@ dependencies = [
  "md-5",
  "plumcraft-engine",
  "plumcraft-graph",
+ "plumcraft-host",
  "plumcraft-layout",
  "plumcraft-proto",
  "plumcraft-scratch",

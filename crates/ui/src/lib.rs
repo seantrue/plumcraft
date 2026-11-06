@@ -37,6 +37,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod about_view;
+pub mod app_hooks;
 pub mod appearance;
 pub mod array_view;
 pub mod audio;
@@ -100,6 +101,15 @@ use crate::link::Link;
 use crate::run_view::Thumbs;
 use crate::theme::Tokens;
 use crate::watched::Watched;
+
+/// The Watched panel's display: the application's value for the watched node
+/// ([`app_hooks`]), else the run's.
+fn panel_display<'a>(
+    app: &'a Option<plumcraft_proto::display::Display>,
+    run: &'a plumcraft_session::RunState,
+) -> Option<&'a plumcraft_proto::display::Display> {
+    app.as_ref().or_else(|| run.panel().and_then(|(_, d)| d))
+}
 
 /// The window title's app name.
 pub const APP_TITLE: &str = "PlumCraft";
@@ -394,6 +404,11 @@ pub struct EditorApp {
     pub convert_offer: Option<(Value, String)>,
     /// The engine connection, when one was started.
     pub link: Option<Link>,
+    /// What the application's hooks show this frame ([`app_hooks`]).
+    pub app: app_hooks::AppShown,
+    /// The Watched panel's display of the application's value for the watched node, which
+    /// takes the place of the run's ([`app_hooks::AppShown::display`]).
+    app_display: Option<plumcraft_proto::display::Display>,
     /// With engines added beside the first: the coordinator the link goes through
     /// ([`engine_view`]).
     pub coordinator: Option<std::sync::Arc<plumcraft_coordinator::Coordinator>>,
@@ -490,6 +505,8 @@ impl EditorApp {
             last_error: None,
             convert_offer: None,
             link: None,
+            app: app_hooks::AppShown::default(),
+            app_display: None,
             coordinator: None,
             engine: EngineState::Off,
             watched: Watched::default(),
@@ -542,7 +559,16 @@ impl EditorApp {
         let conn = std::sync::Arc::clone(&link.conn);
         self.session.docs.resolver = Some(std::sync::Arc::new(move |r: &DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
         self.link = Some(link);
+        self.share_connection();
         self
+    }
+
+    /// Hand the link's connection to the session, for the application's commands
+    /// ([`plumcraft_session::Session::connection`]); none without a link. Called wherever the link
+    /// is set or dropped, and every frame.
+    pub(crate) fn share_connection(&mut self) {
+        let conn = self.link.as_ref().map(|l| std::sync::Arc::clone(&l.conn));
+        self.session.set_connection(conn);
     }
 
     /// What the session knows of the engine's state.
@@ -1252,6 +1278,7 @@ impl EditorApp {
 
     /// Engine housekeeping, every frame: the engine's state, its events into the session.
     pub fn drain_engine(&mut self) {
+        self.share_connection();
         let Some(link) = &self.link else {
             self.session.connected = false;
             self.session.docs.resolver = None;
@@ -1335,14 +1362,14 @@ impl EditorApp {
         self.pump_saves(ctx);
         let resolve = self.resolver();
         let full = self.full_reader();
-        let display = self.session.run.panel().and_then(|(_, d)| d);
+        let display = panel_display(&self.app_display, &self.session.run);
         if self.watched.update(display, &full) {
             self.rerun_pending = true;
         }
         self.audio.sync(display, self.watched.full.as_deref());
         self.sync_media(ctx);
         let offered = plumcraft_session::run_cmds::offered_views(&self.session);
-        let panel_display = self.session.run.panel().and_then(|(_, d)| d).cloned();
+        let panel_display = panel_display(&self.app_display, &self.session.run).cloned();
         self.panel_pane.chosen.clone_from(&self.session.views.panel_viewer);
         self.panel_pane.sync(ctx, panel_display.as_ref(), offered, &mut self.thumbs, &resolve, &full, Default::default());
         self.sync_compare(ctx);
@@ -1382,7 +1409,7 @@ impl EditorApp {
     /// the document view's "Open in …" (enabled, or disabled with why).
     fn sync_media(&mut self, ctx: &egui::Context) {
         let resolve = self.resolver();
-        let display = self.session.run.panel().and_then(|(_, d)| d);
+        let display = panel_display(&self.app_display, &self.session.run);
         // (an array's pictures are the viewer's, below: a second texture of one would be 48 MB)
         let rendition = display.filter(|d| d.media != plumcraft_proto::catalogue::Media::Ndarray).and_then(|d| {
             d.renditions.iter().find_map(|r| match r {
@@ -1398,7 +1425,7 @@ impl EditorApp {
         let to_media = if comparing { Tools { zoom: None, ..tools } } else { tools };
         self.media.image.tools.take(to_media);
         self.media.array.tools.take(to_media);
-        let display = self.session.run.panel().and_then(|(_, d)| d);
+        let display = panel_display(&self.app_display, &self.session.run);
         self.media.sync(ctx, display, self.watched.full.as_ref(), rendition.as_ref());
         // An array: every picture of its view, captioned, and the views its wire type offers.
         let pictures: Vec<(String, egui::TextureHandle)> = display
@@ -1663,6 +1690,11 @@ impl EditorApp {
                 ui.colored_label(self.tokens.error, if errors == 1 { "1 error".to_owned() } else { format!("{errors} errors") })
                     .on_hover_text(names.join(", "));
             }
+            // the application's own segment (crate::app_hooks)
+            if let Some(text) = &self.app.status {
+                ui.separator();
+                ui.colored_label(self.tokens.text, text);
+            }
             if let Some(e) = &run.run_error {
                 ui.colored_label(self.tokens.error, e);
             }
@@ -1715,7 +1747,7 @@ impl EditorApp {
         let frame = egui::Frame::new().fill(self.tokens.panel).inner_margin(egui::Margin::same(8));
         let asks = egui::Panel::right("plumcraft-watched").resizable(true).default_size(340.0).min_size(220.0).frame(frame).show(ui, |ui| {
             let run = &self.session.run;
-            let (w, panel_display) = run.panel().map_or((None, None), |(w, d)| (Some(w), d));
+            let (w, panel_display) = run.panel().map_or((None, None), |(w, d)| (Some(w), self.app_display.as_ref().or(d)));
             let note = match &self.session.docs.last_value {
                 Some(Ok(o)) if w.is_some_and(|w| o.node == w.node && o.port == w.port) => Some(format!("opened a copy in {}: {}", o.app, o.path.display())),
                 Some(Err(e)) => Some(e.clone()),
@@ -1747,6 +1779,16 @@ impl EditorApp {
             && let Some(w) = self.session.run.panel().map(|(w, _)| w.clone())
         {
             self.run("doc.open", &json!({"node": w.node, "port": w.port}));
+        }
+    }
+
+    /// Read what the application's hooks show this frame ([`app_hooks`]), and repaint soon
+    /// while they show anything.
+    fn read_app_hooks(&mut self, ctx: &egui::Context) {
+        self.app = app_hooks::AppShown::read();
+        self.app_display = self.session.run.panel().and_then(|(w, _)| self.app.display(w, self.session.graph(), self.session.catalog()));
+        if self.app.any {
+            ctx.request_repaint_after(app_hooks::REPAINT);
         }
     }
 
@@ -1783,6 +1825,7 @@ impl EditorApp {
             ctx.copy_text(text.clone());
             self.copied = Some(text);
         }
+        self.read_app_hooks(&ctx);
         self.drain_engine();
         self.edit_input(&ctx);
         self.shortcuts(&ctx);
@@ -1801,6 +1844,7 @@ impl EditorApp {
             resolve: &resolve,
             docs: &self.session.docs.apps,
             recent_apps: &self.session.docs.recent_apps,
+            app_text: &self.app.texts,
         };
         let actions = egui::CentralPanel::default()
             .frame(frame)

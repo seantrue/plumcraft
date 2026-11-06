@@ -20,6 +20,31 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Hooks for an application of the editor (Claude Opus 5.5)
+
+**What the maintainer asked:** an application built on the editor's crates needed to run its own work on the window's engines and show it. The AI proposed four generic hooks; the maintainer: "Build H1–H4 in PlumCraft", then "Commit, merge plumcraft".
+
+**What the AI did:** four additive hooks, none naming what an application uses them for. A subagent wrote them; the main session reviewed the diff and used them from the application in the real window.
+
+- **H1, the window's engines for commands:** `Session::connection()`, set by the editor wherever it links or drops an engine, and cleared before an engine is stopped.
+- **H2, application overlays on nodes:** `Hooks::node_overlays`. Text goes in the node's footer, and a value goes to the Watched panel in place of the run's.
+- **H3, marks on wires:** `Hooks::wire_marks`. A label with a theme tone and a tooltip, at the wire's midpoint.
+- **H4, a status-bar segment:** `Hooks::status`.
+- **The editor side:** `crates/ui/src/app_hooks.rs` reads the hooks once a frame and repaints every 100 ms while they show anything.
+- **Size:** about 395 LOC of code (session ~105, UI ~290 with `app_hooks.rs`, which holds a unit test) and 245 of tests: a session unit test and two integration tests, a UI unit test, and five kittests (footer text, wire label, status segment, Watched panel, a real in-process engine linked and unlinked).
+- **Gate:** the full workspace, 1,175 Rust tests; clippy and fmt clean.
+
+**Defects in AI-written code, and how each was caught:**
+
+- **A wire label wrapped onto two lines.** Caught by the subagent looking at its own screenshot.
+- **Two field types were too complex for clippy;** they got type aliases.
+- **An application using H1 ran workflows awaiting the trust review.** That bug was in the application, not here: `Session::review().pending` is the check it now makes. Caught by a screenshot of the application's window.
+
+**Left for review:**
+
+- **A breaking construction for existing hook literals:** an application that builds `Hooks { before, after, hold_runs }` without `..Default::default()` must add it.
+- **A connection may outlive its engine by a frame:** `forget_runs` leaves the document resolver holding the old connection until the next frame, so an old engine may stop one frame late.
+
 ### 2026-11-05 — Release 0.2.4, and commonkit 0.1.1 first (Claude Opus 5.5)
 
 **What the maintainer asked:**

@@ -1,7 +1,8 @@
 //! The command registry, lifted from the research software's `crates/engine/src/commands.rs` (itself modelled
 //! on photocraft's).
 
-use plumcraft_graph::{GroupId, NodeId, PortRef};
+use plumcraft_graph::{Graph, GroupId, NodeId, PortRef};
+use plumcraft_proto::PortValue;
 use serde_json::{Value, json};
 
 use crate::{Result, Session, SessionError};
@@ -45,6 +46,63 @@ pub struct Hooks {
     pub after: Option<fn(&str, &Session)>,
     /// True while no run or save may go to an engine yet: they wait in their outboxes.
     pub hold_runs: Option<fn() -> bool>,
+    /// What the application shows on nodes, outside any run: a line in the node's footer and a
+    /// value for the Watched panel ([`Overlay`]). Read every frame while the canvas draws, so
+    /// keep it cheap; the editor repaints a few times a second while there are any.
+    pub node_overlays: Option<NodeOverlays>,
+    /// Marks on wires, by the input each wire goes into ([`WireMark`]). Read every frame.
+    pub wire_marks: Option<WireMarks>,
+    /// A segment of the application's own in the status bar. Read every frame.
+    pub status: Option<fn() -> Option<String>>,
+}
+
+/// [`Hooks::node_overlays`]: each node's [`Overlay`].
+pub type NodeOverlays = fn() -> Vec<(NodeId, Overlay)>;
+
+/// [`Hooks::wire_marks`]: a [`WireMark`] by the input its wire goes into.
+pub type WireMarks = fn(&Graph) -> Vec<(PortRef, WireMark)>;
+
+/// What an application shows on one node, outside any run ([`Hooks::node_overlays`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Overlay {
+    /// Drawn in the node's footer, under what a run put there.
+    pub text: Option<String>,
+    /// Shown by the Watched panel's viewers while the node is watched, in place of the run's
+    /// value: the application's is the newer. `None` leaves the panel to the run.
+    pub value: Option<PortValue>,
+}
+
+/// How a [`WireMark`] is drawn: its outline takes the theme's accent, warning or error colour.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Tone {
+    #[default]
+    Info,
+    Warn,
+    Error,
+}
+
+/// A short label an application draws on a wire ([`Hooks::wire_marks`]).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct WireMark {
+    pub label: String,
+    pub tone: Tone,
+    /// Shown on hover.
+    pub tooltip: Option<String>,
+}
+
+/// The application's node overlays (none without the hook).
+pub fn node_overlays() -> Vec<(NodeId, Overlay)> {
+    hooks().node_overlays.map(|f| f()).unwrap_or_default()
+}
+
+/// The application's marks on `graph`'s wires (none without the hook).
+pub fn wire_marks(graph: &Graph) -> Vec<(PortRef, WireMark)> {
+    hooks().wire_marks.map(|f| f(graph)).unwrap_or_default()
+}
+
+/// The application's status bar segment (none without the hook, or when it has nothing to say).
+pub fn app_status() -> Option<String> {
+    hooks().status.and_then(|f| f()).filter(|s| !s.is_empty())
 }
 
 static HOOKS: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();
@@ -199,6 +257,19 @@ pub(crate) fn pos_param(p: &Value, key: &str) -> Result<Option<[f32; 2]>> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn hooks_default_to_none_and_say_nothing() {
+        // (no test in this binary sets the hooks)
+        let h = Hooks::default();
+        assert!(h.before.is_none() && h.after.is_none() && h.hold_runs.is_none());
+        assert!(h.node_overlays.is_none() && h.wire_marks.is_none() && h.status.is_none());
+        assert!(node_overlays().is_empty());
+        assert!(wire_marks(&Graph::new()).is_empty());
+        assert_eq!(app_status(), None);
+        assert_eq!(Overlay::default(), Overlay { text: None, value: None });
+        assert_eq!(WireMark::default().tone, Tone::Info);
+    }
 
     #[test]
     fn pos_param_rejects_junk() {
