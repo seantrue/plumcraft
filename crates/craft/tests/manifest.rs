@@ -1,6 +1,6 @@
 //! Manifests: the built-in packs parse, and malformed or hostile ones are errors, never panics.
 
-use plumcraft_craft::manifest::{Kind, Manifest, builtin};
+use plumcraft_craft::manifest::{Kind, Manifest, builtin, choose_among, fits, version_parts};
 
 #[test]
 fn the_built_in_packs_parse() {
@@ -115,4 +115,71 @@ fn the_vectorcraft_pack_names_its_app_and_a_demo() {
     let kinds: Vec<&str> = demo["nodes"].as_object().unwrap().values().map(|n| n["kind"].as_str().unwrap()).collect();
     assert!(kinds.iter().all(|k| vc.nodes.iter().any(|n| n.id == *k)), "{kinds:?}");
     assert!(plumcraft_craft::manifest::demo("nosuchcraft").is_none());
+}
+
+// ---------- B17 (#56): packs versioned against their app ----------
+
+#[test]
+fn versions_read_and_requirements_match() {
+    assert_eq!(version_parts("0.20.2"), Some(vec![0, 20, 2]));
+    assert_eq!(version_parts("0.21.0-beta.3"), Some(vec![0, 21, 0]));
+    assert_eq!(version_parts("v1"), None);
+    assert!(fits(">=0.20.2", "0.20.2").unwrap());
+    assert!(fits(">=0.20.2", "0.21").unwrap());
+    assert!(!fits(">=0.20.2", "0.20.1").unwrap());
+    assert!(fits(">=0.20, <0.21", "0.20.9").unwrap());
+    assert!(!fits(">=0.20, <0.21", "0.21.0").unwrap());
+    assert!(fits("=0.20", "0.20.7").unwrap(), "= takes the components given");
+    assert!(!fits("=0.20.1", "0.20").unwrap());
+    assert!(!fits(">=0.1", "unknown").unwrap(), "a version that doesn't read meets nothing");
+    for bad in ["0.20", "~0.2", ">=", ">=x", &">=1,".repeat(20)] {
+        assert!(fits(bad, "1.0").is_err(), "{bad:?}");
+    }
+}
+
+/// The SoundCraft pack, with another version and range.
+fn pack(version: &str, apps: &str) -> String {
+    plumcraft_craft::manifest::SOUNDCRAFT
+        .replace("pack_version = \"1\"", &format!("pack_version = \"{version}\""))
+        .replace("app_versions = \">=0.17.1\"", &format!("app_versions = \"{apps}\""))
+}
+
+#[test]
+fn the_newest_pack_that_fits_the_app_is_chosen() {
+    let mut newest = Manifest::parse(&pack("3", ">=2.0")).unwrap();
+    newest.builtin = true;
+    let (old, older) = (pack("2", ">=1.5, <2.0"), pack("1", "<1.5"));
+    let variants = [("soundcraft", old.as_str()), ("soundcraft", older.as_str()), ("other", "id = \"other\"")];
+    let pick = |v: &str| {
+        let (m, w) = choose_among(&newest, &variants, v);
+        (m.pack_version, w.is_some())
+    };
+    assert_eq!(pick("2.3.1"), ("3".into(), false));
+    assert_eq!(pick("1.7"), ("2".into(), false));
+    assert_eq!(pick("1.0"), ("1".into(), false));
+    // a version none fits: the newest, with a warning
+    let (m, w) = choose_among(&Manifest::parse(&pack("3", ">=2.0, <3")).unwrap(), &[], "4.0");
+    assert_eq!(m.pack_version, "3");
+    assert!(w.unwrap().contains("SoundCraft 4.0 isn't a version its pack (pack 3) was made for (>=2.0, <3)"));
+    // a manifest that isn't built in is never swapped
+    let file = Manifest::parse(&pack("3", ">=2.0")).unwrap();
+    assert_eq!(choose_among(&file, &variants, "1.7").0.pack_version, "3");
+}
+
+#[test]
+fn a_bad_pack_version_or_range_is_refused() {
+    assert!(Manifest::parse(&pack("one", ">=1")).unwrap_err().contains("pack_version"));
+    assert!(Manifest::parse(&pack("1", "about 1")).unwrap_err().contains("app_versions"));
+    // without either: version 1, any app
+    let m = Manifest::parse(&plumcraft_craft::manifest::SOUNDCRAFT.replace("pack_version = \"1\"\n", "").replace("app_versions = \">=0.17.1\"\n", "")).unwrap();
+    assert_eq!((m.pack_version.as_str(), m.app_versions.as_deref()), ("1", None));
+}
+
+#[test]
+fn every_built_in_pack_says_its_version_and_the_apps_it_fits() {
+    for id in plumcraft_craft::manifest::BUILTIN {
+        let m = plumcraft_craft::manifest::builtin(id).unwrap().unwrap();
+        assert!(m.builtin, "{id}");
+        assert!(m.app_versions.is_some(), "{id}: no app_versions");
+    }
 }

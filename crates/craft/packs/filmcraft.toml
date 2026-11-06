@@ -13,6 +13,9 @@
 
 id = "filmcraft"
 name = "FilmCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.17.1"
 command = ["filmcraft-cli", "mcp"]
 hint = "install filmcraft-cli on PATH (https://github.com/storytold/filmcraft)"
 timeout_s = 600

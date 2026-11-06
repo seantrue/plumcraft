@@ -12,6 +12,9 @@
 
 id = "gridcraft"
 name = "GridCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.16.1"
 command = ["gridcraft-cli", "mcp"]
 hint = "install gridcraft-cli on PATH (https://github.com/storytold/gridcraft)"
 timeout_s = 300

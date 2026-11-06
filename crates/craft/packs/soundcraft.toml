@@ -11,6 +11,9 @@
 
 id = "soundcraft"
 name = "SoundCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.17.1"
 command = ["soundcraft-cli", "mcp"]
 hint = "install soundcraft-cli on PATH (https://github.com/storytold/soundcraft)"
 timeout_s = 120

@@ -1,6 +1,7 @@
 //! Builds the table of built-in packs from `packs/`: every `<id>.toml` is a pack, and
-//! `<id>-demo.json` beside it, when present, is its demo workflow. Adding a craft is adding its
-//! files; no Rust changes.
+//! `<id>-demo.json` beside it, when present, is its demo workflow. `<id>@<tag>.toml` is another
+//! pack for the same app, for other versions of it (B17, #56: `manifest::choose`). Adding a
+//! craft is adding its files; no Rust changes.
 
 use std::fmt::Write as _;
 use std::path::Path;
@@ -17,12 +18,13 @@ fn main() {
         .map(|rd| {
             rd.filter_map(Result::ok)
                 .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".toml")).map(str::to_owned))
-                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'))
+                .filter(|id| !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'@' | b'.')))
                 .collect()
         })
         .unwrap_or_default();
     ids.sort();
     let mut out = String::from("/// The built-in packs from `packs/`: (id, manifest, demo workflow).\npub const PACKS: &[(&str, &str, Option<&str>)] = &[\n");
+    let (variants, ids): (Vec<String>, Vec<String>) = ids.into_iter().partition(|id| id.contains('@'));
     for id in &ids {
         let toml = dir.join(format!("{id}.toml"));
         let demo = dir.join(format!("{id}-demo.json"));
@@ -30,6 +32,14 @@ fn main() {
         println!("cargo:rerun-if-changed={}", demo.display());
         let demo = if demo.is_file() { format!("Some(include_str!({:?}))", demo.display().to_string()) } else { "None".to_owned() };
         let _ = writeln!(out, "    ({id:?}, include_str!({:?}), {demo}),", toml.display().to_string());
+    }
+    out.push_str("];\n");
+    out.push_str("/// The other built-in packs, for other versions of an app: (id, manifest).\npub const VARIANTS: &[(&str, &str)] = &[\n");
+    for v in &variants {
+        let toml = dir.join(format!("{v}.toml"));
+        println!("cargo:rerun-if-changed={}", toml.display());
+        let id = v.split('@').next().unwrap_or_default();
+        let _ = writeln!(out, "    ({id:?}, include_str!({:?})),", toml.display().to_string());
     }
     out.push_str("];\n");
     let dest = Path::new(&std::env::var("OUT_DIR").unwrap_or_default()).join("packs.rs");

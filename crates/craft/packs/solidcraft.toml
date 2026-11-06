@@ -15,6 +15,9 @@
 
 id = "solidcraft"
 name = "SolidCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.30.1"
 command = ["solidcraft-cli", "mcp"]
 hint = "install solidcraft-cli on PATH"
 timeout_s = 600

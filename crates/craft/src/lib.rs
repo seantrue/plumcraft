@@ -80,6 +80,8 @@ pub struct Report {
     /// Nodes not listed, with why: excluded by the manifest, or failing the catalogue check.
     pub dropped: Vec<(String, String)>,
     pub server_version: String,
+    /// The pack's version (B17), and the app versions it was made for.
+    pub pack_version: String,
     pub salt: String,
     /// The craft's command catalogue: id → params description.
     pub commands: BTreeMap<String, String>,
@@ -115,6 +117,16 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
     let exe_digest = exe_digest(&exe, &root)?;
     let pool = Pool::new(Launch::new(manifest, cas.read_root(), cas.write_root()));
     let (catalogue, server_version) = read_catalogue(manifest, &pool)?;
+    // The pack for this version of the app (B17, #56): another built-in one may fit it better.
+    let (chosen, misfit) = manifest::choose(manifest, &server_version);
+    if chosen.pack_version != manifest.pack_version || chosen.app_versions != manifest.app_versions {
+        drop(pool);
+        let chosen = Manifest { builtin: false, ..chosen };
+        return build(&chosen, opts);
+    }
+    if let Some(w) = &misfit {
+        eprintln!("plumcraft-craft: {w}");
+    }
     let manifest_digest = plumcraft_proto::Handle::md5_raw(format!("{manifest:?}").as_bytes());
     let salt = plumcraft_engine::salt(
         &format!("craft:{}:{}:{}:{}", manifest.id, server_version, exe_digest.digest(), manifest_digest.digest()),
@@ -126,8 +138,12 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
         salt: salt.clone(),
         commands: catalogue.commands.clone(),
         schemas: catalogue.schemas.clone(),
+        pack_version: manifest.pack_version.clone(),
         ..Default::default()
     };
+    if let Some(w) = misfit {
+        report.warnings.push(("pack".into(), w));
+    }
     let mut nodes: Vec<CraftNode> = Vec::new();
     for spec in &manifest.nodes {
         if let Some(why) = manifest.exclude.get(&spec.id).filter(|_| !opts.include_excluded) {
@@ -185,7 +201,12 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
         nodes.push(hatch(manifest, r, &catalogue, &shared));
         report.hatch.push(r.id.clone());
     }
-    let info = EngineInfo { id: manifest.id.clone(), name: manifest.name.clone(), version: server_version, salt, ..Default::default() };
+    // the pack, beside the app's version (B17): what made these nodes
+    let mut components = BTreeMap::from([("pack".to_owned(), manifest.pack_version.clone())]);
+    if let Some(r) = &manifest.app_versions {
+        components.insert("pack.app_versions".into(), r.clone());
+    }
+    let info = EngineInfo { id: manifest.id.clone(), name: manifest.name.clone(), version: server_version, salt, components, ..Default::default() };
     let mut e = Engine::new(info).with_work_root(cas.root().to_path_buf());
     if let Some(store) = &opts.store {
         e = e.with_store(store.clone());

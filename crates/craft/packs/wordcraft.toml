@@ -17,6 +17,9 @@
 
 id = "wordcraft"
 name = "WordCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.15.2"
 command = ["wordcraft-cli", "mcp"]
 hint = "install wordcraft-cli on PATH (https://github.com/storytold/wordcraft)"
 timeout_s = 300

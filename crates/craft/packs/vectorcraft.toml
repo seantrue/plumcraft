@@ -8,6 +8,9 @@
 
 id = "vectorcraft"
 name = "VectorCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.21.1"
 command = ["vectorcraft-cli", "mcp"]
 hint = "install vectorcraft-cli on PATH (https://github.com/storytold/vectorcraft)"
 timeout_s = 600

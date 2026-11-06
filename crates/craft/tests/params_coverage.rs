@@ -168,3 +168,30 @@ fn hidden_params_match_the_baseline() {
     }
     assert!(fails.is_empty(), "parameter coverage got worse (PLUMCRAFT_BLESS=1 to accept):\n{}", fails.join("\n"));
 }
+
+/// B17 (#56): every installed app is a version its pack was made for (`app_versions`), and its
+/// engine says the pack's version.
+#[test]
+fn installed_apps_fit_their_packs() {
+    let scratch = plumcraft_scratch::dir("pack-versions");
+    let misfits: Vec<String> = std::thread::scope(|s| {
+        let handles: Vec<_> = BUILTIN
+            .iter()
+            .map(|id| {
+                let root = scratch.join(id);
+                s.spawn(move || {
+                    let m = builtin(id).unwrap().unwrap();
+                    // an app that isn't installed has nothing to check
+                    m.executable()?;
+                    let opts = Options { root: Some(root), store: Some(None), include_excluded: false };
+                    let (engine, report, _) = build(&m, &opts).unwrap();
+                    assert_eq!(engine.info().components.get("pack"), Some(&report.pack_version), "{id}");
+                    eprintln!("{id}: app {}, pack {} for {}", report.server_version, report.pack_version, m.app_versions.as_deref().unwrap_or("any"));
+                    report.warnings.iter().find(|(k, _)| k == "pack").map(|(_, w)| w.clone())
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().unwrap()).collect()
+    });
+    assert!(misfits.is_empty(), "{misfits:#?}");
+}
