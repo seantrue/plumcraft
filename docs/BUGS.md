@@ -27,7 +27,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "Packs should be versioned and selected against the engine (application) version."
 - Context: the craft packs (`crates/craft/packs/*.toml`, `plumcraft_craft::manifest`). Just before this, the newly installed craft apps added command parameters (PhotoCraft 0.20.2, SoundCraft 0.17.1, VectorCraft), and the packs were edited to match on branch `craft-baselines`. A pack has no version of its own and doesn't say which application versions it fits, so one pack serves every installed version.
 - Issue: #56
-- Fixed: 2026-11-06, branch `fix/56-pack-versions`
+- Fixed: 2026-11-06, PR #58
 
 ### B16. Not everything tabular can be converted to a TABLE
 

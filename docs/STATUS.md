@@ -4,7 +4,7 @@
 
 ## Where things stand
 
-- **B17 (#56): packs versioned against their app (2026-11-06, branch `fix/56-pack-versions`).** The maintainer: "Packs should be versioned and selected against the engine (application) version", then "address B17".
+- **B17 (#56): packs versioned against their app (2026-11-06, #58).** The maintainer: "Packs should be versioned and selected against the engine (application) version", then "address B17".
   - **The fields:** a pack has `pack_version` and `app_versions` (a range over the app's `serverInfo.version`).
   - **Choosing a pack:** `packs/<id>@<tag>.toml` holds packs for other app versions. After reading the app's version, `build` takes the newest built-in pack that fits (`manifest::choose`), or the newest with a warning when none does.
   - **What the engine says:** `EngineInfo.components` gives `pack` and `pack.app_versions`.
