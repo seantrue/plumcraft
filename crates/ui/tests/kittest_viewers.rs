@@ -17,6 +17,7 @@ use common::{add, harness, session};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use plumcraft_engine::host::Host;
+use plumcraft_graph::PortRef;
 use plumcraft_host::{Connection, InProc};
 use plumcraft_session::run::WatchRole;
 use plumcraft_ui::EditorApp;
@@ -183,6 +184,38 @@ fn hovering_a_wire_shows_its_value() {
     h.get_by_label_contains(&format!("{a}.text -> {u}.text"));
     assert!(h.query_all_by_label_contains("the corgi naps").count() >= 2, "on the node and in the preview");
     shot(&mut h, "wire-preview-peeked");
+}
+
+/// B14 (#49): an output with no wire previews its value on hover and is watched by a click;
+/// a wired input previews the value coming into it.
+#[test]
+fn hovering_a_port_shows_its_value_and_a_click_watches_it() {
+    let (mut h, [a, u, _, c]) = editor();
+    let catalog = h.state().session.catalog().clone();
+    let out = catalog.node("text.codes").unwrap().outputs[0].name.clone();
+    let port = PortRef::new(c.clone(), out.clone());
+    assert!(h.state().session.graph().wires.iter().all(|w| w.from != port), "Codes' output has no wire");
+    let at = h.state().canvas.pin_screen(&catalog, &port, true).expect("the pin was drawn");
+    h.hover_at(at);
+    until(&mut h, "the peeked value", |s| s.wires.cached(&c, &out).is_some());
+    h.run_steps(3);
+    assert_eq!(h.state().canvas.hover_wire.as_ref().map(|(f, t, _)| (f.clone(), t.clone())), Some((port.clone(), None)));
+    h.get_by_label(&format!("{c}.{out}"));
+    h.get_by_label("click: watch");
+    shot(&mut h, "port-preview");
+    // a click (no drag) on the pin watches it, and makes no wire
+    let wires = h.state().session.graph().wires.len();
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: true, modifiers: Default::default() });
+    h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed: false, modifiers: Default::default() });
+    h.run_steps(3);
+    assert_eq!(h.state().session.run.panel().map(|(w, _)| (w.node.clone(), w.port.clone())), Some((c.clone(), out.clone())));
+    assert_eq!(h.state().session.graph().wires.len(), wires);
+    // a wired input previews what comes into it
+    let into = PortRef::new(u.clone(), "text");
+    let at = h.state().canvas.pin_screen(&catalog, &into, false).expect("the input's pin");
+    h.hover_at(at);
+    h.run_steps(3);
+    assert_eq!(h.state().canvas.hover_wire.as_ref().map(|(f, t, _)| (f.node.0.clone(), t.clone())), Some((a.clone(), Some(into))));
 }
 
 /// A table (Letter counts) in the Watched panel through egui_extras' `TableBuilder`: the header

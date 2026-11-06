@@ -58,7 +58,7 @@ Rows and tables show in a table: sortable by a header click, with resizable colu
 
 ### On the canvas
 
-Hovering a wire previews the value on it. A click on a wire watches it, and a double-click pops it out.
+Hovering a wire previews the value on it. A click on a wire watches it, and a double-click pops it out. Ports do the same, whether or not a wire is connected. Hovering an output's square or its name previews the value available there. Hovering a wired input previews the value coming in. A click watches it, and a drag from a port still makes a wire.
 
 A double-click on a node, on its title or a bare part of it, opens Edit Parameters: every input of the node in a window of its own. A double-click in one of its fields stays with the field. A single click on the title still watches the node's output, so a double-click there also watches it.
 

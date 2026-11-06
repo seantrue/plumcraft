@@ -53,6 +53,8 @@ pub const SOCKET_LABEL_WIDTH: f32 = 230.0;
 pub const CANVAS_ID: &str = "plumcraft-canvas";
 /// How far (screen points) from a wire's curve a click still hits it.
 pub const WIRE_HIT: f32 = 12.0;
+/// How far (screen points) from a port's pin the pointer still hovers or clicks it.
+pub const PORT_HIT: f32 = 9.0;
 /// How thick wires are drawn (graph units).
 pub const WIRE_WIDTH: f32 = 2.5;
 /// The width a node's header keeps for its run status ("stale 12.34 ms" fits; longer grows).
@@ -221,9 +223,11 @@ pub struct Canvas {
     /// Where each pin was drawn last frame (graph coordinates), for hit testing wires.
     pub(crate) pins: PinSink,
     pub wire_menu: Option<WireMenu>,
-    /// The wire under the pointer this frame (no button down, no menu or palette open), and
-    /// where: the host shows its value ([`crate::wire_view`]).
-    pub hover_wire: Option<(PortRef, PortRef, Pos2)>,
+    /// The wire or port under the pointer this frame (no button down, no menu or palette
+    /// open), and where: the host shows its value ([`crate::wire_view`]). The first port is
+    /// the output whose value it is; the second the input the wire goes into, or `None` for a
+    /// port hovered on its own (an output, wired or not).
+    pub hover_wire: Option<(PortRef, Option<PortRef>, Pos2)>,
     /// Wires with bend points, which the canvas draws itself ([`crate::wire_route`]).
     pub(crate) routed: Vec<crate::wire_route::Routed>,
     /// A bend point being dragged.
@@ -501,6 +505,42 @@ impl Canvas {
         best.and_then(|(_, out, inp)| self.wire_ports(catalog, out, inp))
     }
 
+    /// The port whose pin is under a screen position: the output that has its value (an
+    /// output itself, wired or not; a wired input's source), and the input when it was one.
+    /// An input with no wire has no value but its own, which its row already shows.
+    pub fn port_at(&self, graph: &Graph, catalog: &SchemaReply, screen: Pos2) -> Option<(PortRef, Option<PortRef>)> {
+        let pins = self.pins.borrow();
+        let mut best: Option<(f32, PinKey)> = None;
+        for (key, at) in pins.iter() {
+            let d = (self.to_global * *at).distance(screen);
+            if d <= PORT_HIT && best.as_ref().is_none_or(|(bd, _)| d < *bd) {
+                best = Some((d, *key));
+            }
+        }
+        drop(pins);
+        match best?.1 {
+            PinKey::Out(o) => Some((crate::groups_view::out_port(&self.snarl, catalog, o)?, None)),
+            PinKey::In(i) => {
+                let to = crate::groups_view::in_port(&self.snarl, i)?;
+                let from = graph.wire_into(&to)?.from.clone();
+                Some((from, Some(to)))
+            }
+        }
+    }
+
+    /// Where a port's pin was drawn last frame, on screen (tests and the control channel hover
+    /// and click ports with this). `output` picks the side.
+    pub fn pin_screen(&self, catalog: &SchemaReply, port: &PortRef, output: bool) -> Option<Pos2> {
+        let pins = self.pins.borrow();
+        pins.iter()
+            .find(|(key, _)| match key {
+                PinKey::Out(o) if output => crate::groups_view::out_port(&self.snarl, catalog, *o).as_ref() == Some(port),
+                PinKey::In(i) if !output => crate::groups_view::in_port(&self.snarl, *i).as_ref() == Some(port),
+                _ => false,
+            })
+            .map(|(_, at)| self.to_global * *at)
+    }
+
     /// Each drawn wire's midpoint on screen, with its graph ports (tests and the control
     /// channel click wires with these).
     pub fn wire_midpoints(&self, style: &egui::Style, catalog: &SchemaReply) -> Vec<(Pos2, PortRef, PortRef)> {
@@ -616,6 +656,7 @@ impl Canvas {
             app_text: runs.app_text,
             pins: self.pins.clone(),
             wire_clicked: None,
+            port_hovered: None,
             highlight,
             watched: watched.cloned(),
             selected,
@@ -627,6 +668,7 @@ impl Canvas {
         SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style(tokens)).show(&mut self.snarl, &mut viewer, ui);
         self.to_global = viewer.to_global;
         let wire_clicked = viewer.wire_clicked.take();
+        let port_label_hovered = viewer.port_hovered.take();
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
         let mut actions = viewer.actions;
         // A double-click on a node (its frame or header, not a field or button in it, which take
@@ -689,20 +731,31 @@ impl Canvas {
         {
             self.wire_menu = Some(WireMenu { screen_pos: p, from, to, fresh: true });
         }
-        // The wire under the pointer: the host previews its value.
+        // The port or wire under the pointer: the host previews its value. A port first (its
+        // pin, or an output's label), since a pin sits on its node's edge.
         let hover = ctx.input(|i| if i.pointer.any_down() { None } else { i.pointer.hover_pos() });
-        self.hover_wire = hover
-            .filter(|p| {
-                self.palette.is_none()
-                    && self.wire_menu.is_none()
-                    && self.rect.contains(*p)
-                    && !self.over_node(*p)
-                    && !self.on_bend_handle(*p)
-                    && !self.over_net_tag(*p)
-                    && !self.over_frame_tab(*p)
-            })
-            .filter(|p| ctx.layer_id_at(*p).is_none_or(|l| l.order == egui::Order::Background || l.order == egui::Order::Middle))
-            .and_then(|p| self.wire_at(ui.style(), catalog, p).map(|(a, b)| (a, b, p)));
+        let free = |p: &Pos2| ctx.layer_id_at(*p).is_none_or(|l| l.order != egui::Order::Foreground && l.order != egui::Order::Tooltip);
+        let port_hover = hover.filter(|p| self.palette.is_none() && self.wire_menu.is_none() && self.rect.contains(*p) && free(p)).and_then(|p| {
+            match (self.port_at(graph, catalog, p), port_label_hovered.clone()) {
+                (Some((from, to)), _) => Some((from, to, p)),
+                (None, Some(from)) => Some((from, None, p)),
+                (None, None) => None,
+            }
+        });
+        self.hover_wire = port_hover.or_else(|| {
+            hover
+                .filter(|p| {
+                    self.palette.is_none()
+                        && self.wire_menu.is_none()
+                        && self.rect.contains(*p)
+                        && !self.over_node(*p)
+                        && !self.on_bend_handle(*p)
+                        && !self.over_net_tag(*p)
+                        && !self.over_frame_tab(*p)
+                })
+                .filter(|p| ctx.layer_id_at(*p).is_none_or(|l| l.order == egui::Order::Background || l.order == egui::Order::Middle))
+                .and_then(|p| self.wire_at(ui.style(), catalog, p).map(|(a, b)| (a, Some(b), p)))
+        });
         // A double click on a wire pops its value out.
         // (a click within 0.6 s of the one before last is egui's triple click, not a double)
         let double = ctx.input(|i| {
@@ -720,9 +773,18 @@ impl Canvas {
         {
             actions.push(("view.popout", json!({"node": from.node, "port": from.port})));
         }
-        // A left click on a wire watches its value.
+        // A left click on a port's pin watches its value (a click, not a drag: a drag from a
+        // pin still makes a wire). An output's label watches it too (NodeViewer::output_pin).
         let clicked = ctx.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None });
-        if self.palette.is_none()
+        let port_clicked = clicked
+            .filter(|p| self.palette.is_none() && self.wire_menu.is_none() && self.rect.contains(*p) && free(p))
+            .and_then(|p| self.port_at(graph, catalog, p));
+        if let Some((from, _)) = &port_clicked {
+            actions.push(("run.watch", json!({"node": from.node, "port": from.port})));
+        }
+        // A left click on a wire watches its value.
+        if port_clicked.is_none()
+            && self.palette.is_none()
             && self.wire_menu.is_none()
             && let Some(p) = clicked
             && self.rect.contains(p)
@@ -874,6 +936,8 @@ struct NodeViewer<'a> {
     pins: PinSink,
     /// A wire right-clicked this frame.
     wire_clicked: Option<(PortRef, PortRef)>,
+    /// The output whose label the pointer is over this frame (its value is previewed).
+    port_hovered: Option<PortRef>,
     highlight: Option<NodeId>,
     /// The node the Watched panel shows.
     watched: Option<NodeId>,
@@ -1058,6 +1122,14 @@ impl NodeViewer<'_> {
         let label = if port.list { format!("[ ] {label}") } else { label };
         let tip = typed_tip(&port.ty, port.tooltip.as_deref());
         let r = pin_label(ui, &label, Some(&tip), PIN_LABEL_WIDTH).interact(egui::Sense::click());
+        // Hovering the label previews the output's value, wired or not; a click watches it.
+        let at = PortRef::new(node_id.0.clone(), port.name.clone());
+        if r.hovered() {
+            self.port_hovered = Some(at.clone());
+        }
+        if r.clicked() {
+            self.actions.push(("run.watch", json!({"node": at.node, "port": at.port})));
+        }
         r.context_menu(|ui| {
             if ui.button(format!("Watch {}", port.name)).clicked() {
                 self.actions.push(("run.watch", json!({"node": node_id, "port": port.name})));
