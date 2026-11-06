@@ -10,6 +10,13 @@
 //!   Table** takes a 1-D (N) or 2-D (N, k) array as columns named by the array's names (when
 //!   there is one a column) or `c1`…`ck`: INT for an integer array, BOOL for a boolean one,
 //!   else FLOAT, with NaN and ±Inf as null. Both ends are a series, never a picture.
+//! - **JSON to Table** (B16, #54) reads tabular JSON, whatever made it (GridCraft's Read range,
+//!   a database's rows): rows (a list of lists, the first naming the columns, as a CSV's header),
+//!   records (a list of objects, a column for each key, in sorted order), columns (an object of
+//!   equal-length lists, in sorted order), or a table itself. A column is INT when every value
+//!   is a whole number that fits, FLOAT when every value is a number, BOOL when every value is
+//!   true or false, else STRING (a value that isn't a string as its JSON text); null is null.
+//!   Anything else is a `config` error. **Table to JSON** writes the records.
 
 use plumcraft_engine::{Array, Cx, Data, Inputs, Node, Outputs};
 use plumcraft_proto::catalogue::{NodeDef, Port, Socket};
@@ -67,6 +74,22 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             display: "Text to JSON",
             description: "Text that is JSON as its value. Text that isn't is an error. The inverse of JSON to Text.",
             from: TEXT,
+            to: JSON,
+            lossless: false,
+        },
+        Pair {
+            id: "text.json_to_table",
+            display: "JSON to Table",
+            description: "Tabular JSON as a table: rows (a list of lists, the first naming the columns), records (a list of objects, a column for each key), or columns (an object of lists). Each column's type comes from its values. Other JSON is an error. The inverse of Table to JSON.",
+            from: JSON,
+            to: TABLE,
+            lossless: false,
+        },
+        Pair {
+            id: "text.table_to_json",
+            display: "Table to JSON",
+            description: "A table as JSON records: a list with an object for each row, keyed by the column names. The inverse of JSON to Table.",
+            from: TABLE,
             to: JSON,
             lossless: false,
         },
@@ -131,6 +154,8 @@ impl Node for Pair {
         let out = match (self.from, self.to) {
             (TEXT, TABLE) => Data::Json(read_csv(text()?)?),
             (TABLE, TEXT) => Data::Json(json!(write_csv(table()?)?)),
+            (JSON, TABLE) => Data::Json(json_table(&json_value(got)?)?),
+            (TABLE, JSON) => Data::Json(table_records(table()?)?),
             (JSON, _) => Data::Json(json!(json_text(got)?)),
             (TEXT, _) => Data::Json(parse_json(text()?)?),
             (TABLE, _) => Data::Array(table_array(table()?)?),
@@ -147,14 +172,19 @@ fn config(msg: impl Into<String>) -> NodeError {
     NodeError::new(NodeError::CONFIG, msg)
 }
 
-/// A JSON value (inline, or a blob of JSON when large) as indented text.
-fn json_text(got: Option<&Data>) -> Result<String, NodeError> {
-    let value = match got {
+/// A JSON value, inline or a blob of JSON when large.
+fn json_value(got: Option<&Data>) -> Result<Value, NodeError> {
+    Ok(match got {
         Some(Data::Json(v)) => v.clone(),
         Some(Data::Blob(b)) => serde_json::from_slice(&b.read(MAX_TEXT as u64)?).map_err(|e| config(format!("json: the blob isn't JSON ({e})")))?,
         None => Value::Null,
         _ => return Err(config("json: wire a JSON value")),
-    };
+    })
+}
+
+/// A JSON value (inline, or a blob of JSON when large) as indented text.
+fn json_text(got: Option<&Data>) -> Result<String, NodeError> {
+    let value = json_value(got)?;
     serde_json::to_string_pretty(&value).map_err(|e| NodeError::new(NodeError::OP, format!("writing JSON: {e}")))
 }
 
@@ -193,6 +223,138 @@ pub fn table_array(table: &Value) -> Result<Array, NodeError> {
     }
     let names = numeric.iter().map(|c| c.0.to_owned()).collect();
     Ok(Array { table: true, names, ..Array::new("<f8", vec![rows as u64, numeric.len() as u64], bytes) })
+}
+
+/// A column's type and values from JSON values (module docs).
+fn json_column(cells: &[Value]) -> (&'static str, Vec<Value>) {
+    let present: Vec<&Value> = cells.iter().filter(|v| !v.is_null()).collect();
+    let all = |f: &dyn Fn(&Value) -> bool| !present.is_empty() && present.iter().all(|v| f(v));
+    if all(&|v| v.is_i64()) {
+        return ("INT", cells.to_vec());
+    }
+    if all(&Value::is_number) {
+        let float = |v: &Value| v.as_f64().and_then(Number::from_f64).map_or(Value::Null, Value::Number);
+        return ("FLOAT", cells.iter().map(float).collect());
+    }
+    if all(&Value::is_boolean) {
+        return ("BOOL", cells.to_vec());
+    }
+    let text = |v: &Value| match v {
+        Value::Null => Value::Null,
+        Value::String(_) => v.clone(),
+        other => Value::String(other.to_string()),
+    };
+    ("STRING", cells.iter().map(text).collect())
+}
+
+/// A header cell as a column name: text as it is, anything else as its JSON text.
+fn json_name(v: &Value, i: usize) -> String {
+    match v {
+        Value::String(s) if !s.is_empty() => s.clone(),
+        Value::String(_) | Value::Null => format!("column{}", i + 1),
+        other => other.to_string(),
+    }
+}
+
+/// A table from names and rows (each as long as `names` at most; a short one is null-filled).
+fn table_of(names: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Value, NodeError> {
+    for (i, n) in names.iter().enumerate() {
+        if names[..i].contains(n) {
+            return Err(config(format!("json: two columns are called {n:?}")));
+        }
+    }
+    if rows.len().saturating_mul(names.len().max(1)) > MAX_CELLS {
+        return Err(config(format!("json: more than {} M cells", MAX_CELLS >> 20)));
+    }
+    let columns: Vec<Value> = names
+        .iter()
+        .enumerate()
+        .map(|(c, name)| {
+            let cells: Vec<Value> = rows.iter().map(|r| r.get(c).cloned().unwrap_or(Value::Null)).collect();
+            let (ty, values) = json_column(&cells);
+            json!({"name": name, "type": ty, "values": values})
+        })
+        .collect();
+    Ok(json!({"columns": columns}))
+}
+
+/// Tabular JSON as a table (module docs).
+pub fn json_table(v: &Value) -> Result<Value, NodeError> {
+    const NOT: &str = "json: not tabular (rows, records, columns, or a table)";
+    match v {
+        // a table already: its columns' names and values, typed again
+        Value::Object(o) if o.get("columns").is_some_and(Value::is_array) => {
+            let cols = o.get("columns").and_then(Value::as_array).ok_or_else(|| config(NOT))?;
+            let mut names = Vec::new();
+            let mut values = Vec::new();
+            for (i, c) in cols.iter().enumerate() {
+                names.push(json_name(c.get("name").unwrap_or(&Value::Null), i));
+                values.push(c.get("values").and_then(Value::as_array).ok_or_else(|| config("json: a column without values"))?);
+            }
+            let n = values.first().map_or(0, |v| v.len());
+            if values.iter().any(|v| v.len() != n) {
+                return Err(config("json: its columns differ in length"));
+            }
+            table_of(names, (0..n).map(|r| values.iter().map(|v| v.get(r).cloned().unwrap_or(Value::Null)).collect()).collect())
+        }
+        // columns: an object of equal-length lists
+        Value::Object(o) if !o.is_empty() && o.values().all(Value::is_array) => {
+            let lists: Vec<&Vec<Value>> = o.values().filter_map(Value::as_array).collect();
+            let n = lists.first().map_or(0, |v| v.len());
+            if lists.iter().any(|v| v.len() != n) {
+                return Err(config("json: its columns differ in length"));
+            }
+            table_of(o.keys().cloned().collect(), (0..n).map(|r| lists.iter().map(|v| v.get(r).cloned().unwrap_or(Value::Null)).collect()).collect())
+        }
+        // records: a list of objects
+        Value::Array(rows) if !rows.is_empty() && rows.iter().all(Value::is_object) => {
+            let mut names: Vec<String> = Vec::new();
+            for r in rows.iter().filter_map(Value::as_object) {
+                for k in r.keys() {
+                    if !names.contains(k) {
+                        names.push(k.clone());
+                    }
+                }
+            }
+            let body = rows.iter().filter_map(Value::as_object).map(|r| names.iter().map(|k| r.get(k).cloned().unwrap_or(Value::Null)).collect()).collect();
+            table_of(names, body)
+        }
+        // rows: a list of lists, the first naming the columns
+        Value::Array(rows) if !rows.is_empty() && rows.iter().all(Value::is_array) => {
+            let lists: Vec<&Vec<Value>> = rows.iter().filter_map(Value::as_array).collect();
+            let (header, body) = lists.split_first().ok_or_else(|| config(NOT))?;
+            let names: Vec<String> = header.iter().enumerate().map(|(i, h)| json_name(h, i)).collect();
+            for (r, row) in body.iter().enumerate() {
+                if row.len() > names.len() {
+                    return Err(config(format!("json: row {} has {} values; the header has {}", r + 2, row.len(), names.len())));
+                }
+            }
+            table_of(names, body.iter().map(|r| r.to_vec()).collect())
+        }
+        _ => Err(config(NOT)),
+    }
+}
+
+/// A table as JSON records.
+pub fn table_records(table: &Value) -> Result<Value, NodeError> {
+    let columns = table.get("columns").and_then(Value::as_array).ok_or_else(|| config("table: not a table (no columns)"))?;
+    let cols: Vec<(&str, &Vec<Value>)> = columns
+        .iter()
+        .map(|c| {
+            let name = c.get("name").and_then(Value::as_str).unwrap_or("");
+            c.get("values").and_then(Value::as_array).map(|v| (name, v)).ok_or_else(|| config("table: a column without values"))
+        })
+        .collect::<Result<_, _>>()?;
+    let n = cols.first().map_or(0, |c| c.1.len());
+    if cols.iter().any(|c| c.1.len() != n) {
+        return Err(config("table: its columns differ in length"));
+    }
+    if n.saturating_mul(cols.len()) > MAX_CELLS {
+        return Err(config(format!("table: more than {} M cells", MAX_CELLS >> 20)));
+    }
+    let rows: Vec<Value> =
+        (0..n).map(|r| Value::Object(cols.iter().map(|(k, v)| ((*k).to_owned(), v.get(r).cloned().unwrap_or(Value::Null))).collect())).collect();
+    Ok(Value::Array(rows))
 }
 
 /// The kind of value an array's dtype holds, and its size in bytes.

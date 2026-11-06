@@ -270,6 +270,28 @@ class TextEngine(Engine):
         return parse_json(text)
 
     @node(
+        "JSON to Table",
+        category=("Text", "Convert"),
+        description=(
+            "Tabular JSON as a table: rows (a list of lists, the first naming the columns), records (a list of objects, "
+            "a column for each key), or columns (an object of lists). Each column's type comes from its values. "
+            "Other JSON is an error. The inverse of Table to JSON."
+        ),
+        converts=True,
+    )
+    def json_to_table(self, json: Json) -> Table:
+        return json_table(_json_value(json))
+
+    @node(
+        "Table to JSON",
+        category=("Text", "Convert"),
+        description="A table as JSON records: a list with an object for each row, keyed by the column names. The inverse of JSON to Table.",
+        converts=True,
+    )
+    def table_to_json(self, table: Table) -> Json:
+        return table_records(table)
+
+    @node(
         "Table to Array",
         category=("Text", "Convert"),
         description=(
@@ -313,8 +335,27 @@ def _file(ty: str, data: bytes) -> Blob:
     return Blob(handle=raw(data), meta={"media": _MEDIA[ty], "size": len(data), "form": {"kind": "bytes"}}, data=data)
 
 
+def separator(text: str) -> str:
+    """The separator a CSV's first line uses, outside quotes, as the Rust engine picks it."""
+    quoting = tab = semi = False
+    for c in text:
+        if c == '"':
+            quoting = not quoting
+        elif not quoting:
+            if c == ",":
+                return ","
+            if c == "\t":
+                tab = True
+            elif c == ";":
+                semi = True
+            elif c in "\r\n":
+                break
+    return "\t" if tab else ";" if semi else ","
+
+
 def csv_rows(text: str) -> list[list[str]]:
     """The rows of a CSV, as the Rust engine reads them."""
+    sep = separator(text)
     rows: list[list[str]] = []
     row: list[str] = []
     field: list[str] = []
@@ -347,7 +388,7 @@ def csv_rows(text: str) -> list[list[str]]:
             continue
         if c == '"' and not field and not quoted:
             quoting = quoted = True
-        elif c == ",":
+        elif c == sep:
             row.append("".join(field))
             field.clear()
             quoted = False
@@ -447,16 +488,132 @@ MAX_CELLS = 16 << 20
 MAX_TEXT = 64 << 20
 
 
-def json_text(value: Any) -> str:
-    """A JSON value (inline, or a blob of JSON when large) as text, as the Rust engine writes it."""
+def _json_value(value: Any) -> Any:
+    """A JSON value, inline or a blob of JSON when large."""
     if isinstance(value, Blob):
         if value.data is None or len(value.data) > MAX_TEXT:
             raise ConfigError("json: wire a JSON value")
         try:
-            value = json.loads(value.data)
+            return json.loads(value.data)
         except ValueError as e:
             raise ConfigError(f"json: the blob isn't JSON ({e})") from None
+    return value
+
+
+def json_text(value: Any) -> str:
+    """A JSON value (inline, or a blob of JSON when large) as text, as the Rust engine writes it."""
+    value = _json_value(value)
     return json.dumps(value, indent=2, ensure_ascii=False, sort_keys=True, allow_nan=False)
+
+
+def _is_int(v: Any) -> bool:
+    return isinstance(v, int) and not isinstance(v, bool) and -(2**63) <= v < 2**63
+
+
+def _is_number(v: Any) -> bool:
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _json_column(cells: list[Any]) -> tuple[str, list[Any]]:
+    """A column's type and values from JSON values, as the Rust engine types them."""
+    present = [v for v in cells if v is not None]
+
+    def every(f: Any) -> bool:
+        return bool(present) and all(f(v) for v in present)
+
+    if every(_is_int):
+        return "INT", list(cells)
+    if every(_is_number):
+        return "FLOAT", [None if v is None else float(v) for v in cells]
+    if every(lambda v: isinstance(v, bool)):
+        return "BOOL", list(cells)
+
+    def text(v: Any) -> Any:
+        if v is None or isinstance(v, str):
+            return v
+        return json.dumps(v, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+
+    return "STRING", [text(v) for v in cells]
+
+
+def _json_name(v: Any, i: int) -> str:
+    if isinstance(v, str) and v:
+        return v
+    if v is None or isinstance(v, str):
+        return f"column{i + 1}"
+    return json.dumps(v, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+
+
+def _table_of(names: list[str], rows: list[list[Any]]) -> dict:
+    for i, name in enumerate(names):
+        if name in names[:i]:
+            raise ConfigError(f"json: two columns are called {json.dumps(name)}")
+    if len(rows) * max(len(names), 1) > MAX_CELLS:
+        raise ConfigError(f"json: more than {MAX_CELLS >> 20} M cells")
+    columns = []
+    for c, name in enumerate(names):
+        ty, values = _json_column([r[c] if c < len(r) else None for r in rows])
+        columns.append({"name": name, "type": ty, "values": values})
+    return {"columns": columns}
+
+
+def json_table(v: Any) -> dict:
+    """Tabular JSON as a table, as the Rust engine reads it: rows, records, columns or a table."""
+    not_tabular = "json: not tabular (rows, records, columns, or a table)"
+    if isinstance(v, dict) and isinstance(v.get("columns"), list):
+        names, lists = [], []
+        for i, c in enumerate(v["columns"]):
+            c = c if isinstance(c, dict) else {}
+            names.append(_json_name(c.get("name"), i))
+            if not isinstance(c.get("values"), list):
+                raise ConfigError("json: a column without values")
+            lists.append(c["values"])
+        n = len(lists[0]) if lists else 0
+        if any(len(x) != n for x in lists):
+            raise ConfigError("json: its columns differ in length")
+        return _table_of(names, [[x[r] for x in lists] for r in range(n)])
+    if isinstance(v, dict) and v and all(isinstance(x, list) for x in v.values()):
+        keys = sorted(v)
+        lists = [v[k] for k in keys]
+        n = len(lists[0])
+        if any(len(x) != n for x in lists):
+            raise ConfigError("json: its columns differ in length")
+        return _table_of(keys, [[x[r] for x in lists] for r in range(n)])
+    if isinstance(v, list) and v and all(isinstance(r, dict) for r in v):
+        names: list[str] = []
+        for r in v:
+            for k in sorted(r):
+                if k not in names:
+                    names.append(k)
+        return _table_of(names, [[r.get(k) for k in names] for r in v])
+    if isinstance(v, list) and v and all(isinstance(r, list) for r in v):
+        header, body = v[0], v[1:]
+        names = [_json_name(h, i) for i, h in enumerate(header)]
+        for r, row in enumerate(body):
+            if len(row) > len(names):
+                raise ConfigError(f"json: row {r + 2} has {len(row)} values; the header has {len(names)}")
+        return _table_of(names, [list(r) for r in body])
+    raise ConfigError(not_tabular)
+
+
+def table_records(table: Any) -> list[dict]:
+    """A table as JSON records, as the Rust engine writes them."""
+    columns = table.get("columns") if isinstance(table, dict) else None
+    if not isinstance(columns, list):
+        raise ConfigError("table: not a table (no columns)")
+    cols = []
+    for c in columns:
+        values = c.get("values") if isinstance(c, dict) else None
+        if not isinstance(values, list):
+            raise ConfigError("table: a column without values")
+        name = c.get("name") if isinstance(c.get("name"), str) else ""
+        cols.append((name, values))
+    n = len(cols[0][1]) if cols else 0
+    if any(len(v) != n for _, v in cols):
+        raise ConfigError("table: its columns differ in length")
+    if n * len(cols) > MAX_CELLS:
+        raise ConfigError(f"table: more than {MAX_CELLS >> 20} M cells")
+    return [{name: v[r] for name, v in cols} for r in range(n)]
 
 
 def _no_constant(name: str) -> Any:

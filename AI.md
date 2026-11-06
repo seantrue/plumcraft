@@ -42,6 +42,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 - **Left hidden:** Stroke's `widthPoints` and `gradientMode`, which VectorCraft says `stroke.set` ignores. They are now in the coverage baseline (`params_coverage.json`).
 
 **Defects in AI-written checks:** the first Recolor check used an empty map, so Global Adjust had nothing to change. That is VectorCraft's documented behaviour, not a pack fault, and the check was redone with a map row. The first PhotoCraft graph named port names the pack doesn't have; `check` caught it.
+### 2026-11-06 — B16 (#54): JSON ↔ Table, and CSV separators (Claude Opus 5.5)
+
+**What the maintainer asked:** "anything tabular should be convertible to a TABLE (csv, grid objects, etc)" (B16), then "Do B16".
+
+**What the AI found:** CSV files, CSV text, series arrays and GridCraft workbooks already reached TABLE, the workbook through Export CSV → CSV to Table. JSON didn't: GridCraft's Read range rows went JSON → Text → Text to Table and were parsed as CSV.
+
+**What the AI did:**
+
+- **`crates/text/src/pairs.rs`** (~170 LOC): JSON to Table reads rows, records, a columns object or a table, typed by its values. Table to JSON writes records. Both are converters.
+- **`files.rs`** (~25 LOC): `separator` picks a tab or a semicolon when a CSV's first line has no comma.
+- **The Python twin** (~150 LOC): the same pair and the same separator rule, with Python's `bool`-is-`int` and dict-order differences handled so the two engines agree.
+- **Tests:** about 50 lines in the conformance test: every JSON form, a TSV, a semicolon file, a non-tabular error, and Rust compared with Python.
+- **Checked:** a GridCraft run (workbook and Read range through Convert).
+- **Docs:** `20-convert.md` 6.8, STATUS, BUGS.
+
+**Defect in AI-written work, caught by thinking it through before running:** the first TSV test sample had a comma in its header, which by the new rule makes it comma-separated. The sample was changed.
 
 ### 2026-11-06 — B15 (#50): To Bytes, Slice, Bytes as Array (Claude Opus 5.5)
 
