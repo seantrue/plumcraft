@@ -20,6 +20,19 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Pack operations in the Rust SDK (Claude Opus 5.5)
+
+**What the maintainer asked:** an application of the editor chose to run stream nodes in engine processes. It needed engines to answer operations of their own, which spec 15 already defines (`x.<pack>.<op>`). Then "Commit,continue".
+
+**What the AI did:**
+
+- **SDK:** `Engine::with_pack_op` registers a handler and advertises the capability (~28 LOC). `Host::dispatch` answers it on the calling thread and turns a panic into an `internal` error (~12).
+- **Coordinator:** routes `x.…` to the engine named in `params.engine` or the first that advertises it (~17).
+- **Tests:** four (~97 LOC).
+- **Gate:** 1,179 Rust tests; clippy and fmt clean.
+
+**Defects in AI-written code, and how each was caught:** the AI's first name check (`x.a.b.c` allowed, upper case refused) disagreed with the proto's existing `known::is_pack_op`, which negotiation uses. Caught on reading `Caps::negotiate`; the SDK now uses the proto's.
+
 ### 2026-11-06 — Release 0.3.0, crates only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Publish the crates."

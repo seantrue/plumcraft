@@ -412,6 +412,18 @@ pub struct Engine {
     persist_ms: Option<f64>,
     core: Option<CoreFactory>,
     catalogue: Option<SchemaReply>,
+    pack_ops: BTreeMap<String, PackOp>,
+}
+
+/// A pack operation's handler (spec `x.<pack>.<op>`, section 15): its params in, its result out.
+/// The host calls it on the requesting thread, beside runs, so it may be called while a run
+/// is in flight and from several threads at once.
+pub type PackOp = std::sync::Arc<dyn Fn(Value) -> Result<Value, ProtoError> + Send + Sync>;
+
+/// Is `name` a pack operation's name, `x.<pack>.<op>`? As capabilities read it
+/// ([`plumcraft_proto::caps::known::is_pack_op`]).
+pub fn is_pack_op(name: &str) -> bool {
+    plumcraft_proto::caps::known::is_pack_op(name)
 }
 
 /// How slow a node must be (ms of its own work) before its result is persisted (spec 14.5),
@@ -443,7 +455,23 @@ impl Engine {
             persist_ms: persist_ms_from_env(),
             core: None,
             catalogue: None,
+            pack_ops: BTreeMap::new(),
         }
+    }
+
+    /// Answer the pack operation `name` (`x.<pack>.<op>`) with `op`, and advertise it as a
+    /// capability (spec 5.3). A name that isn't a pack operation's is ignored.
+    pub fn with_pack_op(mut self, name: &str, op: PackOp) -> Self {
+        if is_pack_op(name) {
+            self.caps.insert(name);
+            self.pack_ops.insert(name.to_owned(), op);
+        }
+        self
+    }
+
+    /// The handler of the pack operation `name`, if this engine has one.
+    pub fn pack_op(&self, name: &str) -> Option<&PackOp> {
+        self.pack_ops.get(name)
     }
 
     /// Run graphs with `core` instead of this crate's executor; `catalogue` is what it offers,
