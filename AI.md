@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Release 0.5.0, crates only (Claude Opus 5.5)
+
+**What the maintainer asked:** "Are we ready to release to crates.io?", then "Release".
+
+**What the AI did:**
+
+- **Before:** committed the B18 entry, so the tree was clean, and waited for `main`'s CI.
+- **Versions:** bumped the workspace and the Python text twin to 0.5.0. A minor bump, because public fields were added to `Manifest` and `Report` and `hover_wire` changed type.
+- **Docs:** CHANGELOG, STATUS.
+- **Release:** the gate, a release PR, `cargo publish --workspace` from `main`, and the tag `plumcraft-v0.5.0`.
+
 ### 2026-11-06 — B17 (#56): packs versioned against their app (Claude Opus 5.5)
 
 **What the maintainer asked:** "Packs should be versioned and selected against the engine (application) version" (B17), then "address B17".

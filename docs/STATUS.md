@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **Release 0.5.0 (2026-11-06, branch `release-0.5.0`).** The maintainer: "Release". The 19 crates and the Python text twin go to 0.5.0; the SDK stays 0.1.2. A minor bump: public fields on `Manifest` and `Report`, and `hover_wire`'s type. It carries #51–#58 (B14–B17). Crates only, tagged `plumcraft-v0.5.0`; no installers.
 - **B17 (#56): packs versioned against their app (2026-11-06, #58).** The maintainer: "Packs should be versioned and selected against the engine (application) version", then "address B17".
   - **The fields:** a pack has `pack_version` and `app_versions` (a range over the app's `serverInfo.version`).
   - **Choosing a pack:** `packs/<id>@<tag>.toml` holds packs for other app versions. After reading the app's version, `build` takes the newest built-in pack that fits (`manifest::choose`), or the newest with a warning when none does.

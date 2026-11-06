@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0 (2026-11-06)
+
+The crates and the Python text twin are 0.5.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_craft`'s `Manifest` and `Report` gained public fields and the canvas's `hover_wire` changed type. Nothing on the wire changed.
+
+- **Ports preview their value** (#52, B14): hovering an output, wired or not, or a wired input shows its value; a click watches it.
+- **Any value as bytes, and bytes as an array** (#53, B15):
+  - The array engine has To Bytes, Slice and Bytes as Array.
+  - A converter from `ANY` is Convert's last resort, so every type reaches ARRAY.
+- **Anything tabular to a Table** (#55, B16):
+  - JSON to Table and Table to JSON, in the text engine and its Python twin.
+  - CSV readers take a tab or a semicolon as the separator.
+- **Craft packs:**
+  - The latest apps' new parameters (#57).
+  - Packs are versioned against their app (#58, B17): `pack_version`, `app_versions`, `packs/<id>@<tag>.toml`, chosen by the app's version.
+- **CI** skips changes that only touch bookkeeping Markdown (#51).
+
 ## 0.4.0 (2026-11-06)
 
 The crates and the Python text twin are 0.4.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_session::commands::Hooks` gained a public field.
