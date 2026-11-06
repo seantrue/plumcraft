@@ -304,6 +304,8 @@ pub struct RunView<'a> {
     pub docs: &'a [plumcraft_session::DocApp],
     /// Apps chosen before with Open with… (`value.open`), most recent first.
     pub recent_apps: &'a [std::path::PathBuf],
+    /// The application's line on each node, by node id ([`crate::app_hooks`]).
+    pub app_text: &'a HashMap<String, String>,
 }
 
 /// The transform that shows every rect in `nodes` inside `view`.
@@ -611,6 +613,7 @@ impl Canvas {
             resolve: runs.resolve,
             docs: runs.docs,
             recent_apps: runs.recent_apps,
+            app_text: runs.app_text,
             pins: self.pins.clone(),
             wire_clicked: None,
             highlight,
@@ -735,6 +738,10 @@ impl Canvas {
         actions.extend(self.route_overlay(&ctx));
         // Slice labels on wires, and the slice editor (crate::slice_view).
         actions.extend(self.slice_overlay(&ctx, ui.style(), graph, catalog, tokens));
+        // The application's marks on wires (crate::app_hooks), kept up to date while it has any.
+        if self.mark_overlay(&ctx, ui.style(), graph, catalog, tokens) {
+            ctx.request_repaint_after(crate::app_hooks::REPAINT);
+        }
         // Net labels' tags, their menu and the name editor (crate::net_view).
         actions.extend(self.net_overlay(&ctx, graph, catalog, tokens));
         // what Add Bend Point would make (worked out before the menu borrows the canvas)
@@ -863,6 +870,7 @@ struct NodeViewer<'a> {
     resolve: &'a dyn Fn(&DataRef) -> Option<Blob>,
     docs: &'a [plumcraft_session::DocApp],
     recent_apps: &'a [std::path::PathBuf],
+    app_text: &'a HashMap<String, String>,
     pins: PinSink,
     /// A wire right-clicked this frame.
     wire_clicked: Option<(PortRef, PortRef)>,
@@ -1082,6 +1090,14 @@ impl NodeViewer<'_> {
             }
             if let Some(n) = self.run.node(&node.id.0).cloned() {
                 self.footer_items(node, &n, ui);
+            }
+            // what the application says on the node (crate::app_hooks)
+            if node.proxy.is_none()
+                && let Some(text) = self.app_text.get(&node.id.0)
+            {
+                ui.set_max_width(ui.available_width().max(48.0));
+                let (short, _) = run_view::truncate_chars(text, crate::app_hooks::NODE_CHARS);
+                ui.add(egui::Label::new(egui::RichText::new(short).small().color(self.tokens.text_dim)).wrap()).on_hover_text(text);
             }
         });
     }
@@ -1752,6 +1768,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     fn has_footer(&mut self, node: &CanvasNode) -> bool {
         let full = self.view_of(node) == NodeView::Full;
         node.tucked > 0
+            || (node.proxy.is_none() && self.app_text.contains_key(&node.id.0))
             || self.graph.is_convert(&node.id)
             || self.own_editor(node).is_some()
             || self.node_run(node).is_some_and(|n| {

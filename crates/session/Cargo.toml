@@ -15,6 +15,8 @@ plumcraft-graph = { workspace = true }
 plumcraft-layout = { workspace = true }
 plumcraft-store = { workspace = true }
 plumcraft-proto = { workspace = true }
+# the window's engine connection, for an application's commands (Session::connection)
+plumcraft-host = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

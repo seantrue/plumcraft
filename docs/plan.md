@@ -530,7 +530,7 @@ The maintainer: "Plan the audio engine, go." This is G9 of the original plan, on
 
 ### 10.5 Milestone Q: streaming in queued chunks (accepted 2026-10-27)
 
-The maintainer asked to "plan processing data in queued chunks, to deal with continuously streaming data", then had the plan reviewed adversarially twice and revised twice (`docs/research/09`–`13`; the accepted text is revision 3, `13-streaming-r3.md`, and its decisions D25–D39). The maintainer: "Add Q." Not yet scheduled against the other milestones.
+The maintainer asked to "plan processing data in queued chunks, to deal with continuously streaming data", then had the plan reviewed adversarially twice and revised twice (`docs/research/09`–`13`; the accepted text is revision 3, `13-streaming-r3.md`, and its decisions D25–D39). The maintainer: "Add Q." Started 2026-11-05 as a private application on PlumCraft's crates, which runs batch subgraphs on this repository's coordinator. Streaming stays in that application (maintainer, 2026-11-06); this repository may be asked only for generic hooks that name no stream concept.
 
 **The model.** A wire type may declare that it streams, as one of two kinds:
 

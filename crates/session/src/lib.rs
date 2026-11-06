@@ -181,6 +181,19 @@ pub struct Session {
     trust_file: Option<PathBuf>,
     /// The graph was read from a file, so whether it may run is a question.
     from_file: bool,
+    /// The window's engine connection, as the editor last linked it ([`Session::connection`]).
+    connection: SharedConnection,
+}
+
+/// The window's engine connection, held for an application's commands. Debug says only whether
+/// there is one.
+#[derive(Clone, Default)]
+struct SharedConnection(Option<std::sync::Arc<dyn plumcraft_host::Connection>>);
+
+impl std::fmt::Debug for SharedConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(if self.0.is_some() { "SharedConnection(linked)" } else { "SharedConnection(none)" })
+    }
 }
 
 impl Default for Session {
@@ -220,7 +233,25 @@ impl Session {
             about: About::default(),
             trust_file: None,
             from_file: false,
+            connection: SharedConnection::default(),
         }
+    }
+
+    /// The window's engine connection (one engine, or the coordinator over several), for an
+    /// application's commands: work of their own on the engines the window has, such as a
+    /// background job or a runner. `None` while no engine is linked. The editor sets it whenever
+    /// it links, relinks or unlinks ([`Session::set_connection`]).
+    ///
+    /// Hold the `Arc` no longer than the work needs: an engine the editor started stops only once
+    /// the last holder lets its connection go, so a switch of engine waits on a clone kept here.
+    pub fn connection(&self) -> Option<std::sync::Arc<dyn plumcraft_host::Connection>> {
+        self.connection.0.clone()
+    }
+
+    /// Set (or, with `None`, drop) the connection [`Session::connection`] hands out. The editor
+    /// calls it; an application doesn't need to.
+    pub fn set_connection(&mut self, conn: Option<std::sync::Arc<dyn plumcraft_host::Connection>>) {
+        self.connection.0 = conn;
     }
 
     /// Hold graphs from elsewhere until they are approved, with approvals in `path` ([`trust`]).

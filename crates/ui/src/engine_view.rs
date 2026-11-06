@@ -303,6 +303,7 @@ impl EditorApp {
         self.sync_engine();
         self.session.docs.resolver = Some(Arc::new(move |r: &plumcraft_proto::data::DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
         self.link = Some(link);
+        self.share_connection();
         let catalog = catalog.inspect_err(|e| self.last_error = Some(format!("engine: {what}: {e}")))?;
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
@@ -327,7 +328,9 @@ impl EditorApp {
                 let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
             }
         }
-        // Dropping the link joins its pump; an engine with no other holder stops.
+        // Dropping the link joins its pump; an engine with no other holder stops (the session's
+        // clone for the application's commands goes first).
+        self.session.set_connection(None);
         self.link = None;
         self.engine = EngineState::Off;
         self.session.connected = false;
@@ -378,6 +381,7 @@ impl EditorApp {
         self.engine = link.state();
         self.sync_engine();
         self.link = Some(link);
+        self.share_connection();
         let catalog = match catalog {
             Ok(c) => c,
             Err(e) => {

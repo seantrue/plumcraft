@@ -255,6 +255,8 @@ impl EditorApp {
         });
         let run = &self.session.run;
         let watched = run.panel().map(|(w, d)| {
+            // the application's value for the node stands in for the run's (crate::app_hooks)
+            let d = self.app_display.as_ref().or(d);
             json!({"node": w.node, "port": w.port, "summary": d.map(|d| d.summary.clone()), "full": self.watched.full.is_some(), "missing": self.watched.missing,
                    "audio": d.filter(|d| d.media == plumcraft_proto::catalogue::Media::Audio).map(|_| self.audio.inspect()),
                    "media": d.map(|d| d.media),
