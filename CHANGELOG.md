@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-11-06)
 
-- **Pack operations in the Rust SDK:** `Engine::with_pack_op` registers a handler for an `x.<pack>.<op>` operation (spec 15) and advertises it as a capability; the host answers it, and the coordinator routes it to the engine that offers it (or the one `params.engine` names).
+The crates and the Python text twin are 0.3.1; the Python SDK stays 0.1.2. Crates only: no new installers.
+
+- **Pack operations in the Rust SDK** (#45): `Engine::with_pack_op` registers a handler for an `x.<pack>.<op>` operation (spec 15) and advertises it as a capability; the host answers it, and the coordinator routes it to the engine that offers it (or the one `params.engine` names).
 
 ## 0.3.0 (2026-11-06)
 
