@@ -20,6 +20,29 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — The craft apps' new parameters in the packs; B17 recorded (Claude Opus 5.5)
+
+**What the maintainer asked:** "I installed the most recent version of the *Craft apps; check base lines for all", then "Edit the packs to add the parameters", and "CPM". Also a bug report, B17 (#56): "Packs should be versioned and selected against the engine (application) version."
+
+**What the AI did:**
+
+- **The craft suite** ran against all 13 installed apps, with the sample photo so the picture tests ran: 118 tests. The only failure was the parameter baseline. Four node commands' apps had gained parameters.
+- **Packs** (~60 lines of TOML):
+  - PhotoCraft Image size: `units` and `scaleStyles`.
+  - SoundCraft Instrument track: `rows`.
+  - VectorCraft Recolor: Global Adjust as four FLOAT widgets sent `into = "globalAdjust"`.
+  - VectorCraft Stroke: `aligned`.
+
+  The parameter descriptions were read from the installed CLIs (`claude-debug/baselines/describe.py`). This session's attached MCP servers were older builds that lacked them.
+- **Checked against the apps** with small headless graphs (`claude-debug/baselines/`):
+  - 150 pt at 144 ppi gave a 300 px PNG;
+  - `rows` made two tracks;
+  - saturation −60 and temperature +40 changed the recoloured fills;
+  - Stroke with `aligned` applied.
+- **Left hidden:** Stroke's `widthPoints` and `gradientMode`, which VectorCraft says `stroke.set` ignores. They are now in the coverage baseline (`params_coverage.json`).
+
+**Defects in AI-written checks:** the first Recolor check used an empty map, so Global Adjust had nothing to change. That is VectorCraft's documented behaviour, not a pack fault, and the check was redone with a map row. The first PhotoCraft graph named port names the pack doesn't have; `check` caught it.
+
 ### 2026-11-06 — B15 (#50): To Bytes, Slice, Bytes as Array (Claude Opus 5.5)
 
 **What the maintainer asked:** "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape" (B15), then "Do B14, B15".

@@ -4,6 +4,19 @@
 
 ## Where things stand
 
+- **Craft apps' new parameters in the packs (2026-11-06, branch `craft-baselines`).** The maintainer installed the latest *Craft apps: "check base lines for all", then "Edit the packs to add the parameters".
+  - **The craft suite** ran against all 13 apps (`PLUMCRAFT_CORGI` set): 118 tests pass. The only change was four node commands whose apps gained parameters.
+  - **New settings:**
+    - PhotoCraft Image size: `units` (px or pt) and `scaleStyles`.
+    - SoundCraft Instrument track: `rows`, for more tracks at once.
+    - VectorCraft Recolor: Global Adjust's saturation, brightness, temperature and luminosity, sent `into = "globalAdjust"`.
+    - VectorCraft Stroke: `aligned`.
+  - **Checked against the apps** (`claude-debug/baselines/`):
+    - 150 pt at 144 ppi exported 300 px;
+    - `rows` made two tracks;
+    - saturation −60 and temperature +40 desaturated and warmed the recoloured fills;
+    - Stroke with `aligned` applied.
+  - **Left hidden:** Stroke's `widthPoints` and `gradientMode`. VectorCraft ignores them in `stroke.set` (they exist so `document.inspect` output reads back), so they are now in the coverage baseline.
 - **B15 (#50): any value as bytes, sliced and read as an array (2026-11-06, #53).** The maintainer: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape", then "Do B14, B15". The array engine gains three nodes (`crates/array/src/channels/bytes.rs`), in a new palette group, Array › Bytes:
   - **To Bytes** (`array.to_bytes`): any value (an ANY input) → a 1-D `|u1` array of its bytes. An array gives its stored numbers, a sound its `<f4` samples, a file or encoded value its bytes, text its UTF-8, other JSON its text. At most 1 GiB.
   - **Slice** (`array.slice`): any array along its first axis, as `a[start:stop:step]`, with stop 0 as the end.

@@ -363,6 +363,42 @@ name = "includePatterns"
 type = "BOOL"
 default = true
 advanced = true
+[[node.widget]]
+name = "saturation"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+optional = true
+advanced = true
+into = "globalAdjust"
+tooltip = "Global Adjust: scale the recoloured colours' saturation by this percent (0 changes nothing)"
+[[node.widget]]
+name = "brightness"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+optional = true
+advanced = true
+into = "globalAdjust"
+tooltip = "Global Adjust: move brightness this share of the way to full (positive) or black (negative)"
+[[node.widget]]
+name = "temperature"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+optional = true
+advanced = true
+into = "globalAdjust"
+tooltip = "Global Adjust: warmer (positive: more red, less blue) or cooler"
+[[node.widget]]
+name = "luminosity"
+type = "FLOAT"
+min = -100.0
+max = 100.0
+optional = true
+advanced = true
+into = "globalAdjust"
+tooltip = "Global Adjust: move Lab lightness this share of the way to white (positive) or black (negative)"
 
 [[node]]
 id = "vc.reduce_colors"
@@ -472,6 +508,12 @@ name = "dash"
 type = "JSON"
 optional = true
 advanced = true
+[[node.widget]]
+name = "aligned"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "With several objects selected: edit each one's stroke at the same place in its Appearance stack as the first's, as the Appearance panel does for a mixed selection"
 
 # ---- paths ----
 
