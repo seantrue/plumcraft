@@ -32,7 +32,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-05
 - Report: "When \"preferences->engines->select engine automatically\" is enabled, the \"engines->select engine\" should just select the engine, not offer the list of implementations"
 - Context: the setting is Settings › Engines › Pick Engines Automatically (`crates/ui/src/settings_view.rs:225`, `engine.auto`); the Engine menu's list of engines and their hostings comes from `engine_choices_menu` (`crates/ui/src/engine_view.rs:423`, called from `crates/ui/src/lib.rs:1509`). Expected: with the setting on, choosing an engine starts it the fastest way it can be hosted (in-process, then a process, then HTTP) without a submenu of implementations.
-- Fixed: 2026-11-05, branch `fix/24-auto-engine-menu`. With the setting on, `engine_choices_menu` shows each engine as one item running `engine.use` with no mode, which the session already resolves to the fastest hosting (`Engines::best`); with it off, the submenu stays. Tests: `crates/ui/tests/kittest_engine_menu.rs` (the automatic case fails without the fix).
+- Fixed: 2026-11-05, PR #39. With the setting on, `engine_choices_menu` shows each engine as one item running `engine.use` with no mode, which the session already resolves to the fastest hosting (`Engines::best`); with it off, the submenu stays. Tests: `crates/ui/tests/kittest_engine_menu.rs` (the automatic case fails without the fix).
 - Issue: #24
 
 ### B11. `a_panicking_node_rebuilds_the_engine` raced the engine's rebuild on CI
