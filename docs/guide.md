@@ -48,6 +48,10 @@ Every type of value has a preview and a full viewer, and any value can be popped
 
 A craft document that PlumCraft can't show itself (a SoundCraft session, a VectorCraft drawing; PdfCraft's PDFs show as pages) pops out in its own app instead. Edit it there and save. Everything downstream of that output goes stale, saying "edited in SoundCraft", and runs again on your saved version. The node's own value is untouched, and saving the original back (or `doc.revert`) returns to it. Edits last while the graph is open; they aren't saved with the workflow.
 
+An STL file (binary or ASCII; Load Files reads one as `model/stl`) shows as a shaded mesh: drag to turn it, scroll to zoom, and double-click or Fit to see it whole again. Its bytes are a tab away.
+
+![An STL torus in the Mesh viewer](images/stl-mesh.png)
+
 Rows and tables show in a table: sortable by a header click, with resizable columns.
 
 ![Rows in the table viewer](images/rows-as-table.png)
@@ -173,7 +177,7 @@ That is a standalone project with example nodes for each type, tests, a demo, co
 | The Engine menu | Switch engine and hosting while the editor runs, keeping the graph; Reconnect; Attach. The commands come first, Clear Engines among them; each engine is a submenu of its connections (with Settings › Engines › Pick Engines Automatically on, one item that starts it the fastest way it can be hosted), in a list that scrolls in a short window. A pick adds that engine, or changes its connection when it is connected | P06 |
 | M, craft engines | The craft MCP adapter: any artcraft app's MCP server as nodes, from a manifest; VectorCraft first, then every craft with a server | P07, P08 |
 | Several engines | The coordinator: one graph across several engines, each run split into per-engine fragments joined by bindings; three demos | — |
-| Viewers | A viewer registry with a preview and a full view for every type (picture, SVG, PDF pages, array pictures and values, table, text, JSON tree, list items, audio, hex); pop-out windows; values on wires | — |
+| Viewers | A viewer registry with a preview and a full view for every type (picture, SVG, PDF pages, STL meshes, array pictures and values, table, text, JSON tree, list items, audio, hex); pop-out windows; values on wires | — |
 | Engine generator | `plumcraft-engine new`: a standalone Python engine project, scripts and PyCharm files; `check` conformance; engines from manifests | P09 |
 
 ## Read first

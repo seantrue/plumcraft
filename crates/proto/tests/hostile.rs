@@ -202,3 +202,39 @@ fn stored_expansions_never_panic() {
     let file = StoredExpansion::file("Ring", "", e).to_string();
     assert!(StoredExpansion::parse(file.as_bytes()).unwrap_err().contains("cycle"));
 }
+
+/// An STL file is bytes from anywhere (#38): changed anywhere, cut anywhere, or claiming more
+/// triangles than it holds, it reads as an error or as the triangles there are, never a panic.
+#[test]
+fn stl_files_never_panic() {
+    use plumcraft_proto::mesh::{MAX_TRIANGLES, read_stl, tetrahedron, write_ascii_stl, write_binary_stl};
+    let binary = write_binary_stl("solid trick", &tetrahedron());
+    let ascii = write_ascii_stl("t", &tetrahedron()).into_bytes();
+    for seed in [&binary, &ascii] {
+        assert!(read_stl(seed).is_ok(), "the seed is valid");
+        for at in 0..seed.len() {
+            let _ = read_stl(&seed[..at]);
+            for b in [0, 0xff, b' ', b'\n', b'e', b'-', b'9'] {
+                let mut bad = seed.to_vec();
+                bad[at] = b;
+                if let Ok(m) = read_stl(&bad) {
+                    assert!(m.triangles.iter().flatten().flatten().all(|x| x.is_finite()));
+                }
+            }
+        }
+    }
+    // a header claiming 4 billion triangles reserves nothing for them
+    let mut huge = binary.clone();
+    huge[80..84].copy_from_slice(&u32::MAX.to_le_bytes());
+    assert_eq!(read_stl(&huge).unwrap().triangles.len(), 4);
+    // more triangles than the cap, in either form
+    let many = 84 + 50 * (MAX_TRIANGLES + 1);
+    assert!(read_stl(&vec![0u8; many]).is_err());
+    let facets = "facet outer loop vertex 0 0 0 vertex 1 0 0 vertex 0 1 0 endloop endfacet\n".repeat(MAX_TRIANGLES / 64);
+    let _ = read_stl(format!("solid x\n{facets}").as_bytes());
+    for junk in JUNK {
+        let _ = read_stl(junk.as_bytes());
+    }
+    let _ = read_stl(b"solid\nfacet vertex vertex vertex vertex 1 2 3 endfacet endfacet");
+    let _ = read_stl("solid ☃\nfacet\u{0}vertex 1e40 -0 nan endfacet".as_bytes());
+}

@@ -28,6 +28,7 @@ pub mod handle;
 pub mod manifest;
 pub mod media;
 pub mod memo;
+pub mod mesh;
 pub mod programs;
 pub mod random;
 pub mod reducer;

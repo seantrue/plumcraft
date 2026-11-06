@@ -18,14 +18,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
 - Issue: #28
 
+## Fixed
+
 ### B12. No viewer for STL files
 
 - Reported: 2026-11-05
 - Report: "Add viewer for STL files"
 - Context: the viewers (`crates/ui/src/viewers/`, registry in `mod.rs`) have nothing for 3D meshes, so an STL value gets the hex dump. The protocol already anticipates meshes: `Media::Mesh` (`crates/proto/src/catalogue.rs`), a `MeshLod` rendition (`crates/proto/src/display.rs:140`), and `model/stl` ↔ `stl` in `crates/proto/src/media.rs:32`. Not yet known: where the STL came from (a file, an engine such as SolidCraft's export) and whether it was ASCII or binary STL.
+- Fixed: 2026-11-05, PR #40. A `mesh` viewer (`crates/ui/src/viewers/mesh.rs`) for values typed `model/stl`, binary or ASCII: flat-shaded on the CPU with a z-buffer, turned by a drag, zoomed by scrolling, fitted by a double-click or Fit. The bounded reader is `plumcraft_proto::mesh` and joins the hostile sweep. Both are adapted from SolidCraft (MIT, `THIRD-PARTY.md`) after research found nothing ready to use with egui 0.36 and wgpu. `MeshLod` renditions aren't used yet.
 - Issue: #38
-
-## Fixed
 
 ### B3. With automatic engines on, the Engine menu still offers every implementation
 
