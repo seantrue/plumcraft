@@ -34,7 +34,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "ports should hover reveal the available value even if no wire is connected, click should watch the port value"
 - Context: the node canvas (`crates/ui/src/canvas.rs`), seen while working in PlumPipe's window on PlumCraft 0.4.0. Today a node's output is watched by clicking the node's title, which watches its default output (`run.watch {node, port?}`).
 - Issue: #49
-- Fixed: 2026-11-06, branch `fix/49-port-hover-watch`
+- Fixed: 2026-11-06, PR #52
 
 ### B2. No installer for Intel (x86_64) Macs
 
