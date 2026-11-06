@@ -471,8 +471,20 @@ impl Host {
                 Ok(serde_json::json!({}))
             }
             "events.poll" => json(&self.poll(n("since"), n("wait_ms"), s("run_id").as_deref())),
+            other if crate::is_pack_op(other) => self.pack_op(other, params),
             other => Err(ProtoError::new(ErrorCode::UnknownOp, format!("unknown op {:?}", other.chars().take(64).collect::<String>()))),
         }
+    }
+
+    /// A pack operation (spec 15), on this thread. A handler that panics is the engine's error,
+    /// not the host's end.
+    fn pack_op(&self, name: &str, params: Value) -> Result<Value, ProtoError> {
+        let engine = self.shared.lock().engine.clone().ok_or_else(|| ProtoError::new(ErrorCode::Unavailable, "the engine isn't ready"))?;
+        let Some(op) = engine.pack_op(name).cloned() else {
+            return Err(ProtoError::new(ErrorCode::UnknownOp, format!("unknown op {:?}", name.chars().take(64).collect::<String>())));
+        };
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| op(params)))
+            .unwrap_or_else(|_| Err(ProtoError::new(ErrorCode::Internal, format!("the pack operation {name} panicked"))))
     }
 
     /// Stop the worker after the run in flight, cancelling it.

@@ -159,6 +159,23 @@ impl Coordinator {
                 Ok(r)
             }
             "ping" => Ok(json!({"v": PROTOCOL, "pong": true})),
+            // A pack operation (spec 15) goes to the engine `params.engine` names, else to the
+            // first that advertises it.
+            m if m.starts_with("x.") => {
+                let engines = self.engines();
+                let named = s("engine").and_then(|id| engines.iter().find(|e| e.id == id).cloned());
+                let target = named.or_else(|| {
+                    let states = self.states();
+                    engines
+                        .iter()
+                        .find(|e| states.iter().any(|(id, st)| id == &e.id && matches!(st, EngineState::Connected { caps, .. } if caps.has(m))))
+                        .cloned()
+                });
+                match target {
+                    Some(e) => e.conn.call(method, params.clone()),
+                    None => Err(ProtoError::new(ErrorCode::UnknownOp, format!("no engine offers {:?}", m.chars().take(64).collect::<String>()))),
+                }
+            }
             // every engine may hold something of this graph; one without the capability refuses
             "graph.release" => {
                 for e in self.engines() {
