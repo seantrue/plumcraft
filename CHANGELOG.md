@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (2026-11-06)
+
+The crates and the Python text twin are 0.3.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_session::commands::Hooks` gained public fields.
+
+- **Hooks for an application of the editor** (#43):
+  - `Session::connection()` gives an application's commands the window's engines.
+  - `Hooks::node_overlays` puts the application's text in a node's footer and its value in the Watched panel.
+  - `Hooks::wire_marks` labels wires.
+  - `Hooks::status` adds a status-bar segment.
+- **Breaking:** a `Hooks { before, after, hold_runs }` literal needs `..Default::default()`.
+
 ## 0.2.4 (2026-11-05)
 
 The crates and the Python text twin are 0.2.4; the Python SDK stays 0.1.2. Installers for macOS (Apple silicon and, new, Intel), x86-64 Linux and x86-64 Windows. The release is tagged `plumcraft-v0.2.4`, for the app and the crates alike (earlier app releases were `app-vVERSION`).

@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Release 0.3.0, crates only (Claude Opus 5.5)
+
+**What the maintainer asked:** "Publish the crates."
+
+**What the AI did:**
+
+- **Versions:** bumped the workspace (19 published crates, `plumcraft-audio` still not) and the Python text twin to 0.3.0. A minor version, following the maintainer's 0.2.0 choice when public structs gained fields; here it is `Hooks`.
+- **Docs:** CHANGELOG, STATUS.
+- **Release:** the gate, a release PR, then `cargo publish --workspace` from `main` and the tag `plumcraft-v0.3.0`. No installers, no PyPI.
+- **Housekeeping:** committed the B13 entry in `docs/BUGS.md` that an earlier session had left uncommitted.
+
 ### 2026-11-06 — Hooks for an application of the editor (Claude Opus 5.5)
 
 **What the maintainer asked:** an application built on the editor's crates needed to run its own work on the window's engines and show it. The AI proposed four generic hooks; the maintainer: "Build H1–H4 in PlumCraft", then "Commit, merge plumcraft".
