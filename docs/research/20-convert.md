@@ -266,6 +266,14 @@ It found one thing: FilmCraft's MOV and GIF export nodes take no range, so they 
 3. ~~The core pairs (6.3).~~ Done.
 4. ~~Video (6.4).~~ Done.
 
+## 6.7 A last resort: any value as its bytes (2026-11-06)
+
+The maintainer, on B15 (#50): "All values should be reducible to arrays, even if just a bytes array", then "Convert should accept byte array as last resort".
+
+- **To Bytes** (`array.to_bytes`) turns any value into a 1-D `|u1` array of its bytes. It is marked `{from: "ANY", to: "ARRAY", to_shape: "series"}`.
+- **A mark from `ANY` is a last resort** (`Converter::last_resort`). It takes every type, so it would win every search it joined. `convert_paths_where` leaves it out, and tries it, as a first step with ordinary steps after it, only when no path is found. `ANY` as a mark's `to` is still refused.
+- **The effect:** every type now reaches ARRAY, and from there anything ARRAY reaches. A Word count (INT) wired through a Convert into Bytes as Array arrived as `[51]`, the byte for "3" (`claude-debug/b15/convert-int.json`). `converts_from` is now true of every type when an engine with To Bytes is connected.
+
 ## 7. To do (2026-11-04)
 
 The maintainer, after FilmCraft's `audio` (a WAV) and the audio engine's `audio` (an AUDIO) looked alike: "It's a massive UX issue if ports with same label (audio) can't be connected because they actually have different underlying structures with no available conversion. At a minimum, they should have a label that makes the actual type clear."

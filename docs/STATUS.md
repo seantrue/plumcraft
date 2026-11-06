@@ -15,7 +15,10 @@
     - an array going round through its bytes;
     - hostile settings.
   - **Checked end to end** with `plumcraft-editor run`: a raw float32 picture behind a header became a PNG, exact at its corners (`claude-debug/b15/`).
-  - **Not done:** a Convert path from every type through bytes. Convert refuses `ANY` marks by design (`a_mark_that_lies_is_ignored`), and lifting that is a decision for the maintainer.
+  - **Convert's last resort.** The maintainer then answered: "Convert should accept byte array as last resort". To Bytes is marked `ANY → ARRAY` (series). A mark from `ANY` is now a last resort: `convert_paths_where` tries it, as a first step, only when no other path exists, so every type reaches ARRAY. `ANY` as a `to` is still refused.
+    - **Test:** `a_converter_from_any_is_a_last_resort` (proto).
+    - **Checked end to end:** Word count → Convert → Bytes as Array gave `[51]`.
+    - **Docs:** interface.md, `20-convert.md` 6.7.
 - **No CI for the bookkeeping Markdown (2026-11-06, branch `ci-skip-bookkeeping`).** The maintainer: "Pushing BUGS.md should not require a CI cycle".
   - `ci.yml` ignores pushes to `main` that touch only `docs/BUGS.md`, `docs/STATUS.md`, `AI.md`, `CHANGELOG.md` or `ROADMAP.md`. No code reads them.
   - A pull request can't simply ignore paths, because branch protection waits for `gate` and `python`. Instead a `changes` job diffs the PR, and when only those files changed, both jobs are skipped, which counts as passing.

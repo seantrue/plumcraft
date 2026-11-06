@@ -38,7 +38,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defect in AI-written work, caught by its test:** the file test first expected 12 uint16s from a 19-byte file. The code was right, 9, and the test's arithmetic was wrong.
 
-**Left for the maintainer:** making every type reach ARRAY through Convert would mean letting Convert use an `ANY` mark, which it refuses by design today.
+**Then, Convert's last resort.** The maintainer answered: "Convert should accept byte array as last resort".
+
+- **`convert.rs`** (~50 LOC): a mark from `ANY` is valid and marks a last resort. The path search leaves it out, and tries it as a first step only when it finds nothing. To Bytes carries the mark.
+- **Tests:** the hostile test changed to refuse `ANY` only as a `to`, and a new test covers the last resort.
+- **Checked:** the headless editor ran Word count → Convert → Bytes as Array and gave `[51]`.
+- **Docs:** interface.md and `20-convert.md` 6.7.
 
 ### 2026-11-06 — No CI for bookkeeping Markdown; bugs B14, B15 (Claude Opus 5.5)
 
