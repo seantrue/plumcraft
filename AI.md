@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Release 0.3.1, crates only (Claude Opus 5.5)
+
+**What the maintainer asked:** "Release", then "Crates only" when asked how far.
+
+**What the AI did:**
+
+- **Versions:** bumped the workspace and the Python text twin to 0.3.1. A patch, since #45 only adds API.
+- **Docs:** CHANGELOG, STATUS.
+- **Release:** the gate, a release PR, `cargo publish --workspace` from `main`, and the tag `plumcraft-v0.3.1`.
+
 ### 2026-11-06 — Pack operations in the Rust SDK (Claude Opus 5.5)
 
 **What the maintainer asked:** an application of the editor chose to run stream nodes in engine processes. It needed engines to answer operations of their own, which spec 15 already defines (`x.<pack>.<op>`). Then "Commit,continue".

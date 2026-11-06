@@ -4,7 +4,8 @@
 
 ## Where things stand
 
-- **Pack operations in the Rust SDK (2026-11-06, branch `pack-ops`, uncommitted).** An application of the editor needed engines to answer operations of their own. Spec 15 already defines them (`x.<pack>.<op>`, advertised as capabilities, kept by negotiation), but the SDK host answered every one with `unknown_op`.
+- **Release 0.3.1 (2026-11-06, branch `release-0.3.1`).** The maintainer: "Release", crates only ("Crates only"). The 19 crates and the Python text twin go to 0.3.1; the SDK stays 0.1.2. A patch: pack operations in the Rust SDK (#45) only add API. Tagged `plumcraft-v0.3.1`; no installers.
+- **Pack operations in the Rust SDK (2026-11-06, #45).** An application of the editor needed engines to answer operations of their own. Spec 15 already defines them (`x.<pack>.<op>`, advertised as capabilities, kept by negotiation), but the SDK host answered every one with `unknown_op`.
   - `Engine::with_pack_op(name, handler)` registers one (`PackOp`, a closure from params to result) and advertises it. A malformed name is ignored (`is_pack_op`, the proto's own rule).
   - `Host::dispatch` answers it on the calling thread, beside runs; a handler that panics is an `internal` error, and the engine carries on. Modes 2 and 3 get it through the same dispatch.
   - The coordinator, with several engines, routes `x.…` to the engine `params.engine` names, else to the first that advertises it; none is `unknown_op`.

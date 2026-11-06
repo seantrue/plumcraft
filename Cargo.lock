@@ -2853,7 +2853,7 @@ checksum = "b4596b6d070b27117e987119b4dac604f3c58cfb0b191112e24771b2faeac1a6"
 
 [[package]]
 name = "plumcraft"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "plumcraft-conform",
  "plumcraft-engine",
@@ -2867,7 +2867,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-array"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "flate2",
@@ -2888,7 +2888,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-audio"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "md-5",
  "plumcraft-engine",
@@ -2903,7 +2903,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-automation"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "plumcraft-scratch",
  "plumcraft-session",
@@ -2917,7 +2917,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-conform"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "plumcraft-engine",
  "plumcraft-host",
@@ -2929,7 +2929,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-coordinator"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "md-5",
  "plumcraft-array",
@@ -2946,7 +2946,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-craft"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "md-5",
  "plumcraft-engine",
@@ -2963,7 +2963,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-editor"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "eframe",
  "egui",
@@ -2986,7 +2986,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-engine"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "image",
  "md-5",
@@ -3001,7 +3001,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-graph"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "plumcraft-proto",
  "serde",
@@ -3011,7 +3011,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-host"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "plumcraft-engine",
  "plumcraft-proto",
@@ -3023,11 +3023,11 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-layout"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "plumcraft-proto"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "getrandom 0.3.4",
@@ -3041,11 +3041,11 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-scratch"
-version = "0.3.0"
+version = "0.3.1"
 
 [[package]]
 name = "plumcraft-session"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "md-5",
  "plumcraft-engine",
@@ -3065,7 +3065,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-store"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "commonkit",
@@ -3077,14 +3077,14 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-svg"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "resvg",
 ]
 
 [[package]]
 name = "plumcraft-text"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "md-5",
  "plumcraft-conform",
@@ -3099,7 +3099,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-ui"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "base64 0.22.1",
  "cpal",
@@ -3139,7 +3139,7 @@ dependencies = [
 
 [[package]]
 name = "plumcraft-view"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "eframe",
  "egui",
