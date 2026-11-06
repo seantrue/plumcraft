@@ -33,6 +33,8 @@ pub struct AppShown {
     pub values: HashMap<String, PortValue>,
     /// The status bar segment.
     pub status: Option<String>,
+    /// How it is drawn.
+    pub status_tone: Tone,
     /// Anything shown (the editor repaints while there is).
     pub any: bool,
 }
@@ -41,7 +43,7 @@ impl AppShown {
     /// Read the node overlays and the status segment (wire marks are read as the canvas draws,
     /// since they need its wires' places).
     pub fn read() -> Self {
-        let mut shown = AppShown { status: commands::app_status(), ..Default::default() };
+        let mut shown = AppShown { status: commands::app_status(), status_tone: commands::app_status_tone(), ..Default::default() };
         for (NodeId(id), o) in commands::node_overlays() {
             if let Some(t) = o.text.filter(|t| !t.is_empty()) {
                 shown.texts.insert(id.clone(), t);

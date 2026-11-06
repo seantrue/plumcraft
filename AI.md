@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Status bar messages: chips by severity, cut-off marker, the Messages window (Claude Opus 5.5)
+
+**What the maintainer asked:** looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)". Then "CPM".
+
+**What the AI did:**
+
+- **`crates/ui/src/status_msgs.rs`** (~150 LOC, new): the status bar's messages as chips. Each background is its severity's colour mixed into the panel, and the text is in the theme's ordinary colour. They are drawn most serious first, in what width is left. A message cut short shows "…", and a `more…` button (`+N more…`) says so. The Messages window shows every message in full.
+- **`lib.rs`** (~80 LOC changed): `status_messages()` gathers the run's errors, the run error, the application's segment, the save outcome and `last_error`, with their severities. The old red labels are gone. `view.messages` doesn't clear `last_error` or the convert offer.
+- **Session:**
+  - `view.messages {open?}` (View › Messages), so opening the window is a command too (golden rule 4).
+  - `Hooks::status_tone` and `app_status_tone()`, additive.
+- **Tests:** `crates/ui/tests/kittest_status.rs` (6).
+- **Docs:** control-protocol, STATUS.
+
+**Defects in AI-written code, caught by tests and by looking:**
+
+- **The window shut at once.** The first wiring of the window as a command never stayed open, because running any command cleared `last_error`, the very message it was opened to show. Caught by the kittest.
+- **Errors hidden behind information.** In PlumPipe's window, an error was hidden behind "more…" while an information chip took the room. Caught by looking at the screenshot, and fixed by ordering the messages by severity.
+- **Wrong check in a test.** A test meant to check that a long message was cut off checked the accessibility label. That label carries the full text, so the check couldn't work, and it was replaced.
+
 ### 2026-11-06 — Release 0.3.1, crates only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Release", then "Crates only" when asked how far.

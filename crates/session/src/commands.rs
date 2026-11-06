@@ -54,6 +54,8 @@ pub struct Hooks {
     pub wire_marks: Option<WireMarks>,
     /// A segment of the application's own in the status bar. Read every frame.
     pub status: Option<fn() -> Option<String>>,
+    /// How the status segment is drawn ([`Tone`]: its background); without it, `Info`.
+    pub status_tone: Option<fn() -> Tone>,
 }
 
 /// [`Hooks::node_overlays`]: each node's [`Overlay`].
@@ -72,7 +74,8 @@ pub struct Overlay {
     pub value: Option<PortValue>,
 }
 
-/// How a [`WireMark`] is drawn: its outline takes the theme's accent, warning or error colour.
+/// How a [`WireMark`] or the status segment is drawn: a mark's outline, or the segment's
+/// background, takes the theme's accent, warning or error colour.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Tone {
     #[default]
@@ -103,6 +106,11 @@ pub fn wire_marks(graph: &Graph) -> Vec<(PortRef, WireMark)> {
 /// The application's status bar segment (none without the hook, or when it has nothing to say).
 pub fn app_status() -> Option<String> {
     hooks().status.and_then(|f| f()).filter(|s| !s.is_empty())
+}
+
+/// How the application's status segment is drawn (`Info` without the hook).
+pub fn app_status_tone() -> Tone {
+    hooks().status_tone.map_or(Tone::Info, |f| f())
 }
 
 static HOOKS: std::sync::OnceLock<Hooks> = std::sync::OnceLock::new();

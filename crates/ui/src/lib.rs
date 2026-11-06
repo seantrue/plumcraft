@@ -73,6 +73,7 @@ pub mod rename_view;
 pub mod run_view;
 pub mod settings_view;
 pub mod slice_view;
+pub mod status_msgs;
 pub mod theme;
 pub mod value_editors;
 pub mod viewers;
@@ -677,11 +678,17 @@ impl EditorApp {
     /// [`EditorApp::run`], returning the error too (the control channel's `command.run`).
     pub fn try_run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         let result = self.session.execute(id, params);
+        // reading the messages in full leaves them (and the offer) as they are
+        let keeps = id == "view.messages";
         // an offer lasts until the next command
-        self.convert_offer = None;
+        if !keeps {
+            self.convert_offer = None;
+        }
         match result {
             Ok(v) => {
-                self.last_error = None;
+                if !keeps {
+                    self.last_error = None;
+                }
                 // the window's own: the look (crate::settings_view)
                 let v = match self.window_command(id, v) {
                     Ok(v) => v,
@@ -1631,6 +1638,7 @@ impl EditorApp {
 
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         let mut commands: Vec<(&'static str, Value)> = Vec::new();
+        let msgs = self.status_messages();
         let now = Instant::now();
         ui.horizontal(|ui| {
             let dot = if self.engine.is_connected() {
@@ -1684,20 +1692,6 @@ impl EditorApp {
             } else {
                 ui.colored_label(self.tokens.text_dim, "not run yet");
             }
-            let errors = run.errors();
-            if errors > 0 {
-                let names: Vec<String> = run.nodes.iter().filter(|(_, n)| n.state == Some(NodeState::Error)).map(|(id, _)| id.clone()).collect();
-                ui.colored_label(self.tokens.error, if errors == 1 { "1 error".to_owned() } else { format!("{errors} errors") })
-                    .on_hover_text(names.join(", "));
-            }
-            // the application's own segment (crate::app_hooks)
-            if let Some(text) = &self.app.status {
-                ui.separator();
-                ui.colored_label(self.tokens.text, text);
-            }
-            if let Some(e) = &run.run_error {
-                ui.colored_label(self.tokens.error, e);
-            }
             let auto = run.auto;
             if ui.selectable_label(auto, "Auto-run").on_hover_text("Run 150 ms after every edit").clicked() {
                 commands.push(("run.auto", json!({"on": !auto})));
@@ -1706,30 +1700,6 @@ impl EditorApp {
                 ui.separator();
                 ui.add(egui::Spinner::new().size(12.0).color(self.tokens.state_running));
                 ui.label(format!("saving {}…", short_path(&ask.path))).on_hover_text(&ask.path);
-            } else if let Some((ask, reply)) = &self.session.save.last {
-                ui.separator();
-                match (&reply.error, reply.ok) {
-                    (None, true) => {
-                        let shown = reply.paths.first().map_or(ask.path.as_str(), String::as_str);
-                        let text = match (ask.sheet, reply.paths.len()) {
-                            (true, _) => format!("saved a sheet of {} as {}", reply.items, short_path(shown)),
-                            (false, 0 | 1) => format!("saved {}", short_path(shown)),
-                            (false, n) => format!("saved {n} files as {}", short_path(&ask.path)),
-                        };
-                        let text = if reply.recipe { text } else { format!("{text}, without its recipe") };
-                        ui.colored_label(self.tokens.text_dim, text).on_hover_text(reply.paths.join("\n"));
-                    }
-                    (Some(e), _) => {
-                        ui.colored_label(self.tokens.error, format!("not saved: {}", e.message)).on_hover_text(&ask.path);
-                    }
-                    (None, false) => {
-                        ui.colored_label(self.tokens.error, "not saved").on_hover_text(&ask.path);
-                    }
-                }
-            }
-            if let Some(err) = &self.last_error {
-                ui.separator();
-                ui.colored_label(self.tokens.error, err);
             }
             if let Some((p, label)) = &self.convert_offer {
                 let tip = format!("wire.convert: place {label} between them, wired, as one undo step");
@@ -1737,10 +1707,67 @@ impl EditorApp {
                     commands.push(("wire.convert", p.clone()));
                 }
             }
+            // the messages last, in what width is left (crate::status_msgs)
+            if !msgs.is_empty() {
+                ui.separator();
+                if status_msgs::line(ui, &msgs, &self.tokens) && !self.session.views.messages {
+                    commands.push(("view.messages", json!({"open": true})));
+                }
+            }
         });
+        let was = self.session.views.messages;
+        let mut open = was;
+        status_msgs::window(ui.ctx(), &mut open, &msgs, &self.tokens);
+        if was && !open {
+            commands.push(("view.messages", json!({"open": false})));
+        }
         for (id, p) in commands {
             self.run(id, &p);
         }
+    }
+
+    /// The status bar's messages, most serious first within each kind: the run's errors, the
+    /// application's segment, a save's outcome, the last thing that went wrong.
+    pub fn status_messages(&self) -> Vec<status_msgs::Msg> {
+        use plumcraft_session::commands::Tone;
+        use status_msgs::Msg;
+        let run = &self.session.run;
+        let mut msgs = Vec::new();
+        let errors = run.errors();
+        if errors > 0 {
+            let names: Vec<String> = run.nodes.iter().filter(|(_, n)| n.state == Some(NodeState::Error)).map(|(id, _)| id.clone()).collect();
+            let text = if errors == 1 { "1 error".to_owned() } else { format!("{errors} errors") };
+            msgs.push(Msg::new(Tone::Error, text).detail(format!("in {}", names.join(", "))));
+        }
+        if let Some(e) = &run.run_error {
+            msgs.push(Msg::new(Tone::Error, e.clone()));
+        }
+        // the application's own segment (crate::app_hooks)
+        if let Some(text) = &self.app.status {
+            msgs.push(Msg::new(self.app.status_tone, text.clone()));
+        }
+        if self.session.save.pending.is_none()
+            && let Some((ask, reply)) = &self.session.save.last
+        {
+            msgs.push(match (&reply.error, reply.ok) {
+                (None, true) => {
+                    let shown = reply.paths.first().map_or(ask.path.as_str(), String::as_str);
+                    let text = match (ask.sheet, reply.paths.len()) {
+                        (true, _) => format!("saved a sheet of {} as {}", reply.items, short_path(shown)),
+                        (false, 0 | 1) => format!("saved {}", short_path(shown)),
+                        (false, n) => format!("saved {n} files as {}", short_path(&ask.path)),
+                    };
+                    let text = if reply.recipe { text } else { format!("{text}, without its recipe") };
+                    Msg::new(Tone::Info, text).detail(reply.paths.join("\n"))
+                }
+                (Some(e), _) => Msg::new(Tone::Error, format!("not saved: {}", e.message)).detail(ask.path.clone()),
+                (None, false) => Msg::new(Tone::Error, "not saved").detail(ask.path.clone()),
+            });
+        }
+        if let Some(err) = &self.last_error {
+            msgs.push(Msg::new(Tone::Error, err.clone()));
+        }
+        msgs
     }
 
     fn watched_panel(&mut self, ui: &mut egui::Ui) {
