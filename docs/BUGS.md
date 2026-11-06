@@ -34,7 +34,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape."
 - Context: core types and Convert (`core.convert`, `docs/research/20-convert.md`), and the array engine (`crates/array`). The chain asked for is any value → its bytes as a 1-D `uint8` ARRAY → a slice (to cut a binary file short) → a reinterpretation as an array of a chosen dtype and shape.
 - Issue: #50
-- Fixed: 2026-11-06, branch `fix/50-bytes-as-array`
+- Fixed: 2026-11-06, PR #53
 
 ### B2. No installer for Intel (x86_64) Macs
 
