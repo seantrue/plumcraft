@@ -21,6 +21,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B16. Not everything tabular can be converted to a TABLE
+
+- Reported: 2026-11-06
+- Report: "anything tabular should be convertible to a TABLE (csv, grid objects, etc)"
+- Context: Convert (`core.convert`, `docs/research/20-convert.md`) and the TABLE core type. Today the text engine converts Text ↔ Table and Array ↔ Table (6.3), and has CSV readers. Whether a CSV file value, a GridCraft workbook or range, or other tabular craft and pack types have a converter to TABLE is not checked yet.
+- Cause: CSV files, CSV text, arrays and GridCraft workbooks (Export CSV → CSV to Table) already reached TABLE. JSON had no converter, so rows such as GridCraft's Read range went JSON → Text → Text to Table and were parsed as CSV. CSV readers knew only commas.
+- Issue: #54
+- Fixed: 2026-11-06, branch `fix/54-tabular-to-table`
+
 ### B15. Not every value can be turned into an array; a binary file can't be cut and reshaped
 
 - Reported: 2026-11-06

@@ -7,7 +7,9 @@
 //!   byte-order mark dropped. The markup of Markdown and HTML is kept: these decode, they don't
 //!   render.
 //! - **CSV** is RFC 4180: commas, double quotes with `""` inside, lines ending `\n`, `\r\n` or
-//!   `\r`. The first row names the columns (an empty name is `column<N>`; two the same is an
+//!   `\r`. A file whose first line has no comma but a tab, or else a semicolon, is read with that
+//!   as its separator (a TSV, a spreadsheet's CSV in a locale with decimal commas) (B16, #54);
+//!   written, a table is always comma-separated. The first row names the columns (an empty name is `column<N>`; two the same is an
 //!   error); blank lines are skipped; a short row is filled with nulls, and a long one is an
 //!   error. A column is INT when every value is a whole number that fits, FLOAT when every value
 //!   is a finite decimal number, BOOL when every value is `true` or `false` in any case (a
@@ -173,8 +175,32 @@ fn file(ty: &str, bytes: Vec<u8>) -> Data {
     }))
 }
 
-/// The rows of a CSV (module docs).
+/// The separator a CSV's first line uses, outside quotes: a comma when it has one, else a tab,
+/// else a semicolon, else a comma (module docs).
+pub fn separator(text: &str) -> char {
+    let (mut quoting, mut tab, mut semi) = (false, false, false);
+    for c in text.chars() {
+        match c {
+            '"' => quoting = !quoting,
+            ',' if !quoting => return ',',
+            '\t' if !quoting => tab = true,
+            ';' if !quoting => semi = true,
+            '\n' | '\r' if !quoting => break,
+            _ => {}
+        }
+    }
+    if tab {
+        '\t'
+    } else if semi {
+        ';'
+    } else {
+        ','
+    }
+}
+
+/// The rows of a CSV (module docs), its separator worked out from its first line.
 pub fn csv_rows(text: &str) -> Result<Vec<Vec<String>>, NodeError> {
+    let sep = separator(text);
     let mut rows: Vec<Vec<String>> = Vec::new();
     let (mut row, mut field) = (Vec::new(), String::new());
     let (mut quoting, mut quoted) = (false, false);
@@ -211,7 +237,7 @@ pub fn csv_rows(text: &str) -> Result<Vec<Vec<String>>, NodeError> {
                 quoting = true;
                 quoted = true;
             }
-            ',' => {
+            c if c == sep => {
                 row.push(std::mem::take(&mut field));
                 quoted = false;
             }

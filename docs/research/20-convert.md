@@ -266,6 +266,27 @@ It found one thing: FilmCraft's MOV and GIF export nodes take no range, so they 
 3. ~~The core pairs (6.3).~~ Done.
 4. ~~Video (6.4).~~ Done.
 
+## 6.8 Anything tabular to a Table (2026-11-06)
+
+The maintainer, B16 (#54): "anything tabular should be convertible to a TABLE (csv, grid objects, etc)".
+
+- **What already reached TABLE:**
+  - a CSV file (CSV to Table);
+  - CSV text (Text to Table);
+  - a series array (Array to Table);
+  - a GridCraft workbook, through Export CSV then CSV to Table.
+- **JSON was the gap.** Rows from GridCraft's Read range, a database's records, any JSON list took JSON to Text, then Text to Table, which read the JSON's text as CSV. The text engine and its Python twin now have a pair:
+
+| Converter and its inverse | Lossless | Note |
+|---|---|---|
+| JSON to Table | no | rows (a list of lists, the first naming the columns), records (a list of objects, keys sorted), columns (an object of lists, keys sorted), or a table; typed by its values (INT, FLOAT, BOOL, else STRING, a non-string as its JSON text); other JSON is an error |
+| Table to JSON | no | records, an object for each row |
+
+- **Separators:** a CSV or CSV text whose first line has no comma reads a tab, or else a semicolon, as its separator. So a TSV, or a spreadsheet's CSV from a locale with decimal commas, reads as a table. Tables are still written comma-separated.
+- **Checked:**
+  - the conformance test runs every form through both engines, and they agree;
+  - `claude-debug/b16/gridcraft-tables.json` ran with GridCraft: a workbook and its Read range both came out as the same table.
+
 ## 6.7 A last resort: any value as its bytes (2026-11-06)
 
 The maintainer, on B15 (#50): "All values should be reducible to arrays, even if just a bytes array", then "Convert should accept byte array as last resort".

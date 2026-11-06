@@ -4,6 +4,13 @@
 
 ## Where things stand
 
+- **B16 (#54): anything tabular to a Table (2026-11-06, branch `fix/54-tabular-to-table`).** The maintainer: "anything tabular should be convertible to a TABLE (csv, grid objects, etc)", then "Do B16".
+  - **Already working:** CSV files, CSV text, series arrays and GridCraft workbooks (Export CSV → CSV to Table) reached TABLE.
+  - **JSON to Table and Table to JSON:** new in the text engine (`pairs.rs`) and its Python twin. JSON to Table reads rows, records, a columns object or a table, typed by its values. Before, JSON went through Text and was parsed as CSV.
+  - **Separators:** CSV readers take a tab or a semicolon as the separator when the first line has no comma (`files::separator`, and its Python twin).
+  - **Tests:** the conformance test runs every form, a TSV and a semicolon file, and a non-tabular error through both engines, which agree.
+  - **Checked with GridCraft** (`claude-debug/b16/`): a workbook and its Read range, each through a Convert node, gave the same table.
+  - **Docs:** `20-convert.md` 6.8.
 - **B15 (#50): any value as bytes, sliced and read as an array (2026-11-06, #53).** The maintainer: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape", then "Do B14, B15". The array engine gains three nodes (`crates/array/src/channels/bytes.rs`), in a new palette group, Array › Bytes:
   - **To Bytes** (`array.to_bytes`): any value (an ANY input) → a 1-D `|u1` array of its bytes. An array gives its stored numbers, a sound its `<f4` samples, a file or encoded value its bytes, text its UTF-8, other JSON its text. At most 1 GiB.
   - **Slice** (`array.slice`): any array along its first axis, as `a[start:stop:step]`, with stop 0 as the end.

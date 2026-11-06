@@ -728,6 +728,18 @@ fn rust_and_python_engines_agree() {
             "codes": {"kind": "text.codes"}, "ct": {"kind": "text.array_to_table"},
             "js": {"kind": "text.literal", "values": {"text": "{\"b\": [1, 2.5, \"é\", null], \"a\": {\"y\": true}}"}},
             "j": {"kind": "text.text_to_json"}, "jt": {"kind": "text.json_to_text"},
+            // B16 (#54): tabular JSON in each form, a table as records, and other separators
+            "rows": {"kind": "text.literal", "values": {"text": "[[\"name\", \"n\", 3], [\"ada\", 1, true], [\"bob\", 2.5]]"}},
+            "jr": {"kind": "text.text_to_json"}, "rt": {"kind": "text.json_to_table"},
+            "recs": {"kind": "text.literal", "values": {"text": "[{\"b\": 1, \"a\": \"x\"}, {\"c\": {\"k\": [1]}, \"a\": null, \"b\": 2}]"}},
+            "jc": {"kind": "text.text_to_json"}, "ct2": {"kind": "text.json_to_table"},
+            "cols": {"kind": "text.literal", "values": {"text": "{\"z\": [true, false], \"y\": [1, null]}"}},
+            "jo": {"kind": "text.text_to_json"}, "ot": {"kind": "text.json_to_table"},
+            "tj": {"kind": "text.table_to_json"},
+            "bad": {"kind": "text.literal", "values": {"text": "[1, 2]"}},
+            "jb": {"kind": "text.text_to_json"}, "bt": {"kind": "text.json_to_table"},
+            "tsv": {"kind": "text.literal", "values": {"text": "a\tb c\n1\tx, y\n"}}, "tt": {"kind": "text.text_to_table"},
+            "semi": {"kind": "text.literal", "values": {"text": "a;b\n1;\"x;y\"\n"}}, "st": {"kind": "text.text_to_table"},
         }),
         &[
             ("csv", "text", "t", "text"),
@@ -738,10 +750,21 @@ fn rust_and_python_engines_agree() {
             ("codes", "codes", "ct", "array"),
             ("js", "text", "j", "text"),
             ("j", "json", "jt", "json"),
+            ("rows", "text", "jr", "text"),
+            ("jr", "json", "rt", "json"),
+            ("recs", "text", "jc", "text"),
+            ("jc", "json", "ct2", "json"),
+            ("cols", "text", "jo", "text"),
+            ("jo", "json", "ot", "json"),
+            ("t", "table", "tj", "table"),
+            ("bad", "text", "jb", "text"),
+            ("jb", "json", "bt", "json"),
+            ("tsv", "text", "tt", "text"),
+            ("semi", "text", "st", "text"),
         ],
     );
     let converted = |h: &ProcessHost| {
-        run(h, "pairs", 1, pairs.clone(), json!({"targets": ["back", "at", "ct", "jt"]}));
+        run(h, "pairs", 1, pairs.clone(), json!({"targets": ["back", "at", "ct", "jt", "rt", "ct2", "ot", "tj", "bt", "tt", "st"]}));
         let (_, reply) = collect(h, "pairs", 0);
         reply.nodes.iter().map(|(k, n)| (k.clone(), n.outputs.clone(), n.error.as_ref().map(|e| e.message.clone()))).collect::<Vec<_>>()
     };
@@ -759,6 +782,35 @@ fn rust_and_python_engines_agree() {
     );
     assert_eq!(out("ct", "table").map(|t| t["columns"][0]["type"].clone()), Some(json!("INT")));
     assert_eq!(out("jt", "text"), Some(json!("{\n  \"a\": {\n    \"y\": true\n  },\n  \"b\": [\n    1,\n    2.5,\n    \"é\",\n    null\n  ]\n}")));
+    // B16 (#54)
+    assert_eq!(
+        out("rt", "table"),
+        Some(json!({"columns": [
+            {"name": "name", "type": "STRING", "values": ["ada", "bob"]},
+            {"name": "n", "type": "FLOAT", "values": [1.0, 2.5]},
+            {"name": "3", "type": "BOOL", "values": [true, null]},
+        ]})),
+        "{r_pairs:?}"
+    );
+    assert_eq!(
+        out("ct2", "table"),
+        Some(json!({"columns": [
+            {"name": "a", "type": "STRING", "values": ["x", null]},
+            {"name": "b", "type": "INT", "values": [1, 2]},
+            {"name": "c", "type": "STRING", "values": [null, "{\"k\":[1]}"]},
+        ]}))
+    );
+    assert_eq!(
+        out("ot", "table"),
+        Some(json!({"columns": [{"name": "y", "type": "INT", "values": [1, null]}, {"name": "z", "type": "BOOL", "values": [true, false]}]}))
+    );
+    assert_eq!(out("tj", "json").map(|j| j[1].clone()), Some(json!({"name": "bob", "n": null, "x": -2.0, "ok": false})));
+    assert!(r_pairs.iter().find(|(k, ..)| k == "bt").and_then(|(_, _, e)| e.clone()).is_some_and(|e| e.contains("not tabular")));
+    assert_eq!(
+        out("tt", "table"),
+        Some(json!({"columns": [{"name": "a", "type": "INT", "values": [1]}, {"name": "b c", "type": "STRING", "values": ["x, y"]}]}))
+    );
+    assert_eq!(out("st", "table"), Some(json!({"columns": [{"name": "a", "type": "INT", "values": [1]}, {"name": "b", "type": "STRING", "values": ["x;y"]}]})));
     assert_eq!(r_pairs, p_pairs);
 }
 

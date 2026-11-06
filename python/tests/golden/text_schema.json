@@ -656,6 +656,35 @@
    "family": "text"
   },
   {
+   "id": "text.json_to_table",
+   "display": "JSON to Table",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "Tabular JSON as a table: rows (a list of lists, the first naming the columns), records (a list of objects, a column for each key), or columns (an object of lists). Each column's type comes from its values. Other JSON is an error. The inverse of Table to JSON.",
+   "inputs": [
+    {
+     "name": "json",
+     "type": "JSON",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "table",
+     "type": "TABLE"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "JSON",
+    "to": "TABLE",
+    "input": "json",
+    "output": "table"
+   }
+  },
+  {
    "id": "text.json_to_text",
    "display": "JSON to Text",
    "category": [
@@ -909,6 +938,35 @@
     "input": "table",
     "output": "array",
     "to_shape": "series"
+   }
+  },
+  {
+   "id": "text.table_to_json",
+   "display": "Table to JSON",
+   "category": [
+    "Text",
+    "Convert"
+   ],
+   "description": "A table as JSON records: a list with an object for each row, keyed by the column names. The inverse of JSON to Table.",
+   "inputs": [
+    {
+     "name": "table",
+     "type": "TABLE",
+     "socket": "socket"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "json",
+     "type": "JSON"
+    }
+   ],
+   "family": "text",
+   "converts": {
+    "from": "TABLE",
+    "to": "JSON",
+    "input": "table",
+    "output": "json"
    }
   },
   {
