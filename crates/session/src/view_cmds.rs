@@ -46,6 +46,8 @@ pub struct Views {
     pub cache_report: bool,
     /// The About window is open.
     pub about: bool,
+    /// The Messages window (the status bar's messages in full) is open (`view.messages`).
+    pub messages: bool,
     /// The node the parameter editor is open on.
     pub parameters: Option<NodeId>,
     /// The nodes whose own editors are open (`node.editor`), oldest first.
@@ -220,8 +222,28 @@ fn theme(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"theme": name}))
 }
 
+/// `view.messages {open?}`: open or close the Messages window; without `open`, toggle it.
+fn messages(s: &mut Session, p: &Value) -> Result<Value> {
+    let open = match p.get("open") {
+        None | Some(Value::Null) => !s.views.messages,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"open\" must be true or false".into()))?,
+    };
+    s.views.messages = open;
+    Ok(json!({"open": open}))
+}
+
 pub(crate) fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec {
+            id: "view.messages",
+            label: "Messages",
+            menu: &["View"],
+            shortcut: None,
+            params: "{open?: bool (default: toggle)} -> {open}: the status bar's messages (the run's errors, the application's segment, a save's outcome, the last thing that went wrong) in full, in a window; clicking a message in the status bar, or its \"more…\" button, opens it",
+            enabled: always,
+            run: messages,
+            journal: false,
+        },
         CommandSpec {
             id: "view.popout",
             label: "Pop Out",

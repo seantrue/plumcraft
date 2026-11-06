@@ -1,9 +1,23 @@
 # Status
 
-*Updated 2026-11-05.*
+*Updated 2026-11-06.*
 
 ## Where things stand
 
+- **Status bar messages (2026-11-06, branch `status-messages`).** The maintainer, looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)".
+  - **Chips.** The status bar's messages (the run's errors, a run error, the application's segment, a save's outcome, `last_error`) are now chips (`crates/ui/src/status_msgs.rs`), drawn last in what width is left. Each has a background by severity (`Tone`'s accent, warning or error colour mixed 28% into the panel) and the theme's text colour. There is no red text.
+  - **What doesn't fit.** The most serious messages come first. One that doesn't fit is cut short, or left out, and a `more…` button says so (`+N more…` when N are left out entirely).
+  - **The Messages window.** Clicking a message or that button opens it, with every message in full, wrapped and selectable. It is the command `view.messages {open?}` (View › Messages). That command keeps `last_error` and the convert offer, so it doesn't clear what it shows.
+  - **`Hooks::status_tone`** (additive, `commands::app_status_tone()`): an application says how serious its segment is; without it, `Info`.
+  - **Tests:** `crates/ui/tests/kittest_status.rs` (6):
+    - a short message shows whole;
+    - a long one shows `more…`, and a click shows it in full;
+    - clicking a message opens the window;
+    - the command opens and toggles the window;
+    - the order;
+    - the backgrounds.
+  - **Checked in PlumPipe's window** through `scripts/cargo-plumcraft`, pictures in plumpipe's `claude-debug/ticker/msgs-*.png`.
+  - **Gate:** 1,184 Rust tests pass, and one more. `pack_pdfcraft`'s `pdfcraft_runs_a_chain_by_document_id` failed once under the full suite (it drives the installed PdfCraft app) and passed alone. Python passes 218, and clippy, fmt and ruff are clean.
 - **Release 0.3.1 (2026-11-06, branch `release-0.3.1`).** The maintainer: "Release", crates only ("Crates only"). The 19 crates and the Python text twin go to 0.3.1; the SDK stays 0.1.2. A patch: pack operations in the Rust SDK (#45) only add API. Tagged `plumcraft-v0.3.1`; no installers.
 - **Pack operations in the Rust SDK (2026-11-06, #45).** An application of the editor needed engines to answer operations of their own. Spec 15 already defines them (`x.<pack>.<op>`, advertised as capabilities, kept by negotiation), but the SDK host answered every one with `unknown_op`.
   - `Engine::with_pack_op(name, handler)` registers one (`PackOp`, a closure from params to result) and advertises it. A malformed name is ignored (`is_pack_op`, the proto's own rule).
