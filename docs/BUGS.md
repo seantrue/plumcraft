@@ -11,6 +11,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
 - Issue: #28
 
+### B13. `pdfcraft_runs_a_chain_by_document_id` fails when a save straddles a second
+
+- Reported: 2026-11-05
+- Report: "yes, add as B13" (after the test stopped the first `release.sh` run for 0.2.4)
+- Context: `crates/craft/tests/pack_pdfcraft.rs:94`, against the installed PdfCraft 0.17.0. The test runs the same chain twice and allows fewer than 16 differing bytes, as PdfCraft's saves depend on the clock in whole seconds through a few bytes of one compressed stream. In `release.sh`'s serial `cargo test` run it failed with "166 of 1498 bytes differ" (`claude-debug/release-0.2.4.log`); alone it passed 3 of 3, and the same commit passed nextest locally and on CI.
+- Issue: none
+
 ## Fixed
 
 ### B2. No installer for Intel (x86_64) Macs
