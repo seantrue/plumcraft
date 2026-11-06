@@ -20,6 +20,34 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — B17 (#56): packs versioned against their app (Claude Opus 5.5)
+
+**What the maintainer asked:** "Packs should be versioned and selected against the engine (application) version" (B17), then "address B17".
+
+**What the AI did:**
+
+- **`manifest.rs`** (~130 LOC):
+  - `pack_version` and `app_versions`, checked when a pack loads.
+  - `version_parts` and `fits`: dotted versions and ranges, with no new dependency.
+  - `choose` and `choose_among`: the newest built-in pack that fits the app, else the newest with a warning. A pack loaded from a file is never swapped.
+- **`build.rs`:** `packs/<id>@<tag>.toml` files become `VARIANTS`, built in beside the main pack.
+- **`lib.rs`** (~25 LOC):
+  - after reading the app's version, `build` rebuilds with the pack that fits;
+  - the report carries `pack_version` and any misfit warning;
+  - `EngineInfo.components` gives `pack` and `pack.app_versions`.
+- **The 13 packs:** each is pack 1, `>=` the app version it was checked against today. The versions were read from the installed apps (`claude-debug/baselines/versions.py`).
+- **Tests:** four in `manifest.rs`, plus `installed_apps_fit_their_packs` against the installed apps.
+- **Docs:** `14-craft-mcp-adapter.md` 3.10.1, STATUS, BUGS.
+
+**Design choices the maintainer may want to revisit:**
+- A pack that doesn't fit is still used, with a warning, rather than refused.
+- The ranges' lower bounds are today's checked versions, not the oldest versions that would work. Nobody has checked the older ones.
+
+**Defects in AI-written code, caught by the tests and clippy:**
+- A type error in the first `choose`, caught by the compiler.
+- Toy test manifests that lacked required fields, caught by the tests.
+- A clippy lint on the new test.
+
 ### 2026-11-06 — The craft apps' new parameters in the packs; B17 recorded (Claude Opus 5.5)
 
 **What the maintainer asked:** "I installed the most recent version of the *Craft apps; check base lines for all", then "Edit the packs to add the parameters", and "CPM". Also a bug report, B17 (#56): "Packs should be versioned and selected against the engine (application) version."

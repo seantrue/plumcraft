@@ -14,6 +14,9 @@
 
 id = "cadcraft"
 name = "CADCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.17.1"
 command = ["cadcraft-cli", "mcp", "--config-dir", ""]
 hint = "install cadcraft-cli on PATH (https://github.com/storytold/cadcraft)"
 timeout_s = 300

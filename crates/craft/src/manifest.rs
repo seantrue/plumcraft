@@ -47,6 +47,18 @@ pub struct Manifest {
     /// The engine id (`vectorcraft`): the memo salt and the CAS folder name.
     pub id: String,
     pub name: String,
+    /// The pack's own version (B17, #56), raised whenever the pack changes; a dotted number.
+    #[serde(default = "first_version")]
+    pub pack_version: String,
+    /// The app versions this pack fits, as the app's `serverInfo.version` says them:
+    /// comma-separated clauses, each `>=`, `>`, `<=`, `<` or `=` and a dotted version
+    /// (`>=0.20.2, <0.21`); `=0.20` takes any 0.20.x. Absent: any version ([`choose`]).
+    #[serde(default)]
+    pub app_versions: Option<String>,
+    /// A built-in pack (set by [`builtin`]), which [`choose`] may swap for another of the same
+    /// app's built-in packs.
+    #[serde(skip)]
+    pub builtin: bool,
     /// The server: program and arguments (`~` is expanded). The roots are appended.
     pub command: Vec<String>,
     #[serde(default)]
@@ -622,6 +634,12 @@ impl Manifest {
         if !ident(&self.id) {
             return Err(format!("manifest: id {:?} must be letters, digits, - and _", self.id));
         }
+        if version_parts(&self.pack_version).is_none() {
+            return Err(format!("manifest: pack_version {:?} isn't a dotted number", self.pack_version));
+        }
+        if let Some(req) = &self.app_versions {
+            fits(req, "0").map_err(|e| format!("manifest: app_versions: {e}"))?;
+        }
         if self.command.is_empty() {
             return Err("manifest: empty command".into());
         }
@@ -705,9 +723,111 @@ impl GuiSpec {
     }
 }
 
-/// A built-in pack.
+/// A built-in pack: the newest of that app's built-in packs ([`choose`] picks among them once
+/// the app's version is known).
 pub fn builtin(name: &str) -> Option<Result<Manifest, String>> {
-    PACKS.iter().find(|p| p.0 == name).map(|p| Manifest::parse(p.1))
+    PACKS.iter().find(|p| p.0 == name).map(|p| {
+        Manifest::parse(p.1).map(|mut m| {
+            m.builtin = true;
+            m
+        })
+    })
+}
+
+fn first_version() -> String {
+    "1".into()
+}
+
+/// A dotted version's numbers (`0.20.2` → [0, 20, 2]; `0.21.0-beta` → [0, 21, 0]: what follows
+/// a component's digits is ignored). `None` when it doesn't start with a number.
+pub fn version_parts(v: &str) -> Option<Vec<u64>> {
+    let v = v.trim();
+    let mut out = Vec::new();
+    for part in v.split('.') {
+        let digits: String = part.chars().take_while(char::is_ascii_digit).collect();
+        if digits.is_empty() {
+            break;
+        }
+        out.push(digits.parse().ok()?);
+        if digits.len() != part.len() {
+            break;
+        }
+    }
+    (!out.is_empty() && out.len() <= 8).then_some(out)
+}
+
+fn cmp_versions(a: &[u64], b: &[u64]) -> std::cmp::Ordering {
+    let n = a.len().max(b.len());
+    (0..n).map(|i| a.get(i).unwrap_or(&0).cmp(b.get(i).unwrap_or(&0))).find(|o| o.is_ne()).unwrap_or(std::cmp::Ordering::Equal)
+}
+
+/// Does app version `version` meet `req` ([`Manifest::app_versions`])? An error when `req`
+/// doesn't read; a version that doesn't read meets nothing.
+pub fn fits(req: &str, version: &str) -> Result<bool, String> {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    let have = version_parts(version);
+    let mut ok = true;
+    let clauses: Vec<&str> = req.split(',').map(str::trim).collect();
+    if clauses.len() > 16 {
+        return Err("more than 16 clauses".into());
+    }
+    for clause in clauses {
+        let (op, v) = ["<=", ">=", "==", "<", ">", "="]
+            .iter()
+            .find_map(|op| clause.strip_prefix(op).map(|v| (*op, v.trim())))
+            .ok_or_else(|| format!("{clause:?}: start with >=, >, <=, < or ="))?;
+        let want = version_parts(v).ok_or_else(|| format!("{clause:?}: {v:?} isn't a version"))?;
+        let Some(have) = &have else {
+            ok = false;
+            continue;
+        };
+        ok &= match op {
+            ">=" => cmp_versions(have, &want) != Less,
+            ">" => cmp_versions(have, &want) == Greater,
+            "<=" => cmp_versions(have, &want) != Greater,
+            "<" => cmp_versions(have, &want) == Less,
+            // `=0.20`: the components given, so any 0.20.x
+            _ => have.len() >= want.len() && cmp_versions(&have[..want.len()], &want) == Equal,
+        };
+    }
+    Ok(ok)
+}
+
+/// The pack for an app at `app_version`: of `m` and, when `m` is built in, the other built-in
+/// packs for the same app (`packs/<id>@<tag>.toml`), the newest (`pack_version`) whose
+/// `app_versions` the app meets. When none does, the newest anyway, with a warning to show:
+/// a pack that doesn't fit may send parameters the app doesn't take, or miss ones it needs.
+pub fn choose(m: &Manifest, app_version: &str) -> (Manifest, Option<String>) {
+    choose_among(m, VARIANTS, app_version)
+}
+
+/// [`choose`] with the other packs given (`(id, manifest text)`), for tests.
+pub fn choose_among(m: &Manifest, variants: &[(&str, &str)], app_version: &str) -> (Manifest, Option<String>) {
+    let mut all: Vec<Manifest> = vec![m.clone()];
+    if m.builtin {
+        for (id, text) in variants {
+            if *id == m.id
+                && let Ok(mut v) = Manifest::parse(text)
+            {
+                v.builtin = true;
+                all.push(v);
+            }
+        }
+    }
+    let newest =
+        |a: &&Manifest, b: &&Manifest| cmp_versions(&version_parts(&a.pack_version).unwrap_or_default(), &version_parts(&b.pack_version).unwrap_or_default());
+    let fitting: Vec<&Manifest> = all.iter().filter(|p| p.app_versions.as_deref().is_none_or(|r| fits(r, app_version).unwrap_or(false))).collect();
+    if let Some(best) = fitting.into_iter().max_by(newest) {
+        return (best.clone(), None);
+    }
+    let best = all.iter().max_by(newest).unwrap_or(m).clone();
+    let warning = format!(
+        "{} {app_version} isn't a version its pack (pack {}) was made for ({}): nodes may send parameters it doesn't take, or miss ones it needs",
+        m.name,
+        best.pack_version,
+        best.app_versions.as_deref().unwrap_or("any")
+    );
+    (best, Some(warning))
 }
 
 /// `~/x` → the home folder's `x` (`plumcraft_proto::programs::expand_home`: `USERPROFILE` when

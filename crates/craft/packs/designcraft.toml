@@ -13,6 +13,9 @@
 
 id = "designcraft"
 name = "DesignCraft"
+# The pack's own version, and the app versions it was made and checked for (B17, #56).
+pack_version = "1"
+app_versions = ">=0.17.2"
 command = ["designcraft-cli", "mcp"]
 hint = "install designcraft-cli on PATH (https://github.com/storytold/designcraft)"
 timeout_s = 300

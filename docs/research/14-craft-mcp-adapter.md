@@ -385,6 +385,19 @@ widgets = { level = { min = 0, max = 100, default = 50 } }
 
 Its curated nodes would import an `AUDIO` value (`file.import_audio`) and bounce one (`file.bounce_mix`). The client, pool, CAS, selection compiler, memo and status code are unchanged. So "generic" means generic over this manifest, not over a shared Rust type (craft-libs has none). M2 proves it with a SoundCraft manifest that only lists its commands and runs one (section 6).
 
+### 3.10.1 Packs versioned against their app (B17, #56, 2026-11-06)
+
+The maintainer: "Packs should be versioned and selected against the engine (application) version."
+
+- **Two fields at a pack's top:**
+  - `pack_version` is the pack's own version, a dotted number raised whenever the pack changes (default `1`).
+  - `app_versions` is the app versions it fits, as the app's MCP `serverInfo.version` says them: comma-separated clauses of `>=`, `>`, `<=`, `<` or `=` and a version (`>=0.20.2, <0.21`). `=0.20` takes any 0.20.x. A range that doesn't read fails the manifest.
+- **Several packs for one app:** `packs/<id>.toml` is the newest, and `packs/<id>@<tag>.toml` is another pack for the same app, built in beside it (`manifest::VARIANTS`). When an engine is built, the app is started and its version read. `manifest::choose` then takes the newest built-in pack whose range the app meets, and rebuilds with it if it isn't the one asked for.
+- **No pack fits:** the newest is used, with a warning in the build report and on stderr: "SoundCraft 4.0 isn't a version its pack (pack 3) was made for (…)". Nodes may send parameters the app doesn't take, or miss ones it needs. A pack loaded from a file is never swapped, only warned about.
+- **What the engine says:** `EngineInfo.components` carries `pack` (its version) and `pack.app_versions`. The memo salt already holds the app's version and the pack's content.
+- **Today:** all 13 packs are pack 1, each `>=` the app version they were last checked against (2026-11-06: PhotoCraft 0.20.2, VectorCraft 0.21.1, SoundCraft 0.17.1, …). `installed_apps_fit_their_packs` checks the installed apps.
+- **When an app changes:** update the pack, raise its `pack_version`, and set `app_versions` to the new app version. To keep supporting the older app, first copy the old pack to `packs/<id>@<old app version>.toml`, with `app_versions` ending `<` the new version.
+
 ### 3.11 Crates and dependencies
 
 - **MCP client: hand-rolled (D40),** about 400 lines on `std::thread` plus `serde_json`, reusing `plumcraft-engine`'s `rpc` framing (`crates/engine/src/rpc.rs`, the module spec 16.3 already names as shared with "the MCP adapter").

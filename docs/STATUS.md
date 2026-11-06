@@ -4,6 +4,13 @@
 
 ## Where things stand
 
+- **B17 (#56): packs versioned against their app (2026-11-06, branch `fix/56-pack-versions`).** The maintainer: "Packs should be versioned and selected against the engine (application) version", then "address B17".
+  - **The fields:** a pack has `pack_version` and `app_versions` (a range over the app's `serverInfo.version`).
+  - **Choosing a pack:** `packs/<id>@<tag>.toml` holds packs for other app versions. After reading the app's version, `build` takes the newest built-in pack that fits (`manifest::choose`), or the newest with a warning when none does.
+  - **What the engine says:** `EngineInfo.components` gives `pack` and `pack.app_versions`.
+  - **The packs:** all 13 are pack 1, `>=` the app version checked today.
+  - **Tests:** four in `manifest.rs` (version reading and ranges, choosing, bad fields refused, every pack declares a range) and `installed_apps_fit_their_packs` against the installed apps.
+  - **Docs:** `14-craft-mcp-adapter.md` 3.10.1.
 - **Craft apps' new parameters in the packs (2026-11-06, branch `craft-baselines`).** The maintainer installed the latest *Craft apps: "check base lines for all", then "Edit the packs to add the parameters".
   - **The craft suite** ran against all 13 apps (`PLUMCRAFT_CORGI` set): 118 tests pass. The only change was four node commands whose apps gained parameters.
   - **New settings:**
