@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B18. Port and parameter labels have no translation table
+
+- Reported: 2026-11-06
+- Report: "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable."
+- Context: the node canvas shows a port's name, or the engine's `label` for it, as it comes (`crates/ui/src/canvas.rs`, `port_label`). Raw parameter keys from engines and craft packs (`max_array_width`, `scaleStyles`) show as they are. The table should be a file both the maintainer and Claude can edit.
+- Issue: #59
+
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
 - Reported: 2026-11-05
