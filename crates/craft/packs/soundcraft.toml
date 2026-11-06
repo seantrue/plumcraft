@@ -128,6 +128,12 @@ type = "ENUM"
 choices = ["mono", "stereo"]
 default = "stereo"
 advanced = true
+[[node.widget]]
+name = "rows"
+type = "JSON"
+optional = true
+advanced = true
+tooltip = "More tracks in one go: a list of objects with the same fields (name, kind, instrument, format, …), 1 to 128 tracks in all"
 
 [[node]]
 id = "sc.notes"
