@@ -5,6 +5,7 @@
 ## Where things stand
 
 - **An STL viewer (2026-11-05, B12, #38).** STL files (`model/stl`, binary or ASCII) open in the `mesh` viewer: shaded on the CPU, turned by a drag, zoomed by scrolling, fitted by a double-click (`crates/ui/src/viewers/mesh.rs`); the reader is `plumcraft_proto::mesh`, bounded and in the hostile sweep. Both adapted from SolidCraft (`THIRD-PARTY.md`). Checked in the real editor with `claude-debug/stl_viewer_probe.py` (a binary torus, an ASCII block with CRLF). Not yet: `MeshLod` renditions, OBJ, 3MF and glTF.
+- **The Engine menu with engines picked automatically (2026-11-05, B3, #24).** With Settings › Engines › Pick Engines Automatically on, each engine is one item that starts it the fastest way it can be hosted (`engine.use` with no mode), not a submenu of its hostings. Tests: `crates/ui/tests/kittest_engine_menu.rs`.
 - **Faster CI (2026-11-05).** Two jobs side by side, `gate` (Rust: fmt, clippy, cargo-nextest) and `python`, with apt and uv cached; branch protection requires both.
 - **B11, a flaky conformance test (2026-11-05, #33).** `a_panicking_node_rebuilds_the_engine` raced the rebuild; it now checks the session's `EngineDown` before the reply, with a slow rebuild that makes the old race certain.
 - **Release 0.2.3 (2026-11-05, branch `release-0.2.3`).** The maintainer: "publish to crates.io", as 0.2.3 with #34. The 20 crates and the Python text twin go to 0.2.3; the SDK stays 0.1.2. Gate: 1,150 Rust tests, 218 Python.

@@ -36,6 +36,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defect, caught before commit:** the first colour, the theme's accent (dark navy), made the mesh too dark to read; the plum group colour and more ambient light replaced it after a screenshot.
 
+### 2026-11-05 — B3: the Engine menu with engines picked automatically (#24) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: When "preferences->engines->select engine automatically" is enabled, the "engines->select engine" should just select the engine, not offer the list of implementations", then approved it for fixing ("yes, both").
+
+**What the AI did:** with `engine.auto` on, `engine_choices_menu` (`crates/ui/src/engine_view.rs`) now shows each engine as one radio item, checked when it's in use, that runs `engine.use` with no mode. The session already resolves that to the fastest hosting (`Engines::best`, in-process first), so no session code changed. With the setting off, the submenu of hostings stays. `docs/guide.md` says so.
+
+- **Tests (`crates/ui/tests/kittest_engine_menu.rs`, new):** with the setting off, Text is a submenu and a pick starts the hosting chosen; with it on, Text is no submenu, no hostings are listed, and clicking it starts the in-process hosting, though the process one is listed first. Without the fix the second test fails.
+- **Defect, caught before commit:** the AI renamed a helper with `sed 's/c_engine(/group_engine(/'`, which also matched inside `sync_engine(` and broke the build; a second `sed` restored `sync_engine` and renamed the definition the first one missed.
+
 ### 2026-11-05 — Faster CI: two jobs, nextest, cached apt and uv (Claude Opus 5.5)
 
 **What the maintainer asked:** "Gate tests take a long time on github. How can we shorten that?", then "Yes. Do those things."
