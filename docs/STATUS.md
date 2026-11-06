@@ -4,6 +4,11 @@
 
 ## Where things stand
 
+- **Installers for 0.5.0, and uploading them without a CI cycle (2026-11-06).** The maintainer: "Build and upload installers. Uploading installers should not require a CI cycle", then "publish as Latest when done".
+  - **The installers:** `release.sh --linux-host yellowfin.lan --windows-host win11-dev --windows-jump yellowfin.lan` ran from the tagged `bcad241`, gate included. It built two notarized DMGs, a `.deb` and tarball, and a Windows setup and zip. They were uploaded with `gh release create` to the existing tag and published as Latest. `win11-dev` was started for it and shut off again.
+  - **`release.sh --upload` and an existing tag** (branch `release-existing-tag`): when `plumcraft-vVERSION` is there already (the crates went out first), the images join its release, made if missing, as long as only docs, `packaging/` or `.github/` changed since the tag. Before, it stopped and asked for a version bump.
+  - **CI and `packaging/`:** CI now skips changes to `packaging/` alone, as it does bookkeeping Markdown; CI never runs those scripts.
+  - **The CHANGELOG** still says 0.5.0 was "Crates only: no new installers". The release page was corrected.
 - **Release 0.5.0 (2026-11-06, branch `release-0.5.0`).** The maintainer: "Release". The 19 crates and the Python text twin go to 0.5.0; the SDK stays 0.1.2. A minor bump: public fields on `Manifest` and `Report`, and `hover_wire`'s type. It carries #51–#58 (B14–B17). Crates only, tagged `plumcraft-v0.5.0`; no installers.
 - **B17 (#56): packs versioned against their app (2026-11-06, #58).** The maintainer: "Packs should be versioned and selected against the engine (application) version", then "address B17".
   - **The fields:** a pack has `pack_version` and `app_versions` (a range over the app's `serverInfo.version`).

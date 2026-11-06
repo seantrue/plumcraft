@@ -3,7 +3,8 @@
 #
 # A change to the bookkeeping Markdown alone (the bug list, status, the AI ledger, the
 # changelog, the roadmap) needs no CI: no code reads those files (maintainer, 2026-11-06:
-# "Pushing BUGS.md should not require a CI cycle"). A push of only those files to main starts
+# "Pushing BUGS.md should not require a CI cycle"). Nor does one to packaging/ alone, which CI
+# never runs ("Uploading installers should not require a CI cycle"). A push of only those files to main starts
 # nothing. A pull request still starts the workflow, since branch protection waits for `gate`
 # and `python`, but `changes` finds nothing else changed and both are skipped, which counts as
 # passing. Keep the two lists below the same.
@@ -19,6 +20,7 @@ on:
       - AI.md
       - CHANGELOG.md
       - ROADMAP.md
+      - packaging/**
   workflow_dispatch:
 
 concurrency:
@@ -58,7 +60,7 @@ jobs:
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: |
           if [ "${{ github.event_name }}" != pull_request ]; then echo code=true >> "$GITHUB_OUTPUT"; exit 0; fi
-          other=$(git diff --name-only "$BASE...$HEAD" | grep -v -x -E 'docs/BUGS\.md|docs/STATUS\.md|AI\.md|CHANGELOG\.md|ROADMAP\.md' || true)
+          other=$(git diff --name-only "$BASE...$HEAD" | grep -v -x -E 'docs/BUGS\.md|docs/STATUS\.md|AI\.md|CHANGELOG\.md|ROADMAP\.md|packaging/.*' || true)
           if [ -n "$other" ]; then echo code=true; else echo code=false; fi >> "$GITHUB_OUTPUT"
           echo "changed besides the bookkeeping Markdown:"; echo "${other:-(nothing)}"
 

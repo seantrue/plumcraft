@@ -11,6 +11,10 @@
 #                    (ssh JUMP, then ssh HOST from there), for a VM only its host can reach.
 # --skip-gate        don't run the tests first.
 # --upload           push the tag plumcraft-vVERSION and make a draft GitHub release with the images.
+#                    When the tag is there already (the crates went out first), the images go on
+#                    its release (made if missing; files of the same name replaced), as long as
+#                    nothing built has changed since the tag: only docs, packaging/ and .github/.
+#                    So installers for released crates need no version bump, PR or CI run.
 # --publish          with --upload, publish it instead of leaving a draft.
 #
 # The tag is plumcraft-vVERSION (as commonkit-v and npexact-v name their crates): it marks the
@@ -42,7 +46,15 @@ TAG="plumcraft-v$VERSION"
 if [[ -n $upload ]]; then
     git fetch -q origin
     [[ $(git rev-parse HEAD) == $(git rev-parse origin/main) ]] || { echo "--upload releases origin/main: HEAD isn't it" >&2; exit 2; }
-    ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null || { echo "$TAG exists: bump the workspace version" >&2; exit 2; }
+    git fetch -q origin "refs/tags/$TAG:refs/tags/$TAG" 2>/dev/null || true
+    tagged=''
+    if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+        # The tag is there (the crates went out from it): the images may join its release when
+        # nothing that goes into them has changed since.
+        built=$(git diff --name-only "$TAG" HEAD | grep -vE '^(docs/|packaging/|\.github/|[^/]+\.md$)' || true)
+        [[ -z $built ]] || { printf '%s exists, and these changed since it:\n%s\nbump the workspace version\n' "$TAG" "$built" >&2; exit 2; }
+        tagged=yes
+    fi
 fi
 
 if [[ -n $gate ]]; then
@@ -126,9 +138,16 @@ fi
 ls -l "$DIST"
 
 if [[ -n $upload ]]; then
-    git tag -a "$TAG" -m "PlumCraft $VERSION"
-    git push origin "$TAG"
-    args=(--verify-tag --title "PlumCraft $VERSION" --notes-file CHANGELOG.md)
-    [[ -n $publish ]] || args+=(--draft)
-    gh release create "$TAG" "${args[@]}" "$DIST"/*
+    if [[ -z $tagged ]]; then
+        git tag -a "$TAG" -m "PlumCraft $VERSION"
+        git push origin "$TAG"
+    fi
+    if gh release view "$TAG" >/dev/null 2>&1; then
+        gh release upload "$TAG" --clobber "$DIST"/*
+        [[ -z $publish ]] || gh release edit "$TAG" --draft=false --latest
+    else
+        args=(--verify-tag --title "PlumCraft $VERSION" --notes-file CHANGELOG.md)
+        [[ -n $publish ]] || args+=(--draft)
+        gh release create "$TAG" "${args[@]}" "$DIST"/*
+    fi
 fi
