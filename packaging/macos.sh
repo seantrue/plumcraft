@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build PlumCraft.app and a DMG for this Mac's architecture, into dist/.
+# Build PlumCraft.app and a DMG for one Mac architecture (this Mac's by default), into dist/.
 #
 #   packaging/macos.sh
 #
@@ -29,6 +29,20 @@ identity=${CODESIGN_IDENTITY:-$(security find-identity -v -p codesigning | sed -
 identity=${identity:--}
 
 [[ -n ${SKIP_BUILD:-} ]] || build_binaries
+
+# Every binary is the architecture the image is named for (a stale or misdirected build isn't).
+for name in "${BINARIES[@]}"; do
+    archs=$(lipo -archs "$RELEASE/$name")
+    [[ $archs == "$ARCH" ]] || { echo "$RELEASE/$name is $archs, not $ARCH" >&2; exit 2; }
+done
+# An image for the other architecture runs here only under Rosetta: try the CLI when it can.
+if [[ $ARCH != "$(uname -m)" ]]; then
+    if arch "-$ARCH" "$RELEASE/plumcraft" nodes >/dev/null 2>&1; then
+        echo "$ARCH: plumcraft nodes runs (under Rosetta)"
+    else
+        echo "$ARCH: not run here (no Rosetta 2: softwareupdate --install-rosetta); check it on an $ARCH Mac" >&2
+    fi
+fi
 
 rm -rf "$DIST/stage-macos" "$DMG"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
