@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **Release 0.4.0 (2026-11-06, branch `release-0.4.0`).** The maintainer: "CPM, then release to crates.io". The 19 crates and the Python text twin go to 0.4.0; the SDK stays 0.1.2. A minor bump: `Hooks` gained `status_tone` (#47). Crates only, tagged `plumcraft-v0.4.0`; no installers.
 - **Status bar messages (2026-11-06, branch `status-messages`).** The maintainer, looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)".
   - **Chips.** The status bar's messages (the run's errors, a run error, the application's segment, a save's outcome, `last_error`) are now chips (`crates/ui/src/status_msgs.rs`), drawn last in what width is left. Each has a background by severity (`Tone`'s accent, warning or error colour mixed 28% into the panel) and the theme's text colour. There is no red text.
   - **What doesn't fit.** The most serious messages come first. One that doesn't fit is cut short, or left out, and a `more…` button says so (`+N more…` when N are left out entirely).

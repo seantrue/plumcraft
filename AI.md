@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — Release 0.4.0, crates only (Claude Opus 5.5)
+
+**What the maintainer asked:** "CPM, then release to crates.io".
+
+**What the AI did:**
+
+- **Versions:** bumped the workspace and the Python text twin to 0.4.0. A minor bump, because `Hooks` gained a public field (#47).
+- **Docs:** CHANGELOG, STATUS.
+- **Release:** the gate, a release PR, `cargo publish --workspace` from `main`, and the tag `plumcraft-v0.4.0`.
+
 ### 2026-11-06 — Status bar messages: chips by severity, cut-off marker, the Messages window (Claude Opus 5.5)
 
 **What the maintainer asked:** looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)". Then "CPM".
