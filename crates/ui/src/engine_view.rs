@@ -418,7 +418,8 @@ impl EditorApp {
 
     /// The Engine menu's choices, after its fixed commands: Remove for each added engine, then
     /// every engine in a list that scrolls, each a submenu of its connections with the one in
-    /// use checked. A pick is `engine.use`: it starts, adds or changes that engine, so Clear
+    /// use checked (or, picking engines automatically, one item that starts it the fastest way
+    /// it can be hosted). A pick is `engine.use`: it starts, adds or changes that engine, so Clear
     /// Engines and a pick make a complete change. Returns the command clicked.
     pub(crate) fn engine_choices_menu(&self, ui: &mut egui::Ui) -> Option<crate::canvas::Action> {
         let engines = &self.session.engines;
@@ -453,6 +454,16 @@ impl EditorApp {
                     Some(c) => egui::RichText::new(format!("{label} · {}", c.mode_label)).strong(),
                     None => egui::RichText::new(label),
                 };
+                // picking automatically, an engine is one item: engine.use with no mode starts it
+                // the fastest way it can be hosted (#24)
+                if engines.auto {
+                    let tip = format!("engine.use {{engine: {:?}}}", group_engine(&modes));
+                    if ui.radio(using.is_some(), heading).on_hover_text(tip).clicked() {
+                        picked = Some(("engine.use", json!({"engine": group_engine(&modes)})));
+                        ui.close();
+                    }
+                    continue;
+                }
                 ui.menu_button(heading, |ui| {
                     for c in &modes {
                         let on = using.is_some_and(|u| u.mode == c.mode);
@@ -553,6 +564,11 @@ fn by_engine<'a>(choices: &[&'a EngineChoice]) -> Vec<(&'a str, Vec<&'a EngineCh
         }
     }
     groups
+}
+
+/// The engine id a group of [`by_engine`] choices share.
+fn group_engine<'a>(modes: &[&'a EngineChoice]) -> &'a str {
+    modes.first().map_or("", |c| c.engine.as_str())
 }
 
 /// A menu list that scrolls once it would run off the bottom of the window.

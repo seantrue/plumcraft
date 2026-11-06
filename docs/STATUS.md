@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **The Engine menu with engines picked automatically (2026-11-05, B3, #24).** With Settings › Engines › Pick Engines Automatically on, each engine is one item that starts it the fastest way it can be hosted (`engine.use` with no mode), not a submenu of its hostings. Tests: `crates/ui/tests/kittest_engine_menu.rs`.
 - **Faster CI (2026-11-05).** Two jobs side by side, `gate` (Rust: fmt, clippy, cargo-nextest) and `python`, with apt and uv cached; branch protection requires both.
 - **B11, a flaky conformance test (2026-11-05, #33).** `a_panicking_node_rebuilds_the_engine` raced the rebuild; it now checks the session's `EngineDown` before the reply, with a slow rebuild that makes the old race certain.
 - **Release 0.2.3 (2026-11-05, branch `release-0.2.3`).** The maintainer: "publish to crates.io", as 0.2.3 with #34. The 20 crates and the Python text twin go to 0.2.3; the SDK stays 0.1.2. Gate: 1,150 Rust tests, 218 Python.
