@@ -20,6 +20,23 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — No CI for bookkeeping Markdown; bugs B14, B15 (Claude Opus 5.5)
+
+**What the maintainer asked:** "Pushing BUGS.md should not require a CI cycle", then "CPM". Before that, two bug reports, each with "yes, file it".
+
+**What the AI did:**
+
+- **`ci.yml`** (~35 lines):
+  - A push to `main` that touches only `docs/BUGS.md`, `docs/STATUS.md`, `AI.md`, `CHANGELOG.md` or `ROADMAP.md` starts nothing (`paths-ignore`).
+  - For pull requests, a `changes` job diffs the PR and skips `gate` and `python` when only those files changed. Plain `paths-ignore` would leave the required checks waiting for ever.
+  - Before this, the AI checked that no code reads those files.
+- **Bugs:**
+  - B14 (#49): a port's value on hover, and click to watch.
+  - B15 (#50): any value as a byte array, sliced and reshaped.
+  - B13: noted as seen again.
+
+**Checked:** the filter on four sample file lists, and the YAML parses. The PR path is first exercised by this PR itself, which changes code, so its jobs run. The skip path isn't exercised on GitHub yet.
+
 ### 2026-11-06 — Release 0.4.0, crates only (Claude Opus 5.5)
 
 **What the maintainer asked:** "CPM, then release to crates.io".

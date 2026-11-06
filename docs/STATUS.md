@@ -4,6 +4,10 @@
 
 ## Where things stand
 
+- **No CI for the bookkeeping Markdown (2026-11-06, branch `ci-skip-bookkeeping`).** The maintainer: "Pushing BUGS.md should not require a CI cycle".
+  - `ci.yml` ignores pushes to `main` that touch only `docs/BUGS.md`, `docs/STATUS.md`, `AI.md`, `CHANGELOG.md` or `ROADMAP.md`. No code reads them.
+  - A pull request can't simply ignore paths, because branch protection waits for `gate` and `python`. Instead a `changes` job diffs the PR, and when only those files changed, both jobs are skipped, which counts as passing.
+  - The filter was checked locally on four sample file lists, and the YAML parses. Neither path has run on GitHub yet.
 - **Release 0.4.0 (2026-11-06, branch `release-0.4.0`).** The maintainer: "CPM, then release to crates.io". The 19 crates and the Python text twin go to 0.4.0; the SDK stays 0.1.2. A minor bump: `Hooks` gained `status_tone` (#47). Crates only, tagged `plumcraft-v0.4.0`; no installers.
 - **Status bar messages (2026-11-06, branch `status-messages`).** The maintainer, looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)".
   - **Chips.** The status bar's messages (the run's errors, a run error, the application's segment, a save's outcome, `last_error`) are now chips (`crates/ui/src/status_msgs.rs`), drawn last in what width is left. Each has a background by severity (`Tone`'s accent, warning or error colour mixed 28% into the panel) and the theme's text colour. There is no red text.
