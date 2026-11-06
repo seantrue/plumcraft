@@ -1,11 +1,24 @@
 # The gate from AGENTS.md, on every pull request and every push to main. A PR merges only once
 # both jobs pass (branch protection names `gate` and `python`).
+#
+# A change to the bookkeeping Markdown alone (the bug list, status, the AI ledger, the
+# changelog, the roadmap) needs no CI: no code reads those files (maintainer, 2026-11-06:
+# "Pushing BUGS.md should not require a CI cycle"). A push of only those files to main starts
+# nothing. A pull request still starts the workflow, since branch protection waits for `gate`
+# and `python`, but `changes` finds nothing else changed and both are skipped, which counts as
+# passing. Keep the two lists below the same.
 name: CI
 
 on:
   pull_request:
   push:
     branches: [main]
+    paths-ignore:
+      - docs/BUGS.md
+      - docs/STATUS.md
+      - AI.md
+      - CHANGELOG.md
+      - ROADMAP.md
   workflow_dispatch:
 
 concurrency:
@@ -27,9 +40,33 @@ env:
 
 # Linux only: macOS runners cost too much (maintainer, 2026-11-05). macOS is checked locally.
 jobs:
+  # Whether anything but the bookkeeping Markdown changed: always, except for a pull request
+  # that touches only those files.
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != pull_request ]; then echo code=true >> "$GITHUB_OUTPUT"; exit 0; fi
+          other=$(git diff --name-only "$BASE...$HEAD" | grep -v -x -E 'docs/BUGS\.md|docs/STATUS\.md|AI\.md|CHANGELOG\.md|ROADMAP\.md' || true)
+          if [ -n "$other" ]; then echo code=true; else echo code=false; fi >> "$GITHUB_OUTPUT"
+          echo "changed besides the bookkeeping Markdown:"; echo "${other:-(nothing)}"
+
   # The Rust half: fmt, clippy and every test, the test binaries run in parallel by nextest.
   gate:
     name: gate
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -73,6 +110,8 @@ jobs:
   # The Python SDK's tests and lint: they don't use the Rust build, so they run beside it.
   python:
     name: python
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
