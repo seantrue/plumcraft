@@ -1,10 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.4 (2026-11-05)
 
-- **Packaging:** `release.sh` on a Mac builds an Intel DMG (`PlumCraft-VERSION-macos-x86_64.dmg`) beside the Apple silicon one, and uploads both. `macos.sh` checks every binary's architecture.
+The crates and the Python text twin are 0.2.4; the Python SDK stays 0.1.2. Installers for macOS (Apple silicon and, new, Intel), x86-64 Linux and x86-64 Windows. The release is tagged `plumcraft-v0.2.4`, for the app and the crates alike (earlier app releases were `app-vVERSION`).
+
+- **An STL viewer:** STL files (binary or ASCII) open as a shaded mesh to turn and zoom (viewer id `mesh`). The reader and the renderer are adapted from SolidCraft (MIT; `THIRD-PARTY.md`).
 - **Engine menu:** with Pick Engines Automatically on, an engine is one item that starts it the fastest way it can be hosted.
-- **An STL viewer:** STL files (binary or ASCII) open as a shaded mesh to turn and zoom (viewer id `mesh`).
+- **Windows: one store for Rust and Python.** commonkit 0.1.1 and pyuncommonkit 0.1.1 give both languages the same default store on Windows (`%LOCALAPPDATA%\commonkit\store`, 2 GB). Before, the Python engines used `\dev\shm\commonkit` on the current drive.
+- **Packaging:** `release.sh` on a Mac builds an Intel DMG (`PlumCraft-VERSION-macos-x86_64.dmg`) beside the Apple silicon one, and uploads both. `macos.sh` checks every binary's architecture. The Intel DMG hasn't been run on an Intel Mac yet.
 
 ## 0.2.3 (2026-11-05)
 

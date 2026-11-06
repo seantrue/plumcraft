@@ -347,15 +347,15 @@ wheels = [
 
 [[package]]
 name = "pyuncommonkit"
-version = "0.1.0"
+version = "0.1.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/bc/7aa2f8a16af2cc2a9f27fffc0f7b7ee6c04c7591a434e379f1f3739f9e7c/pyuncommonkit-0.1.0.tar.gz", hash = "sha256:141ca685405d5f1c01fc41951cfc37337b7804a396b43f779eeb959f1595e33d", size = 30268, upload-time = "2026-10-28T17:04:17.333Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/71/69/6ec02b6dda0111c12e6b75c5b149d7dff632f022856cc9444774a6f9e80a/pyuncommonkit-0.1.1.tar.gz", hash = "sha256:4a44fef7f703b85c38c51fcfe560a5ecae9ffa2f17d4be713a822a31342eceb2", size = 30564, upload-time = "2026-11-06T02:42:28.781Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/00/dd/33ccda62392f9381e5f8fd03e83f41fa68e08a58076bce224d3a34bc4a21/pyuncommonkit-0.1.0-py3-none-any.whl", hash = "sha256:9d66668413b0ea3f415257329c6122993148ce312997f2d73a57ae940fdd71f3", size = 33744, upload-time = "2026-10-28T17:04:16.27Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/d6/6982d2da53141aa14f0103fabd84905bc50bd1000b206ef27aee68afcf08/pyuncommonkit-0.1.1-py3-none-any.whl", hash = "sha256:f8fc0b42131d60317f2c5ea560fb6cc467aaf6677c2353937bf6388c78293e00", size = 34028, upload-time = "2026-11-06T02:42:27.698Z" },
 ]
 
 [[package]]

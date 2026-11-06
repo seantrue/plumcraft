@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/*", "apps/*"]
 
 [workspace.package]
-version = "0.2.3"
+version = "0.2.4"
 edition = "2024"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
@@ -12,23 +12,23 @@ repository = "https://github.com/seantrue/plumcraft"
 [workspace.dependencies]
 zip = { version = "9.3", default-features = false, features = ["deflate"] }
 # internal
-plumcraft-proto = { path = "crates/proto", version = "=0.2.3" }
-plumcraft-engine = { path = "crates/engine", version = "=0.2.3" }
-plumcraft-text = { path = "crates/text", version = "=0.2.3" }
-plumcraft-array = { path = "crates/array", version = "=0.2.3" }
-plumcraft-audio = { path = "crates/audio", version = "=0.2.3" }
-plumcraft-craft = { path = "crates/craft", version = "=0.2.3" }
-plumcraft-coordinator = { path = "crates/coordinator", version = "=0.2.3" }
-plumcraft-host = { path = "crates/host", version = "=0.2.3" }
-plumcraft-store = { path = "crates/store", version = "=0.2.3" }
-plumcraft-graph = { path = "crates/graph", version = "=0.2.3" }
-plumcraft-layout = { path = "crates/layout", version = "=0.2.3" }
-plumcraft-session = { path = "crates/session", version = "=0.2.3" }
-plumcraft-ui = { path = "crates/ui", version = "=0.2.3" }
-plumcraft-automation = { path = "crates/automation", version = "=0.2.3" }
-plumcraft-scratch = { path = "crates/scratch", version = "=0.2.3" }
-plumcraft-svg = { path = "crates/svg", version = "=0.2.3" }
-plumcraft-conform = { path = "crates/conform", version = "=0.2.3" }
+plumcraft-proto = { path = "crates/proto", version = "=0.2.4" }
+plumcraft-engine = { path = "crates/engine", version = "=0.2.4" }
+plumcraft-text = { path = "crates/text", version = "=0.2.4" }
+plumcraft-array = { path = "crates/array", version = "=0.2.4" }
+plumcraft-audio = { path = "crates/audio", version = "=0.2.4" }
+plumcraft-craft = { path = "crates/craft", version = "=0.2.4" }
+plumcraft-coordinator = { path = "crates/coordinator", version = "=0.2.4" }
+plumcraft-host = { path = "crates/host", version = "=0.2.4" }
+plumcraft-store = { path = "crates/store", version = "=0.2.4" }
+plumcraft-graph = { path = "crates/graph", version = "=0.2.4" }
+plumcraft-layout = { path = "crates/layout", version = "=0.2.4" }
+plumcraft-session = { path = "crates/session", version = "=0.2.4" }
+plumcraft-ui = { path = "crates/ui", version = "=0.2.4" }
+plumcraft-automation = { path = "crates/automation", version = "=0.2.4" }
+plumcraft-scratch = { path = "crates/scratch", version = "=0.2.4" }
+plumcraft-svg = { path = "crates/svg", version = "=0.2.4" }
+plumcraft-conform = { path = "crates/conform", version = "=0.2.4" }
 
 # external
 serde = { version = "1", features = ["derive"] }
@@ -53,7 +53,7 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "gif"] }
 # The store's layout, publishing and reading (plumcraft-store). Without `mmap`: segments are
 # read, not mapped.
-commonkit = { version = "0.1", default-features = false }
+commonkit = { version = "0.1.1", default-features = false }
 schemars = "1.2"
 tiny_http = "0.12"
 # Tokens and nonces from the OS's generator, on every platform (/dev/urandom is Unix-only).
