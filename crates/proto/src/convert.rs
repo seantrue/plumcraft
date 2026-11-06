@@ -18,6 +18,12 @@
 //! path never hands an array of one shape to a step that wants another: Audio to Array, then
 //! Encode Image, is no path. An array whose shape nobody says (another node's output) may go
 //! any way.
+//!
+//! **A last resort.** A mark from [`ANY`] (To Bytes: any value as its bytes, a 1-D uint8 array)
+//! takes every type, so it would win every search it may join. It joins none that can be
+//! answered without it: only when no path exists does [`SchemaReply::convert_paths_where`] try
+//! it, as a path's first step, ordinary converters after it (maintainer, 2026-11-06: "Convert
+//! should accept byte array as last resort").
 
 use std::collections::BTreeSet;
 use std::sync::LazyLock;
@@ -34,6 +40,8 @@ pub const KIND: &str = "core.convert";
 pub const PORT: &str = "value";
 /// The type of its ports: no engine declares it, and only a Convert end matches it.
 pub const TYPE: &str = "CONVERT";
+/// The type a last-resort mark takes: any value.
+pub const ANY: &str = "ANY";
 /// The longest path searched.
 pub const MAX_HOPS: usize = 4;
 /// The most paths [`SchemaReply::convert_paths`] returns.
@@ -142,6 +150,13 @@ pub struct Converter<'a> {
     pub engine: Option<&'a str>,
 }
 
+impl Converter<'_> {
+    /// It takes any value ([`ANY`]): tried only when nothing else converts (module docs).
+    pub fn last_resort(&self) -> bool {
+        self.from == ANY
+    }
+}
+
 /// Can an array said to be `have` go where `want` is wanted? Yes unless both are said and differ.
 fn shapes_meet(have: Option<&str>, want: Option<&str>) -> bool {
     match (have, want) {
@@ -174,8 +189,9 @@ pub fn lossless(path: &[Converter<'_>]) -> bool {
 }
 
 fn validated<'a>(n: &'a NodeDef, m: &'a Converts) -> Option<Converter<'a>> {
-    let plain = |t: &str| !t.is_empty() && t != "ANY" && t != TYPE;
-    if n.id == KIND || !plain(&m.from) || !plain(&m.to) || m.from == m.to {
+    let plain = |t: &str| !t.is_empty() && t != ANY && t != TYPE;
+    // `from` may be ANY (a last resort); `to` never is
+    if n.id == KIND || !(plain(&m.from) || m.from == ANY) || !plain(&m.to) || m.from == m.to {
         return None;
     }
     let input = match &m.input {
@@ -210,15 +226,36 @@ impl SchemaReply {
     /// The ways from a value of type `from` to one that `done` accepts, best first: fewest
     /// steps, then every step lossless, then fewest changes of engine, then the catalogue's
     /// order. An empty path first when `from` is accepted already. At most [`MAX_PATHS`], of at
-    /// most [`MAX_HOPS`] steps, never passing a type twice.
+    /// most [`MAX_HOPS`] steps, never passing a type twice. When there is none, the last resorts
+    /// ([`Converter::last_resort`]) are tried as a first step.
     pub fn convert_paths_where(&self, from: &str, done: impl Fn(&str) -> bool) -> Vec<Path<'_>> {
         let all = self.converters();
+        let (resorts, all): (Vec<Converter<'_>>, Vec<Converter<'_>>) = all.into_iter().partition(Converter::last_resort);
         let mut found: Vec<Path<'_>> = Vec::new();
         if done(from) {
             found.push(Vec::new());
         }
         let mut stack: Vec<(String, Path<'_>, BTreeSet<String>)> = vec![(from.to_owned(), Vec::new(), BTreeSet::from([from.to_owned()]))];
-        while let Some((at, path, seen)) = stack.pop() {
+        let mut tried_resorts = false;
+        loop {
+            let Some((at, path, seen)) = stack.pop() else {
+                // nothing else converts: start again from each last resort
+                if !found.is_empty() || tried_resorts {
+                    break;
+                }
+                tried_resorts = true;
+                for c in &resorts {
+                    if c.to == from {
+                        continue;
+                    }
+                    let first = vec![c.clone()];
+                    if done(c.to) {
+                        found.push(first.clone());
+                    }
+                    stack.push((c.to.to_owned(), first, BTreeSet::from([from.to_owned(), c.to.to_owned()])));
+                }
+                continue;
+            };
             if path.len() >= MAX_HOPS {
                 continue;
             }
@@ -238,7 +275,7 @@ impl SchemaReply {
                 stack.push((c.to.to_owned(), next, seen));
             }
         }
-        let order = |p: &Path<'_>| p.iter().map(|c| all.iter().position(|a| a == c).unwrap_or(usize::MAX)).collect::<Vec<_>>();
+        let order = |p: &Path<'_>| p.iter().map(|c| all.iter().chain(&resorts).position(|a| a == c).unwrap_or(usize::MAX)).collect::<Vec<_>>();
         let crossings = |p: &Path<'_>| p.windows(2).filter(|w| w[0].engine != w[1].engine).count();
         found.sort_by_key(|p| (p.len(), p.iter().filter(|c| !c.lossless).count(), crossings(p), order(p)));
         found.dedup_by(|a, b| a.iter().map(|c| c.kind).eq(b.iter().map(|c| c.kind)));
@@ -251,9 +288,9 @@ impl SchemaReply {
         self.convert_paths_where(from, |t| self.accepts(t, to))
     }
 
-    /// Does any converter take a value of type `from`?
+    /// Does any converter take a value of type `from`? A last resort takes every one.
     pub fn converts_from(&self, from: &str) -> bool {
-        self.converters().iter().any(|c| self.accepts(from, c.from))
+        self.converters().iter().any(|c| c.last_resort() || self.accepts(from, c.from))
     }
 
     /// Does any converter give what an input of type `to` accepts?
@@ -270,7 +307,7 @@ impl SchemaReply {
         for k in kinds {
             // a node with several marks: the one that takes what there is
             let shape = path.last().and_then(|c| c.to_shape);
-            let c = all.iter().find(|c| c.kind == k && self.accepts(&at, c.from) && shapes_meet(shape, c.from_shape))?;
+            let c = all.iter().find(|c| c.kind == k && (c.last_resort() || self.accepts(&at, c.from)) && shapes_meet(shape, c.from_shape))?;
             at = c.to.to_owned();
             path.push(c.clone());
         }
@@ -380,12 +417,38 @@ mod tests {
         let mut widget_in = conv("c", "WAV", "AUDIO", true);
         widget_in.inputs[0].socket = Some(Socket::Widget);
         let same = conv("d", "WAV", "WAV", true);
-        let any = conv("e", "ANY", "AUDIO", true);
+        // ANY may be taken (a last resort), never given
+        let to_any = conv("e", "AUDIO", "ANY", true);
         let mut me = conv(KIND, "WAV", "AUDIO", true);
         me.id = KIND.into();
-        let c = SchemaReply { nodes: vec![wrong_port, wrong_type, widget_in, same, any, me], ..Default::default() };
+        let c = SchemaReply { nodes: vec![wrong_port, wrong_type, widget_in, same, to_any, me], ..Default::default() };
         assert!(c.converters().is_empty());
         assert!(c.convert_paths("WAV", "AUDIO").is_empty());
+    }
+
+    /// B15 (#50): a converter from ANY (To Bytes) is a last resort: never in a path when
+    /// another exists, the first step of one when none does.
+    #[test]
+    fn a_converter_from_any_is_a_last_resort() {
+        let bytes = Converts::new(ANY, "ARRAY", false).to_shape(SERIES);
+        let mut to_bytes = conv("to_bytes", ANY, "ARRAY", false);
+        to_bytes.converts = vec![bytes];
+        let mut c = catalog();
+        c.nodes.push(to_bytes);
+        c.nodes.push(conv("array_to_table", "ARRAY", "TABLE", false));
+        assert!(c.converters().iter().any(Converter::last_resort));
+        // WAV reaches AUDIO without it
+        assert!(c.convert_paths("WAV", "AUDIO").iter().all(|p| p.iter().all(|s| !s.last_resort())));
+        // nothing else takes a PDF to an array: its bytes
+        let p = c.convert_paths("PDF", "ARRAY");
+        assert_eq!(p.iter().map(kinds).collect::<Vec<_>>(), [vec!["to_bytes".to_owned()]]);
+        // and ordinary steps may follow it
+        assert_eq!(kinds(&c.convert_paths("PDF", "TABLE")[0]), ["to_bytes", "array_to_table"]);
+        // anything converts now, and a pinned path through it reads back
+        assert!(c.converts_from("PDF"));
+        assert!(c.convert_path_of("PDF", &["to_bytes".to_owned(), "array_to_table".to_owned()]).is_some());
+        // a type that already meets needs nothing
+        assert_eq!(c.convert_paths("ARRAY", "ARRAY"), [Vec::<Converter<'_>>::new()]);
     }
 
     #[test]

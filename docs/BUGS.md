@@ -19,14 +19,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 - Seen again: 2026-11-06, in the full `cargo test` gate for #47 (status-bar messages); it passed alone.
 
+## Fixed
+
 ### B15. Not every value can be turned into an array; a binary file can't be cut and reshaped
 
 - Reported: 2026-11-06
 - Report: "All values should be reducible to arrays, even if just a bytes array. value -> bytes array -> slice -> shaped array of dtype should be allow truncation of a binary file and casting it to a user determined shape."
 - Context: core types and Convert (`core.convert`, `docs/research/20-convert.md`), and the array engine (`crates/array`). The chain asked for is any value → its bytes as a 1-D `uint8` ARRAY → a slice (to cut a binary file short) → a reinterpretation as an array of a chosen dtype and shape.
 - Issue: #50
-
-## Fixed
+- Fixed: 2026-11-06, PR #53
 
 ### B14. A port's value isn't shown on hover unless a wire is connected; clicking a port doesn't watch it
 

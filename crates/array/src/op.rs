@@ -222,6 +222,8 @@ fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {
             let ty = id.trim_start_matches("array.").split('_').next().unwrap_or("").to_ascii_uppercase();
             vec![Converts { output: Some("frames".into()), ..Converts::new(&ty, ARRAY, false).to_shape(VIDEO) }]
         }
+        // any value as its bytes: Convert's last resort (B15, #50), a 1-D uint8 series
+        "array.to_bytes" => vec![Converts::new(plumcraft_proto::convert::ANY, ARRAY, false).to_shape(plumcraft_proto::convert::SERIES)],
         "array.array_to_mp4" | "array.array_to_mov" | "array.array_to_gif" => {
             let ty = id.rsplit('_').next().unwrap_or("").to_ascii_uppercase();
             vec![Converts::new(ARRAY, &ty, false).from_shape(VIDEO)]
