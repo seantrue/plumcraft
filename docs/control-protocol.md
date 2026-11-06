@@ -128,6 +128,7 @@ The transport is `crates/automation/src/server.rs`. The handlers are `crates/ui/
   - **`ui.inspect`:** `popouts` lists each pop-out with its pane (`summary`, `viewer`, `viewers` offered, the viewer's `state`).
   - **Value editors:** `command.run node.editor {node, open?}` opens and closes the editor a node names (`docs/interface.md` 7.4). `ui.inspect`'s `editors` lists those open: `{node, kind, state}`, `state` being whatever that editor reports.
   - **Wires:** hovering one shows its value's preview; a double click pops it out.
+  - **Ports:** hovering an output (its pin or its name, wired or not) or a wired input shows the value available there, and a click on it watches it.
 - `engine.state` is the host's `EngineState` (`docs/interface.md`): `off`, `connecting`, `unreachable` (with `url`, `reason`, `hint`), `engine_down` (with `reason`, `hint`, `stderr_tail`), `loading_schema`, `unavailable`, `busy` or `connected`.
 - `banner` is the text of the banner shown when the engine is down or can't be reached, including the fix.
 - `groups` (E3): `focus` is the group entered (null: the whole graph); `selected` the collapsed groups selected (a click on a group's node selects its group; `selection` lists nodes only); `list` every group with its direct members, parent, promoted inputs and outputs; `proxies` each collapsed group drawn as one node, with what each of its pins stands for (a member's port). Wire to or from a proxy pin with `command.run wire.connect` on the member's port.

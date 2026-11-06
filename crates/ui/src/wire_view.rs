@@ -1,9 +1,10 @@
-//! The value on a wire (docs/research/16-viewers.md, section 2.4): hovering a wire shows what
-//! flows along it, as its viewer's preview. Every display the editor sees (the Watched panel's,
+//! The value on a wire or port (docs/research/16-viewers.md, section 2.4): hovering a wire shows
+//! what flows along it, and hovering a port (an output, wired or not, or a wired input) what is
+//! available there, as its viewer's preview. Every display the editor sees (the Watched panel's,
 //! pop-outs', peeks') is kept by port, newest last; a wire whose value isn't known yet asks for
 //! it after [`PEEK_AFTER`] with `view.peek` (one run, mostly memo hits), which doesn't change the
 //! Watched panel. Until it comes the tooltip shows the source node's state and thumbnail. A
-//! click on the wire watches it, a double click pops it out (`crate::canvas`).
+//! click on the wire or port watches it; a double click on a wire pops it out (`crate::canvas`).
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -137,7 +138,11 @@ impl EditorApp {
             |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_max_width(300.0);
-                    ui.label(egui::RichText::new(format!("{}.{} -> {}.{}", from.node, from.port, to.node, to.port)).small().strong().color(tokens.text));
+                    let title = match &to {
+                        Some(to) => format!("{}.{} -> {}.{}", from.node, from.port, to.node, to.port),
+                        None => format!("{}.{}", from.node, from.port),
+                    };
+                    ui.label(egui::RichText::new(title).small().strong().color(tokens.text));
                     ui.label(egui::RichText::new(&ty).small().color(tokens.text_faint));
                     match &cached {
                         Some(_) => {
@@ -155,7 +160,11 @@ impl EditorApp {
                             ui.label(egui::RichText::new(format!("{state} {waiting}")).small().color(tokens.text_dim));
                         }
                     }
-                    ui.label(egui::RichText::new("click: watch · double-click: pop out").small().color(tokens.text_faint));
+                    ui.label(
+                        egui::RichText::new(if to.is_some() { "click: watch · double-click: pop out" } else { "click: watch" })
+                            .small()
+                            .color(tokens.text_faint),
+                    );
                 });
             },
         );

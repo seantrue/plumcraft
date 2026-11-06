@@ -4,6 +4,11 @@
 
 ## Where things stand
 
+- **B14 (#49): ports preview their value and watch on click (2026-11-06, branch `fix/49-port-hover-watch`).** The maintainer: "ports should hover reveal the available value even if no wire is connected, click should watch the port value", then "Do B14, B15".
+  - **Hover:** hovering an output's pin or its name, wired or not, shows the wire preview's tooltip for that port (`node.port`, its type, its value, peeked when not known). Hovering a wired input shows the value coming in.
+  - **Click:** a click on either watches it. A drag from a pin still makes a wire.
+  - **Code:** `Canvas::port_at` and `pin_screen`; `hover_wire`'s input is now optional (`crate::wire_view`).
+  - **Test:** `hovering_a_port_shows_its_value_and_a_click_watches_it` in `kittest_viewers.rs`, with a picture of the preview (`claude-debug/b14/port-preview.png`).
 - **No CI for the bookkeeping Markdown (2026-11-06, branch `ci-skip-bookkeeping`).** The maintainer: "Pushing BUGS.md should not require a CI cycle".
   - `ci.yml` ignores pushes to `main` that touch only `docs/BUGS.md`, `docs/STATUS.md`, `AI.md`, `CHANGELOG.md` or `ROADMAP.md`. No code reads them.
   - A pull request can't simply ignore paths, because branch protection waits for `gate` and `python`. Instead a `changes` job diffs the PR, and when only those files changed, both jobs are skipped, which counts as passing.
