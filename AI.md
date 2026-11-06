@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — B2: Intel Mac DMGs in releases (#23) (Claude Opus 5.5)
+
+**What the maintainer asked:** "bug: No installer for x86 arch on Mac", earlier "Build a separate x86 version", then "Address B2".
+
+**What the AI changed:**
+
+- `packaging/release.sh` (18 lines added, 3 removed): on a Mac it builds an arm64 and an x86_64 DMG, both checksummed and uploaded. Separate DMGs, not one universal one, because the maintainer asked for a separate x86 version. Both Rust targets are checked before anything builds. This Mac's own architecture builds without `CARGO_BUILD_TARGET`, so it reuses `target/release` instead of filling a second target directory.
+- `packaging/macos.sh` (15 added, 1 removed): every binary's architecture is checked with `lipo` against the image's. For the other architecture, it runs `plumcraft nodes` when Rosetta 2 can, and otherwise says the image wasn't run.
+- `packaging/README.md`, `CHANGELOG.md` (an Unreleased section, also naming #39 and #40).
+
+**Checked:** both 0.2.3 DMGs built (about 30 s each), signed with the Developer ID, each mounted image's editor of the right architecture, and `codesign --verify --deep --strict` passes. The Rosetta note printed, since this Mac has none.
+
+**Not checked:** running the Intel image. This Mac has no Rosetta 2, which the AI didn't install, and there is no Intel Mac here. `release.sh` itself wasn't run end to end, because it needs a clean tree; its two `macos.sh` steps were run as it runs them.
+
 ### 2026-11-05 — B12: a viewer for STL files (#38) (Claude Opus 5.5)
 
 **What the maintainer asked:** "bug: Add viewer for STL files", then "yes, both. Be sure to research before writing an STL viewer from scratch :-)". Shown the research, the maintainer chose "Own bounded parser" and, for drawing, asked "Look at SolidCraft ... is there something there?"

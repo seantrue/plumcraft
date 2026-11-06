@@ -9,7 +9,7 @@ without a checkout, as `plumcraft-audio` isn't on crates.io.
 | `macos.sh` | macOS | `PlumCraft-VERSION-macos-ARCH.dmg` |
 | `linux.sh` | Linux | `plumcraft-VERSION-linux-ARCH.tar.gz`, `.deb` |
 | `windows.sh` | Windows, under Git for Windows' bash | `PlumCraft-VERSION-windows-x86_64-setup.exe`, `plumcraft-VERSION-windows-x86_64.zip` |
-| `release.sh` | macOS or Linux | The gate, this machine's images, a Linux and a Windows host's if named, `SHA256SUMS`, and a GitHub release if asked |
+| `release.sh` | macOS or Linux | The gate, this machine's images (on a Mac, both DMGs: `arm64` and `x86_64`), a Linux and a Windows host's if named, `SHA256SUMS`, and a GitHub release if asked |
 
 All of them write to `dist/`. Each script's header lists its options.
 
@@ -32,6 +32,12 @@ it:
 rustup target add x86_64-apple-darwin
 CARGO_BUILD_TARGET=x86_64-apple-darwin packaging/macos.sh
 ```
+
+`release.sh` builds both, `PlumCraft-VERSION-macos-arm64.dmg` and `PlumCraft-VERSION-macos-x86_64.dmg`,
+so it needs both targets (`rustup target add aarch64-apple-darwin x86_64-apple-darwin`) and says so
+before building. `macos.sh` checks with `lipo` that every binary is the image's architecture, and
+runs the CLI of the other one when Rosetta 2 is installed; without it, the Intel image is built but
+not run, and needs an Intel Mac to check.
 
 ## Linux
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **Packaging:** `release.sh` on a Mac builds an Intel DMG (`PlumCraft-VERSION-macos-x86_64.dmg`) beside the Apple silicon one, and uploads both. `macos.sh` checks every binary's architecture.
+- **Engine menu:** with Pick Engines Automatically on, an engine is one item that starts it the fastest way it can be hosted.
+- **An STL viewer:** STL files (binary or ASCII) open as a shaded mesh to turn and zoom (viewer id `mesh`).
+
 ## 0.2.3 (2026-11-05)
 
 The crates and the Python text twin are 0.2.3; the Python SDK stays 0.1.2.

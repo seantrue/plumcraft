@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Run the gate, build this machine's images, and optionally a Linux and a Windows host's, then
-# write checksums. Nothing leaves this machine without --upload.
+# Run the gate, build this machine's images (on a Mac, a DMG for Apple silicon and one for Intel),
+# and optionally a Linux and a Windows host's, then write checksums. Nothing leaves this machine without --upload.
 #
 #   packaging/release.sh [--linux-host HOST] [--windows-host HOST [--windows-jump JUMP]]
 #                        [--skip-gate] [--upload] [--publish]
@@ -50,11 +50,26 @@ if [[ -n $gate ]]; then
     (cd python && uv run pytest && uv run ruff check .)
 fi
 
+# Both Macs: the other architecture's Rust target, checked before anything is built.
+MAC_TARGETS=(aarch64-apple-darwin x86_64-apple-darwin)
+if [[ $(uname -s) == Darwin ]]; then
+    installed=$(rustup target list --installed)
+    for t in "${MAC_TARGETS[@]}"; do
+        grep -qx "$t" <<<"$installed" || { echo "the $t target is missing: rustup target add $t" >&2; exit 2; }
+    done
+fi
+
 rm -rf "$DIST"
 mkdir -p "$DIST"
 
 case $(uname -s) in
-    Darwin) packaging/macos.sh ;;
+    Darwin)
+        native=$(uname -m | sed 's/^arm64$/aarch64/')-apple-darwin
+        for t in "${MAC_TARGETS[@]}"; do
+            # this Mac's own build stays in target/release, as cargo's other builds do
+            if [[ $t == "$native" ]]; then packaging/macos.sh; else CARGO_BUILD_TARGET=$t packaging/macos.sh; fi
+        done
+        ;;
     Linux) packaging/linux.sh ;;
     *) echo "no images for $(uname -s)" >&2; exit 2 ;;
 esac
