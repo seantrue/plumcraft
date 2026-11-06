@@ -79,7 +79,7 @@ Bump `version` under `[workspace.package]` and merge it, then, from a clean `mai
 packaging/release.sh --linux-host HOST --windows-host HOST [--windows-jump JUMP] --upload
 ```
 
-Without `--upload`, nothing leaves the machine. With it, the script pushes the tag `app-vVERSION`
+Without `--upload`, nothing leaves the machine. With it, the script pushes the tag `plumcraft-vVERSION`
 and makes a draft GitHub release to read over. `--publish` skips the draft. `--linux-host` needs
 a Rust toolchain and the Linux packages above on that host, and `--windows-host` what Windows
 needs above, with OpenSSH. `--windows-jump` reaches a Windows VM through the machine that hosts

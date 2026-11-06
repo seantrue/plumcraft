@@ -10,10 +10,12 @@
 #                    uv, Inno Setup) the same way. --windows-jump JUMP reaches it through JUMP
 #                    (ssh JUMP, then ssh HOST from there), for a VM only its host can reach.
 # --skip-gate        don't run the tests first.
-# --upload           push the tag app-vVERSION and make a draft GitHub release with the images.
+# --upload           push the tag plumcraft-vVERSION and make a draft GitHub release with the images.
 # --publish          with --upload, publish it instead of leaving a draft.
 #
-# The tag is app-vVERSION because vVERSION tags are the Python SDK's, which has its own version.
+# The tag is plumcraft-vVERSION (as commonkit-v and npexact-v name their crates): it marks the
+# app release and the crates published from the same commit. vVERSION tags are the Python SDK's,
+# which has its own version. Releases up to 0.2.2 were tagged app-vVERSION.
 
 source "$(dirname "${BASH_SOURCE[0]}")/common.sh"
 
@@ -34,7 +36,7 @@ done
 
 cd "$ROOT" || exit 2
 VERSION=$(version)
-TAG="app-v$VERSION"
+TAG="plumcraft-v$VERSION"
 
 [[ -z $(git status --porcelain) ]] || { echo "commit or stash first: the working tree is dirty" >&2; exit 2; }
 if [[ -n $upload ]]; then

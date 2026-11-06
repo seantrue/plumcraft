@@ -20,6 +20,34 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-05 — Release 0.2.4, and commonkit 0.1.1 first (Claude Opus 5.5)
+
+**What the maintainer asked:**
+
+- "What is left to do before publishing crates and building releases for github?"
+- Then: "B10 is a major feature, we'll start that after the release. Make sure we are publishing any crates needed from yapocis-rs and impressionist-rs, et al. Reccomend a tag name, get agreement before continuing", with "Release for Mac Arm+Intel, Intel Linux, Intel Windows".
+- Later: "skip impressionist-rs".
+- Then "Yes and yes": to the tag `plumcraft-v0.2.4`, and to bringing commonkit's Windows branch in first.
+
+**What the AI checked:**
+
+- The maintainer's crates PlumCraft takes from crates.io are `npexact` (unchanged since 0.1.2) and `commonkit` 0.1.0, whose `windows-defaults` branch hadn't been merged.
+- `plumcraft-audio` stays unpublished, because of its SoundCraft git dependency.
+
+**What the AI did:**
+
+- **In pycommonkit:**
+  - merged `windows-defaults` (#15) and a 0.1.1 bump (#16), each after the four required checks;
+  - published `commonkit` 0.1.1 (crates.io) and `pyuncommonkit` 0.1.1 (PyPI, `twine check` first);
+  - tagged both.
+
+  Both halves were released, as PlumCraft's Python SDK depends on `pyuncommonkit`, and the Python side had the wrong Windows root.
+- **Here:**
+  - the 19 crates and the text twin went to 0.2.4, and `commonkit` is now `0.1.1`, with both locks updated;
+  - `release.sh` tags `plumcraft-vVERSION`, so `vVERSION` stays the Python SDK's alone;
+  - the changelog's Unreleased section became 0.2.4.
+- **Recommended, and agreed:** one tag `plumcraft-v0.2.4`, matching `commonkit-v` and `npexact-v`, for both the app and the crates. The old `app-v*` and `v0.2.3` tags are left alone.
+
 ### 2026-11-05 — B2: Intel Mac DMGs in releases (#23) (Claude Opus 5.5)
 
 **What the maintainer asked:** "bug: No installer for x86 arch on Mac", earlier "Build a separate x86 version", then "Address B2".
