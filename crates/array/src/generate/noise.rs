@@ -31,14 +31,16 @@ pub fn coordinate_planes(h: usize, w: usize) -> (Vec<f32>, Vec<f32>) {
 const GRAD2: [[f64; 2]; 12] =
     [[1.0, 1.0], [-1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0], [1.0, 1.0], [0.0, -1.0], [-1.0, 1.0], [0.0, -1.0]];
 
-/// yapocis's `_hash_int`, in numba's 64-bit integers (wrapping, arithmetic shifts).
+/// yapocis's `_hash_int`, in 32-bit ints as its device kernels and its numba port compute it
+/// (wrapping, arithmetic shifts). The coordinates and seed are taken modulo 2^32, as the
+/// kernels' `int` arguments are.
 fn hash_int(x: i64, y: i64, z: i64, seed: i64) -> i64 {
-    let mut h = seed;
-    h ^= x.wrapping_mul(374_761_393);
-    h ^= y.wrapping_mul(668_265_263);
-    h ^= z.wrapping_mul(1_264_258_069);
+    let mut h = seed as i32;
+    h ^= (x as i32).wrapping_mul(374_761_393);
+    h ^= (y as i32).wrapping_mul(668_265_263);
+    h ^= (z as i32).wrapping_mul(1_264_258_069);
     h = (h ^ (h >> 13)).wrapping_mul(1_274_126_177);
-    h ^ (h >> 16)
+    i64::from(h ^ (h >> 16))
 }
 
 fn grad(h: i64) -> [f64; 2] {

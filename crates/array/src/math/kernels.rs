@@ -79,15 +79,16 @@ pub fn clamp_pixels(p: &[f32], low: f64, high: f64) -> Vec<f32> {
         .collect()
 }
 
-/// yapocis `stretch`: `(v - input_min) * scale + low` with `scale = (high - low) /
-/// (input_max - input_min + 1e-20)`, in float64, stored as float32.
+/// yapocis `stretch`, as its device kernels compute it in float32: each value clamped to
+/// `input_min..input_max`, then mapped linearly onto `low..high` (NaN passes through).
 pub fn stretch(p: &[f32], input_min: f64, input_max: f64, low: f64, high: f64) -> Vec<f32> {
-    let scale = (high - low) / (input_max - input_min + 1e-20);
+    let (lo, hi, low, high) = (input_min as f32, input_max as f32, low as f32, high as f32);
     p.iter()
         .map(|&v| {
-            let d = f64::from(v) - input_min;
-            let s = d * scale;
-            (s + low) as f32
+            let v = if v < lo { lo } else { v };
+            let v = if v > hi { hi } else { v };
+            let v = (v - lo) / (hi - lo);
+            low + v * (high - low)
         })
         .collect()
 }
