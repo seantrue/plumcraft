@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-06 — The array engine's Simplex and Stretch follow yapocis's device kernels (Claude Opus 5.5)
+
+PlumImpress is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with yapocis's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in Yapocis3 (`29f8403`), and the ports here follow it.
+
+- **Simplex Noise ("Option 1"):** `hash_int` now wraps in 32 bits, as the device kernels' `int` does. In numba's 64-bit ints it picked a different gradient at about half the lattice points, so the noise only correlated 0.5–0.7 with Impressionist's. The node's non-square layout was already the kernels' (row/rows, column/columns), and the numba port now has it too.
+- **Stretch ("Clamp is the right answer"):** `kernels::stretch` now clamps each value to the input range before mapping it onto low..high, in float32 in the kernel's order. It used to map in float64 without clamping, so manual and percentile ranges let values out of low..high.
+
+The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/reference.json` were re-recorded from the fixed numba port with `claude-debug/generate_fixtures_gen.py` and `math_fixtures_gen.py`. Only the simplex cases and the five Stretch cases changed. Stretch now matches its reference exactly, so its tolerance went from 1 ulp to 0.
+
+**Verified:** `cargo test -p plumcraft-array` (62 passed) and clippy, on the M4 MacBook. ~25 LOC changed.
+
 ### 2026-11-06 — Installers for 0.5.0; `release.sh` uploads to an existing tag (Claude Opus 5.5)
 
 **What the maintainer asked:** "Build and upload installers. Uploading installers should not require a CI cycle." Then "publish as Latest when done", then "Push release.sh and ci.ym, make a PR".

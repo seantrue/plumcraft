@@ -83,8 +83,8 @@ fn kernels_match_their_references() {
                 // the range is numpy's own (nanmin/nanpercentile): exact
                 let bits = |k: &str| f64::from_bits(p[k].as_str().unwrap().parse().unwrap());
                 assert_eq!((lo.to_bits(), hi.to_bits()), (bits("lo_bits").to_bits(), bits("hi_bits").to_bits()), "stretch range {p}");
-                // (v - min) * scale + low in float64; numba's fastmath may fuse it: 1 ulp
-                (kernels::stretch(&ins[0], lo, hi, pf("low"), pf("high")), 1.0)
+                // clamped, then mapped, in float32 in the kernel's order, as numpy does it: exact
+                (kernels::stretch(&ins[0], lo, hi, pf("low"), pf("high")), 0.0)
             }
             // float32 arithmetic in numpy's order: exact
             "normalize" if ins.len() == 1 => (kernels::normalize(&ins[0]), 0.0),
