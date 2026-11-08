@@ -20,6 +20,10 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-07 — B19 recorded: a popout should stay on top (Claude Opus 5.5)
+
+The maintainer reported, from a PlumImpress session, "bug: popout shoud stay on top while main window is being edited". Recorded as B19 in `docs/BUGS.md` with the report verbatim and the popout code's location (`crates/ui/src/popouts.rs`). Nothing was investigated or fixed, and no issue was filed.
+
 ### 2026-11-06 — The array engine's Simplex and Stretch follow yapocis's device kernels (Claude Opus 5.5)
 
 PlumImpress is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with yapocis's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in Yapocis3 (`29f8403`), and the ports here follow it.

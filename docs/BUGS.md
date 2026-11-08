@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B19. A popout doesn't stay on top while the main window is being edited
+
+- Reported: 2026-11-07
+- Report: "popout shoud stay on top while main window is being edited"
+- Context: reported from a PlumImpress session (PlumImpress runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
+- Issue: none
+
 ### B18. Port and parameter labels have no translation table
 
 - Reported: 2026-11-06
