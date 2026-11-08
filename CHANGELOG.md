@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.6.0 (2026-11-08)
+
+The crates and the Python text twin are 0.6.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_editor::AppConfig` gained a public field. Nothing on the wire changed.
+
+- **Command forms** (#64): an application gives a command a `CommandForm` (`plumcraft_session::commands`: a title, an intro, `FormField`s that are `Line`, `Secret` or `Text` and may be `required`, a submit label, a prefill from the session), registered with `register_forms` or `AppConfig.forms`. Invoked from a menu or a shortcut, the command opens its form (`plumcraft_ui::form_view`) and runs with the fields as params; a refusal is said in the window. The control channel, scripts and the CLI still name the params.
+- **Array Simplex and Stretch follow yapocis's device kernels** (#62).
+- **`release.sh --upload`** reuses an existing tag when only docs, `packaging/` or `.github/` changed since it; CI skips changes to `packaging/` alone (#61).
+- **Breaking:** an `AppConfig { … }` literal without `..AppConfig::default()` needs `forms`.
+
 ## 0.5.0 (2026-11-06)
 
 The crates and the Python text twin are 0.5.0; the Python SDK stays 0.1.2. Crates only: no new installers. A minor version because `plumcraft_craft`'s `Manifest` and `Report` gained public fields and the canvas's `hover_wire` changed type. Nothing on the wire changed.
