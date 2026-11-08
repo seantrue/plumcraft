@@ -51,6 +51,7 @@ pub mod diff;
 pub mod edit_view;
 pub mod engine_view;
 pub mod fonts;
+pub mod form_view;
 pub mod frame_view;
 pub mod groups_view;
 mod icon_data;
@@ -480,6 +481,8 @@ pub struct EditorApp {
     pub(crate) installer: Option<engine_view::Installer>,
     /// The Install Engine… window, while it is open.
     pub install_form: Option<engine_view::InstallForm>,
+    /// A command's form, while it is open ([`form_view`]).
+    pub command_form: Option<form_view::FormDialog>,
     /// An install running in the background.
     pub installing: Option<engine_view::Installing>,
     /// The context a new engine link wakes (set every frame).
@@ -542,6 +545,7 @@ impl EditorApp {
             attach_form: None,
             installer: None,
             install_form: None,
+            command_form: None,
             installing: None,
             repaint: None,
         }
@@ -896,10 +900,14 @@ impl EditorApp {
         if self.enabled("run.start") { self.run("run.start", &json!({})) } else { None }
     }
 
-    /// Run a command from a menu or shortcut, filling in what the UI knows: file dialogs for
-    /// open and save, a prompt before unsaved changes are dropped, the canvas selection for
-    /// node commands.
+    /// Run a command from a menu or shortcut, filling in what the UI knows: a command's form
+    /// ([`form_view`]), file dialogs for open and save, a prompt before unsaved changes are
+    /// dropped, the canvas selection for node commands.
     pub fn invoke(&mut self, id: &str) {
+        // a command with a form asks for its params first (crate::form_view)
+        if self.open_form(id) {
+            return;
+        }
         let nodes: Vec<String> = self.canvas.selection().into_iter().map(|n| n.0).collect();
         match id {
             "graph.new" | "graph.open" => {
@@ -1890,6 +1898,7 @@ impl EditorApp {
         self.browse_for_path();
         self.attach_window(&ctx);
         self.install_window(&ctx);
+        self.form_window(&ctx);
         self.params_window(&ctx);
         self.value_editor_windows(&ctx);
         if self.session.views.cache_report {

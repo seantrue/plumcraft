@@ -1,9 +1,10 @@
 # Status
 
-*Updated 2026-11-06.*
+*Updated 2026-11-08.*
 
 ## Where things stand
 
+- **Command forms (2026-11-08, branch `command-forms`, unreleased).** For PlumImpress's File › Publish Style to virtimp.com (the maintainer: "Add the dialog"). An application can give a command a form: `plumcraft_session::commands::CommandForm` (title, intro, fields, submit label, an optional prefill from the session) of `FormField`s (`Line`, `Secret` shown as dots, `Text`; `required`), registered with `register_forms` or `AppConfig.forms`. Invoked from a menu or a shortcut, such a command opens its form (`plumcraft_ui::form_view`, `EditorApp::command_form`) instead of running; Publish (its submit) runs it with the fields as params (trimmed; empty ones left out, so the command's defaults apply); a required field left empty, or the command's refusal, is said in the window, which stays; it closes on success, Cancel and Esc. The control channel, scripts and the CLI still name the params: the form is only how a person gives them. Engine › Attach and Install keep their own windows. **A new public field on `AppConfig`:** a minor release (0.6.0) for applications that use it. Tests: two in `commands.rs` (params, prefill), `crates/ui/tests/kittest_forms.rs` (asks then runs, refusals said in the window, Cancel, the control channel without it).
 - **Installers for 0.5.0, and uploading them without a CI cycle (2026-11-06).** The maintainer: "Build and upload installers. Uploading installers should not require a CI cycle", then "publish as Latest when done".
   - **The installers:** `release.sh --linux-host yellowfin.lan --windows-host win11-dev --windows-jump yellowfin.lan` ran from the tagged `bcad241`, gate included. It built two notarized DMGs, a `.deb` and tarball, and a Windows setup and zip. They were uploaded with `gh release create` to the existing tag and published as Latest. `win11-dev` was started for it and shut off again.
   - **`release.sh --upload` and an existing tag** (branch `release-existing-tag`): when `plumcraft-vVERSION` is there already (the crates went out first), the images join its release, made if missing, as long as only docs, `packaging/` or `.github/` changed since the tag. Before, it stopped and asked for a version bump.
