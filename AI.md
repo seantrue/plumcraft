@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-08 — Release 0.6.0, crates only (Claude Opus 5.5)
+
+**What the maintainer asked:** "go for 1,2,3", the second step being PlumCraft's command forms merged and released to crates.io, so PlumImpress's Publish Style dialog builds from its pinned crates.
+
+**What the AI did:**
+
+- **Before:** merged #64 after its CI passed (changes, the gate, Python).
+- **Versions:** the workspace, its `=` pins, `array` and `engine`'s own versions, and the Python text twin (and its golden schema) to 0.6.0. A minor bump: `AppConfig` gained `forms`.
+- **Docs:** CHANGELOG (#61, #62, #64), STATUS.
+- **Release:** the gate, a release PR, `cargo publish --workspace` from `main`, and the tag `plumcraft-v0.6.0`.
+
 ### 2026-11-08 — Command forms (Claude Opus 5.5)
 
 **What the maintainer asked for:** "Add the dialog", for PlumImpress's File › Publish Style to virtimp.com, whose id, name, description, site and token a menu can't work out. PlumImpress's rule puts what any application could use here, so the dialog is a generic seam rather than PlumImpress's own window.
