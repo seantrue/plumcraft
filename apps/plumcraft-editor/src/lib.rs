@@ -109,6 +109,9 @@ pub struct AppConfig {
     pub default_engine: Option<&'static str>,
     /// Commands the application adds. Their ids take the application's prefix.
     pub commands: Vec<plumcraft_session::commands::CommandSpec>,
+    /// Forms its commands ask with from a menu or a shortcut (a window of fields that become
+    /// the params; `plumcraft_ui::form_view`). The control channel still names the params.
+    pub forms: Vec<plumcraft_session::commands::CommandForm>,
     /// Viewers the application adds, preferred over PlumCraft's for the values they accept.
     pub viewers: Vec<plumcraft_ui::viewers::ViewerKind>,
     /// Editors the application draws, by `editor.kind`, for the nodes that name them.
@@ -131,6 +134,7 @@ impl Default for AppConfig {
             packs: Vec::new(),
             default_engine: None,
             commands: Vec::new(),
+            forms: Vec::new(),
             viewers: Vec::new(),
             editors: Vec::new(),
             openers: Vec::new(),
@@ -873,8 +877,9 @@ fn with_engine_arg(mut args: Vec<String>) -> Vec<String> {
 
 /// Run the application `config` describes.
 pub fn run(config: AppConfig) -> ExitCode {
-    let AppConfig { name: program, title, version, versions, help, icon, packs, default_engine, commands, viewers, editors, openers, hooks } = config;
+    let AppConfig { name: program, title, version, versions, help, icon, packs, default_engine, commands, forms, viewers, editors, openers, hooks } = config;
     let added = plumcraft_session::commands::register(commands)
+        .and_then(|()| plumcraft_session::commands::register_forms(forms))
         .and_then(|()| plumcraft_session::commands::set_hooks(hooks))
         .and_then(|()| plumcraft_ui::viewers::register(viewers))
         .and_then(|()| plumcraft_ui::value_editors::register(editors))

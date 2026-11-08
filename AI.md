@@ -20,6 +20,21 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-08 — Command forms (Claude Opus 5.5)
+
+**What the maintainer asked for:** "Add the dialog", for PlumImpress's File › Publish Style to virtimp.com, whose id, name, description, site and token a menu can't work out. PlumImpress's rule puts what any application could use here, so the dialog is a generic seam rather than PlumImpress's own window.
+
+**What the AI did:**
+
+- `crates/session/src/commands.rs` (~110 LOC with two tests): `CommandForm`, `FormField`, `FieldKind` (`Line`, `Secret`, `Text`), `register_forms`, `form(id)`; `CommandForm::params` (the fields as params, trimmed, empty ones left out, a required one refused by name) and `initial` (the prefill as text).
+- `crates/ui/src/form_view.rs` (~110 LOC): `EditorApp::invoke` opens a command's form instead of running it (when it is enabled), and the window runs it with the fields as params, says a refusal in the window and stays, and closes on success, Cancel or Esc; Enter in a one-line field sends it. `EditorApp::command_form`.
+- `apps/plumcraft-editor`: `AppConfig.forms`, registered at startup.
+- `crates/ui/tests/kittest_forms.rs`: a stand-in command with a form: prefilled, a required field left empty, the command's refusal shown in the window, the params it ran with, Cancel, and the control channel running it with no form.
+
+**Defects in AI-written code, caught by the tests and the compiler:** `CommandForm` first derived `PartialEq` over its prefill function pointer (a compiler warning; dropped). The first UI test shared a record of calls across tests running in parallel, and matched a refusal's text exactly where the session prefixes it ("bad parameters: …") and the status bar shows it too; the tests now check their own calls and the window's error.
+
+**Checked:** the new tests, and the whole suite with clippy and fmt (below). PlumImpress's form, drawn offscreen through this checkout, was looked at.
+
 ### 2026-11-07 — B19 recorded: a popout should stay on top (Claude Opus 5.5)
 
 The maintainer reported, from a PlumImpress session, "bug: popout shoud stay on top while main window is being edited". Recorded as B19 in `docs/BUGS.md` with the report verbatim and the popout code's location (`crates/ui/src/popouts.rs`). Nothing was investigated or fixed, and no issue was filed.

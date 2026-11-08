@@ -124,6 +124,106 @@ pub(crate) fn hooks() -> Hooks {
     HOOKS.get().copied().unwrap_or_default()
 }
 
+/// A form a command asks with before it runs from a menu or a shortcut: a small window of
+/// fields whose values become its params. The command itself is unchanged: the control channel,
+/// scripts and the CLI still name its params, so everything stays a command (golden rule 4). An
+/// application gives one for a command whose params the window can't work out (a name, an id, a
+/// token), as Engine › Attach does by hand.
+#[derive(Debug, Clone)]
+pub struct CommandForm {
+    /// The command it runs.
+    pub command: &'static str,
+    /// The window's title.
+    pub title: &'static str,
+    /// A line under the title saying what the command does.
+    pub intro: &'static str,
+    pub fields: Vec<FormField>,
+    /// The button that runs it.
+    pub submit: &'static str,
+    /// The fields' values when the window opens, by key (from the open graph, say); `None`
+    /// opens them empty.
+    pub prefill: Option<Prefill>,
+}
+
+/// [`CommandForm::prefill`]: the fields' values by key, from the session.
+pub type Prefill = fn(&Session) -> serde_json::Map<String, Value>;
+
+/// One field of a [`CommandForm`]: a param, as text.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormField {
+    /// The param it fills.
+    pub key: &'static str,
+    pub label: &'static str,
+    /// Shown greyed while it is empty.
+    pub hint: &'static str,
+    pub kind: FieldKind,
+    /// The command is refused by the window, saying so, while this is empty.
+    pub required: bool,
+}
+
+/// How a [`FormField`] is typed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FieldKind {
+    /// One line.
+    #[default]
+    Line,
+    /// One line, shown as dots (a token, a password).
+    Secret,
+    /// Several lines.
+    Text,
+}
+
+impl CommandForm {
+    /// The params its fields make: each field's text, trimmed, by key; an empty field is left
+    /// out, so the command's default applies. `Err` names the first required field left empty.
+    pub fn params(&self, values: &[String]) -> std::result::Result<Value, String> {
+        let mut out = serde_json::Map::new();
+        for (field, value) in self.fields.iter().zip(values) {
+            let value = value.trim();
+            if value.is_empty() {
+                if field.required {
+                    return Err(format!("{} is needed", field.label));
+                }
+                continue;
+            }
+            out.insert(field.key.to_owned(), Value::String(value.to_owned()));
+        }
+        Ok(Value::Object(out))
+    }
+
+    /// The fields' values as the window opens: [`CommandForm::prefill`]'s, as text.
+    pub fn initial(&self, s: &Session) -> Vec<String> {
+        let given = self.prefill.map(|f| f(s)).unwrap_or_default();
+        self.fields
+            .iter()
+            .map(|f| match given.get(f.key) {
+                Some(Value::String(t)) => t.clone(),
+                Some(Value::Null) | None => String::new(),
+                Some(other) => other.to_string(),
+            })
+            .collect()
+    }
+}
+
+static FORMS: std::sync::Mutex<Vec<CommandForm>> = std::sync::Mutex::new(Vec::new());
+
+/// Add an application's forms, at startup. A second form for one command is refused.
+pub fn register_forms(forms: Vec<CommandForm>) -> std::result::Result<(), String> {
+    let mut held = FORMS.lock().map_err(|_| "the form registry is poisoned".to_owned())?;
+    for f in forms {
+        if held.iter().any(|h| h.command == f.command) {
+            return Err(format!("{} has a form already", f.command));
+        }
+        held.push(f);
+    }
+    Ok(())
+}
+
+/// The form `command` asks with from a menu, if it has one.
+pub fn form(command: &str) -> Option<CommandForm> {
+    FORMS.lock().ok().and_then(|forms| forms.iter().find(|f| f.command == command).cloned())
+}
+
 /// Is `id` a command the application added, rather than PlumCraft's?
 pub fn is_added(id: &str) -> bool {
     command_specs();
@@ -264,6 +364,39 @@ pub(crate) fn pos_param(p: &Value, key: &str) -> Result<Option<[f32; 2]>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn form() -> CommandForm {
+        let field = |key, label, kind, required| FormField { key, label, hint: "", kind, required };
+        CommandForm {
+            command: "test.form",
+            title: "Test",
+            intro: "",
+            fields: vec![
+                field("id", "Id", FieldKind::Line, true),
+                field("token", "Token", FieldKind::Secret, false),
+                field("about", "About", FieldKind::Text, false),
+            ],
+            submit: "Go",
+            prefill: Some(|_| serde_json::Map::from_iter([("id".to_owned(), json!("wc-2")), ("about".to_owned(), json!(7))])),
+        }
+    }
+
+    #[test]
+    fn a_forms_fields_become_params_trimmed_and_empty_ones_left_out() {
+        let f = form();
+        let v = |a: &str, b: &str, c: &str| vec![a.to_owned(), b.to_owned(), c.to_owned()];
+        assert_eq!(f.params(&v(" wc-2 ", "", "")).unwrap(), json!({"id": "wc-2"}));
+        assert_eq!(f.params(&v("x", "secret", "two\nlines")).unwrap(), json!({"id": "x", "token": "secret", "about": "two\nlines"}));
+        assert_eq!(f.params(&v("  ", "t", "")).unwrap_err(), "Id is needed");
+    }
+
+    #[test]
+    fn a_form_opens_with_its_prefill_as_text() {
+        let s = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
+        assert_eq!(form().initial(&s), ["wc-2", "", "7"]);
+        let bare = CommandForm { prefill: None, ..form() };
+        assert_eq!(bare.initial(&s), ["", "", ""]);
+    }
     use serde_json::json;
 
     #[test]
