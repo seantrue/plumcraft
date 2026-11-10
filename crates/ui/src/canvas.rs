@@ -842,12 +842,7 @@ impl Canvas {
                         actions.push(("wire.route", json!({"to": menu.to, "via": []})));
                         close = true;
                     }
-                    if ui.button("Draw as Label…").on_hover_text("Draw this wire as a net label at each end, as a schematic does").clicked() {
-                        let name = crate::net_view::suggested_name(graph, &menu.from);
-                        self.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Wire(menu.to.clone()), name, menu.screen_pos));
-                        close = true;
-                    }
-                    if ui.button("Label All Uses…").on_hover_text("Draw every wire from this output as a net label").clicked() {
+                    if ui.button("Label All Uses…").on_hover_text("Draw every wire from this output as a net label, as a schematic does").clicked() {
                         let name = crate::net_view::suggested_name(graph, &menu.from);
                         self.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Output(menu.from.clone()), name, menu.screen_pos));
                         close = true;

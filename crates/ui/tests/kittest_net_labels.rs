@@ -1,4 +1,4 @@
-//! Net labels on the canvas (crate::net_view): Draw as Label… from the wire menu, the tags the
+//! Net labels on the canvas (crate::net_view): Label All Uses… from the wire menu, the tags the
 //! canvas draws instead of the wire, selecting a net, dragging a tag, dropping one on a pin,
 //! Watch from a tag, Draw as Wire, and a labelled wire into a collapsed group.
 
@@ -53,14 +53,14 @@ fn a_wire_is_drawn_as_labels_selected_moved_and_drawn_as_a_wire_again() {
     let catalog = h.state().session.catalog().clone();
     let mid = h.state().canvas.wire_midpoints(&style, &catalog)[0].0;
     press(&mut h, mid, egui::PointerButton::Secondary);
-    h.get_by_label("Draw as Label…").click();
+    h.get_by_label("Label All Uses…").click();
     h.run_steps(3);
     // the editor suggests the output's port name
     assert_eq!(h.state().canvas.nets.edit.as_ref().map(|e| e.text.as_str()), Some("text"));
     h.get_by_label("OK").click();
     h.run_steps(4);
     assert_eq!(label(&h, &to), (Some("text".into()), None));
-    assert_eq!(h.state().session.undo_label(), Some("Draw as Label"));
+    assert_eq!(h.state().session.undo_label(), Some("Label All Uses"));
     // the canvas draws tags now, not snarl's wire
     assert_eq!(h.state().canvas.snarl.wires().count(), 0);
     let use_tag = Tag::Use(to.clone());
@@ -111,6 +111,33 @@ fn a_wire_is_drawn_as_labels_selected_moved_and_drawn_as_a_wire_again() {
     assert_eq!(label(&h, &to), (None, None));
     assert!(!h.state().session.graph().has_nets());
     assert_eq!(h.state().canvas.snarl.wires().count(), 1, "snarl draws it again");
+}
+
+/// Labelling a wire from its menu labels every wire from that output: the menu has no
+/// one-wire-only entry, which left the output's other uses drawn as wires.
+#[test]
+fn labelling_a_wire_labels_every_use_of_its_output() {
+    let mut s = session();
+    let a = add(&mut s, "text.literal", 0.0, 0.0);
+    let u1 = add(&mut s, "text.upper", 700.0, 0.0);
+    let u2 = add(&mut s, "text.upper", 700.0, 400.0);
+    for u in [&u1, &u2] {
+        s.execute("wire.connect", &json!({"from": {"node": a, "port": "text"}, "to": {"node": u, "port": "text"}})).unwrap();
+    }
+    let mut h = build(s);
+    let style = h.ctx.global_style();
+    let catalog = h.state().session.catalog().clone();
+    let mid = h.state().canvas.wire_midpoints(&style, &catalog)[0].0;
+    press(&mut h, mid, egui::PointerButton::Secondary);
+    assert!(h.query_by_label("Draw as Label…").is_none(), "no entry labels one wire alone");
+    h.get_by_label("Label All Uses…").click();
+    h.run_steps(3);
+    h.get_by_label("OK").click();
+    h.run_steps(4);
+    for u in [&u1, &u2] {
+        assert_eq!(label(&h, &PortRef::new(u.as_str(), "text")).0.as_deref(), Some("text"), "{u}");
+    }
+    assert_eq!(h.state().canvas.snarl.wires().count(), 0);
 }
 
 /// Press at `from`, move to `to` in steps, let go there.

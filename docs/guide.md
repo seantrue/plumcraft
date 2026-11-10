@@ -70,7 +70,7 @@ Wires can be bent around nodes: right-click › Add Bend Point, then drag.
 
 ![A wire routed through two bend points](images/bent-wire.png)
 
-A wire can also be drawn as a net label, as in a schematic: right-click › Draw as Label… or Label All Uses…. It shows as a name at each end instead of a line, which is how a picture feeding 29 nodes stays readable. What runs doesn't change.
+A wire can also be drawn as a net label, as in a schematic: right-click › Label All Uses…, which labels every wire from that output. It shows as a name at each end instead of a line, which is how a picture feeding 29 nodes stays readable. What runs doesn't change.
 
 ### In the terminal
 

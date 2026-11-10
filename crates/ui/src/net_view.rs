@@ -15,7 +15,8 @@
 //!   over it, in the highlight colour when it fits and the error colour when it doesn't);
 //! - right-click: Go to Driver, Watch, Pop Out, Rename Net…, Draw as Wire.
 //!
-//! A plain wire's menu adds Draw as Label… and Label All Uses…, which open the name editor.
+//! A plain wire's menu adds Label All Uses…, which opens the name editor and draws every wire
+//! from that output through the net. (`wire.label`, one wire alone, stays a command.)
 //!
 //! **Groups.** A net local to a group is drawn while the group is open. A labelled wire with
 //! an end in a collapsed group is drawn as an ordinary wire to the group's pin: the label means
@@ -92,8 +93,6 @@ pub struct NetMenu {
 /// What the name editor will do.
 #[derive(Debug, Clone, PartialEq)]
 pub enum NameFor {
-    /// Draw the wire into this input through the net named.
-    Wire(PortRef),
     /// Draw every wire from this output through it.
     Output(PortRef),
     /// Rename this net.
@@ -530,7 +529,6 @@ impl Canvas {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
                 ui.set_max_width(300.0);
                 ui.weak(match &edit.what {
-                    NameFor::Wire(to) => format!("Draw the wire into {to} as a net label"),
                     NameFor::Output(from) => format!("Label every wire from {from}"),
                     NameFor::Rename(net) => format!("Rename net {}", net.name),
                 });
@@ -552,7 +550,6 @@ impl Canvas {
                 });
                 if let (true, Ok(name)) = (ok || enter, &checked) {
                     actions.push(match &edit.what {
-                        NameFor::Wire(to) => ("wire.label", json!({"to": to, "name": name})),
                         NameFor::Output(from) => ("output.label", json!({"from": from, "name": name})),
                         NameFor::Rename(old) => ("net.rename", key_params(old, json!({"to": name}))),
                     });
