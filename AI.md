@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — Release 0.6.1: crates and installers (Claude Opus 5.5)
+
+**What the maintainer asked:** "bump version and release".
+
+**What the AI did:**
+
+- **The version:** found that 0.6.0 had gone out (crates only) since the last release it made, and that only #66 had landed after it, with no public API change. So a patch: 0.6.1.
+- **The bump:** the workspace and the Python text twin to 0.6.1; CHANGELOG, STATUS.
+- **The release:** the gate, a release PR, `cargo publish --workspace` from `main`, then `packaging/release.sh --upload --publish`. That run is its own gate. It builds and notarizes two DMGs, builds Linux on yellowfin and Windows on `win11-dev`, tags `plumcraft-v0.6.1`, and publishes the release as Latest.
+
 ### 2026-11-10 — The wire menu labels every use of an output, not one wire (Claude Opus 5.5)
 
 **What the maintainer reported:** "converting a wire to a net label used to convert all the uses", then "Fix by dropping the 'show label on this one pin'".
