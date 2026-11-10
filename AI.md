@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — The wire menu labels every use of an output, not one wire (Claude Opus 5.5)
+
+**What the maintainer reported:** "converting a wire to a net label used to convert all the uses", then "Fix by dropping the 'show label on this one pin'".
+
+**What the AI did:** removed Draw as Label… from the wire's right-click menu (`crates/ui/src/canvas.rs`) and the one-wire case of the name editor (`crates/ui/src/net_view.rs`), leaving Label All Uses… as the menu's only way to label a wire. The `wire.label` command stays for scripts and automation. Updated `docs/guide.md` and the module notes. ~35 LOC, most of it a test: `labelling_a_wire_labels_every_use_of_its_output` (`crates/ui/tests/kittest_net_labels.rs`) wires one output to two nodes, labels from the menu and checks both wires carry the label and the one-wire entry is gone; the existing walk-through now goes through Label All Uses…. `plumcraft-ui`'s tests, clippy with `-D warnings` and `cargo fmt --check` passed.
+
+**Defects:** the one-wire entry came in with the AI's lift of net labels (2026-10-31), beside Label All Uses…; picking it left the output's other uses drawn as wires, which the maintainer found in use. Separately, the AI started this fix as soon as the maintainer described it, while the report was still only being recorded; the maintainer then said a reported bug is a record with action postponed, and approved the change afterwards ("CPM the change").
+
 ### 2026-11-08 — Release 0.6.0, crates only (Claude Opus 5.5)
 
 **What the maintainer asked:** "go for 1,2,3", the second step being PlumCraft's command forms merged and released to crates.io, so PlumImpress's Publish Style dialog builds from its pinned crates.
