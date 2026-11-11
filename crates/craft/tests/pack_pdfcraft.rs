@@ -84,14 +84,66 @@ fn pdfcraft_runs_a_chain_by_document_id() {
     let second = go(&h, "pdf2", g("COPY"), &["pdf"], "off");
     assert!(second.ok, "{:?}", states(&second));
     assert_ne!(blob(&second, "pdf", "pdf").handle, pdf.handle, "the watermark text changes the PDF");
+    let copy = h.resolve(&blob(&second, "pdf", "pdf")).unwrap().bytes;
     // And the first chain again gives the first document. Not the first bytes: PdfCraft's saves
-    // depend on the clock, in whole seconds, through a few bytes of one compressed stream.
+    // write the time, in whole seconds, into a compressed object stream, so a save a second later
+    // re-compresses it (B13). Compare with streams inflated and dates masked; the sleep makes the
+    // two saves straddle a second every time.
+    std::thread::sleep(Duration::from_millis(1100));
     let again = go(&h, "pdf3", g("DRAFT"), &["pdf"], "off");
     assert!(again.ok, "{:?}", states(&again));
     let (x, y) = (h.resolve(&blob(&again, "pdf", "pdf")).unwrap().bytes, h.resolve(&pdf).unwrap().bytes);
-    assert_eq!(x.len(), y.len());
-    let differ = x.iter().zip(y.iter()).filter(|(a, b)| a != b).count();
-    assert!(differ < 16, "{differ} of {} bytes differ", x.len());
+    let (nx, ny) = (normalised(&x), normalised(&y));
+    assert!(!nx.is_empty(), "the PDF has streams");
+    assert_eq!(nx, ny, "the same chain gives the same PDF, but for its dates");
+    assert_ne!(normalised(&copy), ny, "the comparison still sees the watermark");
+}
+
+/// A PDF's streams, inflated where they are Flate, with every date (`D:` and 14 digits) masked,
+/// leaving out the cross-reference stream (its offsets move when a compressed length does). Two
+/// saves of one document give the same list whatever second they were made in.
+fn normalised(pdf: &[u8]) -> Vec<Vec<u8>> {
+    use std::io::Read;
+    let find = |hay: &[u8], needle: &[u8], from: usize| hay.get(from..)?.windows(needle.len()).position(|w| w == needle).map(|i| i + from);
+    let mut streams = Vec::new();
+    let mut at = 0;
+    while let Some(s) = find(pdf, b"stream", at) {
+        // `stream` and an end of line start the data; `endstream` doesn't.
+        let data = match pdf.get(s + 6..s + 8) {
+            Some([b'\r', b'\n']) => s + 8,
+            Some([b'\n', _]) => s + 7,
+            _ => {
+                at = s + 6;
+                continue;
+            }
+        };
+        let Some(end) = find(pdf, b"endstream", data) else { break };
+        let dict_from = pdf[..s].windows(3).rposition(|w| w == b"obj").unwrap_or(0);
+        let dict = &pdf[dict_from..s];
+        at = end + 9;
+        if dict.windows(5).any(|w| w == b"/XRef") {
+            continue;
+        }
+        let raw = &pdf[data..end];
+        let mut inflated = Vec::new();
+        let body = match flate2::read::ZlibDecoder::new(raw).read_to_end(&mut inflated) {
+            Ok(_) => inflated,
+            Err(_) => raw.to_vec(),
+        };
+        let mut masked = Vec::with_capacity(body.len());
+        let mut i = 0;
+        while i < body.len() {
+            if body[i..].starts_with(b"D:") && body.len() >= i + 16 && body[i + 2..i + 16].iter().all(u8::is_ascii_digit) {
+                masked.extend_from_slice(b"D:##############");
+                i += 16;
+            } else {
+                masked.push(body[i]);
+                i += 1;
+            }
+        }
+        streams.push(masked);
+    }
+    streams
 }
 
 /// Two PDFs made into one, with a header and footer: Open takes a wired PDF, and Insert pages a

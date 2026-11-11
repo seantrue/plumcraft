@@ -24,6 +24,7 @@ toml = { workspace = true }
 plumcraft-scratch = { path = "../scratch" }
 zip = { version = "9", default-features = false, features = ["deflate"] }
 plumcraft-host = { path = "../host" }
+flate2 = { workspace = true }
 
 [build-dependencies]
 md-5 = { workspace = true }

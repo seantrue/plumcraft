@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — B13: the PdfCraft chain test compares PDFs without their save time (Claude Opus 5.5)
+
+**What the maintainer asked:** approved fixing all four open bugs (B19, B18, B10, B13) before the named-ports work.
+
+**What the AI did:** reproduced the failure by pausing 1.1 s between the two saves (487 bytes differed and the lengths were 1496 and 1497), dumped both PDFs and found the cause: PdfCraft's save time, a `D:` date, sits inside a Flate-compressed object stream, so a second's change re-compresses it. The old check (fewer than 16 differing bytes at equal length) could only hold when both saves fell in the same second. `crates/craft/tests/pack_pdfcraft.rs` now compares the PDFs' streams, inflated, with dates masked and the cross-reference stream left out (its offsets move with a compressed length); it always pauses past a second, so the test meets the case it guards; and it checks the comparison still tells the DRAFT and COPY watermarks apart. `flate2` joins `plumcraft-craft`'s dev-dependencies. ~60 LOC, test only.
+
+**Defects:** while rewriting the helper, the AI's script truncated the file after it, deleting the two tests that followed (`pdfcraft_joins_wired_pdfs_and_marks_every_page` and `open_converts_from_each_value_it_takes`). The test count (2 where there had been 4) gave it away before any commit, and they were restored from HEAD.
+
 ### 2026-11-10 — Release 0.6.1: crates and installers (Claude Opus 5.5)
 
 **What the maintainer asked:** "bump version and release".

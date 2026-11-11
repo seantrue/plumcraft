@@ -25,6 +25,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `ROADMAP.md` "Next: BLAKE3 handles for large local arrays (D3's measurement)". On an M4 Max with 0.2.1, a 12 MP float32 RGB array (144 MB) crossing between engines through the coordinator adds about 550–600 ms (36 MB: 130–190 ms), more than the nodes on either side; MD5 of 144 MB took 190 ms against 10 ms for BLAKE3 (`b3sum`, multithreaded). The rest of a crossing isn't profiled yet. Code: `Store::publish_array` and its read path (`crates/store`), `crossing_inputs` (`crates/coordinator/src/runner.rs`); the BLAKE3 key helper would go in commonkit (`../pycommonkit`), which D3 held back until a measurement favoured it.
 - Issue: #28
 
+## Fixed
+
 ### B13. `pdfcraft_runs_a_chain_by_document_id` fails when a save straddles a second
 
 - Reported: 2026-11-05
@@ -32,8 +34,9 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `crates/craft/tests/pack_pdfcraft.rs:94`, against the installed PdfCraft 0.17.0. The test runs the same chain twice and allows fewer than 16 differing bytes, as PdfCraft's saves depend on the clock in whole seconds through a few bytes of one compressed stream. In `release.sh`'s serial `cargo test` run it failed with "166 of 1498 bytes differ" (`claude-debug/release-0.2.4.log`); alone it passed 3 of 3, and the same commit passed nextest locally and on CI.
 - Issue: none
 - Seen again: 2026-11-06, in the full `cargo test` gate for #47 (status-bar messages); it passed alone.
-
-## Fixed
+- Cause: PdfCraft writes the save time, in whole seconds, as a `D:` date inside a Flate-compressed object stream. A save a second later re-compresses that stream, so hundreds of bytes move and the file can be a byte longer (reproduced with a 1.1 s pause: 487 bytes differ, 1496 against 1497 bytes). The test allowed fewer than 16 differing bytes at equal length.
+- Fix: the test compares the two PDFs' streams, inflated, with dates masked and the cross-reference stream left out, and now always pauses past a second so the case it guards is the one it meets. It also checks that the comparison still tells two watermarks apart.
+- Fixed: 2026-11-10, PR #71
 
 ### B17. Packs aren't versioned or chosen by the application's version
 

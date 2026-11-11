@@ -2948,6 +2948,7 @@ dependencies = [
 name = "plumcraft-craft"
 version = "0.6.1"
 dependencies = [
+ "flate2",
  "md-5",
  "plumcraft-engine",
  "plumcraft-host",
