@@ -363,7 +363,7 @@ class Host:
 
             with self._lock:
                 shm = self._same_host["shm"]
-            plane = data.Plane(engine.store_root, shm, engine.limits["max_inline"], urls=self._urls)
+            plane = data.Plane(engine.store_root, shm, engine.limits["max_inline"], urls=self._urls, algo=req.get("algo") or "md5")
 
             def emit(rec: dict, run=(run_id, generation)) -> None:
                 with self._lock:

@@ -364,6 +364,10 @@ class Engine:
         self.wire_types: list[dict] = []
         self.nodes: dict[str, Node] = {}
         self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "run.stats", "status.progress"]
+        from . import data as _data
+
+        if _data.HAS_B3:  # BLAKE3 handles (spec 4.3; B10)
+            self.caps.append("hash.b3")
         self.limits = {"max_inline": 64 << 10}
         # Blobs go to the shared commonkit store unless `with_store` says otherwise.
         import os
@@ -459,8 +463,9 @@ class Engine:
         client = req.get("caps") if isinstance(req.get("caps"), list) else []
         caps = sorted(c for c in self.caps if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
         reply = {"v": PROTOCOL, "protocol": hi, "session": session, "engine": self.info, "caps": caps}
+        reply["data"] = {"algos": ["b3", "md5"] if "hash.b3" in caps else ["md5"]}
         if self.store_root:
-            reply["data"] = {"stores": [self.store_root]}
+            reply["data"]["stores"] = [self.store_root]
         return reply
 
 

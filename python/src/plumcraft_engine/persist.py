@@ -133,7 +133,7 @@ def _from_record(root: str, v: Any, depth: int, count: list[int]) -> Any:
     if kind == "blob":
         handle = data.parse_handle(body.get("handle"))
         meta = body.get("meta")
-        a = data.read_blob(root, handle) if handle and handle.startswith("md5:raw:") else None
+        a = data.read_blob(root, handle) if handle and data.is_raw(handle) else None
         if a is None or not isinstance(meta, dict):
             raise _Miss
         return Blob(handle=handle, meta=meta, data=a.tobytes())
