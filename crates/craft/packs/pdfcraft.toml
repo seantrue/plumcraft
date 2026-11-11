@@ -15,8 +15,8 @@
 id = "pdfcraft"
 name = "PdfCraft"
 # The pack's own version, and the app versions it was made and checked for (B17, #56).
-pack_version = "1"
-app_versions = ">=0.18.2"
+pack_version = "2"
+app_versions = ">=0.20.0"
 command = ["pdfcraft-cli", "mcp"]
 hint = "install pdfcraft-cli on PATH (https://github.com/storytold/pdfcraft)"
 timeout_s = 300
@@ -233,6 +233,14 @@ max = 1000.0
 name = "color"
 type = "STRING"
 optional = true
+[[node.widget]]
+name = "gray"
+type = "FLOAT"
+min = 0.0
+max = 1.0
+optional = true
+advanced = true
+tooltip = "DeviceGray level, 0 black to 1 white, instead of the colour"
 
 [[node]]
 id = "pdf.header_footer"
@@ -373,6 +381,12 @@ description = "Find text: pages and rectangles of the matches (text_find)"
 name = "query"
 type = "STRING"
 default = "PlumCraft"
+[[node.widget]]
+name = "stop_at_limit"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Stop at the limit-th match without looking for another"
 
 [[node]]
 id = "pdf.text"
@@ -386,6 +400,13 @@ name = "pages"
 type = "JSON"
 optional = true
 socket = "both"
+[[node.widget]]
+name = "format"
+type = "ENUM"
+choices = ["text", "html"]
+optional = true
+advanced = true
+tooltip = "html also returns each page's text as formatted HTML"
 
 [[node]]
 id = "pdf.pdfa_verify"
