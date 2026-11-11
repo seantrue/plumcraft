@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — The craft apps' new parameters in the packs, again (Claude Opus 5.5)
+
+**What the maintainer asked:** after the bug fixes showed `hidden_params_match_the_baseline` failing on `main`, they chose "Separate branch later", then "Yes" to doing it next.
+
+**What the AI did:** read each new parameter's description from its app (`claude-debug/baselines/describe_ids.py`, which also reads FigCraft's command list resource), and made 10 of the 19 widgets where they mean something for the node: FigCraft PNG `colorProfile`; FilmCraft MP4 `h264Profile` and `h264IntraOnly`, Speed `maintainPitch`, Sequence settings `videoDisplay`; PdfCraft Add text `gray`, Find `stop_at_limit`, Text `format`; VectorCraft Trace `byColor`, Open `legacyNameEncoding`. The other 9 stay hidden with the reason in STATUS, and the baseline is blessed with exactly those. New test `crates/craft/tests/new_params.rs` runs each pack's demo with the new widgets set against the installed apps (all four pass; PdfCraft's text came back as HTML, so that value reached the app). The four changed packs went to pack 2 with `app_versions` at the installed version, as B17's rule says. ~180 LOC, most of it the test.
+
+**Defects:** the AI's first try drove the packs through `plumcraft-editor run --node`, which craft engines can't serve (they don't save files); its first test run failed for PdfCraft and VectorCraft because their demos leave Open's file to the user, fixed by giving them the test fixtures.
+
 ### 2026-11-10 — B18 (#59): port labels from a table (Claude Opus 5.5)
 
 **What the maintainer reported and decided:** "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable." (2026-11-06). Asked where the table lives, given that core may not hard-code engine names (golden rule 3), they chose "Per pack + user file" of three options.
