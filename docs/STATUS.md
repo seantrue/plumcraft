@@ -4,6 +4,8 @@
 
 ## Where things stand
 
+- **B13: the PdfCraft chain test no longer fails when a save straddles a second (2026-11-10, branch `fix/b13-pdfcraft-clock`).** The maintainer approved the four open bugs to fix before named ports. PdfCraft writes the save time into a compressed object stream, so a save a second later moves hundreds of bytes. `pdfcraft_runs_a_chain_by_document_id` now compares the PDFs' inflated streams with dates masked (the cross-reference stream left out), pauses past a second every run, and checks the comparison still tells two watermarks apart.
+  - **Gate:** `hidden_params_match_the_baseline` fails on `main` too: the installed FigCraft, FilmCraft, PdfCraft, PhotoCraft and VectorCraft gained 19 node parameters since the 2026-11-06 baseline. The maintainer: a craft-baselines branch after the bugs.
 - **Release 0.6.1 (2026-11-10, branch `release-0.6.1`).** The maintainer: "bump version and release".
   - **What it is:** a patch carrying #66. The 19 crates and the Python text twin go to 0.6.1; the SDK stays 0.1.2.
   - **Crates:** `cargo publish --workspace` from `main`.
