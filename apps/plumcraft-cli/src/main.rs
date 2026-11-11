@@ -1,7 +1,7 @@
 //! `plumcraft`: run a workflow on the text engine and watch what crosses the interface.
 //!
 //! ```text
-//! plumcraft run [WORKFLOW.json] [ENGINE] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
+//! plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
 //! plumcraft nodes [ENGINE]
 //! plumcraft conform --engine-manifest FILE [--modes process,http]
 //!
@@ -51,7 +51,7 @@ fn main() -> ExitCode {
         Some("conform") => conform(&args[1..]),
         _ => {
             eprintln!(
-                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
+                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
             );
             ExitCode::from(2)
         }
@@ -264,10 +264,15 @@ struct Opts {
     mode: Mode,
     /// The workflow file, when one was given: its relative paths are relative to its folder.
     path: Option<std::path::PathBuf>,
+    /// `--set NAME=VALUE` / `NODE.PORT=VALUE`, in order (docs/research/23-named-ports.md).
+    sets: Vec<(String, String)>,
+    /// `--params`: print the graph's named ports and stop.
+    params: bool,
 }
 
 fn parse(args: &[String]) -> Result<Opts, String> {
-    let mut o = Opts { workflow: Value::Null, watch: Vec::new(), cancel_after: None, raw: false, mode: mode(args), path: None };
+    let mut o =
+        Opts { workflow: Value::Null, watch: Vec::new(), cancel_after: None, raw: false, mode: mode(args), path: None, sets: Vec::new(), params: false };
     let mut path = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
@@ -282,6 +287,8 @@ fn parse(args: &[String]) -> Result<Opts, String> {
                 let (n, p) = w.split_once('.').ok_or("--watch needs NODE.PORT")?;
                 o.watch.push((n.into(), p.into()));
             }
+            "--set" => o.sets.push(plumcraft_session::named_cmds::split_set(it.next().ok_or("--set needs NAME=VALUE")?)?),
+            "--params" => o.params = true,
             "--cancel-after" => o.cancel_after = Some(it.next().and_then(|s| s.parse().ok()).ok_or("--cancel-after needs seconds")?),
             other if path.is_none() => path = Some(other.to_owned()),
             other => return Err(format!("unexpected argument {other:?}")),
@@ -316,10 +323,30 @@ fn run(args: &[String]) -> ExitCode {
         Err(e) => return fail(&e),
     };
     let mut o = o;
-    if let Some(path) = &o.path
-        && let Ok(Ok(catalog)) = host.call("schema", json!({})).map(serde_json::from_value)
-    {
-        o.workflow = plumcraft_session::paths::anchor_workflow(&o.workflow, &catalog, path);
+    let catalog: Option<plumcraft_proto::catalogue::SchemaReply> = host.call("schema", json!({})).ok().and_then(|v| serde_json::from_value(v).ok());
+    if let (Some(path), Some(catalog)) = (&o.path, &catalog) {
+        o.workflow = plumcraft_session::paths::anchor_workflow(&o.workflow, catalog, path);
+    }
+    // Named ports (docs/research/23-named-ports.md 4): values from the command line, after the
+    // file's own paths are anchored; a relative path here is the caller's.
+    if !o.sets.is_empty() || o.params {
+        let Some(catalog) = &catalog else { return fail("the engine's schema is needed for --set and --params") };
+        let mut g = match plumcraft_graph::Graph::from_json(&o.workflow.to_string()) {
+            Ok(g) => g,
+            Err(e) => return fail(&format!("workflow: {e}")),
+        };
+        if o.params {
+            print!("{}", plumcraft_session::named_cmds::params_text(&g, catalog));
+            return ExitCode::SUCCESS;
+        }
+        let cwd = std::env::current_dir().unwrap_or_default();
+        if let Err(e) = plumcraft_session::named_cmds::apply_sets(&mut g, catalog, &o.sets, &cwd) {
+            return fail(&e);
+        }
+        o.workflow = match serde_json::to_value(&g) {
+            Ok(v) => v,
+            Err(e) => return fail(&e.to_string()),
+        };
     }
     let t0 = Instant::now();
     let stamp = || format!("{:>7.3}s", t0.elapsed().as_secs_f64());

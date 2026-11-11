@@ -30,6 +30,7 @@ pub mod insert_cmds;
 pub mod labels_cmds;
 pub mod layout;
 pub mod layout_cmds;
+pub mod named_cmds;
 mod net_cmds;
 pub mod open_cmds;
 pub mod paths;
