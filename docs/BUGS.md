@@ -14,7 +14,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #68
 - Cause: a node's stale mark outranked its run state. An edit makes the node and everything downstream stale, and the run that follows (every auto-run) computes them again, but the mark only went at the run's reply. Meanwhile each of them kept the stale border and the word "stale", queued and running alike; running showed only as the 12-point spinner in place of the state dot, and as a progress bar for a node that reports progress. Seen in the real editor (`claude-debug/b21/4-mid-run.png`): the running node looked like the queued ones.
 - Fix: while a run computes a node (queued or running) its run state shows, not stale: the border in the queued or running colour (running a little wider), and the header says "queued", or "running" in the running colour with the percentage when the node reports one. `run_view::shows_stale` decides the stale label and border. A run that never reaches the node (cancelled, the engine gone) leaves it stale again. Tests: `kittest_run_status.rs` (two). Checked in the real editor (`claude-debug/run_status_probe.py`, `claude-debug/b20/4-mid-run.png`).
-- Fixed: 2026-11-11, PR #PRNUM
+- Fixed: 2026-11-11, PR #79
 
 ### B21. A node that has never completed a run shows "stale"
 
