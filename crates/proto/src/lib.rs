@@ -25,6 +25,7 @@ pub mod error;
 pub mod event;
 pub mod expansion;
 pub mod handle;
+pub mod labels;
 pub mod manifest;
 pub mod media;
 pub mod memo;

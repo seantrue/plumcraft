@@ -11,13 +11,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: reported from a PlumImpress session (PlumImpress runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
 - Issue: none
 
-### B18. Port and parameter labels have no translation table
-
-- Reported: 2026-11-06
-- Report: "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable."
-- Context: the node canvas shows a port's name, or the engine's `label` for it, as it comes (`crates/ui/src/canvas.rs`, `port_label`). Raw parameter keys from engines and craft packs (`max_array_width`, `scaleStyles`) show as they are. The table should be a file both the maintainer and Claude can edit.
-- Issue: #59
-
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
 - Reported: 2026-11-05
@@ -26,6 +19,17 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #28
 
 ## Fixed
+
+### B18. Port and parameter labels have no translation table
+
+- Reported: 2026-11-06
+- Report: "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable."
+- Context: the node canvas shows a port's name, or the engine's `label` for it, as it comes (`crates/ui/src/canvas.rs`, `port_label`). Raw parameter keys from engines and craft packs (`max_array_width`, `scaleStyles`) show as they are. The table should be a file both the maintainer and Claude can edit.
+- Issue: #59
+- Design (the maintainer, 2026-11-10, of three offered): "Per pack + user file". Each pack carries its own table, an optional user file overrides it, and core holds only the lookup, no names.
+- Fixed: `plumcraft_proto::labels` reads a table (`[labels]`: a port name → label, or a node kind → a table of them; hostile entries skipped, in the hostile-input sweep). Layers, lowest first: the engine's own label; a craft pack's `[labels]` (applied by `plumcraft-craft` to its own nodes) or an application's table (`Session::use_labels`); the user's `labels.toml` beside the preferences. The session keeps the engines' catalogue and relabels it whenever a catalogue or a table changes; `labels.reload` reads the file again and `labels.show` lists what is in effect. PhotoCraft's pack labels `scaleStyles`. Checked in the real editor (`claude-debug/b18_labels_probe.py`): a `labels.toml` written while it ran relabelled the demo's ports on `labels.reload`.
+- Not done here: a table for the research software's names (`max_array_width`) belongs to the research software's application, which calls `use_labels` with it.
+- Fixed: 2026-11-10, PR #73
 
 ### B13. `pdfcraft_runs_a_chain_by_document_id` fails when a save straddles a second
 

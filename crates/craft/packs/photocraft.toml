@@ -565,3 +565,8 @@ drop_keys = ["source", "sourceLayer", "file", "path"]
 "pc.filter.distort.displace" = "needs a displacement map file or another open document (mapPath / mapDocument), never a widget"
 "pc.filter.filterGallery" = "needs `effects`, a list of filter steps, with no default"
 "pc.filter.vanishingPoint" = "needs `planes` (four corners each) with no default"
+
+# ---- display labels (B18): a port name → its label, or a node id → a table of them ----
+
+[labels]
+scaleStyles = "Scale styles"

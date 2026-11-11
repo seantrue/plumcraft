@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — B18 (#59): port labels from a table (Claude Opus 5.5)
+
+**What the maintainer reported and decided:** "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable." (2026-11-06). Asked where the table lives, given that core may not hard-code engine names (golden rule 3), they chose "Per pack + user file" of three options.
+
+**What the AI did:**
+
+- **The table** (`crates/proto/src/labels.rs`, ~230 LOC with 3 tests): `[labels]` in TOML or JSON, a port name → label or a node kind → a table of them; a kind's entry before a general one; layering; applying to a catalogue's ports, sub-ports included. Hostile entries (not strings, empty, over 80 characters, control characters) are skipped and named. It joins the hostile-input sweep.
+- **The session** (`crates/session/src/labels_cmds.rs`, ~190 LOC with a test; `lib.rs`): keeps the engines' catalogue unlabelled and relabels it whenever a catalogue or a table changes; `use_labels` for an application's table and the user's file; `labels.reload` and `labels.show`. The editor reads `labels.toml` beside its preferences (`crates/ui/src/lib.rs`).
+- **Packs** (`crates/craft`): a pack's `[labels]` goes on its own ports at build, with unreadable entries as build warnings. PhotoCraft's labels `scaleStyles`. Tests: every built-in pack's table reads cleanly, and a live PhotoCraft build shows "Scale styles".
+- **Checked in the real editor** with `claude-debug/b18_labels_probe.py`: a `labels.toml` written while the editor ran relabelled the demo's ports on `labels.reload` (picture in `claude-debug/b18/`).
+- **Docs:** the guide, `14-craft-mcp-adapter.md` 3.10.2.
+
+**Not done:** the research software's names (`max_array_width`, the report's example) need a table in the research software's application, which calls `use_labels`. A long label is cut short on a node rather than widening it.
+
 ### 2026-11-10 — B13: the PdfCraft chain test compares PDFs without their save time (Claude Opus 5.5)
 
 **What the maintainer asked:** approved fixing all four open bugs (B19, B18, B10, B13) before the named-ports work.
