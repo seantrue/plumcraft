@@ -32,6 +32,11 @@ pub const EXCERPT_CHARS: usize = 200;
 /// The largest rgba8 thumbnail read (pixels on its long side).
 pub const MAX_THUMB_SIDE: u64 = 4096;
 
+/// A node's header text when no run has completed it yet (and none is computing it).
+pub const NOT_RUN: &str = "not run";
+/// Its hover.
+pub const NOT_RUN_HOVER: &str = "No run has completed this node yet. Run to compute it.";
+
 /// A run state as a word (the node header, the status bar, tooltips).
 pub fn state_name(s: NodeState) -> &'static str {
     match s {

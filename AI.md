@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — B21 (#69): "not run" for a node no run has completed (Claude Opus 5.5)
+
+**What the maintainer reported and decided:** "stale is not a good status for node that has never completed a run", seen in an application built on 0.6.1; wanted: "not run" for such a node, stale kept for a node whose last run an edit invalidated. Approved for a fix with `fix-approved`.
+
+**What the AI did:** found that staleness was marked on every node with a run record, so a failed, skipped or cancelled node, or one a run never reached, went stale on the next edit. `NodeRun::completed` (set when a run reports the node done or cached) and `NodeRun::is_not_run` (`crates/session/src/run.rs`); the header says "not run" and the stale label and border need a completed node (`crates/ui/src/canvas.rs`, `run_view::NOT_RUN`); `ui.inspect` gives `notRun` (`docs/control-protocol.md`). Tests: three in `run::not_run_tests`, three in `crates/ui/tests/kittest_run_status.rs` (two fail without the canvas change). Checked in the real editor with `claude-debug/run_status_probe.py`. 157 lines added, 4 removed (`git diff --numstat`, tests included).
+
+**Not done:** a collapsed group's header doesn't say whether its nodes have run.
+
 ### 2026-11-10 — B10 (#28): BLAKE3 handles, Python SDK (Claude Opus 5.5)
 
 **What the maintainer asked:** as the Rust side below; this closes B10.

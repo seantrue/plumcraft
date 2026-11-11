@@ -1,9 +1,10 @@
 # Status
 
-*Updated 2026-11-10.*
+*Updated 2026-11-11.*
 
 ## Where things stand
 
+- **B21 (#69): "not run", not "stale", for a node no run has completed (2026-11-11, branch `fix/69-not-run`).** The maintainer: "stale is not a good status for node that has never completed a run". `NodeRun::completed` and `is_not_run`; the header says "not run", and stale's label and border are for a completed node's out-of-date result. `ui.inspect` gives `notRun`. Checked in the real editor with `claude-debug/run_status_probe.py`.
 - **B10 (#28): BLAKE3 handles for large values (2026-11-10, branch `fix/28-blake3-handles`).** The maintainer: "Go to BLAKE3 now", then allowed the commonkit release. commonkit and pyuncommonkit 0.1.2 take 64-digit digests. Here: `b3` handles in proto, with shared vectors from Python's `blake3`; the store publishes under the engine's own handle (one hash, not two) and checks each handle in its algorithm; `RunRequest.algo`, asked for when `hash.b3` is negotiated, cleared by a coordinator when an engine lacks it. A 144 MB array published and read back: 528 ms before, 29 ms with `b3`. **Python SDK** (branch `fix/28-blake3-python`): `blake3` a dependency, `hash.b3` in its hello, `b3` handles when a run asks, handles checked in their own algorithm; a conformance case runs both SDKs over a socket, both ways.
 - **Named ports, slices 1 and 2 (2026-11-10, branch `feat/named-ports`).** `docs/research/23-named-ports.md`; the maintainer: "implement the named-ports proposal", "Slices 1 and 2", with the note's picks.
   - **Model** (`plumcraft_graph::named`): `Graph::named`, a list of `{name, port, doc, min, max}`, not written when empty. Names are 1 to 40 characters, no control character, `=` or `.`, unique; one name per port; the port exists, holds a value and isn't wired. Kept after every edit and on load (a file's bad entries dropped); wiring a named port is refused naming it.

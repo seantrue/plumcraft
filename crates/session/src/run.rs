@@ -73,6 +73,10 @@ pub struct NodeRun {
     /// sent any, so a failed run leaves an editor something to repair the node with. Opaque here.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub editor: BTreeMap<String, Value>,
+    /// A run has completed this node (done or cached) at least once. Until then it has no result
+    /// for an edit to make stale: it is "not run", not stale.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub completed: bool,
 }
 
 /// What the caches did: the latest run, and every run since the session began (spec 14.7).
@@ -103,6 +107,13 @@ impl CacheStats {
 impl NodeRun {
     pub fn is_stale(&self) -> bool {
         self.stale_since.is_some()
+    }
+
+    /// Has no run completed this node yet, and none is computing it now? Such a node shows
+    /// "not run": stale is for a result an edit has made out of date, and it has none. One that
+    /// failed, was skipped or cancelled says so until an edit, then it is not run too.
+    pub fn is_not_run(&self) -> bool {
+        !self.completed && !self.is_active() && (self.state.is_none() || self.is_stale())
     }
 
     /// Queued or running.
@@ -578,6 +589,7 @@ impl RunState {
             n.ms = Some(ms);
         }
         n.error = view.error;
+        n.completed |= matches!(view.state, NodeState::Done | NodeState::Cached);
         if view.thumb.is_some() {
             n.thumb = view.thumb;
         }
@@ -819,7 +831,7 @@ impl RunState {
             .nodes
             .iter()
             .map(|(id, n)| {
-                let mut v = json!({"state": n.state, "ms": n.ms, "thumb": n.thumb.is_some(), "stale": n.is_stale()});
+                let mut v = json!({"state": n.state, "ms": n.ms, "thumb": n.thumb.is_some(), "stale": n.is_stale(), "notRun": n.is_not_run()});
                 if !n.stale_why.is_empty() {
                     v["staleWhy"] = json!(n.stale_why);
                 }
@@ -882,5 +894,75 @@ mod editor_payload_tests {
         newer.editor.insert("kind".into(), json!({"bins": [2]}));
         finish(&mut run, newer);
         assert_eq!(run.node("n1").unwrap().editor["kind"], json!({"bins": [2]}), "replaced");
+    }
+}
+
+/// B21 (#69): a node no run has completed is "not run", not stale.
+#[cfg(test)]
+mod not_run_tests {
+    use std::time::Instant;
+
+    use plumcraft_proto::event::NodeState;
+    use plumcraft_proto::run::{NodeReport, RunReply};
+
+    use super::*;
+
+    fn graph(text: &str) -> Graph {
+        Graph::from_json(&format!(r#"{{"version": 1, "nodes": {{"n1": {{"kind": "k", "values": {{"v": "{text}"}}}}}}, "wires": []}}"#)).unwrap()
+    }
+
+    fn reply(run: &mut RunState, g: &Graph, state: NodeState) {
+        let now = Instant::now();
+        let req = run.request(g, Vec::new(), Vec::new(), now);
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: [("n1".to_owned(), NodeReport { state, ..Default::default() })].into(),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, now));
+    }
+
+    #[test]
+    fn a_node_that_never_completed_is_not_run_after_an_edit() {
+        let now = Instant::now();
+        for state in [NodeState::Error, NodeState::Skipped, NodeState::Cancelled] {
+            let mut run = RunState::default();
+            let (a, b) = (graph("a"), graph("b"));
+            reply(&mut run, &a, state);
+            let n = run.node("n1").unwrap();
+            assert!(!n.completed && !n.is_not_run(), "{state:?}: it says what happened until an edit");
+            run.on_edit(&a, &b, now);
+            let n = run.node("n1").unwrap();
+            assert!(n.is_stale(), "{state:?}: the edit is still tracked");
+            assert!(n.is_not_run(), "{state:?}: but it has no result to be stale: not run");
+        }
+    }
+
+    #[test]
+    fn a_node_left_waiting_is_not_run_and_one_queued_is_not() {
+        let now = Instant::now();
+        let mut run = RunState::default();
+        let a = graph("a");
+        run.request(&a, Vec::new(), Vec::new(), now);
+        assert!(!run.node("n1").unwrap().is_not_run(), "queued");
+        run.fail("the engine went away");
+        assert!(run.node("n1").unwrap().is_not_run(), "the run never reached it");
+    }
+
+    #[test]
+    fn a_completed_node_is_stale_after_an_edit_and_stays_completed() {
+        let now = Instant::now();
+        for state in [NodeState::Done, NodeState::Cached] {
+            let mut run = RunState::default();
+            let (a, b) = (graph("a"), graph("b"));
+            reply(&mut run, &a, state);
+            assert!(run.node("n1").unwrap().completed, "{state:?}");
+            run.on_edit(&a, &b, now);
+            reply(&mut run, &b, NodeState::Error);
+            run.on_edit(&b, &a, now);
+            let n = run.node("n1").unwrap();
+            assert!(n.completed && n.is_stale() && !n.is_not_run(), "{state:?}: its earlier result is stale");
+        }
     }
 }
