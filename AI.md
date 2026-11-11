@@ -41,6 +41,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Not yet:** the Python SDK (`blake3`, `hash.b3`); until then, runs that include a Python engine stay md5.
 
+### 2026-11-10 — Named ports, slices 1 and 2 (Claude Opus 5.5)
+
+**What the maintainer asked:** "implement the named-ports proposal", then "Slices 1 and 2" (with the note's picks for its open questions), and "reword the proposal before starting on that".
+
+**What the AI did:**
+
+- **The model** (`crates/graph/src/named.rs`, ~330 LOC with 4 tests): `Graph::named` and its rules, applied in `touch` and on load as net labels are; a lenient reader for a file's list; name, unname, rename, describe and reorder; `GraphError::NamedPort` when a named input is wired.
+- **From outside** (`crates/session/src/named_cmds.rs`, ~380 LOC with 4 tests): `--set` parsing and lookup (a name, or `NODE.PORT` by id or a unique title), values read as the port's type with choices and ranges checked, paths against the caller's folder, all or nothing; the parameter table; the editor's commands. `plumcraft run` takes `--set` and `--params`; checked on the text demo (`claude-debug/named-ports/demo-named.json`): `--set "words=named ports work"` made `shout` 16 characters.
+- **The editor** (`canvas.rs`, `net_view.rs`, `graph_params_view.rs`, ~200 LOC): the input menu (through the net-label name editor), the `name →` tag, the Parameters window. `crates/ui/tests/kittest_named_ports.rs` names, renames and unnames from the menu, and reorders and removes from the window. Looked at in the real editor (`claude-debug/named-ports/named_ports_probe.py`).
+
+**Defects, caught before any commit:** the first tag drew its stub with `─`, which the UI font lacks: the real editor showed an empty box, though the kittest (which matches text) passed; it is now `name →`. The first editor test clicked the caption's accessibility rect on screen, but that rect is in the canvas layer's coordinates, so the menu never opened; the test now maps it through the canvas transform. Its first draft also tried to wire `text.upper`'s wire-only input, which can't be named; that case stays in the graph crate's tests.
+
+### 2026-11-10 — Named-ports proposal and 0.6.1 release notes (Claude Opus 5.5)
+
+**What the maintainer asked:** "Do we have a way to bind command line arguments to graph ports (input files, output files, etc)?", "Can we write to a port by label?", and "I think we need to be able to assign a port a "net-list" like label, even if there is no connection to it. That sounds like a plumcraft change ...". Then "commit the two untracked notes", and "reword the proposal" before starting on it.
+
+**What the AI did:** wrote `docs/research/23-named-ports.md` (~95 lines), a proposal written from the research software's side. It covers how a value reaches a port from outside today, why net labels can't carry one, and a top-level `named` list shaped like a group's `Promoted`, with its rules, the editor, `--set`/`--params` on the command line, slices and open questions. Also committed the 0.6.1 release notes draft (`claude-debug/notes-0.6.1.md`). Documentation only, no code.
+
+**Defects:** the note first named the research software's private project, its command and its source path, which tracked PlumCraft text never does. Raised by the AI before pushing; the reworded note says "the research software" throughout, and the first commit was never pushed.
+
 ### 2026-11-10 — The craft apps' new parameters in the packs, again (Claude Opus 5.5)
 
 **What the maintainer asked:** after the bug fixes showed `hidden_params_match_the_baseline` failing on `main`, they chose "Separate branch later", then "Yes" to doing it next.

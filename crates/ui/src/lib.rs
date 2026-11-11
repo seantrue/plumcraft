@@ -53,6 +53,7 @@ pub mod engine_view;
 pub mod fonts;
 pub mod form_view;
 pub mod frame_view;
+pub mod graph_params_view;
 pub mod groups_view;
 mod icon_data;
 pub mod icons;
@@ -431,6 +432,8 @@ pub struct EditorApp {
     fulls: watched::Fulls,
     /// Pop-out windows ([`popouts`]).
     pub popouts: Vec<popouts::PopoutWindow>,
+    /// The Parameters window's doc lines being edited, by name ([`graph_params_view`]).
+    param_docs: std::collections::HashMap<String, String>,
     /// Whether one of the editor's windows (the main one or a pop-out) had focus last frame:
     /// pop-outs float above the editor only then (B19).
     popouts_float: bool,
@@ -522,6 +525,7 @@ impl EditorApp {
             compare: compare_view::CompareView::default(),
             fulls: watched::Fulls::default(),
             popouts: Vec::new(),
+            param_docs: std::collections::HashMap::new(),
             popouts_float: false,
             wires: wire_view::WireView::default(),
             media: media::MediaViews::default(),
@@ -1919,6 +1923,11 @@ impl EditorApp {
         }
         self.prompt_modal(&ctx);
         about_view::show(&ctx, &mut self.session);
+        let asks = graph_params_view::show(&ctx, &mut self.session, &mut self.param_docs);
+        if let Some((name, pos)) = asks.rename {
+            self.canvas.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name, pos));
+        }
+        self.run_all(asks.actions);
         let asks = self.settings_window(&ctx);
         self.run_all(asks);
         self.pump_runs(&ctx);

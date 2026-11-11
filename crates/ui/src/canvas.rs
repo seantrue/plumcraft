@@ -664,12 +664,16 @@ impl Canvas {
             canvas_requests: Vec::new(),
             group_frames: &self.group_frames,
             routed_paths,
+            name_request: None,
         };
         SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style(tokens)).show(&mut self.snarl, &mut viewer, ui);
         self.to_global = viewer.to_global;
         let wire_clicked = viewer.wire_clicked.take();
         let port_label_hovered = viewer.port_hovered.take();
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
+        if let Some(edit) = viewer.name_request.take() {
+            self.nets.edit = Some(edit);
+        }
         let mut actions = viewer.actions;
         // A double-click on a node (its frame or header, not a field or button in it, which take
         // the click themselves) opens its parameters window. egui reports a click within 0.6 s of
@@ -945,6 +949,8 @@ struct NodeViewer<'a> {
     group_frames: &'a [crate::groups_view::GroupFrame],
     /// Wires with bend points, to paint under the nodes ([`crate::wire_route`]).
     routed_paths: Vec<(Vec<Pos2>, egui::Color32)>,
+    /// A name editor an input's menu asked for this frame (name or rename a named port).
+    name_request: Option<crate::net_view::NameEdit>,
 }
 
 /// Space between a node's thumbnail and the outputs beside it, and what follows below.
@@ -1015,6 +1021,54 @@ impl NodeViewer<'_> {
         pin.with_fill(typed.unwrap_or(self.tokens.pin_default)).with_wire_color(typed.unwrap_or(self.tokens.wire))
     }
 
+    /// A named input's name, drawn as a net label with no wire: a stub and the name before the
+    /// caption, in the wire type's colour (docs/research/23-named-ports.md 3).
+    fn named_tag(&self, ui: &mut egui::Ui, at: &PortRef, ty: &str) {
+        let Some(name) = self.graph.name_of_port(at) else { return };
+        let color = self.catalog.wire_type(ty).and_then(|w| w.color.as_deref()).and_then(parse_hex).unwrap_or(self.tokens.wire);
+        let doc = self.graph.named_port(name).map(|n| n.doc.as_str()).filter(|d| !d.is_empty());
+        let hover = format!("Named port {name:?}: set from outside with run --set {name}=VALUE{}", doc.map(|d| format!("\n\n{d}")).unwrap_or_default());
+        ui.label(egui::RichText::new(format!("{name} →")).monospace().small().color(color)).on_hover_text(hover);
+    }
+
+    /// An input's right-click menu: name it, or rename or unname its name.
+    fn input_menu(&mut self, r: &egui::Response, at: &PortRef, port: &Port) {
+        let named = self.graph.name_of_port(at).map(str::to_owned);
+        let wired = self.graph.wire_into(at).is_some();
+        let pos = r.rect.left_bottom();
+        let mut request = None;
+        // a caption only senses hover; its menu needs the secondary click
+        let r = r.interact(egui::Sense::click());
+        r.context_menu(|ui| match &named {
+            Some(name) => {
+                if ui.button("Rename Port…").clicked() {
+                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name.clone(), pos));
+                    ui.close();
+                }
+                if ui.button("Remove Name").on_hover_text("The port stops being one of the graph's parameters; its value stays").clicked() {
+                    self.actions.push(("graph.port.unname", json!({"name": name})));
+                    ui.close();
+                }
+            }
+            None if port.has_widget() && !wired => {
+                if ui
+                    .button("Name This Port…")
+                    .on_hover_text("Make it one of the graph's parameters, set from outside by name (run --set NAME=VALUE)")
+                    .clicked()
+                {
+                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Port(at.clone()), at.port.clone(), pos));
+                    ui.close();
+                }
+            }
+            None => {
+                ui.label("A wired input can't be named");
+            }
+        });
+        if let Some(edit) = request {
+            self.name_request = Some(edit);
+        }
+    }
+
     fn track(&self, info: PinInfo, key: PinKey) -> TrackedPin {
         TrackedPin { info, key, sink: self.pins.clone() }
     }
@@ -1081,7 +1135,9 @@ impl NodeViewer<'_> {
                 let rich = if dim { egui::RichText::new(&label) } else { egui::RichText::new(&label).color(self.tokens.text) };
                 let hover = dim.then(|| format!("{}{}(the default value)", tip.unwrap_or(""), if tip.is_some() { "\n\n" } else { "" }));
                 ui.horizontal(|ui| {
-                    caption(ui, rich, &label, hover.as_deref().or(tip));
+                    self.named_tag(ui, &at, &port.ty);
+                    let r = caption(ui, rich, &label, hover.as_deref().or(tip));
+                    self.input_menu(&r, &at, port);
                     let key = (node_id.clone(), row.key.clone());
                     if let Some(value) = widgets::port_widget(ui, port, &key, &current, self.edits, blank) {
                         self.actions.push(("node.set", json!({"node": node_id, "port": row.key, "value": value})));
@@ -1095,7 +1151,11 @@ impl NodeViewer<'_> {
                     Some(editor) => (editor.summary)(&current),
                     None => widgets::value_text(&current),
                 };
-                pin_label(ui, &format!("{label}: {shown}"), tip, PIN_LABEL_WIDTH + CAPTION_WIDTH);
+                ui.horizontal(|ui| {
+                    self.named_tag(ui, &at, &port.ty);
+                    let r = pin_label(ui, &format!("{label}: {shown}"), tip, PIN_LABEL_WIDTH + CAPTION_WIDTH);
+                    self.input_menu(&r, &at, port);
+                });
             }
         }
         if port.wireable() { self.pin(&port.ty) } else { PinInfo::circle().with_fill(self.tokens.pin_hidden).with_stroke(egui::Stroke::NONE) }
