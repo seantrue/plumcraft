@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — B22 (#70): thumbnails in step with the latest run (Claude Opus 5.5)
+
+**What the maintainer reported:** "node thumbnails are not synchronize", in an application built on 0.6.1, and asked which: both, "a node's thumbnail lags behind that node's latest run" and "thumbnails from different runs are shown side by side". Approved for a fix with `fix-approved`.
+
+**What the AI did:** found three causes in `crates/session/src/run.rs`. A thumbnail was only ever replaced, never dropped, so a run that made none left an earlier run's under the new result. Nothing marked a kept thumbnail as the earlier run's while a new run was on its way. And staleness cleared only at the reply, so finished nodes stayed faded like the old ones. The fixes: the run's own thumbnail (reply, else preview), or none, at the reply; `NodeRun::thumb_generation` and `thumb_is_older`; stale cleared in `sync_node` the moment the node finishes. In `crates/ui/src/canvas.rs`, `thumb_faded` and a hover note fade an older thumbnail, excerpt or waveform. Tests: four in `run::thumb_tests` (two fail without the fix) and one in `kittest_run_status.rs`. Checked mid-run in the real editor with `claude-debug/run_status_probe.py`. Built on B20's branch. 194 lines added, 10 removed (`git diff --numstat`, tests included).
+
+**Not done:** `stale_since` keeps a node's first edit, so an edit made during a run to a node that was already stale is lost when the run finishes it. That was already so at the reply. It is recorded under B22 for the maintainer to decide on.
+
 ### 2026-11-11 — B20 (#68): which nodes are running (Claude Opus 5.5)
 
 **What the maintainer reported:** "can't tell which nodes are actually running", seen in an application built on 0.6.1. Approved for a fix with `fix-approved`.
