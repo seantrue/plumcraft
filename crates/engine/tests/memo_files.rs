@@ -85,7 +85,7 @@ fn run(e: &Engine, memo: &mut Memo, store: Option<&Store>) -> RunReply {
         "targets": ["n"],
     }))
     .unwrap();
-    let plane = Plane { store, shm: true, urls: false, max_inline: 0 };
+    let plane = Plane { store, shm: true, urls: false, max_inline: 0, algo: plumcraft_proto::handle::Algo::Md5 };
     exec::run(e, &req, &mut Log::default(), &CancelToken::default(), "test", memo, &plane)
 }
 

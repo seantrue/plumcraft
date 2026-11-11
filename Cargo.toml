@@ -37,6 +37,8 @@ thiserror = "2"
 # Engine manifests (plumcraft-proto) and craft packs (plumcraft-craft).
 toml = "1"
 md-5 = "0.10"
+# BLAKE3 handles for large values (B10): multithreaded on big inputs.
+blake3 = { version = "1.8", features = ["rayon"] }
 sha2 = "0.10"
 base64 = "0.22"
 # Deflate for compressed raw blobs and memo records (plumcraft-store), in pure Rust (miniz_oxide).
@@ -53,7 +55,7 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "gif"] }
 # The store's layout, publishing and reading (plumcraft-store). Without `mmap`: segments are
 # read, not mapped.
-commonkit = { version = "0.1.1", default-features = false }
+commonkit = { version = "0.1.2", default-features = false }
 schemars = "1.2"
 tiny_http = "0.12"
 # Tokens and nonces from the OS's generator, on every platform (/dev/urandom is Unix-only).

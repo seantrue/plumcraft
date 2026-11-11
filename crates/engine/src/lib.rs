@@ -449,7 +449,7 @@ impl Engine {
             store: Some(plumcraft_store::Store::new(plumcraft_store::default_root())),
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
-            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]),
+            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "hash.b3"]),
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
@@ -633,6 +633,11 @@ impl Engine {
             engine: self.info.clone(),
             caps: Caps::negotiate(&req.caps, &self.caps),
             limits: self.limits,
+            // spec 4.3: the algorithms it takes, preferred first
+            data: plumcraft_proto::session::DataInfo {
+                algos: if self.caps.has(plumcraft_proto::caps::known::HASH_B3) { vec!["b3".into(), "md5".into()] } else { vec!["md5".into()] },
+                ..Default::default()
+            },
             ..Default::default()
         })
     }

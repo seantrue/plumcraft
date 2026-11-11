@@ -2860,6 +2860,10 @@
     "RunRequest": {
       "description": "`{\"v\": 2, \"op\": \"run\", …}`.",
       "properties": {
+        "algo": {
+          "description": "The hash algorithm for the handles this run makes (spec 4.3): `b3` only when `hash.b3`\nwas negotiated with every engine that reads them. Empty or anything else: md5. An engine\nwithout the capability ignores it.",
+          "type": "string"
+        },
         "detach": {
           "description": "Survive the session going idle, for `run_ttl_s`.",
           "type": "boolean"

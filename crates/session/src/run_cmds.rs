@@ -16,6 +16,12 @@ use crate::commands::{CommandSpec, always, opt_str_param, str_param};
 use crate::run::WatchRole;
 use crate::{Result, Session, SessionError};
 
+/// The hash algorithm a run's handles use: BLAKE3 when the connection negotiated `hash.b3`
+/// (spec 4.3; B10), else md5. A coordinator lowers it to md5 when an engine in the run lacks it.
+pub fn algo_for(s: &crate::Session) -> String {
+    if s.caps.has(plumcraft_proto::caps::known::HASH_B3) { "b3".into() } else { String::new() }
+}
+
 fn can_run(s: &Session) -> std::result::Result<(), String> {
     if !s.connected {
         return Err("the engine is not connected".into());
@@ -274,4 +280,27 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
     ]
+}
+
+#[cfg(test)]
+mod algo_tests {
+    use super::*;
+    use crate::run::Outgoing;
+
+    fn sent_algo(s: &mut Session) -> String {
+        s.execute("node.add", &json!({"kind": "text.literal"})).unwrap();
+        s.execute("run.start", &json!({})).unwrap();
+        s.run.take_outbox().into_iter().find_map(|o| if let Outgoing::Run(r) = o { Some(r.algo) } else { None }).unwrap()
+    }
+
+    /// B10: a run asks for BLAKE3 handles only once the connection negotiated `hash.b3`.
+    #[test]
+    fn runs_ask_for_b3_only_when_hash_b3_was_negotiated() {
+        let mut s = Session::new(plumcraft_text::engine().schema());
+        s.connected = true;
+        assert_eq!(sent_algo(&mut s), "");
+        s.caps = plumcraft_proto::Caps::new(["hash.b3"]);
+        s.run.algo = algo_for(&s);
+        assert_eq!(sent_algo(&mut s), "b3");
+    }
 }

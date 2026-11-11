@@ -129,7 +129,7 @@ impl Rig {
             "targets": targets, "inputs": inputs,
         }))
         .unwrap();
-        let plane = Plane { store: self.engine.store(), shm: true, urls: false, max_inline };
+        let plane = Plane { store: self.engine.store(), shm: true, urls: false, max_inline, algo: plumcraft_proto::handle::Algo::Md5 };
         exec::run(&self.engine, &req, &mut Log, &CancelToken::default(), "test", &mut self.memo, &plane)
     }
 }
@@ -270,7 +270,7 @@ fn bad_bindings_are_node_errors() {
         "inputs": {"e.x": {"kind": "nonsense"}, "e.c1": 7},
     }));
     if let Ok(req) = req {
-        let plane = Plane { store: a.engine.store(), shm: true, urls: false, max_inline: 1 << 20 };
+        let plane = Plane { store: a.engine.store(), shm: true, urls: false, max_inline: 1 << 20, algo: plumcraft_proto::handle::Algo::Md5 };
         let r = exec::run(&a.engine, &req, &mut Log, &CancelToken::default(), "t", &mut Memo::default(), &plane);
         assert!(r.ok, "{r:?}");
     }

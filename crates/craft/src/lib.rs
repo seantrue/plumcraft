@@ -1002,7 +1002,13 @@ pub fn smoke(manifest: &Manifest, opts: &Options, fixture: &Path, only: Option<&
     }
     let opts = Options { include_excluded: true, ..opts.clone() };
     let (engine, report, _) = build(manifest, &opts)?;
-    let plane = plumcraft_engine::data::Plane { store: engine.store(), shm: true, urls: false, max_inline: engine.limits().max_inline as usize };
+    let plane = plumcraft_engine::data::Plane {
+        store: engine.store(),
+        shm: true,
+        urls: false,
+        max_inline: engine.limits().max_inline as usize,
+        algo: plumcraft_proto::handle::Algo::Md5,
+    };
     let mut memo = Memo::default();
     let schema = engine.schema();
     let open = manifest.nodes.iter().find(|n| n.kind == Kind::Open).map(|n| n.id.clone()).ok_or("the manifest has no open node")?;

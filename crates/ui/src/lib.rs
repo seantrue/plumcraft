@@ -580,6 +580,8 @@ impl EditorApp {
     pub(crate) fn sync_engine(&mut self) {
         self.session.connected = self.engine.is_connected();
         self.session.caps = if let EngineState::Connected { caps, .. } = &self.engine { caps.clone() } else { Default::default() };
+        // BLAKE3 handles when the engine (or every engine, through a coordinator) takes them
+        self.session.run.algo = plumcraft_session::run_cmds::algo_for(&self.session);
     }
 
     /// Replace the catalogue (the graph is kept; the canvas rebuilds).
