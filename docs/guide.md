@@ -76,9 +76,11 @@ stop_at_limit = "Stop at the limit"   # only on this node kind, before the gener
 
 A craft pack can carry the same `[labels]` for its own nodes, and an application can bring a table of its own. The user's file wins over both, and they win over the engine's own label. `labels.show` lists what is in effect. Labels change only how ports look; nothing that runs reads them.
 
-While a run computes the graph, each node's body shows where it is: grey while it waits, blue (pulsing) while it runs, green when done, pale green when it came from the cache, red when it failed and dark grey when it was skipped. A second after the run, the colours fade and the canvas is at rest again. View › Colour Nodes While Running turns this off (`view.runColors`). View › Slow Motion shows each node running for at least 250 ms, 500 ms or 1 s (`view.slowMotion {ms}`, a cache hit a quarter of that) in a run you start yourself, so a fast graph can be watched node by node, in the run's own order. The engines aren't slowed: it is a replay of what they did, and a run started automatically is never slowed. The header's dot, time and border still say what really happened.
+While a run computes the graph, each node's body shows where it is: pale while it waits, blue (pulsing) while it runs, green when done, pale green when it came from the cache, red when it failed and dark grey when it was skipped. A second after the run, the colours fade and the canvas is at rest again. View › Colour Nodes While Running turns this off (`view.runColors`).
 
-![A run in slow motion: the source done, a cached node, a failure and the node it skipped, and the next node running](images/run-colours.png)
+A run is shown at its own speed, which for a fast graph is a blink. View › Animate Last Run (`view.animateRun`) replays the last run slowly, without running anything again: every node waits, then each is shown running for at least the animation speed (View › Animation Speed: 250 ms to 2 s per node, 500 ms by default; `view.animationSpeed {ms}`; a cache hit a quarter of that), in the run's own order. Animation Speed › Real Time replays every node at its recorded timing instead (`{ms: 0}`), to see where a slow graph's time went and what ran side by side. The header's dot, time and border still say what really happened.
+
+![Animate Last Run: the source done, a cached node, a failure and the node it skipped, the next node running and the rest waiting](images/run-colours.png)
 
 ![A tooltip on a wire showing its value](images/wire-preview.png)
 

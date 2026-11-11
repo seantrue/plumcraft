@@ -1120,7 +1120,8 @@ impl NodeViewer<'_> {
         }
         let t = &self.tokens;
         let (color, amount) = match self.shown(node)? {
-            Shown::Waiting => (t.state_queued, 0.50),
+            // paler than the body: not lit yet
+            Shown::Waiting => (t.field, 0.55),
             Shown::Running => {
                 // a gentle pulse, one beat every 1.2 s
                 let phase = self.anim.map_or(0.0, |a| a.phase(self.now));
@@ -1129,13 +1130,13 @@ impl NodeViewer<'_> {
             Shown::Done => (t.state_done, 0.40),
             Shown::Cached => (t.state_cached, 0.24),
             Shown::Failed => (t.state_error, 0.45),
-            Shown::Skipped => (t.state_queued, 0.75),
+            Shown::Skipped => (t.state_skipped, 0.60),
         };
         Some(crate::theme::mix(self.tint(node).body, color, amount * strength))
     }
 
     /// Is the node's thumbnail shown faded: out of date ([`thumb_faded`]), or ahead of the
-    /// slow-motion replay, which hasn't shown the node finished yet?
+    /// replay, which hasn't shown the node finished yet?
     fn thumb_faded_now(&self, node: &CanvasNode, n: &NodeRun) -> bool {
         use crate::run_anim::Shown;
         thumb_faded(n) || (n.is_finished() && matches!(self.shown(node), Some(Shown::Waiting | Shown::Running)))

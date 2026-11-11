@@ -1,7 +1,8 @@
 //! Run animation: each node's body coloured by its state while a run computes the graph, and
-//! "slow motion", a minimum time each node is shown running, so a fast graph can be watched.
+//! View › Animate Last Run, the latest run replayed slowly, each node shown running for at least
+//! the animation speed, so a fast graph can be watched.
 //!
-//! The engines aren't slowed: this is a replay of what the session recorded
+//! The engines aren't slowed: the replay is of what the session recorded
 //! ([`plumcraft_session::run::RunState::log`]), paced for the eye. A node is shown running no
 //! sooner than it really started, than the node before it on the same engine was shown done
 //! (an engine computes one node at a time), and than every input it waits for was shown done.
@@ -18,10 +19,13 @@ use plumcraft_proto::event::NodeState;
 pub const HOLD: Duration = Duration::from_millis(1000);
 /// How long they take to fade after that.
 pub const FADE: Duration = Duration::from_millis(600);
-/// The slow-motion times offered (View › Slow Motion), in milliseconds; 0 is off.
-pub const SLOW_CHOICES: &[u32] = &[0, 250, 500, 1000];
-/// The longest slow-motion time taken.
-pub const MAX_SLOW_MS: u32 = 5000;
+/// The animation speeds offered (View › Animation Speed), in milliseconds per node; 0 is real
+/// time (every node at its recorded timing).
+pub const SPEEDS: &[u32] = &[0, 250, 500, 1000, 2000];
+/// The speed when none is set.
+pub const DEFAULT_MS: u32 = 500;
+/// How long a replay shows every node waiting before the first one starts.
+pub const REPLAY_LEAD: Duration = Duration::from_millis(300);
 
 /// A node's state as the canvas shows it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -90,6 +94,8 @@ pub struct RunAnim {
     ended: Option<Instant>,
     /// When the replay began.
     begun: Option<Instant>,
+    /// A replay asked for (View › Animate Last Run), not a run as it happens.
+    replay: bool,
 }
 
 impl RunAnim {
@@ -108,6 +114,29 @@ impl RunAnim {
             begun: Some(Instant::now()),
             ..RunAnim::default()
         };
+    }
+
+    /// Replay a finished run from its `log`, starting `now`: every node waits for
+    /// [`REPLAY_LEAD`], then each record comes at its own time after the first, each node
+    /// shown running at least `slow`.
+    pub fn replay(&mut self, generation: u64, nodes: &BTreeSet<String>, plan: Plan, slow: Duration, log: &[(String, NodeState, Instant)], now: Instant) {
+        self.begin(generation, nodes, plan, slow);
+        self.replay = true;
+        self.read = log.len();
+        let Some(first) = log.iter().map(|r| r.2).min() else {
+            self.ended = Some(now);
+            return;
+        };
+        let shift = |at: Instant| now + REPLAY_LEAD + at.saturating_duration_since(first);
+        for (node, state, at) in log {
+            self.take(node, *state, shift(*at));
+        }
+        self.ended = log.iter().map(|r| shift(r.2)).max();
+    }
+
+    /// Is this a replay asked for, rather than a run as it happens?
+    pub fn is_replay(&self) -> bool {
+        self.replay
     }
 
     /// Take the records of `log` not yet taken (the session's, of this run, in arrival order).
@@ -307,6 +336,37 @@ mod tests {
         a.end(t0 + ms(10));
         assert_eq!(a.shown("b", t0 + ms(11)), None);
         assert_eq!(a.shown("a", t0 + ms(11)), None, "it never finished");
+    }
+
+    #[test]
+    fn a_replay_plays_a_finished_run_slowly_from_now() {
+        let t0 = Instant::now();
+        let log = [rec("a", NodeState::Done, t0), rec("b", NodeState::Cached, t0 + ms(1)), rec("c", NodeState::Done, t0 + ms(2))];
+        let mut a = RunAnim::default();
+        let now = t0 + ms(5000);
+        a.replay(1, &nodes(), plan(), ms(400), &log, now);
+        assert!(a.is_replay());
+        assert_eq!(a.shown("a", now), Some(Shown::Waiting), "a lead with everything waiting");
+        let go = now + REPLAY_LEAD;
+        assert_eq!(a.shown("a", go + ms(100)), Some(Shown::Running));
+        assert_eq!(a.shown("b", go + ms(450)), Some(Shown::Running), "then b, a quarter as long");
+        assert_eq!(a.shown("c", go + ms(550)), Some(Shown::Running));
+        assert_eq!(a.shown("c", go + ms(900)), Some(Shown::Done));
+        assert_eq!(a.shown("d", go + ms(900)), None, "never in the log: not shown");
+        assert!(!a.is_active(go + ms(900) + HOLD + FADE + ms(1)));
+    }
+
+    #[test]
+    fn a_real_time_replay_keeps_the_recorded_timing() {
+        let t0 = Instant::now();
+        let log = [rec("a", NodeState::Started, t0), rec("a", NodeState::Done, t0 + ms(300)), rec("b", NodeState::Cached, t0 + ms(301))];
+        let mut a = RunAnim::default();
+        let now = t0 + ms(5000);
+        a.replay(1, &nodes(), plan(), Duration::ZERO, &log, now);
+        let go = now + REPLAY_LEAD;
+        assert_eq!(a.shown("a", go + ms(150)), Some(Shown::Running), "for its own 300 ms");
+        assert_eq!(a.shown("a", go + ms(300)), Some(Shown::Done));
+        assert_eq!(a.shown("b", go + ms(301)), Some(Shown::Cached), "no least time");
     }
 
     #[test]

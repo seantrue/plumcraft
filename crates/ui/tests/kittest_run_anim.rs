@@ -1,6 +1,6 @@
 //! Run colours: while a run computes the graph, each node is shown waiting, running, then
-//! done or cached, and with slow motion a fast node is shown running for a while after it really
-//! finished. The settings are commands, kept in the preferences.
+//! done or cached, at the run's own speed; View › Animate Last Run replays it slowly. The
+//! settings are commands, kept in the preferences.
 
 mod common;
 
@@ -67,16 +67,36 @@ fn a_run_shows_each_node_waiting_running_then_done() {
 }
 
 #[test]
-fn slow_motion_keeps_a_fast_node_running_a_while() {
+fn a_run_is_shown_at_its_own_speed() {
     let (s, a, _) = two();
     let mut h = harness(EditorApp::new(s));
-    h.state_mut().session.execute("view.slowMotion", &json!({"ms": 1000})).unwrap();
+    h.state_mut().session.execute("view.animationSpeed", &json!({"ms": 1000})).unwrap();
     start(&mut h);
     status(&mut h, &a, NodeState::Started);
     status(&mut h, &a, NodeState::Done);
-    assert!(h.state().session.run.node(&a).unwrap().is_finished(), "it really finished");
-    assert_eq!(shown(&h, &a), Some(Shown::Running), "but is shown running");
-    std::thread::sleep(Duration::from_millis(1100));
+    assert_eq!(shown(&h, &a), Some(Shown::Done), "the speed is for the replay, not the run");
+}
+
+#[test]
+fn animate_last_run_replays_it_slowly() {
+    let (s, a, b) = two();
+    let mut h = harness(EditorApp::new(s));
+    assert!(h.state_mut().session.execute("view.animateRun", &json!({})).is_err(), "no run yet");
+    h.state_mut().session.execute("view.animationSpeed", &json!({"ms": 1000})).unwrap();
+    start(&mut h);
+    status(&mut h, &a, NodeState::Done);
+    status(&mut h, &b, NodeState::Cached);
+    h.state_mut().session.run.fail("over");
+    h.run_steps(1);
+    h.state_mut().session.execute("view.animateRun", &json!({})).unwrap();
+    h.run_steps(1);
+    assert!(h.state().run_anim.is_replay());
+    assert_eq!(shown(&h, &a), Some(Shown::Waiting), "it starts again, everything waiting");
+    std::thread::sleep(Duration::from_millis(600));
+    h.run_steps(1);
+    assert_eq!(shown(&h, &a), Some(Shown::Running), "a for its second");
+    assert_eq!(shown(&h, &b), Some(Shown::Waiting));
+    std::thread::sleep(Duration::from_millis(1000));
     h.run_steps(1);
     assert_eq!(shown(&h, &a), Some(Shown::Done));
 }
@@ -86,13 +106,21 @@ fn the_settings_are_commands_kept_in_the_preferences() {
     let (s, _, _) = two();
     let mut h = harness(EditorApp::new(s));
     assert!(!h.state().session.views.run_colors_off, "on by default");
+    assert_eq!(h.state().session.views.anim_ms(), 500);
     h.state_mut().session.execute("view.runColors", &json!({})).unwrap();
-    h.state_mut().session.execute("view.slowMotion", &json!({"ms": 250})).unwrap();
+    h.state_mut().session.execute("view.animationSpeed", &json!({"ms": 250})).unwrap();
     h.run_steps(2);
     let p = h.state().prefs.prefs();
-    assert_eq!((p.run_colors, p.slow_ms), (Some(false), Some(250)));
+    assert_eq!((p.run_colors, p.anim_ms), (Some(false), Some(250)));
+    h.state_mut().session.execute("view.animationSpeed", &json!({"ms": 0})).unwrap();
+    assert_eq!(h.state().session.views.anim_ms(), 0, "real time");
+    h.run_steps(2);
+    assert_eq!(h.state().prefs.prefs().anim_ms, Some(0));
+    h.state_mut().session.execute("view.animationSpeed", &json!({"ms": null})).unwrap();
+    assert_eq!(h.state().session.views.anim_ms(), 500, "the default again");
     let s = &mut h.state_mut().session;
-    assert!(s.execute("view.slowMotion", &json!({"ms": 6000})).is_err(), "too slow");
-    assert!(s.execute("view.slowMotion", &json!({"ms": -1})).is_err());
+    for bad in [json!({"ms": 6000}), json!({"ms": 50}), json!({"ms": -1})] {
+        assert!(s.execute("view.animationSpeed", &bad).is_err(), "{bad}");
+    }
     assert!(s.execute("view.runColors", &json!({"on": "yes"})).is_err());
 }

@@ -498,8 +498,6 @@ pub struct EditorApp {
     pub app_title: &'static str,
     /// The latest run, replayed for the canvas's run colours ([`run_anim`]).
     pub run_anim: run_anim::RunAnim,
-    /// The generation of the latest run started automatically (no slow motion for those).
-    auto_generation: u64,
 }
 
 impl EditorApp {
@@ -513,7 +511,6 @@ impl EditorApp {
             value_editors: value_editors::ValueEditors::default(),
             app_title: APP_TITLE,
             run_anim: run_anim::RunAnim::default(),
-            auto_generation: 0,
             session,
             canvas,
             tokens: theme::DEFAULT,
@@ -655,7 +652,7 @@ impl EditorApp {
             self.run("engine.auto", &json!({"on": true}));
         }
         self.session.views.run_colors_off = self.prefs.prefs().run_colors == Some(false);
-        self.session.views.slow_ms = self.prefs.prefs().slow_ms.unwrap_or(0).min(run_anim::MAX_SLOW_MS);
+        self.session.views.anim_ms = self.prefs.prefs().anim_ms.filter(|ms| plumcraft_session::view_cmds::is_anim_ms(u64::from(*ms)));
     }
 
     /// Ask a dialog, starting in the folder `key` last used, and remember where it ended.
@@ -677,24 +674,29 @@ impl EditorApp {
         }
     }
 
-    /// Keep the run colours and slow motion in the preferences, however they were set.
+    /// Keep the run colours and the animation speed in the preferences, however they were set.
     fn save_run_anim(&mut self) {
-        let (on, slow) = (!self.session.views.run_colors_off, self.session.views.slow_ms);
-        if self.prefs.prefs().run_colors.unwrap_or(true) != on || self.prefs.prefs().slow_ms.unwrap_or(0) != slow {
-            self.prefs.set_run_anim(on, slow);
+        let (on, ms) = (!self.session.views.run_colors_off, self.session.views.anim_ms);
+        if self.prefs.prefs().run_colors.unwrap_or(true) != on || self.prefs.prefs().anim_ms != ms {
+            self.prefs.set_run_anim(on, ms);
         }
     }
 
-    /// Bring the run animation up to date with the session's run, every frame: a new run
-    /// starts a replay (slow only when started by hand), and the session's records feed it.
-    /// While it runs or fades the canvas is redrawn.
+    /// Bring the run animation up to date with the session's run, every frame: a new run is
+    /// shown as it happens, and View › Animate Last Run (`view.animateRun`) replays the last one
+    /// slowly. While either shows or fades the canvas is redrawn.
     pub fn pump_run_anim(&mut self, ctx: &egui::Context) {
         let now = Instant::now();
+        if std::mem::take(&mut self.session.views.animate_asked) && !self.session.run.running {
+            let run = &self.session.run;
+            let plan = run_anim_plan(&self.session, &run.needed);
+            let slow = std::time::Duration::from_millis(u64::from(self.session.views.anim_ms()));
+            self.run_anim.replay(run.generation, &run.needed, plan, slow, &run.log, now);
+        }
         let run = &self.session.run;
         if run.generation != self.run_anim.generation() && !run.needed.is_empty() {
-            let slow = if run.generation == self.auto_generation { 0 } else { self.session.views.slow_ms };
             let plan = run_anim_plan(&self.session, &run.needed);
-            self.run_anim.begin(run.generation, &run.needed, plan, std::time::Duration::from_millis(u64::from(slow)));
+            self.run_anim.begin(run.generation, &run.needed, plan, std::time::Duration::ZERO);
         }
         if run.generation == self.run_anim.generation() {
             self.run_anim.feed(&run.log);
@@ -702,7 +704,7 @@ impl EditorApp {
                 self.run_anim.end(now);
             }
         }
-        if !self.session.views.run_colors_off && self.run_anim.is_active(now) {
+        if (!self.session.views.run_colors_off || self.run_anim.is_replay()) && self.run_anim.is_active(now) {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
@@ -1379,9 +1381,7 @@ impl EditorApp {
             Some(d) if d.is_zero() => {
                 // (when nothing can run now, no engine or an empty graph, it stays due and runs
                 // on a later frame once it can; no repaint is asked for meanwhile)
-                if self.start_run_if_enabled().is_some() {
-                    self.auto_generation = self.session.run.generation;
-                }
+                self.start_run_if_enabled();
             }
             Some(d) => ctx.request_repaint_after(d),
             None => {}
@@ -1613,16 +1613,16 @@ impl EditorApp {
                     match menu {
                         "Edit" => edit_op = edit_view::edit_menu(ui, selected),
                         "View" => {
-                            ui.menu_button("Slow Motion", |ui| {
-                                for &ms in run_anim::SLOW_CHOICES {
-                                    let label = if ms == 0 { "Off".to_owned() } else { format!("{ms} ms per node") };
-                                    let mark = if self.session.views.slow_ms == ms { "✓ " } else { "    " };
-                                    if ui
-                                        .button(format!("{mark}{label}"))
-                                        .on_hover_text("Show each node running at least this long in a run you start; the engines aren't slowed")
-                                        .clicked()
-                                    {
-                                        actions.push(("view.slowMotion", json!({"ms": ms})));
+                            ui.menu_button("Animation Speed", |ui| {
+                                for &ms in run_anim::SPEEDS {
+                                    let mark = if self.session.views.anim_ms() == ms { "✓ " } else { "    " };
+                                    let (label, hover) = if ms == 0 {
+                                        ("Real Time".to_owned(), "Replay every node at its recorded timing")
+                                    } else {
+                                        (format!("{ms} ms per node"), "Show each node running at least this long")
+                                    };
+                                    if ui.button(format!("{mark}{label}")).on_hover_text(hover).clicked() {
+                                        actions.push(("view.animationSpeed", json!({"ms": ms})));
                                         ui.close();
                                     }
                                 }
@@ -1952,7 +1952,7 @@ impl EditorApp {
             docs: &self.session.docs.apps,
             recent_apps: &self.session.docs.recent_apps,
             app_text: &self.app.texts,
-            anim: (!self.session.views.run_colors_off).then_some(&self.run_anim),
+            anim: (!self.session.views.run_colors_off || self.run_anim.is_replay()).then_some(&self.run_anim),
         };
         let actions = egui::CentralPanel::default()
             .frame(frame)

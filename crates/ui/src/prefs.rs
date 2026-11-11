@@ -68,9 +68,10 @@ pub struct Prefs {
     /// View › Colour Nodes While Running (`view.runColors`); on when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_colors: Option<bool>,
-    /// View › Slow Motion (`view.slowMotion`), in milliseconds; off when unset.
+    /// View › Animation Speed (`view.animationSpeed`), in milliseconds per node, 0 for real
+    /// time; 500 when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub slow_ms: Option<u32>,
+    pub anim_ms: Option<u32>,
     /// Fields this build doesn't know, kept for the file.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -180,9 +181,9 @@ impl Store {
         }
     }
 
-    pub fn set_run_anim(&mut self, colors: bool, slow_ms: u32) {
+    pub fn set_run_anim(&mut self, colors: bool, anim_ms: Option<u32>) {
         self.prefs.run_colors = Some(colors);
-        self.prefs.slow_ms = Some(slow_ms);
+        self.prefs.anim_ms = anim_ms;
         self.save();
     }
 

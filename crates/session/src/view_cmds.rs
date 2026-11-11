@@ -68,9 +68,12 @@ pub struct Views {
     /// Run colours are off (`view.runColors`): node bodies keep their family colour while a
     /// run computes them.
     pub run_colors_off: bool,
-    /// Slow motion (`view.slowMotion`): the least time, in milliseconds, each node is shown
-    /// running in a run started by hand; 0 is off.
-    pub slow_ms: u32,
+    /// The animation speed (`view.animationSpeed`): the least time, in milliseconds, each node
+    /// is shown running when the last run is animated; 0 is real time, with no least time.
+    /// `None`: [`DEFAULT_ANIM_MS`].
+    pub anim_ms: Option<u32>,
+    /// View › Animate Last Run was asked for, until the window starts it.
+    pub animate_asked: bool,
     next: u64,
 }
 
@@ -240,8 +243,22 @@ fn messages(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"open": open}))
 }
 
-/// The longest slow-motion time taken, in milliseconds.
-pub const MAX_SLOW_MS: u64 = 5000;
+/// The animation speeds taken, in milliseconds per node, besides 0 (real time).
+pub const ANIM_MS: std::ops::RangeInclusive<u64> = 100..=5000;
+
+/// Is `ms` an animation speed: 0 (real time), or [`ANIM_MS`]?
+pub fn is_anim_ms(ms: u64) -> bool {
+    ms == 0 || ANIM_MS.contains(&ms)
+}
+/// The animation speed when none is set.
+pub const DEFAULT_ANIM_MS: u32 = 500;
+
+impl Views {
+    /// The animation speed in effect, in milliseconds per node; 0 is real time.
+    pub fn anim_ms(&self) -> u32 {
+        self.anim_ms.unwrap_or(DEFAULT_ANIM_MS)
+    }
+}
 
 /// `view.runColors {on?}`: colour node bodies by their run state while a run computes them.
 fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
@@ -253,17 +270,38 @@ fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"on": on}))
 }
 
-/// `view.slowMotion {ms}`: the least time each node is shown running.
-fn slow_motion(s: &mut Session, p: &Value) -> Result<Value> {
+/// `view.animationSpeed {ms}`: the least time each node is shown running when the last run is
+/// animated.
+fn animation_speed(s: &mut Session, p: &Value) -> Result<Value> {
     let ms = match p.get("ms") {
-        None | Some(Value::Null) => 0,
-        Some(v) => v
-            .as_u64()
-            .filter(|ms| *ms <= MAX_SLOW_MS)
-            .ok_or_else(|| SessionError::Params(format!("\"ms\" must be a whole number of milliseconds from 0 (off) to {MAX_SLOW_MS}")))?,
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_u64().filter(|ms| is_anim_ms(*ms)).ok_or_else(|| {
+            SessionError::Params(format!(
+                "\"ms\" must be 0 (real time), a whole number of milliseconds from {} to {}, or null for {DEFAULT_ANIM_MS}",
+                ANIM_MS.start(),
+                ANIM_MS.end()
+            ))
+        })?),
     };
-    s.views.slow_ms = u32::try_from(ms).unwrap_or(0);
-    Ok(json!({"ms": ms}))
+    s.views.anim_ms = ms.and_then(|ms| u32::try_from(ms).ok());
+    Ok(json!({"ms": s.views.anim_ms()}))
+}
+
+/// Is there a finished run to animate?
+fn has_last_run(s: &Session) -> std::result::Result<(), String> {
+    if s.run.running {
+        Err("a run is in progress".into())
+    } else if s.run.log.is_empty() {
+        Err("no run to animate yet: run the graph first".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// `view.animateRun`: replay the last run slowly on the canvas.
+fn animate_run(s: &mut Session, _: &Value) -> Result<Value> {
+    s.views.animate_asked = true;
+    Ok(json!({"generation": s.run.generation, "nodes": s.run.needed.len(), "ms": s.views.anim_ms()}))
 }
 
 pub(crate) fn specs() -> Vec<CommandSpec> {
@@ -279,13 +317,23 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
         CommandSpec {
-            id: "view.slowMotion",
-            label: "Slow Motion",
+            id: "view.animateRun",
+            label: "Animate Last Run",
+            menu: &["View"],
+            shortcut: None,
+            params: "{} -> {generation, nodes, ms}: replay the last run on the canvas slowly, each node shown waiting, then running for at least the animation speed (a cache hit a quarter of it), then done, cached, failed or skipped, in the run's own order; the graph isn't run again",
+            enabled: has_last_run,
+            run: animate_run,
+            journal: false,
+        },
+        CommandSpec {
+            id: "view.animationSpeed",
+            label: "Animation Speed",
             menu: &[],
             shortcut: None,
-            params: "{ms: 0 (off) to 5000} -> {ms}: in a run started by hand, show each node running for at least this long (a cache hit a quarter of it), in the run's own order, so a fast graph can be watched; the engines aren't slowed. View › Slow Motion offers 250, 500 and 1000. Kept between runs",
+            params: "{ms: 0 (real time) | 100 to 5000 | null (500)} -> {ms}: how long Animate Last Run shows each node running at least; 0 replays every node at its recorded timing. View › Animation Speed offers Real Time, 250, 500, 1000 and 2000. Kept between runs",
             enabled: always,
-            run: slow_motion,
+            run: animation_speed,
             journal: false,
         },
         CommandSpec {
