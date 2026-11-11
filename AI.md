@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — B20 (#68): which nodes are running (Claude Opus 5.5)
+
+**What the maintainer reported:** "can't tell which nodes are actually running", seen in an application built on 0.6.1. Approved for a fix with `fix-approved`.
+
+**What the AI did:** reproduced it in the real editor with `claude-debug/run_status_probe.py` (the demo graph, a picture mid-run after an edit): the running node had the same amber stale border and "stale" label as the queued ones, because a stale mark outranked the run state until the run's reply, and running showed only as a small spinner. `run_view::shows_stale` (stale needs a completed node that no run is computing now); the border takes the queued or running colour while a run computes the node, running a little wider; the header says "queued", or "running" in the running colour with the node's percentage (`crates/ui/src/canvas.rs`, `run_view::running_text`). Tests: two in `crates/ui/tests/kittest_run_status.rs`, one failing without the canvas change. Built on B21's branch, which it shares the header code with. 73 lines added, 7 removed (`git diff --numstat`, tests included).
+
+**Not done:** a node finished in the run still shows stale until the whole run replies (B22, #70).
+
 ### 2026-11-11 — B21 (#69): "not run" for a node no run has completed (Claude Opus 5.5)
 
 **What the maintainer reported and decided:** "stale is not a good status for node that has never completed a run", seen in an application built on 0.6.1; wanted: "not run" for such a node, stale kept for a node whose last run an edit invalidated. Approved for a fix with `fix-approved`.

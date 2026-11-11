@@ -51,6 +51,21 @@ pub fn state_name(s: NodeState) -> &'static str {
     }
 }
 
+/// Does the node show as stale (its label and border)? Only a completed node's result can be
+/// out of date (B21), and while a run is computing the node again its run state shows instead:
+/// queued or running is what matters then (B20).
+pub fn shows_stale(run: &plumcraft_session::run::NodeRun) -> bool {
+    run.is_stale() && run.completed && !run.is_active()
+}
+
+/// A running node's header text: "running", with how far it has got when the node says.
+pub fn running_text(fraction: Option<f64>) -> String {
+    match fraction.filter(|f| f.is_finite()) {
+        Some(f) => format!("running {:.0}%", (f * 100.0).clamp(0.0, 100.0)),
+        None => "running".to_owned(),
+    }
+}
+
 /// Is the node computing now?
 pub fn is_running(s: NodeState) -> bool {
     matches!(s, NodeState::Started | NodeState::Progress | NodeState::Preview)
