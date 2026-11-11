@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — Named-ports proposal and 0.6.1 release notes (Claude Opus 5.5)
+
+**What the maintainer asked:** "Do we have a way to bind command line arguments to graph ports (input files, output files, etc)?", "Can we write to a port by label?", and "I think we need to be able to assign a port a "net-list" like label, even if there is no connection to it. That sounds like a plumcraft change ...". Then "commit the two untracked notes", and "reword the proposal" before starting on it.
+
+**What the AI did:** wrote `docs/research/23-named-ports.md` (~95 lines), a proposal written from the research software's side. It covers how a value reaches a port from outside today, why net labels can't carry one, and a top-level `named` list shaped like a group's `Promoted`, with its rules, the editor, `--set`/`--params` on the command line, slices and open questions. Also committed the 0.6.1 release notes draft (`claude-debug/notes-0.6.1.md`). Documentation only, no code.
+
+**Defects:** the note first named the research software's private project, its command and its source path, which tracked PlumCraft text never does. Raised by the AI before pushing; the reworded note says "the research software" throughout, and the first commit was never pushed.
+
 ### 2026-11-10 — B18 (#59): port labels from a table (Claude Opus 5.5)
 
 **What the maintainer reported and decided:** "port and parameter labels should have a \"translation\" table, allowing nicer display and formatting. (max_array_width -> Max. width) This table should be both claude AND maintainter editable." (2026-11-06). Asked where the table lives, given that core may not hard-code engine names (golden rule 3), they chose "Per pack + user file" of three options.
