@@ -385,6 +385,10 @@ widgets = { level = { min = 0, max = 100, default = 50 } }
 
 Its curated nodes would import an `AUDIO` value (`file.import_audio`) and bounce one (`file.bounce_mix`). The client, pool, CAS, selection compiler, memo and status code are unchanged. So "generic" means generic over this manifest, not over a shared Rust type (craft-libs has none). M2 proves it with a SoundCraft manifest that only lists its commands and runs one (section 6).
 
+### 3.10.2 A pack's labels for its ports (B18, #59, 2026-11-10)
+
+A pack may carry `[labels]`: a port name → the label shown for it, or a node id → a table of them (`plumcraft_proto::labels`). `build` puts them on the pack's own ports as their `label`, so they reach every editor as the engine's labels; an entry that doesn't read is a build warning (`labels`), never fatal. The editor's application table and the user's `labels.toml` go over them. PhotoCraft's is the first: `scaleStyles` → "Scale styles".
+
 ### 3.10.1 Packs versioned against their app (B17, #56, 2026-11-06)
 
 The maintainer: "Packs should be versioned and selected against the engine (application) version."

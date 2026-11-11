@@ -214,7 +214,15 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
     for w in wire_types(manifest) {
         e = e.with_wire_type(w);
     }
-    for n in nodes {
+    // the pack's own labels on its own ports (B18); the editor's tables go over them
+    let labels = manifest.label_table();
+    for why in &labels.skipped {
+        report.warnings.push(("labels".into(), why.clone()));
+    }
+    for mut n in nodes {
+        let kind = n.def.id.clone();
+        labels.apply_ports(&kind, &mut n.def.inputs);
+        labels.apply_ports(&kind, &mut n.def.outputs);
         e = e.with_node(Box::new(n));
     }
     Ok((e.with_building_blocks(), report, shared))

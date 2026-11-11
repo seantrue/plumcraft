@@ -27,6 +27,7 @@ mod frame_cmds;
 mod graph_cmds;
 mod group_cmds;
 pub mod insert_cmds;
+pub mod labels_cmds;
 pub mod layout;
 pub mod layout_cmds;
 mod net_cmds;
@@ -149,7 +150,12 @@ const KINDS_SAID: usize = 4;
 /// An open graph and everything about it.
 #[derive(Debug, Clone)]
 pub struct Session {
+    /// The catalogue with core's nodes and the display labels ([`labels_cmds`]).
     catalog: SchemaReply,
+    /// The same before the labels: what the engines said.
+    unlabelled: SchemaReply,
+    /// Display labels for ports ([`labels_cmds`]).
+    pub labels: labels_cmds::LabelSources,
     graph: Graph,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
@@ -214,8 +220,11 @@ fn with_core_nodes(mut catalog: SchemaReply) -> SchemaReply {
 impl Session {
     /// A session with an empty graph and the node types in `catalog`.
     pub fn new(catalog: SchemaReply) -> Self {
+        let catalog = with_core_nodes(catalog);
         Session {
-            catalog: with_core_nodes(catalog),
+            catalog: catalog.clone(),
+            unlabelled: catalog,
+            labels: labels_cmds::LabelSources::default(),
             graph: Graph::new(),
             undo: Vec::new(),
             redo: Vec::new(),
@@ -320,7 +329,15 @@ impl Session {
 
     /// Replace the node catalog (a new `schema` reply, an engine switched). The graph is kept.
     pub fn set_catalog(&mut self, catalog: SchemaReply) {
-        self.catalog = with_core_nodes(catalog);
+        self.unlabelled = with_core_nodes(catalog);
+        self.relabel();
+    }
+
+    /// The catalogue again from what the engines said, with the labels as they are now.
+    pub(crate) fn relabel(&mut self) {
+        let mut catalog = self.unlabelled.clone();
+        self.labels.combined().apply(&mut catalog);
+        self.catalog = catalog;
         self.generation = self.generation.wrapping_add(1);
     }
 

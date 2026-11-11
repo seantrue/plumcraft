@@ -224,3 +224,22 @@ fn photocraft_runs_its_demo() {
     let png = blob(&r, "png", "image");
     assert!(matches!(png.meta.form, Form::Image { width, height } if width > 0 && height > 0), "{:?}", png.meta.form);
 }
+
+/// The pack's `[labels]` (B18) land on its ports: Image size's `scaleStyles` shows as "Scale
+/// styles", and a port with no entry keeps its own.
+#[test]
+fn the_packs_labels_name_its_ports() {
+    let m = pack();
+    assert_eq!(m.label_table().label("pc.image_size", "scaleStyles"), Some("Scale styles"));
+    if m.executable().is_none() {
+        eprintln!("SKIP: photocraft-cli is not on PATH; {}", m.hint);
+        return;
+    }
+    let opts = plumcraft_craft::Options { root: Some(craft_root("photocraft-labels")), store: Some(Some(store_root())), include_excluded: false };
+    let (engine, report, _) = plumcraft_craft::build(&m, &opts).unwrap();
+    assert!(!report.warnings.iter().any(|(k, _)| k == "labels"), "{:?}", report.warnings);
+    let def = engine.schema().nodes.into_iter().find(|n| n.id == "pc.image_size").expect("Image size");
+    let label = |p: &str| def.inputs.iter().find(|x| x.name == p).and_then(|x| x.label.clone());
+    assert_eq!(label("scaleStyles").as_deref(), Some("Scale styles"));
+    assert_eq!(label("width"), None);
+}
