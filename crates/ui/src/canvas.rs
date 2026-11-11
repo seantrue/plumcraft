@@ -1359,7 +1359,8 @@ impl NodeViewer<'_> {
         let watched = self.watched.as_ref() == Some(&n.id);
         let width = |base: f32| if watched { base + 1.5 } else { base };
         let run = self.node_run(n);
-        if run.is_some_and(NodeRun::is_stale) {
+        // stale is for a result an edit made out of date: a node that never completed has none
+        if run.is_some_and(|r| r.is_stale() && r.completed) {
             return Some(egui::Stroke::new(width(2.0), self.tokens.stale));
         }
         match run.and_then(|r| r.state).and_then(|s| self.tokens.state_color(s).map(|c| (s, c))) {
@@ -1758,7 +1759,9 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         // the node has run or not: a node is as wide before a run as after, so Tidy's spacing
         // (measured from the drawn nodes) holds when a run fills the slot in.
         let status_start = ui.cursor().min.x;
-        if let Some(run) = &run {
+        if n.proxy.is_none() && run.as_ref().is_none_or(NodeRun::is_not_run) {
+            ui.label(egui::RichText::new(run_view::NOT_RUN).small().color(self.tokens.header_text)).on_hover_text(run_view::NOT_RUN_HOVER);
+        } else if let Some(run) = &run {
             if run.is_stale() {
                 ui.label(egui::RichText::new("stale").small().color(self.tokens.stale)).on_hover_text(stale_tooltip(run));
             }
