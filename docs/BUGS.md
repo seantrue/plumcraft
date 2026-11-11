@@ -15,7 +15,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Design (the maintainer): a node with no completed run shows **not run**; stale stays for a node whose last result was invalidated by an edit.
 - Cause: staleness was tracked for every node with a run record, whatever that run did. A node that failed, was skipped or cancelled, or that a run never reached, went "stale" on the next edit upstream, though it had no result to be out of date.
 - Fix: `NodeRun::completed` remembers that a run has completed the node (done or cached), and `NodeRun::is_not_run` is true while none has and none is computing it, for a node never in a run, one left out of a run, or a failed, skipped or cancelled one after an edit. The header says "not run" for those, and the stale label and border are kept for a completed node. A failed, skipped or cancelled node still says so until an edit. `ui.inspect` gives `notRun` per node. Tests: `run::not_run_tests` (session) and `kittest_run_status.rs`. Checked in the real editor (`claude-debug/run_status_probe.py`, pictures in `claude-debug/b21/`): after an edit, the demo's failing node and the one after it say "not run", the rest "stale".
-- Fixed: 2026-11-11, PR #PRNUM
+- Fixed: 2026-11-11, PR #78
 
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
