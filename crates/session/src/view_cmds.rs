@@ -46,6 +46,8 @@ pub struct Views {
     pub cache_report: bool,
     /// The About window is open.
     pub about: bool,
+    /// The Parameters window (the graph's named ports, `view.params`) is open.
+    pub graph_params: bool,
     /// The Messages window (the status bar's messages in full) is open (`view.messages`).
     pub messages: bool,
     /// The node the parameter editor is open on.

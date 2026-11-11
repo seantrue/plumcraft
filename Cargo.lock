@@ -2857,6 +2857,7 @@ version = "0.6.1"
 dependencies = [
  "plumcraft-conform",
  "plumcraft-engine",
+ "plumcraft-graph",
  "plumcraft-host",
  "plumcraft-proto",
  "plumcraft-scratch",

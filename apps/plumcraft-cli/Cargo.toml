@@ -20,6 +20,7 @@ workspace = true
 [dependencies]
 plumcraft-conform = { workspace = true }
 plumcraft-engine = { workspace = true }
+plumcraft-graph = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-text = { workspace = true }

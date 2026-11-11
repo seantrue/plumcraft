@@ -1,6 +1,6 @@
 # 23. Named ports: a graph's own parameters
 
-**Proposal, 2026-11-10. Not built.** Nothing in PlumCraft is changed by this note. Written from the research software's side, after its own graph runner gained `run --set NODE.PORT=VALUE` the same day (uncommitted there).
+**Proposal, 2026-11-10. Slices 1 and 2 built the same day** (the maintainer: "Slices 1 and 2", with this note's picks for the open questions: no `.` in names, one name per port, no named outputs, no required parameters). Slice 3, the readers elsewhere, is not. Written from the research software's side, after its own graph runner gained `run --set NODE.PORT=VALUE` the same day (uncommitted there).
 
 The maintainer, 2026-11-10:
 

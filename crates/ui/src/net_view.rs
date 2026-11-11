@@ -97,6 +97,10 @@ pub enum NameFor {
     Output(PortRef),
     /// Rename this net.
     Rename(NetKey),
+    /// Make this input one of the graph's named ports (`graph.port.name`).
+    Port(PortRef),
+    /// Rename the named port called this (`graph.port.rename`).
+    RenamePort(String),
 }
 
 /// The name editor.
@@ -531,6 +535,8 @@ impl Canvas {
                 ui.weak(match &edit.what {
                     NameFor::Output(from) => format!("Label every wire from {from}"),
                     NameFor::Rename(net) => format!("Rename net {}", net.name),
+                    NameFor::Port(at) => format!("Name {at}: set it from outside by this name"),
+                    NameFor::RenamePort(name) => format!("Rename the named port {name}"),
                 });
                 let r = ui.add(egui::TextEdit::singleline(&mut edit.text).hint_text("net name").desired_width(180.0).font(egui::TextStyle::Monospace));
                 if edit.focus {
@@ -552,6 +558,8 @@ impl Canvas {
                     actions.push(match &edit.what {
                         NameFor::Output(from) => ("output.label", json!({"from": from, "name": name})),
                         NameFor::Rename(old) => ("net.rename", key_params(old, json!({"to": name}))),
+                        NameFor::Port(at) => ("graph.port.name", json!({"port": at, "name": name})),
+                        NameFor::RenamePort(old) => ("graph.port.rename", json!({"name": old, "to": name})),
                     });
                     close = true;
                 }

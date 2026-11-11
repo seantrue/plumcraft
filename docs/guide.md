@@ -84,6 +84,12 @@ Wires can be bent around nodes: right-click › Add Bend Point, then drag.
 
 A wire can also be drawn as a net label, as in a schematic: right-click › Label All Uses…, which labels every wire from that output. It shows as a name at each end instead of a line, which is how a picture feeding 29 nodes stays readable. What runs doesn't change.
 
+### A graph's parameters
+
+Right-click an input › **Name This Port…** to make it one of the graph's parameters: a value from outside lands there by name. The input shows its name before its caption (`words → text`). View › **Parameters…** lists them in order, with each value and a one-line description, and renames, removes, reorders and jumps to them. A named port can't be wired until its name is removed, since a wire would win over the value.
+
+From the command line, `plumcraft run WORKFLOW --set NAME=VALUE` sets one (repeatable; `--set NODE.PORT=VALUE` reaches a port nobody named), and `--params` lists them. A value is read as its port's type, and a relative path is relative to where you run the command. What runs is the same as typing the value into the widget.
+
 ### In the terminal
 
 `plumcraft run` drives an engine and prints the interface as it happens. The built-in demo has a node that always fails, so its downstream node is skipped, and a node that is reused from the memo (`cached`):
