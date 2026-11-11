@@ -6,6 +6,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B23. A run marks every node queued, not only the ones it computes
+
+- Reported: 2026-11-11 (found by the AI while evaluating run animation; the maintainer chose to fix it first)
+- Report: "Go with proposed colors." (approving the run-animation proposal, which listed this as a fix to make first)
+- Context: `RunState::request` (`crates/session/src/run.rs`) marked every node of the graph `Queued`, while the engines compute only what the request needs (`docs/scheduler.md` section 1). Clicking a node's title runs that node and what feeds it, yet every node, downstream ones included, showed "queued" until the reply, which then cleared their state, so a node outside the run lost its earlier "done" or "cached". The run's progress counted the whole graph too.
+- Issue: none
+- Cause: as above; the session never worked out which nodes a request needs.
+- Fix: `run::needed` mirrors the scheduler's rule (the targets, or the sinks, plus watched nodes, and their ancestors; a wire into a bound input is dropped). Only those nodes are queued and counted, and the rest keep what they showed. Tests: `run::queued_tests` (four). Not checked in the real editor.
+
 ### B22. Node thumbnails aren't in step with the latest run
 
 - Reported: 2026-11-11 (from an application built on PlumCraft 0.6.1)

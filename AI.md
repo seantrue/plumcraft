@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — B23: a run queues only the nodes it computes (Claude Opus 5.5)
+
+**What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest)", with "an animation of which are satisfied (cached), which are waiting to run, and which are currently running", and "an option so that a minimum node run-time can be set". The AI's evaluation proposed a body tint per run state during a run, and a display-side slow-motion replay rather than slowing the engines; it found this bug on the way and proposed fixing it first. The maintainer: "Go with proposed colors."
+
+**What the AI did:** `run::needed` in `crates/session/src/run.rs`, the scheduler's rule (targets or sinks, watched nodes, their ancestors, bound inputs cutting their feeders) worked out in the session, so `request` queues and counts only those nodes. Four tests in `run::queued_tests`. ~110 lines with the tests.
+
+**Not checked:** in the real editor, and the tests weren't run against the old code.
+
 ### 2026-11-11 — B22 (#70): thumbnails in step with the latest run (Claude Opus 5.5)
 
 **What the maintainer reported:** "node thumbnails are not synchronize", in an application built on 0.6.1, and asked which: both, "a node's thumbnail lags behind that node's latest run" and "thumbnails from different runs are shown side by side". Approved for a fix with `fix-approved`.
