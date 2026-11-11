@@ -7,6 +7,11 @@
 //! **Never modal.** Each pop-out is an egui viewport drawn with the editor's frame: a native
 //! window where the backend has several, an in-editor window where it has one (kittests). The
 //! editor keeps taking input while any are open. Closing the window runs `view.close`.
+//!
+//! **Above the editor while it is in use** (B19). A click into the main window would bring it in
+//! front of its pop-outs, so while one of the editor's windows has focus every pop-out is
+//! `AlwaysOnTop`. When another application takes the focus they go back to `Normal`, so they don't
+//! float over other programs' windows.
 
 use plumcraft_session::run::WatchRole;
 use serde_json::json;
@@ -63,11 +68,18 @@ impl EditorApp {
         let mut asks = Vec::new();
         let mut closed = Vec::new();
         let tokens = self.tokens.clone();
+        // This frame's focus is known only after the viewports have run; the level follows it a
+        // frame later, which a focus change repaints anyway.
+        let mut focused = ctx.input(|i| i.viewport().focused.unwrap_or(false));
+        let level = level(self.popouts_float);
         for w in &mut self.popouts {
             let (id, title) = (w.id, w.title.clone());
             let vid = egui::ViewportId::from_hash_of(("plumcraft-popout", id));
-            let builder =
-                egui::ViewportBuilder::default().with_title(format!("{title} — PlumCraft")).with_inner_size([760.0, 560.0]).with_min_inner_size([320.0, 220.0]);
+            let builder = egui::ViewportBuilder::default()
+                .with_title(format!("{title} — PlumCraft"))
+                .with_inner_size([760.0, 560.0])
+                .with_min_inner_size([320.0, 220.0])
+                .with_window_level(level);
             let pane = &mut w.pane;
             ctx.show_viewport_immediate(vid, builder, |ui, class| {
                 let mut draw = |ui: &mut egui::Ui| {
@@ -91,17 +103,38 @@ impl EditorApp {
                     if ui.ctx().input(|i| i.viewport().close_requested()) {
                         closed.push(id);
                     }
+                    focused |= ui.ctx().input(|i| i.viewport().focused.unwrap_or(false));
                 }
             });
         }
+        self.popouts_float = focused;
         for id in closed {
             self.run("view.close", &json!({"id": id}));
         }
         self.run_all(asks);
     }
 
-    /// The pop-outs' state, for `ui.inspect`.
+    /// The pop-outs' state, for `ui.inspect`: each with `on_top`, whether it floats above the
+    /// editor now.
     pub fn popouts_inspect(&self) -> serde_json::Value {
-        serde_json::Value::Array(self.popouts.iter().map(|w| json!({"id": w.id, "title": w.title, "pane": w.pane.inspect()})).collect())
+        let on_top = self.popouts_float;
+        serde_json::Value::Array(self.popouts.iter().map(|w| json!({"id": w.id, "title": w.title, "on_top": on_top, "pane": w.pane.inspect()})).collect())
+    }
+}
+
+/// A pop-out's window level: above the editor while one of the editor's windows has focus,
+/// normal when another application has it.
+fn level(editor_focused: bool) -> egui::WindowLevel {
+    if editor_focused { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pop_outs_float_only_while_the_editor_has_focus() {
+        assert_eq!(level(true), egui::WindowLevel::AlwaysOnTop);
+        assert_eq!(level(false), egui::WindowLevel::Normal);
     }
 }

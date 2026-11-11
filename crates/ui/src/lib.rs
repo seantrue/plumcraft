@@ -431,6 +431,9 @@ pub struct EditorApp {
     fulls: watched::Fulls,
     /// Pop-out windows ([`popouts`]).
     pub popouts: Vec<popouts::PopoutWindow>,
+    /// Whether one of the editor's windows (the main one or a pop-out) had focus last frame:
+    /// pop-outs float above the editor only then (B19).
+    popouts_float: bool,
     /// The values on wires ([`wire_view`]).
     pub wires: wire_view::WireView,
     /// Thumbnail textures.
@@ -519,6 +522,7 @@ impl EditorApp {
             compare: compare_view::CompareView::default(),
             fulls: watched::Fulls::default(),
             popouts: Vec::new(),
+            popouts_float: false,
             wires: wire_view::WireView::default(),
             media: media::MediaViews::default(),
             thumbs: Thumbs::default(),
