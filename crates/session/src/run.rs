@@ -369,8 +369,8 @@ impl RunState {
         self.edits
     }
 
-    /// Build the next request for `graph` and queue it. Every node of the graph is marked
-    /// queued; thumbnails stay until new ones arrive.
+    /// Build the next request for `graph` and queue it. The nodes it computes are marked
+    /// queued ([`needed`]); thumbnails stay until new ones arrive.
     ///
     /// **Latest wins:** a run still in flight is superseded, so a [`Outgoing::Cancel`] for it
     /// goes out first; its late records and reply are ignored by generation either way.
@@ -393,7 +393,9 @@ impl RunState {
                 let d = self.doc_edits.get(&(w.from.node.0.clone(), w.from.port.clone()))?;
                 Some((format!("{}.{}", w.to.node.0, w.to.port), PortValue::Blob { data: d.clone() }))
             })
-            .collect();
+            .collect::<BTreeMap<String, PortValue>>();
+        // Only what the run computes waits for it (B23): the rest keeps what it showed.
+        let needed = needed(graph, &targets, &watch, &inputs.keys().map(String::as_str).collect());
         let req = RunRequest {
             run_id: run_id.clone(),
             generation: self.generation,
@@ -421,9 +423,9 @@ impl RunState {
         self.run_error = None;
         // a Convert's steps are the Convert's: not counted, not shown
         let steps = &self.convert.steps;
-        self.total = graph.nodes.keys().filter(|id| !steps.contains_key(&id.0)).count();
         self.nodes.retain(|id, _| graph.nodes.contains_key(&NodeId(id.clone())) && !steps.contains_key(id));
-        for id in graph.nodes.keys().filter(|id| !steps.contains_key(&id.0)) {
+        self.total = needed.iter().filter(|id| !steps.contains_key(*id)).count();
+        for id in graph.nodes.keys().filter(|id| !steps.contains_key(&id.0) && needed.contains(&id.0)) {
             let n = self.nodes.entry(id.0.clone()).or_default();
             n.state = Some(NodeState::Queued);
             n.generation = self.generation;
@@ -884,6 +886,28 @@ impl RunState {
     }
 }
 
+/// The nodes a run of `graph` computes, as the engines' scheduler works it out
+/// (`docs/scheduler.md` section 1): the targets, or with none the graph's sinks, plus the
+/// watched nodes, and every ancestor of those. A wire into a `bound` input (`node.port`, the
+/// request's `inputs`) is dropped, so what fed it isn't needed.
+pub fn needed(graph: &Graph, targets: &[String], watch: &[WatchRequest], bound: &BTreeSet<&str>) -> BTreeSet<String> {
+    let live = |w: &&Wire| !bound.contains(format!("{}.{}", w.to.node.0, w.to.port).as_str());
+    let start: Vec<String> = if targets.is_empty() {
+        graph.nodes.keys().filter(|n| !graph.wires.iter().any(|w| &w.from.node == *n)).map(|n| n.0.clone()).collect()
+    } else {
+        targets.to_vec()
+    };
+    let mut want: Vec<String> =
+        start.into_iter().chain(watch.iter().map(|w| w.node.clone())).filter(|n| graph.nodes.contains_key(&NodeId(n.clone()))).collect();
+    let mut out = BTreeSet::new();
+    while let Some(n) = want.pop() {
+        if out.insert(n.clone()) {
+            want.extend(graph.wires.iter().filter(live).filter(|w| w.to.node.0 == n).map(|w| w.from.node.0.clone()));
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod editor_payload_tests {
     use std::time::Instant;
@@ -1081,5 +1105,79 @@ mod thumb_tests {
         run.on_edit(&b, &a, now);
         assert!(run.apply_event(&envelope(&run, StatusRecord::new("n1", NodeState::Done)), now));
         assert!(run.node("n1").unwrap().is_stale(), "edited since this run was asked for");
+    }
+}
+
+/// B23: only the nodes a run computes are queued; the rest keep what they showed.
+#[cfg(test)]
+mod queued_tests {
+    use std::time::Instant;
+
+    use plumcraft_proto::event::NodeState;
+    use plumcraft_proto::run::{NodeReport, RunReply};
+
+    use super::*;
+
+    /// a → b, and c → d beside it.
+    fn graph() -> Graph {
+        Graph::from_json(
+            r#"{"version": 1, "nodes": {"a": {"kind": "k"}, "b": {"kind": "k"}, "c": {"kind": "k"}, "d": {"kind": "k"}},
+                "wires": [{"from": {"node": "a", "port": "out"}, "to": {"node": "b", "port": "in"}},
+                          {"from": {"node": "c", "port": "out"}, "to": {"node": "d", "port": "in"}}]}"#,
+        )
+        .unwrap()
+    }
+
+    fn done(run: &mut RunState, req: &RunRequest, ids: &[&str]) {
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: ids.iter().map(|id| ((*id).to_owned(), NodeReport { state: NodeState::Done, ..Default::default() })).collect(),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, Instant::now()));
+    }
+
+    fn state(run: &RunState, id: &str) -> Option<NodeState> {
+        run.node(id).and_then(|n| n.state)
+    }
+
+    #[test]
+    fn a_whole_graph_run_queues_every_node() {
+        let mut run = RunState::default();
+        run.request(&graph(), Vec::new(), Vec::new(), Instant::now());
+        for id in ["a", "b", "c", "d"] {
+            assert_eq!(state(&run, id), Some(NodeState::Queued), "{id}");
+        }
+        assert_eq!(run.progress(), (0, 4));
+    }
+
+    #[test]
+    fn a_target_run_queues_the_target_and_its_ancestors_only() {
+        let g = graph();
+        let mut run = RunState::default();
+        let req = run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        done(&mut run, &req, &["a", "b", "c", "d"]);
+        let req = run.request(&g, vec!["b".to_owned()], Vec::new(), Instant::now());
+        assert_eq!(state(&run, "a"), Some(NodeState::Queued));
+        assert_eq!(state(&run, "b"), Some(NodeState::Queued));
+        assert_eq!(state(&run, "c"), Some(NodeState::Done), "not in the run: it keeps its result");
+        assert_eq!(state(&run, "d"), Some(NodeState::Done));
+        assert_eq!(run.progress(), (0, 2), "the run's own nodes");
+        done(&mut run, &req, &["a", "b"]);
+        assert_eq!(state(&run, "c"), Some(NodeState::Done), "and keeps it after the run");
+    }
+
+    #[test]
+    fn a_watched_node_joins_the_run() {
+        let watch = vec![WatchRequest { node: "c".to_owned(), port: "out".to_owned(), ..Default::default() }];
+        let got = needed(&graph(), &["b".to_owned()], &watch, &BTreeSet::new());
+        assert_eq!(got, ["a", "b", "c"].map(str::to_owned).into());
+    }
+
+    #[test]
+    fn a_bound_input_drops_what_fed_it() {
+        let got = needed(&graph(), &["b".to_owned()], &[], &["b.in"].into());
+        assert_eq!(got, ["b".to_owned()].into());
     }
 }
