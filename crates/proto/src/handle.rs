@@ -18,8 +18,9 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Algo {
     Md5,
-    /// BLAKE3, required for uploads into stores shared by several clients (spec 4.3). Parsed
-    /// here; computed by the stores that accept it.
+    /// BLAKE3: required for uploads into stores shared by several clients, and used for local
+    /// values when every engine involved takes it (spec 4.3; B10: MD5 was the slowest step of
+    /// a large array's crossing).
     B3,
 }
 
@@ -105,13 +106,26 @@ impl Handle {
 
     /// `md5:raw:` of bytes as stored (alexandria's item digest).
     pub fn md5_raw(bytes: &[u8]) -> Self {
-        Handle { algo: Algo::Md5, recipe: Recipe::Raw, digest: hex(&Md5::digest(bytes)) }
+        Self::raw(Algo::Md5, bytes)
     }
 
-    /// `md5:nd1:` of an array given as numpy would describe it: `dtype` is `dtype.str`
-    /// (`<f4`, `|u1`, `>c8`, `<U3`, `<M8[ns]`), `shape` its dimensions and `bytes` its C-order
-    /// element bytes. Byte order is normalised to little-endian first.
+    /// `<algo>:raw:` of bytes as stored.
+    pub fn raw(algo: Algo, bytes: &[u8]) -> Self {
+        let mut h = Hasher::new(algo);
+        h.update(bytes);
+        Handle { algo, recipe: Recipe::Raw, digest: h.finish() }
+    }
+
+    /// `md5:nd1:` of an array ([`Handle::nd1`]).
     pub fn md5_nd1(dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Self, HandleError> {
+        Self::nd1(Algo::Md5, dtype, shape, bytes)
+    }
+
+    /// `<algo>:nd1:` of an array given as numpy would describe it: `dtype` is `dtype.str`
+    /// (`<f4`, `|u1`, `>c8`, `<U3`, `<M8[ns]`), `shape` its dimensions and `bytes` its C-order
+    /// element bytes. Byte order is normalised to little-endian first. The recipe is the same
+    /// for both algorithms (spec 4.2).
+    pub fn nd1(algo: Algo, dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Self, HandleError> {
         let d = Dtype::parse(dtype)?;
         let count = shape.iter().try_fold(1u64, |n, &s| n.checked_mul(s)).ok_or(HandleError::Length { got: bytes.len(), expected: usize::MAX })?;
         let expected =
@@ -119,7 +133,7 @@ impl Handle {
         if bytes.len() != expected {
             return Err(HandleError::Length { got: bytes.len(), expected });
         }
-        let mut h = Md5::new();
+        let mut h = Hasher::new(algo);
         h.update(d.normalised.as_bytes());
         h.update(shape_repr(shape).as_bytes());
         if d.swap_unit > 1 {
@@ -131,7 +145,47 @@ impl Handle {
         } else {
             h.update(bytes);
         }
-        Ok(Handle { algo: Algo::Md5, recipe: Recipe::Nd1, digest: hex(&h.finalize()) })
+        Ok(Handle { algo, recipe: Recipe::Nd1, digest: h.finish() })
+    }
+}
+
+/// Above this many bytes in one update, BLAKE3 hashes on several threads.
+const B3_PARALLEL: usize = 1 << 20;
+
+/// One digest in progress, of either algorithm.
+pub struct Hasher(HasherInner);
+
+enum HasherInner {
+    Md5(Md5),
+    B3(Box<blake3::Hasher>),
+}
+
+impl Hasher {
+    pub fn new(algo: Algo) -> Self {
+        Hasher(match algo {
+            Algo::Md5 => HasherInner::Md5(Md5::new()),
+            Algo::B3 => HasherInner::B3(Box::new(blake3::Hasher::new())),
+        })
+    }
+
+    pub fn update(&mut self, bytes: &[u8]) {
+        match &mut self.0 {
+            HasherInner::Md5(h) => h.update(bytes),
+            HasherInner::B3(h) if bytes.len() >= B3_PARALLEL => {
+                h.update_rayon(bytes);
+            }
+            HasherInner::B3(h) => {
+                h.update(bytes);
+            }
+        }
+    }
+
+    /// The lowercase hex digest.
+    pub fn finish(self) -> String {
+        match self.0 {
+            HasherInner::Md5(h) => hex(&h.finalize()),
+            HasherInner::B3(h) => h.finalize().to_hex().to_string(),
+        }
     }
 }
 
@@ -322,8 +376,9 @@ mod tests {
         assert!(Handle::md5_nd1("<f4", &[u64::MAX, 3], &[]).is_err());
     }
 
-    /// The shared vectors (`fixtures/handles.json`), made by research_engine's own
-    /// `publish.digest` and `hashlib.md5` (claude-debug/plumcraft-proto/make_handle_vectors.py).
+    /// The shared vectors (`fixtures/handles.json`): md5 from research_engine's own
+    /// `publish.digest` and `hashlib.md5` (claude-debug/make_handle_vectors.py), b3 from the
+    /// `blake3` package (claude-debug/make_b3_handle_vectors.py).
     #[test]
     fn shared_vectors() {
         let text = include_str!("../fixtures/handles.json");
@@ -333,15 +388,29 @@ mod tests {
         for t in vectors {
             let name = t["name"].as_str().unwrap();
             let bytes = base64::engine::general_purpose::STANDARD.decode(t["bytes_b64"].as_str().unwrap()).unwrap();
-            let expect: Handle = t["handle"].as_str().unwrap().parse().unwrap();
-            let got = match t["recipe"].as_str().unwrap() {
-                "nd1" => {
-                    let shape: Vec<u64> = t["shape"].as_array().unwrap().iter().map(|s| s.as_u64().unwrap()).collect();
-                    Handle::md5_nd1(t["dtype"].as_str().unwrap(), &shape, &bytes).unwrap()
-                }
-                _ => Handle::md5_raw(&bytes),
-            };
-            assert_eq!(got, expect, "{name}");
+            for (algo, field) in [(Algo::Md5, "handle"), (Algo::B3, "b3")] {
+                let expect: Handle = t[field].as_str().unwrap_or_else(|| panic!("{name}: no {field}")).parse().unwrap();
+                let got = match t["recipe"].as_str().unwrap() {
+                    "nd1" => {
+                        let shape: Vec<u64> = t["shape"].as_array().unwrap().iter().map(|s| s.as_u64().unwrap()).collect();
+                        Handle::nd1(algo, t["dtype"].as_str().unwrap(), &shape, &bytes).unwrap()
+                    }
+                    _ => Handle::raw(algo, &bytes),
+                };
+                assert_eq!(got, expect, "{name} ({field})");
+            }
         }
+    }
+
+    /// A large value hashes on several threads (over [`B3_PARALLEL`]) to the same digest as on
+    /// one, and a `b3` handle never equals the `md5` one of the same bytes.
+    #[test]
+    fn b3_is_the_same_on_one_thread_and_many() {
+        let big: Vec<u8> = (0..(3 * B3_PARALLEL + 17)).map(|i| (i * 31 % 251) as u8).collect();
+        let one = blake3::hash(&big).to_hex().to_string();
+        assert_eq!(Handle::raw(Algo::B3, &big).digest(), one);
+        let h = Handle::nd1(Algo::B3, "<f4", &[big.len() as u64 / 4], &big[..big.len() / 4 * 4]).unwrap();
+        assert_eq!((h.algo(), h.digest().len()), (Algo::B3, 64));
+        assert_ne!(Handle::raw(Algo::B3, b"x").to_string(), Handle::raw(Algo::Md5, b"x").to_string());
     }
 }

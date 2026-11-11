@@ -269,7 +269,16 @@ impl Store {
     /// compressed when [`compress`] says it is worth it (a `commonkit` locator only), else as
     /// they are.
     pub fn publish_raw(&self, bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
-        let handle = Handle::md5_raw(bytes);
+        self.publish_raw_as(&Handle::md5_raw(bytes), bytes)
+    }
+
+    /// Publish raw bytes under `handle`, which the caller has just computed from them (one
+    /// pass over the bytes, not two; B10). A raw handle of either algorithm.
+    pub fn publish_raw_as(&self, handle: &Handle, bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
+        let handle = handle.clone();
+        if handle.recipe() != Recipe::Raw {
+            return None;
+        }
         if let Some(at) = self.locate(&handle) {
             return Some((handle, at));
         }
@@ -346,9 +355,17 @@ impl Store {
 
     /// Publish an array (`md5:nd1:`) given its little-endian dtype, shape and C-order bytes.
     pub fn publish_array(&self, dtype: &str, shape: &[u64], bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
-        let handle = Handle::md5_nd1(dtype, shape, bytes).ok()?;
-        let locators = self.publish(&handle, dtype, shape, bytes)?;
-        Some((handle, locators))
+        self.publish_array_as(&Handle::md5_nd1(dtype, shape, bytes).ok()?, dtype, shape, bytes)
+    }
+
+    /// Publish an array under `handle`, an `nd1` handle of either algorithm the caller has just
+    /// computed from it (one pass over the bytes, not two; B10).
+    pub fn publish_array_as(&self, handle: &Handle, dtype: &str, shape: &[u64], bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
+        if handle.recipe() != Recipe::Nd1 {
+            return None;
+        }
+        let locators = self.publish(handle, dtype, shape, bytes)?;
+        Some((handle.clone(), locators))
     }
 
     /// Publish through commonkit: written, or already there (a republish only touches it).
@@ -514,18 +531,18 @@ fn maps_to(r: &DataRef, b: &Blob) -> bool {
     matches!(&r.meta.form, Form::Array { shape, .. } if *shape == b.shape) && r.meta.size == b.bytes.len() as u64
 }
 
-/// Whether bytes are `handle`: an `md5:raw:` handle must be the MD5 of the bytes, an
-/// `md5:nd1:` handle the digest of `dtype`, `shape` and the bytes.
+/// Whether bytes are `handle`, in the handle's own algorithm: a `raw` handle must be the digest
+/// of the bytes, an `nd1` handle the digest of `dtype`, `shape` and the bytes.
 pub fn verifies(handle: &Handle, dtype: &str, shape: &[u64], bytes: &[u8]) -> bool {
-    if handle.recipe() == Recipe::Raw { &Handle::md5_raw(bytes) == handle } else { Handle::md5_nd1(dtype, shape, bytes).is_ok_and(|h| &h == handle) }
+    if handle.recipe() == Recipe::Raw {
+        &Handle::raw(handle.algo(), bytes) == handle
+    } else {
+        Handle::nd1(handle.algo(), dtype, shape, bytes).is_ok_and(|h| &h == handle)
+    }
 }
 
 fn matches_handle(h: Option<&Handle>, b: &Blob) -> bool {
-    match h {
-        None => true,
-        Some(h) if h.recipe() == Recipe::Nd1 => Handle::md5_nd1(&b.dtype, &b.shape, &b.bytes).is_ok_and(|x| &x == h),
-        Some(h) => &Handle::md5_raw(&b.bytes) == h,
-    }
+    h.is_none_or(|h| verifies(h, &b.dtype, &b.shape, &b.bytes))
 }
 
 /// A segment's bytes as a blob: a simple dtype in C order only (what PlumCraft writes);

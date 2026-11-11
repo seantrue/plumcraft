@@ -178,7 +178,7 @@ impl HttpHost {
     /// `hello` (with the proof unless remote), `session.confirm`, and the catalogue.
     fn connect(&self) -> Result<(), String> {
         let ours = if self.opts.remote { None } else { plumcraft_store::write_nonce(self.local.root(), "u").ok() };
-        let mut hello = json!({"v": PROTOCOL, "op": "hello", "caps": ["events.poll", "data.shm", "data.path"]});
+        let mut hello = json!({"v": PROTOCOL, "op": "hello", "caps": ["events.poll", "data.shm", "data.path", "hash.b3"]});
         if let Some((path, nonce)) = &ours {
             hello["proof"] = json!({"path": path, "nonce": nonce});
         }

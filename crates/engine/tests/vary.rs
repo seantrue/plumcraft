@@ -117,7 +117,7 @@ fn go_with(
         "targets": targets, "watch": watch,
     }))
     .unwrap();
-    let plane = Plane { store: None, shm: false, urls: false, max_inline: 1 << 20 };
+    let plane = Plane { store: None, shm: false, urls: false, max_inline: 1 << 20, algo: plumcraft_proto::handle::Algo::Md5 };
     let mut log = Log::default();
     let reply = exec::run(e, &req, &mut log, cancel, "test", memo, &plane);
     (reply, log.0)

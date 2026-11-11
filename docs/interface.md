@@ -85,7 +85,8 @@ A `.npy` file's own bytes are never an array's identity (numpy pads headers diff
 
 ### 4.3 Algorithm choice
 
-- **MD5 is the default** for every handle a session creates, for compatibility with commonkit's key slot, the research software's checkpoint store, the research software's published keys and alexandria's CAS.
+- **MD5 is the default** for every handle a session creates, for compatibility with the research software's checkpoint store, the research software's published keys and alexandria's CAS.
+- **BLAKE3 for local values when both ends take it** (B10, 2026-11-10). MD5 of a 144 MB array takes about 170 ms, BLAKE3 about 10 ms, and a crossing hashed it more than once. A run asks for `b3` handles (`RunRequest.algo`, section 8.1) when `hash.b3` was negotiated; a coordinator asks only when every engine in the run lists it. commonkit keys take a 64-digit digest since commonkit 0.1.2, beside the 32-digit md5 one. A reader checks a handle in its own algorithm, so values of both kinds mix in one graph. Engines and stores never hash the same bytes twice to publish them: the store takes the handle the engine just made.
 - **BLAKE3 (`b3`) is REQUIRED for uploads into a namespace shared by more than one client** (a multi-tenant remote store), because MD5 chosen-prefix collisions are cheap. A single-tenant remote (the maintainer's a remote server) MAY accept MD5 by configuration.
 - A server keeps an alias index `md5 → b3` built only from bytes it hashed itself, so a client can ask for an alexandria item by its MD5 and get a `b3` handle back (`blob.has` reply `aliases`).
 - An engine declares the algorithms it accepts in `hello` (`data.algos`, first preferred). The UI uses the first it also supports.
@@ -248,7 +249,7 @@ Engine → UI:
 | `run.stats` | engine | `RunReply.stats`: what the run's caches did (section 14.6) | Client counts node states |
 | `memo.audit` | engine | `memo.audit{sample}` recomputes a sample of memo hits and reports mismatches | — |
 | `admin` | engine (per token) | The token may cancel and watch other sessions' runs | Owner only |
-| `hash.b3` | both | BLAKE3 handles accepted | MD5 only |
+| `hash.b3` | both | BLAKE3 handles accepted; runs may ask for them (`RunRequest.algo`, section 4.3). The Rust SDK and the editor list it | MD5 only |
 | `output.save` | engine | `output.save` writes or returns rendered outputs (formats in schema) | Save hidden |
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
@@ -480,6 +481,7 @@ The UI types graphs exactly as engines run them. These rules are normative for e
 | `hold` | `["node.port"]`: values to keep for this run if they can't be sent (section 7.6 rule 11); usually absent |
 | `inputs` | `{"node.port": PortValue}`: external bindings that replace a port's wire or widget (section 7.6 rule 10). For graphs that span engines (one engine's DataRef fed to another) and for clients that feed a node a value they have; usually `{}` |
 | `detach` | When true, the run survives its session going idle, for `run_ttl_s` (section 5.2) |
+| `algo` | `b3`: the handles this run makes are BLAKE3 (section 4.3). Sent only when `hash.b3` was negotiated with every engine that reads them; a coordinator clears it when any engine in the run lacks `hash.b3`. Absent, empty or anything else: md5. An engine without `hash.b3` ignores it |
 
 Path-hinted widget values (F16, F75) are absolute paths when `data.path` is on, as today (`with_absolute_paths`). When it is off, the host rewrites each to a **source** before sending (section 13.2):
 

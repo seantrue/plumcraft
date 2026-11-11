@@ -14,7 +14,7 @@ use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{BlobMeta, Column, DataRef, Form, Locator};
 use plumcraft_proto::display::Rendition;
 use plumcraft_proto::error::NodeError;
-use plumcraft_proto::handle::Handle;
+use plumcraft_proto::handle::{Algo, Handle};
 use plumcraft_store::{Store, inline_ref};
 use serde_json::Value;
 
@@ -30,6 +30,8 @@ pub struct Plane<'a> {
     /// `url` locators the UI fetches by handle (spec 13.2 step 5).
     pub urls: bool,
     pub max_inline: usize,
+    /// The algorithm of the handles this run makes (spec 4.3; the request's `algo`).
+    pub algo: Algo,
 }
 
 /// The path a blob is served at on the HTTP binding, relative to the engine's base URL.
@@ -64,33 +66,34 @@ impl Plane<'_> {
             form: Form::Text { lines: s.lines().count() as u64, encoding: "utf-8".into() },
             aliases: Vec::new(),
         };
-        self.blob(Handle::md5_raw(s.as_bytes()), meta, s.as_bytes(), |st| st.publish_raw(s.as_bytes()))
+        let handle = Handle::raw(self.algo, s.as_bytes());
+        self.blob(handle.clone(), meta, s.as_bytes(), |st| st.publish_raw_as(&handle, s.as_bytes()))
     }
 
     /// An array as a blob.
     pub fn array_ref(&self, a: &Array) -> Result<DataRef, NodeError> {
-        let handle = Handle::md5_nd1(&a.dtype, &a.shape, &a.bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad array: {e}")))?;
+        let handle = Handle::nd1(self.algo, &a.dtype, &a.shape, &a.bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad array: {e}")))?;
         let meta = BlobMeta {
             media: NPY_MEDIA.into(),
             size: a.bytes.len() as u64,
             form: Form::Array { dtype: a.dtype.clone(), shape: a.shape.clone(), space: a.space.clone(), names: a.names.clone(), table: a.table },
             aliases: Vec::new(),
         };
-        self.blob(handle, meta, &a.bytes, |st| st.publish_array(&a.dtype, &a.shape, &a.bytes))
+        self.blob(handle.clone(), meta, &a.bytes, |st| st.publish_array_as(&handle, &a.dtype, &a.shape, &a.bytes))
     }
 
     /// Audio as a blob: an `<f4` (frames, channels) array with `Form::Audio`.
     pub fn audio_ref(&self, a: &Audio) -> Result<DataRef, NodeError> {
         let shape = [a.frames(), u64::from(a.channels)];
         let bytes = a.bytes();
-        let handle = Handle::md5_nd1("<f4", &shape, &bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad audio: {e}")))?;
+        let handle = Handle::nd1(self.algo, "<f4", &shape, &bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad audio: {e}")))?;
         let meta = BlobMeta {
             media: NPY_MEDIA.into(),
             size: bytes.len() as u64,
             form: Form::Audio { sample_rate: a.sample_rate, channels: a.channels, frames: a.frames(), dtype: "<f4".into() },
             aliases: Vec::new(),
         };
-        self.blob(handle, meta, &bytes, |st| st.publish_array("<f4", &shape, &bytes))
+        self.blob(handle.clone(), meta, &bytes, |st| st.publish_array_as(&handle, "<f4", &shape, &bytes))
     }
 
     /// A [`Blob`] value. Bytes in memory cross as text does (inline when small, else the store).
@@ -99,7 +102,11 @@ impl Plane<'_> {
     /// session gets the handle and metadata with no locator, a miss it may report, spec 4.6).
     pub fn blob_ref(&self, b: &Blob) -> Result<DataRef, NodeError> {
         let p = match &b.source {
-            BlobSource::Bytes(bytes) => return self.blob(b.handle.clone(), b.meta.clone(), bytes, |st| st.publish_raw(bytes)),
+            // A node's own handle: checked once, so a store key always names its bytes (W1).
+            BlobSource::Bytes(bytes) if Handle::raw(b.handle.algo(), bytes) != b.handle => {
+                return Err(NodeError::new(NodeError::OP, format!("a blob's bytes aren't its handle {}", b.handle)));
+            }
+            BlobSource::Bytes(bytes) => return self.blob(b.handle.clone(), b.meta.clone(), bytes, |st| st.publish_raw_as(&b.handle, bytes)),
             BlobSource::File(p) => p,
         };
         let fits = std::fs::metadata(p).is_ok_and(|m| m.len() <= plumcraft_store::MAX_READ);
@@ -114,10 +121,10 @@ impl Plane<'_> {
             return Ok(DataRef { handle: Some(b.handle.clone()), meta: b.meta.clone(), at });
         }
         let bytes = std::fs::read(p).map_err(|e| NodeError::new(NodeError::OP, format!("{}: {e}", p.display())))?;
-        if Handle::md5_raw(&bytes) != b.handle {
+        if Handle::raw(b.handle.algo(), &bytes) != b.handle {
             return Err(NodeError::new(NodeError::OP, format!("{} no longer holds {}", p.display(), b.handle)));
         }
-        self.blob(b.handle.clone(), b.meta.clone(), &bytes, |st| st.publish_raw(&bytes))
+        self.blob(b.handle.clone(), b.meta.clone(), &bytes, |st| st.publish_raw_as(&b.handle, &bytes))
     }
 
     /// A blob's thumbnail as an `rgba8` rendition.
@@ -140,14 +147,20 @@ impl Plane<'_> {
         let bytes = serde_json::to_vec(v).map_err(|e| NodeError::new(NodeError::OP, e.to_string()))?;
         let (rows, columns) = table_shape(v);
         let meta = BlobMeta { media: JSON_MEDIA.into(), size: bytes.len() as u64, form: Form::Table { rows, columns }, aliases: Vec::new() };
-        self.blob(Handle::md5_raw(&bytes), meta, &bytes, |st| st.publish_raw(&bytes))
+        {
+            let handle = Handle::raw(self.algo, &bytes);
+            self.blob(handle.clone(), meta, &bytes, |st| st.publish_raw_as(&handle, &bytes))
+        }
     }
 
     /// A large JSON value as a blob.
     pub fn json_ref(&self, v: &Value) -> Result<DataRef, NodeError> {
         let bytes = serde_json::to_vec(v).map_err(|e| NodeError::new(NodeError::OP, e.to_string()))?;
         let meta = BlobMeta { media: JSON_MEDIA.into(), size: bytes.len() as u64, form: Form::Json, aliases: Vec::new() };
-        self.blob(Handle::md5_raw(&bytes), meta, &bytes, |st| st.publish_raw(&bytes))
+        {
+            let handle = Handle::raw(self.algo, &bytes);
+            self.blob(handle.clone(), meta, &bytes, |st| st.publish_raw_as(&handle, &bytes))
+        }
     }
 
     /// The value a reply carries for a target's output.

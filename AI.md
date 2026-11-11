@@ -20,6 +20,27 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — B10 (#28): BLAKE3 handles for large values, Rust side (Claude Opus 5.5)
+
+**What the maintainer asked:** "Fix the slow hashing issues for content addressed storage" (2026-11-05). Offered three scopes, they chose "Go to BLAKE3 now", then "Yes, publish commonkit".
+
+**What the AI did:**
+
+- **Measured first** (`claude-debug/b10-hash-timing`, release build, 144 MB `<f4`): MD5 is about 170 ms a pass and BLAKE3 8–12 ms, and an array's publish hashed it twice (the engine's handle, then `Store::publish_array` again), plus once more on read. The old path came to 528 ms, the 550–600 ms in the report.
+- **commonkit** (its own ledger): 64-digit digests, released as 0.1.2.
+- **proto:** `Handle::nd1`/`raw` for either algorithm and a `Hasher` (BLAKE3 on several threads above 1 MiB); the shared vectors carry a `b3` handle each, made with Python's `blake3` by `claude-debug/make_b3_handle_vectors.py` and matched by Rust; `RunRequest.algo` (schema regenerated).
+- **store:** `publish_array_as` and `publish_raw_as` take the handle the engine just made, so the bytes are hashed once; verification uses the handle's own algorithm.
+- **engine:** `Plane.algo` from the request; arrays, text, tables and audio take it; a node's own blob handle is checked once before it is stored. The Rust SDK lists `hash.b3` and `data.algos: ["b3", "md5"]`.
+- **Negotiation:** the editor's process and HTTP hosts list `hash.b3`; the session asks for `b3` when its connection has it; a coordinator clears `algo` when an engine in the run lacks it.
+- **Tests:** `crates/engine/tests/b3_handles.rs` (a `b3` run's array and text are `b3` and read back verified; md5 otherwise; the hello), a coordinator test across two real engines (both `b3`, or md5 when one lacks it), a session test (the request in the outbox), and two in proto. ~370 LOC with the tests.
+- **After:** the same 144 MB publish and read back takes 29 ms with `b3`, 355 ms with md5 hashed once.
+
+**Defects:** the AI first set `algo` on the request `RunState::request` returns, but the outbox holds its own copy, so nothing would have been sent. The session test the AI wrote was meant to catch exactly this, but the AI saw the copy while reading the code before the test ran, and moved `algo` into `RunState`.
+
+**Found on the way:** the probe's first runs read nothing back: the disk had 1.1 GiB free and the environment's `COMMONKIT_STORE_MIN_FREE_GB=1` had the store reap each segment as soon as it was written. Per the maintainer's instructions for a low disk, the AI ran `cargo clean` here and in pycommonkit (46 GB), and built with `CARGO_INCREMENTAL=0` after.
+
+**Not yet:** the Python SDK (`blake3`, `hash.b3`); until then, runs that include a Python engine stay md5.
+
 ### 2026-11-10 — Named ports, slices 1 and 2 (Claude Opus 5.5)
 
 **What the maintainer asked:** "implement the named-ports proposal", then "Slices 1 and 2" (with the note's picks for its open questions), and "reword the proposal before starting on that".
@@ -67,6 +88,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **What the maintainer reported and asked:** "popout shoud stay on top while main window is being edited" (2026-11-07); approved fixing it with the other open bugs before named ports.
 
 **What the AI did:** chose to float pop-outs only while one of the editor's own windows has focus, not always, so they don't sit over other applications. `crates/ui/src/popouts.rs` sets each pop-out's window level from the focus of the main window and the pop-outs in the frame before (egui turns a changed builder level into `ViewportCommand::WindowLevel`); `ui.inspect` reports `on_top`. ~40 LOC with a unit test of the level rule. Checked in the real editor with a new probe (`claude-debug/b19_popout_on_top_probe.py`, `b19_windows.swift`, reading window order and level from CoreGraphics): on `main` the clicked main window came in front of the pop-out; with the fix the pop-out stayed in front at the floating level, dropped to the normal level with Finder in front, and floated again when the editor returned. Not checked on Linux or Windows, where the same winit call applies.
+
 ### 2026-11-10 — B13: the PdfCraft chain test compares PDFs without their save time (Claude Opus 5.5)
 
 **What the maintainer asked:** approved fixing all four open bugs (B19, B18, B10, B13) before the named-ports work.

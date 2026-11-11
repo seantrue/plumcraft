@@ -571,7 +571,13 @@ fn plane_of<'a>(shared: &Shared, engine: &'a Engine) -> Plane<'a> {
         let t = shared.lock();
         (t.same_host.shm, t.urls)
     };
-    Plane { store: engine.store(), shm, urls: urls && !shm, max_inline: usize::try_from(engine.limits().max_inline).unwrap_or(usize::MAX) }
+    Plane {
+        store: engine.store(),
+        shm,
+        urls: urls && !shm,
+        max_inline: usize::try_from(engine.limits().max_inline).unwrap_or(usize::MAX),
+        algo: plumcraft_proto::handle::Algo::Md5,
+    }
 }
 
 fn worker_loop(shared: &Shared, mut factory: Factory, jobs: &Receiver<Work>) {
@@ -629,7 +635,7 @@ fn worker_loop(shared: &Shared, mut factory: Factory, jobs: &Receiver<Work>) {
             shared.finish(RunReply::failed(&job.req.run_id, job.req.generation, NodeError::engine("the engine has stopped")));
             continue;
         };
-        let plane = plane_of(shared, &engine);
+        let plane = Plane { algo: job.req.handle_algo(), ..plane_of(shared, &engine) };
         let mut emit = TableEmit { shared, run_id: job.req.run_id.clone(), generation: job.req.generation };
         let result = catch_unwind(AssertUnwindSafe(|| match core.as_mut() {
             Some(c) => c.run(job.req.clone(), &plane, &mut emit, &job.cancel),

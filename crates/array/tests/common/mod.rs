@@ -41,7 +41,7 @@ pub fn run(e: &Engine, nodes: Value, wires: &[(&str, &str, &str, &str)], targets
         "targets": targets,
     }))
     .unwrap();
-    let plane = Plane { store: e.store(), shm: true, urls: false, max_inline: 1 << 20 };
+    let plane = Plane { store: e.store(), shm: true, urls: false, max_inline: 1 << 20, algo: plumcraft_proto::handle::Algo::Md5 };
     exec::run(e, &req, &mut Log, &CancelToken::default(), "test", &mut Memo::default(), &plane)
 }
 
