@@ -78,6 +78,8 @@ fn every_built_in_pack_parses_with_its_file_name_as_id() {
         let m = builtin(id).unwrap().unwrap_or_else(|e| panic!("{id}: {e}"));
         assert_eq!(m.id, *id, "packs/{id}.toml has id {}", m.id);
         assert!(!m.name.is_empty(), "{id}");
+        let labels = m.label_table();
+        assert!(labels.skipped.is_empty(), "{id}: [labels] skipped {:?}", labels.skipped);
         if let Some(d) = demo(id) {
             let v: serde_json::Value = serde_json::from_str(d).unwrap_or_else(|e| panic!("{id}-demo.json: {e}"));
             assert!(v["nodes"].is_object(), "{id}-demo.json has no nodes");

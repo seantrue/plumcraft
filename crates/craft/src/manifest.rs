@@ -96,6 +96,10 @@ pub struct Manifest {
     pub generated_commands: Vec<GenerateCommandsSpec>,
     #[serde(default)]
     pub run_node: Option<RunNodeSpec>,
+    /// Display labels for this pack's ports (B18, `plumcraft_proto::labels`): a port name →
+    /// its label, or a node id → a table of them. Only this pack's nodes take them.
+    #[serde(default)]
+    pub labels: Option<serde_json::Value>,
     /// Nodes left out after the smoke test, with why (note 14, 2.4 step 5).
     #[serde(default)]
     pub exclude: BTreeMap<String, String>,
@@ -604,6 +608,11 @@ pub struct RunNodeSpec {
 }
 
 impl Manifest {
+    /// The pack's `[labels]`, read as a label table; what doesn't read is in its `skipped`.
+    pub fn label_table(&self) -> plumcraft_proto::labels::Labels {
+        self.labels.as_ref().map_or_else(Default::default, |v| plumcraft_proto::labels::Labels::from_value(&serde_json::json!({"labels": v})))
+    }
+
     /// Parse a manifest.
     pub fn parse(text: &str) -> Result<Manifest, String> {
         let m: Manifest = toml::from_str(text).map_err(|e| format!("manifest: {e}"))?;

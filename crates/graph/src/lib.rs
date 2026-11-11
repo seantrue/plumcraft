@@ -31,6 +31,7 @@ pub mod convert;
 pub mod frames;
 pub mod groups;
 pub mod insert;
+pub mod named;
 pub mod nets;
 pub mod ports;
 
@@ -61,6 +62,10 @@ pub enum GraphError {
     UnknownPort { node: NodeId, kind: String, dir: &'static str, port: String },
     #[error("{0} is a widget-only port and can't be wired")]
     NotWireable(PortRef),
+    #[error("{port} is the named port {name:?}: remove its name before wiring it")]
+    NamedPort { name: String, port: PortRef },
+    #[error("{0}")]
+    BadPortName(String),
     #[error("type mismatch: {from} is {from_ty}, {to} is {to_ty}")]
     TypeMismatch { from: String, from_ty: String, to: String, to_ty: String },
     #[error("{to} expects a list of {ty}, but {from} gives a single value")]
@@ -374,6 +379,10 @@ pub struct Graph {
     /// several engines are connected; not written when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub engines: Vec<String>,
+    /// The graph's own parameters: named inputs a runner sets by name ([`named`]); not written
+    /// when there are none. A file's entries are hostile: one that doesn't read is dropped.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", deserialize_with = "named::lenient")]
+    pub named: Vec<named::NamedPort>,
     /// Fields this editor doesn't know, kept for the file.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -396,6 +405,7 @@ impl Default for Graph {
             frames: BTreeMap::new(),
             next_frame: 0,
             engines: Vec::new(),
+            named: Vec::new(),
             extra: BTreeMap::new(),
             revision: 0,
         }
@@ -433,6 +443,7 @@ impl Graph {
     fn touch(&mut self) {
         self.revision = self.revision.wrapping_add(1);
         self.prune_nets();
+        self.prune_named();
     }
 
     pub fn node(&self, id: &NodeId) -> Option<&Node> {
@@ -906,6 +917,9 @@ impl Graph {
         if !inp.wireable() {
             return Err(GraphError::NotWireable(to));
         }
+        if let Some(name) = self.name_of_port(&to) {
+            return Err(GraphError::NamedPort { name: name.to_owned(), port: to });
+        }
         if from.node == to.node {
             return Err(GraphError::SelfLoop);
         }
@@ -1074,6 +1088,7 @@ impl Graph {
         g.next_id = g.next_id.max(next_number(g.nodes.keys().map(|k| k.0.as_str()), 'n'));
         g.next_group = g.next_group.max(next_number(g.groups.keys().map(|k| k.0.as_str()), 'g'));
         g.prune_nets();
+        g.prune_named();
         Ok(g)
     }
 }
