@@ -1359,12 +1359,13 @@ impl NodeViewer<'_> {
         let watched = self.watched.as_ref() == Some(&n.id);
         let width = |base: f32| if watched { base + 1.5 } else { base };
         let run = self.node_run(n);
-        // stale is for a result an edit made out of date: a node that never completed has none
-        if run.is_some_and(|r| r.is_stale() && r.completed) {
+        // stale is for a result an edit made out of date (a node that never completed has none),
+        // and gives way to queued and running while a run computes the node again
+        if run.is_some_and(run_view::shows_stale) {
             return Some(egui::Stroke::new(width(2.0), self.tokens.stale));
         }
         match run.and_then(|r| r.state).and_then(|s| self.tokens.state_color(s).map(|c| (s, c))) {
-            Some((s, c)) => Some(egui::Stroke::new(width(if s == NodeState::Error { 2.5 } else { 2.0 }), c)),
+            Some((s, c)) => Some(egui::Stroke::new(width(if s == NodeState::Error || run_view::is_running(s) { 2.5 } else { 2.0 }), c)),
             None if watched => Some(egui::Stroke::new(2.5, self.tokens.accent)),
             None => None,
         }
@@ -1762,7 +1763,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         if n.proxy.is_none() && run.as_ref().is_none_or(NodeRun::is_not_run) {
             ui.label(egui::RichText::new(run_view::NOT_RUN).small().color(self.tokens.header_text)).on_hover_text(run_view::NOT_RUN_HOVER);
         } else if let Some(run) = &run {
-            if run.is_stale() {
+            if run_view::shows_stale(run) {
                 ui.label(egui::RichText::new("stale").small().color(self.tokens.stale)).on_hover_text(stale_tooltip(run));
             }
             match (run.state, run.ms) {
@@ -1772,6 +1773,9 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
                 }
                 (Some(NodeState::Done | NodeState::Error), Some(ms)) => {
                     ui.label(egui::RichText::new(run_view::format_ms(ms)).small().color(self.tokens.header_text));
+                }
+                (Some(s), _) if run_view::is_running(s) => {
+                    ui.label(egui::RichText::new(run_view::running_text(run.fraction)).small().strong().color(self.tokens.state_running));
                 }
                 (Some(s @ (NodeState::Queued | NodeState::Skipped | NodeState::Cancelled)), _) => {
                     ui.label(egui::RichText::new(run_view::state_name(s)).small().color(self.tokens.header_text));
