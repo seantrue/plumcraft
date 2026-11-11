@@ -72,6 +72,7 @@ pub mod prefs;
 pub mod probe;
 pub mod recipe_view;
 pub mod rename_view;
+pub mod run_anim;
 pub mod run_view;
 pub mod settings_view;
 pub mod slice_view;
@@ -495,6 +496,10 @@ pub struct EditorApp {
     pub(crate) repaint: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
     pub app_title: &'static str,
+    /// The latest run, replayed for the canvas's run colours ([`run_anim`]).
+    pub run_anim: run_anim::RunAnim,
+    /// The generation of the latest run started automatically (no slow motion for those).
+    auto_generation: u64,
 }
 
 impl EditorApp {
@@ -507,6 +512,8 @@ impl EditorApp {
             params: params_view::ParamsPanel::default(),
             value_editors: value_editors::ValueEditors::default(),
             app_title: APP_TITLE,
+            run_anim: run_anim::RunAnim::default(),
+            auto_generation: 0,
             session,
             canvas,
             tokens: theme::DEFAULT,
@@ -647,6 +654,8 @@ impl EditorApp {
         if self.prefs.prefs().auto_engines == Some(true) {
             self.run("engine.auto", &json!({"on": true}));
         }
+        self.session.views.run_colors_off = self.prefs.prefs().run_colors == Some(false);
+        self.session.views.slow_ms = self.prefs.prefs().slow_ms.unwrap_or(0).min(run_anim::MAX_SLOW_MS);
     }
 
     /// Ask a dialog, starting in the folder `key` last used, and remember where it ended.
@@ -665,6 +674,36 @@ impl EditorApp {
         let on = self.session.engines.auto;
         if self.prefs.prefs().auto_engines.unwrap_or(false) != on {
             self.prefs.set_auto_engines(on);
+        }
+    }
+
+    /// Keep the run colours and slow motion in the preferences, however they were set.
+    fn save_run_anim(&mut self) {
+        let (on, slow) = (!self.session.views.run_colors_off, self.session.views.slow_ms);
+        if self.prefs.prefs().run_colors.unwrap_or(true) != on || self.prefs.prefs().slow_ms.unwrap_or(0) != slow {
+            self.prefs.set_run_anim(on, slow);
+        }
+    }
+
+    /// Bring the run animation up to date with the session's run, every frame: a new run
+    /// starts a replay (slow only when started by hand), and the session's records feed it.
+    /// While it runs or fades the canvas is redrawn.
+    pub fn pump_run_anim(&mut self, ctx: &egui::Context) {
+        let now = Instant::now();
+        let run = &self.session.run;
+        if run.generation != self.run_anim.generation() && !run.needed.is_empty() {
+            let slow = if run.generation == self.auto_generation { 0 } else { self.session.views.slow_ms };
+            let plan = run_anim_plan(&self.session, &run.needed);
+            self.run_anim.begin(run.generation, &run.needed, plan, std::time::Duration::from_millis(u64::from(slow)));
+        }
+        if run.generation == self.run_anim.generation() {
+            self.run_anim.feed(&run.log);
+            if !run.running {
+                self.run_anim.end(now);
+            }
+        }
+        if !self.session.views.run_colors_off && self.run_anim.is_active(now) {
+            ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
 
@@ -1340,7 +1379,9 @@ impl EditorApp {
             Some(d) if d.is_zero() => {
                 // (when nothing can run now, no engine or an empty graph, it stays due and runs
                 // on a later frame once it can; no repaint is asked for meanwhile)
-                self.start_run_if_enabled();
+                if self.start_run_if_enabled().is_some() {
+                    self.auto_generation = self.session.run.generation;
+                }
             }
             Some(d) => ctx.request_repaint_after(d),
             None => {}
@@ -1433,6 +1474,7 @@ impl EditorApp {
         if self.session.run.running {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
+        self.pump_run_anim(ctx);
     }
 
     /// Give the watched display to the picture viewers, with its rendition's texture, and set
@@ -1571,6 +1613,20 @@ impl EditorApp {
                     match menu {
                         "Edit" => edit_op = edit_view::edit_menu(ui, selected),
                         "View" => {
+                            ui.menu_button("Slow Motion", |ui| {
+                                for &ms in run_anim::SLOW_CHOICES {
+                                    let label = if ms == 0 { "Off".to_owned() } else { format!("{ms} ms per node") };
+                                    let mark = if self.session.views.slow_ms == ms { "✓ " } else { "    " };
+                                    if ui
+                                        .button(format!("{mark}{label}"))
+                                        .on_hover_text("Show each node running at least this long in a run you start; the engines aren't slowed")
+                                        .clicked()
+                                    {
+                                        actions.push(("view.slowMotion", json!({"ms": ms})));
+                                        ui.close();
+                                    }
+                                }
+                            });
                             let fit_button = egui::Button::new("Fit").shortcut_text("F");
                             if ui.add(fit_button).on_hover_text("Fit the view to all nodes").clicked() {
                                 fit = true;
@@ -1871,6 +1927,7 @@ impl EditorApp {
             self.restyle_now(&ctx);
         }
         self.save_auto_engines();
+        self.save_run_anim();
         if let Some(text) = self.copy_out.take() {
             ctx.copy_text(text.clone());
             self.copied = Some(text);
@@ -1895,6 +1952,7 @@ impl EditorApp {
             docs: &self.session.docs.apps,
             recent_apps: &self.session.docs.recent_apps,
             app_text: &self.app.texts,
+            anim: (!self.session.views.run_colors_off).then_some(&self.run_anim),
         };
         let actions = egui::CentralPanel::default()
             .frame(frame)
@@ -2119,6 +2177,7 @@ pub fn save_png(image: &egui::ColorImage, path: &Path) -> Result<(), String> {
 fn checked(session: &Session, id: &str) -> Option<bool> {
     match id {
         "run.auto" => Some(session.run.auto),
+        "view.runColors" => Some(!session.views.run_colors_off),
         _ => None,
     }
 }
@@ -2203,6 +2262,28 @@ pub fn parse_shortcut(s: &str) -> Option<egui::KeyboardShortcut> {
         }
     }
     Some(egui::KeyboardShortcut::new(mods, key?))
+}
+
+/// What the run animation needs of the graph: each node's upstream nodes, and the engine
+/// that computes it (its pin, else the first of the graph's engines that offers it, else the
+/// first that does; one lane when no engine is named).
+fn run_anim_plan(session: &Session, needed: &std::collections::BTreeSet<String>) -> run_anim::Plan {
+    let g = session.graph();
+    let catalog = session.catalog();
+    let mut plan = run_anim::Plan::default();
+    for w in &g.wires {
+        if needed.contains(&w.to.node.0) && needed.contains(&w.from.node.0) {
+            plan.upstream.entry(w.to.node.0.clone()).or_default().push(w.from.node.0.clone());
+        }
+    }
+    for id in needed {
+        let node = g.node(&plumcraft_graph::NodeId(id.clone()));
+        let offered = node.and_then(|n| catalog.nodes.iter().find(|d| d.id == n.kind)).map(|d| d.engines.clone()).unwrap_or_default();
+        let pin = node.and_then(|n| n.engine.clone()).filter(|p| offered.contains(p));
+        let lane = pin.or_else(|| g.engines.iter().find(|e| offered.contains(e)).cloned()).or_else(|| offered.first().cloned()).unwrap_or_default();
+        plan.lane.insert(id.clone(), lane);
+    }
+    plan
 }
 
 #[cfg(test)]

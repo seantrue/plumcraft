@@ -20,6 +20,21 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — Run colours and slow motion (Claude Opus 5.5)
+
+**What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest). I should be able to see an animation of which are satisfied (cached), which are waiting to run, and which are currently running. Also, consider an option so that a minimum node run-time can be set, so that animations of fast executing graphs can be visualized." After the AI's evaluation: "Go with proposed colors." The AI took its own recommendations for the two questions left open: slow motion only for runs started by hand, and B23 fixed first on its own branch (PR #81).
+
+**What the AI did:**
+
+- **The design call:** slow motion as a paced replay of what the session recorded, rather than engines that sleep, which would have needed a capability in every SDK and pack and would have distorted measured times. The replay keeps the run's order: a node shows running no sooner than it really started, than the previous node on its engine was shown done, and than each of its inputs was.
+- **Session** (`run.rs`, `view_cmds.rs`, ~80 LOC): `RunState::log` (each state change and when, per run, capped) and `needed`; `view.runColors` and `view.slowMotion` with their checks.
+- **Editor** (`run_anim.rs` ~290 LOC with 6 tests; `canvas.rs`, `lib.rs`, `control.rs`, `prefs.rs`, ~160 LOC): the replay, the body wash with a pulse for running, a collapsed group showing its busiest member, faded thumbnails ahead of the replay, the View menu items, preferences, `ui.inspect`'s `runAnim`. `kittest_run_anim.rs` (3 tests). Guide section and picture, `docs/control-protocol.md`.
+- **Checked in the real editor** with `claude-debug/run_anim_probe.py`: the demo graph at 1 s per node shows the source running for its second, then the next nodes in order, the cached node for a quarter, the failure and the node it skipped, then the fade to rest.
+
+**Defects, caught before any commit:** the probe's first run seemed to show slow motion ignored; the probe read the state after each offscreen screenshot, which takes about 1.6 s, so the readings were late, not the replay (the probe now reads first). The first waiting wash (30% grey on a grey body) was invisible in the real editor; it is now 50%, skipped 75%. Two kittest mistakes: a status helper reused the state's rank as its sequence number, so a later record with a lower rank was dropped as stale; and the run was ended by the test harness's frame with no engine until the test took the outbox first.
+
+**Not done:** the header's dot, time and border show the real state, so in slow motion they run ahead of the body. Recorded in STATUS for the maintainer to decide.
+
 ### 2026-11-11 — B23: a run queues only the nodes it computes (Claude Opus 5.5)
 
 **What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest)", with "an animation of which are satisfied (cached), which are waiting to run, and which are currently running", and "an option so that a minimum node run-time can be set". The AI's evaluation proposed a body tint per run state during a run, and a display-side slow-motion replay rather than slowing the engines; it found this bug on the way and proposed fixing it first. The maintainer: "Go with proposed colors."

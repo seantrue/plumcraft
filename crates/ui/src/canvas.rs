@@ -310,6 +310,8 @@ pub struct RunView<'a> {
     pub recent_apps: &'a [std::path::PathBuf],
     /// The application's line on each node, by node id ([`crate::app_hooks`]).
     pub app_text: &'a HashMap<String, String>,
+    /// The latest run's replay ([`crate::run_anim`]); `None` when run colours are off.
+    pub anim: Option<&'a crate::run_anim::RunAnim>,
 }
 
 /// The transform that shows every rect in `nodes` inside `view`.
@@ -665,6 +667,8 @@ impl Canvas {
             group_frames: &self.group_frames,
             routed_paths,
             name_request: None,
+            anim: runs.anim,
+            now: std::time::Instant::now(),
         };
         SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style(tokens)).show(&mut self.snarl, &mut viewer, ui);
         self.to_global = viewer.to_global;
@@ -951,6 +955,9 @@ struct NodeViewer<'a> {
     routed_paths: Vec<(Vec<Pos2>, egui::Color32)>,
     /// A name editor an input's menu asked for this frame (name or rename a named port).
     name_request: Option<crate::net_view::NameEdit>,
+    /// The latest run's replay, and the time it is shown at.
+    anim: Option<&'a crate::run_anim::RunAnim>,
+    now: std::time::Instant,
 }
 
 /// Space between a node's thumbnail and the outputs beside it, and what follows below.
@@ -1091,6 +1098,47 @@ impl NodeViewer<'_> {
 
     fn track(&self, info: PinInfo, key: PinKey) -> TrackedPin {
         TrackedPin { info, key, sink: self.pins.clone() }
+    }
+
+    /// The node as the run animation shows it now; a collapsed group shows its members'
+    /// busiest state (running, else waiting, else failed, skipped, done, cached).
+    fn shown(&self, node: &CanvasNode) -> Option<crate::run_anim::Shown> {
+        use crate::run_anim::Shown;
+        let anim = self.anim?;
+        let Some(p) = &node.proxy else { return anim.shown(&node.id.0, self.now) };
+        let states: Vec<Shown> = self.graph.group_members(&p.group).iter().filter_map(|m| anim.shown(&m.0, self.now)).collect();
+        [Shown::Running, Shown::Waiting, Shown::Failed, Shown::Skipped, Shown::Done, Shown::Cached].into_iter().find(|s| states.contains(s))
+    }
+
+    /// The node's body while a run is shown: its family colour washed with its state's
+    /// ([`crate::run_anim`]); `None` at rest.
+    fn run_fill(&self, node: &CanvasNode) -> Option<egui::Color32> {
+        use crate::run_anim::Shown;
+        let strength = self.anim?.strength(self.now);
+        if strength <= 0.0 {
+            return None;
+        }
+        let t = &self.tokens;
+        let (color, amount) = match self.shown(node)? {
+            Shown::Waiting => (t.state_queued, 0.50),
+            Shown::Running => {
+                // a gentle pulse, one beat every 1.2 s
+                let phase = self.anim.map_or(0.0, |a| a.phase(self.now));
+                (t.state_running, 0.42 + 0.14 * (phase * std::f32::consts::TAU).sin())
+            }
+            Shown::Done => (t.state_done, 0.40),
+            Shown::Cached => (t.state_cached, 0.24),
+            Shown::Failed => (t.state_error, 0.45),
+            Shown::Skipped => (t.state_queued, 0.75),
+        };
+        Some(crate::theme::mix(self.tint(node).body, color, amount * strength))
+    }
+
+    /// Is the node's thumbnail shown faded: out of date ([`thumb_faded`]), or ahead of the
+    /// slow-motion replay, which hasn't shown the node finished yet?
+    fn thumb_faded_now(&self, node: &CanvasNode, n: &NodeRun) -> bool {
+        use crate::run_anim::Shown;
+        thumb_faded(n) || (n.is_finished() && matches!(self.shown(node), Some(Shown::Waiting | Shown::Running)))
     }
 
     fn node_run(&self, node: &CanvasNode) -> Option<&NodeRun> {
@@ -1322,7 +1370,7 @@ impl NodeViewer<'_> {
         if let Some(Rendition::Excerpt { text, .. }) = n.thumb.as_ref().filter(|_| self.view_of(node) == NodeView::Full)
             && !text.is_empty()
         {
-            let color = if thumb_faded(n) { self.tokens.text_faint } else { self.tokens.text_dim };
+            let color = if self.thumb_faded_now(node, n) { self.tokens.text_faint } else { self.tokens.text_dim };
             let hover = match thumb_note(n) {
                 Some(note) => format!("{note}\nClick to watch"),
                 None => "Click to watch".to_owned(),
@@ -1594,7 +1642,7 @@ impl NodeViewer<'_> {
         let Some(Rendition::Peaks { data, channels, .. }) = &n.thumb else { return };
         let id = ui.id().with(("plumcraft-thumb", node.id.0.as_str()));
         let r = ui.interact(rect, id, egui::Sense::click());
-        let faded = thumb_faded(n);
+        let faded = self.thumb_faded_now(node, n);
         let label = format!("Waveform of {}", node.id);
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
         let channels = if *channels == 1 { "mono".to_owned() } else { format!("{channels} channels") };
@@ -1641,7 +1689,7 @@ impl NodeViewer<'_> {
         let clicked = match self.thumbs.get(&ctx, data, self.resolve) {
             Ok(tex) => {
                 let mut image = egui::Image::new((tex.id(), rect.size())).corner_radius(f32::from(self.tokens.radius));
-                if thumb_faded(n) {
+                if self.thumb_faded_now(node, n) {
                     image = image.tint(self.tokens.faded);
                 }
                 let hover = match thumb_note(n) {
@@ -1692,7 +1740,8 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     /// The node's body in its family's colour, bordered by its run state.
     fn node_frame(&mut self, default: egui::Frame, node: SnarlId, _inputs: &[InPin], _outputs: &[OutPin], snarl: &Snarl<CanvasNode>) -> egui::Frame {
         let Some(n) = snarl.get_node(node) else { return default };
-        let framed = default.fill(self.tint(n).body);
+        let body = self.tint(n).body;
+        let framed = default.fill(self.run_fill(n).unwrap_or(body));
         match self.border(n) {
             Some(stroke) => framed.stroke(stroke),
             None => framed,

@@ -65,6 +65,12 @@ pub struct Prefs {
     /// Settings › Engines › Pick Engines Automatically (`engine.auto`); off when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_engines: Option<bool>,
+    /// View › Colour Nodes While Running (`view.runColors`); on when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub run_colors: Option<bool>,
+    /// View › Slow Motion (`view.slowMotion`), in milliseconds; off when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slow_ms: Option<u32>,
     /// Fields this build doesn't know, kept for the file.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
@@ -172,6 +178,12 @@ impl Store {
             self.prefs.auto_engines = Some(on);
             self.save();
         }
+    }
+
+    pub fn set_run_anim(&mut self, colors: bool, slow_ms: u32) {
+        self.prefs.run_colors = Some(colors);
+        self.prefs.slow_ms = Some(slow_ms);
+        self.save();
     }
 
     /// Change the appearance settings, and keep them.

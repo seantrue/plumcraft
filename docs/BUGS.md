@@ -14,6 +14,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 - Cause: as above; the session never worked out which nodes a request needs.
 - Fix: `run::needed` mirrors the scheduler's rule (the targets, or the sinks, plus watched nodes, and their ancestors; a wire into a bound input is dropped). Only those nodes are queued and counted, and the rest keep what they showed. Tests: `run::queued_tests` (four). Not checked in the real editor.
+- Fixed: 2026-11-11, PR #81
 
 ### B22. Node thumbnails aren't in step with the latest run
 

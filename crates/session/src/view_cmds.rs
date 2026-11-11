@@ -65,6 +65,12 @@ pub struct Views {
     /// Appearance commands (`view.textSize`, `theme.*`) for the window to carry out, with
     /// their parameters ([`crate::settings_cmds`]).
     pub ui_asks: Vec<(String, Value)>,
+    /// Run colours are off (`view.runColors`): node bodies keep their family colour while a
+    /// run computes them.
+    pub run_colors_off: bool,
+    /// Slow motion (`view.slowMotion`): the least time, in milliseconds, each node is shown
+    /// running in a run started by hand; 0 is off.
+    pub slow_ms: u32,
     next: u64,
 }
 
@@ -234,8 +240,54 @@ fn messages(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"open": open}))
 }
 
+/// The longest slow-motion time taken, in milliseconds.
+pub const MAX_SLOW_MS: u64 = 5000;
+
+/// `view.runColors {on?}`: colour node bodies by their run state while a run computes them.
+fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = match p.get("on") {
+        None | Some(Value::Null) => s.views.run_colors_off,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"on\" must be true or false".into()))?,
+    };
+    s.views.run_colors_off = !on;
+    Ok(json!({"on": on}))
+}
+
+/// `view.slowMotion {ms}`: the least time each node is shown running.
+fn slow_motion(s: &mut Session, p: &Value) -> Result<Value> {
+    let ms = match p.get("ms") {
+        None | Some(Value::Null) => 0,
+        Some(v) => v
+            .as_u64()
+            .filter(|ms| *ms <= MAX_SLOW_MS)
+            .ok_or_else(|| SessionError::Params(format!("\"ms\" must be a whole number of milliseconds from 0 (off) to {MAX_SLOW_MS}")))?,
+    };
+    s.views.slow_ms = u32::try_from(ms).unwrap_or(0);
+    Ok(json!({"ms": ms}))
+}
+
 pub(crate) fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec {
+            id: "view.runColors",
+            label: "Colour Nodes While Running",
+            menu: &["View"],
+            shortcut: None,
+            params: "{on?: bool (default: toggle)} -> {on}: while a run computes the graph, each node's body shows its state (waiting, running, done, cached, failed, skipped); the colours fade once the run is over. On by default, kept between runs",
+            enabled: always,
+            run: run_colors,
+            journal: false,
+        },
+        CommandSpec {
+            id: "view.slowMotion",
+            label: "Slow Motion",
+            menu: &[],
+            shortcut: None,
+            params: "{ms: 0 (off) to 5000} -> {ms}: in a run started by hand, show each node running for at least this long (a cache hit a quarter of it), in the run's own order, so a fast graph can be watched; the engines aren't slowed. View › Slow Motion offers 250, 500 and 1000. Kept between runs",
+            enabled: always,
+            run: slow_motion,
+            journal: false,
+        },
         CommandSpec {
             id: "view.messages",
             label: "Messages",
