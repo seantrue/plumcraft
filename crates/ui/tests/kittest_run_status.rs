@@ -1,6 +1,6 @@
 //! What a node's header says about its runs: "not run" until a run completes it (B21), never
 //! "stale" for a node with no result; "queued" and "running" while a run computes it, over
-//! "stale" (B20).
+//! "stale" (B20); and its excerpt from an earlier run faded while a newer run computes it (B22).
 
 mod common;
 
@@ -107,4 +107,42 @@ fn a_stale_node_the_run_did_not_reach_says_stale_again() {
     let h = harness(EditorApp::new(s));
     assert!(h.query_by_label("stale").is_some());
     assert!(shows_stale(h.state().session.run.node(&n).unwrap()));
+}
+
+/// Is `text` on screen?
+fn shows(h: &egui_kittest::Harness<'_, EditorApp>, text: &str) -> bool {
+    h.query_by_label_contains(text).is_some()
+}
+
+/// A finished node's excerpt stays while the next run computes it, faded as the earlier run's,
+/// and this run's replaces it.
+#[test]
+fn an_excerpt_from_the_previous_run_is_faded_until_this_run_sends_its_own() {
+    use plumcraft_proto::display::Rendition;
+    use plumcraft_ui::canvas::thumb_faded;
+    let excerpt = |t: &str| Rendition::Excerpt { text: t.into(), offset: 0, total_chars: t.len() as u64, lines: 1 };
+    let (mut s, n) = one();
+    s.connected = true;
+    let req = s.execute("run.start", &json!({})).unwrap();
+    let _ = s.run.take_outbox();
+    let mut reply = RunReply { run_id: req["run_id"].as_str().unwrap().to_owned(), generation: s.run.generation, ok: true, ..Default::default() };
+    reply.nodes.insert(n.clone(), NodeReport { state: NodeState::Done, thumb: Some(excerpt("first run's words")), ..Default::default() });
+    assert!(s.run.apply_reply(&reply, Instant::now()));
+    assert!(!thumb_faded(s.run.node(&n).unwrap()));
+
+    s.execute("run.start", &json!({})).unwrap();
+    let _ = s.run.take_outbox();
+    let mut h = harness(EditorApp::new(s));
+    assert!(shows(&h, "first run's words"), "kept while the new run computes");
+    assert!(thumb_faded(h.state().session.run.node(&n).unwrap()), "and faded: the earlier run's");
+
+    let run_id = h.state().session.run.run_id.clone().unwrap();
+    let generation = h.state().session.run.generation;
+    let mut pv = StatusRecord { node_id: n.clone(), publisher: "p".into(), seq: 3, state: NodeState::Preview, ..Default::default() };
+    pv.thumb = Some(excerpt("second run's words"));
+    let e = Envelope::new(1, 0.0, Some((&run_id, generation)), Event::Status(Box::new(pv)));
+    assert!(h.state_mut().session.run.apply_event(&e, Instant::now()));
+    h.run_steps(4);
+    assert!(shows(&h, "second run's words"));
+    assert!(!thumb_faded(h.state().session.run.node(&n).unwrap()), "this run's, though it is still running");
 }

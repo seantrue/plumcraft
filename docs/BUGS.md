@@ -6,6 +6,17 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B22. Node thumbnails aren't in step with the latest run
+
+- Reported: 2026-11-11 (from an application built on PlumCraft 0.6.1)
+- Report: "node thumbnails are not synchronize"
+- Context (the maintainer): a node's thumbnail lags behind that node's latest run, and thumbnails from different runs are shown side by side.
+- Issue: #70
+- Cause: three things in the session's run state (`crates/session/src/run.rs`). (1) A node's thumbnail was replaced only when a run sent a new one: a node done or cached in a run that made no thumbnail (an output with none, a picture that couldn't be read) kept an earlier run's picture under its new result. (2) While a run computed the graph again, each node kept its last thumbnail until it got there, by design so previews don't blink, but nothing marked it as the earlier run's: finished and waiting nodes looked alike. (3) An edit's stale mark went only at the run's reply, so a node this run had already finished stayed stale and its new thumbnail faded like the old ones until every node was done.
+- Fix: the reply's thumbnail, or this run's preview, is the node's thumbnail, and none when the run made none. `NodeRun::thumb_generation` says which run a thumbnail came from, and `thumb_is_older` is true while a newer run is computing the node and hasn't sent one. The canvas fades such a thumbnail, excerpt or waveform, with a hover saying it is from the previous run (`canvas::thumb_faded`). A node stops being stale the moment the run made after the edit finishes it. Tests: `run::thumb_tests` (four, two fail without the fix) and `kittest_run_status.rs` (one). Checked in the real editor (`claude-debug/run_status_probe.py`, `claude-debug/b22/4-mid-run.png`): mid-run, the first node is up to date with the new text while the nodes waiting for the slow one keep their earlier excerpts, faded.
+- Not fixed here: `stale_since` keeps the first edit that made a node stale. A node already stale when a run is requested and edited again during that run is taken as up to date when the run finishes it. This was already so at the reply, and now it happens when the node finishes.
+- Fixed: 2026-11-11, PR #PRNUM
+
 ### B20. Can't tell which nodes are running
 
 - Reported: 2026-11-11 (from an application built on PlumCraft 0.6.1)

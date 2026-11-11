@@ -976,6 +976,26 @@ fn rich_label(ui: &mut egui::Ui, rich: egui::RichText, text: &str, tooltip: Opti
     }
 }
 
+/// Is a node's thumbnail drawn faded: stale, failed, or from an earlier run than the one now
+/// computing the node (B22: thumbnails of two runs side by side must look it)?
+pub fn thumb_faded(run: &NodeRun) -> bool {
+    run.is_stale() || run.state == Some(NodeState::Error) || run.thumb_is_older()
+}
+
+/// What a thumbnail's hover adds about how current it is.
+fn thumb_note(run: &NodeRun) -> Option<String> {
+    if run.is_stale() {
+        Some(stale_tooltip(run))
+    } else if run.thumb_is_older() {
+        Some(OLDER_THUMB.to_owned())
+    } else {
+        None
+    }
+}
+
+/// The hover of a thumbnail from an earlier run.
+pub const OLDER_THUMB: &str = "From the previous run: this run hasn't reached the node yet.";
+
 /// Why a node is stale: the edits since its last run that changed it or what feeds it.
 pub fn stale_tooltip(run: &NodeRun) -> String {
     if run.stale_why.is_empty() {
@@ -1302,8 +1322,11 @@ impl NodeViewer<'_> {
         if let Some(Rendition::Excerpt { text, .. }) = n.thumb.as_ref().filter(|_| self.view_of(node) == NodeView::Full)
             && !text.is_empty()
         {
-            let color = if n.is_stale() || n.state == Some(NodeState::Error) { self.tokens.text_faint } else { self.tokens.text_dim };
-            let hover = if n.is_stale() { format!("{}\nClick to watch", stale_tooltip(n)) } else { "Click to watch".to_owned() };
+            let color = if thumb_faded(n) { self.tokens.text_faint } else { self.tokens.text_dim };
+            let hover = match thumb_note(n) {
+                Some(note) => format!("{note}\nClick to watch"),
+                None => "Click to watch".to_owned(),
+            };
             let r = ui
                 .add(egui::Label::new(egui::RichText::new(run_view::excerpt_lines(text)).monospace().small().color(color)).wrap().sense(egui::Sense::click()));
             if r.on_hover_text(hover).clicked() {
@@ -1571,11 +1594,14 @@ impl NodeViewer<'_> {
         let Some(Rendition::Peaks { data, channels, .. }) = &n.thumb else { return };
         let id = ui.id().with(("plumcraft-thumb", node.id.0.as_str()));
         let r = ui.interact(rect, id, egui::Sense::click());
-        let faded = n.is_stale() || n.state == Some(NodeState::Error);
+        let faded = thumb_faded(n);
         let label = format!("Waveform of {}", node.id);
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
         let channels = if *channels == 1 { "mono".to_owned() } else { format!("{channels} channels") };
-        let hover = if n.is_stale() { format!("{channels}\n{}\nClick to watch", stale_tooltip(n)) } else { format!("{channels}\nClick to watch") };
+        let hover = match thumb_note(n) {
+            Some(note) => format!("{channels}\n{note}\nClick to watch"),
+            None => format!("{channels}\nClick to watch"),
+        };
         let clicked = match self.thumbs.peaks(data, self.resolve) {
             Ok(peaks) => {
                 crate::audio::draw_waveform(ui.painter(), rect, &peaks, self.tokens, faded);
@@ -1615,10 +1641,13 @@ impl NodeViewer<'_> {
         let clicked = match self.thumbs.get(&ctx, data, self.resolve) {
             Ok(tex) => {
                 let mut image = egui::Image::new((tex.id(), rect.size())).corner_radius(f32::from(self.tokens.radius));
-                if n.is_stale() || n.state == Some(NodeState::Error) {
+                if thumb_faded(n) {
                     image = image.tint(self.tokens.faded);
                 }
-                let hover = if n.is_stale() { format!("{summary}\n{}\nClick to watch", stale_tooltip(n)) } else { format!("{summary}\nClick to watch") };
+                let hover = match thumb_note(n) {
+                    Some(note) => format!("{summary}\n{note}\nClick to watch"),
+                    None => format!("{summary}\nClick to watch"),
+                };
                 // painted, not laid out: the outputs sit beside it
                 image.paint_at(ui, rect);
                 let r = ui.interact(rect, id, egui::Sense::click());

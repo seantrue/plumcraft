@@ -49,6 +49,10 @@ pub struct NodeRun {
     /// The latest thumbnail (kept while a new run computes, so previews don't blink).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumb: Option<Rendition>,
+    /// The generation of the run `thumb` came from: older than `generation` while a newer run
+    /// hasn't reached the node yet, so the editor can show it as the earlier run's.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub thumb_generation: u64,
     /// The edit count when an edit made this node stale (it, or something upstream, changed
     /// since its result was computed). `None`: fresh.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -104,6 +108,10 @@ impl CacheStats {
     }
 }
 
+fn is_zero(n: &u64) -> bool {
+    *n == 0
+}
+
 impl NodeRun {
     pub fn is_stale(&self) -> bool {
         self.stale_since.is_some()
@@ -119,6 +127,12 @@ impl NodeRun {
     /// Queued or running.
     pub fn is_active(&self) -> bool {
         matches!(self.state, Some(NodeState::Queued | NodeState::Started | NodeState::Progress | NodeState::Preview))
+    }
+
+    /// Is its thumbnail from an earlier run than the one now computing it? Shown side by side
+    /// with thumbnails this run has made, it has to look like what it is.
+    pub fn thumb_is_older(&self) -> bool {
+        self.thumb.is_some() && self.is_active() && self.thumb_generation < self.generation
     }
 
     /// Done, cached, failed, skipped or cancelled.
@@ -592,6 +606,13 @@ impl RunState {
         n.completed |= matches!(view.state, NodeState::Done | NodeState::Cached);
         if view.thumb.is_some() {
             n.thumb = view.thumb;
+            n.thumb_generation = generation;
+        }
+        // Up to date the moment it finishes, not when the whole run replies: a run made after
+        // the edit has computed it (an edit since then keeps it stale).
+        if n.stale_since.is_some_and(|since| since < self.edits_at_request) && n.is_finished() {
+            n.stale_since = None;
+            n.stale_why.clear();
         }
         *n != before
     }
@@ -627,9 +648,10 @@ impl RunState {
                     if let Some(payload) = reply.nodes.get(&id).map(|r| &r.editor).filter(|e| !e.is_empty()) {
                         n.editor = payload.clone();
                     }
-                    if !matches!(n.state, Some(NodeState::Done | NodeState::Cached)) && reply.nodes.get(&id).is_some_and(|r| r.thumb.is_none()) {
-                        n.thumb = None;
-                    }
+                    // The run's own thumbnail (its preview, or the reply's), or none: an earlier
+                    // run's would lag behind the node's result.
+                    n.thumb = self.reducer.node(&id).and_then(|v| v.thumb.clone());
+                    n.thumb_generation = self.generation;
                 }
             } else if let Some(n) = self.nodes.get_mut(&id).filter(|n| n.is_active()) {
                 // Not part of the run (the engine ran only what the targets needed), or the run
@@ -964,5 +986,100 @@ mod not_run_tests {
             let n = run.node("n1").unwrap();
             assert!(n.completed && n.is_stale() && !n.is_not_run(), "{state:?}: its earlier result is stale");
         }
+    }
+}
+
+/// B22 (#70): a node's thumbnail and staleness keep up with its latest run.
+#[cfg(test)]
+mod thumb_tests {
+    use std::time::Instant;
+
+    use plumcraft_proto::event::{NodeState, StatusRecord};
+    use plumcraft_proto::run::{NodeReport, RunReply};
+
+    use super::*;
+
+    fn graph(text: &str) -> Graph {
+        Graph::from_json(&format!(r#"{{"version": 1, "nodes": {{"n1": {{"kind": "k", "values": {{"v": "{text}"}}}}}}, "wires": []}}"#)).unwrap()
+    }
+
+    fn thumb(text: &str) -> Rendition {
+        Rendition::Excerpt { text: text.into(), offset: 0, total_chars: text.len() as u64, lines: 1 }
+    }
+
+    fn envelope(run: &RunState, rec: StatusRecord) -> Envelope {
+        Envelope::new(1, 0.0, Some((run.run_id.as_deref().unwrap(), run.generation)), Event::Status(Box::new(rec)))
+    }
+
+    fn reply(run: &mut RunState, report: NodeReport) {
+        let reply = RunReply {
+            run_id: run.run_id.clone().unwrap(),
+            generation: run.generation,
+            ok: true,
+            nodes: [("n1".to_owned(), report)].into(),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, Instant::now()));
+    }
+
+    #[test]
+    fn a_run_that_makes_no_thumbnail_drops_the_earlier_runs() {
+        let mut run = RunState::default();
+        let g = graph("a");
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        reply(&mut run, NodeReport { state: NodeState::Done, thumb: Some(thumb("old")), ..Default::default() });
+        assert_eq!(run.node("n1").unwrap().thumb, Some(thumb("old")));
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        reply(&mut run, NodeReport { state: NodeState::Done, ..Default::default() });
+        assert_eq!(run.node("n1").unwrap().thumb, None, "not the earlier run's picture under this run's result");
+    }
+
+    #[test]
+    fn the_runs_preview_is_kept_when_the_reply_carries_no_thumbnail() {
+        let mut run = RunState::default();
+        let g = graph("a");
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        let mut pv = StatusRecord::new("n1", NodeState::Preview);
+        pv.thumb = Some(thumb("new"));
+        assert!(run.apply_event(&envelope(&run, pv), Instant::now()));
+        reply(&mut run, NodeReport { state: NodeState::Done, ..Default::default() });
+        assert_eq!(run.node("n1").unwrap().thumb, Some(thumb("new")));
+    }
+
+    #[test]
+    fn a_thumbnail_from_the_previous_run_is_older_until_this_run_sends_one() {
+        let mut run = RunState::default();
+        let g = graph("a");
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        reply(&mut run, NodeReport { state: NodeState::Done, thumb: Some(thumb("old")), ..Default::default() });
+        assert!(!run.node("n1").unwrap().thumb_is_older(), "the latest run's");
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        let n = run.node("n1").unwrap();
+        assert!(n.thumb_is_older(), "kept while the new run computes, and marked as the earlier run's");
+        let mut pv = StatusRecord::new("n1", NodeState::Preview);
+        pv.thumb = Some(thumb("new"));
+        assert!(run.apply_event(&envelope(&run, pv), Instant::now()));
+        let n = run.node("n1").unwrap();
+        assert!(!n.thumb_is_older() && n.thumb == Some(thumb("new")), "this run's, though it hasn't finished");
+    }
+
+    #[test]
+    fn a_node_is_up_to_date_when_it_finishes_not_when_the_whole_run_does() {
+        let now = Instant::now();
+        let mut run = RunState::default();
+        let (a, b) = (graph("a"), graph("b"));
+        run.request(&a, Vec::new(), Vec::new(), now);
+        reply(&mut run, NodeReport { state: NodeState::Done, ..Default::default() });
+        run.on_edit(&a, &b, now);
+        run.request(&b, Vec::new(), Vec::new(), now);
+        assert!(run.node("n1").unwrap().is_stale(), "queued, not yet computed");
+        assert!(run.apply_event(&envelope(&run, StatusRecord::new("n1", NodeState::Done)), now));
+        assert!(!run.node("n1").unwrap().is_stale(), "its result is this run's, the run still going");
+
+        // an edit after the request: the run in flight computes the graph before it
+        run.request(&b, Vec::new(), Vec::new(), now);
+        run.on_edit(&b, &a, now);
+        assert!(run.apply_event(&envelope(&run, StatusRecord::new("n1", NodeState::Done)), now));
+        assert!(run.node("n1").unwrap().is_stale(), "edited since this run was asked for");
     }
 }
