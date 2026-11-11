@@ -4,13 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B19. A popout doesn't stay on top while the main window is being edited
-
-- Reported: 2026-11-07
-- Report: "popout shoud stay on top while main window is being edited"
-- Context: reported from a PlumImpress session (PlumImpress runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
-- Issue: none
-
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
 - Reported: 2026-11-05
@@ -41,6 +34,16 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: PdfCraft writes the save time, in whole seconds, as a `D:` date inside a Flate-compressed object stream. A save a second later re-compresses that stream, so hundreds of bytes move and the file can be a byte longer (reproduced with a 1.1 s pause: 487 bytes differ, 1496 against 1497 bytes). The test allowed fewer than 16 differing bytes at equal length.
 - Fix: the test compares the two PDFs' streams, inflated, with dates masked and the cross-reference stream left out, and now always pauses past a second so the case it guards is the one it meets. It also checks that the comparison still tells two watermarks apart.
 - Fixed: 2026-11-10, PR #71
+
+### B19. A popout doesn't stay on top while the main window is being edited
+
+- Reported: 2026-11-07
+- Report: "popout shoud stay on top while main window is being edited"
+- Context: reported from a PlumImpress session (PlumImpress runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
+- Issue: none
+- Cause: pop-outs were ordinary windows (`WindowLevel::Normal`), so a click into the main window ordered it in front of them. Reproduced in the real editor (`claude-debug/b19_popout_on_top_probe.py`): after raising and clicking the main window, it was listed in front of the pop-out.
+- Fix: while one of the editor's windows (the main one or a pop-out) has focus, every pop-out is `AlwaysOnTop`; when another application takes the focus they go back to `Normal`, so they don't float over other programs (`crates/ui/src/popouts.rs`). `ui.inspect` gives each pop-out's `on_top`. The probe: the pop-out stays in front (the floating level, layer 3) after the main window is clicked, drops to layer 0 with Finder in front, and floats again when the editor returns.
+- Fixed: 2026-11-10, PR #72
 
 ### B17. Packs aren't versioned or chosen by the application's version
 

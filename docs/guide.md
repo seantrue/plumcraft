@@ -38,7 +38,7 @@ See `docs/STATUS.md`.
 
 ### Viewers
 
-Every type of value has a preview and a full viewer, and any value can be popped out into a window of its own. Pop-outs aren't modal, and each one updates on every run. Below:
+Every type of value has a preview and a full viewer, and any value can be popped out into a window of its own. Pop-outs aren't modal, and each one updates on every run. They stay above the editor while you work in it, and step back when you switch to another application. Below:
 
 - a PDF's pages;
 - rows as a JSON tree;
