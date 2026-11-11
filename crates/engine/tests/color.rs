@@ -165,7 +165,8 @@ fn unequal_or_wrong_count_planes_are_none() {
 fn round_trip_recovers_in_gamut() {
     let f = fixture();
     let rgb = planes(&f["rgb"]);
-    // In-gamut samples only, and not the darkest (black has no xyY chromaticity).
+    // In-gamut samples only, and not the darkest (HSI's intensity + 1e-10 dominates there; black
+    // has no xyY chromaticity, x = y = 0, which the fixture test checks).
     let keep: Vec<usize> = (0..rgb[0].len()).filter(|&i| rgb.iter().all(|p| (0.0..=1.0).contains(&p[i])) && rgb.iter().any(|p| p[i] > 0.01)).collect();
     let rgb: Vec<Vec<f32>> = rgb.iter().map(|p| keep.iter().map(|&i| p[i]).collect()).collect();
     for &space in SPACES {

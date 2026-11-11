@@ -10,7 +10,8 @@ use serde_json::json;
 
 const SPACES: &[&str] = &["RGB", "HSI", "IHSL", "HSV", "HLS", "Lab", "Luv", "YCrCb", "XYZ", "xyY"];
 
-/// In-gamut colours (away from black, where xyY is 0/0), as three planes.
+/// In-gamut colours (away from black, where xyY has no chromaticity; see `xyy_of_black_is_zero`),
+/// as three planes.
 fn colours() -> Vec<Vec<f32>> {
     let px: Vec<[f32; 3]> = vec![[0.9, 0.1, 0.2], [0.2, 0.7, 0.3], [0.1, 0.2, 0.8], [0.5, 0.5, 0.5], [0.95, 0.9, 0.2], [0.3, 0.6, 0.9]];
     (0..3).map(|k| px.iter().map(|p| p[k]).collect()).collect()
@@ -36,6 +37,18 @@ fn every_space_round_trips_through_rgb() {
     }
     assert!(convert_planes("RGB", "CMYK", "srgb_d65", true, &rgb).is_err());
     assert!(convert_planes("RGB", "XYZ", "nowhere", true, &rgb).is_err());
+}
+
+/// Black has no chromaticity: colormath gives x = y = 0 there (yapocis3 #66), not 0/0, and
+/// xyY (0, 0, 0) comes back as RGB black.
+#[test]
+fn xyy_of_black_is_zero() {
+    let black = vec![vec![0.0f32, -0.01]; 3];
+    for working in ["srgb_d65", "prophoto_d50", "adobe1998_d65"] {
+        let xyy = convert_planes("RGB", "xyY", working, true, &black).unwrap();
+        assert_eq!(xyy, vec![vec![0.0f32; 2]; 3], "{working}");
+        assert_eq!(convert_planes("xyY", "RGB", working, true, &xyy).unwrap(), vec![vec![0.0f32; 2]; 3], "{working}");
+    }
 }
 
 #[test]

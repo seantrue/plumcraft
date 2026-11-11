@@ -17,8 +17,9 @@ Spaces (see the Rust module for the full notes):
   1024-knot sRGB spline.
 - `Luv`: OpenCV's float paths: gamma splines, cube-root spline, D65.
 - `YCrCb`: OpenCV's float coefficients and 0.5 delta.
-- `XYZ`, `xyY`: yapocis colormath's `srgb_d65` matrices with sRGB decode/encode; black has no
-  chromaticity (x, y NaN), as in the kernel.
+- `XYZ`, `xyY`: yapocis colormath's `srgb_d65` matrices with sRGB decode/encode; black (any
+  exact zero sum X+Y+Z) has no chromaticity: x and y are 0 there and Y is kept, as in the kernel
+  (yapocis3 #66).
 """
 
 from __future__ import annotations
@@ -496,7 +497,9 @@ def _xyz_to_rgb(x, y, z):
 
 def _xyz_to_xyy(x, y, z):
     s = x + y + z
-    return x / s, y / s, y
+    zero = s == 0
+    safe = np.where(zero, F(1.0), s)
+    return np.where(zero, F(0.0), x / safe), np.where(zero, F(0.0), y / safe), y
 
 
 def _xyy_to_xyz(x, y, big_y):

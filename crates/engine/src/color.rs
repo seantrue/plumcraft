@@ -32,8 +32,9 @@
 //!   delta.
 //! - `XYZ`: yapocis colormath's `srgb_d65` matrices, with `linearize` (the Python default): RGB
 //!   is sRGB-decoded (negatives clipped to 0) before the matrix and encoded after.
-//! - `xyY`: colormath's `xyz2xyY` / `xyY2xyz` on that XYZ. As in the kernel, black (X+Y+Z = 0)
-//!   has no chromaticity: x and y are NaN there, and come back as NaN RGB.
+//! - `xyY`: colormath's `xyz2xyY` / `xyY2xyz` on that XYZ. As in the kernel (yapocis3 #66),
+//!   black and any other exact zero sum (X+Y+Z = 0) have no chromaticity: x and y are 0 there,
+//!   Y is kept, and y = 0 comes back as XYZ 0 (RGB black).
 //!
 //! Arithmetic is f32, as in the kernels and OpenCV; tables OpenCV builds in soft-float are built
 //! here in f32/f64 and rounded the same way. [`to_rgb`] does not clip beyond what the reference
@@ -585,7 +586,7 @@ fn xyz_to_rgb(xyz: [f32; 3]) -> [f32; 3] {
 
 fn xyz_to_xyy([x, y, z]: [f32; 3]) -> [f32; 3] {
     let sum = x + y + z;
-    [x / sum, y / sum, y]
+    if sum != 0.0 { [x / sum, y / sum, y] } else { [0.0, 0.0, y] }
 }
 
 fn xyy_to_xyz([x, y, big_y]: [f32; 3]) -> [f32; 3] {

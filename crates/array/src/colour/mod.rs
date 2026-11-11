@@ -110,8 +110,9 @@ fn rgb_to(space: &str, working: &str, linearize: bool, planes: &[Vec<f32>]) -> O
         let rgb = if linearize { rgb.map(srgb_decode) } else { rgb };
         let [x, y, z] = apply(m, rgb);
         let v = if space == "xyY" {
+            // colormath (yapocis3 #66): an exact zero sum (black) has x = y = 0, not 0/0.
             let sum = x + y + z;
-            [x / sum, y / sum, y]
+            if sum != 0.0 { [x / sum, y / sum, y] } else { [0.0, 0.0, y] }
         } else {
             [x, y, z]
         };

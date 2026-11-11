@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — B24: xyY of black is 0, not NaN (Claude Opus 5.5)
+
+**What the maintainer decided:** yapocis3 #66 (filed from this repository's colour port) is settled the same way everywhere: an exact zero sum X+Y+Z gives x = y = 0 and keeps Y, "With check" (an explicit `sum != 0` test, not an epsilon). For this repository's fixture: "Patch the 10 values directly", not a regeneration. The Trace Contours tooltip and offset sign were checked in the same review and need no change here.
+
+**What the AI did:**
+
+- **Ports** (~12 LOC with the docs): the zero-sum branch in `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, `np.where` with a safe divisor, as yapocis3's numpy fallback), with the two module docs and two test comments that said black is NaN. The inverses already gave XYZ 0 at y = 0 (read, unchanged).
+- **Fixture:** in `crates/engine/tests/fixtures/color.json` the 10 nulls (xyY `from_rgb` x, y and `to_rgb` r, g, b at samples 0 and 41) became 0.0 by a text edit, so no other number's spelling moved; a JSON-aware comparison found exactly those 10 differences, and a word diff shows 10 `null` → `0.0` and nothing else.
+- **Test** (~13 LOC): `xyy_of_black_is_zero` in `crates/array/tests/colour.rs`, since the fixture covers only the engine and Python ports; it fails with the old array port.
+- **Checked:** with the patched fixture and the old ports, the Rust and Python fixture comparisons fail on xyY (got NaN, want 0); with the new ports and the old fixture they fail the other way (got 0, want NaN); with both, they pass. The Python port is bit-identical to yapocis3's numbax `xyz2xyY` (jit and numpy fallback, at yapocis3 `842f4d0`) on 100,000 random rows plus black, (0.5, −0.5, 0), −0 and (0.25, 0.25, −0.5). The Rust ports are the same expression, and the fixture tests hold them to it; they weren't compared bit for bit on random data.
+- **Docs:** `docs/BUGS.md` B24 (Fixed), `docs/STATUS.md`.
+
+**Defects:** none found in this change. The defect it fixes was the ports' faithful copy of the kernel's 0/0, recorded when the port was written as "black has no chromaticity: NaN".
+
+**Lines** (measured, `git diff --numstat`, lines added): ~12 in the three source files (code and module docs), ~16 test, ~11 BUGS and STATUS, plus 10 fixture values.
+
 ### 2026-11-11 — Run colours and Animate Last Run (Claude Opus 5.5)
 
 **What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest). I should be able to see an animation of which are satisfied (cached), which are waiting to run, and which are currently running. Also, consider an option so that a minimum node run-time can be set, so that animations of fast executing graphs can be visualized." After the AI's evaluation: "Go with proposed colors." The AI took its own recommendations for the two questions left open, slow motion only for runs started by hand and B23 fixed first (PR #81). The maintainer then tried it in the editor: "The grey background is too dark. Let's separate "run" from "view animation" Put the "view animation" in the view menu", and chose that a run keeps its live colours while the slow replay becomes a View-menu command. Then: "Is there an option to playback in realtime?" There wasn't; the AI offered a Real Time speed, and the maintainer: "Add before committing."

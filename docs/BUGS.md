@@ -6,6 +6,16 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B24. xyY of black is NaN
+
+- Reported: 2026-11-11 (found while porting colormath; filed upstream as yapocis3 #66)
+- Report: the colour spaces gave x = y = NaN for black in xyY, and NaN RGB back, because colormath's OpenCL `xyz2xyY` divided 0 by 0, while its numba port gave 0.
+- Context: yapocis3 #66 (now closed) settled it: an exact zero sum X+Y+Z has x = y = 0, and Y is kept. The maintainer chose that option "With check" (an explicit `sum != 0` test), and "Patch the 10 values directly" for this repository's fixture.
+- Issue: seantrue/yapocis3#66 (closed)
+- Cause: the ports copied the kernel's `x / sum`, `y / sum` with no zero check.
+- Fix: `if sum != 0 { x/sum, y/sum } else { 0, 0 }`, Y kept, in the three ports: `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, with `np.where`). Bit-identical to yapocis3's numbax `xyz2xyY` (jit and numpy fallback) on 100,000 random rows plus black, (0.5, -0.5, 0), -0 and (0.25, 0.25, -0.5). The inverses already gave XYZ 0 at y = 0 and are unchanged. `crates/engine/tests/fixtures/color.json`: the 10 nulls became 0.0, with nothing else changed (a JSON-aware comparison): `spaces.xyY.from_rgb` planes 0 and 1 (x, y) and `spaces.xyY.to_rgb` planes 0, 1 and 2 (r, g, b), each at samples 0 and 41. Tests: the fixture comparisons in `crates/engine/tests/color.rs` and `python/tests/test_color.py` (xyY) fail with the old ports and the patched fixture; the new `xyy_of_black_is_zero` (array) fails with the old port.
+- Fixed: 2026-11-11, branch `fix/66-xyY-black`
+
 ### B23. A run marks every node queued, not only the ones it computes
 
 - Reported: 2026-11-11 (found by the AI while evaluating run animation; the maintainer chose to fix it first)
