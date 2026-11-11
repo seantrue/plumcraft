@@ -20,6 +20,11 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — B19: pop-outs stay above the editor while it is in use (Claude Opus 5.5)
+
+**What the maintainer reported and asked:** "popout shoud stay on top while main window is being edited" (2026-11-07); approved fixing it with the other open bugs before named ports.
+
+**What the AI did:** chose to float pop-outs only while one of the editor's own windows has focus, not always, so they don't sit over other applications. `crates/ui/src/popouts.rs` sets each pop-out's window level from the focus of the main window and the pop-outs in the frame before (egui turns a changed builder level into `ViewportCommand::WindowLevel`); `ui.inspect` reports `on_top`. ~40 LOC with a unit test of the level rule. Checked in the real editor with a new probe (`claude-debug/b19_popout_on_top_probe.py`, `b19_windows.swift`, reading window order and level from CoreGraphics): on `main` the clicked main window came in front of the pop-out; with the fix the pop-out stayed in front at the floating level, dropped to the normal level with Finder in front, and floated again when the editor returned. Not checked on Linux or Windows, where the same winit call applies.
 ### 2026-11-10 — B13: the PdfCraft chain test compares PDFs without their save time (Claude Opus 5.5)
 
 **What the maintainer asked:** approved fixing all four open bugs (B19, B18, B10, B13) before the named-ports work.
