@@ -14,8 +14,8 @@
 id = "filmcraft"
 name = "FilmCraft"
 # The pack's own version, and the app versions it was made and checked for (B17, #56).
-pack_version = "1"
-app_versions = ">=0.17.1"
+pack_version = "2"
+app_versions = ">=0.19.0"
 command = ["filmcraft-cli", "mcp"]
 hint = "install filmcraft-cli on PATH (https://github.com/storytold/filmcraft)"
 timeout_s = 600
@@ -164,6 +164,13 @@ type = "FLOAT"
 min = 1.0
 max = 240.0
 optional = true
+[[node.widget]]
+name = "videoDisplay"
+type = "ENUM"
+choices = ["timecode", "feet35", "feet16", "frames"]
+optional = true
+advanced = true
+tooltip = "How the sequence shows time: timecode, 35 mm or 16 mm feet, or frames"
 
 [[node]]
 id = "fc.inspect"
@@ -403,6 +410,12 @@ default = false
 name = "ripple"
 type = "BOOL"
 default = false
+[[node.widget]]
+name = "maintainPitch"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Maintain Audio Pitch; unchanged when left unset"
 
 # ---- export (file.exportMedia, waited) ----
 
@@ -505,6 +518,19 @@ max = 0.0
 tooltip = "Normalise the sound to this integrated loudness; unset: as mixed"
 optional = true
 advanced = true
+[[node.widget]]
+name = "h264Profile"
+type = "ENUM"
+choices = ["baseline", "main", "high", "high10"]
+optional = true
+advanced = true
+tooltip = "The H.264 profile"
+[[node.widget]]
+name = "h264IntraOnly"
+type = "BOOL"
+optional = true
+advanced = true
+tooltip = "Every frame a keyframe (all-intra), for editing rather than delivery"
 
 [[node]]
 id = "fc.export_mov"
