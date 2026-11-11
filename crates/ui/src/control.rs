@@ -239,6 +239,18 @@ impl EditorApp {
     }
 
     /// The UI state as JSON.
+    /// The run animation: whether the colours are on, the animation speed, whether a replay is
+    /// showing, how strongly it shows, and each node
+    /// of the run as shown ([`crate::run_anim`]).
+    fn run_anim_inspect(&self) -> Value {
+        let now = Instant::now();
+        let a = &self.run_anim;
+        let shown: serde_json::Map<String, Value> =
+            self.session.run.needed.iter().filter_map(|id| a.shown(id, now).map(|s| (id.clone(), json!(s.name())))).collect();
+        json!({"colors": !self.session.views.run_colors_off, "animMs": self.session.views.anim_ms(), "replay": a.is_replay(), "generation": a.generation(),
+               "strength": a.strength(now), "shown": shown})
+    }
+
     pub fn inspect(&self, ctx: &egui::Context) -> Value {
         let g = self.session.graph();
         let catalog = self.session.catalog();
@@ -296,6 +308,7 @@ impl EditorApp {
             "popups": popups,
             "lastError": self.last_error,
             "run": run.summary(Instant::now()),
+            "runAnim": self.run_anim_inspect(),
             "watched": watched,
             "theme": self.tokens.name,
             "prefs": {"path": self.prefs.path(), "theme": self.prefs.prefs().theme, "dirs": self.prefs.prefs().dirs},

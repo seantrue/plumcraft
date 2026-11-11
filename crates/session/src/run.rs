@@ -173,6 +173,11 @@ pub struct RunState {
     /// the engine keeps for it goes when it ends. Empty: unscoped.
     pub scope: String,
     pub nodes: BTreeMap<String, NodeRun>,
+    /// The nodes the latest request computes ([`needed`], a Convert's steps left out).
+    pub needed: BTreeSet<String>,
+    /// The latest request's state changes as they arrived: node, state and when, for the run
+    /// animation to replay (capped at [`MAX_LOG`]).
+    pub log: Vec<(String, NodeState, Instant)>,
     /// The generation of the latest request (0: none yet).
     pub generation: u64,
     /// The latest request's run id.
@@ -328,6 +333,9 @@ pub fn downstream(graph: &Graph, set: &mut BTreeSet<NodeId>) {
     }
 }
 
+/// The most state changes kept for one run's [`RunState::log`].
+pub const MAX_LOG: usize = 100_000;
+
 /// A run id unique per client: an engine may outlive this editor and remember its runs.
 fn new_run_id(generation: u64) -> String {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
@@ -424,7 +432,9 @@ impl RunState {
         // a Convert's steps are the Convert's: not counted, not shown
         let steps = &self.convert.steps;
         self.nodes.retain(|id, _| graph.nodes.contains_key(&NodeId(id.clone())) && !steps.contains_key(id));
-        self.total = needed.iter().filter(|id| !steps.contains_key(*id)).count();
+        self.needed = needed.iter().filter(|id| !steps.contains_key(*id)).cloned().collect();
+        self.total = self.needed.len();
+        self.log.clear();
         for id in graph.nodes.keys().filter(|id| !steps.contains_key(&id.0) && needed.contains(&id.0)) {
             let n = self.nodes.entry(id.0.clone()).or_default();
             n.state = Some(NodeState::Queued);
@@ -502,7 +512,7 @@ impl RunState {
                 for d in &rec.display {
                     self.take_display(d);
                 }
-                self.sync_node(&rec.node_id)
+                self.sync_node(&rec.node_id, now)
             }
             Event::RunReply(reply) => self.apply_reply(reply, now),
             _ => false,
@@ -592,11 +602,14 @@ impl RunState {
     }
 
     /// Copy the reducer's view of `id` into the node's run state.
-    fn sync_node(&mut self, id: &str) -> bool {
+    fn sync_node(&mut self, id: &str, now: Instant) -> bool {
         let Some(view) = self.reducer.node(id).cloned() else { return false };
         let generation = self.generation;
         let n = self.nodes.entry(id.to_owned()).or_default();
         let before = n.clone();
+        if before.state != Some(view.state) && self.log.len() < MAX_LOG {
+            self.log.push((id.to_owned(), view.state, now));
+        }
         n.generation = generation;
         n.state = Some(view.state);
         n.fraction = view.fraction;
@@ -633,7 +646,7 @@ impl RunState {
         let ids: Vec<String> = self.nodes.keys().cloned().collect();
         for id in ids {
             if reply.nodes.contains_key(&id) {
-                self.sync_node(&id);
+                self.sync_node(&id, now);
                 if let Some(n) = self.nodes.get_mut(&id) {
                     n.fraction = None;
                     let memo = reply.nodes.get(&id).and_then(|r| r.memo.as_ref());
@@ -1166,6 +1179,20 @@ mod queued_tests {
         assert_eq!(run.progress(), (0, 2), "the run's own nodes");
         done(&mut run, &req, &["a", "b"]);
         assert_eq!(state(&run, "c"), Some(NodeState::Done), "and keeps it after the run");
+    }
+
+    #[test]
+    fn the_log_keeps_each_change_in_order_for_the_latest_run() {
+        let g = graph();
+        let mut run = RunState::default();
+        let req = run.request(&g, vec!["b".to_owned()], Vec::new(), Instant::now());
+        assert_eq!(run.needed, ["a", "b"].map(str::to_owned).into());
+        assert!(run.log.is_empty(), "queued isn't logged: every needed node starts so");
+        done(&mut run, &req, &["a", "b"]);
+        let got: Vec<(&str, NodeState)> = run.log.iter().map(|(n, s, _)| (n.as_str(), *s)).collect();
+        assert_eq!(got, [("a", NodeState::Done), ("b", NodeState::Done)]);
+        run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        assert!(run.log.is_empty(), "a new run starts a new log");
     }
 
     #[test]

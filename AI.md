@@ -20,6 +20,23 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-11 — Run colours and Animate Last Run (Claude Opus 5.5)
+
+**What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest). I should be able to see an animation of which are satisfied (cached), which are waiting to run, and which are currently running. Also, consider an option so that a minimum node run-time can be set, so that animations of fast executing graphs can be visualized." After the AI's evaluation: "Go with proposed colors." The AI took its own recommendations for the two questions left open, slow motion only for runs started by hand and B23 fixed first (PR #81). The maintainer then tried it in the editor: "The grey background is too dark. Let's separate "run" from "view animation" Put the "view animation" in the view menu", and chose that a run keeps its live colours while the slow replay becomes a View-menu command. Then: "Is there an option to playback in realtime?" There wasn't; the AI offered a Real Time speed, and the maintainer: "Add before committing."
+
+**What the AI did:**
+
+- **The design call:** the slow animation is a paced replay of what the session recorded, rather than engines that sleep, which would have needed a capability in every SDK and pack and would have distorted measured times. The replay keeps the run's order: a node shows running no sooner than it really started, than the previous node on its engine was shown done, and than each of its inputs was.
+- **Session** (`run.rs`, `view_cmds.rs`, ~100 LOC): `RunState::log` (each state change and when, per run, capped) and `needed`; `view.runColors`, `view.animateRun` (enabled once a run has finished) and `view.animationSpeed` (0 is real time: every node at its recorded timing), with their checks.
+- **Editor** (`run_anim.rs` ~360 LOC with 8 tests; `canvas.rs`, `lib.rs`, `control.rs`, `prefs.rs`, ~160 LOC): live colours at the run's speed and the replay, the body wash with a pulse for running, a collapsed group showing its busiest member, faded thumbnails ahead of the replay, the View menu items, preferences, `ui.inspect`'s `runAnim`. `kittest_run_anim.rs` (4 tests). Guide section and picture, `docs/control-protocol.md`.
+- **Checked in the real editor** with `claude-debug/run_anim_probe.py`: a run of the demo graph shows its end states at once and fades; Animate Last Run at 1 s per node then shows every node waiting, the source running for its second, the rest in order, the cached node for a quarter, the failure and the node it skipped, and the fade to rest.
+
+**Defects, caught before any commit:** the probe's first run seemed to show slow motion ignored; the probe read the state after each offscreen screenshot, which takes about 1.6 s, so the readings were late, not the replay (the probe now reads first). The first waiting wash (30% grey on a grey body) was invisible in the real editor. Two kittest mistakes: a status helper reused the state's rank as its sequence number, so a later record with a lower rank was dropped as stale; and the test harness's frame, with no engine, ended the run until the test took the outbox first.
+
+**Defects the maintainer caught:** the second waiting wash, 50% toward the queued grey, was "too dark"; waiting is now paler than the body (toward the field colour), and skipped uses the theme's skipped grey. Slow motion on runs started by hand was the wrong split: the maintainer wanted running and watching an animation apart.
+
+**Not done:** the header's dot, time and border show the real state, so during a replay they are ahead of the body. Recorded in STATUS for the maintainer to decide.
+
 ### 2026-11-11 — B23: a run queues only the nodes it computes (Claude Opus 5.5)
 
 **What the maintainer asked:** "Evaluate coloring a node background to indicate status when running a graph (not when at rest)", with "an animation of which are satisfied (cached), which are waiting to run, and which are currently running", and "an option so that a minimum node run-time can be set". The AI's evaluation proposed a body tint per run state during a run, and a display-side slow-motion replay rather than slowing the engines; it found this bug on the way and proposed fixing it first. The maintainer: "Go with proposed colors."

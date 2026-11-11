@@ -65,6 +65,15 @@ pub struct Views {
     /// Appearance commands (`view.textSize`, `theme.*`) for the window to carry out, with
     /// their parameters ([`crate::settings_cmds`]).
     pub ui_asks: Vec<(String, Value)>,
+    /// Run colours are off (`view.runColors`): node bodies keep their family colour while a
+    /// run computes them.
+    pub run_colors_off: bool,
+    /// The animation speed (`view.animationSpeed`): the least time, in milliseconds, each node
+    /// is shown running when the last run is animated; 0 is real time, with no least time.
+    /// `None`: [`DEFAULT_ANIM_MS`].
+    pub anim_ms: Option<u32>,
+    /// View › Animate Last Run was asked for, until the window starts it.
+    pub animate_asked: bool,
     next: u64,
 }
 
@@ -234,8 +243,99 @@ fn messages(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"open": open}))
 }
 
+/// The animation speeds taken, in milliseconds per node, besides 0 (real time).
+pub const ANIM_MS: std::ops::RangeInclusive<u64> = 100..=5000;
+
+/// Is `ms` an animation speed: 0 (real time), or [`ANIM_MS`]?
+pub fn is_anim_ms(ms: u64) -> bool {
+    ms == 0 || ANIM_MS.contains(&ms)
+}
+/// The animation speed when none is set.
+pub const DEFAULT_ANIM_MS: u32 = 500;
+
+impl Views {
+    /// The animation speed in effect, in milliseconds per node; 0 is real time.
+    pub fn anim_ms(&self) -> u32 {
+        self.anim_ms.unwrap_or(DEFAULT_ANIM_MS)
+    }
+}
+
+/// `view.runColors {on?}`: colour node bodies by their run state while a run computes them.
+fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = match p.get("on") {
+        None | Some(Value::Null) => s.views.run_colors_off,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"on\" must be true or false".into()))?,
+    };
+    s.views.run_colors_off = !on;
+    Ok(json!({"on": on}))
+}
+
+/// `view.animationSpeed {ms}`: the least time each node is shown running when the last run is
+/// animated.
+fn animation_speed(s: &mut Session, p: &Value) -> Result<Value> {
+    let ms = match p.get("ms") {
+        None | Some(Value::Null) => None,
+        Some(v) => Some(v.as_u64().filter(|ms| is_anim_ms(*ms)).ok_or_else(|| {
+            SessionError::Params(format!(
+                "\"ms\" must be 0 (real time), a whole number of milliseconds from {} to {}, or null for {DEFAULT_ANIM_MS}",
+                ANIM_MS.start(),
+                ANIM_MS.end()
+            ))
+        })?),
+    };
+    s.views.anim_ms = ms.and_then(|ms| u32::try_from(ms).ok());
+    Ok(json!({"ms": s.views.anim_ms()}))
+}
+
+/// Is there a finished run to animate?
+fn has_last_run(s: &Session) -> std::result::Result<(), String> {
+    if s.run.running {
+        Err("a run is in progress".into())
+    } else if s.run.log.is_empty() {
+        Err("no run to animate yet: run the graph first".into())
+    } else {
+        Ok(())
+    }
+}
+
+/// `view.animateRun`: replay the last run slowly on the canvas.
+fn animate_run(s: &mut Session, _: &Value) -> Result<Value> {
+    s.views.animate_asked = true;
+    Ok(json!({"generation": s.run.generation, "nodes": s.run.needed.len(), "ms": s.views.anim_ms()}))
+}
+
 pub(crate) fn specs() -> Vec<CommandSpec> {
     vec![
+        CommandSpec {
+            id: "view.runColors",
+            label: "Colour Nodes While Running",
+            menu: &["View"],
+            shortcut: None,
+            params: "{on?: bool (default: toggle)} -> {on}: while a run computes the graph, each node's body shows its state (waiting, running, done, cached, failed, skipped); the colours fade once the run is over. On by default, kept between runs",
+            enabled: always,
+            run: run_colors,
+            journal: false,
+        },
+        CommandSpec {
+            id: "view.animateRun",
+            label: "Animate Last Run",
+            menu: &["View"],
+            shortcut: None,
+            params: "{} -> {generation, nodes, ms}: replay the last run on the canvas slowly, each node shown waiting, then running for at least the animation speed (a cache hit a quarter of it), then done, cached, failed or skipped, in the run's own order; the graph isn't run again",
+            enabled: has_last_run,
+            run: animate_run,
+            journal: false,
+        },
+        CommandSpec {
+            id: "view.animationSpeed",
+            label: "Animation Speed",
+            menu: &[],
+            shortcut: None,
+            params: "{ms: 0 (real time) | 100 to 5000 | null (500)} -> {ms}: how long Animate Last Run shows each node running at least; 0 replays every node at its recorded timing. View › Animation Speed offers Real Time, 250, 500, 1000 and 2000. Kept between runs",
+            enabled: always,
+            run: animation_speed,
+            journal: false,
+        },
         CommandSpec {
             id: "view.messages",
             label: "Messages",
