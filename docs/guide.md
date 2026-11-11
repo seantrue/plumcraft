@@ -38,7 +38,7 @@ See `docs/STATUS.md`.
 
 ### Viewers
 
-Every type of value has a preview and a full viewer, and any value can be popped out into a window of its own. Pop-outs aren't modal, and each one updates on every run. Below:
+Every type of value has a preview and a full viewer, and any value can be popped out into a window of its own. Pop-outs aren't modal, and each one updates on every run. They stay above the editor while you work in it, and step back when you switch to another application. Below:
 
 - a PDF's pages;
 - rows as a JSON tree;
@@ -63,6 +63,18 @@ Hovering a wire previews the value on it. A click on a wire watches it, and a do
 A double-click on a node, on its title or a bare part of it, opens Edit Parameters: every input of the node in a window of its own. A double-click in one of its fields stays with the field. A single click on the title still watches the node's output, so a double-click there also watches it.
 
 A socket's label names its type when its name doesn't, such as `audio · WAV` beside an `audio` that is an AUDIO. Two ports with the same name and different types then look different.
+
+A port's label can be changed without touching its engine (B18). Write `labels.toml` beside the editor's preferences (`~/Library/Application Support/<app>/` on a Mac, `~/.config/<app>/` elsewhere), then run `labels.reload`:
+
+```toml
+[labels]
+max_array_width = "Max. width"   # this port name on every node
+
+[labels."pdf.find"]
+stop_at_limit = "Stop at the limit"   # only on this node kind, before the general entries
+```
+
+A craft pack can carry the same `[labels]` for its own nodes, and an application can bring a table of its own. The user's file wins over both, and they win over the engine's own label. `labels.show` lists what is in effect. Labels change only how ports look; nothing that runs reads them.
 
 ![A tooltip on a wire showing its value](images/wire-preview.png)
 

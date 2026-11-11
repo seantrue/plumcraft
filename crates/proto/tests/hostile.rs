@@ -17,6 +17,7 @@ const SEEDS: &[&str] = &[
     r#"{"v": 2, "op": "run", "run_id": "r", "generation": 1, "graph": {"kind": "inline", "graph": {}}, "watch": [{"node": "n", "want": [{"kind": "rgba8"}]}], "inputs": {"n.x": {"kind": "json", "value": 1}}}"#,
     r#"{"stream": "append", "node_id": "n", "port": "p", "offset": 5, "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e"}}"#,
     r#"{"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}, "title": "t"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "a", "port": "q"}, "slice": ":-1"}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["a", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "l", "min": 0}], "checkpoints": ["a"], "outputs": [{"from": {"node": "a", "port": "p"}, "name": "n"}]}}"#,
+    r#"{"labels": {"x": "Ex", "a": {"y": "Why", "x": 3}}, "v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}]}"#,
     r#"{"format": "plumcraft.expansion", "version": 1, "display": "My group", "description": "d", "expansion": {"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}}, "b": {"kind": "t.b"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "b", "port": "q"}}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["b", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "s"}], "checkpoints": ["a"]}}}"#,
 ];
 
@@ -56,11 +57,17 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<PlanReply>(text);
     let _ = serde_json::from_str::<SaveRequest>(text);
     let _ = serde_json::from_str::<SaveReply>(text);
-    if let Ok(c) = serde_json::from_str::<SchemaReply>(text) {
+    if let Ok(mut c) = serde_json::from_str::<SchemaReply>(text) {
         // a catalogue's conversion marks are hostile too: searching them never panics
         let _ = c.convert_paths("D", "AUDIO");
         let _ = c.convert_path_of("D", &["b".to_owned(), "w".to_owned()]);
+        // and labels from a hostile table land on a hostile catalogue without panicking
+        if let Ok(t) = plumcraft_proto::labels::Labels::from_json(text) {
+            t.apply(&mut c);
+        }
     }
+    let _ = plumcraft_proto::labels::Labels::from_json(text);
+    let _ = plumcraft_proto::labels::Labels::from_toml(text);
     let _ = serde_json::from_str::<Hello>(text);
     let _ = serde_json::from_str::<HelloReply>(text);
     let _ = serde_json::from_str::<EngineState>(text);

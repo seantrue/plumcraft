@@ -431,6 +431,9 @@ pub struct EditorApp {
     fulls: watched::Fulls,
     /// Pop-out windows ([`popouts`]).
     pub popouts: Vec<popouts::PopoutWindow>,
+    /// Whether one of the editor's windows (the main one or a pop-out) had focus last frame:
+    /// pop-outs float above the editor only then (B19).
+    popouts_float: bool,
     /// The values on wires ([`wire_view`]).
     pub wires: wire_view::WireView,
     /// Thumbnail textures.
@@ -519,6 +522,7 @@ impl EditorApp {
             compare: compare_view::CompareView::default(),
             fulls: watched::Fulls::default(),
             popouts: Vec::new(),
+            popouts_float: false,
             wires: wire_view::WireView::default(),
             media: media::MediaViews::default(),
             thumbs: Thumbs::default(),
@@ -625,6 +629,11 @@ impl EditorApp {
     /// calls this with its own ([`prefs::Store::for_app`]).
     pub fn use_prefs(&mut self, store: prefs::Store, ctx: &egui::Context) {
         self.prefs = store;
+        // The user's port labels live beside the preferences (B18): `labels.toml`, which
+        // `labels.reload` reads again after an edit. The application's own table stays.
+        let labels = self.prefs.path().map(|p| p.with_file_name("labels.toml"));
+        let app = self.session.labels.app.clone();
+        self.session.use_labels(app, labels);
         let name = self.prefs.prefs().theme.as_deref().and_then(theme::by_name).map_or(theme::DEFAULT.name, |t| t.name);
         let semibold = self.tokens.semibold;
         self.tokens = self.prefs.prefs().appearance.resolve(name);

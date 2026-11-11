@@ -385,6 +385,10 @@ widgets = { level = { min = 0, max = 100, default = 50 } }
 
 Its curated nodes would import an `AUDIO` value (`file.import_audio`) and bounce one (`file.bounce_mix`). The client, pool, CAS, selection compiler, memo and status code are unchanged. So "generic" means generic over this manifest, not over a shared Rust type (craft-libs has none). M2 proves it with a SoundCraft manifest that only lists its commands and runs one (section 6).
 
+### 3.10.2 A pack's labels for its ports (B18, #59, 2026-11-10)
+
+A pack may carry `[labels]`: a port name → the label shown for it, or a node id → a table of them (`plumcraft_proto::labels`). `build` puts them on the pack's own ports as their `label`, so they reach every editor as the engine's labels; an entry that doesn't read is a build warning (`labels`), never fatal. The editor's application table and the user's `labels.toml` go over them. PhotoCraft's is the first: `scaleStyles` → "Scale styles".
+
 ### 3.10.1 Packs versioned against their app (B17, #56, 2026-11-06)
 
 The maintainer: "Packs should be versioned and selected against the engine (application) version."
@@ -395,7 +399,7 @@ The maintainer: "Packs should be versioned and selected against the engine (appl
 - **Several packs for one app:** `packs/<id>.toml` is the newest, and `packs/<id>@<tag>.toml` is another pack for the same app, built in beside it (`manifest::VARIANTS`). When an engine is built, the app is started and its version read. `manifest::choose` then takes the newest built-in pack whose range the app meets, and rebuilds with it if it isn't the one asked for.
 - **No pack fits:** the newest is used, with a warning in the build report and on stderr: "SoundCraft 4.0 isn't a version its pack (pack 3) was made for (…)". Nodes may send parameters the app doesn't take, or miss ones it needs. A pack loaded from a file is never swapped, only warned about.
 - **What the engine says:** `EngineInfo.components` carries `pack` (its version) and `pack.app_versions`. The memo salt already holds the app's version and the pack's content.
-- **Today:** all 13 packs are pack 1, each `>=` the app version they were last checked against (2026-11-06: PhotoCraft 0.20.2, VectorCraft 0.21.1, SoundCraft 0.17.1, …). `installed_apps_fit_their_packs` checks the installed apps.
+- **Today:** all 13 packs are pack 1, each `>=` the app version they were last checked against (2026-11-06: PhotoCraft 0.20.2, VectorCraft 0.21.1, SoundCraft 0.17.1, …). `installed_apps_fit_their_packs` checks the installed apps. 2026-11-10: FigCraft (pack 2, `>=0.17.0`), FilmCraft (`>=0.19.0`), PdfCraft (`>=0.20.0`) and VectorCraft (`>=0.23.0`) went to pack 2 with their apps' new parameters.
 - **When an app changes:** update the pack, raise its `pack_version`, and set `app_versions` to the new app version. To keep supporting the older app, first copy the old pack to `packs/<id>@<old app version>.toml`, with `app_versions` ending `<` the new version.
 
 ### 3.11 Crates and dependencies
