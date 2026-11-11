@@ -91,8 +91,8 @@ def _inline(ref: dict, handle: str, form: dict) -> np.ndarray | None:
             b = base64.b64decode(loc["b64"], validate=True)
         except (binascii.Error, ValueError):
             continue
-        if handle.startswith("md5:raw:"):
-            if data.raw(b) == handle:
+        if data.is_raw(handle):
+            if data.matches(handle, b=b):
                 return np.frombuffer(b, dtype="|u1")
             continue
         try:
@@ -103,7 +103,7 @@ def _inline(ref: dict, handle: str, form: dict) -> np.ndarray | None:
             a = np.frombuffer(b, dtype=np.dtype(form["dtype"])).reshape(shape)
         except (KeyError, TypeError, ValueError):
             continue
-        if data.nd1(a) == handle:
+        if data.matches(handle, a):
             return a
     return None
 

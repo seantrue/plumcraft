@@ -890,3 +890,45 @@ fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
     assert_eq!(hint, "install the models");
     assert!(h.call("schema", json!({})).is_err(), "calls fail at once while the engine is down");
 }
+
+/// B10 (spec 4.3): over a socket, both engines negotiate `hash.b3`, make `b3` handles when a run
+/// asks (md5 otherwise), and the UI's side reads them back checked; a `b3` blob from the UI's
+/// store binds as an input. Rust and Python alike, so the two SDKs agree.
+#[test]
+fn b3_handles_cross_both_ways() {
+    use plumcraft_proto::handle::{Algo, Handle};
+    let long = "the corgi on the floral carpet ".repeat(8_000);
+    for (name, mk) in [("rust", process as fn() -> Conn), ("python", python)] {
+        let h = mk();
+        let hello = call(h.as_ref(), "hello", json!({"v": 2, "op": "hello", "caps": ["events.poll", "data.shm", "data.path", "hash.b3"]}));
+        assert!(hello["caps"].as_array().unwrap().iter().any(|c| c == "hash.b3"), "{name}: {hello}");
+        assert_eq!(hello["data"]["algos"], json!(["b3", "md5"]), "{name}");
+        let g =
+            graph(json!({"a": {"kind": "text.literal", "values": {"text": long}}, "b": {"kind": "text.upper", "values": {}}}), &[("a", "text", "b", "text")]);
+        for (algo, want) in [("b3", Algo::B3), ("", Algo::Md5)] {
+            let id = format!("b3-{name}-{}", if algo.is_empty() { "md5" } else { algo });
+            run(h.as_ref(), &id, 1, g.clone(), json!({"targets": ["b"], "algo": algo}));
+            let (_, reply) = collect(h.as_ref(), &id, 0);
+            assert!(reply.ok, "{name} {algo:?}: {reply:?}");
+            let PortValue::Blob { data } = &reply.nodes["b"].outputs["text"] else { panic!("{name}: {:?}", reply.nodes["b"].outputs) };
+            let handle = data.handle.clone().unwrap();
+            assert_eq!(handle.algo(), want, "{name} {algo:?}: {handle}");
+            let blob = h.resolve(data).unwrap_or_else(|| panic!("{name} {algo:?}: not readable"));
+            assert!(plumcraft_store::verifies(&handle, &blob.dtype, &blob.shape, &blob.bytes), "{name} {algo:?}");
+            assert_eq!(&blob.bytes[..], long.to_uppercase().as_bytes(), "{name} {algo:?}");
+        }
+        // The other way: a b3 blob in the UI's store, bound to the node's input.
+        let store = plumcraft_store::Store::new(test_root());
+        let input = format!("{name} binds a b3 blob ").repeat(4_000);
+        let (handle, at) = store.publish_raw_as(&Handle::raw(Algo::B3, input.as_bytes()), input.as_bytes()).unwrap();
+        let meta = json!({"media": "text/plain; charset=utf-8", "size": input.len(), "form": {"kind": "text", "lines": 1, "encoding": "utf-8"}});
+        let bound = json!({"b.text": {"kind": "blob", "ref": {"handle": handle.to_string(), "meta": meta, "at": at}}});
+        let g = graph(json!({"b": {"kind": "text.upper", "values": {}}}), &[]);
+        let id = format!("b3-bind-{name}");
+        run(h.as_ref(), &id, 1, g, json!({"targets": ["b"], "algo": "b3", "inputs": bound, "trusted_roots": [test_root().display().to_string()]}));
+        let (_, reply) = collect(h.as_ref(), &id, 0);
+        assert!(reply.ok, "{name} bind: {reply:?}");
+        let PortValue::Blob { data } = &reply.nodes["b"].outputs["text"] else { panic!("{name}: {:?}", reply.nodes["b"].outputs) };
+        assert_eq!(&h.resolve(data).unwrap().bytes[..], input.to_uppercase().as_bytes(), "{name} bind");
+    }
+}

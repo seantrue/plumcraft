@@ -1,6 +1,8 @@
 """How a value crosses the interface, as `crates/engine/src/data.rs` (spec 4.4, 4.5, 10.2).
 
 - Small JSON (at most `max_inline` bytes) travels as `{"kind": "json"}`.
+- Handles are `md5:` by default and `b3:` (BLAKE3) when the run's request asks for them and the
+  `blake3` package is here (spec 4.3; B10); a handle is always checked in its own algorithm.
 - Large text becomes an `md5:raw:` blob of its UTF-8 bytes; a large table an `md5:raw:` blob of
   its JSON. Both live in commonkit as 1-d `|u1` segments.
 - Arrays (numpy) are always blobs (`md5:nd1:`): inline bytes when small, a segment otherwise.
@@ -71,22 +73,62 @@ def shape_repr(shape: tuple[int, ...]) -> str:
     return repr(tuple(int(n) for n in shape))
 
 
-def nd1(a: np.ndarray) -> str:
-    """`md5:nd1:` of an array: the normalised dtype string, the shape's repr, the C-order bytes."""
+try:  # BLAKE3 handles (spec 4.3; B10): listed as `hash.b3` only when the package imports
+    import blake3 as _blake3
+except ImportError:  # pragma: no cover - blake3 is a dependency; an engine without it stays md5
+    _blake3 = None
+
+#: Whether this engine can make and check `b3:` handles.
+HAS_B3 = _blake3 is not None
+
+
+def _hasher(algo: str) -> Any:
+    if algo == "b3":
+        if _blake3 is None:
+            raise NodeError(NodeError.OP, "b3 handles need the blake3 package")
+        return _blake3.blake3(max_threads=_blake3.blake3.AUTO)
+    return hashlib.md5()
+
+
+def algo_of(handle: str) -> str:
+    """A handle's algorithm, `md5` or `b3`."""
+    return "b3" if handle.startswith("b3:") else "md5"
+
+
+def is_raw(handle: str) -> bool:
+    """Whether a handle names bytes as stored (`<algo>:raw:`), not an array."""
+    return handle.split(":", 2)[1:2] == ["raw"]
+
+
+def nd1(a: np.ndarray, algo: str = "md5") -> str:
+    """`<algo>:nd1:` of an array: the normalised dtype string, the shape's repr, the C-order bytes."""
     if a.dtype.hasobject or a.dtype.fields is not None:
         raise NodeError(NodeError.OP, f"no handle for dtype {a.dtype}")
     if a.dtype.byteorder == ">":
         a = a.byteswap().view(a.dtype.newbyteorder("<"))
     a = np.ascontiguousarray(a) if a.ndim else a
-    h = hashlib.md5()
+    h = _hasher(algo)
     h.update(a.dtype.str.encode("ascii"))
     h.update(shape_repr(a.shape).encode("ascii"))
     h.update(a.tobytes(order="C"))
-    return "md5:nd1:" + h.hexdigest()
+    return f"{algo}:nd1:" + h.hexdigest()
 
 
-def raw(b: bytes) -> str:
-    return "md5:raw:" + hashlib.md5(b).hexdigest()
+def raw(b: bytes, algo: str = "md5") -> str:
+    h = _hasher(algo)
+    h.update(b)
+    return f"{algo}:raw:" + h.hexdigest()
+
+
+def matches(handle: str, a: np.ndarray | None = None, b: bytes | None = None) -> bool:
+    """Whether an array (`nd1`) or bytes (`raw`) are `handle`, in the handle's own algorithm.
+    False, never an error, when they aren't or the algorithm can't be computed here."""
+    try:
+        if is_raw(handle):
+            return raw(b if b is not None else (a.tobytes() if a is not None else b""), algo_of(handle)) == handle
+        return a is not None and nd1(a, algo_of(handle)) == handle
+    except NodeError:
+        return False
 
 
 def table_shape(v: Any) -> tuple[int, list[dict]]:
@@ -112,9 +154,11 @@ def line_count(s: str) -> int:
 class Plane:
     """What the executor needs to publish values for one run."""
 
-    def __init__(self, root: str | None, shm: bool, max_inline: int, urls: bool = False):
+    def __init__(self, root: str | None, shm: bool, max_inline: int, urls: bool = False, algo: str = "md5"):
         """`urls`: an HTTP session without the proof; publish to this engine's store and hand out
-        `url` locators the UI fetches by handle (spec 13.2 step 5)."""
+        `url` locators the UI fetches by handle (spec 13.2 step 5). `algo`: the handles this run
+        makes, `b3` when its request asks for them and this engine can (spec 4.3)."""
+        self.algo = "b3" if algo == "b3" and HAS_B3 else "md5"
         self.root = root
         self.shm = shm
         self.urls = urls and not shm
@@ -144,14 +188,14 @@ class Plane:
     def _blob(self, handle: str, meta: dict, payload: bytes, arr: np.ndarray) -> dict:
         if len(payload) <= self.max_inline:
             return {"handle": handle, "meta": meta, "at": [{"kind": "inline", "b64": base64.b64encode(payload).decode("ascii")}]}
-        if handle.startswith("md5:raw:"):
+        if is_raw(handle):
             return {"handle": handle, "meta": meta, "at": self._publish_raw(handle, payload)}
         return {"handle": handle, "meta": meta, "at": self._publish(handle, arr)}
 
     def text_ref(self, s: str) -> dict:
         b = s.encode("utf-8")
         meta = {"media": TEXT_MEDIA, "size": len(b), "form": {"kind": "text", "lines": line_count(s), "encoding": "utf-8"}}
-        return self._blob(raw(b), meta, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b, self.algo), meta, b, np.frombuffer(b, dtype="|u1"))
 
     def array_ref(self, a: np.ndarray) -> dict:
         from .arrays import meta as array_meta
@@ -168,13 +212,13 @@ class Plane:
         if table:
             form["table"] = True
         meta = {"media": NPY_MEDIA, "size": int(a.nbytes), "form": form}
-        return self._blob(nd1(a), meta, a.tobytes(), a)
+        return self._blob(nd1(a, self.algo), meta, a.tobytes(), a)
 
     def audio_ref(self, a: Any) -> dict:
         """An `AudioValue` as an `md5:nd1:` blob of its (frames, channels) `<f4` samples, `Form::Audio`."""
         s = a.samples
         meta = {"media": NPY_MEDIA, "size": int(s.nbytes), "form": a.form()}
-        return self._blob(nd1(s), meta, s.tobytes(), s)
+        return self._blob(nd1(s, self.algo), meta, s.tobytes(), s)
 
     def peaks(self, a: AudioValue) -> dict | None:
         """A waveform overview of `a` (spec 10.3 `peaks`), always inline, as the Rust SDK's."""
@@ -205,12 +249,12 @@ class Plane:
         b = compact(v)
         rows, columns = table_shape(v)
         meta = {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "table", "rows": rows, "columns": columns}}
-        return self._blob(raw(b), meta, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b, self.algo), meta, b, np.frombuffer(b, dtype="|u1"))
 
     def json_ref(self, v: Any) -> dict:
         """A large JSON value as a blob."""
         b = compact(v)
-        return self._blob(raw(b), {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "json"}}, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b, self.algo), {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "json"}}, b, np.frombuffer(b, dtype="|u1"))
 
     def blob_ref(self, b: Blob) -> dict:
         """A `Blob` value: inline bytes when small, else published to the store."""
@@ -300,7 +344,7 @@ def store_stats(root: str) -> dict:
 
 
 def key_for(handle: str) -> str:
-    return SCHEME.key(handle.rsplit(":", 1)[1], "c", FORM_ARRAY if handle.startswith("md5:nd1:") else FORM_RAW)
+    return SCHEME.key(handle.rsplit(":", 1)[1], "c", FORM_RAW if is_raw(handle) else FORM_ARRAY)
 
 
 def z_key_for(handle: str) -> str:
@@ -360,7 +404,7 @@ def locate(store: Any, handle: str) -> list[dict] | None:
     if os.path.isfile(path):
         _touch(path)
         return [{"kind": "commonkit", "key": key}, {"kind": "path", "path": path, "offset": _payload_offset(path)}]
-    if handle.startswith("md5:raw:"):
+    if is_raw(handle):
         key = z_key_for(handle)
         path = store.path_for(key)
         if os.path.isfile(path):
@@ -372,7 +416,7 @@ def locate(store: Any, handle: str) -> list[dict] | None:
 def has(root: str, handle: str) -> bool:
     """Whether the store at `root` holds `handle`, as it is or compressed."""
     store = open_store(root)
-    return os.path.isfile(store.path_for(key_for(handle))) or (handle.startswith("md5:raw:") and os.path.isfile(store.path_for(z_key_for(handle))))
+    return os.path.isfile(store.path_for(key_for(handle))) or (is_raw(handle) and os.path.isfile(store.path_for(z_key_for(handle))))
 
 
 def _segment_bytes(path: str) -> bytes | None:
@@ -415,11 +459,12 @@ def blob_url(handle: str) -> str:
 
 
 def parse_handle(h: Any) -> str | None:
-    """A handle string if `h` is a well-formed `md5:{raw,nd1}:<32 hex>`, else None."""
+    """A handle string if `h` is a well-formed `md5:{raw,nd1}:<32 hex>` or `b3:{raw,nd1}:<64 hex>`,
+    else None."""
     if not isinstance(h, str):
         return None
     parts = h.split(":")
-    if len(parts) != 3 or parts[0] != "md5" or parts[1] not in ("raw", "nd1") or len(parts[2]) != 32:
+    if len(parts) != 3 or parts[1] not in ("raw", "nd1") or len(parts[2]) != {"md5": 32, "b3": 64}.get(parts[0]):
         return None
     return h if all(c in "0123456789abcdef" for c in parts[2]) else None
 
@@ -432,13 +477,13 @@ def read_blob(root: str, handle: str) -> np.ndarray | None:
         a = np.load(store.path_for(key_for(handle)), mmap_mode=None, allow_pickle=False)
     except (OSError, ValueError):
         a = None
-    if a is None and handle.startswith("md5:raw:"):
+    if a is None and is_raw(handle):
         z = _segment_bytes(store.path_for(z_key_for(handle)))
         b = inflate(z) if z is not None else None
         a = np.frombuffer(b, dtype="|u1") if b is not None else None
     if a is None:
         return _counted(store, None)
-    ok = raw(a.tobytes()) == handle if handle.startswith("md5:raw:") else nd1(a) == handle
+    ok = matches(handle, a)
     return _counted(store, a if ok else None)
 
 
@@ -466,14 +511,14 @@ def read_located(root: str, ref: dict, handle: str, trusted: tuple[str, ...] = (
             a = np.load(path, mmap_mode=None, allow_pickle=False)
         except (OSError, ValueError, EOFError):
             continue
-        if (raw(a.tobytes()) if handle.startswith("md5:raw:") else nd1(a)) == handle:
+        if matches(handle, a):
             return a
     return None
 
 
 def put_raw(root: str, handle: str, payload: bytes) -> bool:
     """Store an upload that claims to be `handle`, only if its MD5 matches (spec 13.1)."""
-    if parse_handle(handle) is None or not handle.startswith("md5:raw:") or raw(payload) != handle:
+    if parse_handle(handle) is None or not is_raw(handle) or not matches(handle, b=payload):
         return False
     return store_raw(open_store(root), handle, payload)
 

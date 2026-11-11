@@ -3,8 +3,8 @@
     GET  /v1/health                     {ok, state}
     POST /v1/rpc                        every operation as one JSON-RPC 2.0 request
     POST /v1/blobs/has                  {"handles": [...]} -> {"have", "missing"}
-    PUT  /v1/blobs/md5/raw/<hex>        an upload, verified against its handle (422 otherwise)
-    GET  /v1/blobs/md5/{raw,nd1}/<hex>  a blob's bytes; Range: bytes=a-b honoured
+    PUT  /v1/blobs/{md5,b3}/raw/<hex>        an upload, verified against its handle (422 otherwise)
+    GET  /v1/blobs/{md5,b3}/{raw,nd1}/<hex>  a blob's bytes; Range: bytes=a-b honoured
 
 Every request carries `Authorization: Bearer <token>`, and the server won't start without one, on
 any address: a page in a browser can reach loopback. `ThreadingHTTPServer` serves each request on its own thread, so a
@@ -191,8 +191,8 @@ def serve_http(factory: Factory, listen: str, token: str, port_file: str | None 
                 return self._error(401, UNAUTHORIZED, "a bearer token is required")
             p = self._path()
             handle = self._handle_from(p) if p.startswith("/v1/blobs/") else None
-            if handle is None or not handle.startswith("md5:raw:"):
-                return self._error(400, BAD_PARAMS, "uploads are md5:raw: handles")
+            if handle is None or not data.is_raw(handle):
+                return self._error(400, BAD_PARAMS, "uploads are raw handles (md5:raw: or b3:raw:)")
             engine = engine_host.engine
             if engine is None or not engine.store_root:
                 return self._error(503, UNAVAILABLE, "this engine has no store")

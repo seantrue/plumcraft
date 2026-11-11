@@ -4,6 +4,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+## Fixed
+
 ### B10. Hashing makes content-addressed storage slow for large arrays
 
 - Reported: 2026-11-05
@@ -12,10 +14,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #28
 - Design (the maintainer, 2026-11-10, of three offered): "Go to BLAKE3 now", then "Yes, publish commonkit".
 - Cause: measured on this Mac with a release build (`claude-debug/b10-hash-timing`), 144 MB `<f4`: an array's publish hashed it twice (the engine's handle, then `Store::publish_array` again), about 350 ms of MD5, and a read checked it once more (170 ms): 528 ms, the 550–600 ms reported. BLAKE3 hashes it in 8–12 ms.
-- Progress: commonkit 0.1.2 takes 64-digit digests (pycommonkit #17, #18). PlumCraft (`fix/28-blake3-handles`): `b3` handles in proto (shared vectors, checked against Python's `blake3`), the store publishes under the engine's handle without hashing again and checks a handle in its own algorithm, runs ask for `b3` (`RunRequest.algo`) when `hash.b3` was negotiated, and a coordinator clears it when an engine in the run lacks it. 144 MB publish and read back: 528 ms before, 29 ms with `b3` (355 ms with md5 hashed once). Python engines don't list `hash.b3` yet, so runs that include one stay md5: the next PR.
-
-
-## Fixed
+- Progress: commonkit 0.1.2 takes 64-digit digests (pycommonkit #17, #18). PlumCraft (`fix/28-blake3-handles`): `b3` handles in proto (shared vectors, checked against Python's `blake3`), the store publishes under the engine's handle without hashing again and checks a handle in its own algorithm, runs ask for `b3` (`RunRequest.algo`) when `hash.b3` was negotiated, and a coordinator clears it when an engine in the run lacks it. 144 MB publish and read back: 528 ms before, 29 ms with `b3` (355 ms with md5 hashed once). The Python SDK followed (`fix/28-blake3-python`): `blake3` as a dependency, `hash.b3` and `data.algos` in its hello, `b3` handles when a run asks, every handle checked in its own algorithm, pyuncommonkit 0.1.2.
+- Fixed: 2026-11-10, PRs #74 (Rust) and #75 (Python)
 
 ### B18. Port and parameter labels have no translation table
 

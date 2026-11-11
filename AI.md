@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-10 — B10 (#28): BLAKE3 handles, Python SDK (Claude Opus 5.5)
+
+**What the maintainer asked:** as the Rust side below; this closes B10.
+
+**What the AI did:** `plumcraft_engine.data` makes `md5` or `b3` handles (`nd1`, `raw` take an algorithm; `matches` checks a handle in its own algorithm, false rather than an error when it can't); `Plane` takes the run's `algo`, and `b3` only when the `blake3` package imports; keys pick their form by recipe, not by an `md5:` prefix; `parse_handle` takes 64-digit `b3` handles; bind, persist and HTTP uploads check by the handle's own algorithm; the hello lists `hash.b3` and `data.algos`. `blake3` joins the dependencies, `pyuncommonkit>=0.1.2`. Tests: `python/tests/test_b3.py` (the shared vectors' `b3` handles, parsing and checking, a plane per algorithm, the hello) and a conformance case in `crates/text/tests/conformance.rs` that runs the Rust and the Python text engines as child processes: `hash.b3` negotiated, a long text's handle following the request, read back checked by the UI's side, and a `b3` blob from the UI's store bound as an input. ~150 LOC.
+
+**Not done:** the Python SDK's version isn't bumped; the new dependency ships with its next release.
+
 ### 2026-11-10 — B10 (#28): BLAKE3 handles for large values, Rust side (Claude Opus 5.5)
 
 **What the maintainer asked:** "Fix the slow hashing issues for content addressed storage" (2026-11-05). Offered three scopes, they chose "Go to BLAKE3 now", then "Yes, publish commonkit".
