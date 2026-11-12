@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-12 — The parameter-coverage baseline re-blessed for the installed apps (Claude Opus 5.5)
+
+**What the maintainer decided:** `hidden_params_match_the_baseline` failed in the gate for #83/#84. The maintainer: "plumcraft params_coverage baseline: ★ Check it fails on main, then re-bless with PLUMCRAFT_BLESS=1 in its own PR". This time the new parameters stay hidden; no widgets were added (unlike the 2026-11-10 entry below).
+
+**What the AI did:** ran the test on a fresh `main` (`77a73ef`) and confirmed it failed: 12 node commands in three apps hide parameters the apps added since the last bless (`a6ef2b4`). No pack or manifest under `crates/craft` or `plums` changed since that bless (only `smoke`'s `Plane` literal in `lib.rs`), so the growth comes from the apps: SolidCraft 0.40.1 (`touching` on box, combine, cylinder, extrude and sphere; `tangent_chain` on chamfer; `corner` on extrude; `setbacks`, `tangent_chain` and `turn` on fillet; `bodies`, `sketch_counts` and `timeline` on inspect; `folder`, `origin` and `units` on open; `fixed` and `size_from` on SVG insert), VectorCraft 0.24.1 (`hiddenLayers` on open) and WordCraft 0.18.1 (`strict` on PNG export). Re-blessed with `PLUMCRAFT_BLESS=1`. The baseline diff only adds keys: no key leaves a hidden set, and no node is gone or stops parsing. The test then passes without the variable, and so does `cargo test -p plumcraft-craft`.
+
+**Not changed:** the EffectCraft and PhotoCraft "fails the catalogue check" lines the test prints come from the generated nodes that duplicate curated ones (and EffectCraft's `layer.style.add` description). They were there before, and the test only prints them.
+
+**Defects:** none. **Lines:** 12 changed in `crates/craft/tests/fixtures/params_coverage.json` (data), plus this entry.
+
 ### 2026-11-11 — B24: xyY of black is 0, not NaN (Claude Opus 5.5)
 
 **What the maintainer decided:** yapocis3 #66 (filed from this repository's colour port) is settled the same way everywhere: an exact zero sum X+Y+Z gives x = y = 0 and keeps Y, "With check" (an explicit `sum != 0` test, not an epsilon). For this repository's fixture: "Patch the 10 values directly", not a regeneration. The Trace Contours tooltip and offset sign were checked in the same review and need no change here.
