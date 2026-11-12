@@ -39,13 +39,15 @@ fn simplex_matches_numba() {
     // numba compiled the kernel with fastmath, but in float64 throughout fastmath's reassociation
     // never reaches the float32 result here: exact (and the port uses only IEEE + - × ÷ and
     // floor, so it is exact on every machine)
+    // square cases carry "size"; the non-square tileable ones (#83) carry "height" and "width"
     for case in fixture("simplex").as_array().unwrap() {
-        let n = case["size"].as_u64().unwrap() as usize;
+        let dim = |k: &str| case[k].as_u64().or(case["size"].as_u64()).unwrap() as usize;
+        let (h, w) = (dim("height"), dim("width"));
         let (seed, cells, octaves) = (case["seed"].as_i64().unwrap(), case["cells"].as_f64().unwrap(), case["octaves"].as_i64().unwrap());
         let out = match case["kind"].as_str().unwrap() {
             "smooth" => noise::simplex2d(
-                n,
-                n,
+                h,
+                w,
                 seed,
                 cells,
                 octaves,
@@ -53,13 +55,14 @@ fn simplex_matches_numba() {
                 case["lacunarity"].as_f64().unwrap(),
                 case["tileable"].as_bool().unwrap(),
             ),
-            "turbulence" => noise::turbulence(n, n, seed, cells, octaves),
-            _ => noise::ridged(n, n, seed, cells, octaves),
+            "turbulence" => noise::turbulence(h, w, seed, cells, octaves),
+            _ => noise::ridged(h, w, seed, cells, octaves),
         };
-        let (_, want) = arr(&case["out"]);
+        let (shape, want) = arr(&case["out"]);
+        assert_eq!(shape, [h, w]);
         let e = max_err(&out, &want);
-        eprintln!("simplex {} {n}: max error {e:e}", case["kind"]);
-        assert_eq!(e, 0.0, "simplex {}", case["kind"]);
+        eprintln!("simplex {} {h}x{w} tileable {}: max error {e:e}", case["kind"], case["tileable"]);
+        assert_eq!(e, 0.0, "simplex {} {h}x{w}", case["kind"]);
     }
 }
 

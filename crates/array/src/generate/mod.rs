@@ -60,7 +60,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
                     enum_in("kind", &["smooth", "turbulence", "ridged"], "smooth", "smooth (fBm), turbulence (|noise|, billowy) or ridged (sharp crests)"),
                     float_in("persistence", 0.5, 0.05, 1.0, "Amplitude kept per octave: higher = rougher (smooth only)"),
                     float_in("lacunarity", 2.0, 1.1, 4.0, "Frequency gain per octave (smooth only)"),
-                    bool_in("tileable", false, "Wrap seamlessly at the edges (smooth only)"),
+                    bool_in("tileable", false, "Wrap the noise lattice; not seamless on x or y (smooth only)"),
                     float_in("cells", 4.0, 0.1, 512.0, "Noise cells across each side (yapocis scale): more = finer"),
                     int_in("octaves", 4, 1.0, 10.0, "Layers of finer detail"),
                     int_in("seed", 0, 0.0, MAX_SEED, "The noise's seed"),
