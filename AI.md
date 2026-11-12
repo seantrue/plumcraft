@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-12 — B25 (#83) and B26 (#84): Simplex Noise's tile periods and `tileable` tooltip (Claude Opus 5.5)
+
+**What the maintainer decided:** both issues came from the yapocis3 #65 review, which the maintainer had filed here ("3 file"), and the maintainer approved fixing them together now: "Yes to do 4 now". For yapocis3 the maintainer had chosen to stop promising seamless output ("2 A") and to file real tiling as a feature (yapocis3 #83); this tooltip follows that. Later: "Fold B2 into the #84 fix", so impressionist's copy of the tooltip gets the same wording in its own branch.
+
+**What the AI did:**
+
+- **B25 (#83), `crates/array/src/generate/noise.rs`** (~12 LOC with docs): the row-based lattice index now wraps every `h / frequency` cells and the column-based one every `w / frequency`. The port had read yapocis's `tile_w`/`tile_h` as columns/rows, but yapocis's `width` is the rows. Checked against yapocis3's numbax `_simplex2d_njit` before changing it. The doc comment no longer says numba is only right for square sizes (stale since yapocis3 #75).
+- **Fixture:** `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases, 24 × 16 and 12 × 30, recorded from yapocis3 `main` (`6fa5e01`) through `Simplex.simplex2d` on the numba backend, by the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py` (run read-only against the yapocis3 checkout; a stamp-file check found no writes there). The probe first confirmed that the five existing cases reproduce exactly. They were appended by re-serialising the JSON, after checking that the re-serialised original is byte-identical, so the existing cases didn't move. This repository's own `claude-debug/generate_fixtures_gen.py` (untracked) doesn't emit the new cases yet.
+- **B26 (#84), `crates/array/src/generate/mod.rs`:** the tooltip "Wrap seamlessly at the edges (smooth only)" became "Wrap the noise lattice; not seamless on x or y (smooth only)".
+- **Tests** (~24 LOC): `simplex_matches_numba` reads `height`/`width` when a case has them and checks the output's shape; `simplex_tileable_tooltip_does_not_promise_seamless_edges` (`crates/array/tests/catalogue.rs`). Before the fix, the first failed on the 24 × 16 case (max error 0.72) and the second on the old text; after it both pass, the simplex cases at error 0.
+- **Docs:** `docs/BUGS.md` B25 and B26 (Fixed), `docs/STATUS.md`.
+
+**Defects:** B25 was in AI-written code: the original port swapped the periods, and the square-only fixtures couldn't see it. It was caught by reading the port against yapocis during the yapocis3 #65 review, not by a test. B26's tooltip was copied from the research software's node, which had the same overclaim.
+
+**Lines** (measured, `git diff --numstat`, lines added): ~13 source (code, docs, tooltip), ~24 test, ~21 BUGS and STATUS, plus two fixture cases.
+
 ### 2026-11-11 — B24: xyY of black is 0, not NaN (Claude Opus 5.5)
 
 **What the maintainer decided:** yapocis3 #66 (filed from this repository's colour port) is settled the same way everywhere: an exact zero sum X+Y+Z gives x = y = 0 and keeps Y, "With check" (an explicit `sum != 0` test, not an epsilon). For this repository's fixture: "Patch the 10 values directly", not a regeneration. The Trace Contours tooltip and offset sign were checked in the same review and need no change here.

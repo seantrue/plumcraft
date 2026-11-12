@@ -53,7 +53,9 @@ fn wrap(a: i64, m: i64) -> i64 {
 }
 
 /// One octave of 2-D simplex noise (yapocis `_simplex2d_single`), in float64 as numba runs it.
-fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_w: i64, tile_h: i64) -> f64 {
+/// With `tileable`, the lattice index taken from `x` wraps with `tile_x` and the one taken from
+/// `y` with `tile_y` (yapocis's `tile_w` and `tile_h`).
+fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_x: i64, tile_y: i64) -> f64 {
     const F2: f64 = 0.366_025_403_784_438_6;
     const G2: f64 = 0.211_324_865_405_187_13;
     let s = (x + y) * F2;
@@ -67,8 +69,8 @@ fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_w: i64, tile
     let y1 = y0 - j1 as f64 + G2;
     let x2 = x0 - 1.0 + 2.0 * G2;
     let y2 = y0 - 1.0 + 2.0 * G2;
-    let (ii, jj) = if tileable { (wrap(i, tile_w), wrap(j, tile_h)) } else { (i, j) };
-    let corner = |dx: i64, dy: i64| if tileable { (wrap(ii + dx, tile_w), wrap(jj + dy, tile_h)) } else { (ii.wrapping_add(dx), jj.wrapping_add(dy)) };
+    let (ii, jj) = if tileable { (wrap(i, tile_x), wrap(j, tile_y)) } else { (i, j) };
+    let corner = |dx: i64, dy: i64| if tileable { (wrap(ii + dx, tile_x), wrap(jj + dy, tile_y)) } else { (ii.wrapping_add(dx), jj.wrapping_add(dy)) };
     let contribution = |t: f64, (ci, cj): (i64, i64), px: f64, py: f64| {
         if t < 0.0 {
             return 0.0;
@@ -84,8 +86,10 @@ fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_w: i64, tile
 }
 
 /// Fractal 2-D simplex noise, 0-1, `h` × `w` (yapocis `Simplex.simplex2d`). Pixel (r, c) is
-/// noise at (r / h, c / w) × frequency, as the numba kernel computes it for square sizes (its
-/// own loop is only right for those).
+/// noise at (r / h, c / w) × frequency, as yapocis's device kernels and numba port compute it
+/// (the kernels' `width` is the rows). With `tileable`, the row-based coordinate's lattice wraps
+/// every rows / frequency cells and the column-based one every columns / frequency (#83). The
+/// lattice is skewed, so the output repeats along the diagonal, not on x or y (#84).
 #[allow(clippy::too_many_arguments)]
 pub fn simplex2d(h: usize, w: usize, seed: i64, scale: f64, octaves: i64, persistence: f64, lacunarity: f64, tileable: bool) -> Vec<f32> {
     let mut out = vec![0.0f32; h * w];
@@ -95,9 +99,9 @@ pub fn simplex2d(h: usize, w: usize, seed: i64, scale: f64, octaves: i64, persis
             for octave in 0..octaves {
                 let nx = (r as f64 / h as f64) * frequency;
                 let ny = (c as f64 / w as f64) * frequency;
-                let tile_w = ((w as f64 / frequency) as i64).max(1);
-                let tile_h = ((h as f64 / frequency) as i64).max(1);
-                let noise = simplex2d_single(nx, ny, seed.wrapping_add(octave), tileable, tile_w, tile_h);
+                let tile_rows = ((h as f64 / frequency) as i64).max(1);
+                let tile_cols = ((w as f64 / frequency) as i64).max(1);
+                let noise = simplex2d_single(nx, ny, seed.wrapping_add(octave), tileable, tile_rows, tile_cols);
                 total += noise * amplitude;
                 max_value += amplitude;
                 amplitude *= persistence;

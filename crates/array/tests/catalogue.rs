@@ -32,6 +32,19 @@ fn every_node_is_described_and_typed() {
     assert_eq!(array, &core_types::array(), "the core ARRAY type, exactly");
 }
 
+/// #84: simplex's `tileable` wraps its skewed lattice, so the output repeats along the diagonal
+/// and its edges don't meet on x or y (yapocis's backends included). The tooltip must not promise
+/// seamless edges.
+#[test]
+fn simplex_tileable_tooltip_does_not_promise_seamless_edges() {
+    let schema = plumcraft_array::engine().schema();
+    let node = schema.nodes.iter().find(|n| n.id == "array.simplex_noise").unwrap();
+    let tileable = node.inputs.iter().find(|p| p.name == "tileable").unwrap();
+    let tip = tileable.tooltip.as_deref().unwrap().to_lowercase();
+    assert!(tip.contains("lattice"), "{tip:?}: say that it wraps the lattice");
+    assert!(tip.contains("not seamless"), "{tip:?}: say that the edges don't tile");
+}
+
 #[test]
 fn the_demo_runs() {
     let dir = common::root("demo");
