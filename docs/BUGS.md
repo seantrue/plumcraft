@@ -6,6 +6,26 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B26. "Wrap seamlessly at the edges" on Simplex Noise's `tileable`
+
+- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #84)
+- Report: the `tileable` tooltip says "Wrap seamlessly at the edges", but simplex wraps its lattice in skewed coordinates, so the output repeats along the diagonal and its edges don't tile on x or y, on yapocis's backends or here. Measured seams are the same size as with `tileable` off.
+- Context: yapocis3 made the same correction to its docs (its `simplex2d` docstring: "The output is not seamless along x or y"); real seamless tiling is yapocis3 #83 (a feature request), which would change this port too. impressionist's copy of the tooltip (its `docs/BUGS.md` B2) gets the same wording in its own branch.
+- Issue: #84
+- Cause: the tooltip described what tiling was meant to do, not what the kernel does.
+- Fix: the tooltip (`crates/array/src/generate/mod.rs`) is now "Wrap the noise lattice; not seamless on x or y (smooth only)". Test: `simplex_tileable_tooltip_does_not_promise_seamless_edges` (`crates/array/tests/catalogue.rs`), which fails on the old text.
+- Fixed: 2026-11-12, branch `fix/83-84-simplex-tile`
+
+### B25. Simplex Noise swapped the tile periods on non-square tileable noise
+
+- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #83)
+- Report: `simplex2d` puts pixel (r, c) at (r / h, c / w) × frequency, but passed `tile_w = w / frequency` as the period of the row-based coordinate and `tile_h = h / frequency` as the column-based one's. yapocis wraps the row-based coordinate with rows / frequency (its kernels' `width` is the rows). Square sizes, and `tileable` off, were unaffected; non-square tileable output differed from yapocis by up to 0.72 (24 × 16, measured). Every `simplex.json` case was square, so none caught it.
+- Context: the doc comment also said the numba kernel "is only right for" square sizes, which went stale when yapocis3 #75 (`29f8403`) fixed numba's loop.
+- Issue: #83
+- Cause: the port took yapocis's `tile_w`/`tile_h` names as columns/rows, where yapocis means rows/columns.
+- Fix: `crates/array/src/generate/noise.rs`: the row-based coordinate wraps every `h / frequency` cells and the column-based one every `w / frequency` (`tile_rows`, `tile_cols`; `simplex2d_single`'s parameters renamed `tile_x`, `tile_y`). The doc comment now says what the kernels compute. `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases (24 × 16 and 12 × 30) recorded from yapocis3 `main` (`6fa5e01`, numba backend) with the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py`, which first checked that the five existing cases still reproduce exactly; the existing cases are byte-identical. `simplex_matches_numba` reads `height` and `width` when a case has them and checks the shape. It fails on the old port (max error 0.72 at 24 × 16) and passes exactly (0) on the new.
+- Fixed: 2026-11-12, branch `fix/83-84-simplex-tile`
+
 ### B24. xyY of black is NaN
 
 - Reported: 2026-11-11 (found while porting colormath; filed upstream as yapocis3 #66)
