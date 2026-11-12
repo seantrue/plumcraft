@@ -303,6 +303,7 @@ impl EditorApp {
                        "editing": self.canvas.edits.is_editing()},
             "engine": self.engine_inspect(),
             "banner": self.banner_text(),
+            "engineStatus": self.engine_status().map(|(text, tone)| json!({"text": text, "tone": tone.name()})),
             "about": self.session.views.about.then_some(&self.session.about),
             "catalog": {"nodes": catalog.nodes.len(), "engine": catalog.engine.name, "version": catalog.engine.version},
             "popups": popups,

@@ -77,6 +77,19 @@ mod tests {
         assert!(text == on_disk, "schema/protocol2.json is stale: cargo run -p plumcraft-proto --example export_schema --features schema");
     }
 
+    /// plumcraft #86 (review finding 6): `texts` is an open map of strings, so a new key such as
+    /// `engine_status` needs no schema change, and the checked-in schema names none of them.
+    #[test]
+    fn texts_keys_are_not_in_the_schema() {
+        let on_disk: Value = serde_json::from_str(include_str!("../schema/protocol2.json")).unwrap();
+        let texts = &on_disk["$defs"]["SchemaReply"]["properties"]["texts"];
+        assert_eq!(texts, &json!({"additionalProperties": {"type": "string"}, "type": "object"}), "{texts}");
+        let text = include_str!("../schema/protocol2.json");
+        for key in [crate::catalogue::texts::ENGINE_STATUS, crate::catalogue::texts::ENGINE_STATUS_TONE, crate::catalogue::texts::ENGINE_NOTICE] {
+            assert!(!text.contains(&format!("\"{key}\"")), "{key} is in the schema");
+        }
+    }
+
     #[test]
     fn document_shape() {
         let doc = protocol2();

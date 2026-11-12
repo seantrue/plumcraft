@@ -76,6 +76,7 @@ pub mod run_anim;
 pub mod run_view;
 pub mod settings_view;
 pub mod slice_view;
+pub mod status_cell;
 pub mod status_msgs;
 pub mod theme;
 pub mod value_editors;
@@ -1715,10 +1716,37 @@ impl EditorApp {
         }
     }
 
+    /// The engine cell's main line (layout B, plumcraft #86): the engine's name and state. The
+    /// link and the engine's node count are in its hover, which is the whole [`Self::engine_label`].
+    pub fn engine_short_label(&self) -> String {
+        if self.link.is_none() {
+            return self.engine_label();
+        }
+        let name = &self.session.catalog().engine;
+        let state = if matches!(self.engine, EngineState::Connected { .. }) { "connected".to_owned() } else { link::state_text(&self.engine) };
+        if name.name.is_empty() { format!("engine: {state}") } else { format!("{} {} · {state}", name.name, name.version) }
+    }
+
+    /// The engine's status line (`texts::ENGINE_STATUS`, plumcraft #86) and its tone, while the
+    /// engine is connected and the text isn't empty.
+    pub fn engine_status(&self) -> Option<(String, plumcraft_session::commands::Tone)> {
+        if !self.engine.is_connected() {
+            return None;
+        }
+        let c = self.session.catalog();
+        let text = c.text(texts::ENGINE_STATUS).filter(|t| !t.trim().is_empty())?;
+        Some((text.to_owned(), plumcraft_session::commands::Tone::from_text(c.text(texts::ENGINE_STATUS_TONE).unwrap_or_default())))
+    }
+
+    /// The status bar, in two-line cells (layout B; the maintainer: "D17 B"): the engine over
+    /// its status, the document over the graph's size, the run over its times and the caches;
+    /// then Auto-run, a save in progress, a Convert offer and the messages in what is left.
     fn status_bar(&mut self, ui: &mut egui::Ui) {
+        use status_cell::{engine_status_line, status_cell};
         let mut commands: Vec<(&'static str, Value)> = Vec::new();
         let msgs = self.status_messages();
         let now = Instant::now();
+        let status = self.engine_status();
         ui.horizontal(|ui| {
             let dot = if self.engine.is_connected() {
                 self.tokens.state_done
@@ -1729,7 +1757,15 @@ impl EditorApp {
             };
             let (rect, _) = ui.allocate_exact_size(egui::vec2(12.0, 12.0), egui::Sense::hover());
             ui.painter().circle_filled(rect.center(), 5.0, dot);
-            ui.label(self.engine_label());
+            let tokens = &self.tokens;
+            let sub = status.as_ref().map(|(text, tone)| move |ui: &mut egui::Ui| engine_status_line(ui, text, *tone, tokens));
+            status_cell(
+                ui,
+                |ui| {
+                    ui.label(self.engine_short_label()).on_hover_text(self.engine_label());
+                },
+                sub,
+            );
             ui.separator();
             if let Some(i) = &self.installing {
                 ui.spinner();
@@ -1738,39 +1774,63 @@ impl EditorApp {
             }
             // the workflow, as the window title names it (the title isn't in screenshots)
             let dot = if self.session.is_dirty() { " •" } else { "" };
-            let doc = ui.colored_label(self.tokens.text, format!("{}{dot}", self.document_name()));
-            match self.session.path() {
-                Some(p) => doc.on_hover_text(format!("{}{}", p.display(), if dot.is_empty() { "" } else { " (unsaved changes)" })),
-                None => doc.on_hover_text("not saved yet"),
-            };
-            ui.separator();
             let g = self.session.graph();
-            ui.colored_label(self.tokens.text_dim, format!("{} nodes, {} wires", g.nodes.len(), g.wires.len()));
+            let size = format!("{} nodes, {} wires", g.nodes.len(), g.wires.len());
+            status_cell(
+                ui,
+                |ui| {
+                    let doc = ui.colored_label(self.tokens.text, format!("{}{dot}", self.document_name()));
+                    match self.session.path() {
+                        Some(p) => doc.on_hover_text(format!("{}{}", p.display(), if dot.is_empty() { "" } else { " (unsaved changes)" })),
+                        None => doc.on_hover_text("not saved yet"),
+                    };
+                },
+                Some(|ui: &mut egui::Ui| {
+                    ui.colored_label(self.tokens.text_dim, size);
+                }),
+            );
             ui.separator();
             let run = &self.session.run;
+            let tokens = &self.tokens;
             if run.running {
                 let (done, total) = run.progress();
-                ui.add(egui::Spinner::new().size(12.0).color(self.tokens.state_running));
                 let secs = run.elapsed(now).map_or(0.0, |d| d.as_secs_f64());
-                ui.label(format!("running: {done} of {total} nodes, {secs:.1} s"));
-                if ui
-                    .small_button("Cancel")
-                    .on_hover_text("Stop this run (Esc): the engine stops between nodes or inside a long one, and the rest of its results are ignored")
-                    .clicked()
-                {
+                let cancel = status_cell(
+                    ui,
+                    |ui| {
+                        ui.add(egui::Spinner::new().size(12.0).color(tokens.state_running));
+                        ui.label(format!("running: {done} of {total} nodes"));
+                        ui.small_button("Cancel")
+                            .on_hover_text("Stop this run (Esc): the engine stops between nodes or inside a long one, and the rest of its results are ignored")
+                            .clicked()
+                    },
+                    Some(|ui: &mut egui::Ui| {
+                        ui.colored_label(tokens.text_dim, format!("{secs:.1} s"));
+                    }),
+                );
+                if cancel {
                     commands.push(("run.cancel", Value::Null));
                 }
             } else if let Some(wall) = run.last_wall {
                 let engine = run.last_reply.as_ref().map(|r| r.elapsed_ms).filter(|ms| *ms > 0.0);
-                let text = match engine {
-                    Some(ms) => format!("last run {} (engine {})", run_view::format_ms(wall.as_secs_f64() * 1e3), run_view::format_ms(ms)),
-                    None => format!("last run {}", run_view::format_ms(wall.as_secs_f64() * 1e3)),
-                };
-                ui.colored_label(self.tokens.text_dim, text);
-                commands.extend(cache_view::status_line(ui, &run.cache, &self.tokens));
+                let detail = engine.is_some() || run.cache.last.is_some();
+                let sub = detail.then_some(|ui: &mut egui::Ui| {
+                    if let Some(ms) = engine {
+                        ui.colored_label(tokens.text_dim, format!("engine {}", run_view::format_ms(ms)));
+                    }
+                    commands.extend(cache_view::status_line(ui, &run.cache, tokens, engine.is_some()));
+                });
+                status_cell(
+                    ui,
+                    |ui| {
+                        ui.colored_label(tokens.text_dim, format!("last run {}", run_view::format_ms(wall.as_secs_f64() * 1e3)));
+                    },
+                    sub,
+                );
             } else {
                 ui.colored_label(self.tokens.text_dim, "not run yet");
             }
+            ui.separator();
             let auto = run.auto;
             if ui.selectable_label(auto, "Auto-run").on_hover_text("Run 150 ms after every edit").clicked() {
                 commands.push(("run.auto", json!({"on": !auto})));

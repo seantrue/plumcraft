@@ -1327,7 +1327,7 @@ mod tests {
         #[test]
         fn switching_text_engines_runs_after_every_switch() {
             let mut h = text_editor(Launcher::default());
-            h.get_by_label_contains("Rust · mode 1 · in-process");
+            assert!(h.state().engine_label().contains("Rust · mode 1 · in-process"), "{}", h.state().engine_label());
             assert!(h.state().window_title().ends_with("(Text · Rust · in-process (mode 1))"), "{}", h.state().window_title());
             run_all_done(&mut h, "in-process");
             let nodes = h.state().session.graph().nodes.len();
@@ -1339,7 +1339,7 @@ mod tests {
                 // the old engine's results are gone, the graph stays
                 assert!(h.state().session.run.nodes.is_empty() && h.state().session.run.last_reply.is_none(), "{mode}");
                 assert_eq!(h.state().session.graph().nodes.len(), nodes);
-                h.get_by_label_contains(label);
+                assert!(h.state().engine_label().contains(label), "{}", h.state().engine_label());
                 assert!(h.state().window_title().contains(&format!("Text · {}", Mode::from_id(mode).unwrap().menu_label())), "{}", h.state().window_title());
                 let v = inspect(&mut h);
                 assert_eq!((v["engine"]["engine"].as_str(), v["engine"]["mode"].as_str()), (Some("text"), Some(mode)), "{v}");
@@ -1504,7 +1504,7 @@ mod tests {
             h.state_mut().pump_runs(&ctx);
             switch(&mut h, "text", "process").unwrap();
             assert!(!h.state().session.run.running, "the old run is cancelled");
-            h.get_by_label_contains("Rust · mode 2 · process");
+            assert!(h.state().engine_label().contains("Rust · mode 2 · process"), "{}", h.state().engine_label());
             run_all_done(&mut h, "after the cancelled run");
         }
 
@@ -1537,7 +1537,7 @@ mod tests {
             let choices = offered(&mut h, "pytext");
             assert_eq!(choices, [("process".to_owned(), "Process (mode 2)".to_owned()), ("http".to_owned(), "HTTP (mode 3)".to_owned())]);
             switch(&mut h, "pytext", "process").unwrap();
-            h.get_by_label_contains("mode 2 · process");
+            assert!(h.state().engine_label().contains("mode 2 · process"), "{}", h.state().engine_label());
             run_all_done(&mut h, "from a manifest, on a socket");
             switch(&mut h, "pytext", "http").unwrap();
             run_all_done(&mut h, "from a manifest, over HTTP");
@@ -1650,7 +1650,7 @@ mod tests {
             assert!(problems.iter().any(|p| p.as_str().unwrap().contains("unknown kind \"text.")), "{r}");
             let e = h.state().last_error.clone().unwrap();
             assert!(e.contains("Audio · Rust · process (mode 2)") && e.contains("problem(s)"), "{e}");
-            h.get_by_label_contains("engine: Audio");
+            assert!(h.state().engine_label().contains("engine: Audio"), "{}", h.state().engine_label());
             h.get_by_label_contains("problem(s) with this engine");
             // back to text: no problems, and it runs
             let r = switch(&mut h, "text", "inproc").unwrap();
@@ -1755,7 +1755,7 @@ mod tests {
             h.get_by_label("Attach").click();
             h.run_steps(3);
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
-            h.get_by_label_contains(&format!("HTTP · attached · {url}"));
+            assert!(h.state().engine_label().contains(&format!("HTTP · attached · {url}")), "{}", h.state().engine_label());
             let v = inspect(&mut h);
             assert_eq!((v["engine"]["mode"].as_str(), v["engine"]["url"].as_str()), (Some("attach"), Some(url.as_str())), "{v}");
             assert!(!v.to_string().contains(token), "the token stays out of ui.inspect");
@@ -1918,7 +1918,7 @@ mod tests {
             assert_eq!(path("vc.run"), "VectorCraft › Advanced");
             assert!(path("vc.fx.blur.gaussian").starts_with("VectorCraft › Effect"), "{}", path("vc.fx.blur.gaussian"));
             h.get_by_label_contains("VectorCraft 0.");
-            h.get_by_label_contains("mode 2 · process");
+            assert!(h.state().engine_label().contains("mode 2 · process"), "{}", h.state().engine_label());
 
             // the chain runs; every node has a thumbnail
             assert!(h.state_mut().start_run_if_enabled().is_some());
@@ -2102,7 +2102,7 @@ mod tests {
             let (mut h, starts) = audio_editor();
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
             assert_eq!(h.state().session.catalog().engine.name, "Audio");
-            h.get_by_label_contains("engine: Audio");
+            assert!(h.state().engine_label().contains("engine: Audio"), "{}", h.state().engine_label());
             assert!(h.state_mut().start_run_if_enabled().is_some());
             until(&mut h, "the demo's run", |a| idle(a) && a.session.run.last_reply.is_some());
             for id in ["tone", "fade", "gain", "verb"] {

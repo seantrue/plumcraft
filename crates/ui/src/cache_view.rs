@@ -55,10 +55,13 @@ fn detail(c: &CacheStats, s: &RunStats) -> String {
 }
 
 /// The status line's part: a link to the report, and a warning when the store refused anything.
-pub fn status_line(ui: &mut egui::Ui, c: &CacheStats, tokens: &Tokens) -> Vec<Action> {
+/// `after`: something is before it on its line, so a dot goes between.
+pub fn status_line(ui: &mut egui::Ui, c: &CacheStats, tokens: &Tokens, after: bool) -> Vec<Action> {
     let mut out = Vec::new();
     let Some(s) = &c.last else { return out };
-    ui.separator();
+    if after {
+        ui.colored_label(tokens.text_dim, "·");
+    }
     if ui.add(egui::Button::new(egui::RichText::new(summary(s)).color(tokens.text_dim)).frame(false)).on_hover_text(detail(c, s)).clicked() {
         out.push(("run.cacheReport", json!({"open": true})));
     }

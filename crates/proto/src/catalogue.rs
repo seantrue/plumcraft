@@ -607,6 +607,11 @@ pub mod texts {
     /// Something the person should know while this engine is connected ("no GPU device: …"). The
     /// editor shows it in its banner.
     pub const ENGINE_NOTICE: &str = "engine_notice";
+    /// A short line about how the engine runs ("GPU: Metal, Apple M4 Max"). The editor shows it
+    /// in the status bar, under the engine's name, while the engine is connected (plumcraft #86).
+    pub const ENGINE_STATUS: &str = "engine_status";
+    /// How [`ENGINE_STATUS`] is drawn: `info`, `warn` or `error`; anything else is `info`.
+    pub const ENGINE_STATUS_TONE: &str = "engine_status_tone";
 }
 
 /// The reply to `schema`.
