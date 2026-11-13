@@ -73,30 +73,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # ALSA's headers for the audio engine; Mesa's software Vulkan (lavapipe) as the GPU the
-      # rendering kittests need, since the runner has none ("No adapter found"). Cached, as
-      # Ubuntu's mirrors sometimes take minutes to answer.
-      - name: Linux packages
-        uses: awalsh128/cache-apt-pkgs-action@v1
-        with:
-          packages: pkg-config libasound2-dev mesa-vulkan-drivers libvulkan1
-          version: 1
-
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy, rustfmt
-
-      - uses: Swatinem/rust-cache@v2
-
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: cargo-nextest
-
-      # the Rust tests that build Python engines (engine_manifest, generated_engine) use uv
-      - uses: astral-sh/setup-uv@v6
-        with:
-          enable-cache: true
-          cache-dependency-glob: "**/uv.lock"
+      # The yapocis family's shared test environment (yapocis-rs/.github/actions/test-env):
+      # ALSA's headers for the audio engine and Mesa's software Vulkan (lavapipe) as the GPU the
+      # rendering kittests need (the runner has none: "No adapter found"), cached; Rust with
+      # clippy, rustfmt, rust-cache and nextest; uv, which the Rust tests that build Python
+      # engines (engine_manifest, generated_engine) use. Switch the ref to @main once it merges.
+      - uses: seantrue/yapocis-rs/.github/actions/test-env@claude/test-affected
 
       - name: cargo fmt
         run: cargo fmt --all --check
@@ -132,10 +114,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: seantrue/yapocis-rs/.github/actions/test-env@claude/test-affected
         with:
-          enable-cache: true
-          cache-dependency-glob: "**/uv.lock"
+          rust: "false"
 
       - name: pytest, under md5 and then b3
         working-directory: python

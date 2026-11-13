@@ -39,6 +39,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Follow-up (same day).** The skill now also lives in plumimpress, yapocis-external and Virtual-Impressionist; SKILL.md lists all seven repos and adds the yapocis-external → impressionist-rs rule (re-export the bundle, port the CPU kernel, run impressionist-rs's tier 0). SKILL.md and affected.py stay identical in all seven.
 
+**CI (same day).** The `gate` and `python` jobs take their setup from the shared action `seantrue/yapocis-rs/.github/actions/test-env` (the cloud environment's packages and tools for a hosted runner) in place of their own apt, toolchain, rust-cache, nextest and uv steps; the packages it installs include all four this job had. Its ref is `@claude/test-affected` until yapocis-rs merges, then `@main`. The test commands, triggers and env are unchanged. Not run: the maintainer asked for the branch not to be active yet.
+
 ### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
