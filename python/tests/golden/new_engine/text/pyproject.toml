@@ -3,7 +3,7 @@ name = "weather-engine"
 version = "0.1.0"
 description = "Weather: a PlumCraft engine"
 requires-python = ">=3.12"
-dependencies = ["plumcraft-engine>=0.1,<0.2"]
+dependencies = ["plumcraft-engine>=0.2,<0.3"]
 
 [project.scripts]
 weather-engine = "weather_engine.__main__:main"

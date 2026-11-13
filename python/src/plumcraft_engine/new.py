@@ -84,7 +84,7 @@ class Plan:
     def values(self) -> dict[str, str]:
         v = {k: getattr(self, k) for k in ("id", "name", "package", "cls", "project", "python", "sdk_source")}
         watch = "loud.text" if "text" in self.types else "parsed.float"
-        deps = ['"plumcraft-engine>=0.1,<0.2"', *(['"pillow>=10"'] if "image" in self.types else [])]
+        deps = ['"plumcraft-engine>=0.2,<0.3"', *(['"pillow>=10"'] if "image" in self.types else [])]
         sources = ""
         if self.sdk_source:
             sources = f"# Where the PlumCraft SDK comes from; README.md says how to switch.\n[tool.uv.sources]\nplumcraft-engine = {self.sdk_source}\n\n"
