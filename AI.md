@@ -37,6 +37,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Not verified:** the Python suite through the selector (only listed).
 
+**Follow-up (same day).** The skill now also lives in plumimpress, yapocis-external and Virtual-Impressionist; SKILL.md lists all seven repos and adds the yapocis-external → impressionist-rs rule (re-export the bundle, port the CPU kernel, run impressionist-rs's tier 0). SKILL.md and affected.py stay identical in all seven.
+
 ### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
