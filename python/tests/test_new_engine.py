@@ -186,8 +186,8 @@ def test_image_depends_on_pillow(tmp):
     assert gen(tmp / "a-engine", "--types", "image") == 0
     assert gen(tmp / "b-engine", "--types", "text") == 0
     deps = lambda n: tomllib.loads((tmp / n / "pyproject.toml").read_text())["project"]["dependencies"]  # noqa: E731
-    assert deps("a-engine") == ["plumcraft-engine>=0.1,<0.2", "pillow>=10"]
-    assert deps("b-engine") == ["plumcraft-engine>=0.1,<0.2"]
+    assert deps("a-engine") == ["plumcraft-engine>=0.2,<0.3", "pillow>=10"]
+    assert deps("b-engine") == ["plumcraft-engine>=0.2,<0.3"]
 
 
 @pytest.mark.parametrize("types", ["text", ALL])
@@ -247,7 +247,7 @@ def test_sdk_pypi_has_no_local_source(tmp):
     dest = tmp / "a-engine"
     assert gen(dest, "--sdk", "pypi") == 0
     pyproject = tomllib.loads((dest / "pyproject.toml").read_text())
-    assert pyproject["project"]["dependencies"] == ["plumcraft-engine>=0.1,<0.2"]
+    assert pyproject["project"]["dependencies"] == ["plumcraft-engine>=0.2,<0.3"]
     assert "sources" not in pyproject["tool"].get("uv", {})
 
 

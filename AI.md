@@ -20,6 +20,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
+
+**What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
+
+**What the AI did:** bumped the workspace and its pinned crates from 0.6.1 to 0.7.0 (`Cargo.toml`, `crates/array`, `crates/engine`, `Cargo.lock`), the Python text twin's `__version__` and its golden schema salt to 0.7.0, and the SDK (`python/pyproject.toml`, `uv.lock`) from 0.1.2 to 0.2.0 (it already needs `pyuncommonkit>=0.2.0`). `plumcraft-engine new` now writes `plumcraft-engine>=0.2,<0.3` (`new.py`, its tests and three goldens), and the CHANGELOG names the break for engines made before. Gate on the Mac, isolated from the real stores by plum's environment builder under `HASH=md5`: 1,286 Rust tests and 224 Python tests passed, clippy `-D warnings`, `cargo fmt --check` and ruff clean. ~60 lines changed, all versions and text. Crates and SDK only, as 0.6.0: no installers, which build on yellowfin and its Windows VM.
+
 ### 2026-11-12 — One hash algorithm per process, through commonkit's hash facade (#91, #92, #93) (Claude Opus 5.5)
 
 **What the maintainer asked for.** "fix the two BLAKE3 problems"; "Clear out store before starting tests on MD5 or BLAKE. Any appearance of unintended hashes is a bug"; "Using MD5 vs Blake is a system wide decision. It has to affect all code, and it has to be toggleable for testing"; and, for the shape, "REALLY,REALLY,REALLY try not to use system libraries directly if they are implementations of swappable algorithms. Hashing is a clear one" (D19). The plum planner's plan `2026-11-12-commonkit-hash-facade.md` §3.4, approved by the maintainer with its decisions (D4 build salts, D7 one PR, D8 hello refusal, D9 fixed digests, D10 gates, D11 plan keys, D16 shared uploads, D18 after #94, D25 A the craft CAS), puts the switch in commonkit 0.2.0 (`HASH`, then `COMMONKIT_HASH`, then `b3`).

@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased (0.7.0)
+## 0.7.0 (2026-11-13)
+
+The crates and the Python text twin are 0.7.0; the Python SDK (`plumcraft-engine`) is 0.2.0, with `pyuncommonkit>=0.2.0`. Crates and SDK only: no new installers. A minor version, with breaking changes below.
+
+- **Breaking, for engines made with `plumcraft-engine new`:** those made before 0.2.0 pin `plumcraft-engine>=0.1,<0.2`, and every 0.7.0 editor refuses them at hello; bump the pin to `>=0.2,<0.3`. `plumcraft-engine new` now writes that pin.
 
 - **One hash algorithm per process** (#91, #92, #93; the commonkit hash facade): every handle, plan key, content key, build salt, catalogue digest and craft CAS name is in commonkit's current algorithm (the tree's `HASH` in `.policy.json`, then `COMMONKIT_HASH`, then `b3`), through `commonkit::digest` 0.2. The status bar says which (`hash md5 · policy file`).
 - **Breaking:** `Handle::raw(bytes)` and `Handle::nd1(dtype, shape, bytes)` take no algorithm; `Handle::md5_raw`, `Handle::md5_nd1`, `handle::Hasher`, `RunRequest.algo`, `RunRequest::handle_algo`, `Plane.algo`, `run_cmds::algo_for`, `SDK_DIGEST` (now `sdk_digest()`) and the `hash.b3` capability are gone. Build scripts bake `PLUMCRAFT_CODE_DIGEST_MD5` and `_B3`; `plumcraft_engine::code_digest!()` picks.
