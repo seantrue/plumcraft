@@ -310,7 +310,7 @@ fn encode_as(i: &Inputs, cx: &mut Cx, format: FileFormat, bit_depth: BitDepth, p
     let bytes =
         soundcraft_audio_io::encode(&buf, &EncodeOptions { format, bit_depth, dither: false, bwf: None }).map_err(|e| op_error(format!("{port}: {e}")))?;
     let blob = Blob {
-        handle: Handle::md5_raw(&bytes),
+        handle: Handle::raw(&bytes),
         meta: BlobMeta { media: media.into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
         source: BlobSource::Bytes(Arc::from(bytes)),
         publish: true,

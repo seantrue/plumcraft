@@ -1,10 +1,11 @@
 //! Blobs in the commonkit store (plan 10.2, D1; spec 4.4, 5.4), through the `commonkit` crate.
 //!
-//! - **Layout:** commonkit's. A key `plum:v1:{form}:{md5}:c` names
-//!   `{root}/{form}/{md5[:2]}/{md5}.c.npy`. Arrays go under form `plumarr` keyed by their `nd1`
+//! - **Layout:** commonkit's. A key `plum:v1:{form}:{digest}:c` names
+//!   `{root}/{form}/{digest[:2]}/{digest}.c.npy`. Arrays go under form `plumarr` keyed by their `nd1`
 //!   digest; anything else (text, JSON tables) under `plumraw` as a 1-d `|u1` array keyed by its
 //!   `raw` digest, so a blob has one identity (spec 4.4). The `plum` scheme is registered with
-//!   commonkit on first use.
+//!   commonkit on first use, with `DigestRule::Current`: it holds only digests of the process's
+//!   algorithm (commonkit's `HASH`), and commonkit declines and misses the other length.
 //! - **Writing** is commonkit's `Store::publish`: write-once, a temp file then `rename`, the
 //!   tree's policy (`.policy.json`, the environment) for budget, free space and size, and its
 //!   reap turns. Every size is taken (`min_array_bytes` 0): a blob is stored, not only big ones.
@@ -13,8 +14,8 @@
 //!   4.6). Files are read, except an array over [`MAX_READ`], mapped.
 //! - **Compression (deflate, zlib format):** a raw blob (`plumraw`) of at least
 //!   [`COMPRESS_MIN`] bytes that deflate makes at least 10% smaller is stored compressed instead,
-//!   under form `plumz` keyed by the same `raw` digest: its identity is still the MD5 of the
-//!   uncompressed bytes, and reading inflates and checks it. A compressed blob gets a `commonkit`
+//!   under form `plumz` keyed by the same `raw` digest: its identity is still the digest of
+//!   the uncompressed bytes, and reading inflates and checks it. A compressed blob gets a `commonkit`
 //!   locator only (a `path` reader expects the bytes as they are); arrays (`plumarr`), which the
 //!   UI may read in place, are never compressed. Deflate is pure Rust here (`flate2` on
 //!   `miniz_oxide`) and the standard library's `zlib` in Python, so both SDKs read each other's.
@@ -81,7 +82,8 @@ fn scheme() -> Option<&'static Arc<KeyScheme>> {
             let variants = Variants::closed([VARIANT]).ok()?;
             let scheme =
                 KeyScheme::new(DOMAIN, VERSION, [FORM_ARRAY, FORM_RAW, FORM_Z, FORM_MEMO], variants, &[(FORM_RAW, "|u1"), (FORM_Z, "|u1"), (FORM_MEMO, "|u1")])
-                    .ok()?;
+                    .ok()?
+                    .with_digest(commonkit::DigestRule::Current);
             commonkit::keys::register(scheme).ok()
         })
         .as_ref()
@@ -98,9 +100,15 @@ pub fn z_key_for(handle: &Handle) -> String {
     format!("{DOMAIN}:{VERSION}:{FORM_Z}:{}:{VARIANT}", handle.digest())
 }
 
-/// The key of a plan key's memo record (`memo:md5:<hex>`); `None` for anything else.
+/// The key of a plan key's memo record (`memo:<algo>:<hex>`, in the process's algorithm);
+/// `None` for anything else.
 pub fn memo_key_for(plan_key: &str) -> Option<String> {
-    let hex = plan_key.strip_prefix("memo:md5:").filter(|h| h.len() == 32 && h.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))?;
+    let algo = plumcraft_proto::handle::Algo::current();
+    let hex = plan_key
+        .strip_prefix("memo:")
+        .and_then(|k| k.strip_prefix(algo.as_str()))
+        .and_then(|k| k.strip_prefix(':'))
+        .filter(|h| h.len() == algo.hex_len() && h.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()))?;
     Some(format!("{DOMAIN}:{VERSION}:{FORM_MEMO}:{hex}:{VARIANT}"))
 }
 
@@ -262,14 +270,14 @@ impl Store {
         &self.root
     }
 
-    /// Publish raw bytes (`md5:raw:`), wrapped as a 1-d `|u1` array. Returns the locators to
+    /// Publish raw bytes (`<current>:raw:`), wrapped as a 1-d `|u1` array. Returns the locators to
     /// reach it, or `None` if the store can't take it (a decline is normal, as commonkit's).
     ///
     /// Bytes already here (plain or compressed) are only touched. Otherwise they are stored
     /// compressed when [`compress`] says it is worth it (a `commonkit` locator only), else as
     /// they are.
     pub fn publish_raw(&self, bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
-        self.publish_raw_as(&Handle::md5_raw(bytes), bytes)
+        self.publish_raw_as(&Handle::raw(bytes), bytes)
     }
 
     /// Publish raw bytes under `handle`, which the caller has just computed from them (one
@@ -353,9 +361,9 @@ impl Store {
         ArrayRef::new(&descr, shape, Order::C, bytes).is_ok_and(|a| self.ck.publish(key, a) == Ok(true))
     }
 
-    /// Publish an array (`md5:nd1:`) given its little-endian dtype, shape and C-order bytes.
+    /// Publish an array (`<current>:nd1:`) given its little-endian dtype, shape and C-order bytes.
     pub fn publish_array(&self, dtype: &str, shape: &[u64], bytes: &[u8]) -> Option<(Handle, Vec<Locator>)> {
-        self.publish_array_as(&Handle::md5_nd1(dtype, shape, bytes).ok()?, dtype, shape, bytes)
+        self.publish_array_as(&Handle::nd1(dtype, shape, bytes).ok()?, dtype, shape, bytes)
     }
 
     /// Publish an array under `handle`, an `nd1` handle of either algorithm the caller has just
@@ -531,14 +539,11 @@ fn maps_to(r: &DataRef, b: &Blob) -> bool {
     matches!(&r.meta.form, Form::Array { shape, .. } if *shape == b.shape) && r.meta.size == b.bytes.len() as u64
 }
 
-/// Whether bytes are `handle`, in the handle's own algorithm: a `raw` handle must be the digest
-/// of the bytes, an `nd1` handle the digest of `dtype`, `shape` and the bytes.
+/// Whether bytes are `handle`: a `raw` handle must be the digest of the bytes, an `nd1` handle
+/// the digest of `dtype`, `shape` and the bytes, in the process's algorithm. A handle of the
+/// other algorithm never verifies (one algorithm per process: commonkit's `HASH`).
 pub fn verifies(handle: &Handle, dtype: &str, shape: &[u64], bytes: &[u8]) -> bool {
-    if handle.recipe() == Recipe::Raw {
-        &Handle::raw(handle.algo(), bytes) == handle
-    } else {
-        Handle::nd1(handle.algo(), dtype, shape, bytes).is_ok_and(|h| &h == handle)
-    }
+    if handle.recipe() == Recipe::Raw { &Handle::raw(bytes) == handle } else { Handle::nd1(dtype, shape, bytes).is_ok_and(|h| &h == handle) }
 }
 
 fn matches_handle(h: Option<&Handle>, b: &Blob) -> bool {
@@ -643,7 +648,7 @@ mod tests {
         let bytes: Vec<u8> = (0..n).flat_map(|i| ((i % 251) as f32).to_le_bytes()).collect();
         let shape = [n as u64];
         let (handle, at) = s.publish_array("<f4", &shape, &bytes).expect("published");
-        assert_eq!(handle, Handle::md5_nd1("<f4", &shape, &bytes).unwrap());
+        assert_eq!(handle, Handle::nd1("<f4", &shape, &bytes).unwrap());
         let meta = BlobMeta {
             size: bytes.len() as u64,
             form: Form::Array { dtype: "<f4".into(), shape: shape.to_vec(), space: None, names: Vec::new(), table: false },
@@ -688,7 +693,7 @@ mod tests {
         let s = Store::new(temp_root("z"));
         let json = format!("[{}]", (0..20_000).map(|i| format!("{{\"x\": {i}, \"name\": \"node\"}}")).collect::<Vec<_>>().join(","));
         let (h, at) = s.publish_raw(json.as_bytes()).unwrap();
-        assert_eq!(h, Handle::md5_raw(json.as_bytes()), "the identity is the uncompressed bytes'");
+        assert_eq!(h, Handle::raw(json.as_bytes()), "the identity is the uncompressed bytes'");
         assert_eq!(at, vec![Locator::Commonkit { key: z_key_for(&h) }], "compressed: no path locator");
         let stored = std::fs::metadata(s.ck.path_for(&z_key_for(&h)).unwrap()).unwrap().len();
         assert!(stored * 5 < json.len() as u64, "{stored} bytes stored for {}", json.len());
@@ -714,7 +719,7 @@ mod tests {
 
         // An upload is compressed the same way.
         let csv = "a,b,c\n1,2,3\n".repeat(10_000);
-        let hc = Handle::md5_raw(csv.as_bytes());
+        let hc = Handle::raw(csv.as_bytes());
         assert!(s.put_verified(&hc, "|u1", &[csv.len() as u64], csv.as_bytes()));
         assert!(s.ck.path_for(&z_key_for(&hc)).unwrap().is_file());
 
@@ -729,13 +734,24 @@ mod tests {
     #[test]
     fn memo_records_round_trip_and_bad_plan_keys_are_refused() {
         let s = Store::new(temp_root("memo"));
-        let key = "memo:md5:0123456789abcdef0123456789abcdef";
+        let algo = plumcraft_proto::handle::Algo::current();
+        let (a, n) = (algo.as_str(), algo.hex_len());
+        let key = format!("memo:{a}:{}", "0123456789abcdef".repeat(n / 16));
+        let key = key.as_str();
         assert!(s.read_record(key).is_none());
         assert!(s.put_record(key, br#"{"v": 1}"#));
         assert_eq!(s.read_record(key).unwrap(), br#"{"v": 1}"#);
         assert!(s.put_record(key, br#"{"v": 2}"#), "rewritten when the node is recomputed");
         assert_eq!(s.read_record(key).unwrap(), br#"{"v": 2}"#);
-        for bad in ["memo:md5:../../etc/passwd", "memo:md5:0123456789ABCDEF0123456789ABCDEF", "md5:raw:0123456789abcdef0123456789abcdef", ""] {
+        let other = if a == "md5" { "b3" } else { "md5" };
+        let bad = [
+            format!("memo:{a}:../../etc/passwd"),
+            format!("memo:{a}:{}", "0123456789ABCDEF".repeat(n / 16)),
+            format!("{a}:raw:{}", "0".repeat(n)),
+            format!("memo:{other}:{}", "0".repeat(if other == "md5" { 32 } else { 64 })),
+            String::new(),
+        ];
+        for bad in bad.iter().map(String::as_str) {
             assert!(memo_key_for(bad).is_none() && !s.put_record(bad, b"{}") && s.read_record(bad).is_none(), "{bad}");
         }
     }
@@ -745,13 +761,13 @@ mod tests {
         let s = Store::new(temp_root("arr"));
         let bytes: Vec<u8> = [1u32, 2, 3].iter().flat_map(|x| x.to_le_bytes()).collect();
         let (h, at) = s.publish_array("<u4", &[3], &bytes).unwrap();
-        assert_eq!(h, Handle::md5_nd1("<u4", &[3], &bytes).unwrap());
+        assert_eq!(h, Handle::nd1("<u4", &[3], &bytes).unwrap());
         assert!(key_for(&h).starts_with("plum:v1:plumarr:"));
         let r = DataRef { handle: Some(h), meta: BlobMeta::default(), at: at.clone() };
         let b = s.resolve(&r, true).unwrap();
         assert_eq!((b.dtype.as_str(), b.shape.as_slice(), &*b.bytes), ("<u4", &[3u64][..], bytes.as_slice()));
         // Bytes that don't match the handle are a miss.
-        let wrong = DataRef { handle: Some(Handle::md5_raw(b"other")), meta: BlobMeta::default(), at };
+        let wrong = DataRef { handle: Some(Handle::raw(b"other")), meta: BlobMeta::default(), at };
         assert!(s.resolve(&wrong, true).is_none());
     }
 
@@ -765,7 +781,7 @@ mod tests {
         assert!(s.publish_raw(&[7u8; 500]).is_some(), "under the limit");
         let big = vec![7u8; 5000];
         assert!(s.publish_raw(&big).is_none(), "over the limit: declined");
-        let h = Handle::md5_raw(&big);
+        let h = Handle::raw(&big);
         assert!(verifies(&h, "|u1", &[5000], &big));
         assert!(!s.put_verified(&h, "|u1", &[5000], &big));
         assert!(!s.has(&h));

@@ -1,11 +1,12 @@
 """SVG, a core type, in the Python SDK: `Svg` declares exactly the Rust SDK's wire type, `svg()`
-makes the value (checked, sized), and an engine's SVG output crosses as an `md5:raw:` blob of
+makes the value (checked, sized), and an engine's SVG output crosses as a `raw` blob of
 media `image/svg+xml`."""
 
 import base64
 import time
 
 import pytest
+from commonkit import digest as ck_digest
 
 from plumcraft_engine import Blob, Engine, Image, NodeError, Svg, Text, image, node, svg
 from plumcraft_engine.data import raw as _raw
@@ -27,7 +28,7 @@ class Drawn(Engine):
 def test_svg_values_are_checked_and_sized():
     b = svg(BOX)
     assert b.meta == {"media": "image/svg+xml", "size": len(BOX), "form": {"kind": "vector", "width": 30.0, "height": 20.0}}
-    assert b.handle.startswith("md5:raw:") and b.data == BOX.encode()
+    assert b.handle.startswith(f"{ck_digest.current()}:raw:") and b.data == BOX.encode()
     assert svg(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0,0,8,4"/>').meta["form"]["width"] == 8.0
     assert svg('<svg xmlns="http://www.w3.org/2000/svg" width="50%"/>').meta["form"]["width"] == 0.0, "unknown units are unknown"
     for bad in ("<html/>", "not xml", ""):

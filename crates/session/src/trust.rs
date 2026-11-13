@@ -24,7 +24,6 @@ use plumcraft_graph::{Graph, NodeId, PortRef};
 use plumcraft_proto::catalogue::{MemoScope, SchemaReply};
 use serde::Serialize;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::commands::{CommandSpec, always};
 use crate::{Result, Session, SessionError};
@@ -42,7 +41,8 @@ const MAX_TEXT: usize = 300;
 /// nothing. Not MD5: this is the one hash here that an attacker wants to collide.
 pub fn graph_hash(graph: &Graph) -> String {
     let Ok(text) = graph.to_json() else { return String::new() };
-    Sha256::digest(text.as_bytes()).iter().map(|b| format!("{b:02x}")).collect()
+    // Fixed SHA-256, not the switch (D9; hash-allowlist.txt): a security digest.
+    commonkit::digest::fixed::raw(commonkit::digest::fixed::Fixed::Sha256, text.as_bytes())
 }
 
 /// The hashes in a trust file. Anything unreadable is nothing.

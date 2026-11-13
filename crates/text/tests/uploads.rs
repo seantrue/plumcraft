@@ -95,3 +95,44 @@ fn nothing_answers_without_the_token() {
     let _ = child.kill();
     let _ = child.wait();
 }
+
+/// D16 (spec 4.3): an engine serving a store shared by several clients (`--shared`) refuses an
+/// md5 upload whatever the switch, and takes a b3 one. The suite runs once per algorithm.
+#[test]
+fn a_shared_remote_refuses_md5_uploads() {
+    use std::io::{Read, Write};
+    let dir = plumcraft_scratch::dir("uploads-shared");
+    let port_file = dir.join("port");
+    let mut child = Command::new(env!("CARGO_BIN_EXE_plumcraft-text-engine"))
+        .args(["--listen", "127.0.0.1:0", "--shared", "--port-file"])
+        .arg(&port_file)
+        .env("PLUMCRAFT_ENGINE_TOKEN", TOKEN)
+        .env("COMMONKIT_STORE_ROOT", dir.join("store"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let addr = loop {
+        match std::fs::read_to_string(&port_file) {
+            Ok(a) if !a.trim().is_empty() => break a,
+            _ if Instant::now() > deadline => panic!("no port"),
+            _ => std::thread::sleep(Duration::from_millis(20)),
+        }
+    };
+    let h = plumcraft_proto::Handle::raw(b"hello");
+    let mut s = std::net::TcpStream::connect(addr.trim()).unwrap();
+    let url = plumcraft_engine::data::blob_url(&h);
+    write!(s, "PUT {url} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello").unwrap();
+    let mut reply = String::new();
+    s.read_to_string(&mut reply).unwrap();
+    let _ = child.kill();
+    let _ = child.wait();
+    let status = reply.split_whitespace().nth(1).unwrap_or_default().to_owned();
+    if h.algo() == plumcraft_proto::handle::Algo::Md5 {
+        assert!(status == "403" && reply.contains("b3 uploads only"), "{reply}");
+    } else {
+        assert_eq!(status, "201", "{reply}");
+    }
+}

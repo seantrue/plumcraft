@@ -593,8 +593,6 @@ impl EditorApp {
     pub(crate) fn sync_engine(&mut self) {
         self.session.connected = self.engine.is_connected();
         self.session.caps = if let EngineState::Connected { caps, .. } = &self.engine { caps.clone() } else { Default::default() };
-        // BLAKE3 handles when the engine (or every engine, through a coordinator) takes them
-        self.session.run.algo = plumcraft_session::run_cmds::algo_for(&self.session);
     }
 
     /// Replace the catalogue (the graph is kept; the canvas rebuilds).
@@ -1789,6 +1787,13 @@ impl EditorApp {
                     ui.colored_label(self.tokens.text_dim, size);
                 }),
             );
+            ui.separator();
+            // The one hash algorithm of this process (commonkit's switch) and where it came from.
+            let source = plumcraft_proto::handle::Algo::source();
+            ui.colored_label(self.tokens.text_dim, status_cell::hash_label(plumcraft_proto::handle::Algo::current().as_str(), &source)).on_hover_text(format!(
+                "Every handle this editor makes and reads is {} ({source}). Engines must use the same.",
+                plumcraft_proto::handle::Algo::current().as_str()
+            ));
             ui.separator();
             let run = &self.session.run;
             let tokens = &self.tokens;

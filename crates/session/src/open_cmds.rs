@@ -260,7 +260,7 @@ mod tests {
 
     fn pdf(at: Vec<Locator>, bytes: &[u8]) -> DataRef {
         DataRef {
-            handle: Some(Handle::md5_raw(bytes)),
+            handle: Some(Handle::raw(bytes)),
             meta: BlobMeta { media: "application/pdf".into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
             at,
         }

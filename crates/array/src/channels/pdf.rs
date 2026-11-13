@@ -146,7 +146,7 @@ fn to_pdf(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     let bytes =
         one_page_pdf(&samples, a.w, a.h, channels, a.w as f32 * per_point, a.h as f32 * per_point).map_err(|e| op_error(format!("writing the PDF: {e}")))?;
     let blob = Blob {
-        handle: Handle::md5_raw(&bytes),
+        handle: Handle::raw(&bytes),
         meta: BlobMeta { media: "application/pdf".into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
         source: BlobSource::Bytes(Arc::from(bytes)),
         publish: true,

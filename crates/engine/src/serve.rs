@@ -33,7 +33,7 @@ pub fn main(program: &str, factory: Factory, registration: &Registration) -> std
     let served = if let Some((listen, port_file)) = crate::http::listen_args(&args) {
         let token = std::env::var(ENV_TOKEN).unwrap_or_default();
         crate::http::lifeline(&args);
-        crate::http::serve_http(factory, &listen, &token, port_file.as_deref())
+        crate::http::serve_http(factory, &listen, &token, port_file.as_deref(), crate::http::shared(&args))
     } else {
         match endpoint_from_env(&args) {
             Ok((socket, token)) => serve_unix(factory, &socket, &token),

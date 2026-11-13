@@ -9,7 +9,6 @@
 
 use std::fmt::Write as _;
 
-use md5::{Digest, Md5};
 use serde_json::{Map, Value};
 
 /// The tag that starts every memo key's canonical list.
@@ -97,9 +96,10 @@ fn write_object(out: &mut String, m: &Map<String, Value>) {
     out.push('}');
 }
 
-/// A node's plan key (spec 14.2, 14.3): MD5 of the canonical form of
+/// A node's plan key (spec 14.2, 14.3): the digest, in the process's algorithm
+/// ([`crate::handle::Algo::current`], D11), of the canonical form of
 /// `["plumcraft-memo-v1", kind, version, salt, device_class, params, inputs]`, written
-/// `memo:md5:<hex>`. `params` are the resolved non-wired values, already coerced; `inputs` maps
+/// `memo:<algo>:<hex>`. `params` are the resolved non-wired values, already coerced; `inputs` maps
 /// each wired port to its identity, the upstream plan key and port (`<key>#<port>`).
 pub fn plan_key(kind: &str, version: u32, salt: &str, device_class: Option<&str>, params: &Map<String, Value>, inputs: &Map<String, Value>) -> String {
     let list = Value::Array(vec![
@@ -111,12 +111,8 @@ pub fn plan_key(kind: &str, version: u32, salt: &str, device_class: Option<&str>
         Value::Object(params.clone()),
         Value::Object(inputs.clone()),
     ]);
-    let digest = Md5::digest(canon(&list).as_bytes());
-    let mut hex = String::with_capacity(32);
-    for b in digest {
-        let _ = write!(hex, "{b:02x}");
-    }
-    format!("memo:md5:{hex}")
+    let hex = commonkit::digest::raw(canon(&list).as_bytes());
+    format!("memo:{}:{hex}", crate::handle::Algo::current().as_str())
 }
 
 /// The identity of a wired input: its upstream node's plan key and port.
@@ -162,7 +158,9 @@ mod tests {
                 case["params"].as_object().unwrap(),
                 case["inputs"].as_object().unwrap(),
             );
-            assert_eq!(key, case["key"].as_str().unwrap(), "{}", case["note"]);
+            // the process's algorithm picks the column (the suite runs once per algorithm)
+            let field = if crate::handle::Algo::current() == crate::handle::Algo::Md5 { "key" } else { "key_b3" };
+            assert_eq!(key, case[field].as_str().unwrap(), "{}", case["note"]);
             checked += 1;
         }
         assert!(checked > 10);

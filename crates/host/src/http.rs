@@ -178,7 +178,7 @@ impl HttpHost {
     /// `hello` (with the proof unless remote), `session.confirm`, and the catalogue.
     fn connect(&self) -> Result<(), String> {
         let ours = if self.opts.remote { None } else { plumcraft_store::write_nonce(self.local.root(), "u").ok() };
-        let mut hello = json!({"v": PROTOCOL, "op": "hello", "caps": ["events.poll", "data.shm", "data.path", "hash.b3"]});
+        let mut hello = json!({"v": PROTOCOL, "op": "hello", "caps": ["events.poll", "data.shm", "data.path"]});
         if let Some((path, nonce)) = &ours {
             hello["proof"] = json!({"path": path, "nonce": nonce});
         }
@@ -191,6 +191,12 @@ impl HttpHost {
             *lock(&self.state) = EngineState::EngineDown { reason: why.clone(), queues: None, stderr_tail: None, hint: String::new() };
             why
         })?;
+        // One algorithm on both ends (D8): refused before anything crosses.
+        let data: plumcraft_proto::session::DataInfo = reply.get("data").cloned().and_then(|d| serde_json::from_value(d).ok()).unwrap_or_default();
+        if let Some(why) = data.refusal() {
+            *lock(&self.state) = EngineState::EngineDown { reason: why.clone(), queues: None, stderr_tail: None, hint: String::new() };
+            return Err(why);
+        }
         let proof = reply.get("proof").cloned().and_then(|p| serde_json::from_value::<Proof>(p).ok()).unwrap_or_default();
         let shm = !self.opts.remote && plumcraft_store::check_nonce(&proof.path, &proof.nonce);
         let path = !self.opts.remote && proof.client_proof_read;
@@ -329,14 +335,15 @@ impl HttpHost {
         Ok(())
     }
 
-    /// A file's `md5:raw:` handle, cached by path, size and mtime.
+    /// A file's `raw` handle in the process's algorithm, cached by path, size and mtime (the
+    /// cache lives as long as the process, whose algorithm never changes).
     fn hash_file(&self, path: &Path) -> Option<Handle> {
         let meta = std::fs::metadata(path).ok().filter(|m| m.is_file())?;
         let key = (path.to_path_buf(), meta.len(), meta.modified().ok()?);
         if let Some(h) = lock(&self.hashes).get(&key) {
             return Some(h.clone());
         }
-        let h = Handle::md5_raw(&std::fs::read(path).ok()?);
+        let h = Handle::raw(&std::fs::read(path).ok()?);
         lock(&self.hashes).insert(key, h.clone());
         Some(h)
     }

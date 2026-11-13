@@ -166,6 +166,20 @@ pub struct DataInfo {
     pub blob_url: Option<String>,
 }
 
+impl DataInfo {
+    /// Why an engine whose hello says these `algos` is refused (D8, spec 4.3), or `None`: it
+    /// must list exactly this process's algorithm. An engine listing both, another, or none
+    /// (one from before 0.7.0) would hand out or read handles of the other algorithm.
+    pub fn refusal(&self) -> Option<String> {
+        let ours = crate::handle::Algo::current().as_str();
+        if self.algos.len() == 1 && self.algos.first().is_some_and(|a| a == ours) {
+            return None;
+        }
+        let theirs = if self.algos.is_empty() { "unstated".to_owned() } else { self.algos.join(",") };
+        Some(format!("engine {theirs}, editor {ours}: set HASH in the tree's .policy.json or COMMONKIT_HASH"))
+    }
+}
+
 /// Session limits (spec 5.2). Absent fields take these defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]

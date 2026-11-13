@@ -105,9 +105,23 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       # every test binary in parallel, each test in its own process; --no-fail-fast lists every
-      # failing test in one run. There are no doc tests (cargo test --doc finds none).
-      - name: cargo nextest
-        run: cargo nextest run --all-features --no-fail-fast
+      # failing test in one run. There are no doc tests (cargo test --doc finds none). Once per
+      # hash algorithm, each with a fresh store root, mark folder and craft root inside a fresh
+      # run folder (the commonkit hash facade); a leaked foreign or bad key fails the run.
+      - name: cargo nextest, under md5 and then b3
+        run: |
+          for algo in md5 b3; do
+            run=$(mktemp -d)
+            COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
+              COMMONKIT_MARK_DIR=$run/marks PLUMCRAFT_CRAFT_ROOT=$run/craft \
+              cargo nextest run --all-features --no-fail-fast
+            if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
+          done
+
+      # Every digest goes through commonkit::digest (D10).
+      - name: hash gates
+        if: ${{ !cancelled() }}
+        run: scripts/check-hash-gates.sh
 
   # The Python SDK's tests and lint: they don't use the Rust build, so they run beside it.
   python:
@@ -123,9 +137,15 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
 
-      - name: pytest
+      - name: pytest, under md5 and then b3
         working-directory: python
-        run: uv run pytest
+        run: |
+          for algo in md5 b3; do
+            run=$(mktemp -d)
+            COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
+              COMMONKIT_MARK_DIR=$run/marks uv run pytest
+            if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
+          done
 
       - name: ruff
         if: ${{ !cancelled() }}

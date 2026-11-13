@@ -11,7 +11,7 @@ description = "PlumCraft L2: the coordinator, one engine made of several (docs/r
 workspace = true
 
 [dependencies]
-md-5 = { workspace = true }
+commonkit = { workspace = true }
 plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-store = { workspace = true }
@@ -24,3 +24,5 @@ plumcraft-engine = { path = "../engine" }
 plumcraft-audio = { path = "../audio" }
 plumcraft-craft = { path = "../craft" }
 plumcraft-text = { path = "../text" }
+plumcraft-store = { path = "../store" }
+commonkit = { workspace = true, features = ["testing"] }

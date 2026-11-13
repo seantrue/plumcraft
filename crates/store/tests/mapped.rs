@@ -26,7 +26,7 @@ fn an_array_over_the_read_limit_is_mapped_and_reads_true() {
     bytes[(n - 1) * 4..].copy_from_slice(&0.5f32.to_le_bytes());
     let shape = vec![1, n as u64];
     // As an engine with its own writer publishes it (this store's own limit is lower).
-    let handle = Handle::md5_nd1("<f4", &shape, &bytes).unwrap();
+    let handle = Handle::nd1("<f4", &shape, &bytes).unwrap();
     let path = store.path_for(&handle).unwrap();
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     std::fs::write(&path, [npy_header(&shape).as_slice(), &bytes].concat()).unwrap();

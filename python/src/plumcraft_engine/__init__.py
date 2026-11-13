@@ -17,7 +17,6 @@ Standard library only. Stdout is never the data channel: diagnostics go to stder
 from __future__ import annotations
 
 import functools
-import hashlib
 import os
 import sys
 import threading
@@ -25,6 +24,8 @@ import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any, ClassVar
+
+from commonkit import digest as ck_digest
 
 PROTOCOL = 2
 
@@ -243,9 +244,9 @@ def _versions() -> bytes:
 
 @functools.cache
 def sdk_digest() -> str:
-    """The MD5 of this SDK's own `.py` files and the versions results depend on (Python's minor
-    version, numpy, pyuncommonkit), as the Rust SDK's `SDK_DIGEST`."""
-    h = hashlib.md5()
+    """The digest (the process's algorithm) of this SDK's own `.py` files and the versions results
+    depend on (Python's minor version, numpy, pyuncommonkit), as the Rust SDK's `sdk_digest()`."""
+    h = ck_digest.Hasher()
     root = os.path.dirname(os.path.abspath(__file__))
     _hash_tree(h, root, _py_files(root))
     h.update(_versions())
@@ -253,8 +254,8 @@ def sdk_digest() -> str:
 
 
 def code_digest(cls: type) -> str:
-    """The MD5 of the code that defines `cls`: its package's `.py` files when its module is in a
-    package, else its module's file alone."""
+    """The digest (the process's algorithm) of the code that defines `cls`: its package's `.py`
+    files when its module is in a package, else its module's file alone."""
     mod = sys.modules.get(cls.__module__)
     path = getattr(mod, "__file__", None)
     if not path:
@@ -262,7 +263,7 @@ def code_digest(cls: type) -> str:
     path = os.path.abspath(path)
     pkg = getattr(mod, "__package__", None)
     root = os.path.dirname(path) if pkg else path
-    h = hashlib.md5()
+    h = ck_digest.Hasher()
     _hash_tree(h, os.path.dirname(path), _py_files(root))
     return h.hexdigest()
 
@@ -287,7 +288,7 @@ def persist_ms_from_env() -> float | None:
 
 
 def dependency_digest(dists: tuple[str, ...]) -> str:
-    """The MD5 of these distributions' installed versions (`-` for one that isn't installed)."""
+    """The digest (the process's algorithm) of these distributions' installed versions (`-` for one that isn't installed)."""
     from importlib import metadata
 
     def version(dist: str) -> str:
@@ -296,7 +297,7 @@ def dependency_digest(dists: tuple[str, ...]) -> str:
         except metadata.PackageNotFoundError:
             return "-"
 
-    return hashlib.md5("; ".join(f"{d} {version(d)}" for d in sorted(dists)).encode()).hexdigest()
+    return ck_digest.raw("; ".join(f"{d} {version(d)}" for d in sorted(dists)).encode())
 
 
 def salt(prefix: str, code: str, dependencies: tuple[str, ...] = ()) -> str:
@@ -364,10 +365,6 @@ class Engine:
         self.wire_types: list[dict] = []
         self.nodes: dict[str, Node] = {}
         self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "run.stats", "status.progress"]
-        from . import data as _data
-
-        if _data.HAS_B3:  # BLAKE3 handles (spec 4.3; B10)
-            self.caps.append("hash.b3")
         self.limits = {"max_inline": 64 << 10}
         # Blobs go to the shared commonkit store unless `with_store` says otherwise.
         import os
@@ -463,7 +460,8 @@ class Engine:
         client = req.get("caps") if isinstance(req.get("caps"), list) else []
         caps = sorted(c for c in self.caps if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
         reply = {"v": PROTOCOL, "protocol": hi, "session": session, "engine": self.info, "caps": caps}
-        reply["data"] = {"algos": ["b3", "md5"] if "hash.b3" in caps else ["md5"]}
+        # spec 4.3: the one algorithm this process hashes in, which the client must share (D8)
+        reply["data"] = {"algos": [ck_digest.current()]}
         if self.store_root:
             reply["data"]["stores"] = [self.store_root]
         return reply

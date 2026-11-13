@@ -79,17 +79,17 @@ Both engines MUST produce the same handle for the same value. Shared test vector
 2. Python's tuple repr of the shape as ASCII: `()`, `(5,)`, `(812, 808, 3)` (`", "` separator; trailing comma only for one element).
 3. The C-order element bytes.
 
-**`raw`**: the bytes as stored, nothing else. This is alexandria's item digest (`alexandria/storage/cas.py`). Text is its UTF-8 bytes. JSON meant to dedupe is written in the typed canonical form of section 14.1.
+**`raw`**: the bytes as stored, nothing else. Text is its UTF-8 bytes. JSON meant to dedupe is written in the typed canonical form of section 14.1.
 
 A `.npy` file's own bytes are never an array's identity (numpy pads headers differently across versions).
 
 ### 4.3 Algorithm choice
 
-- **MD5 is the default** for every handle a session creates, for compatibility with the research software's checkpoint store, the research software's published keys and alexandria's CAS.
-- **BLAKE3 for local values when both ends take it** (B10, 2026-11-10). MD5 of a 144 MB array takes about 170 ms, BLAKE3 about 10 ms, and a crossing hashed it more than once. A run asks for `b3` handles (`RunRequest.algo`, section 8.1) when `hash.b3` was negotiated; a coordinator asks only when every engine in the run lists it. commonkit keys take a 64-digit digest since commonkit 0.1.2, beside the 32-digit md5 one. A reader checks a handle in its own algorithm, so values of both kinds mix in one graph. Engines and stores never hash the same bytes twice to publish them: the store takes the handle the engine just made.
-- **BLAKE3 (`b3`) is REQUIRED for uploads into a namespace shared by more than one client** (a multi-tenant remote store), because MD5 chosen-prefix collisions are cheap. A single-tenant remote (the maintainer's a remote server) MAY accept MD5 by configuration.
-- A server keeps an alias index `md5 → b3` built only from bytes it hashed itself, so a client can ask for an alexandria item by its MD5 and get a `b3` handle back (`blob.has` reply `aliases`).
-- An engine declares the algorithms it accepts in `hello` (`data.algos`, first preferred). The UI uses the first it also supports.
+- **One algorithm per process** (plumcraft 0.7.0; the commonkit hash facade, #91, #92, #93). Every handle, plan key, content key, build salt, catalogue digest and craft CAS name a process makes is in **commonkit's current algorithm**: `HASH` in the store tree's `.policy.json`, then `COMMONKIT_HASH`, then `b3` (commonkit contract §3.8, §10.6). It is resolved once per process, through `commonkit::digest` / `commonkit.digest`, and every process prints it on stderr (`commonkit: hash md5 (policy file …)`); the editor shows it in the status bar (`hash md5 · policy file`). No request, connection or code path chooses: the per-request `RunRequest.algo` and the `hash.b3` capability are retired.
+- A reader checks a handle in its own process's algorithm, so a handle of the other one never verifies, and the `plum` scheme (`DigestRule::Current`) declines and misses the other length. Engines and stores never hash the same bytes twice to publish them: the store takes the handle the engine just made.
+- **The hello** (D8): an engine says the one algorithm it hashes in, `data.algos: [<algo>]`. A client refuses an engine unless that list is exactly its own algorithm, with "engine md5, editor b3: set HASH in the tree's .policy.json or COMMONKIT_HASH". An engine from before 0.7.0 (which lists both, or nothing) is refused.
+- **BLAKE3 (`b3`) is REQUIRED for uploads into a namespace shared by more than one client** (a multi-tenant remote store), because MD5 chosen-prefix collisions are cheap: an HTTP engine started with `--shared` refuses an md5 upload (403) whatever its own algorithm (D16).
+- Fixed algorithms, which don't follow the switch, go through `commonkit::digest::fixed` and are allowlisted (`hash-allowlist.txt`): today only the SHA-256 that names a trusted workflow.
 
 ### 4.4 DataRef
 
@@ -203,7 +203,7 @@ Engine → UI:
  "caps": ["events.push", "events.poll", "events.resume", "run.peek", "run.watch", "run.plan",
           "display.stream", "status.progress", "data.shm", "data.path", "memo.persist",
           "output.save", "editor.curves", "editor.mask", "x.vi.export", "x.vi.deliver"],
- "data": {"algos": ["md5", "b3"], "stores": ["/Users/me/Library/Caches/commonkit/store"],
+ "data": {"algos": ["b3"], "stores": ["/Users/me/Library/Caches/commonkit/store"],
           "work_root": "/Users/me/Library/Caches/research/arrays"},
  "proof": {"path": "/Users/me/Library/Caches/commonkit/store/.hello/e-91c0….nonce", "nonce": "91c0…",
            "client_proof_read": true},
@@ -249,7 +249,7 @@ Engine → UI:
 | `run.stats` | engine | `RunReply.stats`: what the run's caches did (section 14.6) | Client counts node states |
 | `memo.audit` | engine | `memo.audit{sample}` recomputes a sample of memo hits and reports mismatches | — |
 | `admin` | engine (per token) | The token may cancel and watch other sessions' runs | Owner only |
-| `hash.b3` | both | BLAKE3 handles accepted; runs may ask for them (`RunRequest.algo`, section 4.3). The Rust SDK and the editor list it | MD5 only |
+| `hash.b3` | — | Retired in 0.7.0: the algorithm is the process's (section 4.3), never negotiated. Ignored if listed | — |
 | `output.save` | engine | `output.save` writes or returns rendered outputs (formats in schema) | Save hidden |
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
@@ -481,7 +481,7 @@ The UI types graphs exactly as engines run them. These rules are normative for e
 | `hold` | `["node.port"]`: values to keep for this run if they can't be sent (section 7.6 rule 11); usually absent |
 | `inputs` | `{"node.port": PortValue}`: external bindings that replace a port's wire or widget (section 7.6 rule 10). For graphs that span engines (one engine's DataRef fed to another) and for clients that feed a node a value they have; usually `{}` |
 | `detach` | When true, the run survives its session going idle, for `run_ttl_s` (section 5.2) |
-| `algo` | `b3`: the handles this run makes are BLAKE3 (section 4.3). Sent only when `hash.b3` was negotiated with every engine that reads them; a coordinator clears it when any engine in the run lacks `hash.b3`. Absent, empty or anything else: md5. An engine without `hash.b3` ignores it |
+| `algo` | Retired in 0.7.0 and ignored: every handle is in the process's algorithm (section 4.3) |
 
 Path-hinted widget values (F16, F75) are absolute paths when `data.path` is on, as today (`with_absolute_paths`). When it is off, the host rewrites each to a **source** before sending (section 13.2):
 
@@ -894,7 +894,7 @@ written   memo:<algo>:<hex>
 - `inputs`: `{port: identity}` including any wire slice. A plan-key identity is the string `<upstream plan key>#<upstream port>`, with `[<slice>]` appended in canonical text for a sliced wire. A bound input (section 7.6 rule 10) is identified by its content instead, since another engine's plan key means nothing here: a blob by its handle string (`md5:nd1:…`), a json value as `{"json": value}`, a list as the list of its items' identities. So when an upstream engine recomputes the same bytes, the downstream memo still hits.
 - A node with `memo.scope: none` passes `memo:none:<run_id>:<generation>:<node>` downstream instead of its plan key, so nothing below a fresh value is reused.
 - The text engines (Rust and Python) implement the plan key with an in-memory memo; `crates/proto/src/memo.rs` and `python/src/plumcraft_engine/memo.py` are held to `crates/proto/fixtures/memo_canon.json`. Coercion applies to ports typed `INT` and `FLOAT` until wire types declare their numeric kind.
-- **Algorithm: MD5 when the engine accepts a single client token** (the maintainer's own UI chooses every parameter and template). **`b3` MUST be used when an engine accepts more than one client token**, because parameters and templates are then client-controlled by several parties and MD5 chosen-prefix collisions apply. **Decision**; note 03 proposed BLAKE3 always.
+- **Algorithm: the process's** (section 4.3; D11, which replaces the earlier per-token rule): the plan key is `memo:<algo>:<hex>`, so a switch of algorithm makes every record a miss. An engine that accepts more than one client token should run under `b3`, because parameters and templates are then client-controlled by several parties and MD5 chosen-prefix collisions apply.
 
 ### 14.3 Two lookups
 
@@ -912,7 +912,7 @@ Declared per node in `NodeDef.memo.scope`: `none` (time, network, unseeded rando
 ### 14.5 Memo records
 
 ```json
-{"memo": "memo:md5:…", "kind": "vi.cp.pencil", "version": 3, "salt": "py:research+1a2b…",
+{"memo": "memo:<algo>:…", "kind": "vi.cp.pencil", "version": 3, "salt": "py:research+1a2b…",
  "outputs": {"value": {"kind": "blob", "ref": <DataRef without locators>}},
  "editor": {}, "ms": 412.0, "created": 1792170000.1, "scope": "machine"}
 ```
@@ -922,12 +922,12 @@ Records whose outputs are gone are dropped, never trusted. Records from elsewher
 The record above is the design; **what the SDKs write today** (`crates/engine/src/persist.rs`, `python/src/plumcraft_engine/persist.py`, the same format in both) is a compressed JSON segment under form `plummemo`, `plum:v1:plummemo:<plan key digest>:c`, in the engine's own store:
 
 ```json
-{"v": 1, "plan_key": "memo:md5:…", "ms": 2140.5,
- "outputs": {"doc":   {"blob":  {"handle": "md5:raw:…", "meta": <BlobMeta>, "publish": true,
-                                 "thumb": {"handle": "md5:nd1:…", "dtype": "|u1", "shape": [120, 96, 4]}}},
+{"v": 1, "plan_key": "memo:<algo>:…", "ms": 2140.5,
+ "outputs": {"doc":   {"blob":  {"handle": "<algo>:raw:…", "meta": <BlobMeta>, "publish": true,
+                                 "thumb": {"handle": "<algo>:nd1:…", "dtype": "|u1", "shape": [120, 96, 4]}}},
              "paths": {"json": 1097},
-             "codes": {"array": {"handle": "md5:nd1:…", "dtype": "<u4", "shape": [812]}},
-             "tone":  {"audio": {"handle": "md5:nd1:…", "sample_rate": 48000, "channels": 2}},
+             "codes": {"array": {"handle": "<algo>:nd1:…", "dtype": "<u4", "shape": [812]}},
+             "tone":  {"audio": {"handle": "<algo>:nd1:…", "sample_rate": 48000, "channels": 2}},
              "items": {"list":  {"items": [ … ], "axes": [["v.values", 3]], "labels": ["1", "2", "3"]}}}}
 ```
 

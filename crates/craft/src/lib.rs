@@ -127,10 +127,10 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
     if let Some(w) = &misfit {
         eprintln!("plumcraft-craft: {w}");
     }
-    let manifest_digest = plumcraft_proto::Handle::md5_raw(format!("{manifest:?}").as_bytes());
+    let manifest_digest = plumcraft_proto::Handle::raw(format!("{manifest:?}").as_bytes());
     let salt = plumcraft_engine::salt(
         &format!("craft:{}:{}:{}:{}", manifest.id, server_version, exe_digest.digest(), manifest_digest.digest()),
-        env!("PLUMCRAFT_CODE_DIGEST"),
+        &plumcraft_engine::code_digest!(),
     );
     let shared = Arc::new(Shared { manifest: manifest.clone(), pool, cas: cas.clone(), timeout: Duration::from_secs(manifest.timeout_s.max(1)) });
     let mut report = Report {
@@ -228,12 +228,15 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
     Ok((e.with_building_blocks(), report, shared))
 }
 
-/// The MD5 of the craft's executable (D47), hashed once per (path, size, mtime) and remembered
-/// in `<root>/exe-digest.json` (100 MB takes about 0.13 s optimised, seconds in a debug build).
+/// The digest of the craft's executable (D47), in the process's algorithm, hashed once per
+/// (path, size, mtime, algorithm) and remembered in `<root>/exe-digest.json` (100 MB takes about
+/// 0.13 s optimised, seconds in a debug build). A record of the other algorithm is a miss and is
+/// rewritten.
 pub fn exe_digest(exe: &Path, root: &Path) -> Result<plumcraft_proto::Handle, String> {
     let meta = std::fs::metadata(exe).map_err(|e| format!("{}: {e}", exe.display()))?;
     let mtime = meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos());
-    let key = json!({"path": exe.display().to_string(), "size": meta.len(), "mtime_ns": mtime.to_string()});
+    let key = json!({"path": exe.display().to_string(), "size": meta.len(), "mtime_ns": mtime.to_string(),
+                     "algo": plumcraft_proto::handle::Algo::current().as_str()});
     let file = root.join("exe-digest.json");
     let cached = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Value>(&b).ok());
     if let Some(c) = cached.filter(|c| c.get("key") == Some(&key))
@@ -1010,13 +1013,7 @@ pub fn smoke(manifest: &Manifest, opts: &Options, fixture: &Path, only: Option<&
     }
     let opts = Options { include_excluded: true, ..opts.clone() };
     let (engine, report, _) = build(manifest, &opts)?;
-    let plane = plumcraft_engine::data::Plane {
-        store: engine.store(),
-        shm: true,
-        urls: false,
-        max_inline: engine.limits().max_inline as usize,
-        algo: plumcraft_proto::handle::Algo::Md5,
-    };
+    let plane = plumcraft_engine::data::Plane { store: engine.store(), shm: true, urls: false, max_inline: engine.limits().max_inline as usize };
     let mut memo = Memo::default();
     let schema = engine.schema();
     let open = manifest.nodes.iter().find(|n| n.kind == Kind::Open).map(|n| n.id.clone()).ok_or("the manifest has no open node")?;

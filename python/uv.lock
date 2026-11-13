@@ -404,7 +404,6 @@ name = "plumcraft-engine"
 version = "0.1.2"
 source = { editable = "." }
 dependencies = [
-    { name = "blake3" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
     { name = "pillow" },
@@ -419,10 +418,9 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "blake3", specifier = ">=1" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=10" },
-    { name = "pyuncommonkit", specifier = ">=0.1.2" },
+    { name = "pyuncommonkit", specifier = ">=0.2.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -458,15 +456,16 @@ wheels = [
 
 [[package]]
 name = "pyuncommonkit"
-version = "0.1.2"
+version = "0.2.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
+    { name = "blake3" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/56/87/f1c7e0c783f9fef860a5b9ff2b496a12d03692acd87d5b1a70d75e7767be/pyuncommonkit-0.1.2.tar.gz", hash = "sha256:439720d87c79cf2a06b9980e0b8fe7dcb943104fb8e91ced21e90e75577d5eca", size = 30642, upload-time = "2026-11-11T02:55:09.459Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/67/43/8a171f72f34ad24f5c20ca6243fad42c98d855d5fc01a8260380810817d9/pyuncommonkit-0.2.0.tar.gz", hash = "sha256:d7b086869752a89a124734c2de42db4b064098d1fb76b31ce9d494e45db4f075", size = 39378, upload-time = "2026-11-13T02:47:52.844Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d2/83/14746cdadb34aa85611f80f9881ac91c8d1ad549cc30f076e6f6afd7c3fa/pyuncommonkit-0.1.2-py3-none-any.whl", hash = "sha256:770dc25546c8887b043722d83fdb47d503e7a80fd885b82d1091954b906e3689", size = 34119, upload-time = "2026-11-11T02:55:08.583Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/89/a7d9f521138b144ed4035a53fdd2cbda95d789053f2601433f7cb1b04600/pyuncommonkit-0.2.0-py3-none-any.whl", hash = "sha256:e9e955dc794333a0da4ff0ba34d8c39e43778573437d7f9383d7ad015b03106f", size = 44624, upload-time = "2026-11-13T02:47:51.825Z" },
 ]
 
 [[package]]

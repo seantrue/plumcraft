@@ -317,7 +317,7 @@ fn encode_video(i: &Inputs, cx: &mut Cx, ty: &str) -> Result<Outputs, NodeError>
     run(&mut cmd, cx, "video")?;
     let bytes = std::fs::read(&output).map_err(|e| op_error(format!("video: reading ffmpeg's {ty}: {e}")))?;
     let blob = Blob {
-        handle: Handle::md5_raw(&bytes),
+        handle: Handle::raw(&bytes),
         meta: BlobMeta { media: media(ty).into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
         source: BlobSource::Bytes(Arc::from(bytes)),
         publish: true,

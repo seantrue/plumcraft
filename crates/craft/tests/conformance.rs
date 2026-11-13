@@ -85,11 +85,11 @@ fn trace_chain_states_and_bytes(mk: Mk) {
     // The doc: a content handle, published to commonkit like any value the UI sees (so the
     // store's budget and TTL govern it; the CAS file is the craft's working copy).
     let doc = blob(&reply, "t", "doc");
-    assert!(doc.handle.as_ref().unwrap().to_string().starts_with("md5:raw:"));
+    assert!(doc.handle.as_ref().unwrap().to_string().starts_with(&format!("{}:raw:", plumcraft_proto::handle::Algo::current().as_str())));
     assert_eq!(doc.meta.form, Form::Doc { app: "vectorcraft".into() });
     assert!(doc.at.iter().any(|l| matches!(l, Locator::Commonkit { .. })), "{:?}", doc.at);
     let saved = h.resolve(&doc).expect("the doc resolves from the store").bytes;
-    assert_eq!(Handle::md5_raw(&saved), *doc.handle.as_ref().unwrap(), "the handle is the MD5 of the native save");
+    assert_eq!(Handle::raw(&saved), *doc.handle.as_ref().unwrap(), "the handle is the MD5 of the native save");
     assert!(matches!(reply.nodes["t"].thumb, Some(Rendition::Rgba8 { w: 120, .. } | Rendition::Rgba8 { h: 120, .. })), "{:?}", reply.nodes["t"].thumb);
     assert_eq!(json_out(&reply, "t", "paths"), json!(1097));
     // The SVG: published, resolvable, and the CLI's bytes.
@@ -100,7 +100,7 @@ fn trace_chain_states_and_bytes(mk: Mk) {
     let cli = cli_trace_chain(&env);
     assert_eq!(bytes.len(), cli.len());
     assert!(bytes == cli, "the SVG differs from vectorcraft-cli run's");
-    eprintln!("SVG byte-identical to vectorcraft-cli run: {} bytes, {}", bytes.len(), Handle::md5_raw(&bytes));
+    eprintln!("SVG byte-identical to vectorcraft-cli run: {} bytes, {}", bytes.len(), Handle::raw(&bytes));
     let d = &reply.watch[0];
     assert_eq!(d.media, Media::Vector);
     assert_eq!(d.full.as_ref().and_then(|f| f.handle.clone()), svg.handle);

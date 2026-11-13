@@ -9,6 +9,7 @@ import random
 
 import numpy as np
 import scratch
+from commonkit import digest as ck_digest
 
 from plumcraft_engine import data
 
@@ -58,11 +59,13 @@ def test_a_damaged_compressed_blob_is_a_miss():
 
 def test_memo_records_round_trip_and_bad_plan_keys_are_refused():
     r = root()
-    key = "memo:md5:0123456789abcdef0123456789abcdef"
+    a, n = ck_digest.current(), len(ck_digest.raw(b""))
+    key = f"memo:{a}:" + "0123456789abcdef" * (n // 16)
     assert data.read_record(r, key) is None
     assert data.put_record(r, key, b'{"v": 1}')
     assert data.read_record(r, key) == b'{"v": 1}'
     assert data.put_record(r, key, b'{"v": 2}'), "rewritten when the node is recomputed"
     assert data.read_record(r, key) == b'{"v": 2}'
-    for bad in ["memo:md5:../../etc/passwd", "memo:md5:0123456789ABCDEF0123456789ABCDEF", "md5:raw:0123456789abcdef0123456789abcdef", "", None, 7]:
+    other = "b3" if a == "md5" else "md5"
+    for bad in [f"memo:{a}:../../etc/passwd", f"memo:{a}:" + "0123456789ABCDEF" * (n // 16), f"{a}:raw:" + "0" * n, f"memo:{other}:" + "0" * n, "", None, 7]:
         assert data.memo_key_for(bad) is None and not data.put_record(r, bad, b"{}") and data.read_record(r, bad) is None

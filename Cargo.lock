@@ -735,16 +735,19 @@ dependencies = [
 
 [[package]]
 name = "commonkit"
-version = "0.1.2"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34e85761249dfc14b351aeb6508a519c329c6901ed1e29df9de53f8a3a355c11"
+checksum = "d0711e7f5a855b74458d0dcccc7724c7459cf56da9b66de2ae20693439b547ff"
 dependencies = [
+ "blake3",
  "bytemuck",
  "fs4",
  "log",
+ "md-5",
  "memmap2",
  "regex",
  "rustix 1.1.6",
+ "sha2",
 ]
 
 [[package]]
@@ -2910,6 +2913,7 @@ dependencies = [
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
+ "plumcraft-store",
  "plumcraft-text",
  "serde_json",
 ]
@@ -2919,10 +2923,10 @@ name = "plumcraft-array"
 version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
+ "commonkit",
  "flate2",
  "hayro",
  "image",
- "md-5",
  "npexact",
  "plumcraft-engine",
  "plumcraft-host",
@@ -2939,7 +2943,7 @@ dependencies = [
 name = "plumcraft-audio"
 version = "0.6.1"
 dependencies = [
- "md-5",
+ "commonkit",
  "plumcraft-engine",
  "plumcraft-host",
  "plumcraft-proto",
@@ -2980,7 +2984,7 @@ dependencies = [
 name = "plumcraft-coordinator"
 version = "0.6.1"
 dependencies = [
- "md-5",
+ "commonkit",
  "plumcraft-array",
  "plumcraft-audio",
  "plumcraft-craft",
@@ -2997,8 +3001,8 @@ dependencies = [
 name = "plumcraft-craft"
 version = "0.6.1"
 dependencies = [
+ "commonkit",
  "flate2",
- "md-5",
  "plumcraft-engine",
  "plumcraft-host",
  "plumcraft-proto",
@@ -3038,8 +3042,8 @@ dependencies = [
 name = "plumcraft-engine"
 version = "0.6.1"
 dependencies = [
+ "commonkit",
  "image",
- "md-5",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-store",
@@ -3080,9 +3084,8 @@ name = "plumcraft-proto"
 version = "0.6.1"
 dependencies = [
  "base64 0.22.1",
- "blake3",
+ "commonkit",
  "getrandom 0.3.4",
- "md-5",
  "schemars",
  "serde",
  "serde_json",
@@ -3098,7 +3101,7 @@ version = "0.6.1"
 name = "plumcraft-session"
 version = "0.6.1"
 dependencies = [
- "md-5",
+ "commonkit",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
@@ -3109,7 +3112,6 @@ dependencies = [
  "plumcraft-text",
  "serde",
  "serde_json",
- "sha2",
  "thiserror 2.0.21",
  "zip",
 ]
@@ -3137,7 +3139,7 @@ dependencies = [
 name = "plumcraft-text"
 version = "0.6.1"
 dependencies = [
- "md-5",
+ "commonkit",
  "plumcraft-conform",
  "plumcraft-coordinator",
  "plumcraft-engine",

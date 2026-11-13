@@ -4,27 +4,53 @@
 //! - `nd1` names an array by today's `publish.digest` (dtype string, Python's shape repr, C-order
 //!   bytes), so every array the research software publishes keeps its key. Big-endian arrays hash as their
 //!   little-endian twin (new in protocol 2).
-//! - `raw` names bytes as stored, which is alexandria's CAS digest.
+//! - `raw` names bytes as stored.
 //!
 //! The algorithm and recipe sets are closed and the hex is exact lowercase: anything else is a
 //! [`HandleError`], and a reference holding it is treated as absent.
+//!
+//! Every handle this process makes is in one algorithm, [`Algo::current`]: commonkit's switch
+//! (the tree's `HASH` in `.policy.json`, then `COMMONKIT_HASH`, then `b3`), resolved once per
+//! process. No code path chooses (#91, #92, #93). Digests come from `commonkit::digest`.
 
 use std::fmt;
 use std::str::FromStr;
 
-use md5::{Digest, Md5};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum Algo {
     Md5,
-    /// BLAKE3: required for uploads into stores shared by several clients, and used for local
-    /// values when every engine involved takes it (spec 4.3; B10: MD5 was the slowest step of
-    /// a large array's crossing).
+    /// BLAKE3: required for uploads into stores shared by several clients (spec 4.3; B10: MD5
+    /// was the slowest step of a large array's crossing).
     B3,
 }
 
 impl Algo {
+    /// This process's algorithm: commonkit's `policy::current()`, resolved once (the tree's
+    /// `HASH`, then `COMMONKIT_HASH`, then `b3`). Every handle the process makes uses it.
+    pub fn current() -> Algo {
+        match commonkit::digest::current() {
+            commonkit::digest::Algo::Md5 => Algo::Md5,
+            _ => Algo::B3,
+        }
+    }
+
+    /// Where [`Algo::current`] came from: `policy file <path>`, `environment COMMONKIT_HASH` or
+    /// `default` (the status bar's `hash md5 · policy file`).
+    pub fn source() -> String {
+        commonkit::policy::source().to_string()
+    }
+
+    /// `md5` or `b3`.
+    pub fn from_name(s: &str) -> Option<Algo> {
+        match s {
+            "md5" => Some(Algo::Md5),
+            "b3" => Some(Algo::B3),
+            _ => None,
+        }
+    }
+
     pub fn as_str(self) -> &'static str {
         match self {
             Algo::Md5 => "md5",
@@ -104,88 +130,21 @@ impl Handle {
         Ok(Handle { algo, recipe, digest: hex.to_owned() })
     }
 
-    /// `md5:raw:` of bytes as stored (alexandria's item digest).
-    pub fn md5_raw(bytes: &[u8]) -> Self {
-        Self::raw(Algo::Md5, bytes)
+    /// `<current>:raw:` of bytes as stored ([`Algo::current`]).
+    pub fn raw(bytes: &[u8]) -> Self {
+        Handle { algo: Algo::current(), recipe: Recipe::Raw, digest: commonkit::digest::raw(bytes) }
     }
 
-    /// `<algo>:raw:` of bytes as stored.
-    pub fn raw(algo: Algo, bytes: &[u8]) -> Self {
-        let mut h = Hasher::new(algo);
-        h.update(bytes);
-        Handle { algo, recipe: Recipe::Raw, digest: h.finish() }
-    }
-
-    /// `md5:nd1:` of an array ([`Handle::nd1`]).
-    pub fn md5_nd1(dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Self, HandleError> {
-        Self::nd1(Algo::Md5, dtype, shape, bytes)
-    }
-
-    /// `<algo>:nd1:` of an array given as numpy would describe it: `dtype` is `dtype.str`
+    /// `<current>:nd1:` of an array given as numpy would describe it: `dtype` is `dtype.str`
     /// (`<f4`, `|u1`, `>c8`, `<U3`, `<M8[ns]`), `shape` its dimensions and `bytes` its C-order
     /// element bytes. Byte order is normalised to little-endian first. The recipe is the same
-    /// for both algorithms (spec 4.2).
-    pub fn nd1(algo: Algo, dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Self, HandleError> {
-        let d = Dtype::parse(dtype)?;
-        let count = shape.iter().try_fold(1u64, |n, &s| n.checked_mul(s)).ok_or(HandleError::Length { got: bytes.len(), expected: usize::MAX })?;
-        let expected =
-            usize::try_from(count).ok().and_then(|c| c.checked_mul(d.itemsize)).ok_or(HandleError::Length { got: bytes.len(), expected: usize::MAX })?;
-        if bytes.len() != expected {
-            return Err(HandleError::Length { got: bytes.len(), expected });
-        }
-        let mut h = Hasher::new(algo);
-        h.update(d.normalised.as_bytes());
-        h.update(shape_repr(shape).as_bytes());
-        if d.swap_unit > 1 {
-            let mut swapped = bytes.to_vec();
-            for unit in swapped.chunks_exact_mut(d.swap_unit) {
-                unit.reverse();
-            }
-            h.update(&swapped);
-        } else {
-            h.update(bytes);
-        }
-        Ok(Handle { algo, recipe: Recipe::Nd1, digest: h.finish() })
-    }
-}
-
-/// Above this many bytes in one update, BLAKE3 hashes on several threads.
-const B3_PARALLEL: usize = 1 << 20;
-
-/// One digest in progress, of either algorithm.
-pub struct Hasher(HasherInner);
-
-enum HasherInner {
-    Md5(Md5),
-    B3(Box<blake3::Hasher>),
-}
-
-impl Hasher {
-    pub fn new(algo: Algo) -> Self {
-        Hasher(match algo {
-            Algo::Md5 => HasherInner::Md5(Md5::new()),
-            Algo::B3 => HasherInner::B3(Box::new(blake3::Hasher::new())),
-        })
-    }
-
-    pub fn update(&mut self, bytes: &[u8]) {
-        match &mut self.0 {
-            HasherInner::Md5(h) => h.update(bytes),
-            HasherInner::B3(h) if bytes.len() >= B3_PARALLEL => {
-                h.update_rayon(bytes);
-            }
-            HasherInner::B3(h) => {
-                h.update(bytes);
-            }
-        }
-    }
-
-    /// The lowercase hex digest.
-    pub fn finish(self) -> String {
-        match self.0 {
-            HasherInner::Md5(h) => hex(&h.finalize()),
-            HasherInner::B3(h) => h.finalize().to_hex().to_string(),
-        }
+    /// for both algorithms (spec 4.2), and is commonkit's `nd1` (contract §3.8).
+    pub fn nd1(dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Self, HandleError> {
+        let digest = commonkit::digest::nd1(dtype, shape, bytes).map_err(|e| match e {
+            commonkit::digest::Nd1Error::Length { got, expected } => HandleError::Length { got, expected: expected.unwrap_or(usize::MAX) },
+            _ => HandleError::Dtype(truncate(dtype)),
+        })?;
+        Ok(Handle { algo: Algo::current(), recipe: Recipe::Nd1, digest })
     }
 }
 
@@ -254,61 +213,6 @@ pub fn shape_repr(shape: &[u64]) -> String {
     }
 }
 
-/// A numpy `dtype.str`, as far as hashing needs it.
-struct Dtype {
-    /// The string hashed: big-endian and native orders written as `<`.
-    normalised: String,
-    itemsize: usize,
-    /// Bytes per byte-swapped unit when the source is big-endian (1: no swap).
-    swap_unit: usize,
-}
-
-impl Dtype {
-    fn parse(s: &str) -> Result<Self, HandleError> {
-        let bad = || HandleError::Dtype(truncate(s));
-        let mut chars = s.chars();
-        let order = chars.next().ok_or_else(bad)?;
-        let kind = chars.next().ok_or_else(bad)?;
-        let rest = chars.as_str();
-        let (digits, suffix) = rest.find('[').map_or((rest, ""), |i| rest.split_at(i));
-        if digits.is_empty() || digits.len() > 6 || !digits.bytes().all(|b| b.is_ascii_digit()) {
-            return Err(bad());
-        }
-        let n: usize = digits.parse().map_err(|_| bad())?;
-        if !suffix.is_empty() && !(matches!(kind, 'M' | 'm') && suffix.ends_with(']') && suffix.len() <= 8) {
-            return Err(bad());
-        }
-        // (itemsize, the unit swapped on a big-endian source)
-        let (itemsize, unit) = match kind {
-            'b' | 'i' | 'u' | 'f' | 'M' | 'm' => (n, n),
-            'c' => (n, n / 2),
-            'U' => (n.checked_mul(4).ok_or_else(bad)?, 4),
-            'S' => (n, 1),
-            // object ('O') and structured ('V') arrays: their bytes are pointers or layout
-            _ => return Err(bad()),
-        };
-        if itemsize == 0 && kind != 'S' && kind != 'U' {
-            return Err(bad());
-        }
-        let (order, swap_unit) = match order {
-            '<' | '|' => (order, 1),
-            '=' => ('<', 1),
-            '>' if unit > 1 => ('<', unit),
-            '>' => ('|', 1),
-            _ => return Err(bad()),
-        };
-        Ok(Dtype { normalised: format!("{order}{kind}{digits}{suffix}"), itemsize, swap_unit })
-    }
-}
-
-fn hex(bytes: &[u8]) -> String {
-    use fmt::Write;
-    bytes.iter().fold(String::with_capacity(bytes.len() * 2), |mut s, b| {
-        let _ = write!(s, "{b:02x}");
-        s
-    })
-}
-
 /// Hostile text in an error message is cut short.
 fn truncate(s: &str) -> String {
     s.chars().take(32).collect()
@@ -361,24 +265,25 @@ mod tests {
     #[test]
     fn dtypes() {
         for ok in ["<f4", "|u1", "|b1", ">c8", "<U3", "<M8[ns]", "|S5", ">i2"] {
-            assert!(Dtype::parse(ok).is_ok(), "{ok}");
+            assert!(!matches!(Handle::nd1(ok, &[0], &[]), Err(HandleError::Dtype(_))), "{ok}");
         }
         for bad in ["", "<", "|O8", "|V16", "<f", "<fx", "<f4[ns]", "?f4", "<q8", "<f99999999"] {
-            assert!(Dtype::parse(bad).is_err(), "{bad}");
+            assert!(matches!(Handle::nd1(bad, &[0], &[]), Err(HandleError::Dtype(_))), "{bad}");
         }
-        assert_eq!(Dtype::parse(">f4").unwrap().normalised, "<f4");
-        assert_eq!(Dtype::parse(">c8").unwrap().swap_unit, 4);
+        // Big-endian hashes as its little-endian twin.
+        assert_eq!(Handle::nd1(">f4", &[1], &[0x3f, 0x80, 0, 0]).unwrap(), Handle::nd1("<f4", &[1], &[0, 0, 0x80, 0x3f]).unwrap());
     }
 
     #[test]
     fn wrong_length_is_an_error() {
-        assert!(matches!(Handle::md5_nd1("<f4", &[2, 3], &[0; 23]), Err(HandleError::Length { got: 23, expected: 24 })));
-        assert!(Handle::md5_nd1("<f4", &[u64::MAX, 3], &[]).is_err());
+        assert!(matches!(Handle::nd1("<f4", &[2, 3], &[0; 23]), Err(HandleError::Length { got: 23, expected: 24 })));
+        assert!(Handle::nd1("<f4", &[u64::MAX, 3], &[]).is_err());
     }
 
     /// The shared vectors (`fixtures/handles.json`): md5 from research_engine's own
     /// `publish.digest` and `hashlib.md5` (claude-debug/make_handle_vectors.py), b3 from the
-    /// `blake3` package (claude-debug/make_b3_handle_vectors.py).
+    /// `blake3` package (claude-debug/make_b3_handle_vectors.py). Each process checks its own
+    /// algorithm's column; the suite runs once per algorithm.
     #[test]
     fn shared_vectors() {
         let text = include_str!("../fixtures/handles.json");
@@ -388,29 +293,35 @@ mod tests {
         for t in vectors {
             let name = t["name"].as_str().unwrap();
             let bytes = base64::engine::general_purpose::STANDARD.decode(t["bytes_b64"].as_str().unwrap()).unwrap();
-            for (algo, field) in [(Algo::Md5, "handle"), (Algo::B3, "b3")] {
-                let expect: Handle = t[field].as_str().unwrap_or_else(|| panic!("{name}: no {field}")).parse().unwrap();
-                let got = match t["recipe"].as_str().unwrap() {
-                    "nd1" => {
-                        let shape: Vec<u64> = t["shape"].as_array().unwrap().iter().map(|s| s.as_u64().unwrap()).collect();
-                        Handle::nd1(algo, t["dtype"].as_str().unwrap(), &shape, &bytes).unwrap()
-                    }
-                    _ => Handle::raw(algo, &bytes),
-                };
-                assert_eq!(got, expect, "{name} ({field})");
-            }
+            let field = if Algo::current() == Algo::Md5 { "handle" } else { "b3" };
+            let expect: Handle = t[field].as_str().unwrap_or_else(|| panic!("{name}: no {field}")).parse().unwrap();
+            let got = match t["recipe"].as_str().unwrap() {
+                "nd1" => {
+                    let shape: Vec<u64> = t["shape"].as_array().unwrap().iter().map(|s| s.as_u64().unwrap()).collect();
+                    Handle::nd1(t["dtype"].as_str().unwrap(), &shape, &bytes).unwrap()
+                }
+                _ => Handle::raw(&bytes),
+            };
+            assert_eq!(got, expect, "{name} ({field})");
         }
     }
 
-    /// A large value hashes on several threads (over [`B3_PARALLEL`]) to the same digest as on
-    /// one, and a `b3` handle never equals the `md5` one of the same bytes.
+    /// Every handle is in the process's algorithm, and its digest has that length.
     #[test]
-    fn b3_is_the_same_on_one_thread_and_many() {
-        let big: Vec<u8> = (0..(3 * B3_PARALLEL + 17)).map(|i| (i * 31 % 251) as u8).collect();
-        let one = blake3::hash(&big).to_hex().to_string();
-        assert_eq!(Handle::raw(Algo::B3, &big).digest(), one);
-        let h = Handle::nd1(Algo::B3, "<f4", &[big.len() as u64 / 4], &big[..big.len() / 4 * 4]).unwrap();
-        assert_eq!((h.algo(), h.digest().len()), (Algo::B3, 64));
-        assert_ne!(Handle::raw(Algo::B3, b"x").to_string(), Handle::raw(Algo::Md5, b"x").to_string());
+    fn handles_follow_the_switch() {
+        let a = Algo::current();
+        let h = Handle::raw(b"x");
+        assert_eq!((h.algo(), h.digest().len()), (a, a.hex_len()));
+        let h = Handle::nd1("<f4", &[1], &[0; 4]).unwrap();
+        assert_eq!((h.algo(), h.digest().len()), (a, a.hex_len()));
+    }
+
+    /// The suite runs isolated, in the algorithm it was asked for (the hash facade, §3.1).
+    #[test]
+    fn hash_is_what_was_asked() {
+        commonkit::testing::assert_isolated();
+        if let Ok(asked) = std::env::var("COMMONKIT_HASH") {
+            assert_eq!(Algo::from_name(asked.trim()), Some(Algo::current()), "COMMONKIT_HASH={asked}");
+        }
     }
 }

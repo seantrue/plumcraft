@@ -11,5 +11,5 @@ fn main() {
     // A published crate has no siblings or lockfile here. Its internal dependencies are pinned
     // exactly, so its version stands for them.
     let digest = source_digest(&dirs, &crates.join("../Cargo.lock"));
-    println!("cargo:rustc-env=PLUMCRAFT_SDK_DIGEST={digest}-{}", env!("CARGO_PKG_VERSION"));
+    emit_digest("PLUMCRAFT_SDK_DIGEST", &digest, &format!("-{}", env!("CARGO_PKG_VERSION")));
 }

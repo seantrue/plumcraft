@@ -20,10 +20,9 @@ plumcraft-host = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-# doc.open checks a document against its md5:raw: handle as it copies it
-md-5 = { workspace = true }
-# what a trusted workflow is known by
-sha2 = { workspace = true }
+# doc.open checks a document against its handle as it copies it; what a trusted workflow is
+# known by (fixed SHA-256)
+commonkit = { workspace = true }
 # workflow bundles
 zip = { workspace = true }
 

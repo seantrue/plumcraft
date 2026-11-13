@@ -1,6 +1,6 @@
 """AUDIO and the other core types in the Python SDK: `Text`, `Table`, `Image` and `Audio` declare
 exactly the Rust SDK's wire types; an `AudioValue` crosses as the Rust SDK's audio does (an
-`md5:nd1:` blob of (frames, channels) float32 with `Form::Audio`), shows as `peaks` laid out as the
+`nd1` blob of (frames, channels) float32 with `Form::Audio`), shows as `peaks` laid out as the
 Rust SDK lays them out, comes back from a binding with its sample rate, and persists."""
 
 import base64
@@ -9,6 +9,7 @@ import time
 import numpy as np
 import pytest
 import scratch
+from commonkit import digest as ck_digest
 
 from plumcraft_engine import Audio, AudioValue, Engine, Image, Json, Table, Text, data, node, persist
 from plumcraft_engine.audio import PEAKS_BYTES, peaks_array
@@ -74,7 +75,7 @@ def test_large_json_crosses_as_a_blob():
         assert small["nodes"]["j"]["outputs"]["json"] == {"kind": "json", "value": {"name": "corgi", "padding": ""}}
         large, _ = reply(h, "l", {"nodes": {"j": {"kind": "sound.settings", "values": {"big": 200_000}}}, "wires": []}, ["j"])
         out = large["nodes"]["j"]["outputs"]["json"]
-        assert out["kind"] == "blob" and out["ref"]["meta"]["form"] == {"kind": "json"} and out["ref"]["handle"].startswith("md5:raw:")
+        assert out["kind"] == "blob" and out["ref"]["meta"]["form"] == {"kind": "json"} and out["ref"]["handle"].startswith(f"{ck_digest.current()}:raw:")
     finally:
         h.shutdown()
 
@@ -110,7 +111,7 @@ def test_audio_crosses_as_the_rust_sdks_audio_and_binds_back():
         assert out["kind"] == "blob"
         ref = out["ref"]
         assert ref["meta"]["form"] == {"kind": "audio", "sample_rate": 8000, "channels": 2, "frames": 80, "dtype": "<f4"}
-        assert ref["handle"].startswith("md5:nd1:")
+        assert ref["handle"].startswith(f"{ck_digest.current()}:nd1:")
         thumbs = [e["body"]["thumb"] for e in events if e["kind"] == "node.status" and e["body"].get("thumb")]
         assert thumbs and thumbs[0]["kind"] == "peaks" and thumbs[0]["channels"] == 2
         # bound back in as another engine's audio: an AudioValue at its rate
@@ -140,6 +141,7 @@ def _last(h: Host, run_id: str) -> tuple[dict, list]:
 def test_audio_persists():
     root = scratch.mkdtemp("audio-")
     a = AudioValue(np.linspace(-1, 1, 64).reshape(32, 2), 22050)
-    assert persist.save(root, "memo:md5:" + "a" * 32, {"audio": a}, 1e6)
-    back = persist.load(root, "memo:md5:" + "a" * 32)[0]["audio"]
+    key = f"memo:{ck_digest.current()}:" + "a" * len(ck_digest.raw(b""))
+    assert persist.save(root, key, {"audio": a}, 1e6)
+    back = persist.load(root, key)[0]["audio"]
     assert isinstance(back, AudioValue) and back.sample_rate == 22050 and np.array_equal(back.samples, a.samples)

@@ -82,7 +82,10 @@ fn audio_crosses_as_a_blob(mk: fn() -> Conn) {
     let r = blob(&reply, "r", "audio");
     assert_eq!(r.meta.form, Form::Audio { sample_rate: 48000, channels: 2, frames: 96_000, dtype: "<f4".into() });
     let local = r.at.iter().any(|l| matches!(l, Locator::Commonkit { .. } | Locator::Path { .. }));
-    let remote = r.at.iter().any(|l| matches!(l, Locator::Url { url, .. } if url.starts_with("/v1/blobs/md5/nd1/")));
+    let remote = r
+        .at
+        .iter()
+        .any(|l| matches!(l, Locator::Url { url, .. } if url.starts_with(&format!("/v1/blobs/{}/nd1/", plumcraft_proto::handle::Algo::current().as_str()))));
     assert!(local || remote, "{:?}", r.at);
     assert!(!r.at.iter().any(|l| matches!(l, Locator::Inline { .. })), "768 KB is over the inline limit");
     let (t, rev) = (sound(&h, &reply, "t"), sound(&h, &reply, "r"));

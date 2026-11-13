@@ -149,7 +149,8 @@
     "text": "the corgi"
    },
    "inputs": {},
-   "key": "memo:md5:d2cb17b6a929959ea3d15bd3838ea377"
+   "key": "memo:md5:d2cb17b6a929959ea3d15bd3838ea377",
+   "key_b3": "memo:b3:7a10a2d08e003a696226796a9e82c136a90cef1b58c1fcd4996d71b56d632960"
   },
   {
    "note": "a wired node",
@@ -164,7 +165,8 @@
    "inputs": {
     "text": "memo:md5:00112233445566778899aabbccddeeff#text"
    },
-   "key": "memo:md5:90be71e8eeb7061473d772d08401f8e5"
+   "key": "memo:md5:90be71e8eeb7061473d772d08401f8e5",
+   "key_b3": "memo:b3:3a78b0c8f015fd03d40dfdd0eb0ac31ffad54c0baa41793afe5cb255ac25e633"
   },
   {
    "note": "device sensitive, float param",
@@ -179,7 +181,8 @@
    "inputs": {
     "image": "memo:md5:ffeeddccbbaa99887766554433221100#image"
    },
-   "key": "memo:md5:0c1dae04d8be1a0554090ef6f67b9a44"
+   "key": "memo:md5:0c1dae04d8be1a0554090ef6f67b9a44",
+   "key_b3": "memo:b3:be5c78d5480aa61f1ea79dd13c0ce608eb0cbc8425188a01a463fdd1a62c39d7"
   }
  ]
 }

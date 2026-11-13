@@ -10,7 +10,7 @@ include!("digest.rs");
 
 fn main() {
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    println!("cargo:rustc-env=PLUMCRAFT_CODE_DIGEST={}", source_digest(&[&here.join("src")], &here.join("../../Cargo.lock")));
+    emit_digest("PLUMCRAFT_CODE_DIGEST", &source_digest(&[&here.join("src")], &here.join("../../Cargo.lock")), "");
     println!("cargo::rerun-if-env-changed=CRAFT_FONTS_DIR");
     println!("cargo::rerun-if-env-changed=CRAFT_FONTS_REQUIRED");
     let mut src =

@@ -48,7 +48,7 @@ pub fn engine() -> Engine {
         id: "array".into(),
         name: "Array".into(),
         version: version.into(),
-        salt: plumcraft_engine::salt(&format!("rs:plumcraft-array+{version}"), env!("PLUMCRAFT_CODE_DIGEST")),
+        salt: plumcraft_engine::salt(&format!("rs:plumcraft-array+{version}"), &plumcraft_engine::code_digest!()),
         ..Default::default()
     };
     let mut e = Engine::new(info).with_wire_type(core_types::array()).with_svg().with_wire_type(core_types::image());

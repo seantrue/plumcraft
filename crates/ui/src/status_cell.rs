@@ -58,3 +58,29 @@ pub fn engine_status_line(ui: &mut egui::Ui, text: &str, tone: Tone, tokens: &To
         ui.add(label).on_hover_text(text);
     });
 }
+
+/// The status bar's hash cell, `hash md5 · policy file`: the process's algorithm (commonkit's
+/// switch) and where it came from (`source` is `policy file <path>`, `environment
+/// COMMONKIT_HASH` or `default`; the path is the hover text).
+pub fn hash_label(algo: &str, source: &str) -> String {
+    let kind = if source.starts_with("policy file") {
+        "policy file"
+    } else if source.starts_with("environment") {
+        "environment"
+    } else {
+        source
+    };
+    format!("hash {algo} · {kind}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::hash_label;
+
+    #[test]
+    fn the_hash_cell_names_the_algorithm_and_its_source() {
+        assert_eq!(hash_label("md5", "policy file /Volumes/CommonkitStore/store/.policy.json"), "hash md5 · policy file");
+        assert_eq!(hash_label("b3", "environment COMMONKIT_HASH"), "hash b3 · environment");
+        assert_eq!(hash_label("b3", "default"), "hash b3 · default");
+    }
+}

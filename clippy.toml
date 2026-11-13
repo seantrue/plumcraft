@@ -2,3 +2,19 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
+
+# Hash only through commonkit::digest (the commonkit hash facade, D10). allow-invalid: none of
+# these crates is a direct dependency, so the paths don't resolve unless one comes back.
+# `build::both` is for build scripts only (D4); `digest.rs` allows it at its one call.
+disallowed-types = [
+    { path = "md5::Md5", reason = "hash through commonkit::digest", allow-invalid = true },
+    { path = "md5::Context", reason = "hash through commonkit::digest", allow-invalid = true },
+    { path = "sha1::Sha1", reason = "hash through commonkit::digest", allow-invalid = true },
+    { path = "sha2::Sha256", reason = "use commonkit::digest::fixed", allow-invalid = true },
+    { path = "blake3::Hasher", reason = "hash through commonkit::digest", allow-invalid = true },
+]
+disallowed-methods = [
+    { path = "md5::compute", reason = "hash through commonkit::digest", allow-invalid = true },
+    { path = "blake3::hash", reason = "hash through commonkit::digest", allow-invalid = true },
+    { path = "commonkit::digest::build::both", reason = "build scripts only (D4): the runtime uses build::pick" },
+]

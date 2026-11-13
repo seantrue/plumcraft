@@ -107,13 +107,7 @@ fn png16() -> Data {
     img.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
     let bytes = bytes.into_inner();
     let meta = BlobMeta { media: "image/png".into(), size: bytes.len() as u64, form: Form::Image { width: W as u32, height: H as u32 }, aliases: Vec::new() };
-    Data::Blob(Box::new(Blob {
-        handle: plumcraft_proto::Handle::md5_raw(&bytes),
-        meta,
-        source: BlobSource::Bytes(Arc::from(bytes)),
-        publish: true,
-        thumb: None,
-    }))
+    Data::Blob(Box::new(Blob { handle: plumcraft_proto::Handle::raw(&bytes), meta, source: BlobSource::Bytes(Arc::from(bytes)), publish: true, thumb: None }))
 }
 
 /// A node that outputs a fixed value.

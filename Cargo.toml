@@ -36,10 +36,6 @@ serde_json = "1"
 thiserror = "2"
 # Engine manifests (plumcraft-proto) and craft packs (plumcraft-craft).
 toml = "1"
-md-5 = "0.10"
-# BLAKE3 handles for large values (B10): multithreaded on big inputs.
-blake3 = { version = "1.8", features = ["rayon"] }
-sha2 = "0.10"
 base64 = "0.22"
 # Deflate for compressed raw blobs and memo records (plumcraft-store), in pure Rust (miniz_oxide).
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
@@ -54,8 +50,9 @@ tiny-skia = { version = "0.11", default-features = false, features = ["std"] }
 # Picture viewer, which also shows WebP and GIF. All pure Rust.
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "tiff", "webp", "gif"] }
 # The store's layout, publishing and reading (plumcraft-store). Without `mmap`: segments are
-# read, not mapped.
-commonkit = { version = "0.1.2", default-features = false }
+# read, not mapped. `digest`: the one hashing facade (md5 or BLAKE3 by the tree's `HASH`, and
+# `fixed` SHA-256); no crate here depends on md-5, blake3 or sha2 directly.
+commonkit = { version = "0.2", default-features = false, features = ["digest"] }
 schemars = "1.2"
 tiny_http = "0.12"
 # Tokens and nonces from the OS's generator, on every platform (/dev/urandom is Unix-only).

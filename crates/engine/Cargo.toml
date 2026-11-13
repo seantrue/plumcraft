@@ -18,10 +18,11 @@ image = { workspace = true }
 serde = { workspace = true }
 tiny_http = { workspace = true }
 serde_json = { workspace = true }
+commonkit = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }
 plumcraft-store = { path = "../store" }
 
 [build-dependencies]
-md-5 = { workspace = true }
+commonkit = { workspace = true }

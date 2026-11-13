@@ -20,7 +20,6 @@ use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use md5::{Digest, Md5};
 use plumcraft_graph::NodeId;
 use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{DataRef, Form, Locator, PortValue};
@@ -297,10 +296,11 @@ pub(crate) fn safe(text: &str, max: usize) -> String {
     if s.is_empty() { "document".into() } else { s }
 }
 
-/// The MD5 of a file, read at most `MAX_DOC_BYTES`, written to `to` as it is read when given.
+/// The digest (the process's algorithm) of a file, read at most `MAX_DOC_BYTES`, written to `to`
+/// as it is read when given.
 pub(crate) fn hash_copy(from: &Path, mut to: Option<&mut std::fs::File>) -> std::result::Result<String, String> {
     let mut f = std::fs::File::open(from).map_err(|e| format!("{}: {e}", from.display()))?;
-    let mut h = Md5::new();
+    let mut h = commonkit::digest::Hasher::new();
     let mut buf = vec![0u8; 1 << 20];
     loop {
         let n = f.read(&mut buf).map_err(|e| format!("{}: {e}", from.display()))?;
@@ -310,7 +310,7 @@ pub(crate) fn hash_copy(from: &Path, mut to: Option<&mut std::fs::File>) -> std:
             t.write_all(chunk).map_err(|e| format!("copying: {e}"))?;
         }
     }
-    Ok(h.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(h.finish())
 }
 
 /// Copy `d` (a file on this machine, checked against its handle) to
@@ -348,12 +348,12 @@ pub enum CopyFrom<'a> {
 }
 
 /// Copy a value's bytes to `<root>/<node>/<title>-<digest8>.<ext>`, checked against its
-/// `md5:raw:` handle as they are written. An unchanged copy there is reused; a changed one is
+/// `raw` handle (in the process's algorithm, #93) as they are written. An unchanged copy there is reused; a changed one is
 /// kept, and this copy gets the next free name (`-2`, `-3`, …).
 pub fn copy_value(d: &DataRef, from: CopyFrom<'_>, ext: &str, root: &Path, node: &str, title: &str) -> std::result::Result<(PathBuf, bool), String> {
     let handle = d.handle.as_ref().ok_or("the value has no handle to check it by")?;
-    if handle.algo() != Algo::Md5 || handle.recipe() != Recipe::Raw {
-        return Err(format!("{handle}: only md5:raw: values can be checked"));
+    if handle.algo() != Algo::current() || handle.recipe() != Recipe::Raw {
+        return Err(format!("{handle}: only {}:raw: values can be checked", Algo::current().as_str()));
     }
     if let CopyFrom::File(src) = from {
         let meta = std::fs::metadata(src).map_err(|e| format!("{}: {e}", src.display()))?;
@@ -380,7 +380,7 @@ pub fn copy_value(d: &DataRef, from: CopyFrom<'_>, ext: &str, root: &Path, node:
         let mut out = std::fs::File::create(&tmp).map_err(|e| format!("{}: {e}", tmp.display()))?;
         let got = match from {
             CopyFrom::File(src) => hash_copy(src, Some(&mut out)),
-            CopyFrom::Bytes(b) => out.write_all(b).map_err(|e| format!("copying: {e}")).map(|()| Md5::digest(b).iter().map(|x| format!("{x:02x}")).collect()),
+            CopyFrom::Bytes(b) => out.write_all(b).map_err(|e| format!("copying: {e}")).map(|()| commonkit::digest::raw(b)),
         };
         let got = got.and_then(|h| out.sync_all().map(|()| h).map_err(|e| e.to_string()));
         drop(out);
@@ -592,7 +592,7 @@ mod tests {
 
     /// A document in a pretend CAS, and its DataRef with a `path` locator.
     fn doc(dir: &Path, bytes: &[u8]) -> DataRef {
-        let h = Handle::md5_raw(bytes);
+        let h = Handle::raw(bytes);
         let path = dir.join(format!("{}.vectorcraft", h.digest()));
         std::fs::write(&path, bytes).unwrap();
         DataRef {
@@ -727,7 +727,7 @@ mod tests {
         // the app saves its copy
         std::fs::write(&opened.path, b"{\"doc\": 2, \"edited\": true}").unwrap();
         let applied = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 2).unwrap().unwrap();
-        let edited = Handle::md5_raw(b"{\"doc\": 2, \"edited\": true}");
+        let edited = Handle::raw(b"{\"doc\": 2, \"edited\": true}");
         assert_eq!(applied["edited"], true, "{applied}");
         assert_eq!(applied["handle"], edited.to_string());
         assert!(applied["run_id"].is_string(), "it runs: {applied}");
@@ -914,8 +914,8 @@ mod tests {
         assert!(copy_for_app(&d, &t.app, &dir, "o", "t", None).is_err(), "a folder isn't a document");
         d.at = vec![Locator::Path { path: dir.join("missing").display().to_string(), offset: 0 }];
         assert!(copy_for_app(&d, &t.app, &dir, "o", "t", None).is_err());
-        d.handle = Some(Handle::md5_nd1("|u1", &[1], b"x").unwrap());
-        assert!(copy_for_app(&d, &t.app, &dir, "o", "t", None).unwrap_err().contains("md5:raw"));
+        d.handle = Some(Handle::nd1("|u1", &[1], b"x").unwrap());
+        assert!(copy_for_app(&d, &t.app, &dir, "o", "t", None).unwrap_err().contains(&format!("{}:raw", plumcraft_proto::handle::Algo::current().as_str())));
         assert_eq!(safe("../../etc/passwd", 60), "etc_passwd");
         assert_eq!(safe("", 60), "document");
         assert_eq!(safe("Image Trace 2", 60), "Image_Trace_2");

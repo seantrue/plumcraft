@@ -11,7 +11,7 @@ include!("digest.rs");
 fn main() {
     // The adapter's code digest, for the memo salt (with the craft's own version and executable).
     let here = Path::new(env!("CARGO_MANIFEST_DIR"));
-    println!("cargo:rustc-env=PLUMCRAFT_CODE_DIGEST={}", source_digest(&[&here.join("src")], &here.join("../../Cargo.lock")));
+    emit_digest("PLUMCRAFT_CODE_DIGEST", &source_digest(&[&here.join("src")], &here.join("../../Cargo.lock")), "");
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("packs");
     println!("cargo:rerun-if-changed={}", dir.display());
     let mut ids: Vec<String> = std::fs::read_dir(&dir)

@@ -1,11 +1,11 @@
 """How a value crosses the interface, as `crates/engine/src/data.rs` (spec 4.4, 4.5, 10.2).
 
 - Small JSON (at most `max_inline` bytes) travels as `{"kind": "json"}`.
-- Handles are `md5:` by default and `b3:` (BLAKE3) when the run's request asks for them and the
-  `blake3` package is here (spec 4.3; B10); a handle is always checked in its own algorithm.
-- Large text becomes an `md5:raw:` blob of its UTF-8 bytes; a large table an `md5:raw:` blob of
-  its JSON. Both live in commonkit as 1-d `|u1` segments.
-- Arrays (numpy) are always blobs (`md5:nd1:`): inline bytes when small, a segment otherwise.
+- Every handle is in the process's algorithm, commonkit's switch (the tree's `HASH`, then
+  `COMMONKIT_HASH`, then `b3`; spec 4.3), through `commonkit.digest`. No request chooses.
+- Large text becomes a `raw` blob of its UTF-8 bytes; a large table a `raw` blob of its JSON.
+  Both live in commonkit as 1-d `|u1` segments.
+- Arrays (numpy) are always blobs (`nd1`): inline bytes when small, a segment otherwise.
 - A blob that needs the store is published only when the session proved the UI reads this
   engine's files (`shm`); otherwise it is `unavailable` (spec 16.3).
 - A raw blob of at least `COMPRESS_MIN` bytes that deflate makes at least 10% smaller is stored
@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import base64
 import functools
-import hashlib
 import json
 import os
 import shutil
@@ -28,6 +27,7 @@ import zlib
 from typing import Any
 
 import numpy as np
+from commonkit import digest as ck_digest
 from commonkit import keys as ck_keys
 from commonkit.shared import shared_store
 from commonkit.store import SharedArrayStore
@@ -57,6 +57,8 @@ try:
             forms=(FORM_ARRAY, FORM_RAW, FORM_Z, FORM_MEMO),
             variants=("c",),
             dtypes={FORM_RAW: "uint8", FORM_Z: "uint8", FORM_MEMO: "uint8"},
+            # only digests of the process's algorithm: commonkit declines and misses the other
+            digest="current",
         )
     )
 except ValueError:  # already registered in this process
@@ -73,26 +75,9 @@ def shape_repr(shape: tuple[int, ...]) -> str:
     return repr(tuple(int(n) for n in shape))
 
 
-try:  # BLAKE3 handles (spec 4.3; B10): listed as `hash.b3` only when the package imports
-    import blake3 as _blake3
-except ImportError:  # pragma: no cover - blake3 is a dependency; an engine without it stays md5
-    _blake3 = None
-
-#: Whether this engine can make and check `b3:` handles.
-HAS_B3 = _blake3 is not None
-
-
-def _hasher(algo: str) -> Any:
-    if algo == "b3":
-        if _blake3 is None:
-            raise NodeError(NodeError.OP, "b3 handles need the blake3 package")
-        return _blake3.blake3(max_threads=_blake3.blake3.AUTO)
-    return hashlib.md5()
-
-
-def algo_of(handle: str) -> str:
-    """A handle's algorithm, `md5` or `b3`."""
-    return "b3" if handle.startswith("b3:") else "md5"
+def handle_of(recipe: str, hexd: str) -> str:
+    """A handle in this process's algorithm (commonkit's switch) from a digest it computed."""
+    return f"{ck_digest.current()}:{recipe}:{hexd}"
 
 
 def is_raw(handle: str) -> bool:
@@ -100,33 +85,27 @@ def is_raw(handle: str) -> bool:
     return handle.split(":", 2)[1:2] == ["raw"]
 
 
-def nd1(a: np.ndarray, algo: str = "md5") -> str:
-    """`<algo>:nd1:` of an array: the normalised dtype string, the shape's repr, the C-order bytes."""
-    if a.dtype.hasobject or a.dtype.fields is not None:
-        raise NodeError(NodeError.OP, f"no handle for dtype {a.dtype}")
-    if a.dtype.byteorder == ">":
-        a = a.byteswap().view(a.dtype.newbyteorder("<"))
-    a = np.ascontiguousarray(a) if a.ndim else a
-    h = _hasher(algo)
-    h.update(a.dtype.str.encode("ascii"))
-    h.update(shape_repr(a.shape).encode("ascii"))
-    h.update(a.tobytes(order="C"))
-    return f"{algo}:nd1:" + h.hexdigest()
+def nd1(a: np.ndarray) -> str:
+    """`<current>:nd1:` of an array: the normalised dtype string, the shape's repr, the C-order
+    bytes (commonkit's `nd1`, contract §3.8)."""
+    try:
+        return handle_of("nd1", ck_digest.nd1(a))
+    except ValueError as e:
+        raise NodeError(NodeError.OP, f"no handle for dtype {a.dtype}") from e
 
 
-def raw(b: bytes, algo: str = "md5") -> str:
-    h = _hasher(algo)
-    h.update(b)
-    return f"{algo}:raw:" + h.hexdigest()
+def raw(b: bytes) -> str:
+    """`<current>:raw:` of bytes as stored."""
+    return handle_of("raw", ck_digest.raw(b))
 
 
 def matches(handle: str, a: np.ndarray | None = None, b: bytes | None = None) -> bool:
-    """Whether an array (`nd1`) or bytes (`raw`) are `handle`, in the handle's own algorithm.
-    False, never an error, when they aren't or the algorithm can't be computed here."""
+    """Whether an array (`nd1`) or bytes (`raw`) are `handle`, in this process's algorithm: a
+    handle of the other one never matches. False, never an error, when they aren't."""
     try:
         if is_raw(handle):
-            return raw(b if b is not None else (a.tobytes() if a is not None else b""), algo_of(handle)) == handle
-        return a is not None and nd1(a, algo_of(handle)) == handle
+            return raw(b if b is not None else (a.tobytes() if a is not None else b"")) == handle
+        return a is not None and nd1(a) == handle
     except NodeError:
         return False
 
@@ -154,11 +133,10 @@ def line_count(s: str) -> int:
 class Plane:
     """What the executor needs to publish values for one run."""
 
-    def __init__(self, root: str | None, shm: bool, max_inline: int, urls: bool = False, algo: str = "md5"):
+    def __init__(self, root: str | None, shm: bool, max_inline: int, urls: bool = False):
         """`urls`: an HTTP session without the proof; publish to this engine's store and hand out
-        `url` locators the UI fetches by handle (spec 13.2 step 5). `algo`: the handles this run
-        makes, `b3` when its request asks for them and this engine can (spec 4.3)."""
-        self.algo = "b3" if algo == "b3" and HAS_B3 else "md5"
+        `url` locators the UI fetches by handle (spec 13.2 step 5). Every handle is in the
+        process's algorithm (spec 4.3)."""
         self.root = root
         self.shm = shm
         self.urls = urls and not shm
@@ -195,7 +173,7 @@ class Plane:
     def text_ref(self, s: str) -> dict:
         b = s.encode("utf-8")
         meta = {"media": TEXT_MEDIA, "size": len(b), "form": {"kind": "text", "lines": line_count(s), "encoding": "utf-8"}}
-        return self._blob(raw(b, self.algo), meta, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b), meta, b, np.frombuffer(b, dtype="|u1"))
 
     def array_ref(self, a: np.ndarray) -> dict:
         from .arrays import meta as array_meta
@@ -212,13 +190,13 @@ class Plane:
         if table:
             form["table"] = True
         meta = {"media": NPY_MEDIA, "size": int(a.nbytes), "form": form}
-        return self._blob(nd1(a, self.algo), meta, a.tobytes(), a)
+        return self._blob(nd1(a), meta, a.tobytes(), a)
 
     def audio_ref(self, a: Any) -> dict:
         """An `AudioValue` as an `md5:nd1:` blob of its (frames, channels) `<f4` samples, `Form::Audio`."""
         s = a.samples
         meta = {"media": NPY_MEDIA, "size": int(s.nbytes), "form": a.form()}
-        return self._blob(nd1(s, self.algo), meta, s.tobytes(), s)
+        return self._blob(nd1(s), meta, s.tobytes(), s)
 
     def peaks(self, a: AudioValue) -> dict | None:
         """A waveform overview of `a` (spec 10.3 `peaks`), always inline, as the Rust SDK's."""
@@ -249,12 +227,12 @@ class Plane:
         b = compact(v)
         rows, columns = table_shape(v)
         meta = {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "table", "rows": rows, "columns": columns}}
-        return self._blob(raw(b, self.algo), meta, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b), meta, b, np.frombuffer(b, dtype="|u1"))
 
     def json_ref(self, v: Any) -> dict:
         """A large JSON value as a blob."""
         b = compact(v)
-        return self._blob(raw(b, self.algo), {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "json"}}, b, np.frombuffer(b, dtype="|u1"))
+        return self._blob(raw(b), {"media": JSON_MEDIA, "size": len(b), "form": {"kind": "json"}}, b, np.frombuffer(b, dtype="|u1"))
 
     def blob_ref(self, b: Blob) -> dict:
         """A `Blob` value: inline bytes when small, else published to the store."""
@@ -352,11 +330,13 @@ def z_key_for(handle: str) -> str:
 
 
 def memo_key_for(plan_key: Any) -> str | None:
-    """The key of a plan key's memo record (`memo:md5:<hex>`); None for anything else."""
-    if not isinstance(plan_key, str) or not plan_key.startswith("memo:md5:"):
+    """The key of a plan key's memo record (`memo:<algo>:<hex>`, the process's algorithm); None
+    for anything else."""
+    prefix = f"memo:{ck_digest.current()}:"
+    if not isinstance(plan_key, str) or not plan_key.startswith(prefix):
         return None
-    hexd = plan_key[len("memo:md5:") :]
-    if len(hexd) != 32 or not all(c in "0123456789abcdef" for c in hexd):
+    hexd = plan_key[len(prefix) :]
+    if len(hexd) != {"md5": 32, "b3": 64}[ck_digest.current()] or not all(c in "0123456789abcdef" for c in hexd):
         return None
     return SCHEME.key(hexd, "c", FORM_MEMO)
 

@@ -183,7 +183,7 @@ pub fn sound(h: &dyn Connection, reply: &RunReply, node: &str) -> Sound {
     assert_eq!(dtype, "<f4");
     let b = h.resolve(&r).unwrap_or_else(|| panic!("{node}: the audio doesn't resolve"));
     assert_eq!(b.shape, [frames, u64::from(channels)]);
-    assert_eq!(r.handle, Some(plumcraft_proto::Handle::md5_nd1("<f4", &b.shape, &b.bytes).unwrap()), "the handle names the bytes");
+    assert_eq!(r.handle, Some(plumcraft_proto::Handle::nd1("<f4", &b.shape, &b.bytes).unwrap()), "the handle names the bytes");
     let samples: Vec<f32> = b.bytes.as_chunks::<4>().0.iter().map(|c| f32::from_le_bytes(*c)).collect();
     let n = usize::from(channels);
     let mut ch = vec![Vec::new(); n];

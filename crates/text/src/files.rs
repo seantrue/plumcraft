@@ -167,7 +167,7 @@ fn utf8(bytes: Vec<u8>, port: &str) -> Result<String, NodeError> {
 
 fn file(ty: &str, bytes: Vec<u8>) -> Data {
     Data::Blob(Box::new(Blob {
-        handle: Handle::md5_raw(&bytes),
+        handle: Handle::raw(&bytes),
         meta: BlobMeta { media: media(ty).into(), size: bytes.len() as u64, form: Form::default(), aliases: Vec::new() },
         source: BlobSource::Bytes(Arc::from(bytes)),
         publish: true,

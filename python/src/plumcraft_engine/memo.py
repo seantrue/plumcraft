@@ -7,10 +7,11 @@ writes floats as their IEEE-754 bit pattern, so every language agrees on them.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import struct
 from typing import Any
+
+from commonkit import digest as ck_digest
 
 MEMO_V1 = "plumcraft-memo-v1"
 
@@ -87,10 +88,11 @@ def _write(out: list[str], v: Any) -> None:
 
 
 def plan_key(kind: str, version: int, salt: str, device_class: str | None, params: dict, inputs: dict) -> str:
-    """A node's plan key: MD5 of the canonical form of
-    `["plumcraft-memo-v1", kind, version, salt, device_class, params, inputs]`, as `memo:md5:<hex>`."""
+    """A node's plan key: the digest, in the process's algorithm (commonkit's switch, D11), of the
+    canonical form of `["plumcraft-memo-v1", kind, version, salt, device_class, params, inputs]`,
+    as `memo:<algo>:<hex>`."""
     text = canon([MEMO_V1, kind, version, salt, device_class, params, inputs])
-    return "memo:md5:" + hashlib.md5(text.encode("utf-8", "surrogatepass")).hexdigest()
+    return f"memo:{ck_digest.current()}:" + ck_digest.raw(text.encode("utf-8", "surrogatepass"))
 
 
 def input_identity(upstream_key: str, port: str, slice_: str | None = None) -> str:

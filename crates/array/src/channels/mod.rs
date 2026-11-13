@@ -368,7 +368,7 @@ fn encode_image(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     };
     let thumb = plumcraft_engine::arrays::thumb(&a.to_array(), 160);
     let meta = BlobMeta { media: media.into(), size: out.len() as u64, form: Form::Image { width: w, height: h }, aliases: Vec::new() };
-    let blob = Blob { handle: Handle::md5_raw(&out), meta, source: BlobSource::Bytes(Arc::from(out)), publish: true, thumb };
+    let blob = Blob { handle: Handle::raw(&out), meta, source: BlobSource::Bytes(Arc::from(out)), publish: true, thumb };
     Ok(Outputs::from([("image".to_owned(), Data::Blob(Box::new(blob)))]))
 }
 

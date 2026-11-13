@@ -1,5 +1,5 @@
-//! The craft CAS (note 14, 3.2): raw files with real extensions, named by the MD5 of their
-//! bytes, which the craft opens by path. It is the craft's only read root; `work/` is its only
+//! The craft CAS (note 14, 3.2): raw files with real extensions, named by the digest of their
+//! bytes in the process's algorithm (commonkit's `HASH`: md5 or BLAKE3), which the craft opens by path. It is the craft's only read root; `work/` is its only
 //! write root. A file the craft writes lands in `work/tmp/<unique>/`, is hashed, then renamed
 //! into the CAS, so a reader sees a whole file or none.
 //!
@@ -15,14 +15,13 @@
 //! bytes already there, opening a document and a memo hit touch it. A memo hit on a reaped file
 //! puts it back from commonkit, or runs the node again (`exec::files_present`).
 
-use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use md5::{Digest, Md5};
 use plumcraft_proto::Handle;
+use plumcraft_proto::handle::{Algo, Recipe};
 
 /// The largest file hashed (a 218 MB HFP trace is the largest seen; this is twenty of them).
 pub const MAX_FILE: u64 = 4 << 30;
@@ -214,7 +213,7 @@ impl Cas {
 
     /// Stage bytes as `cas/src/<d>/<name>`.
     pub fn stage_bytes(&self, bytes: &[u8], name: &str) -> std::io::Result<(Handle, PathBuf)> {
-        let h = Handle::md5_raw(bytes);
+        let h = Handle::raw(bytes);
         let dest = self.cas.join("src").join(h.digest()).join(clean_name(name));
         if !dest.is_file() {
             let dir = dest.parent().ok_or_else(|| std::io::Error::other("no parent"))?;
@@ -275,29 +274,11 @@ fn clean_name(name: &str) -> String {
     if cleaned.is_empty() { "source".into() } else { cleaned }
 }
 
-/// The `md5:raw:` handle and size of a file, streamed, at most [`MAX_FILE`] bytes.
+/// The `<current>:raw:` handle and size of a file, streamed through `commonkit::digest`, at most
+/// [`MAX_FILE`] bytes.
 pub fn hash_file(p: &Path) -> std::io::Result<(Handle, u64)> {
-    let mut f = std::fs::File::open(p)?;
-    let len = f.metadata()?.len();
-    if len > MAX_FILE {
-        return Err(std::io::Error::other(format!("{} is over {} GiB", p.display(), MAX_FILE >> 30)));
-    }
-    let mut h = Md5::new();
-    let mut buf = vec![0u8; 1 << 20];
-    let mut total = 0u64;
-    loop {
-        let n = f.read(&mut buf)?;
-        if n == 0 {
-            break;
-        }
-        total = total.saturating_add(n as u64);
-        if total > MAX_FILE {
-            return Err(std::io::Error::other("the file grew past the limit while it was read"));
-        }
-        h.update(buf.get(..n).unwrap_or_default());
-    }
-    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-    let handle: Handle = format!("md5:raw:{hex}").parse().map_err(|e| std::io::Error::other(format!("{e:?}")))?;
+    let (hex, total) = commonkit::digest::file(p, MAX_FILE)?;
+    let handle = Handle::from_digest(Algo::current(), Recipe::Raw, &hex).map_err(|e| std::io::Error::other(format!("{e:?}")))?;
     Ok((handle, total))
 }
 
@@ -332,7 +313,7 @@ mod tests {
         let t = cas.tmp_dir().unwrap().join("x.svg");
         std::fs::write(&t, b"<svg/>").unwrap();
         let (h, p, n) = cas.adopt(&t, "svg").unwrap();
-        assert_eq!(h, Handle::md5_raw(b"<svg/>"));
+        assert_eq!(h, Handle::raw(b"<svg/>"));
         assert_eq!(n, 6);
         assert_eq!(std::fs::read(&p).unwrap(), b"<svg/>");
         assert!(!t.exists());
@@ -342,7 +323,7 @@ mod tests {
         std::fs::write(&t2, b"<svg/>").unwrap();
         assert_eq!(cas.adopt(&t2, "svg").unwrap().1, p);
         let (h2, s) = cas.stage_bytes(b"jpeg", "../../etc/test.jpg").unwrap();
-        assert_eq!(h2, Handle::md5_raw(b"jpeg"));
+        assert_eq!(h2, Handle::raw(b"jpeg"));
         assert!(s.ends_with("test.jpg") && cas.contains(&s));
         let (h3, s3) = cas.stage_file(&s).unwrap();
         assert_eq!((h3, s3.file_name()), (h2, s.file_name()));
@@ -420,5 +401,47 @@ mod tests {
         let l = Limits::from_env();
         assert!(l.interval >= Duration::from_secs(1));
         assert!(l.max_bytes > 0);
+    }
+
+    /// The craft CAS follows the switch: `hash_file` and `stage_bytes` name files with the
+    /// process's algorithm, its length and prefix (the suite runs once per algorithm).
+    #[test]
+    fn names_follow_the_algorithm() {
+        let algo = Algo::current();
+        let dir = plumcraft_scratch::root().join("cas-algo");
+        let _ = std::fs::remove_dir_all(&dir);
+        let cas = Cas::new(&dir).unwrap();
+        let (h, p) = cas.stage_bytes(b"a source", "a.png").unwrap();
+        assert_eq!((h.algo(), h.digest().len()), (algo, algo.hex_len()));
+        assert!(p.display().to_string().contains(&format!("/src/{}/", h.digest())), "{}", p.display());
+        let (f, n) = hash_file(&p).unwrap();
+        assert_eq!((&f, n), (&h, 8));
+        assert!(f.to_string().starts_with(&format!("{}:raw:", algo.as_str())));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// An `exe-digest.json` written under the other algorithm is a miss, and is rewritten.
+    #[test]
+    fn an_exe_digest_of_the_other_algorithm_is_rewritten() {
+        let algo = Algo::current();
+        let other = if algo == Algo::Md5 { "b3" } else { "md5" };
+        let dir = plumcraft_scratch::root().join("cas-exe-digest");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let exe = dir.join("app");
+        std::fs::write(&exe, b"an executable").unwrap();
+        let first = crate::exe_digest(&exe, &dir).unwrap();
+        assert_eq!(first.algo(), algo);
+        let file = dir.join("exe-digest.json");
+        let mut rec: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!(rec["key"]["algo"], algo.as_str());
+        let n = if other == "md5" { 32 } else { 64 };
+        rec["key"]["algo"] = other.into();
+        rec["digest"] = format!("{other}:raw:{}", "0".repeat(n)).into();
+        std::fs::write(&file, rec.to_string()).unwrap();
+        assert_eq!(crate::exe_digest(&exe, &dir).unwrap(), first, "a miss: hashed again");
+        let back: serde_json::Value = serde_json::from_slice(&std::fs::read(&file).unwrap()).unwrap();
+        assert_eq!((back["key"]["algo"].as_str(), back["digest"].as_str()), (Some(algo.as_str()), Some(first.to_string().as_str())));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

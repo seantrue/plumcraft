@@ -316,7 +316,7 @@ fn request(req: &RunRequest, f: &Fragment, i: usize, skipped: &BTreeSet<String>,
         "v": PROTOCOL, "op": "run",
         "run_id": format!("{}~{i}", req.run_id), "generation": req.generation, "priority": req.priority,
         "graph": {"kind": "inline", "graph": graph},
-        "targets": targets, "watch": watch, "preview": req.preview, "memo": req.memo, "inputs": inputs, "hold": f.hold, "trusted_roots": trusted, "scope": req.scope, "algo": req.algo,
+        "targets": targets, "watch": watch, "preview": req.preview, "memo": req.memo, "inputs": inputs, "hold": f.hold, "trusted_roots": trusted, "scope": req.scope,
     })
 }
 

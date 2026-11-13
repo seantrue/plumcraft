@@ -42,7 +42,7 @@ impl Node for Make {
         let n = i.get("n").and_then(Data::json).and_then(Value::as_u64).unwrap_or(0);
         let bytes = format!("<svg n='{n}'/>").repeat(50).into_bytes();
         let meta = BlobMeta { media: "image/svg+xml".into(), size: bytes.len() as u64, form: Form::Vector { width: 1.0, height: 1.0 }, aliases: Vec::new() };
-        let blob = Blob { handle: Handle::md5_raw(&bytes), meta, source: BlobSource::Bytes(Arc::from(bytes)), publish: true, thumb: None };
+        let blob = Blob { handle: Handle::raw(&bytes), meta, source: BlobSource::Bytes(Arc::from(bytes)), publish: true, thumb: None };
         let mut array = Array::new("<f4", vec![2, 2, 3], (0..12).flat_map(|k| (k as f32 + n as f32).to_le_bytes()).collect::<Vec<u8>>());
         array.space = Some("Lab".into());
         array.names = vec!["L".into(), "a".into(), "b".into()];
@@ -129,7 +129,7 @@ impl Rig {
             "targets": targets, "inputs": inputs,
         }))
         .unwrap();
-        let plane = Plane { store: self.engine.store(), shm: true, urls: false, max_inline, algo: plumcraft_proto::handle::Algo::Md5 };
+        let plane = Plane { store: self.engine.store(), shm: true, urls: false, max_inline };
         exec::run(&self.engine, &req, &mut Log, &CancelToken::default(), "test", &mut self.memo, &plane)
     }
 }
@@ -251,7 +251,7 @@ fn bad_bindings_are_node_errors() {
         form: Form::Array { dtype: "<f4".into(), shape: vec![1], space: None, names: vec![], table: false },
         aliases: vec![],
     };
-    let gone = PortValue::Blob { data: DataRef { handle: Some(Handle::md5_raw(b"never stored")), meta: meta.clone(), at: vec![] } };
+    let gone = PortValue::Blob { data: DataRef { handle: Some(Handle::raw(b"never stored")), meta: meta.clone(), at: vec![] } };
     let no_handle = PortValue::Blob { data: DataRef { handle: None, meta, at: vec![] } };
     let opaque = PortValue::Opaque { ty: "STYLE".into(), summary: "s".into(), held: None };
     let mut deep = PortValue::Json { value: json!(0) };
@@ -270,7 +270,7 @@ fn bad_bindings_are_node_errors() {
         "inputs": {"e.x": {"kind": "nonsense"}, "e.c1": 7},
     }));
     if let Ok(req) = req {
-        let plane = Plane { store: a.engine.store(), shm: true, urls: false, max_inline: 1 << 20, algo: plumcraft_proto::handle::Algo::Md5 };
+        let plane = Plane { store: a.engine.store(), shm: true, urls: false, max_inline: 1 << 20 };
         let r = exec::run(&a.engine, &req, &mut Log, &CancelToken::default(), "t", &mut Memo::default(), &plane);
         assert!(r.ok, "{r:?}");
     }
@@ -294,7 +294,7 @@ fn a_path_outside_the_store_is_read_only_where_the_run_trusts_it() {
     file.extend(text.as_bytes());
     file.extend(&bytes);
     std::fs::write(&path, &file).unwrap();
-    let handle = Handle::md5_nd1("<f4", &shape, &bytes).unwrap();
+    let handle = Handle::nd1("<f4", &shape, &bytes).unwrap();
     let meta = BlobMeta {
         size: bytes.len() as u64,
         form: Form::Array { dtype: "<f4".into(), shape: shape.to_vec(), space: None, names: Vec::new(), table: false },
@@ -306,6 +306,6 @@ fn a_path_outside_the_store_is_read_only_where_the_run_trusts_it() {
     assert!(to_data(Some(&store), &[], "a", &value(handle.clone())).is_err(), "not named: not read");
     let trusted = [away.display().to_string()];
     assert!(matches!(to_data(Some(&store), &trusted, "a", &value(handle)), Ok(plumcraft_engine::Data::Array(_))), "named by the run");
-    let other = Handle::md5_nd1("<f4", &shape, &[0u8; 16]).unwrap();
+    let other = Handle::nd1("<f4", &shape, &[0u8; 16]).unwrap();
     assert!(to_data(Some(&store), &trusted, "a", &value(other)).is_err(), "the bytes aren't the handle's");
 }

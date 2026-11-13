@@ -74,7 +74,7 @@ fn no_engine_is_unavailable_and_off() {
     let c = Coordinator::new();
     assert_eq!(c.call("schema", json!({})).unwrap_err().code, ErrorCode::Unavailable);
     assert_eq!(c.state(), EngineState::Off);
-    assert!(c.resolve(&data_ref(&Handle::md5_raw(b"x"))).is_none());
+    assert!(c.resolve(&data_ref(&Handle::raw(b"x"))).is_none());
 }
 
 #[test]
@@ -104,11 +104,11 @@ fn several_engines_make_the_coordinator_the_engine() {
 
 #[test]
 fn a_blob_comes_from_whichever_engine_has_it() {
-    let h = Handle::md5_raw(b"b's");
+    let h = Handle::raw(b"b's");
     let b = Arc::new(Fake { name: "b", state: connected(), blob: Some(h.clone()), calls: Mutex::new(Vec::new()) });
     let c = Coordinator::new().with_engine("a", Fake::new("a")).with_engine("b", b);
     assert_eq!(c.resolve(&data_ref(&h)).map(|b| b.bytes.into_vec()), Some(b"b".to_vec()));
-    assert!(c.resolve(&data_ref(&Handle::md5_raw(b"nobody's"))).is_none());
+    assert!(c.resolve(&data_ref(&Handle::raw(b"nobody's"))).is_none());
 }
 
 #[test]
