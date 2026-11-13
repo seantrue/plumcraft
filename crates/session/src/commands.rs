@@ -84,6 +84,28 @@ pub enum Tone {
     Error,
 }
 
+impl Tone {
+    /// A tone from its name in a catalogue text (`texts::ENGINE_STATUS_TONE`): `info`, `warn` or
+    /// `error`, in any case and with spaces around it. Anything else, the empty text included, is
+    /// `Info`: the text comes from an engine, so it is never trusted to be one of the three.
+    pub fn from_text(text: &str) -> Tone {
+        match text.trim().to_ascii_lowercase().as_str() {
+            "warn" => Tone::Warn,
+            "error" => Tone::Error,
+            _ => Tone::Info,
+        }
+    }
+
+    /// The tone's name, as [`Tone::from_text`] reads it.
+    pub fn name(self) -> &'static str {
+        match self {
+            Tone::Info => "info",
+            Tone::Warn => "warn",
+            Tone::Error => "error",
+        }
+    }
+}
+
 /// A short label an application draws on a wire ([`Hooks::wire_marks`]).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct WireMark {
@@ -366,6 +388,19 @@ pub(crate) fn pos_param(p: &Value, key: &str) -> Result<Option<[f32; 2]>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// plumcraft #86: an engine's `engine_status_tone` names a tone; anything else is `Info`.
+    #[test]
+    fn a_tone_from_its_name_and_info_from_anything_else() {
+        assert_eq!(Tone::from_text("info"), Tone::Info);
+        assert_eq!(Tone::from_text("warn"), Tone::Warn);
+        assert_eq!(Tone::from_text("error"), Tone::Error);
+        assert_eq!(Tone::from_text(" Warn \n"), Tone::Warn);
+        assert_eq!(Tone::from_text("ERROR"), Tone::Error);
+        for junk in ["", "  ", "warning!", "fatal", "\u{0}", "info,error", &"x".repeat(10_000)] {
+            assert_eq!(Tone::from_text(junk), Tone::Info, "{junk:?}");
+        }
+    }
 
     fn form() -> CommandForm {
         let field = |key, label, kind, required| FormField { key, label, hint: "", kind, required };

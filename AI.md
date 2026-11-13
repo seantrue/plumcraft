@@ -20,6 +20,23 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-12 — #86: an engine's status line, in two-line status cells (Claude Opus 5.5)
+
+**What the maintainer decided:** for plumimpress #23 ("can't tell which GPU is in use"; "status bar. I think it shows in the iOS app"), an engine's status as a fixed segment after the engine label, width-capped with the full text on hover, filed as #86, with the note "Status window is very over crowded. Consider starting to stack some cells vertically or use sub/super scripts". Of three layouts the AI sketched (two rows, two-line cells, one shorter row), the maintainer chose "D17 B", two-line cells, then "go GPU".
+
+**What the AI did:**
+
+- **Catalogue and session** (~40 LOC): `texts::ENGINE_STATUS` and `ENGINE_STATUS_TONE` (additive; `texts` is an open map), `Tone::from_text` (lenient: anything but `info`, `warn` or `error` is `Info`) and `Tone::name`.
+- **Status bar** (~140 LOC): `crate::status_cell` (the cell helper, the 240-point cap, the detail line at 0.8 of the body size, the tone colours) and `status_bar` rebuilt as cells: the engine's name and state over its status line, the document over the graph's size, the run over its time, the engine's time and the caches. `engine_short_label` and `engine_status`; the link and node count moved to the engine cell's hover. `cache_view::status_line` draws a dot instead of a separator when something precedes it. `ui.inspect`'s `engineStatus`.
+- **Tests** (~200 LOC): `crates/ui/tests/kittest_engine_status.rs` (5); `Tone::from_text`; `schema::tests::texts_keys_are_not_in_the_schema` (a guard: passes before and after). Four of the five kittests failed before the status bar change (run and seen); the fifth, nothing shown without the text or engine, is a guard. Existing tests updated for the engine cell: `kittest_shell.rs` looked for `engine: Text`, and eight lookups in `apps/plumcraft-editor/src/lib.rs`'s editor kittests (six tests) looked for the link and mode (`Rust · mode 1 · in-process`, `HTTP · attached · …`, `engine: Audio`) in the bar; those are now in the hover, so they read `engine_label()`, which `ui.inspect` reports as `engine.label`. The AI missed the editor's tests until the full gate failed six of them.
+- **Docs:** `docs/interface.md` (`texts`), `docs/control-protocol.md`, `docs/STATUS.md`.
+
+**Defects, caught before any commit:** two in the new tests, both by running them: a helper named `app` shadowed by a variable of the same name, and the layout test looked up the document by its bare name, while a graph with unsaved changes shows `Untitled •`. A first query for the run's time matched any label containing " s"; it now matches only a number followed by " s" (kittest gives a label's text as its `value` here).
+
+**Not checked:** the standalone PlumCraft editor was not run; the layout was seen only in PlumImpress's kittest window (wgpu-rendered, 900 and 1400 points), where the document name is drawn in the light theme's text colour on the dark panel, nearly invisible. That was so before this change (the same `tokens.text` label).
+
+**Lines** (measured, `git diff --numstat` plus the two new files): ~140 in `crates/ui/src` (81 added, 21 removed in `lib.rs`; 60 in `status_cell.rs`), ~40 in proto and session, ~175 test, ~15 in updated tests, ~5 docs.
+
 ### 2026-11-12 — B25 (#83) and B26 (#84): Simplex Noise's tile periods and `tileable` tooltip (Claude Opus 5.5)
 
 **What the maintainer decided:** both issues came from the yapocis3 #65 review, which the maintainer had filed here ("3 file"), and the maintainer approved fixing them together now: "Yes to do 4 now". For yapocis3 the maintainer had chosen to stop promising seamless output ("2 A") and to file real tiling as a feature (yapocis3 #83); this tooltip follows that. Later: "Fold B2 into the #84 fix", so impressionist's copy of the tooltip gets the same wording in its own branch.

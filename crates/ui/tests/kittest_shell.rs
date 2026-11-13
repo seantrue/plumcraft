@@ -80,7 +80,10 @@ fn clicking_a_title_watches_and_runs() {
     let app = EditorApp::new(s).with_link(Link::start(conn, "in-process", None).unwrap());
     let mut h = harness(app);
     assert!(h.state().session.connected);
-    h.get_by_label_contains("engine: Text");
+    // the status bar's engine cell names the engine and its state; the whole label (the link,
+    // the node count) is its hover (layout B, plumcraft #86)
+    h.get_by_label(&format!("Text {} · connected", env!("CARGO_PKG_VERSION")));
+    assert!(h.state().engine_label().starts_with("engine: Text"), "{}", h.state().engine_label());
     click_in_node(&mut h, "Upper case");
     assert_eq!(h.state().session.run.watch.first().map(|w| (w.node.as_str(), w.port.as_str())), Some((b.as_str(), "text")));
     let deadline = Instant::now() + Duration::from_secs(10);
