@@ -1,0 +1,12 @@
+# Files allowed to name a hash algorithm, `fixed::` or `build::` outside tests, goldens and build
+# scripts (the commonkit hash facade, D9/D10). One path per line.
+# The algorithm enum itself, its switch and the handle grammar.
+crates/proto/src/handle.rs
+# D16: a shared remote refuses md5 uploads whatever the switch.
+crates/engine/src/http.rs
+# The runtime's pick of the two baked build salts (D4).
+crates/engine/src/lib.rs
+# The other algorithm's lengths, to find them (scan-store).
+apps/plumcraft-cli/src/scan_store.rs
+# Fixed SHA-256 for trusted workflows: a security digest (D9).
+crates/session/src/trust.rs

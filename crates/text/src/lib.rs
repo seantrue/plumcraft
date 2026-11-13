@@ -67,7 +67,7 @@ pub fn engine() -> Engine {
         id: "text".into(),
         name: "Text".into(),
         version: env!("CARGO_PKG_VERSION").into(),
-        salt: plumcraft_engine::salt(&format!("rs:plumcraft-text+{}", env!("CARGO_PKG_VERSION")), env!("PLUMCRAFT_CODE_DIGEST")),
+        salt: plumcraft_engine::salt(&format!("rs:plumcraft-text+{}", env!("CARGO_PKG_VERSION")), &plumcraft_engine::code_digest!()),
         ..Default::default()
     };
     let mut e = Engine::new(info)

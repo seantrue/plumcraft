@@ -19,7 +19,7 @@ classifiers = [
     "Topic :: Software Development :: Libraries",
 ]
 requires-python = ">=3.11"
-dependencies = ["numpy>=1.26", "pillow>=10", "pyuncommonkit>=0.1.2", "blake3>=1"]
+dependencies = ["numpy>=1.26", "pillow>=10", "pyuncommonkit>=0.2.0"]
 
 [project.urls]
 Homepage = "https://github.com/seantrue/plumcraft"
@@ -48,7 +48,16 @@ target-version = "py311"
 extend-exclude = ["tests/golden"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+select = ["E", "F", "W", "I", "B", "UP", "TID251"]
+
+# The commonkit hash facade (D10): every digest goes through commonkit.digest (blake3 comes with
+# pyuncommonkit). Tests may name an algorithm.
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"hashlib".msg = "hash through commonkit.digest (fixed.raw for a fixed algorithm)"
+"blake3".msg = "hash through commonkit.digest"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["TID251"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

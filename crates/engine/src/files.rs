@@ -310,7 +310,7 @@ impl Node for Load {
         }
         let thumb = if media.starts_with("image/") { picture_thumb(&bytes) } else { None };
         let blob = Blob {
-            handle: plumcraft_proto::Handle::md5_raw(&bytes),
+            handle: plumcraft_proto::Handle::raw(&bytes),
             meta: BlobMeta { media: media.into(), size: bytes.len() as u64, form: form_for(media), aliases: Vec::new() },
             source: BlobSource::Bytes(Arc::from(bytes)),
             publish: true,

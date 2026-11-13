@@ -228,9 +228,6 @@ pub struct RunState {
     /// Runs cancelled because a newer one replaced them while in flight.
     pub superseded: u64,
     outbox: Vec<Outgoing>,
-    /// The handle algorithm runs ask for (`RunRequest::algo`): `b3` when the connection
-    /// negotiated `hash.b3`, else empty (B10). The session keeps it in step with its caps.
-    pub algo: String,
     reducer: Reducer,
     /// How the last request's Converts were expanded: what comes back is put back through it
     /// ([`crate::convert`]).
@@ -412,7 +409,6 @@ impl RunState {
             watch: self.convert.watch_out(&watch),
             scope: self.scope.clone(),
             inputs,
-            algo: self.algo.clone(),
             ..Default::default()
         };
         self.reducer = Reducer::new(&run_id, self.generation);

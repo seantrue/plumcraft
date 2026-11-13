@@ -4,6 +4,7 @@
 //! plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
 //! plumcraft nodes [ENGINE]
 //! plumcraft conform --engine-manifest FILE [--modes process,http]
+//! plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT
 //!
 //! ENGINE: (none) compiled in · --process · --python · --http [--python] · --attach http://HOST:PORT
 //!         · --engine-manifest FILE [--http]
@@ -25,6 +26,8 @@
 //! the mode; status comes from long-polling `events.poll`, reduced with the normative reducer.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
+
+mod scan_store;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -49,9 +52,10 @@ fn main() -> ExitCode {
         Some("nodes") => nodes(&args[1..]),
         Some("run") => run(&args[1..]),
         Some("conform") => conform(&args[1..]),
+        Some("scan-store") => scan_store::main(&args[1..]),
         _ => {
             eprintln!(
-                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
+                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n       plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
             );
             ExitCode::from(2)
         }
@@ -357,6 +361,10 @@ fn run(args: &[String]) -> ExitCode {
         Ok(Err(e)) => return fail(&e.to_string()),
         Err(e) => return fail(&e.to_string()),
     };
+    // One algorithm on both ends (D8, #91): every handle this run makes is the process's.
+    if let Some(why) = hello.data.refusal() {
+        return fail(&why);
+    }
     println!("{} hello    engine {} {}, protocol {}, session {}", stamp(), hello.engine.name, hello.engine.version, hello.protocol, hello.session);
     println!("{}          caps: {}", " ".repeat(8), hello.caps.iter().collect::<Vec<_>>().join(" "));
 

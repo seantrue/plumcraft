@@ -412,7 +412,7 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
     let reader = std::thread::Builder::new().name("plumcraft-reader".into()).spawn(move || read_loop(&reader_inner, stream))?;
     *lock(&inner.data) = DataSession::default();
     let ours = plumcraft_store::write_nonce(inner.store.root(), "u").ok();
-    let mut hello_req = json!({"v": PROTOCOL, "op": "hello", "token": inner.token, "caps": ["events.push", "events.poll", "data.shm", "data.path", "hash.b3"],
+    let mut hello_req = json!({"v": PROTOCOL, "op": "hello", "token": inner.token, "caps": ["events.push", "events.poll", "data.shm", "data.path"],
                                "host": {"stores": [inner.store.root().display().to_string()]}});
     if let Some((path, nonce)) = &ours {
         hello_req["proof"] = json!({"path": path, "nonce": nonce});
@@ -423,6 +423,13 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
     }
     match hello {
         Ok(h) => {
+            // One algorithm on both ends (D8): refused before anything crosses.
+            let data: plumcraft_proto::session::DataInfo = h.get("data").cloned().and_then(|d| serde_json::from_value(d).ok()).unwrap_or_default();
+            if let Some(why) = data.refusal() {
+                kill(inner);
+                let _ = reader.join();
+                return Ok(why);
+            }
             // The proof, both directions (spec 5.4), then tell the engine.
             let proof = h.get("proof").cloned().and_then(|p| serde_json::from_value::<Proof>(p).ok()).unwrap_or_default();
             let shm = plumcraft_store::check_nonce(&proof.path, &proof.nonce);

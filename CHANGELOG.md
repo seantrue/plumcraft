@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (0.7.0)
+
+- **One hash algorithm per process** (#91, #92, #93; the commonkit hash facade): every handle, plan key, content key, build salt, catalogue digest and craft CAS name is in commonkit's current algorithm (the tree's `HASH` in `.policy.json`, then `COMMONKIT_HASH`, then `b3`), through `commonkit::digest` 0.2. The status bar says which (`hash md5 · policy file`).
+- **Breaking:** `Handle::raw(bytes)` and `Handle::nd1(dtype, shape, bytes)` take no algorithm; `Handle::md5_raw`, `Handle::md5_nd1`, `handle::Hasher`, `RunRequest.algo`, `RunRequest::handle_algo`, `Plane.algo`, `run_cmds::algo_for`, `SDK_DIGEST` (now `sdk_digest()`) and the `hash.b3` capability are gone. Build scripts bake `PLUMCRAFT_CODE_DIGEST_MD5` and `_B3`; `plumcraft_engine::code_digest!()` picks.
+- **Breaking, on the wire:** a client refuses an engine whose hello doesn't list exactly its algorithm in `data.algos` (D8). Engines from before 0.7.0 list both, or nothing, and are refused.
+- An HTTP engine started with `--shared` refuses md5 uploads (D16).
+- `plumcraft scan-store ROOT` and `plumcraft scan-store --craft CRAFT_ROOT` list every digest of the other algorithm.
+
 ## 0.6.1 (2026-11-10)
 
 The crates and the Python text twin are 0.6.1; the Python SDK stays 0.1.2. A patch: no public API changed. With installers: notarized DMGs for Apple silicon and Intel Macs, a Linux `.deb` and tarball, and a Windows setup program and zip. They are the first since 0.5.0, so they also bring 0.6.0's command forms and array fixes to the app.

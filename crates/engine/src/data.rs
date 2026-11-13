@@ -14,7 +14,7 @@ use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{BlobMeta, Column, DataRef, Form, Locator};
 use plumcraft_proto::display::Rendition;
 use plumcraft_proto::error::NodeError;
-use plumcraft_proto::handle::{Algo, Handle};
+use plumcraft_proto::handle::Handle;
 use plumcraft_store::{Store, inline_ref};
 use serde_json::Value;
 
@@ -30,8 +30,6 @@ pub struct Plane<'a> {
     /// `url` locators the UI fetches by handle (spec 13.2 step 5).
     pub urls: bool,
     pub max_inline: usize,
-    /// The algorithm of the handles this run makes (spec 4.3; the request's `algo`).
-    pub algo: Algo,
 }
 
 /// The path a blob is served at on the HTTP binding, relative to the engine's base URL.
@@ -66,13 +64,13 @@ impl Plane<'_> {
             form: Form::Text { lines: s.lines().count() as u64, encoding: "utf-8".into() },
             aliases: Vec::new(),
         };
-        let handle = Handle::raw(self.algo, s.as_bytes());
+        let handle = Handle::raw(s.as_bytes());
         self.blob(handle.clone(), meta, s.as_bytes(), |st| st.publish_raw_as(&handle, s.as_bytes()))
     }
 
     /// An array as a blob.
     pub fn array_ref(&self, a: &Array) -> Result<DataRef, NodeError> {
-        let handle = Handle::nd1(self.algo, &a.dtype, &a.shape, &a.bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad array: {e}")))?;
+        let handle = Handle::nd1(&a.dtype, &a.shape, &a.bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad array: {e}")))?;
         let meta = BlobMeta {
             media: NPY_MEDIA.into(),
             size: a.bytes.len() as u64,
@@ -86,7 +84,7 @@ impl Plane<'_> {
     pub fn audio_ref(&self, a: &Audio) -> Result<DataRef, NodeError> {
         let shape = [a.frames(), u64::from(a.channels)];
         let bytes = a.bytes();
-        let handle = Handle::nd1(self.algo, "<f4", &shape, &bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad audio: {e}")))?;
+        let handle = Handle::nd1("<f4", &shape, &bytes).map_err(|e| NodeError::new(NodeError::OP, format!("bad audio: {e}")))?;
         let meta = BlobMeta {
             media: NPY_MEDIA.into(),
             size: bytes.len() as u64,
@@ -103,7 +101,7 @@ impl Plane<'_> {
     pub fn blob_ref(&self, b: &Blob) -> Result<DataRef, NodeError> {
         let p = match &b.source {
             // A node's own handle: checked once, so a store key always names its bytes (W1).
-            BlobSource::Bytes(bytes) if Handle::raw(b.handle.algo(), bytes) != b.handle => {
+            BlobSource::Bytes(bytes) if Handle::raw(bytes) != b.handle => {
                 return Err(NodeError::new(NodeError::OP, format!("a blob's bytes aren't its handle {}", b.handle)));
             }
             BlobSource::Bytes(bytes) => return self.blob(b.handle.clone(), b.meta.clone(), bytes, |st| st.publish_raw_as(&b.handle, bytes)),
@@ -121,7 +119,7 @@ impl Plane<'_> {
             return Ok(DataRef { handle: Some(b.handle.clone()), meta: b.meta.clone(), at });
         }
         let bytes = std::fs::read(p).map_err(|e| NodeError::new(NodeError::OP, format!("{}: {e}", p.display())))?;
-        if Handle::raw(b.handle.algo(), &bytes) != b.handle {
+        if Handle::raw(&bytes) != b.handle {
             return Err(NodeError::new(NodeError::OP, format!("{} no longer holds {}", p.display(), b.handle)));
         }
         self.blob(b.handle.clone(), b.meta.clone(), &bytes, |st| st.publish_raw_as(&b.handle, &bytes))
@@ -148,7 +146,7 @@ impl Plane<'_> {
         let (rows, columns) = table_shape(v);
         let meta = BlobMeta { media: JSON_MEDIA.into(), size: bytes.len() as u64, form: Form::Table { rows, columns }, aliases: Vec::new() };
         {
-            let handle = Handle::raw(self.algo, &bytes);
+            let handle = Handle::raw(&bytes);
             self.blob(handle.clone(), meta, &bytes, |st| st.publish_raw_as(&handle, &bytes))
         }
     }
@@ -158,7 +156,7 @@ impl Plane<'_> {
         let bytes = serde_json::to_vec(v).map_err(|e| NodeError::new(NodeError::OP, e.to_string()))?;
         let meta = BlobMeta { media: JSON_MEDIA.into(), size: bytes.len() as u64, form: Form::Json, aliases: Vec::new() };
         {
-            let handle = Handle::raw(self.algo, &bytes);
+            let handle = Handle::raw(&bytes);
             self.blob(handle.clone(), meta, &bytes, |st| st.publish_raw_as(&handle, &bytes))
         }
     }
@@ -209,7 +207,7 @@ pub fn peaks(a: &Audio) -> Option<Rendition> {
     }
     let shape = [1, ch as u64, bins as u64, 2];
     let bytes: Vec<u8> = out.iter().flat_map(|v| v.to_le_bytes()).collect();
-    let handle = Handle::md5_nd1("<f4", &shape, &bytes).ok()?;
+    let handle = Handle::nd1("<f4", &shape, &bytes).ok()?;
     let meta = BlobMeta {
         media: NPY_MEDIA.into(),
         size: bytes.len() as u64,

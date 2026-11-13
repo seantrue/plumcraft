@@ -17,7 +17,6 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use md5::{Digest, Md5};
 use plumcraft_graph::NodeId;
 use plumcraft_proto::data::{BlobMeta, DataRef};
 use plumcraft_store::Store;
@@ -92,8 +91,9 @@ fn stamp(path: &Path) -> Option<(SystemTime, u64)> {
     Some((m.modified().unwrap_or(SystemTime::UNIX_EPOCH), m.len()))
 }
 
-fn md5_hex(bytes: &[u8]) -> String {
-    Md5::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
+/// The digest of bytes in the process's algorithm (a copy's identity, as its handle's).
+fn digest_hex(bytes: &[u8]) -> String {
+    commonkit::digest::raw(bytes)
 }
 
 /// The edited copy of `node.port`, when it has one still on disk: reopening opens it again.
@@ -179,7 +179,7 @@ fn republish(s: &mut Session) {
         }
         let Some(path) = s.docs.edits.tracked.iter().find(|t| t.node == node && t.port == port && t.edited).map(|t| t.path.clone()) else { continue };
         let Ok(bytes) = std::fs::read(&path) else { continue };
-        if md5_hex(&bytes) != h.digest() {
+        if digest_hex(&bytes) != h.digest() {
             continue; // changed again: the next poll takes it back
         }
         if let Some((_, at)) = s.docs.edits.store().publish_raw(&bytes) {
@@ -197,7 +197,7 @@ fn take_back(s: &mut Session, i: usize) -> std::result::Result<Option<Value>, St
         return Err(format!("{}: over {MAX_EDIT_BYTES} bytes, too large to take back", t.path.display()));
     }
     let bytes = std::fs::read(&t.path).map_err(|e| format!("{}: {e}", t.path.display()))?;
-    let digest = md5_hex(&bytes);
+    let digest = digest_hex(&bytes);
     if digest == t.digest {
         return Ok(None);
     }

@@ -9,6 +9,7 @@ import time
 
 import numpy as np
 import scratch
+from commonkit import digest as ck_digest
 
 from plumcraft_engine import Blob, CancelToken, Engine, List, Node, data, exec
 
@@ -36,6 +37,10 @@ class Slow(Node):
             "list": List([n, n + 1], [("t.axis", 2)], ["a", "b"]),
         }
 
+
+#: A digest of this process's length that names nothing, and an nd1 handle of it.
+ZERO = "0" * len(ck_digest.raw(b""))
+ZERO_ND1 = f"{ck_digest.current()}:nd1:{ZERO}"
 
 def root() -> str:
     return scratch.mkdtemp("persist-")
@@ -119,11 +124,11 @@ def test_a_reaped_value_or_a_hostile_record_is_a_miss_that_recomputes():
         nest = {"list": {"items": [nest]}}
     for junk in [
         b"not json",
-        json.dumps({"v": 1, "plan_key": "memo:md5:" + "0" * 32, "outputs": {}}).encode(),
+        json.dumps({"v": 1, "plan_key": f"memo:{ck_digest.current()}:" + ZERO, "outputs": {}}).encode(),
         json.dumps({"v": 2, "plan_key": key, "outputs": {}}).encode(),
         json.dumps({"v": 1, "plan_key": key, "outputs": {"json": {"what": 1}}}).encode(),
         json.dumps({"v": 1, "plan_key": key, "outputs": {"json": {"json": "only one of four outputs"}}}).encode(),
-        json.dumps({"v": 1, "plan_key": key, "outputs": {"array": {"array": {"handle": "md5:nd1:" + "0" * 32, "dtype": "|u1", "shape": [1]}}}}).encode(),
+        json.dumps({"v": 1, "plan_key": key, "outputs": {"array": {"array": {"handle": ZERO_ND1, "dtype": "|u1", "shape": [1]}}}}).encode(),
         json.dumps({"v": 1, "plan_key": key, "outputs": {"array": {"array": "not an object"}}}).encode(),
         json.dumps({"v": 1, "plan_key": key, "outputs": {"l": nest}}).encode(),
     ]:

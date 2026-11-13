@@ -5,12 +5,12 @@
 //! A record is JSON, stored compressed (`plum:v1:plummemo:<plan key digest>:c`):
 //!
 //! ```json
-//! {"v": 1, "plan_key": "memo:md5:…", "ms": 2140.5,
-//!  "outputs": {"doc":  {"blob":  {"handle": "md5:raw:…", "meta": {BlobMeta}, "publish": true,
-//!                                 "thumb": {"handle": "md5:nd1:…", "dtype": "|u1", "shape": [120, 96, 4]}}},
+//! {"v": 1, "plan_key": "memo:<algo>:…", "ms": 2140.5,
+//!  "outputs": {"doc":  {"blob":  {"handle": "<algo>:raw:…", "meta": {BlobMeta}, "publish": true,
+//!                                 "thumb": {"handle": "<algo>:nd1:…", "dtype": "|u1", "shape": [120, 96, 4]}}},
 //!              "paths": {"json": 1097},
-//!              "codes": {"array": {"handle": "md5:nd1:…", "dtype": "<u4", "shape": [812]}},
-//!              "tone":  {"audio": {"handle": "md5:nd1:…", "sample_rate": 48000, "channels": 2}},
+//!              "codes": {"array": {"handle": "<algo>:nd1:…", "dtype": "<u4", "shape": [812]}},
+//!              "tone":  {"audio": {"handle": "<algo>:nd1:…", "sample_rate": 48000, "channels": 2}},
 //!              "items": {"list":  {"items": [ … ], "axes": [["v.values", 3]], "labels": ["1", "2", "3"]}}}}
 //! ```
 //!

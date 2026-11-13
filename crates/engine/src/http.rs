@@ -5,8 +5,8 @@
 //! | `GET` | `/v1/health` | `{ok, engine, state}` |
 //! | `POST` | `/v1/rpc` | Every operation as one JSON-RPC 2.0 request, through [`Host::dispatch`]; `events.poll` long-polls here |
 //! | `POST` | `/v1/blobs/has` | `{"handles": […]}` → `{"have", "missing"}` (spec 13.1) |
-//! | `PUT` | `/v1/blobs/md5/raw/<hex>` | An upload, verified against its handle before it is stored (422 `integrity` otherwise) |
-//! | `GET` | `/v1/blobs/md5/{raw,nd1}/<hex>` | A blob's bytes; `Range: bytes=a-b` honoured |
+//! | `PUT` | `/v1/blobs/<algo>/raw/<hex>` | An upload, verified against its handle before it is stored (422 `integrity` otherwise); `<algo>` is the process's |
+//! | `GET` | `/v1/blobs/<algo>/{raw,nd1}/<hex>` | A blob's bytes; `Range: bytes=a-b` honoured |
 //!
 //! Every request carries `Authorization: Bearer <token>`, and the server won't start without one,
 //! on any address: a page in a browser can reach loopback.
@@ -37,6 +37,13 @@ pub fn listen_args(args: &[String]) -> Option<(String, Option<String>)> {
     Some((get("--listen")?, get("--port-file")))
 }
 
+/// `--shared`: this engine's store is shared by several clients (a multi-tenant remote), so it
+/// takes BLAKE3 uploads only, whatever its own algorithm (spec 4.3, D16: MD5 chosen-prefix
+/// collisions are cheap).
+pub fn shared(args: &[String]) -> bool {
+    args.iter().any(|a| a == "--shared")
+}
+
 /// `--lifeline`: exit when stdin closes. A UI that spawns an HTTP engine passes it with a pipe on
 /// stdin, so the engine goes when the UI does, however the UI ends (a crash, `kill`, an exit that
 /// skips destructors). An engine started by hand on a server leaves it off.
@@ -54,7 +61,7 @@ pub fn lifeline(args: &[String]) {
 }
 
 /// Serve until the process is stopped.
-pub fn serve_http(factory: Factory, listen: &str, token: &str, port_file: Option<&str>) -> std::io::Result<()> {
+pub fn serve_http(factory: Factory, listen: &str, token: &str, port_file: Option<&str>, shared: bool) -> std::io::Result<()> {
     let addr: SocketAddr = listen.parse().map_err(|e| std::io::Error::other(format!("{listen}: {e}")))?;
     // On any address: loopback is within reach of every web page the user has open.
     if token.is_empty() {
@@ -73,12 +80,12 @@ pub fn serve_http(factory: Factory, listen: &str, token: &str, port_file: Option
     let token: Arc<str> = Arc::from(token);
     for req in server.incoming_requests() {
         let (host, token) = (Arc::clone(&host), Arc::clone(&token));
-        let _ = std::thread::Builder::new().name("plumcraft-http".into()).spawn(move || handle(&host, &token, req));
+        let _ = std::thread::Builder::new().name("plumcraft-http".into()).spawn(move || handle(&host, &token, req, shared));
     }
     Ok(())
 }
 
-fn handle(host: &Host, token: &str, mut req: Request) {
+fn handle(host: &Host, token: &str, mut req: Request, shared: bool) {
     let url = req.url().to_owned();
     let path = url.split('?').next().unwrap_or_default().to_owned();
     if !authorised(&req, token) {
@@ -111,8 +118,15 @@ fn handle(host: &Host, token: &str, mut req: Request) {
         }
         (Method::Put, p) if p.starts_with("/v1/blobs/") => {
             let Some(handle) = handle_from_path(p).filter(|h| h.recipe() == Recipe::Raw) else {
-                return respond_json(req, 400, &json!({"code": ErrorCode::BadParams.code(), "message": "uploads are md5:raw: handles"}));
+                return respond_json(req, 400, &json!({"code": ErrorCode::BadParams.code(), "message": "uploads are raw handles"}));
             };
+            if shared && handle.algo() == plumcraft_proto::handle::Algo::Md5 {
+                return respond_json(
+                    req,
+                    403,
+                    &json!({"code": ErrorCode::BadParams.code(), "message": "a store shared by several clients takes b3 uploads only (spec 4.3): set HASH to b3"}),
+                );
+            }
             let Some(store) = host.store() else {
                 return respond_json(req, 503, &json!({"code": ErrorCode::Unavailable.code(), "message": "this engine has no store"}));
             };
@@ -237,7 +251,7 @@ mod tests {
 
     #[test]
     fn blob_paths() {
-        let h = Handle::md5_raw(b"x");
+        let h = Handle::raw(b"x");
         assert_eq!(handle_from_path(&crate::data::blob_url(&h)), Some(h));
         assert!(handle_from_path("/v1/blobs/md5/raw/../../etc").is_none());
         assert!(handle_from_path("/v1/blobs/md5/raw/abc/extra").is_none());

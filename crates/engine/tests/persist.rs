@@ -54,7 +54,7 @@ impl Node for Slow {
         let thumb = Array::new("|u1", vec![2, 2, 4], vec![n as u8; 16]);
         let meta = BlobMeta { media: "application/json".into(), size: text.len() as u64, form: Form::Doc { app: "t".into() }, aliases: Vec::new() };
         let blob =
-            Blob { handle: Handle::md5_raw(text.as_bytes()), meta, source: BlobSource::Bytes(Arc::from(text.into_bytes())), publish: true, thumb: Some(thumb) };
+            Blob { handle: Handle::raw(text.as_bytes()), meta, source: BlobSource::Bytes(Arc::from(text.into_bytes())), publish: true, thumb: Some(thumb) };
         let big = vec![(n % 251) as u8; get("big") as usize];
         Ok(Outputs::from([
             ("json".to_owned(), Data::Json(json!({"n": n, "list": [1, 2.5, "three"]}))),
@@ -107,7 +107,7 @@ fn run(e: &Engine, node: Value, memo: &str) -> RunReply {
         "targets": ["n"],
     }))
     .unwrap();
-    let plane = Plane { store: e.store(), shm: true, urls: false, max_inline: 1 << 20, algo: plumcraft_proto::handle::Algo::Md5 };
+    let plane = Plane { store: e.store(), shm: true, urls: false, max_inline: 1 << 20 };
     exec::run(e, &req, &mut Log, &CancelToken::default(), "test", &mut Memo::default(), &plane)
 }
 

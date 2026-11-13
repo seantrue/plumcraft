@@ -191,22 +191,9 @@ impl Coordinator {
                 to_json(serde_json::to_value(&m.schema))
             }
             "run" => {
-                let mut req: RunRequest = serde_json::from_value(params).map_err(|e| ProtoError::new(ErrorCode::BadParams, e.to_string()))?;
+                let req: RunRequest = serde_json::from_value(params).map_err(|e| ProtoError::new(ErrorCode::BadParams, e.to_string()))?;
                 let (merged, parts) = self.catalogue(false)?;
                 let plan = plan::build(&req, &merged, &parts);
-                // BLAKE3 handles only when every engine in the run takes them (spec 4.3): one
-                // without `hash.b3` would find another's b3 handle unreadable.
-                if !req.algo.is_empty() {
-                    let states = self.states();
-                    let takes_b3 = |engine: &str| {
-                        states.iter().any(|(id, st)| {
-                            id == engine && matches!(st, EngineState::Connected { caps, .. } if caps.has(plumcraft_proto::caps::known::HASH_B3))
-                        })
-                    };
-                    if !plan.as_ref().is_ok_and(|p| p.fragments.iter().all(|f| takes_b3(&f.engine))) {
-                        req.algo.clear();
-                    }
-                }
                 let engines = self.engines().into_iter().map(|e| (e.id, e.conn)).collect();
                 to_json(serde_json::to_value(runner::start(&self.runs, req, plan, engines)?))
             }

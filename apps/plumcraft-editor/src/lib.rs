@@ -1978,7 +1978,7 @@ mod tests {
             assert_eq!(program, Path::new("/fake/vectorcraft"));
             assert!(copy.starts_with(root.join("trace")), "{}", copy.display());
             let doc = h.state().session.run.watched[0].as_ref().unwrap().full.clone().unwrap();
-            assert_eq!(&plumcraft_proto::Handle::md5_raw(&std::fs::read(copy).unwrap()), doc.handle.as_ref().unwrap(), "the copy is the value");
+            assert_eq!(&plumcraft_proto::Handle::raw(&std::fs::read(copy).unwrap()), doc.handle.as_ref().unwrap(), "the copy is the value");
             let theirs =
                 |l: &plumcraft_proto::data::Locator| matches!(l, plumcraft_proto::data::Locator::Path { path, .. } if Path::new(path) == copy.as_path());
             assert!(!doc.at.iter().any(theirs), "never the store's or the CAS's file: {doc:?}");

@@ -24,7 +24,7 @@ fn what_vectorcraft_keeps_of_strokes() {
     let (h, _) = inproc(&env);
     let svg = PortValue::Blob {
         data: plumcraft_store::inline_ref(
-            Handle::md5_raw(STROKES.as_bytes()),
+            Handle::raw(STROKES.as_bytes()),
             BlobMeta { media: "image/svg+xml".into(), size: STROKES.len() as u64, form: Form::Bytes, aliases: Vec::new() },
             STROKES.as_bytes(),
         ),

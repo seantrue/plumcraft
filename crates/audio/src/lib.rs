@@ -73,7 +73,7 @@ pub fn engine() -> Engine {
         id: "audio".into(),
         name: "Audio".into(),
         version: version.into(),
-        salt: plumcraft_engine::salt(&format!("rs:plumcraft-audio+{version}+soundcraft@{SOUNDCRAFT_REV}"), env!("PLUMCRAFT_CODE_DIGEST")),
+        salt: plumcraft_engine::salt(&format!("rs:plumcraft-audio+{version}+soundcraft@{SOUNDCRAFT_REV}"), &plumcraft_engine::code_digest!()),
         ..Default::default()
     };
     let scalar = |id: &str| WireType { id: id.into(), media: Media::Scalar, ..Default::default() };

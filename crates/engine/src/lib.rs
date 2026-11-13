@@ -112,7 +112,7 @@ impl Blob {
             .map(plumcraft_svg::Raster::on_paper)
             .map(|r| Array::new("|u1", vec![u64::from(r.h), u64::from(r.w), 4], r.pixels));
         Ok(Blob {
-            handle: plumcraft_proto::Handle::md5_raw(&bytes),
+            handle: plumcraft_proto::Handle::raw(&bytes),
             meta: plumcraft_proto::data::BlobMeta {
                 media: plumcraft_proto::catalogue::core_types::SVG_MEDIA.into(),
                 size: bytes.len() as u64,
@@ -274,9 +274,25 @@ impl From<Value> for Data {
     }
 }
 
-/// The MD5 of the SDK's own code (the executor, the protocol and the store) and of the
-/// workspace's `Cargo.lock`, baked in by `build.rs`.
-pub const SDK_DIGEST: &str = env!("PLUMCRAFT_SDK_DIGEST");
+/// The digest of the SDK's own code (the executor, the protocol and the store) and of the
+/// workspace's `Cargo.lock`, in the process's algorithm. `build.rs` bakes both (D4).
+pub fn sdk_digest() -> String {
+    code_digest(env!("PLUMCRAFT_SDK_DIGEST_MD5"), env!("PLUMCRAFT_SDK_DIGEST_B3"))
+}
+
+/// The build salt for the process's algorithm, from the two a build script baked
+/// (`PLUMCRAFT_CODE_DIGEST_MD5` and `_B3`, through `digest.rs`; D4).
+pub fn code_digest(md5: &str, b3: &str) -> String {
+    commonkit::digest::build::pick(&commonkit::digest::build::Salts { md5: md5.to_owned(), b3: b3.to_owned() }).to_owned()
+}
+
+/// [`code_digest`] of the calling crate's baked salts.
+#[macro_export]
+macro_rules! code_digest {
+    () => {
+        $crate::code_digest(env!("PLUMCRAFT_CODE_DIGEST_MD5"), env!("PLUMCRAFT_CODE_DIGEST_B3"))
+    };
+}
 
 /// A memo salt (spec 14.2) that changes whenever code that can change a result does:
 /// `prefix` (the engine's name and version), the engine's own code digest (its `build.rs`
@@ -284,7 +300,7 @@ pub const SDK_DIGEST: &str = env!("PLUMCRAFT_SDK_DIGEST");
 /// Persisted records outlive the process, so a salt without the code would serve a fixed
 /// node the result of the old code.
 pub fn salt(prefix: &str, code_digest: &str) -> String {
-    format!("{prefix}+code:{code_digest}+sdk:{SDK_DIGEST}")
+    format!("{prefix}+code:{code_digest}+sdk:{}", sdk_digest())
 }
 
 /// A node's input values by port name, after wires, widget values and defaults are resolved.
@@ -449,7 +465,7 @@ impl Engine {
             store: Some(plumcraft_store::Store::new(plumcraft_store::default_root())),
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
-            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "hash.b3"]),
+            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]),
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
@@ -633,11 +649,9 @@ impl Engine {
             engine: self.info.clone(),
             caps: Caps::negotiate(&req.caps, &self.caps),
             limits: self.limits,
-            // spec 4.3: the algorithms it takes, preferred first
-            data: plumcraft_proto::session::DataInfo {
-                algos: if self.caps.has(plumcraft_proto::caps::known::HASH_B3) { vec!["b3".into(), "md5".into()] } else { vec!["md5".into()] },
-                ..Default::default()
-            },
+            // spec 4.3: the one algorithm it hashes in (commonkit's switch), which the client
+            // must share exactly (D8)
+            data: plumcraft_proto::session::DataInfo { algos: vec![plumcraft_proto::handle::Algo::current().as_str().into()], ..Default::default() },
             ..Default::default()
         })
     }
@@ -646,4 +660,18 @@ impl Engine {
 /// Seconds since the epoch, as status records carry it.
 pub fn now_ts() -> f64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_secs_f64())
+}
+
+#[cfg(test)]
+mod salt_tests {
+    /// D4: a build script bakes both salts and the runtime picks its algorithm's.
+    #[test]
+    fn the_baked_salt_is_the_current_algorithms() {
+        use plumcraft_proto::handle::Algo;
+        let want = if Algo::current() == Algo::Md5 { "m" } else { "b" };
+        assert_eq!(super::code_digest("m", "b"), want);
+        let sdk = super::sdk_digest();
+        let hex = sdk.split('-').next().unwrap_or_default();
+        assert_eq!(hex.len(), Algo::current().hex_len(), "{sdk}");
+    }
 }

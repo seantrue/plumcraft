@@ -26,6 +26,7 @@ plumcraft-session = { workspace = true }
 plumcraft-text = { workspace = true }
 serde_json = { workspace = true }
 plumcraft-host = { workspace = true }
+plumcraft-store = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../../crates/scratch" }

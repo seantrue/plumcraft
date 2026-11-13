@@ -233,14 +233,15 @@ impl Connection for NoB3 {
     }
 }
 
-/// B10 (spec 4.3): a run asking for `b3` gets BLAKE3 handles on both sides of a crossing when
-/// every engine takes them, and md5 when one doesn't (it couldn't read the other's).
+/// One algorithm per process (#91, spec 4.3): both sides of a crossing make handles of the
+/// current algorithm, whatever a run asks (an old client's `algo` field) and whether or not an
+/// engine still lists `hash.b3`.
 #[test]
-fn b3_handles_cross_only_when_every_engine_takes_them() {
-    let algo_of = |c: &Coordinator, id: &str| {
+fn handles_cross_in_the_current_algorithm() {
+    let algo_of = |c: &Coordinator, id: &str, ask: &str| {
         let port = codes_output_port(c);
         let g: Value = serde_json::from_str(&across("corgi").to_string().replace("\"port\":\"codes\"", &format!("\"port\":\"{port}\""))).unwrap();
-        let (_, reply) = run(c, id, g, json!({"targets": ["twice"], "algo": "b3"}));
+        let (_, reply) = run(c, id, g, json!({"targets": ["twice"], "algo": ask}));
         assert!(reply.ok, "{reply:?}");
         let algo = |n: &str| match reply.nodes[n].outputs.values().next() {
             Some(PortValue::Blob { data }) => data.handle.as_ref().map(plumcraft_proto::Handle::algo),
@@ -249,8 +250,10 @@ fn b3_handles_cross_only_when_every_engine_takes_them() {
         (algo("codes"), algo("twice"))
     };
     use plumcraft_proto::handle::Algo;
-    assert_eq!(algo_of(&coordinator(), "b3-both"), (Some(Algo::B3), Some(Algo::B3)));
+    let want = (Some(Algo::current()), Some(Algo::current()));
+    assert_eq!(algo_of(&coordinator(), "algo-both", "b3"), want);
+    assert_eq!(algo_of(&coordinator(), "algo-md5", "md5"), want);
     let mixed =
         Coordinator::new().with_engine("text", host(plumcraft_text::engine)).with_engine("array", std::sync::Arc::new(NoB3(host(plumcraft_array::engine))));
-    assert_eq!(algo_of(&mixed, "b3-mixed"), (Some(Algo::Md5), Some(Algo::Md5)));
+    assert_eq!(algo_of(&mixed, "algo-mixed", "b3"), want);
 }

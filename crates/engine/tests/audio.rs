@@ -89,7 +89,7 @@ fn audio_crosses_as_an_f4_blob_with_peaks() {
         assert_eq!(matches!(r.at.as_slice(), [Locator::Inline { .. }]), inline, "{id}: {:?}", r.at);
         let blob = plumcraft_store::Store::new(root()).resolve(r, true).expect("resolves");
         assert_eq!(blob.shape, [frames, 2]);
-        assert_eq!(r.handle, Some(Handle::md5_nd1("<f4", &[frames, 2], &blob.bytes).unwrap()));
+        assert_eq!(r.handle, Some(Handle::nd1("<f4", &[frames, 2], &blob.bytes).unwrap()));
         // The thumb and the watched display: peaks inline, the display media audio.
         let Some(Rendition::Peaks { bins, channels, .. }) = &reply.nodes["t"].thumb else { panic!("no peaks thumb") };
         assert_eq!(*channels, 2);

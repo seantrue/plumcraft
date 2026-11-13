@@ -99,11 +99,6 @@ pub struct RunRequest {
     /// keeps for it (scratch files) goes on `graph.release`. Empty: unscoped (spec 5.3).
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "String::is_empty")]
     pub scope: String,
-    /// The hash algorithm for the handles this run makes (spec 4.3): `b3` only when `hash.b3`
-    /// was negotiated with every engine that reads them. Empty or anything else: md5. An engine
-    /// without the capability ignores it.
-    #[serde(deserialize_with = "null_as_default", skip_serializing_if = "String::is_empty")]
-    pub algo: String,
 }
 
 impl Default for RunRequest {
@@ -124,17 +119,11 @@ impl Default for RunRequest {
             trusted_roots: Vec::new(),
             detach: false,
             scope: String::new(),
-            algo: String::new(),
         }
     }
 }
 
 impl RunRequest {
-    /// The algorithm this run's handles use: [`Algo::B3`] only when `algo` is `b3`.
-    pub fn handle_algo(&self) -> crate::handle::Algo {
-        if self.algo == "b3" { crate::handle::Algo::B3 } else { crate::handle::Algo::Md5 }
-    }
-
     pub fn new(run_id: impl Into<String>, generation: u64, graph: Value) -> Self {
         RunRequest { run_id: run_id.into(), generation, graph: GraphRef::Inline { graph }, ..Default::default() }
     }

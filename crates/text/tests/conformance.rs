@@ -348,7 +348,12 @@ fn memo_reuses_unchanged_nodes(mk: fn() -> Conn) {
     };
     let first = go("m1", 1, g("dog"), "use").1;
     assert!(first.ok && first.nodes.values().all(|n| n.state == NodeState::Done));
-    assert!(first.nodes.values().all(|n| n.memo.as_ref().is_some_and(|m| m.plan_key.starts_with("memo:md5:"))));
+    assert!(
+        first
+            .nodes
+            .values()
+            .all(|n| n.memo.as_ref().is_some_and(|m| m.plan_key.starts_with(&format!("memo:{}:", plumcraft_proto::handle::Algo::current().as_str()))))
+    );
 
     // Unchanged, default mode (no `memo` field sent): everything cached, nothing started.
     let mut req = json!({"v": 2, "op": "run", "run_id": "m2", "generation": 2, "graph": {"kind": "inline", "graph": g("dog")}, "targets": ["u"], "watch": [{"node": "u", "port": "text"}]});
@@ -432,18 +437,21 @@ fn large_values_cross_as_blobs(mk: fn() -> Conn) {
     let text = big_text();
     assert!(text.len() > 64 << 10);
     let r = blob(&reply, "u", "text");
-    assert_eq!(r.handle, Some(Handle::md5_raw(text.as_bytes())));
+    assert_eq!(r.handle, Some(Handle::raw(text.as_bytes())));
     // In the store on one machine; by URL to a UI elsewhere (mode 3, remote).
     // Text this repetitive is stored compressed (`plumz`), under the same handle.
     let local = r.at.iter().any(|l| matches!(l, Locator::Commonkit { key } if key.starts_with("plum:v1:plumz:")));
-    let remote = r.at.iter().any(|l| matches!(l, Locator::Url { url, .. } if url.starts_with("/v1/blobs/md5/raw/")));
+    let remote = r
+        .at
+        .iter()
+        .any(|l| matches!(l, Locator::Url { url, .. } if url.starts_with(&format!("/v1/blobs/{}/raw/", plumcraft_proto::handle::Algo::current().as_str()))));
     assert!(local || remote, "{:?}", r.at);
     assert_eq!(h.resolve(&r).map(|b| b.bytes.into_vec()), Some(text.as_bytes().to_vec()));
     assert!(matches!(reply.nodes["a"].outputs["text"], PortValue::Json { .. }), "small values stay inline");
     // The code points of the big text: an array over the limit, keyed by `nd1`.
     let codes: Vec<u8> = text.chars().flat_map(|c| u32::from(c).to_le_bytes()).collect();
     let k = blob(&reply, "k", "codes");
-    assert_eq!(k.handle, Some(Handle::md5_nd1("<u4", &[text.chars().count() as u64], &codes).unwrap()));
+    assert_eq!(k.handle, Some(Handle::nd1("<u4", &[text.chars().count() as u64], &codes).unwrap()));
     let b = h.resolve(&k).expect("the array resolves");
     assert_eq!((b.dtype.as_str(), b.bytes.len()), ("<u4", codes.len()));
     // The watched display: an excerpt inline, the whole value by reference.
@@ -473,7 +481,7 @@ fn tables_and_small_arrays(mk: fn() -> Conn) {
     let k = blob(&reply, "k", "codes");
     assert!(matches!(k.at.as_slice(), [Locator::Inline { .. }]), "small: inline bytes");
     let codes: Vec<u8> = "Corgi, carpet!".chars().flat_map(|c| u32::from(c).to_le_bytes()).collect();
-    assert_eq!(k.handle, Some(Handle::md5_nd1("<u4", &[14], &codes).unwrap()));
+    assert_eq!(k.handle, Some(Handle::nd1("<u4", &[14], &codes).unwrap()));
     assert_eq!(h.resolve(&k).map(|b| b.bytes.into_vec()), Some(codes));
     assert_eq!(reply.watch[1].media, Media::Ndarray);
     assert_eq!(reply.watch[1].summary, "array 14 <u4");
@@ -891,22 +899,25 @@ fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
     assert!(h.call("schema", json!({})).is_err(), "calls fail at once while the engine is down");
 }
 
-/// B10 (spec 4.3): over a socket, both engines negotiate `hash.b3`, make `b3` handles when a run
-/// asks (md5 otherwise), and the UI's side reads them back checked; a `b3` blob from the UI's
-/// store binds as an input. Rust and Python alike, so the two SDKs agree.
+/// One algorithm per process (#91, #92, spec 4.3): over a socket, both engines say exactly the
+/// current algorithm in hello, make its handles whatever a run asks, and the UI's side reads them
+/// back checked; a blob from the UI's store binds as an input. Rust and Python alike, so the two
+/// SDKs agree. The suite runs once per algorithm.
 #[test]
-fn b3_handles_cross_both_ways() {
+fn current_handles_cross_both_ways() {
     use plumcraft_proto::handle::{Algo, Handle};
+    let want = Algo::current();
     let long = "the corgi on the floral carpet ".repeat(8_000);
     for (name, mk) in [("rust", process as fn() -> Conn), ("python", python)] {
         let h = mk();
         let hello = call(h.as_ref(), "hello", json!({"v": 2, "op": "hello", "caps": ["events.poll", "data.shm", "data.path", "hash.b3"]}));
-        assert!(hello["caps"].as_array().unwrap().iter().any(|c| c == "hash.b3"), "{name}: {hello}");
-        assert_eq!(hello["data"]["algos"], json!(["b3", "md5"]), "{name}");
+        assert!(!hello["caps"].as_array().unwrap().iter().any(|c| c == "hash.b3"), "{name}: {hello}");
+        assert_eq!(hello["data"]["algos"], json!([want.as_str()]), "{name}");
         let g =
             graph(json!({"a": {"kind": "text.literal", "values": {"text": long}}, "b": {"kind": "text.upper", "values": {}}}), &[("a", "text", "b", "text")]);
-        for (algo, want) in [("b3", Algo::B3), ("", Algo::Md5)] {
-            let id = format!("b3-{name}-{}", if algo.is_empty() { "md5" } else { algo });
+        // An old client's `algo` field picks nothing.
+        for algo in ["b3", "md5", ""] {
+            let id = format!("algo-{name}-{}", if algo.is_empty() { "none" } else { algo });
             run(h.as_ref(), &id, 1, g.clone(), json!({"targets": ["b"], "algo": algo}));
             let (_, reply) = collect(h.as_ref(), &id, 0);
             assert!(reply.ok, "{name} {algo:?}: {reply:?}");
@@ -919,13 +930,13 @@ fn b3_handles_cross_both_ways() {
         }
         // The other way: a b3 blob in the UI's store, bound to the node's input.
         let store = plumcraft_store::Store::new(test_root());
-        let input = format!("{name} binds a b3 blob ").repeat(4_000);
-        let (handle, at) = store.publish_raw_as(&Handle::raw(Algo::B3, input.as_bytes()), input.as_bytes()).unwrap();
+        let input = format!("{name} binds a blob ").repeat(4_000);
+        let (handle, at) = store.publish_raw_as(&Handle::raw(input.as_bytes()), input.as_bytes()).unwrap();
         let meta = json!({"media": "text/plain; charset=utf-8", "size": input.len(), "form": {"kind": "text", "lines": 1, "encoding": "utf-8"}});
         let bound = json!({"b.text": {"kind": "blob", "ref": {"handle": handle.to_string(), "meta": meta, "at": at}}});
         let g = graph(json!({"b": {"kind": "text.upper", "values": {}}}), &[]);
-        let id = format!("b3-bind-{name}");
-        run(h.as_ref(), &id, 1, g, json!({"targets": ["b"], "algo": "b3", "inputs": bound, "trusted_roots": [test_root().display().to_string()]}));
+        let id = format!("algo-bind-{name}");
+        run(h.as_ref(), &id, 1, g, json!({"targets": ["b"], "inputs": bound, "trusted_roots": [test_root().display().to_string()]}));
         let (_, reply) = collect(h.as_ref(), &id, 0);
         assert!(reply.ok, "{name} bind: {reply:?}");
         let PortValue::Blob { data } = &reply.nodes["b"].outputs["text"] else { panic!("{name}: {:?}", reply.nodes["b"].outputs) };

@@ -4,7 +4,6 @@
 
 use std::collections::BTreeMap;
 
-use md5::{Digest, Md5};
 use plumcraft_proto::PROTOCOL;
 use plumcraft_proto::catalogue::{Compat, SchemaReply, core_types, scalars};
 use plumcraft_proto::session::EngineInfo;
@@ -31,7 +30,7 @@ pub fn catalogue(parts: &[(String, SchemaReply)]) -> Merged {
     let s = &mut m.schema;
     s.v = PROTOCOL;
     let mut compat: Vec<Compat> = Vec::new();
-    let mut digest = Md5::new();
+    let mut digest = commonkit::digest::Hasher::new();
     let mut salts = Vec::new();
     for (id, part) in parts {
         digest.update(format!("{id}\0{}\0", part.engine.schema_digest).as_bytes());
@@ -100,7 +99,7 @@ pub fn catalogue(parts: &[(String, SchemaReply)]) -> Merged {
         version: env!("CARGO_PKG_VERSION").into(),
         components: std::mem::take(&mut s.engine.components),
         salt: format!("coordinator:{}+{}", env!("CARGO_PKG_VERSION"), salts.join("+")),
-        schema_digest: format!("{:x}", digest.finalize()),
+        schema_digest: digest.finish(),
     };
     m
 }

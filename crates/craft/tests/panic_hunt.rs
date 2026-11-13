@@ -35,7 +35,7 @@ fn engine(env: &Env) -> Engine {
 }
 
 fn exec_run(e: &Engine, memo: &mut Memo, id: &str, g: Value, target: &str, mode: &str) -> RunReply {
-    let plane = plumcraft_engine::data::Plane { store: e.store(), shm: true, urls: false, max_inline: 64 << 10, algo: plumcraft_proto::handle::Algo::Md5 };
+    let plane = plumcraft_engine::data::Plane { store: e.store(), shm: true, urls: false, max_inline: 64 << 10 };
     let req: RunRequest = serde_json::from_value(json!({"v": 2, "op": "run", "run_id": id, "generation": 1,
         "graph": {"kind": "inline", "graph": g}, "targets": [target], "memo": mode}))
     .unwrap();

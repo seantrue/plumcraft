@@ -23,4 +23,4 @@ plumcraft-host = { path = "../host" }
 plumcraft-store = { path = "../store" }
 
 [build-dependencies]
-md-5 = { workspace = true }
+commonkit = { workspace = true }

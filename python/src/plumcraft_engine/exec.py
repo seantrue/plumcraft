@@ -769,7 +769,7 @@ MAX_SOURCE = 1 << 30
 
 
 def _source_identity(path: str) -> str | None:
-    """A file's content handle (`md5:raw:`), or None when it can't be read."""
+    """A file's content handle (`<current>:raw:`), or None when it can't be read."""
     try:
         if not os.path.isfile(path) or os.path.getsize(path) > MAX_SOURCE:
             return None

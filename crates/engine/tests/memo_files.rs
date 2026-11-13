@@ -44,7 +44,7 @@ impl Node for WriteFile {
         std::fs::create_dir_all(&self.dir).map_err(|e| NodeError::new(NodeError::OP, e.to_string()))?;
         std::fs::write(&path, &text).map_err(|e| NodeError::new(NodeError::OP, e.to_string()))?;
         let meta = BlobMeta { media: "text/plain".into(), size: text.len() as u64, form: Form::Doc { app: "t".into() }, aliases: Vec::new() };
-        let blob = Blob { handle: Handle::md5_raw(text.as_bytes()), meta, source: BlobSource::File(path), publish: true, thumb: None };
+        let blob = Blob { handle: Handle::raw(text.as_bytes()), meta, source: BlobSource::File(path), publish: true, thumb: None };
         Ok(Outputs::from([("file".to_owned(), Data::Blob(Box::new(blob)))]))
     }
 }
@@ -85,7 +85,7 @@ fn run(e: &Engine, memo: &mut Memo, store: Option<&Store>) -> RunReply {
         "targets": ["n"],
     }))
     .unwrap();
-    let plane = Plane { store, shm: true, urls: false, max_inline: 0, algo: plumcraft_proto::handle::Algo::Md5 };
+    let plane = Plane { store, shm: true, urls: false, max_inline: 0 };
     exec::run(e, &req, &mut Log::default(), &CancelToken::default(), "test", memo, &plane)
 }
 

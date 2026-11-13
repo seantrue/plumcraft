@@ -193,10 +193,10 @@ fn content_identity(d: &Data, hash: bool) -> Option<Value> {
     match d {
         Data::Json(v) => Some(serde_json::json!({"json": v})),
         Data::Blob(b) => Some(Value::from(b.handle.to_string())),
-        Data::Array(a) if hash => plumcraft_proto::Handle::md5_nd1(&a.dtype, &a.shape, &a.bytes).ok().map(|h| Value::from(h.to_string())),
+        Data::Array(a) if hash => plumcraft_proto::Handle::nd1(&a.dtype, &a.shape, &a.bytes).ok().map(|h| Value::from(h.to_string())),
         Data::Audio(a) if hash => {
             let bytes = a.bytes();
-            plumcraft_proto::Handle::md5_nd1("<f4", &[a.frames(), u64::from(a.channels)], &bytes).ok().map(|h| Value::from(h.to_string()))
+            plumcraft_proto::Handle::nd1("<f4", &[a.frames(), u64::from(a.channels)], &bytes).ok().map(|h| Value::from(h.to_string()))
         }
         Data::Array(_) | Data::Audio(_) => None,
         Data::List(l) => l.items.iter().map(|i| content_identity(i, hash)).collect::<Option<Vec<_>>>().map(Value::Array),
@@ -998,14 +998,14 @@ fn materialize_source(store: Option<&plumcraft_store::Store>, src: &Value) -> Re
     Ok((handle.to_string(), path.display().to_string()))
 }
 
-/// A file's content handle (`md5:raw:`), or `None` when it can't be read (the node then fails
+/// A file's content handle (`<current>:raw:`), or `None` when it can't be read (the node then fails
 /// reading it, and its key falls back to the path).
 fn source_identity(path: &str) -> Option<String> {
     let meta = std::fs::metadata(path).ok()?;
     if !meta.is_file() || meta.len() > MAX_SOURCE {
         return None;
     }
-    std::fs::read(path).ok().map(|b| plumcraft_proto::handle::Handle::md5_raw(&b).to_string())
+    std::fs::read(path).ok().map(|b| plumcraft_proto::handle::Handle::raw(&b).to_string())
 }
 
 /// A thumbnail for a value of a wire type: an excerpt for text, peaks for audio, a blob's own

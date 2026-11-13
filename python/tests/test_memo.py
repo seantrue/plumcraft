@@ -7,6 +7,7 @@ import struct
 import time
 
 import pytest
+from commonkit import digest as ck_digest
 
 from plumcraft_engine import simple
 from plumcraft_engine.host import Host
@@ -27,7 +28,9 @@ def test_canon_vectors(case):
 
 @pytest.mark.parametrize("case", VECTORS["keys"], ids=lambda c: c["note"])
 def test_key_vectors(case):
-    assert plan_key(case["kind"], case["version"], case["salt"], case["device_class"], case["params"], case["inputs"]) == case["key"]
+    # the process's algorithm picks the column (the suite runs once per algorithm)
+    want = case["key"] if ck_digest.current() == "md5" else case["key_b3"]
+    assert plan_key(case["kind"], case["version"], case["salt"], case["device_class"], case["params"], case["inputs"]) == want
 
 
 class _Scalar:
