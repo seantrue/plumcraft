@@ -77,7 +77,7 @@ jobs:
       # ALSA's headers for the audio engine and Mesa's software Vulkan (lavapipe) as the GPU the
       # rendering kittests need (the runner has none: "No adapter found"), cached; Rust with
       # clippy, rustfmt, rust-cache and nextest; uv, which the Rust tests that build Python
-      # engines (engine_manifest, generated_engine) use. Switch the ref to @main once it merges.
+      # engines (engine_manifest, generated_engine) use.
       - uses: seantrue/yapocis-rs/.github/actions/test-env@main
 
       - name: cargo fmt
