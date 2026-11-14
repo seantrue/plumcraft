@@ -78,7 +78,7 @@ jobs:
       # rendering kittests need (the runner has none: "No adapter found"), cached; Rust with
       # clippy, rustfmt, rust-cache and nextest; uv, which the Rust tests that build Python
       # engines (engine_manifest, generated_engine) use. Switch the ref to @main once it merges.
-      - uses: seantrue/yapocis-rs/.github/actions/test-env@claude/test-affected
+      - uses: seantrue/yapocis-rs/.github/actions/test-env@main
 
       - name: cargo fmt
         run: cargo fmt --all --check
@@ -114,7 +114,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: seantrue/yapocis-rs/.github/actions/test-env@claude/test-affected
+      - uses: seantrue/yapocis-rs/.github/actions/test-env@main
         with:
           rust: "false"
 
