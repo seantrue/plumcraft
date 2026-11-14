@@ -20,6 +20,29 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-13 — test-affected: run the tests a change can reach, in tiers (Claude Opus 5.5)
+
+**What the maintainer asked for.** Test tooling for Claude Code across the Python and Rust repos, whose suites had grown to hours; then "Add to each repo".
+
+**What the AI did.**
+- `.claude/skills/test-affected/` (SKILL.md, `affected.py`, ~300 lines of Python, stdlib only): maps `git diff` against `origin/main` to the tests that can see it, as one command per suite.
+  - Rust: the changed packages plus every workspace package that depends on them (normal, dev or build), from `cargo metadata`. A root `Cargo.toml`, `Cargo.lock`, toolchain or nextest config change selects everything.
+  - Python: test files that name a changed kernel, interface or module (`grep_stem`), or explicit `[[python.map]]` rules.
+  - Each run gets a fresh `COMMONKIT_TEST_RUN`/`STORE_ROOT`/`MARK_DIR`, as CI does, and md5 only (b3 again when hashing or the store changed).
+  - Tiers: 0 after each edit, 1 before a commit, 2 the repo's documented gate, run in the background.
+- The same SKILL.md and `affected.py` are in plumcraft, yapocis-rs, Yapocis3 and impressionist-rs; a change goes to all four.
+- Here: `.test-affected.toml` (python/ changes reach `plumcraft-text` and `plumcraft-coordinator`; the three shared fixture files reach their Python tests), and `.config/nextest.toml` with a `quick` profile that leaves out the five tests that build whole Python engines (`generated_engine`, `engine_manifest`, `plumcraft-audio`'s `panic_hunt`) and a `ci` profile with JUnit output.
+
+**Measured** on a 4-core Linux container, no debuginfo (as CI): build 192 s; `cargo nextest run --all-features` 1286 passed in 105 s. The five tests above are 143 s of 414 s summed and set the 42 s floor; `quick` runs the other 1276 in 69 s. A `plumcraft-graph` change selects 7 of 20 packages, 235 tests, 7 s after the build. Two findings: with debuginfo the test build filled 25 GB of `target/`; and 12 store tests fail on a disk with under 8 GB free unless `COMMONKIT_STORE_MIN_FREE_GB` is set (CI sets 2; the config does too).
+
+**Not verified:** the Python suite through the selector (only listed).
+
+**Follow-up (same day).** The skill now also lives in plumimpress, yapocis-external and Virtual-Impressionist; SKILL.md lists all seven repos and adds the yapocis-external → impressionist-rs rule (re-export the bundle, port the CPU kernel, run impressionist-rs's tier 0). SKILL.md and affected.py stay identical in all seven.
+
+**CI (same day).** The `gate` and `python` jobs take their setup from the shared action `seantrue/yapocis-rs/.github/actions/test-env` (the cloud environment's packages and tools for a hosted runner) in place of their own apt, toolchain, rust-cache, nextest and uv steps; the packages it installs include all four this job had. Its ref is `@claude/test-affected` until yapocis-rs merges, then `@main`. The test commands, triggers and env are unchanged. Not run: the maintainer asked for the branch not to be active yet.
+
+**b3 only (same day).** The maintainer: "No md5 is to be used" and "Drop all MD5 testing. It's legacy." SKILL.md (the same in all seven repos) now says every tier runs b3 only. md5 had been the AI's choice for tier 0/1 when it wrote the skill earlier the same day; the maintainer corrected it. Here: `.test-affected.toml`'s two `COMMONKIT_HASH` defaults are `b3`, and CI's nextest and pytest steps run once, under b3. `scripts/check-hash-gates.sh` keeps its md5 patterns (they detect hash crates used outside commonkit). Checked by printing tier 0's commands (`COMMONKIT_HASH=b3`) where the diff selects a suite; the CI change runs on this PR.
+
 ### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
