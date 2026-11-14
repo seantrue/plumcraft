@@ -87,12 +87,12 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       # every test binary in parallel, each test in its own process; --no-fail-fast lists every
-      # failing test in one run. There are no doc tests (cargo test --doc finds none). Once per
-      # hash algorithm, each with a fresh store root, mark folder and craft root inside a fresh
-      # run folder (the commonkit hash facade); a leaked foreign or bad key fails the run.
-      - name: cargo nextest, under md5 and then b3
+      # failing test in one run. There are no doc tests (cargo test --doc finds none). Under b3
+      # (md5 is legacy and not tested), with a fresh store root, mark folder and craft root inside
+      # a fresh run folder (the commonkit hash facade); a leaked foreign or bad key fails the run.
+      - name: cargo nextest, under b3
         run: |
-          for algo in md5 b3; do
+          for algo in b3; do
             run=$(mktemp -d)
             COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
               COMMONKIT_MARK_DIR=$run/marks PLUMCRAFT_CRAFT_ROOT=$run/craft \
@@ -118,10 +118,10 @@ jobs:
         with:
           rust: "false"
 
-      - name: pytest, under md5 and then b3
+      - name: pytest, under b3
         working-directory: python
         run: |
-          for algo in md5 b3; do
+          for algo in b3; do
             run=$(mktemp -d)
             COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
               COMMONKIT_MARK_DIR=$run/marks uv run pytest

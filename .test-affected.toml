@@ -11,7 +11,7 @@ ignore = ["*.md", "docs/*", "packaging/*", ".github/*", "claude-debug/*", "asset
 pre = "run=$(mktemp -d)"
 
 [rust.env]
-COMMONKIT_HASH = "${COMMONKIT_HASH:-md5}"
+COMMONKIT_HASH = "b3"
 COMMONKIT_TEST_RUN = "$run"
 COMMONKIT_STORE_ROOT = "$run/store"
 COMMONKIT_MARK_DIR = "$run/marks"
@@ -43,7 +43,7 @@ cmd = "uv run pytest"
 tests = "tests"
 src = ["src/*", "pyproject.toml", "uv.lock", "tests/*"]
 pre = "run=$(mktemp -d)"
-env = { COMMONKIT_HASH = "${COMMONKIT_HASH:-md5}", COMMONKIT_TEST_RUN = "$run", COMMONKIT_STORE_ROOT = "$run/store", COMMONKIT_MARK_DIR = "$run/marks", COMMONKIT_STORE_MIN_FREE_GB = "2" }
+env = { COMMONKIT_HASH = "b3", COMMONKIT_TEST_RUN = "$run", COMMONKIT_STORE_ROOT = "$run/store", COMMONKIT_MARK_DIR = "$run/marks", COMMONKIT_STORE_MIN_FREE_GB = "2" }
 tier0 = "-x -q"
 tier1 = "-q"
 tier2 = "-q"

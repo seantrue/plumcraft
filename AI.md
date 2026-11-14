@@ -41,6 +41,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **CI (same day).** The `gate` and `python` jobs take their setup from the shared action `seantrue/yapocis-rs/.github/actions/test-env` (the cloud environment's packages and tools for a hosted runner) in place of their own apt, toolchain, rust-cache, nextest and uv steps; the packages it installs include all four this job had. Its ref is `@claude/test-affected` until yapocis-rs merges, then `@main`. The test commands, triggers and env are unchanged. Not run: the maintainer asked for the branch not to be active yet.
 
+**b3 only (same day).** The maintainer: "No md5 is to be used" and "Drop all MD5 testing. It's legacy." SKILL.md (the same in all seven repos) now says every tier runs b3 only. md5 had been the AI's choice for tier 0/1 when it wrote the skill earlier the same day; the maintainer corrected it. Here: `.test-affected.toml`'s two `COMMONKIT_HASH` defaults are `b3`, and CI's nextest and pytest steps run once, under b3. `scripts/check-hash-gates.sh` keeps its md5 patterns (they detect hash crates used outside commonkit). Checked by printing tier 0's commands (`COMMONKIT_HASH=b3`) where the diff selects a suite; the CI change runs on this PR.
+
 ### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
