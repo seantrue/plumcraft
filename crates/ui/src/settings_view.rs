@@ -205,16 +205,14 @@ impl EditorApp {
         if !open {
             out.push(("app.settings", json!({"open": false})));
         }
-        if std::mem::take(&mut self.settings_ui.import)
-            && let Some(path) = self.dialogs.open_theme()
-        {
-            out.push(("theme.import", json!({"path": path.display().to_string()})));
+        // the core asks for the file, and runs theme.import or theme.export with it
+        if std::mem::take(&mut self.settings_ui.import) {
+            plumcraft_editor_core::invoke::theme_file(self, true, crate::By::Person);
+            self.present_asks();
         }
         if std::mem::take(&mut self.settings_ui.export) {
-            let name = format!("{}.plumtheme.json", self.tokens.name);
-            if let Some(path) = self.dialogs.save_theme(&name) {
-                out.push(("theme.export", json!({"path": path.display().to_string()})));
-            }
+            plumcraft_editor_core::invoke::theme_file(self, false, crate::By::Person);
+            self.present_asks();
         }
         out
     }

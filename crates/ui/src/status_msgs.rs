@@ -12,26 +12,8 @@ use plumcraft_session::commands::Tone;
 use crate::app_hooks::tone_color;
 use crate::theme::{Tokens, mix};
 
-/// One message in the status bar.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Msg {
-    pub tone: Tone,
-    pub text: String,
-    /// More detail, shown on hover and in the Messages window.
-    pub detail: Option<String>,
-}
-
-impl Msg {
-    pub fn new(tone: Tone, text: impl Into<String>) -> Msg {
-        Msg { tone, text: text.into(), detail: None }
-    }
-
-    pub fn detail(mut self, d: impl Into<String>) -> Msg {
-        let d = d.into();
-        self.detail = (!d.is_empty()).then_some(d);
-        self
-    }
-}
+/// One message in the status bar: the core's ([`plumcraft_editor_core::control::Msg`]).
+pub use plumcraft_editor_core::control::Msg;
 
 /// The label of the button that opens the Messages window when something isn't shown in full
 /// ("+N more…" when N messages are left out altogether).

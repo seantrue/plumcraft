@@ -458,7 +458,7 @@ impl EditorApp {
     }
 
     /// Copy (or cut) the selection to the clipboard; true when something was copied.
-    fn copy_selection(&mut self, ctx: &egui::Context, id: &str) -> bool {
+    fn copy_selection(&mut self, id: &str) -> bool {
         let nodes = self.selected_ids();
         if nodes.is_empty() {
             self.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
@@ -466,41 +466,43 @@ impl EditorApp {
         }
         let Some(r) = self.run(id, &json!({"nodes": nodes})) else { return false };
         let Some(text) = r.get("text").and_then(Value::as_str) else { return false };
-        ctx.copy_text(text.to_owned());
-        self.copied = Some(text.to_owned());
+        // the core asks for the clipboard; the window answers at once (crate::asks_view)
+        plumcraft_editor_core::invoke::copy(self, text, "workflow", crate::By::Person);
+        self.present_asks();
         true
     }
 
-    /// Paste workflow JSON at the pointer (or beside where it was copied), selecting the result.
+    /// Paste workflow JSON at the pointer (or beside where it was copied), selecting the result:
+    /// the answer to Edit › Paste's `clipboard.get` ask when one waits, else the window offering
+    /// the clipboard to the core (⌘V).
     pub fn paste_text(&mut self, ctx: &egui::Context, text: &str) {
         let pointer = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.canvas.rect.contains(*p));
-        let mut params = json!({"text": text});
-        if let Some(p) = pointer {
+        self.paste_pos = pointer.map(|p| {
             let g = self.canvas.to_global.inverse() * p;
-            params["pos"] = json!([g.x, g.y]);
-        }
-        if let Some(r) = self.run("edit.paste", &params) {
-            self.canvas.select_result(&r, self.session.graph());
-            if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
-                self.last_error = Some(format!("pasted; {} wire(s) no longer fit and were left out", dropped.len()));
-            }
-        }
+            [g.x, g.y]
+        });
+        self.pasted(text);
+        self.paste_pos = None;
     }
 
     /// Apply an Edit menu (or keyboard) action.
-    pub fn edit_op(&mut self, ctx: &egui::Context, op: EditOp) {
+    pub fn edit_op(&mut self, _ctx: &egui::Context, op: EditOp) {
         let nodes = self.selected_ids();
         match op {
             EditOp::Copy => {
-                self.copy_selection(ctx, "edit.copy");
+                self.copy_selection("edit.copy");
             }
             EditOp::Cut => {
-                if self.copy_selection(ctx, "edit.cut") {
+                if self.copy_selection("edit.cut") {
                     self.canvas.picked.clear();
                 }
             }
-            // The window reads the system clipboard and sends a Paste event (handled next frame).
-            EditOp::Paste => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
+            // The core asks for the clipboard: the window reads it and sends a Paste event (handled
+            // next frame), which answers.
+            EditOp::Paste => {
+                plumcraft_editor_core::invoke::ask_paste(self, crate::By::Person);
+                self.present_asks();
+            }
             EditOp::SelectAll => self.canvas.select_all(),
             EditOp::Delete => {
                 if nodes.is_empty() {

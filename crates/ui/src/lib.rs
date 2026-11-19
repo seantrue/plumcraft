@@ -40,6 +40,7 @@ pub mod about_view;
 pub mod app_hooks;
 pub use plumcraft_editor_core::appearance;
 pub mod array_view;
+pub mod asks_view;
 pub mod audio;
 pub mod bundle_view;
 pub mod cache_view;
@@ -91,14 +92,14 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
-use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply, texts};
+use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply};
 use plumcraft_proto::data::DataRef;
-use plumcraft_proto::event::{Event, NodeState};
+use plumcraft_proto::event::Event;
 use plumcraft_proto::run::SaveReply;
 use plumcraft_proto::session::EngineState;
 use plumcraft_session::run::Outgoing;
 use plumcraft_session::viewer_cmds::Tools;
-use plumcraft_session::{CommandSpec, Session, command_specs, paths};
+use plumcraft_session::{CommandSpec, Session, command_specs};
 use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
@@ -117,7 +118,7 @@ fn panel_display<'a>(
 }
 
 /// The window title's app name.
-pub const APP_TITLE: &str = "PlumCraft";
+pub const APP_TITLE: &str = plumcraft_editor_core::control::APP_TITLE;
 
 /// Top-level menus, in order. Commands name theirs in `CommandSpec::menu`; menus the registry
 /// adds later appear after these.
@@ -126,7 +127,9 @@ const MENUS: &[&str] = &["File", "Edit", "View", "Node", "Run"];
 /// The workflow file extension.
 pub const WORKFLOW_EXT: &str = "json";
 
-/// Native dialogs, replaceable in tests.
+/// Native dialogs, replaceable in tests: how this shell answers the core's file asks
+/// ([`asks_view`]). Each call blocks until it is answered, as rfd's dialogs do; a shell whose
+/// pickers answer later answers the asks later instead (`docs/shell-interface.md` section 11).
 pub trait FileDialogs {
     /// A file or folder for a path input (`hint` from its port), starting near `current`.
     fn pick_path(&mut self, hint: &PathHint, current: &str) -> Option<PathBuf>;
@@ -316,71 +319,13 @@ impl Shot {
     }
 }
 
-/// A question the window is asking (drawn as a modal; [`EditorApp::answer_prompt`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Prompt {
-    /// The graph has unsaved changes: discard them to go on with `then`?
-    Discard { then: AfterDiscard },
-    /// A workflow from elsewhere is about to run, and this is what it touches.
-    Review(Box<plumcraft_session::trust::Review>),
-    /// A run would send these local files to an engine nobody here started: `(where to, file)`.
-    Uploads(Vec<(String, String)>),
-}
+pub use plumcraft_editor_core::asks::{AskId, By};
+/// The prompts, their answers and what Discard goes on to do are the core's
+/// ([`plumcraft_editor_core::invoke`]): the window draws the open one as a modal
+/// ([`EditorApp::answer_prompt`]).
+pub use plumcraft_editor_core::invoke::{AfterDiscard, Prompt, PromptAnswer};
 
-/// What a "Discard" in [`Prompt::Discard`] goes on to do.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum AfterDiscard {
-    /// `graph.new`.
-    New,
-    /// Ask for a workflow ([`FileDialogs::open_workflow`]), then `graph.open` it.
-    Open,
-    /// Close the window (quit).
-    Quit,
-}
-
-/// An answer to [`Prompt::Discard`]: its buttons, and `ui.prompt`'s `answer`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PromptAnswer {
-    /// Drop the unsaved changes and go on.
-    Discard,
-    /// Save first (the save dialog for a graph with no file), then go on once saved.
-    Save,
-    /// Do nothing.
-    Cancel,
-    /// Trust the workflow; its held run is dropped ([`Prompt::Review`]).
-    Trust,
-}
-
-impl Prompt {
-    /// The prompt's id for the control channel (`ui.inspect`'s `prompt.kind`).
-    pub fn kind(&self) -> &'static str {
-        match self {
-            Prompt::Discard { .. } => "unsavedChanges",
-            Prompt::Review(_) => "reviewWorkflow",
-            Prompt::Uploads(_) => "allowUploads",
-        }
-    }
-
-    pub fn text(&self) -> &'static str {
-        match self {
-            Prompt::Discard { then: AfterDiscard::New } => "The graph has unsaved changes. Discard them and start a new graph?",
-            Prompt::Discard { then: AfterDiscard::Open } => "The graph has unsaved changes. Discard them and open another workflow?",
-            Prompt::Uploads(_) => "This run would send these files from your computer to an engine you attached to.",
-            Prompt::Review(_) => "This workflow came from elsewhere, and it runs with your permissions. Check what it touches before you run it.",
-            Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
-        }
-    }
-}
-
-/// A path as the status bar shows it: its last two components.
-fn short_path(path: &str) -> String {
-    let p = Path::new(path);
-    match (p.parent().and_then(Path::file_name), p.file_name()) {
-        (Some(dir), Some(name)) => format!("{}/{}", dir.to_string_lossy(), name.to_string_lossy()),
-        (None, Some(name)) => name.to_string_lossy().into_owned(),
-        _ => path.to_owned(),
-    }
-}
+use plumcraft_editor_core::control::short_path;
 
 /// How long a screenshot waits for its runs before it takes the window as it is.
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -449,8 +394,18 @@ pub struct EditorApp {
     pub prefs: prefs::Store,
     /// The window title's name for a graph with no file (the demo, a new graph).
     pub document: String,
-    /// The question the window is asking, when it is.
+    /// The question the window is asking, when it is: the open `prompt` ask's
+    /// ([`asks_view`]), drawn as a modal.
     pub prompt: Option<Prompt>,
+    /// What the core is asking: file dialogs, prompts, forms, the clipboard
+    /// ([`plumcraft_editor_core::asks`]).
+    pub asks: plumcraft_editor_core::asks::Asks<plumcraft_editor_core::invoke::Cont>,
+    /// The asks presented and waiting (a paste, a form).
+    pub(crate) presented: asks_view::Presented,
+    /// Where the paste being answered lands (the pointer over the canvas).
+    pub(crate) paste_pos: Option<[f32; 2]>,
+    /// The apps the session asked to start, until they become `open.external` asks.
+    pub(crate) launches: Option<plumcraft_editor_core::invoke::Launches>,
     /// The run waiting on [`Prompt::Uploads`].
     upload_held: Option<Box<plumcraft_proto::run::RunRequest>>,
     /// Commands a shortcut fired while a text field had focus: they run on the next frame,
@@ -460,8 +415,6 @@ pub struct EditorApp {
     pub rename: Option<rename_view::RenameDialog>,
     /// What Copy or Cut last put on the clipboard.
     pub copied: Option<String>,
-    /// Text a command asked to put on the clipboard, until the next frame.
-    copy_out: Option<String>,
     /// A rerun asked for while a run was in flight (a watched value's bytes were gone).
     rerun_pending: bool,
     /// The answer to the save in flight.
@@ -499,8 +452,6 @@ pub struct EditorApp {
     pub(crate) engine_worker: plumcraft_editor_core::worker::EngineWorker,
     /// An engine switch under way ([`engine_view`]).
     pub(crate) switching: plumcraft_editor_core::switchboard::Switching,
-    /// Control requests waiting for a switch to finish ([`engine_view`]).
-    pub(crate) engine_waits: Vec<engine_view::EngineWait>,
     /// The last command run asked for an engine switch.
     pub(crate) engine_asked: bool,
     /// Drawing a frame: what a command starts on an engine goes to the worker, and the frame
@@ -510,6 +461,8 @@ pub struct EditorApp {
     pub(crate) attaching: bool,
     /// The context a new engine link wakes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
+    /// The context of the last control request: what its replies read and repaint.
+    pub(crate) control_ctx: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
     pub app_title: &'static str,
     /// The latest run, replayed for the canvas's run colours ([`run_anim`]).
@@ -517,7 +470,9 @@ pub struct EditorApp {
 }
 
 impl EditorApp {
-    pub fn new(session: Session) -> Self {
+    pub fn new(mut session: Session) -> Self {
+        // the session's app starts are asked for, and this window starts them (asks_view)
+        let launches = plumcraft_editor_core::invoke::route_launches(&mut session);
         let mut canvas = Canvas::default();
         if !session.graph().nodes.is_empty() {
             canvas.request_fit();
@@ -554,11 +509,14 @@ impl EditorApp {
             prefs: prefs::Store::default(),
             document: "Untitled".into(),
             prompt: None,
+            asks: Default::default(),
+            presented: Default::default(),
+            paste_pos: None,
+            launches,
             upload_held: None,
             after_typing: Vec::new(),
             rename: None,
             copied: None,
-            copy_out: None,
             rerun_pending: false,
             saving: None,
             shot: None,
@@ -577,11 +535,11 @@ impl EditorApp {
             installing: None,
             engine_worker: Default::default(),
             switching: Default::default(),
-            engine_waits: Vec::new(),
             engine_asked: false,
             in_frame: false,
             attaching: false,
             repaint: None,
+            control_ctx: None,
         }
     }
 
@@ -676,16 +634,6 @@ impl EditorApp {
         }
         self.session.views.run_colors_off = self.prefs.prefs().run_colors == Some(false);
         self.session.views.anim_ms = self.prefs.prefs().anim_ms.filter(|ms| plumcraft_session::view_cmds::is_anim_ms(u64::from(*ms)));
-    }
-
-    /// Ask a dialog, starting in the folder `key` last used, and remember where it ended.
-    fn ask_dialog(&mut self, key: &str, ask: impl FnOnce(&mut dyn FileDialogs) -> Option<PathBuf>) -> Option<PathBuf> {
-        self.dialogs.start_in(self.prefs.dir(key));
-        let chosen = ask(self.dialogs.as_mut());
-        if let Some(p) = &chosen {
-            self.prefs.remember(key, p);
-        }
-        chosen
     }
 
     /// Keep Pick Engines Automatically in the preferences, however it was set (the menu, the
@@ -822,8 +770,12 @@ impl EditorApp {
                         self.last_error = Some(format!("detached, but these came from wires upstream and weren't copied: {}", unresolved.join(", ")));
                     }
                 }
-                if id == "viewer.recipe" && params.get("copy").and_then(Value::as_bool) == Some(true) {
-                    self.copy_out = v.get("recipe").filter(|r| !r.is_null()).and_then(|r| serde_json::to_string_pretty(r).ok());
+                if id == "viewer.recipe"
+                    && params.get("copy").and_then(Value::as_bool) == Some(true)
+                    && let Some(text) = v.get("recipe").filter(|r| !r.is_null()).and_then(|r| serde_json::to_string_pretty(r).ok())
+                {
+                    // on the clipboard next frame (the core asks; the window answers)
+                    plumcraft_editor_core::invoke::copy(self, &text, "text", By::Person);
                 }
                 if id == "graph.bundle"
                     && let Some(n) = v.get("missing").and_then(Value::as_array).map(Vec::len).filter(|n| *n > 0)
@@ -889,52 +841,21 @@ impl EditorApp {
     }
 
     fn run_all(&mut self, actions: Vec<Action>) {
-        for (id, mut params) in actions {
-            // Open with… "Choose an App…": the host asks for the app, then runs value.open
+        for (id, params) in actions {
+            // Open with… "Choose an App…": the core asks for the app, then runs value.open
             if id == "value.open" && params.get("choose").and_then(Value::as_bool) == Some(true) {
-                let Some(app) = self.dialogs.pick_app() else { continue };
-                if let Some(o) = params.as_object_mut() {
-                    o.remove("choose");
-                    o.insert("app".into(), Value::from(app.display().to_string()));
-                }
+                plumcraft_editor_core::invoke::choose_app(self, params, By::Person);
+                self.present_asks();
+                continue;
             }
-            // Save Result…: the host asks where, then runs run.save
+            // Save Result…: the core asks where, then runs run.save
             if id == "run.save" && params.get("ask").and_then(Value::as_bool) == Some(true) {
-                self.ask_where_to_save(params);
+                plumcraft_editor_core::invoke::save_result(self, params, By::Person);
+                self.present_asks();
                 continue;
             }
             self.run(id, &params);
         }
-    }
-
-    /// A save button: say why not, or ask where (offering the node's title as the name, where
-    /// the last save went or else in the workflow's folder), then run `run.save`.
-    fn ask_where_to_save(&mut self, mut params: Value) {
-        if let Some(c) = plumcraft_session::find("run.save")
-            && let Err(why) = (c.enabled)(&self.session)
-        {
-            self.last_error = Some(format!("can't save: {why}"));
-            return;
-        }
-        let node = plumcraft_graph::NodeId(params.get("node").and_then(Value::as_str).unwrap_or_default().to_owned());
-        let index = params.get("index").and_then(Value::as_i64);
-        let sheet = params.get("sheet").and_then(Value::as_bool).unwrap_or(false);
-        let (catalog, title) = (self.session.catalog(), plumcraft_session::node_title(self.session.graph(), self.session.catalog(), &node));
-        let stem = if sheet { format!("{title} sheet") } else { title };
-        let name = plumcraft_session::save_cmds::suggested_name(catalog, &stem, index);
-        let base = paths::base_folder(self.session.path());
-        let last = self.session.save.last.as_ref().filter(|(_, r)| r.ok).and_then(|(ask, _)| Path::new(&ask.path).parent().map(Path::to_path_buf));
-        // the last save's folder, then the one a save last used in an earlier run
-        let folder = last.or_else(|| self.prefs.dir(prefs::keys::RESULT_WRITE)).or_else(|| base.clone()).unwrap_or_default();
-        let formats = catalog.save_formats.clone();
-        let Some(path) = self.ask_dialog(prefs::keys::RESULT_WRITE, |d| d.save_output(&formats, &folder.join(name))) else { return };
-        // (a `/` typed into macOS's save panel comes back as `:`: folders)
-        let path = paths::chosen_path(&path, base.as_deref(), true);
-        if let Some(o) = params.as_object_mut() {
-            o.remove("ask");
-            o.insert("path".into(), Value::from(path));
-        }
-        self.run("run.save", &params);
     }
 
     /// Send a queued save on a thread of its own, and take its answer when it comes.
@@ -947,7 +868,8 @@ impl EditorApp {
             let pending = serde_json::to_value(&req).map(|b| conn.uploads_pending(&b)).unwrap_or_default();
             if !pending.is_empty() {
                 self.session.save.fail("this save would send files to the engine: allow them, then save again");
-                self.prompt = Some(Prompt::Uploads(pending));
+                plumcraft_editor_core::invoke::raise_prompt(self, Prompt::Uploads(pending), By::Person);
+                self.sync_asks();
                 continue;
             }
             let (tx, rx) = channel();
@@ -993,118 +915,10 @@ impl EditorApp {
 
     /// Run a command from a menu or shortcut, filling in what the UI knows: a command's form
     /// ([`form_view`]), file dialogs for open and save, a prompt before unsaved changes are
-    /// dropped, the canvas selection for node commands.
+    /// dropped, the canvas selection for node commands. The core's invoke machine does it
+    /// ([`plumcraft_editor_core::invoke`]), asking; this window answers ([`asks_view`]).
     pub fn invoke(&mut self, id: &str) {
-        // a command with a form asks for its params first (crate::form_view)
-        if self.open_form(id) {
-            return;
-        }
-        let nodes: Vec<String> = self.canvas.selection().into_iter().map(|n| n.0).collect();
-        match id {
-            "graph.new" | "graph.open" => {
-                let then = if id == "graph.new" { AfterDiscard::New } else { AfterDiscard::Open };
-                if self.session.is_dirty() {
-                    self.prompt = Some(Prompt::Discard { then });
-                } else {
-                    self.go_on(then, false);
-                }
-            }
-            "app.quit" => self.quit(),
-            "engine.install" => {
-                if self.install_form.is_none() {
-                    self.install_form = Some(engine_view::InstallForm::default());
-                }
-            }
-            "engine.attach" => {
-                if self.attach_form.is_none() {
-                    self.attach_form = Some(engine_view::AttachForm { url: "http://127.0.0.1:".into(), token: String::new() });
-                }
-            }
-            "graph.save" if self.session.path().is_some() => {
-                self.run(id, &json!({}));
-            }
-            "graph.save" | "graph.saveAs" => {
-                let current = self.session.path().map(Path::to_path_buf);
-                if let Some(path) = self.ask_dialog(prefs::keys::WORKFLOW_WRITE, |d| d.save_workflow(current.as_deref())) {
-                    self.run("graph.saveAs", &json!({"path": path}));
-                }
-            }
-            "graph.bundle" => {
-                let current = self.session.path().map(Path::to_path_buf);
-                if let Some(path) = self.ask_dialog(prefs::keys::BUNDLE_WRITE, |d| d.save_bundle(current.as_deref())) {
-                    self.run(id, &json!({"path": path}));
-                }
-            }
-            "group.create" => {
-                let groups = self.canvas.selected_groups();
-                if nodes.is_empty() && groups.is_empty() {
-                    self.last_error = Some("select the nodes to group first".into());
-                } else {
-                    self.run(id, &json!({"nodes": nodes, "groups": groups}));
-                }
-            }
-            "node.expand" => match nodes.as_slice() {
-                [one] => {
-                    self.run(id, &json!({"node": one}));
-                }
-                _ => self.last_error = Some("select one node to expand".into()),
-            },
-            "group.ungroup" => match self.group_to_ungroup() {
-                Some(g) => {
-                    self.run(id, &json!({"group": g}));
-                }
-                None => self.last_error = Some("select a group (or a node in one) to ungroup".into()),
-            },
-            "graph.insert" | "graph.insertGroup" => {
-                if let Some(path) = self.ask_dialog(prefs::keys::WORKFLOW_READ, |d| d.open_workflow()) {
-                    let center = self.canvas.to_global.inverse() * self.canvas.rect.center();
-                    let pos = if self.canvas.rect.is_finite() { Some([center.x, center.y]) } else { None };
-                    let mut p = json!({"path": path});
-                    if let Some(pos) = pos {
-                        p["pos"] = json!(pos);
-                    }
-                    if let Some(r) = self.run(id, &p) {
-                        self.canvas.select_result(&r, self.session.graph());
-                        if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
-                            self.last_error = Some(format!("inserted; {} wire(s) no longer fit and were left out", dropped.len()));
-                        }
-                    }
-                }
-            }
-            "frame.add" => self.frame_selection(),
-            "graph.tidy" => {
-                // the selection when there is one to arrange, else everything; with the sizes and
-                // pins the canvas measured last frame
-                let (sizes, pins) = self.canvas.measured_for_tidy(self.session.catalog());
-                let nodes = if nodes.len() >= 2 { nodes } else { Vec::new() };
-                if self.run(id, &json!({"nodes": nodes, "sizes": sizes, "pins": pins})).is_some() {
-                    self.canvas.request_fit();
-                }
-            }
-            "node.remove" | "node.duplicate" => {
-                if nodes.is_empty() {
-                    self.last_error = Some("select nodes first".into());
-                } else if let Some(r) = self.run(id, &json!({"nodes": nodes}))
-                    && id == "node.duplicate"
-                {
-                    // The copies become the selection (crate::edit_view).
-                    self.canvas.select_result(&r, self.session.graph());
-                }
-            }
-            // an application's command gets what the canvas has selected, and may answer with a
-            // word for the status line
-            added if plumcraft_session::commands::is_added(added) => {
-                let group = self.group_to_ungroup();
-                if let Some(said) =
-                    self.run(added, &json!({"nodes": nodes, "group": group})).and_then(|r| r.get("notice").and_then(Value::as_str).map(str::to_owned))
-                {
-                    self.last_error = Some(said);
-                }
-            }
-            _ => {
-                self.run(id, &Value::Null);
-            }
-        }
+        self.invoke_by(id, By::Person);
     }
 
     /// What Ungroup acts on: the first selected collapsed group, else the innermost group of the
@@ -1121,52 +935,17 @@ impl EditorApp {
 
     /// Quit: close the window, asking first over unsaved changes.
     pub fn quit(&mut self) {
-        if self.session.is_dirty() && !self.closing {
-            self.prompt = Some(Prompt::Discard { then: AfterDiscard::Quit });
-        } else {
-            self.closing = true;
-            self.close_next = true;
-        }
+        plumcraft_editor_core::invoke::quit(self, By::Person);
+        self.present_asks();
     }
 
     /// Answer the open prompt: Discard goes on (dropping the unsaved changes); Save saves (the
     /// dialog first for a graph with no file) and goes on once nothing is left unsaved; Cancel
-    /// does nothing. False when no prompt was open.
+    /// does nothing. False when no prompt was open, or it doesn't take that answer.
     pub fn answer_prompt(&mut self, answer: PromptAnswer) -> bool {
-        match (self.prompt.take(), answer) {
-            (None, _) => return false,
-            (Some(Prompt::Discard { then }), PromptAnswer::Discard) => self.go_on(then, true),
-            (Some(Prompt::Discard { then }), PromptAnswer::Save) => {
-                self.invoke("graph.save");
-                if !self.session.is_dirty() {
-                    self.go_on(then, false);
-                }
-            }
-            (Some(Prompt::Discard { .. }), PromptAnswer::Cancel) => {}
-            (Some(Prompt::Review(_)), PromptAnswer::Trust) => {
-                self.run("graph.trust", &json!({}));
-            }
-            (Some(Prompt::Review(_)), PromptAnswer::Cancel) => self.session.run.decline_review(),
-            (Some(Prompt::Uploads(pending)), PromptAnswer::Trust) => {
-                let files: Vec<String> = pending.into_iter().map(|(_, f)| f).collect();
-                if let Some(link) = &self.link {
-                    link.conn.allow_uploads(&files);
-                }
-                if let Some(req) = self.upload_held.take() {
-                    self.session.run.resend(req);
-                }
-            }
-            (Some(Prompt::Uploads(_)), PromptAnswer::Cancel) => {
-                if self.upload_held.take().is_some() {
-                    self.session.run.cancel();
-                }
-            }
-            (p, _) => {
-                self.prompt = p;
-                return false;
-            }
-        }
-        true
+        let answered = plumcraft_editor_core::invoke::answer_prompt(self, answer);
+        self.present_asks();
+        answered
     }
 
     /// The window's close button, Cmd+Q from the system menu, or a quit answered: each frame,
@@ -1184,28 +963,11 @@ impl EditorApp {
         if self.session.is_dirty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             if self.prompt.is_none() {
-                self.prompt = Some(Prompt::Discard { then: AfterDiscard::Quit });
+                plumcraft_editor_core::invoke::raise_prompt(self, Prompt::Discard { then: AfterDiscard::Quit }, By::Person);
+                self.sync_asks();
             }
         } else {
             self.closing = true;
-        }
-    }
-
-    /// New, or Open through the dialog, once unsaved changes may go.
-    fn go_on(&mut self, then: AfterDiscard, discard: bool) {
-        match then {
-            AfterDiscard::New => {
-                self.run("graph.new", &json!({"discard": discard}));
-            }
-            AfterDiscard::Open => {
-                if let Some(path) = self.ask_dialog(prefs::keys::WORKFLOW_READ, |d| d.open_workflow()) {
-                    self.run("graph.open", &json!({"path": path, "discard": discard}));
-                }
-            }
-            AfterDiscard::Quit => {
-                self.closing = true;
-                self.close_next = true;
-            }
         }
     }
 
@@ -1422,7 +1184,9 @@ impl EditorApp {
             None => {}
         }
         if self.session.run.awaiting_review() && self.prompt.is_none() {
-            self.prompt = Some(Prompt::Review(Box::new(self.session.review())));
+            let review = Box::new(self.session.review());
+            plumcraft_editor_core::invoke::raise_prompt(self, Prompt::Review(review), By::Person);
+            self.sync_asks();
             ctx.request_repaint();
         }
         // Sent by the engine worker, in order (a cancel after the run it cancels), never here:
@@ -1444,7 +1208,8 @@ impl EditorApp {
                     };
                     if !pending.is_empty() {
                         self.upload_held = Some(req);
-                        self.prompt = Some(Prompt::Uploads(pending));
+                        plumcraft_editor_core::invoke::raise_prompt(self, Prompt::Uploads(pending), By::Person);
+                        self.sync_asks();
                         ctx.request_repaint();
                         continue;
                     }
@@ -1577,16 +1342,12 @@ impl EditorApp {
 
     /// The window title's name: the workflow's file name, or [`EditorApp::document`] without one.
     pub fn document_name(&self) -> String {
-        self.session.path().and_then(Path::file_name).map_or_else(|| self.document.clone(), |n| n.to_string_lossy().into_owned())
+        plumcraft_editor_core::control::document_name(&self.session, &self.document)
     }
 
     /// The window title: the workflow's name and a dot while it has unsaved changes.
     pub fn window_title(&self) -> String {
-        let dot = if self.session.is_dirty() { " •" } else { "" };
-        match self.engine_title() {
-            Some(engine) => format!("{}{dot} — {} ({engine})", self.document_name(), self.app_title),
-            None => format!("{}{dot} — {}", self.document_name(), self.app_title),
-        }
+        plumcraft_editor_core::control::window_title(&self.session, &plumcraft_editor_core::control::Shell::view(self))
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -1708,26 +1469,7 @@ impl EditorApp {
 
     /// What's wrong with the engine and how to fix it, when something is.
     pub fn banner_text(&self) -> Option<String> {
-        let with_hint = |what: String, hint: &str| if hint.is_empty() { what } else { format!("{what}. Fix: {hint}") };
-        match &self.engine {
-            EngineState::EngineDown { reason, hint, stderr_tail, .. } => {
-                let tail = stderr_tail.as_deref().filter(|t| !t.is_empty()).map(|t| format!("\n{t}")).unwrap_or_default();
-                Some(format!("{}{tail}", with_hint(format!("The engine is down: {reason}"), hint)))
-            }
-            EngineState::Unreachable { url, reason, hint, .. } => Some(with_hint(format!("The engine at {url} can't be reached: {reason}"), hint)),
-            EngineState::Unavailable { reason } => Some(format!("The engine is up but can't run: {reason}")),
-            // connected, with something to say: what this graph lacks, and the engine's own notice
-            _ => {
-                let known = !self.session.catalog().nodes.is_empty();
-                let missing = known.then(|| self.session.missing_engines()).flatten().map(|m| m.text);
-                let notice = self.session.catalog().text(texts::ENGINE_NOTICE).filter(|n| !n.is_empty()).map(str::to_owned);
-                match (missing, notice) {
-                    (Some(m), Some(n)) => Some(format!("{m}\n{n}")),
-                    (Some(m), None) => Some(m),
-                    (None, n) => n,
-                }
-            }
-        }
+        plumcraft_editor_core::control::banner_text(&self.session, &self.engine)
     }
 
     fn banner(&self, ui: &mut egui::Ui) {
@@ -1755,12 +1497,7 @@ impl EditorApp {
     /// The engine's status line (`texts::ENGINE_STATUS`, plumcraft #86) and its tone, while the
     /// engine is connected and the text isn't empty.
     pub fn engine_status(&self) -> Option<(String, plumcraft_session::commands::Tone)> {
-        if !self.engine.is_connected() {
-            return None;
-        }
-        let c = self.session.catalog();
-        let text = c.text(texts::ENGINE_STATUS).filter(|t| !t.trim().is_empty())?;
-        Some((text.to_owned(), plumcraft_session::commands::Tone::from_text(c.text(texts::ENGINE_STATUS_TONE).unwrap_or_default())))
+        plumcraft_editor_core::control::engine_status(&self.session, &self.engine)
     }
 
     /// The status bar, in two-line cells (layout B; the maintainer: "D17 B"): the engine over
@@ -1900,45 +1637,8 @@ impl EditorApp {
     /// The status bar's messages, most serious first within each kind: the run's errors, the
     /// application's segment, a save's outcome, the last thing that went wrong.
     pub fn status_messages(&self) -> Vec<status_msgs::Msg> {
-        use plumcraft_session::commands::Tone;
-        use status_msgs::Msg;
-        let run = &self.session.run;
-        let mut msgs = Vec::new();
-        let errors = run.errors();
-        if errors > 0 {
-            let names: Vec<String> = run.nodes.iter().filter(|(_, n)| n.state == Some(NodeState::Error)).map(|(id, _)| id.clone()).collect();
-            let text = if errors == 1 { "1 error".to_owned() } else { format!("{errors} errors") };
-            msgs.push(Msg::new(Tone::Error, text).detail(format!("in {}", names.join(", "))));
-        }
-        if let Some(e) = &run.run_error {
-            msgs.push(Msg::new(Tone::Error, e.clone()));
-        }
-        // the application's own segment (crate::app_hooks)
-        if let Some(text) = &self.app.status {
-            msgs.push(Msg::new(self.app.status_tone, text.clone()));
-        }
-        if self.session.save.pending.is_none()
-            && let Some((ask, reply)) = &self.session.save.last
-        {
-            msgs.push(match (&reply.error, reply.ok) {
-                (None, true) => {
-                    let shown = reply.paths.first().map_or(ask.path.as_str(), String::as_str);
-                    let text = match (ask.sheet, reply.paths.len()) {
-                        (true, _) => format!("saved a sheet of {} as {}", reply.items, short_path(shown)),
-                        (false, 0 | 1) => format!("saved {}", short_path(shown)),
-                        (false, n) => format!("saved {n} files as {}", short_path(&ask.path)),
-                    };
-                    let text = if reply.recipe { text } else { format!("{text}, without its recipe") };
-                    Msg::new(Tone::Info, text).detail(reply.paths.join("\n"))
-                }
-                (Some(e), _) => Msg::new(Tone::Error, format!("not saved: {}", e.message)).detail(ask.path.clone()),
-                (None, false) => Msg::new(Tone::Error, "not saved").detail(ask.path.clone()),
-            });
-        }
-        if let Some(err) = &self.last_error {
-            msgs.push(Msg::new(Tone::Error, err.clone()));
-        }
-        msgs
+        let app = self.app.status.as_deref().map(|text| (text, self.app.status_tone));
+        plumcraft_editor_core::control::status_messages(&self.session, self.last_error.as_deref(), app)
     }
 
     fn watched_panel(&mut self, ui: &mut egui::Ui) {
@@ -2029,10 +1729,8 @@ impl EditorApp {
         }
         self.save_auto_engines();
         self.save_run_anim();
-        if let Some(text) = self.copy_out.take() {
-            ctx.copy_text(text.clone());
-            self.copied = Some(text);
-        }
+        // what the core asked of the window: the clipboard, dialogs, prompts (crate::asks_view)
+        self.pump_asks();
         self.read_app_hooks(&ctx);
         self.drain_engine();
         self.edit_input(&ctx);
@@ -2073,6 +1771,7 @@ impl EditorApp {
         self.attach_window(&ctx);
         self.install_window(&ctx);
         self.form_window(&ctx);
+        self.script_asks_window(&ctx);
         self.params_window(&ctx);
         self.value_editor_windows(&ctx);
         if self.session.views.cache_report {
@@ -2218,29 +1917,8 @@ impl EditorApp {
     fn browse_for_path(&mut self) {
         let asked = self.canvas.edits.take_browse().or_else(|| self.params.edits.take_browse());
         let Some(((node, port), hint, current)) = asked else { return };
-        let base = paths::base_folder(self.session.path());
-        let start = match &base {
-            Some(b) if !current.trim().is_empty() && !paths::is_anchored(current.trim()) => b.join(current.trim()).to_string_lossy().into_owned(),
-            _ => paths::expand_user(current.trim()).to_string_lossy().into_owned(),
-        };
-        if hint.is_many() {
-            let start = paths::each_line(&current, |l| match &base {
-                Some(b) if !paths::is_anchored(l) => b.join(l).to_string_lossy().into_owned(),
-                _ => paths::expand_user(l).to_string_lossy().into_owned(),
-            });
-            self.dialogs.start_in(self.prefs.dir(prefs::dir_key(&hint)));
-            let chosen = self.dialogs.pick_files(&hint, &start);
-            if let Some(first) = chosen.first() {
-                self.prefs.remember(prefs::dir_key(&hint), first);
-                let value: Vec<String> = chosen.iter().map(|p| paths::chosen_path(p, base.as_deref(), false)).collect();
-                self.run("node.set", &json!({"node": node, "port": port, "value": value.join("\n")}));
-            }
-            return;
-        }
-        if let Some(path) = self.ask_dialog(prefs::dir_key(&hint), |d| d.pick_path(&hint, &start)) {
-            let value = paths::chosen_path(&path, base.as_deref(), hint.mode == "save");
-            self.run("node.set", &json!({"node": node, "port": port, "value": value}));
-        }
+        plumcraft_editor_core::invoke::browse(self, &node.0, &port, &hint, &current, By::Person);
+        self.present_asks();
     }
 }
 

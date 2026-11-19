@@ -1,6 +1,7 @@
 //! A command's form ([`plumcraft_session::commands::CommandForm`]): when a command that has one
-//! is invoked from a menu or a shortcut, this window asks for its params, then runs it as any
-//! command runs. The window stays open, saying why, when the command refuses; it closes when the
+//! is invoked from a menu or a shortcut, the core raises a `form` ask
+//! ([`plumcraft_editor_core::invoke`]) and this window presents it; its answer runs the command
+//! as any command runs. The window stays open, saying why, when the command refuses; it closes when the
 //! command succeeds, on Cancel and on Esc. Enter in a one-line field runs it.
 //!
 //! The control channel, scripts and the CLI run the command with its params directly; the form
@@ -19,27 +20,17 @@ pub struct FormDialog {
     /// Why the last try didn't run (the form's own check, or the command's refusal).
     pub error: Option<String>,
     focused: bool,
+    /// The `form` ask it presents.
+    pub ask: Option<plumcraft_editor_core::asks::AskId>,
 }
 
 impl FormDialog {
     pub fn new(form: CommandForm, values: Vec<String>) -> Self {
-        Self { form, values, error: None, focused: false }
+        Self { form, values, error: None, focused: false, ask: None }
     }
 }
 
 impl EditorApp {
-    /// Open `id`'s form, if it has one; `false` when it hasn't (the caller runs it as it is).
-    pub(crate) fn open_form(&mut self, id: &str) -> bool {
-        let Some(form) = plumcraft_session::commands::form(id) else { return false };
-        if let Err(why) = plumcraft_session::find(id).map_or(Ok(()), |c| (c.enabled)(&self.session)) {
-            self.last_error = Some(why);
-            return true;
-        }
-        let values = form.initial(&self.session);
-        self.command_form = Some(FormDialog::new(form, values));
-        true
-    }
-
     /// The open form's window, and running its command.
     pub(crate) fn form_window(&mut self, ctx: &egui::Context) {
         let Some(dialog) = &mut self.command_form else { return };
@@ -85,21 +76,26 @@ impl EditorApp {
                 });
                 cancel |= ui.input(|i| i.key_pressed(egui::Key::Escape));
             });
+        // the answer goes to the core, which runs the command; refused, the ask stays open with
+        // why (crate::asks_view keeps the window and shows it)
+        let ask = dialog.ask;
         if go {
-            let command = dialog.form.command;
-            match dialog.form.params(&dialog.values) {
-                Err(why) => dialog.error = Some(why),
-                Ok(params) => match self.try_run(command, &params) {
-                    Ok(_) => self.command_form = None,
-                    Err(why) => {
-                        if let Some(d) = &mut self.command_form {
-                            d.error = Some(why);
-                        }
+            let values: serde_json::Map<String, serde_json::Value> =
+                dialog.form.fields.iter().zip(&dialog.values).map(|(f, v)| (f.key.to_owned(), serde_json::Value::from(v.as_str()))).collect();
+            match ask {
+                Some(id) => {
+                    if let Err(e) = self.answer_ask(id, &serde_json::json!({"values": values})) {
+                        self.command_form = None;
+                        self.last_error = Some(e);
                     }
-                },
+                }
+                None => self.command_form = None,
             }
         } else if cancel || !open {
             self.command_form = None;
+            if let Some(id) = ask {
+                let _ = self.cancel_ask(id);
+            }
         }
     }
 }
