@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — Slice 7's two Linux failures: both in the tests (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** Nothing new: the standing go-ahead for N1's slices, whose gate a red Linux run fails.
+
+**What the AI did** (+11 −2 in `crates/ffi/tests/control_port.rs` and `crates/ffi/tests/switch.rs`; no source). Found that slice 7 had made `run.watch` over the C ABI start a run, as the egui editor's `run.watch` always has, so the test's own `run.start` was a second run that finds its nodes `cached` once the first has finished; the assertion takes either state now. Found that `plum_request` only queues, and replaced a 50 ms limit with "under a quarter of the engine switch it must not wait for".
+
+**Checked.** By the agent: the first failure forced with a sleep, 50 of 50 before and 0 of 50 after; unforced under load 2 of 20 before, 0 of 50 after. `plum_request` timed over 30 runs at four loads: 134 µs at worst. The suite as CI runs it under b3 and md5: 1,394 of 1,395. The FFI tests 30 times under load: no failure. By the controller: the two diffs read; the claim about the egui editor checked against `f22f770`'s source; fmt, clippy and the FFI tests (26) rerun.
+
+**What was wrong, and what is not known.** Slice 7 changed an observable C ABI behaviour (a `run.watch` now runs) and neither its agent nor the controller noticed until Linux did; the brief's "no user-visible change" gate did not cover the C ABI, whose behaviour each slice has been changing. Where Linux's 56 ms went is inferred (the test thread descheduled), not shown: it did not reproduce on the Mac at any load. Weakening an assertion from one value to two is what the stage's rules warn against; it is right here only because the stricter value encoded a difference from the editor that the contract says should not exist.
+
 ### 2026-11-19 — N1 slice 8: the menu model and a log; slice 7 fails on Linux (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** In the original request: "Attend in particular to native platform gestures and conventions" and "Preserve the current capability for logging, debug driving, et al." The standing go-ahead for N1's slices. Also, through the slice 6 agent, a CPM that merged slices 4 to 6 into the dev branch.

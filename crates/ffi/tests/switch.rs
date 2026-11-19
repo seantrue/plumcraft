@@ -82,6 +82,9 @@ fn engine_binary() {
 fn starting_a_process_engine_never_holds_the_core_thread() {
     engine_binary();
     let mut c = Client::open(&json!({"store_root": store_root("switch-process"), "platform": {"subprocess": true}}));
+    // plum_open returns before its own engine has connected: let that finish first (a request for
+    // the document is held until it has), so what follows times this switch alone
+    assert_eq!(c.call("graph.get", json!({}))["ok"], true);
     let t = Instant::now();
     let id = c.send(&json!({"method": "command.run", "params": {"command": "engine.switch", "params": {"engine": "text", "mode": "process"}}}));
     let sent = t.elapsed();
@@ -93,7 +96,10 @@ fn starting_a_process_engine_never_holds_the_core_thread() {
     assert_eq!(ping["result"]["pong"], true);
     assert_eq!(r["ok"], true, "{r}");
     assert_eq!((r["result"]["mode"].as_str(), r["result"]["connected"].as_bool()), (Some("process"), Some(true)), "{r}");
-    assert!(sent < Duration::from_millis(50), "plum_request returns at once: {sent:?}");
+    // plum_request only queues (microseconds); what it must never wait for is the process
+    // engine's start, hundreds of milliseconds, so it is held to a small part of that rather than
+    // to a fixed time a loaded machine's scheduler can exceed
+    assert!(sent * 4 < switched, "plum_request returns at once: {sent:?}, the switch took {switched:?}");
     assert!(pinged < switched, "the core thread answered while the engine started: ping {pinged:?}, switch {switched:?}");
     runs_text(&mut c);
     // the run went to the process: its node states came back through the new link
