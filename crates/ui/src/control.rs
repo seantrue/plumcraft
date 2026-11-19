@@ -74,13 +74,13 @@ impl ControlState {
 impl core::Shell for EditorApp {
     fn view(&self) -> View<'_> {
         View {
-            link: self.link.as_ref(),
-            state: &self.engine,
-            coordinator: self.coordinator.as_ref(),
-            switching: &self.switching,
-            last_error: self.last_error.as_deref(),
-            asks: &self.asks,
-            document: &self.document,
+            link: self.doc.link.as_ref(),
+            state: &self.doc.engine,
+            coordinator: self.doc.coordinator.as_ref(),
+            switching: &self.doc.switching,
+            last_error: self.doc.last_error.as_deref(),
+            asks: &self.doc.asks,
+            document: &self.doc.document,
             app_title: self.app_title,
             run_anim: Some(&self.run_anim),
             prefs: Some(&self.prefs),
@@ -91,7 +91,7 @@ impl core::Shell for EditorApp {
         &mut self.control.parked
     }
     fn clear_last_error(&mut self) {
-        self.last_error = None;
+        self.doc.last_error = None;
     }
     /// What the command starts on an engine goes to the worker meanwhile, as in a frame.
     fn request<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
@@ -185,14 +185,14 @@ impl EditorApp {
     /// `ui.inspect`'s parts only this window knows: the canvas, the selection, its windows and
     /// popups, the Watched panel's views, pop-outs and wire previews, what was copied.
     fn shell_inspect(&self, ctx: Option<&egui::Context>) -> Map<String, Value> {
-        let g = self.session.graph();
+        let g = self.doc.session.graph();
         let t = self.canvas.to_global;
         let r = self.canvas.rect;
         let popups = json!({
             "palette": self.canvas.palette.as_ref().map(|p| json!({"query": p.query, "selected": p.selected, "at": [p.screen_pos.x, p.screen_pos.y]})),
             "anyPopup": ctx.is_some_and(egui::Popup::is_any_open),
         });
-        let run = &self.session.run;
+        let run = &self.doc.session.run;
         let watched = run.panel().map(|(w, d)| {
             // the application's value for the node stands in for the run's (crate::app_hooks)
             let d = self.app_display.as_ref().or(d);
@@ -208,7 +208,7 @@ impl EditorApp {
         });
         let v = json!({
             "popouts": self.popouts_inspect(),
-            "parameters": self.session.views.parameters.as_ref().map(|n| json!({"node": n, "fields": self.params.rects.iter().map(|(k, _)| k).collect::<Vec<_>>()})),
+            "parameters": self.doc.session.views.parameters.as_ref().map(|n| json!({"node": n, "fields": self.params.rects.iter().map(|(k, _)| k).collect::<Vec<_>>()})),
             "editors": self.value_editors.inspect(),
             "wirePreview": self.wires.inspect(),
             "copied": self.copied.is_some(),
@@ -246,7 +246,7 @@ impl EditorApp {
     fn apply_ui_set(&mut self, params: &Value) -> Result<(), String> {
         check_fields(params, &["zoom", "pan", "fit", "palette", "focus"])?;
         if let Some(f) = params.get("focus") {
-            crate::groups_view::set_focus(&mut self.canvas, self.session.graph(), f)?;
+            crate::groups_view::set_focus(&mut self.canvas, self.doc.session.graph(), f)?;
         }
         let mut t = self.canvas.to_global;
         let zoom = params.get("zoom").map(|z| z.as_f64().filter(|z| z.is_finite() && (0.05..=8.0).contains(z)).ok_or("zoom must be a number in 0.05..8"));

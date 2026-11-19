@@ -413,7 +413,8 @@ impl Switchboard<'_> {
         json!({"engines": [], "label": self.label()})
     }
 
-    fn retire_coordinator(&mut self) {
+    /// The coordinator, when there is one, to stop with the old engines.
+    pub fn retire_coordinator(&mut self) {
         if let Some(c) = self.coordinator.take() {
             self.switching.retired.push(Retired { coordinator: Some(c), ..Default::default() });
         }

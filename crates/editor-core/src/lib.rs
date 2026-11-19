@@ -12,6 +12,8 @@
 //! - [`engines`]: which engines there are, how each may be hosted on this platform
 //!   ([`engines::Capabilities`]), and starting one ([`engines::Launcher`]);
 //! - [`switchboard`]: switching, adding, removing, attaching and clearing engines while editing;
+//! - [`document`]: one open document, owning its session, engine link, worker, asks and media,
+//!   with the per-turn work every shell calls (slice 7);
 //! - [`worker`]: a document's engine calls (runs, cancels, releases, a switch's connect), off the
 //!   shell's thread, in order, handed back through an inbox;
 //! - [`install`]: installing an engine from GitHub, off the shell's thread;
@@ -38,6 +40,7 @@ pub mod appearance;
 pub mod asks;
 pub mod control;
 pub mod diff;
+pub mod document;
 pub mod dtype;
 pub mod engines;
 pub mod headless;

@@ -56,19 +56,19 @@ impl WireView {
 impl EditorApp {
     /// Keep every display the run state has, by port.
     pub fn cache_displays(&mut self) {
-        if self.session.run.nodes.is_empty() && self.session.run.watch.is_empty() {
+        if self.doc.session.run.nodes.is_empty() && self.doc.session.run.watch.is_empty() {
             self.wires.cache.clear();
         }
         // A peek answered: kept here, so later runs needn't ask for it again.
-        if !self.session.run.running && self.session.run.entry(plumcraft_session::run::WatchRole::Peek).is_some_and(|(_, d)| d.is_some()) {
+        if !self.doc.session.run.running && self.doc.session.run.entry(plumcraft_session::run::WatchRole::Peek).is_some_and(|(_, d)| d.is_some()) {
             let peeked =
-                self.session.run.entry(plumcraft_session::run::WatchRole::Peek).and_then(|(w, d)| d.map(|d| ((w.node.clone(), w.port.clone()), d.clone())));
+                self.doc.session.run.entry(plumcraft_session::run::WatchRole::Peek).and_then(|(w, d)| d.map(|d| ((w.node.clone(), w.port.clone()), d.clone())));
             if let Some((k, d)) = peeked {
                 self.wires.cache.insert(k, d);
             }
-            self.session.run.set_watch(plumcraft_session::run::WatchRole::Peek, None);
+            self.doc.session.run.set_watch(plumcraft_session::run::WatchRole::Peek, None);
         }
-        for (w, d) in self.session.run.watch.iter().zip(&self.session.run.watched) {
+        for (w, d) in self.doc.session.run.watch.iter().zip(&self.doc.session.run.watched) {
             if let Some(d) = d.as_ref().filter(|d| d.error.is_none()) {
                 if self.wires.cache.len() >= MAX_CACHED && !self.wires.cache.contains_key(&(w.node.clone(), w.port.clone())) {
                     self.wires.cache.clear();
@@ -101,7 +101,7 @@ impl EditorApp {
             return;
         }
         let cached = self.wires.cache.get(&key).cloned();
-        if cached.is_none() && rested >= PEEK_AFTER && self.wires.peeked.as_ref() != Some(&key) && self.session.connected {
+        if cached.is_none() && rested >= PEEK_AFTER && self.wires.peeked.as_ref() != Some(&key) && self.doc.session.connected {
             self.wires.peeked = Some(key.clone());
             self.run("view.peek", &json!({"node": key.0, "port": key.1}));
         } else if cached.is_none() {
@@ -116,21 +116,21 @@ impl EditorApp {
             self.wires.pane.sync(ctx, Some(d), Vec::new(), &mut self.thumbs, &source, Default::default());
         }
         // The source node's state and thumbnail, while its value isn't known.
-        let node_run = self.session.run.node(&from.node.0).cloned();
+        let node_run = self.doc.session.run.node(&from.node.0).cloned();
         let thumb = node_run.as_ref().and_then(|n| n.thumb.as_ref()).and_then(|r| match r {
             Rendition::Rgba8 { data, .. } => self.thumbs.get_from(ctx, data, &source).ok(),
             _ => None,
         });
-        let first_output = plumcraft_session::default_output(&self.session, &from.node).is_some_and(|p| p == from.port);
+        let first_output = plumcraft_session::default_output(&self.doc.session, &from.node).is_some_and(|p| p == from.port);
         let ty = self
             .session
             .catalog()
-            .node(&self.session.graph().node(&from.node).map(|n| n.kind.clone()).unwrap_or_default())
+            .node(&self.doc.session.graph().node(&from.node).map(|n| n.kind.clone()).unwrap_or_default())
             .and_then(|d| d.output(&from.port))
             .map(|p| p.ty.clone())
             .unwrap_or_default();
         let tokens = self.tokens.clone();
-        let asking = rested >= PEEK_AFTER && self.session.connected;
+        let asking = rested >= PEEK_AFTER && self.doc.session.connected;
         let pane = &mut self.wires.pane;
         egui::Area::new(egui::Id::new("plumcraft-wire-preview")).order(egui::Order::Tooltip).fixed_pos(at + egui::vec2(16.0, 16.0)).interactable(false).show(
             ctx,

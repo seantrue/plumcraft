@@ -632,3 +632,50 @@ fn value_memory() {
     }
     eprintln!("value_memory: 500 nodes ran in {:.1} s, then {frames} frames", ran.as_secs_f64());
 }
+
+/// Startup (slice 7): the window draws before its engine has connected. The engine is started and
+/// its catalogue read on the worker, never on the editor's thread, from the first frame to ready;
+/// the title says "connecting" meanwhile and no frame waits for the slow start; the graph opens once
+/// the catalogue is there, and `on_ready` runs then (the application opens its control channel).
+#[test]
+fn startup_never_calls_an_engine_on_the_editors_thread() {
+    use plumcraft_editor_core::document::Opening;
+    use plumcraft_editor_core::engines::EngineKind;
+    use std::sync::atomic::AtomicBool;
+
+    let eyes = Eyes::default();
+    // the editor's thread from launch: building it, its first frame, and on
+    eyes.arm();
+    let delay = Duration::from_millis(1500);
+    let demo = Graph::from_json(&EngineKind::Text.own_demo().unwrap().unwrap()).unwrap();
+    let nodes = demo.nodes.len();
+    let ready = Arc::new(AtomicBool::new(false));
+    let mut app =
+        EditorApp::new(Session::new(Default::default())).with_engines(choices(), Some(("text".into(), "process".into())), slow_connector(&eyes, delay));
+    let said = Arc::clone(&ready);
+    app.on_ready = Some(Box::new(move |_| said.store(true, Ordering::SeqCst)));
+    let app = app.start_engines(plumcraft_session::EngineTarget::Choice { engine: "text".into(), mode: "process".into() }, Vec::new(), Opening::Graph(demo));
+    let launched = Instant::now();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 800.0)).build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app);
+    h.step();
+    let first = launched.elapsed();
+    assert!(first < delay / 2, "the first frame waited for the engine: {first:?}");
+    let title = h.state().window_title();
+    assert!(title.contains("connecting"), "{title}");
+    assert!(h.state().session.graph().nodes.is_empty() && !ready.load(Ordering::SeqCst), "nothing opens before the catalogue");
+    assert!(h.state().engine_busy());
+    let longest = frames_until(&mut h, "the engine", Duration::from_secs(30), |a| !a.doc.starting());
+    let to_ready = launched.elapsed();
+    eprintln!("startup with a {delay:?} engine: first frame {first:?}, ready {to_ready:?}, longest frame {longest:?}");
+    assert!(longest < Duration::from_millis(400), "a frame waited: {longest:?}");
+    assert!(ready.load(Ordering::SeqCst), "on_ready ran");
+    let app = h.state();
+    assert!(app.session.connected && !app.session.catalog().nodes.is_empty(), "{:?}", app.last_error);
+    assert_eq!(app.session.graph().nodes.len(), nodes, "the demo opened");
+    assert!(!app.session.is_dirty() && app.last_error.is_none(), "{:?}", app.last_error);
+    assert!(app.engine_label().contains("fake process"), "{}", app.engine_label());
+    assert!(!app.window_title().contains("connecting"), "{}", app.window_title());
+    drop(h);
+    assert_eq!(*eyes.on_owner.lock().unwrap(), Vec::<String>::new(), "engine calls on the editor's thread");
+    assert_eq!(*eyes.connects_on_owner.lock().unwrap(), Vec::<String>::new(), "engines started on the editor's thread");
+}

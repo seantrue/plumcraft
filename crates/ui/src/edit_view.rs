@@ -445,7 +445,7 @@ impl EditorApp {
     /// The selected nodes that are still in the graph, with the members of selected collapsed
     /// groups.
     fn selected_ids(&self) -> Vec<NodeId> {
-        let g = self.session.graph();
+        let g = self.doc.session.graph();
         let mut ids: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
         for gid in self.canvas.picked.groups() {
             for m in g.group_members(gid) {
@@ -461,7 +461,7 @@ impl EditorApp {
     fn copy_selection(&mut self, id: &str) -> bool {
         let nodes = self.selected_ids();
         if nodes.is_empty() {
-            self.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
+            self.doc.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
             return false;
         }
         let Some(r) = self.run(id, &json!({"nodes": nodes})) else { return false };
@@ -506,7 +506,7 @@ impl EditorApp {
             EditOp::SelectAll => self.canvas.select_all(),
             EditOp::Delete => {
                 if nodes.is_empty() {
-                    self.last_error = Some("select nodes to delete first".into());
+                    self.doc.last_error = Some("select nodes to delete first".into());
                 } else if self.run("node.remove", &json!({"nodes": nodes})).is_some() {
                     self.canvas.picked.clear();
                 }
@@ -526,7 +526,7 @@ impl EditorApp {
     /// The selection as what arranging takes: its nodes, its collapsed groups (as the one node
     /// each is on the canvas, not their members) and the sizes they were drawn at.
     fn selection_params(&self, mut p: Value) -> Value {
-        let g = self.session.graph();
+        let g = self.doc.session.graph();
         let nodes: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
         p["nodes"] = json!(nodes);
         p["groups"] = json!(self.canvas.picked.groups());
@@ -542,7 +542,7 @@ impl EditorApp {
     /// Edit › Frame Selection.
     pub(crate) fn frame_selection(&mut self) {
         if self.canvas.picked.is_empty() {
-            self.last_error = Some("select nodes to frame first".into());
+            self.doc.last_error = Some("select nodes to frame first".into());
         } else {
             self.arrange("frame.add", json!({}));
         }
@@ -576,7 +576,7 @@ impl EditorApp {
             (
                 i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::A),
-                self.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                self.doc.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
             )
         });
         if delete {

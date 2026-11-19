@@ -230,6 +230,19 @@ impl Parked {
         self.next_token
     }
 
+    /// Answer every request still waiting with `why` (its document closed).
+    pub fn close(&mut self, why: &str) {
+        for w in std::mem::take(&mut self.switches) {
+            (w.reply)(err(why));
+        }
+        for w in std::mem::take(&mut self.runs) {
+            (w.reply)(err(why));
+        }
+        for w in std::mem::take(&mut self.shots) {
+            (w.reply)(err(why));
+        }
+    }
+
     /// An engine operation's outcome: the waits keep the latest; the first error is the answer
     /// to a command that waits, as a command that waits for it gets it.
     pub fn outcome(&mut self, r: &Result<Value, String>) {

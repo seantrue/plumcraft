@@ -190,6 +190,9 @@ pub struct Session {
     from_file: bool,
     /// The window's engine connection, as the editor last linked it ([`Session::connection`]).
     connection: SharedConnection,
+    /// The document this session is, among the editor's open documents (0: none named). The
+    /// application's `before` and `after` hooks read it ([`Session::doc_id`]).
+    doc: u64,
 }
 
 /// The window's engine connection, held for an application's commands. Debug says only whether
@@ -244,6 +247,7 @@ impl Session {
             trust_file: None,
             from_file: false,
             connection: SharedConnection::default(),
+            doc: 0,
         }
     }
 
@@ -318,6 +322,30 @@ impl Session {
     pub fn with_graph(catalog: SchemaReply, mut graph: Graph) -> Self {
         graph.assign_serials(&BTreeSet::new(), |kind| display_name(&catalog, kind));
         Session { graph, ..Session::new(catalog) }
+    }
+
+    /// The document this session is (`docs/shell-interface.md` 4.3): what an application's hooks
+    /// tell two documents apart by (decision 3). 0 when the editor named none.
+    pub fn doc_id(&self) -> u64 {
+        self.doc
+    }
+
+    /// Name the document this session is.
+    pub fn set_doc_id(&mut self, doc: u64) {
+        self.doc = doc;
+    }
+
+    /// Show `graph` as the one the session was made with ([`Session::with_graph`]), once the
+    /// catalogue it is titled against has arrived: no undo step, nothing unsaved, no file. For a
+    /// shell that opens its window before its engine has connected.
+    pub fn start_graph(&mut self, mut graph: Graph) {
+        let catalog = &self.catalog;
+        graph.assign_serials(&BTreeSet::new(), |kind| display_name(catalog, kind));
+        self.graph = graph;
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = false;
+        self.path = None;
     }
 
     pub fn graph(&self) -> &Graph {

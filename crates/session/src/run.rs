@@ -362,7 +362,18 @@ pub const MAX_LOG: usize = 100_000;
 
 /// A run id unique per client: an engine may outlive this editor and remember its runs.
 fn new_run_id(generation: u64) -> String {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    // Strictly increasing within the process: two documents sharing an engine (one engine
+    // compiled in serves every document) never give it the same id, even in the same tick.
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
+    let mut last = LAST.load(std::sync::atomic::Ordering::Acquire);
+    let nanos = loop {
+        let next = now.max(last.saturating_add(1));
+        match LAST.compare_exchange_weak(last, next, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire) {
+            Ok(_) => break next,
+            Err(seen) => last = seen,
+        }
+    };
     format!("ed-{}-{generation}-{nanos:x}", std::process::id())
 }
 
