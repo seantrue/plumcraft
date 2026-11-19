@@ -16,6 +16,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use plumcraft_coordinator::Coordinator;
+use plumcraft_editor_core::link::Link;
 use plumcraft_engine::host::PollReply;
 use plumcraft_graph::NodeId;
 use plumcraft_host::Connection;
@@ -27,7 +28,6 @@ use plumcraft_proto::session::EngineState;
 use plumcraft_session::run::Outgoing;
 use plumcraft_session::save_cmds::{format_of, suggested_name};
 use plumcraft_session::{EngineTarget, Session};
-use plumcraft_ui::link::Link;
 use serde_json::{Value, json};
 
 use crate::{EngineKind, Launcher, Mode, choices};
@@ -86,7 +86,7 @@ fn connect(kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<P
         let m = if e.hosts(mode) && !matches!(kind, EngineKind::Pack(_)) { mode } else { e.default_mode() };
         (*e, m)
     })) {
-        let link = launcher.connect(k, m, None).map_err(|e| format!("engine {}: {e}", k.id()))?;
+        let link = launcher.connect_core(k, m, None).map_err(|e| format!("engine {}: {e}", k.id()))?;
         match link.state() {
             EngineState::Connected { .. } | EngineState::Busy { .. } => links.push((k.id(), link)),
             other => return Err(format!("engine {}: {}", k.id(), said(&other))),

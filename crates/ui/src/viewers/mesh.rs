@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::{ViewInput, Viewer};
 use crate::canvas::Action;
-use crate::media::{Job, Rgba, key_of};
+use crate::media::{Job, Rgba, RgbaImage, key_of};
 use crate::theme::Tokens;
 
 /// The largest picture rendered, a side, before supersampling.

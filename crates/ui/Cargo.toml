@@ -24,6 +24,8 @@ plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-automation = { workspace = true }
 plumcraft-session = { workspace = true }
+# The toolkit-free core under this shell: preferences, themes as data, the event pump, geometry.
+plumcraft-editor-core = { workspace = true }
 plumcraft-store = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }

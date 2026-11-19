@@ -34,7 +34,7 @@ pub struct Appearance {
     /// Body text size in points ([`theme::TEXT_SIZES`]); none: 14.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub text_size: Option<f32>,
-    /// egui's zoom factor ([`theme::ZOOMS`]); none: 1.
+    /// The UI zoom (egui's zoom factor; [`theme::ZOOMS`]); none: 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub zoom: Option<f32>,
     /// Token colours by theme, then token (`{"paper": {"accent": "#2c66ad"}}`).
@@ -239,7 +239,7 @@ fn set_in(m: &mut BTreeMap<String, BTreeMap<String, String>>, theme: &str, key: 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use egui::Color32;
+    use crate::plain::Color;
 
     #[test]
     fn overrides_fruits_and_pins_apply_to_their_theme() {
@@ -253,11 +253,11 @@ mod tests {
         a.pin("x.junk", Some("banana"));
         a.text_size = Some(16.0);
         let t = a.resolve("paper");
-        assert_eq!(t.accent, Color32::from_rgb(0x11, 0x22, 0x33));
+        assert_eq!(t.accent, Color::from_rgb(0x11, 0x22, 0x33));
         assert_eq!(t.text, theme::PAPER.text, "a bad colour is skipped");
-        assert_eq!(t.fruit("pear"), Some(Color32::from_rgb(0x44, 0x55, 0x66)));
+        assert_eq!(t.fruit("pear"), Some(Color::from_rgb(0x44, 0x55, 0x66)));
         assert_eq!(t.pins.get("x.audio"), Some(&theme::PAPER.olive));
-        assert_eq!(t.pins.get("x.text"), Some(&Color32::from_rgb(1, 2, 3)));
+        assert_eq!(t.pins.get("x.text"), Some(&Color::from_rgb(1, 2, 3)));
         assert!(!t.pins.contains_key("x.junk"));
         assert_eq!(t.text_size, 16.0);
         // the other themes keep their own colours, but the pins hold everywhere
@@ -317,8 +317,8 @@ mod tests {
             .unwrap();
         assert_eq!(skipped.len(), 4, "{skipped:?}");
         let t = a.resolve("paper");
-        assert_eq!(t.canvas, Color32::from_rgb(0xe6, 0xe1, 0xd6));
-        assert_eq!(t.fruit("pear"), Some(Color32::from_rgb(0xcf, 0xe0, 0xa8)));
+        assert_eq!(t.canvas, Color::from_rgb(0xe6, 0xe1, 0xd6));
+        assert_eq!(t.fruit("pear"), Some(Color::from_rgb(0xcf, 0xe0, 0xa8)));
         // every truncation and every flipped byte of a good file
         let good = a.export("paper").to_string();
         for n in 0..good.len() {

@@ -1,66 +1,32 @@
-//! Theme tokens. Colours, radii and type sizes come from here, never from literals in widgets:
-//! the canvas, the panels, run states, the engine banner and the Watched panel's charts all read
-//! a [`Tokens`].
+//! Theme tokens in egui's colours. Colours, radii and type sizes come from here, never from
+//! literals in widgets: the canvas, the panels, run states, the engine banner and the Watched
+//! panel's charts all read a [`Tokens`].
 //!
-//! Three themes ship (docs/research/22-themes.md): [`PAPER`], a warm light one and the default,
-//! [`PEWTER`], a mid grey, and [`DUSK`], a dark one. The earlier `medium` and `dark` are read as
-//! Pewter and Dusk ([`by_name`]), so an old preferences file still opens.
-//!
-//! A node's colours come from its family as the engine's catalogue names it
-//! ([`Tokens::family_tint`]): one of twelve desaturated **fruit** colours, set in OKLCH at the
-//! theme's lightness and chroma. The family id hashes into the twelve, and within one catalogue
-//! a clash steps to the next free fruit; a wire type of the family's id with a colour keeps that
-//! colour's hue at the theme's lightness and chroma; a family the user pinned takes its pin.
-//! Olive is the quiet one; plum is kept for groups.
-//!
-//! Lifted from the research software's `crates/ui-egui/src/theme.rs`, and redone for research 22.
+//! The themes, their values and every computation on them (fruits, family tints, contrast
+//! checks, OKLCH) are the core's, as data ([`plumcraft_editor_core::theme`], stage N1). This
+//! module is the egui shell's side: the same [`Tokens`] with `Color32` fields, as code built on
+//! `plumcraft_ui` has always read them, the conversions both ways, and [`Tokens::apply`], which
+//! installs them on an egui context. Each method here answers what the core's answers.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use crate::craft_ui::theme::WidgetPalette;
+use crate::plain::{ToCore, ToEgui};
 use egui::{Color32, CornerRadius, FontFamily, FontId, Stroke};
+use plumcraft_editor_core::plain::Color;
+use plumcraft_editor_core::theme as core;
 use plumcraft_proto::catalogue::SchemaReply;
 use plumcraft_proto::event::NodeState;
+
+pub use plumcraft_editor_core::theme::{BASE_TEXT, Check, FRUITS, OLIVE, PLUM, TEXT_SIZES, TOKENS, Text, ZOOMS, fnv1a, fruit_index, fruit_slots};
 
 /// Nothing drawn (hidden pins, clear header frames, snarl's hidden selection).
 pub const CLEAR: Color32 = Color32::TRANSPARENT;
 
-/// The body text size every other size is derived from, in points.
-pub const BASE_TEXT: f32 = 14.0;
-/// The text sizes the Settings window offers.
-pub const TEXT_SIZES: std::ops::RangeInclusive<f32> = 11.0..=18.0;
-/// The UI zooms it offers (egui's `zoom_factor`).
-pub const ZOOMS: std::ops::RangeInclusive<f32> = 0.8..=1.6;
-
-/// The family fruits, in hue order: a family's id hashes into these.
-pub const FRUITS: [&str; 12] = ["cherry", "apricot", "quince", "lemon", "pear", "greengage", "melon", "juniper", "blueberry", "damson", "grape", "fig"];
-/// The quiet fruit, for a family the user wants to recede.
-pub const OLIVE: &str = "olive";
-/// The groups' fruit.
-pub const PLUM: &str = "plum";
-/// The OKLCH hue of each family fruit, and its lightness tier (+1 lighter, -1 deeper):
-/// neighbours alternate, so even the closest hues differ in lightness.
-const FRUIT_HUES: [(f32, f32); 12] = [
-    (22.0, 1.0),
-    (58.0, -1.0),
-    (84.0, 1.0),
-    (104.0, -1.0),
-    (124.0, 1.0),
-    (148.0, -1.0),
-    (176.0, 1.0),
-    (208.0, -1.0),
-    (248.0, 1.0),
-    (276.0, -1.0),
-    (302.0, 1.0),
-    (356.0, -1.0),
-];
-/// The step between fruits when two families of one catalogue hash to the same one (coprime
-/// with 12, so every fruit is reached).
-const PROBE: usize = 5;
-
 /// A theme: PlumCraft's colours, radii and text size. [`PAPER`] is the default. Settings ›
 /// Appearance (or `view.theme`) switches, and the user's overrides are applied on top
-/// ([`crate::appearance::Appearance::resolve`]).
+/// ([`crate::appearance::Appearance::resolve`]). The values and the logic are the core's
+/// ([`core::Tokens`]); this is them in egui's colours, with what installs them on a context.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Tokens {
     /// The theme's id (`paper`, `pewter`, `dusk`).
@@ -160,271 +126,93 @@ pub struct FamilyTint {
     pub body: Color32,
 }
 
-/// The text styles PlumCraft draws in, beyond egui's own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Text {
-    /// A node's title (SemiBold).
-    Title,
-    /// A node's port labels.
-    Port,
-    /// Captions and preview text on the canvas.
-    Caption,
-    /// Small text drawn by hand: axis ticks, tags.
-    Small,
-    /// A net label's tag (monospace).
-    Tag,
-}
-
-const fn rgb(hex: u32) -> Color32 {
-    Color32::from_rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8)
-}
-
-const fn tint(header: u32, body: u32) -> FamilyTint {
-    FamilyTint { header: rgb(header), body: rgb(body) }
-}
-
-const fn fruits(hex: [u32; 12]) -> [Color32; 12] {
-    let mut out = [CLEAR; 12];
-    let mut i = 0;
-    while i < 12 {
-        out[i] = rgb(hex[i]);
-        i += 1;
-    }
-    out
-}
-
-const MAGMA: [Color32; 6] = [rgb(0x000004), rgb(0x3b0f70), rgb(0x8c2981), rgb(0xde4968), rgb(0xfe9f6d), rgb(0xfcfdbf)];
-
 /// Warm light, like the light flow tools (GDE, Node-RED, KNIME): ink on off-white, pastel fruit
-/// headers with dark titles. The default.
-pub const PAPER: Tokens = Tokens {
-    name: "paper",
-    label: "Paper",
-    dark: false,
-    canvas: rgb(0xe9e5dc),
-    panel: rgb(0xf5f3ee),
-    text: rgb(0x22201c),
-    text_dim: rgb(0x57524a),
-    text_faint: rgb(0x7f796f),
-    separator: rgb(0xd3cdc2),
-    field: rgb(0xffffff),
-    field_border: rgb(0x8a8377),
-    section: rgb(0xebe7df),
-    accent: rgb(0x2c66ad),
-    error: rgb(0xb3342a),
-    warning: rgb(0x8f6200),
-    banner: rgb(0xf4d8d1),
-    widget: WidgetPalette { noninteractive: rgb(0xf5f3ee), inactive: rgb(0xe8e4dc), hovered: rgb(0xddd8ce), active: rgb(0xd0cabe), open: rgb(0xddd8ce) },
-    radius: 5,
-    pin_default: rgb(0x7f796f),
-    pin_hidden: CLEAR,
-    state_queued: rgb(0x7d838d),
-    state_running: rgb(0x2c66ad),
-    state_done: rgb(0x3a8a4c),
-    state_cached: rgb(0x6f9c78),
-    state_error: rgb(0xc0392b),
-    state_skipped: rgb(0xa29d94),
-    state_cancelled: rgb(0xa29d94),
-    stale: rgb(0xb07d12),
-    highlight: rgb(0xd4a300),
-    placeholder: rgb(0xe2ddd3),
-    // rgba(245, 243, 238, 0.55), premultiplied
-    faded: Color32::from_rgba_premultiplied(135, 134, 131, 140),
-    chart: rgb(0x2c66ad),
-    waveform: rgb(0x1d7468),
-    waveform_bg: rgb(0xfbfaf7),
-    playhead: rgb(0x2a2722),
-    spectrogram: MAGMA,
-    family_default: tint(0xddd8cf, 0xfbfaf6),
-    group: tint(0xedb8e7, 0xfaf3f4),
-    family_body_mix: 0.10,
-    header_text: rgb(0x22201c),
-    wire: rgb(0x7d786f),
-    grid: rgb(0xddd8ce),
-    fruits: fruits([0xfec8c5, 0xe6b692, 0xefd4a0, 0xc8c48c, 0xcde0ab, 0xa1cfa6, 0xa3e8d6, 0x86cfda, 0xb9dcfe, 0xb3bef1, 0xe0cdff, 0xe9aec2]),
-    olive: rgb(0xb0b29a),
-    fruit_l: 0.845,
-    fruit_dl: 0.035,
-    fruit_c: 0.074,
-    text_size: BASE_TEXT,
-    pins: BTreeMap::new(),
-    semibold: false,
-};
+/// headers with dark titles. The default ([`core::PAPER`]).
+pub const PAPER: Tokens = Tokens::from_theme(core::PAPER);
+/// Mid grey, for image work on a neutral ground ([`core::PEWTER`]).
+pub const PEWTER: Tokens = Tokens::from_theme(core::PEWTER);
+/// Dark ([`core::DUSK`]).
+pub const DUSK: Tokens = Tokens::from_theme(core::DUSK);
 
-/// Mid grey, for image work on a neutral ground: the docks recede, headers carry white titles.
-/// Replaces the earlier Medium.
-pub const PEWTER: Tokens = Tokens {
-    name: "pewter",
-    label: "Pewter",
-    dark: true,
-    canvas: rgb(0x4b4d52),
-    panel: rgb(0x43454a),
-    text: rgb(0xf5f4f1),
-    text_dim: rgb(0xd6d4cf),
-    text_faint: rgb(0xbdbbb6),
-    separator: rgb(0x36383c),
-    field: rgb(0x3a3c40),
-    field_border: rgb(0x9a9ca1),
-    section: rgb(0x3e4044),
-    accent: rgb(0x94c2f7),
-    error: rgb(0xfbc2ba),
-    warning: rgb(0xebb85e),
-    banner: rgb(0x7a3a33),
-    widget: WidgetPalette { noninteractive: rgb(0x43454a), inactive: rgb(0x55575c), hovered: rgb(0x66686d), active: rgb(0x6a6d72), open: rgb(0x66686d) },
-    radius: 5,
-    pin_default: rgb(0xb4b2ad),
-    pin_hidden: CLEAR,
-    state_queued: rgb(0xa1a6ae),
-    state_running: rgb(0x94c2f7),
-    state_done: rgb(0x82d290),
-    state_cached: rgb(0x5f9a6b),
-    state_error: rgb(0xfbc2ba),
-    state_skipped: rgb(0x85888d),
-    state_cancelled: rgb(0x85888d),
-    stale: rgb(0xebb85e),
-    highlight: rgb(0xfff3b0),
-    placeholder: rgb(0x45474c),
-    faded: Color32::from_rgba_premultiplied(110, 110, 110, 110),
-    chart: rgb(0x94c2f7),
-    waveform: rgb(0x62d6c3),
-    waveform_bg: rgb(0x2f3134),
-    playhead: rgb(0xfff3b0),
-    spectrogram: MAGMA,
-    family_default: tint(0x64676c, 0x57595e),
-    group: tint(0x7d5279, 0x5b5861),
-    family_body_mix: 0.10,
-    header_text: rgb(0xffffff),
-    wire: rgb(0xb4b2ad),
-    grid: rgb(0x56585d),
-    fruits: fruits([0x905b59, 0x785131, 0x7f683a, 0x615d2b, 0x637345, 0x3e6644, 0x3a796a, 0x1e666f, 0x4a6f93, 0x505782, 0x73628e, 0x7a4a5c]),
-    olive: rgb(0x696b56),
-    fruit_l: 0.500,
-    fruit_dl: 0.030,
-    fruit_c: 0.070,
-    text_size: BASE_TEXT,
-    pins: BTreeMap::new(),
-    semibold: false,
-};
-
-/// Dark, the research software's dark theme with brighter text, visible borders and deeper
-/// headers. Replaces the earlier Dark.
-pub const DUSK: Tokens = Tokens {
-    name: "dusk",
-    label: "Dusk",
-    dark: true,
-    canvas: rgb(0x202226),
-    panel: rgb(0x2a2c31),
-    text: rgb(0xeceae6),
-    text_dim: rgb(0xbab7b1),
-    text_faint: rgb(0x8d8b86),
-    separator: rgb(0x18191c),
-    field: rgb(0x232529),
-    field_border: rgb(0x7a7e87),
-    section: rgb(0x31343a),
-    accent: rgb(0x6c9fe0),
-    error: rgb(0xec7d70),
-    warning: rgb(0xddae55),
-    banner: rgb(0x6b2e28),
-    widget: WidgetPalette { noninteractive: rgb(0x2a2c31), inactive: rgb(0x363940), hovered: rgb(0x41454c), active: rgb(0x4c5058), open: rgb(0x41454c) },
-    radius: 5,
-    pin_default: rgb(0xa3a19c),
-    pin_hidden: CLEAR,
-    state_queued: rgb(0x7a808a),
-    state_running: rgb(0x6c9fe0),
-    state_done: rgb(0x68ba77),
-    state_cached: rgb(0x467a51),
-    state_error: rgb(0xec7d70),
-    state_skipped: rgb(0x5c6067),
-    state_cancelled: rgb(0x5c6067),
-    stale: rgb(0xddae55),
-    highlight: rgb(0xecd65a),
-    placeholder: rgb(0x2f3237),
-    faded: Color32::from_rgba_premultiplied(110, 110, 110, 110),
-    chart: rgb(0x6c9fe0),
-    waveform: rgb(0x45c2ae),
-    waveform_bg: rgb(0x17181b),
-    playhead: rgb(0xecd65a),
-    spectrogram: MAGMA,
-    family_default: tint(0x3d4047, 0x2e3136),
-    group: tint(0x664162, 0x34333a),
-    family_body_mix: 0.10,
-    header_text: rgb(0xf4f2ee),
-    wire: rgb(0x8d8b86),
-    grid: rgb(0x282a2f),
-    fruits: fruits([0x784a49, 0x603e24, 0x69562e, 0x4d491e, 0x515f37, 0x2f5034, 0x2d6457, 0x115059, 0x3c5c7a, 0x3e4468, 0x5f5076, 0x623948]),
-    olive: rgb(0x555745),
-    fruit_l: 0.430,
-    fruit_dl: 0.032,
-    fruit_c: 0.062,
-    text_size: BASE_TEXT,
-    pins: BTreeMap::new(),
-    semibold: false,
-};
-
-/// The default theme.
+/// The theme a new editor starts with.
 pub const DEFAULT: Tokens = PAPER;
 
 /// Every theme, in the Settings window's order.
 pub const ALL: [Tokens; 3] = [PAPER, PEWTER, DUSK];
 
-/// Names a theme was once called, read as the theme that replaced it.
-const ALIASES: &[(&str, &str)] = &[("medium", "pewter"), ("dark", "dusk")];
-
 /// The theme named `name` (or once called `name`: `medium` is Pewter, `dark` is Dusk).
 pub fn by_name(name: &str) -> Option<Tokens> {
-    let name = ALIASES.iter().find(|(old, _)| *old == name).map_or(name, |(_, new)| new);
-    ALL.iter().find(|t| t.name == name).cloned()
+    core::by_name(name).map(Tokens::from)
 }
 
-/// `a` moved `t` of the way to `b` (each channel; alpha from `a`).
-pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
-    let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 };
-    let ch = |x: u8, y: u8| (f32::from(x) + (f32::from(y) - f32::from(x)) * t).round().clamp(0.0, 255.0) as u8;
-    Color32::from_rgba_unmultiplied(ch(a.r(), b.r()), ch(a.g(), b.g()), ch(a.b(), b.b()), a.a())
+const fn c32(c: Color) -> Color32 {
+    Color32::from_rgba_premultiplied(c.r, c.g, c.b, c.a)
 }
 
-/// FNV-1a of an id: the same on every machine and every run (std's hasher promises neither).
-pub fn fnv1a(id: &str) -> u32 {
-    let mut h: u32 = 0x811c_9dc5;
-    for b in id.bytes() {
-        h ^= u32::from(b);
-        h = h.wrapping_mul(0x0100_0193);
-    }
-    h
+const fn cc(c: Color32) -> Color {
+    let [r, g, b, a] = c.to_array();
+    Color::from_rgba_premultiplied(r, g, b, a)
 }
 
-/// The fruit slot of each of a catalogue's families (and of `extra`): each takes its hash slot,
-/// in id order, and a clash steps by [`PROBE`] to the next free fruit. Stable for a given set of
-/// families whatever the catalogue's order; past twelve families, fruits are shared.
-pub fn fruit_slots<'a>(catalog: &'a SchemaReply, extra: &'a str) -> BTreeMap<&'a str, usize> {
-    let mut families: BTreeSet<&str> = catalog.nodes.iter().map(|n| n.family.as_str()).filter(|f| !f.is_empty()).collect();
-    if !extra.is_empty() {
-        families.insert(extra);
-    }
-    let mut taken = [false; 12];
-    let mut out = BTreeMap::new();
-    for (n, f) in families.into_iter().enumerate() {
-        if n % 12 == 0 {
-            taken = [false; 12];
-        }
-        let mut i = fnv1a(f) as usize % 12;
-        for _ in 0..12 {
-            if !taken.get(i).copied().unwrap_or(true) {
-                break;
-            }
-            i = (i + PROBE) % 12;
-        }
-        if let Some(t) = taken.get_mut(i) {
-            *t = true;
-        }
-        out.insert(f, i);
+const fn arr32<const N: usize>(a: [Color; N]) -> [Color32; N] {
+    let mut out = [CLEAR; N];
+    let mut i = 0;
+    while i < N {
+        out[i] = c32(a[i]);
+        i += 1;
     }
     out
 }
 
-/// The fruit `name`'s index in [`FRUITS`].
-pub fn fruit_index(name: &str) -> Option<usize> {
-    FRUITS.iter().position(|f| *f == name)
+const fn arrc<const N: usize>(a: [Color32; N]) -> [Color; N] {
+    let mut out = [Color::TRANSPARENT; N];
+    let mut i = 0;
+    while i < N {
+        out[i] = cc(a[i]);
+        i += 1;
+    }
+    out
+}
+
+const fn tint32(t: core::FamilyTint) -> FamilyTint {
+    FamilyTint { header: c32(t.header), body: c32(t.body) }
+}
+
+const fn tintc(t: FamilyTint) -> core::FamilyTint {
+    core::FamilyTint { header: cc(t.header), body: cc(t.body) }
+}
+
+const fn widgets32(w: core::WidgetPalette) -> WidgetPalette {
+    WidgetPalette { noninteractive: c32(w.noninteractive), inactive: c32(w.inactive), hovered: c32(w.hovered), active: c32(w.active), open: c32(w.open) }
+}
+
+const fn widgetsc(w: WidgetPalette) -> core::WidgetPalette {
+    core::WidgetPalette { noninteractive: cc(w.noninteractive), inactive: cc(w.inactive), hovered: cc(w.hovered), active: cc(w.active), open: cc(w.open) }
+}
+
+impl From<core::Tokens> for Tokens {
+    fn from(mut t: core::Tokens) -> Tokens {
+        let pins = std::mem::take(&mut t.pins).into_iter().map(|(k, v)| (k, v.to_egui())).collect();
+        Tokens { pins, ..Tokens::from_theme(t) }
+    }
+}
+
+impl From<&Tokens> for core::Tokens {
+    fn from(t: &Tokens) -> core::Tokens {
+        core::Tokens { pins: t.pins.iter().map(|(k, v)| (k.clone(), v.to_core())).collect(), ..t.unpinned() }
+    }
+}
+
+impl From<FamilyTint> for core::FamilyTint {
+    fn from(t: FamilyTint) -> core::FamilyTint {
+        tintc(t)
+    }
+}
+
+impl From<core::FamilyTint> for FamilyTint {
+    fn from(t: core::FamilyTint) -> FamilyTint {
+        tint32(t)
+    }
 }
 
 /// The token table: `token` reads one by name, `token_mut` changes it.
@@ -449,99 +237,173 @@ macro_rules! token_table {
 }
 
 impl Tokens {
+    /// `t` in egui's colours, for the constants. Its pins must be empty (a built-in theme's
+    /// are): a const fn can't drop a map, so `t` is forgotten, not dropped.
+    const fn from_theme(t: core::Tokens) -> Tokens {
+        let out = Tokens {
+            name: t.name,
+            label: t.label,
+            dark: t.dark,
+            radius: t.radius,
+            family_body_mix: t.family_body_mix,
+            fruit_l: t.fruit_l,
+            fruit_dl: t.fruit_dl,
+            fruit_c: t.fruit_c,
+            text_size: t.text_size,
+            semibold: t.semibold,
+            canvas: c32(t.canvas),
+            panel: c32(t.panel),
+            text: c32(t.text),
+            text_dim: c32(t.text_dim),
+            text_faint: c32(t.text_faint),
+            separator: c32(t.separator),
+            field: c32(t.field),
+            field_border: c32(t.field_border),
+            section: c32(t.section),
+            accent: c32(t.accent),
+            error: c32(t.error),
+            warning: c32(t.warning),
+            banner: c32(t.banner),
+            pin_default: c32(t.pin_default),
+            pin_hidden: c32(t.pin_hidden),
+            state_queued: c32(t.state_queued),
+            state_running: c32(t.state_running),
+            state_done: c32(t.state_done),
+            state_cached: c32(t.state_cached),
+            state_error: c32(t.state_error),
+            state_skipped: c32(t.state_skipped),
+            state_cancelled: c32(t.state_cancelled),
+            stale: c32(t.stale),
+            highlight: c32(t.highlight),
+            placeholder: c32(t.placeholder),
+            faded: c32(t.faded),
+            chart: c32(t.chart),
+            waveform: c32(t.waveform),
+            waveform_bg: c32(t.waveform_bg),
+            playhead: c32(t.playhead),
+            header_text: c32(t.header_text),
+            wire: c32(t.wire),
+            grid: c32(t.grid),
+            olive: c32(t.olive),
+            spectrogram: arr32(t.spectrogram),
+            fruits: arr32(t.fruits),
+            family_default: tint32(t.family_default),
+            group: tint32(t.group),
+            widget: widgets32(t.widget),
+            pins: BTreeMap::new(),
+        };
+        std::mem::forget(t);
+        out
+    }
+
+    /// These tokens as the core's, without the pins: what every method but
+    /// [`Tokens::family_tint`] reads, and cheap (no allocation).
+    fn unpinned(&self) -> core::Tokens {
+        core::Tokens {
+            name: self.name,
+            label: self.label,
+            dark: self.dark,
+            radius: self.radius,
+            family_body_mix: self.family_body_mix,
+            fruit_l: self.fruit_l,
+            fruit_dl: self.fruit_dl,
+            fruit_c: self.fruit_c,
+            text_size: self.text_size,
+            semibold: self.semibold,
+            canvas: cc(self.canvas),
+            panel: cc(self.panel),
+            text: cc(self.text),
+            text_dim: cc(self.text_dim),
+            text_faint: cc(self.text_faint),
+            separator: cc(self.separator),
+            field: cc(self.field),
+            field_border: cc(self.field_border),
+            section: cc(self.section),
+            accent: cc(self.accent),
+            error: cc(self.error),
+            warning: cc(self.warning),
+            banner: cc(self.banner),
+            pin_default: cc(self.pin_default),
+            pin_hidden: cc(self.pin_hidden),
+            state_queued: cc(self.state_queued),
+            state_running: cc(self.state_running),
+            state_done: cc(self.state_done),
+            state_cached: cc(self.state_cached),
+            state_error: cc(self.state_error),
+            state_skipped: cc(self.state_skipped),
+            state_cancelled: cc(self.state_cancelled),
+            stale: cc(self.stale),
+            highlight: cc(self.highlight),
+            placeholder: cc(self.placeholder),
+            faded: cc(self.faded),
+            chart: cc(self.chart),
+            waveform: cc(self.waveform),
+            waveform_bg: cc(self.waveform_bg),
+            playhead: cc(self.playhead),
+            header_text: cc(self.header_text),
+            wire: cc(self.wire),
+            grid: cc(self.grid),
+            olive: cc(self.olive),
+            spectrogram: arrc(self.spectrogram),
+            fruits: arrc(self.fruits),
+            family_default: tintc(self.family_default),
+            group: tintc(self.group),
+            widget: widgetsc(self.widget),
+            pins: BTreeMap::new(),
+        }
+    }
+
+    /// Change these tokens through the core's, keeping the pins.
+    fn through_core<R>(&mut self, f: impl FnOnce(&mut core::Tokens) -> R) -> R {
+        let mut t = self.unpinned();
+        let r = f(&mut t);
+        let pins = std::mem::take(&mut self.pins);
+        *self = Tokens { pins, ..Tokens::from_theme(t) };
+        r
+    }
+
     /// The header colour of fruit `name` (the twelve, olive, or plum).
     pub fn fruit(&self, name: &str) -> Option<Color32> {
-        match name {
-            OLIVE => Some(self.olive),
-            PLUM => Some(self.group.header),
-            _ => fruit_index(name).and_then(|i| self.fruits.get(i).copied()),
-        }
+        self.unpinned().fruit(name).map(ToEgui::to_egui)
     }
 
     /// Set fruit `name`'s header colour (plum is the groups' header, and their body follows).
     pub fn set_fruit(&mut self, name: &str, c: Color32) -> bool {
-        match name {
-            OLIVE => self.olive = c,
-            PLUM => self.group = FamilyTint { header: c, body: mix(self.family_default.body, c, self.family_body_mix) },
-            _ => match fruit_index(name).and_then(|i| self.fruits.get_mut(i)) {
-                Some(f) => *f = c,
-                None => return false,
-            },
-        }
-        true
+        self.through_core(|t| t.set_fruit(name, c.to_core()))
     }
 
     /// The fruit `family` takes in `catalog` (by hash and probe), ignoring pins and engine
     /// colours. `None` for no family.
     pub fn family_fruit(&self, catalog: &SchemaReply, family: &str) -> Option<&'static str> {
-        if family.is_empty() {
-            return None;
-        }
-        fruit_slots(catalog, family).get(family).and_then(|i| FRUITS.get(*i)).copied()
+        self.unpinned().family_fruit(catalog, family)
     }
 
     /// The colours of a node of `family`: the user's pin, else the hue of the catalogue's wire
     /// type with the family's id (when the engine colours it) at the theme's fruit lightness and
     /// chroma, else its fruit. No family: the default.
     pub fn family_tint(&self, catalog: &SchemaReply, family: &str) -> FamilyTint {
-        if family.is_empty() {
-            return self.family_default;
-        }
-        let header = self.pins.get(family).copied().unwrap_or_else(|| {
-            let engine = catalog.wire_types.iter().find(|w| w.id.eq_ignore_ascii_case(family)).and_then(|w| w.color.as_deref()).and_then(parse_hex);
-            match engine {
-                Some(c) => {
-                    let (_, chroma, hue) = oklch(c);
-                    // a grey from the engine stays a grey
-                    let chroma = if chroma < 0.02 { 0.0 } else { self.fruit_c };
-                    from_oklch(self.fruit_l, chroma, hue)
-                }
-                None => self.family_fruit(catalog, family).and_then(|f| self.fruit(f)).unwrap_or(self.family_default.header),
-            }
-        });
-        FamilyTint { header, body: mix(self.family_default.body, header, self.family_body_mix) }
+        self.unpinned().family_tint_pinned(self.pins.get(family).map(|c| c.to_core()), catalog, family).into()
     }
 
     /// The fruit set recomputed from the theme's `fruit_l`, `fruit_dl` and `fruit_c` (the
     /// hard-coded tables are these, rounded): what the palette sliders give.
     pub fn computed_fruits(&self) -> [Color32; 12] {
-        let mut out = [CLEAR; 12];
-        for (o, (h, tier)) in out.iter_mut().zip(FRUIT_HUES) {
-            *o = from_oklch(self.fruit_l + tier * self.fruit_dl, self.fruit_c, h);
-        }
-        out
+        arr32(self.unpinned().computed_fruits())
     }
 
     /// The spectrogram ramp at `t` (0 quiet ..= 1 loud), between its stops.
     pub fn ramp(&self, t: f32) -> Color32 {
-        let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 };
-        let n = self.spectrogram.len() - 1;
-        let x = t * n as f32;
-        let i = (x.floor() as usize).min(n.saturating_sub(1));
-        match (self.spectrogram.get(i), self.spectrogram.get(i + 1)) {
-            (Some(a), Some(b)) => mix(*a, *b, x - i as f32),
-            _ => self.waveform_bg,
-        }
+        core::ramp(&arrc(self.spectrogram), cc(self.waveform_bg), t).to_egui()
     }
 
     /// The colour of a run state (a node's border and badge); `None` for none.
     pub fn state_color(&self, state: NodeState) -> Option<Color32> {
-        match state {
-            NodeState::Queued => Some(self.state_queued),
-            NodeState::Started | NodeState::Progress | NodeState::Preview => Some(self.state_running),
-            NodeState::Done => Some(self.state_done),
-            NodeState::Cached => Some(self.state_cached),
-            NodeState::Error => Some(self.state_error),
-            NodeState::Skipped => Some(self.state_skipped),
-            NodeState::Cancelled => Some(self.state_cancelled),
-            NodeState::Unknown => None,
-        }
+        self.unpinned().state_color(state).map(ToEgui::to_egui)
     }
 
     /// A size scaled from the 14 pt base to this theme's text size.
     fn size(&self, at_base: f32) -> f32 {
-        let s = if self.text_size.is_finite() { self.text_size.clamp(*TEXT_SIZES.start(), *TEXT_SIZES.end()) } else { BASE_TEXT };
-        at_base * s / BASE_TEXT
+        self.unpinned().size(at_base)
     }
 
     /// The SemiBold family when it is installed, else the text face.
@@ -551,12 +413,11 @@ impl Tokens {
 
     /// The font of one of PlumCraft's own text styles.
     pub fn font(&self, text: Text) -> FontId {
+        let size = self.unpinned().text_size_of(text);
         match text {
-            Text::Title => FontId::new(self.size(14.0), self.bold_family()),
-            Text::Port => FontId::proportional(self.size(13.0)),
-            Text::Caption => FontId::proportional(self.size(12.5)),
-            Text::Small => FontId::proportional(self.size(12.0)),
-            Text::Tag => FontId::monospace(self.size(12.0)),
+            Text::Title => FontId::new(size, self.bold_family()),
+            Text::Port | Text::Caption | Text::Small => FontId::proportional(size),
+            Text::Tag => FontId::monospace(size),
         }
     }
 
@@ -607,42 +468,12 @@ impl Tokens {
     /// The contrast checks a theme must pass (WCAG 2): text 4.5:1, secondary text, borders,
     /// rings, wires and pins 3:1. The unit tests and the Settings window's badges both use these.
     pub fn checks(&self) -> Vec<Check> {
-        let mut out = Vec::new();
-        let mut add = |fg: &'static str, bg: &'static str, need: f64| {
-            if let (Some(f), Some(b)) = (self.token(fg), self.token(bg)) {
-                out.push(Check { fg, bg, ratio: contrast(f, b), need });
-            }
-        };
-        for bg in ["panel", "section", "field", "canvas", "widget_inactive", "widget_hovered", "widget_active", "banner", "default_body"] {
-            add("text", bg, 4.5);
-        }
-        for bg in ["panel", "section", "field", "canvas", "default_body"] {
-            add("text_dim", bg, 4.5);
-        }
-        add("text_faint", "panel", 3.0);
-        add("text_faint", "default_body", 3.0);
-        add("accent", "panel", 4.5);
-        add("error", "panel", 4.5);
-        add("error", "default_body", 4.5);
-        add("warning", "panel", 3.0);
-        add("header_text", "default_header", 4.5);
-        add("field_border", "field", 3.0);
-        add("field_border", "panel", 3.0);
-        for fg in ["accent", "state_done", "state_error", "state_running", "state_queued", "wire"] {
-            add(fg, "canvas", 3.0);
-        }
-        add("highlight", "canvas", 1.8);
-        add("pin_default", "default_body", 3.0);
-        add("waveform", "waveform_bg", 4.5);
-        add("playhead", "waveform_bg", 4.5);
-        add("playhead", "waveform", 1.3);
-        add("chart", "panel", 3.0);
-        out
+        self.unpinned().checks()
     }
 
     /// The checks with `token` on either side.
     pub fn checks_of(&self, token: &str) -> Vec<Check> {
-        self.checks().into_iter().filter(|c| c.fg == token || c.bg == token).collect()
+        self.unpinned().checks_of(token)
     }
 
     token_table! {
@@ -685,325 +516,55 @@ impl Tokens {
     }
 }
 
-/// The tokens a user can change, by group, as the Settings window lists them.
-pub const TOKENS: &[(&str, &[&str])] = &[
-    ("Surfaces", &["canvas", "panel", "section", "field", "separator", "banner", "placeholder"]),
-    ("Text", &["text", "text_dim", "text_faint", "header_text", "accent", "error", "warning"]),
-    ("Controls", &["field_border", "widget_inactive", "widget_hovered", "widget_active"]),
-    ("Run states", &["state_queued", "state_running", "state_done", "state_cached", "state_error", "state_skipped", "state_cancelled", "stale", "highlight"]),
-    ("Media", &["chart", "waveform", "waveform_bg", "playhead"]),
-    ("Canvas", &["wire", "grid", "pin_default", "default_header", "default_body"]),
-];
-
-/// One contrast pair a theme must pass.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Check {
-    pub fg: &'static str,
-    pub bg: &'static str,
-    pub ratio: f64,
-    pub need: f64,
-}
-
-impl Check {
-    pub fn passes(&self) -> bool {
-        self.ratio >= self.need
-    }
+/// `a` moved `t` of the way to `b` (each channel; alpha from `a`).
+pub fn mix(a: Color32, b: Color32, t: f32) -> Color32 {
+    core::mix(a.to_core(), b.to_core(), t).to_egui()
 }
 
 /// Parse a colour (`#rrggbb`).
 pub fn parse_hex(s: &str) -> Option<Color32> {
-    let hex = s.strip_prefix('#')?;
-    if hex.len() != 6 || !hex.is_ascii() {
-        return None;
-    }
-    let byte = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
-    Some(Color32::from_rgb(byte(0)?, byte(2)?, byte(4)?))
+    core::parse_hex(s).map(ToEgui::to_egui)
 }
 
 /// A colour as `#rrggbb`.
 pub fn hex(c: Color32) -> String {
-    format!("#{:02x}{:02x}{:02x}", c.r(), c.g(), c.b())
-}
-
-fn lin(v: u8) -> f64 {
-    let v = f64::from(v) / 255.0;
-    if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
-}
-
-fn delin(v: f64) -> u8 {
-    let v = v.clamp(0.0, 1.0);
-    let s = if v <= 0.003_130_8 { 12.92 * v } else { 1.055 * v.powf(1.0 / 2.4) - 0.055 };
-    (255.0 * s).round().clamp(0.0, 255.0) as u8
+    core::hex(c.to_core())
 }
 
 /// WCAG 2 relative luminance.
 pub fn luminance(c: Color32) -> f64 {
-    0.2126 * lin(c.r()) + 0.7152 * lin(c.g()) + 0.0722 * lin(c.b())
+    core::luminance(c.to_core())
 }
 
 /// WCAG 2 contrast ratio (1 ..= 21).
 pub fn contrast(a: Color32, b: Color32) -> f64 {
-    let (la, lb) = (luminance(a), luminance(b));
-    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+    core::contrast(a.to_core(), b.to_core())
 }
 
 /// OKLab (Björn Ottosson, 2020) of an sRGB colour.
 pub fn oklab(c: Color32) -> [f64; 3] {
-    let (r, g, b) = (lin(c.r()), lin(c.g()), lin(c.b()));
-    let l = 0.412_221_470_8 * r + 0.536_332_536_3 * g + 0.051_445_992_9 * b;
-    let m = 0.211_903_498_2 * r + 0.680_699_545_1 * g + 0.107_396_956_6 * b;
-    let s = 0.088_302_461_9 * r + 0.281_718_837_6 * g + 0.629_978_700_5 * b;
-    let (l, m, s) = (l.cbrt(), m.cbrt(), s.cbrt());
-    [
-        0.210_454_255_3 * l + 0.793_617_785_0 * m - 0.004_072_046_8 * s,
-        1.977_998_495_1 * l - 2.428_592_205_0 * m + 0.450_593_709_9 * s,
-        0.025_904_037_1 * l + 0.782_771_766_2 * m - 0.808_675_766_0 * s,
-    ]
-}
-
-fn oklab_to_linear(l: f64, a: f64, b: f64) -> [f64; 3] {
-    let l_ = (l + 0.396_337_777_4 * a + 0.215_803_757_3 * b).powi(3);
-    let m_ = (l - 0.105_561_345_8 * a - 0.063_854_172_8 * b).powi(3);
-    let s_ = (l - 0.089_484_177_5 * a - 1.291_485_548_0 * b).powi(3);
-    [
-        4.076_741_662_1 * l_ - 3.307_711_591_3 * m_ + 0.230_969_929_2 * s_,
-        -1.268_438_004_6 * l_ + 2.609_757_401_1 * m_ - 0.341_319_396_5 * s_,
-        -0.004_196_086_3 * l_ - 0.703_418_614_7 * m_ + 1.707_614_701_0 * s_,
-    ]
+    core::oklab(c.to_core())
 }
 
 /// OKLCH (lightness, chroma, hue in degrees) of an sRGB colour.
 pub fn oklch(c: Color32) -> (f32, f32, f32) {
-    let [l, a, b] = oklab(c);
-    (l as f32, a.hypot(b) as f32, b.atan2(a).to_degrees().rem_euclid(360.0) as f32)
+    core::oklch(c.to_core())
 }
 
 /// The sRGB colour at OKLCH (`l`, `c`, `h` degrees), its chroma reduced until it is in gamut.
 pub fn from_oklch(l: f32, c: f32, h: f32) -> Color32 {
-    let (l, h) = (f64::from(if l.is_finite() { l.clamp(0.0, 1.0) } else { 0.5 }), f64::from(if h.is_finite() { h } else { 0.0 }).to_radians());
-    let mut c = f64::from(if c.is_finite() { c.clamp(0.0, 0.4) } else { 0.0 });
-    loop {
-        let rgb = oklab_to_linear(l, c * h.cos(), c * h.sin());
-        if rgb.iter().all(|v| (-1e-4..=1.0 + 1e-4).contains(v)) || c <= 0.0 {
-            return Color32::from_rgb(delin(rgb[0]), delin(rgb[1]), delin(rgb[2]));
-        }
-        c = (c - 0.002).max(0.0);
-    }
+    core::from_oklch(l, c, h).to_egui()
 }
 
 /// The OKLab distance between two colours, ×100 (about 2 is just noticeable, 5 clearly apart).
 pub fn delta_e(a: Color32, b: Color32) -> f64 {
-    let (x, y) = (oklab(a), oklab(b));
-    100.0 * x.iter().zip(y).map(|(p, q)| (p - q).powi(2)).sum::<f64>().sqrt()
+    core::delta_e(a.to_core(), b.to_core())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use plumcraft_proto::catalogue::{NodeDef, WireType};
-
-    fn catalog(families: &[&str]) -> SchemaReply {
-        let mut c = SchemaReply::default();
-        for (i, f) in families.iter().enumerate() {
-            c.nodes.push(NodeDef { id: format!("n{i}"), family: (*f).into(), ..Default::default() });
-        }
-        c
-    }
-
-    #[test]
-    fn families_have_their_own_stable_colours() {
-        let c = SchemaReply::default();
-        for t in &ALL {
-            assert_ne!(t.family_tint(&c, "source"), t.family_tint(&c, "output"));
-            assert_eq!(t.family_tint(&c, ""), t.family_default);
-            assert_eq!(t.family_tint(&c, "text"), t.family_tint(&c, "text"), "the same id, the same colour");
-        }
-        // FNV-1a pinned: the fruit never changes between runs, machines or Rust versions.
-        assert_eq!(fnv1a(""), 0x811c_9dc5);
-        assert_eq!(fnv1a("a"), 0xe40c_292c);
-    }
-
-    /// The proposal's table: eight families, `filter` and `table` hash to fig, and the probe
-    /// moves `table` (later in id order) to cherry. The order of the catalogue doesn't matter.
-    #[test]
-    fn families_take_their_fruit_by_hash_and_probe() {
-        let fams = ["source", "output", "text", "audio", "image", "filter", "math", "table"];
-        let want = [
-            ("source", "blueberry"),
-            ("output", "pear"),
-            ("text", "grape"),
-            ("audio", "damson"),
-            ("image", "quince"),
-            ("filter", "fig"),
-            ("math", "juniper"),
-            ("table", "cherry"),
-        ];
-        let c = catalog(&fams);
-        let mut rev = fams;
-        rev.reverse();
-        let r = catalog(&rev);
-        for (f, fruit) in want {
-            assert_eq!(PAPER.family_fruit(&c, f), Some(fruit), "{f}");
-            assert_eq!(PAPER.family_fruit(&r, f), Some(fruit), "{f}, the catalogue reversed");
-        }
-        // alone, table hashes to fig
-        assert_eq!(PAPER.family_fruit(&catalog(&["table"]), "table"), Some("fig"));
-        // in one catalogue no two families share a fruit, up to twelve
-        let many: Vec<String> = (0..12).map(|i| format!("family{i}")).collect();
-        let refs: Vec<&str> = many.iter().map(String::as_str).collect();
-        let c = catalog(&refs);
-        let got: BTreeSet<_> = refs.iter().map(|f| PAPER.family_fruit(&c, f)).collect();
-        assert_eq!(got.len(), 12);
-        // the tint is the fruit's header, the body a tenth of it
-        let c = catalog(&fams);
-        for t in &ALL {
-            let tint = t.family_tint(&c, "source");
-            assert_eq!(Some(tint.header), t.fruit("blueberry"));
-            assert_eq!(tint.body, mix(t.family_default.body, tint.header, t.family_body_mix));
-        }
-    }
-
-    #[test]
-    fn an_engine_colour_keeps_its_hue_in_each_themes_register() {
-        let mut c = SchemaReply::default();
-        c.wire_types.push(WireType { id: "TEXT".into(), color: Some("#c9a227".into()), ..Default::default() });
-        for t in &ALL {
-            let from_engine = t.family_tint(&c, "text");
-            assert_ne!(from_engine, t.family_tint(&SchemaReply::default(), "text"));
-            let (l, ch, h) = oklch(from_engine.header);
-            let (_, _, want) = oklch(Color32::from_rgb(0xc9, 0xa2, 0x27));
-            assert!((l - t.fruit_l).abs() < 0.01, "{}: lightness {l}", t.name);
-            assert!((ch - t.fruit_c).abs() < 0.01, "{}: chroma {ch}", t.name);
-            assert!((h - want).abs() < 4.0, "{}: hue {h} not {want}", t.name);
-        }
-    }
-
-    #[test]
-    fn a_pin_beats_the_engine_and_the_hash() {
-        let mut c = SchemaReply::default();
-        c.wire_types.push(WireType { id: "TEXT".into(), color: Some("#c9a227".into()), ..Default::default() });
-        let mut t = PAPER;
-        t.pins.insert("text".into(), t.olive);
-        assert_eq!(t.family_tint(&c, "text").header, t.olive);
-    }
-
-    #[test]
-    fn themes_are_named_and_old_names_still_open() {
-        assert_eq!(by_name("paper").map(|t| t.label), Some("Paper"));
-        assert_eq!(by_name("pewter").map(|t| t.label), Some("Pewter"));
-        assert_eq!(by_name("dusk").map(|t| t.label), Some("Dusk"));
-        assert_eq!(by_name("medium").map(|t| t.name), Some("pewter"));
-        assert_eq!(by_name("dark").map(|t| t.name), Some("dusk"));
-        assert_eq!(by_name("neon"), None);
-        assert_eq!(by_name(""), None);
-        assert_eq!(DEFAULT.name, "paper");
-        assert_eq!(ALL.iter().map(|t| t.dark).collect::<Vec<_>>(), [false, true, true], "Paper is light, Pewter and Dusk dark");
-    }
-
-    #[test]
-    fn every_theme_passes_its_contrast_checks() {
-        for t in &ALL {
-            let checks = t.checks();
-            assert!(checks.len() >= 35, "{}: {} checks", t.name, checks.len());
-            for c in checks {
-                assert!(c.passes(), "{}: {} on {} is {:.2}:1, needs {}", t.name, c.fg, c.bg, c.ratio, c.need);
-            }
-        }
-    }
-
-    /// Text on every fruit header, and on every fruit body, in every theme; and on a header an
-    /// engine's colour made, whatever its hue.
-    #[test]
-    fn text_is_readable_on_every_fruit() {
-        for t in &ALL {
-            let mut headers: Vec<(String, Color32)> = FRUITS.iter().map(|f| ((*f).to_owned(), t.fruit(f).unwrap_or(CLEAR))).collect();
-            headers.push((OLIVE.into(), t.olive));
-            headers.push((PLUM.into(), t.group.header));
-            for hue in (0..360).step_by(15) {
-                headers.push((format!("engine hue {hue}"), from_oklch(t.fruit_l, t.fruit_c, hue as f32)));
-            }
-            for (name, h) in headers {
-                let body = mix(t.family_default.body, h, t.family_body_mix);
-                for (what, fg, bg, need) in [
-                    ("header_text", t.header_text, h, 4.5),
-                    ("text_dim", t.text_dim, h, 3.0),
-                    ("text", t.text, body, 4.5),
-                    ("text_faint", t.text_faint, body, 3.0),
-                ] {
-                    let r = contrast(fg, bg);
-                    assert!(r >= need, "{}: {what} on {name} is {r:.2}:1", t.name);
-                }
-            }
-        }
-    }
-
-    /// The twelve family fruits stay apart: the closest pair is at least 4 in OKLab ×100 (the
-    /// proposal's swatches give 4.3 to 5.1), and plum, the groups', from every family fruit.
-    #[test]
-    fn the_fruits_can_be_told_apart() {
-        for t in &ALL {
-            let mut closest = f64::MAX;
-            for (i, a) in t.fruits.iter().enumerate() {
-                for b in t.fruits.iter().skip(i + 1) {
-                    closest = closest.min(delta_e(*a, *b));
-                }
-                assert!(delta_e(*a, t.group.header) >= 4.0, "{}: plum and {} are {:.1} apart", t.name, FRUITS[i], delta_e(*a, t.group.header));
-            }
-            assert!(closest >= 4.0, "{}: the closest fruits are {closest:.1} apart", t.name);
-        }
-    }
-
-    /// The hard-coded fruit tables are the OKLCH formula, rounded (the palette sliders and an
-    /// engine's colour use the formula).
-    #[test]
-    fn the_fruit_tables_are_the_formula() {
-        for t in &ALL {
-            for (i, (got, want)) in t.computed_fruits().iter().zip(t.fruits).enumerate() {
-                let d = [got.r().abs_diff(want.r()), got.g().abs_diff(want.g()), got.b().abs_diff(want.b())];
-                assert!(d.iter().all(|d| *d <= 2), "{}: {} is {} by the formula, {} in the table", t.name, FRUITS[i], hex(*got), hex(want));
-            }
-        }
-    }
-
-    #[test]
-    fn waveforms_and_spectrograms_are_readable() {
-        for t in &ALL {
-            // the ramp goes from dark to light, each stop lighter than the last
-            let ramp = t.spectrogram;
-            assert!(contrast(ramp[0], ramp[5]) >= 10.0, "{}: the spectrogram ramp is flat", t.name);
-            for w in ramp.windows(2) {
-                assert!(luminance(w[1]) > luminance(w[0]), "{}: {:?} then {:?}", t.name, w[0], w[1]);
-            }
-            assert_eq!(t.ramp(0.0), ramp[0]);
-            assert_eq!(t.ramp(1.0), ramp[5]);
-            assert_eq!(t.ramp(f32::NAN), ramp[0]);
-            assert_eq!(t.ramp(0.2), ramp[1]);
-        }
-    }
-
-    #[test]
-    fn every_state_but_unknown_has_a_colour() {
-        for s in [NodeState::Queued, NodeState::Started, NodeState::Done, NodeState::Cached, NodeState::Error, NodeState::Skipped, NodeState::Cancelled] {
-            assert!(DEFAULT.state_color(s).is_some(), "{s:?}");
-        }
-        assert_eq!(DEFAULT.state_color(NodeState::Unknown), None);
-    }
-
-    #[test]
-    fn every_listed_token_can_be_read_and_set() {
-        let mut t = PAPER;
-        for (_, names) in TOKENS {
-            for n in *names {
-                assert!(t.token(n).is_some(), "{n}");
-                *t.token_mut(n).unwrap() = Color32::from_rgb(1, 2, 3);
-                assert_eq!(t.token(n), Some(Color32::from_rgb(1, 2, 3)), "{n}");
-            }
-        }
-        assert_eq!(t.token("nope"), None);
-        assert!(t.set_fruit("pear", Color32::BLACK));
-        assert_eq!(t.fruit("pear"), Some(Color32::BLACK));
-        assert!(!t.set_fruit("banana", Color32::BLACK));
-    }
 
     #[test]
     fn text_sizes_follow_the_base() {
@@ -1016,26 +577,79 @@ mod tests {
         assert_eq!(t.font(Text::Port).size, 13.0);
         t.text_size = 99.0;
         assert_eq!(t.font(Text::Title).size, 18.0);
+        assert_eq!(t.font(Text::Tag).family, FontFamily::Monospace);
+        assert_eq!(t.font(Text::Title).family, FontFamily::Proportional, "no SemiBold installed");
     }
 
+    /// The egui tokens are the core's, colour for colour, both ways.
     #[test]
-    fn hex_colours() {
+    fn the_themes_are_the_cores_in_egui_colours() {
+        for (ours, theirs) in ALL.iter().zip(&core::ALL) {
+            assert_eq!(&core::Tokens::from(ours), theirs);
+            assert_eq!(&Tokens::from(theirs.clone()), ours);
+            assert_eq!(ours.canvas.to_core(), theirs.canvas);
+            assert_eq!(ours.widget.hovered.to_core(), theirs.widget.hovered);
+        }
+        let mut t = PAPER;
+        t.pins.insert("x".into(), Color32::from_rgb(1, 2, 3));
+        assert_eq!(Tokens::from(core::Tokens::from(&t)), t, "pins survive the round trip");
+        assert_eq!(by_name("medium").map(|t| t.name), Some("pewter"));
+    }
+
+    /// Every token name reads and writes the same colour as the core's table.
+    #[test]
+    fn the_token_table_is_the_cores() {
+        let mut t = DUSK;
+        for (_, names) in TOKENS {
+            for n in *names {
+                assert_eq!(t.token(n).map(ToCore::to_core), core::DUSK.token(n), "{n}");
+                *t.token_mut(n).unwrap() = Color32::from_rgb(4, 5, 6);
+                let mut c = core::DUSK;
+                *c.token_mut(n).unwrap() = Color::from_rgb(4, 5, 6);
+                assert_eq!(core::Tokens::from(&t), c, "{n}");
+                t = DUSK;
+            }
+        }
+        assert_eq!(t.token("nope"), None);
+    }
+
+    /// Each method answers what the core's does.
+    #[test]
+    fn methods_answer_as_the_cores() {
+        let mut c = SchemaReply::default();
+        for (i, f) in ["source", "output", "text", "filter", "table"].iter().enumerate() {
+            c.nodes.push(NodeDef { id: format!("n{i}"), family: (*f).into(), ..Default::default() });
+        }
+        c.wire_types.push(WireType { id: "TEXT".into(), color: Some("#c9a227".into()), ..Default::default() });
+        for t in &ALL {
+            let mut ours = t.clone();
+            ours.pins.insert("table".into(), ours.olive);
+            let theirs = core::Tokens::from(&ours);
+            for f in ["", "source", "output", "text", "filter", "table", "unknown"] {
+                assert_eq!(core::FamilyTint::from(ours.family_tint(&c, f)), theirs.family_tint(&c, f), "{f}");
+                assert_eq!(ours.family_fruit(&c, f), theirs.family_fruit(&c, f));
+            }
+            for x in [-1.0, 0.0, 0.1, 0.2, 0.55, 0.9, 1.0, 2.0, f32::NAN] {
+                assert_eq!(ours.ramp(x).to_core(), theirs.ramp(x), "{x}");
+            }
+            for s in [NodeState::Queued, NodeState::Progress, NodeState::Done, NodeState::Unknown] {
+                assert_eq!(ours.state_color(s).map(ToCore::to_core), theirs.state_color(s));
+            }
+            assert_eq!(arrc(ours.computed_fruits()), theirs.computed_fruits());
+            assert_eq!(ours.checks(), theirs.checks());
+            for f in ["pear", "olive", "plum", "banana"] {
+                assert_eq!(ours.fruit(f).map(ToCore::to_core), theirs.fruit(f), "{f}");
+                let (mut a, mut b) = (ours.clone(), theirs.clone());
+                assert_eq!(a.set_fruit(f, Color32::from_rgb(9, 9, 9)), b.set_fruit(f, Color::from_rgb(9, 9, 9)));
+                assert_eq!(core::Tokens::from(&a), b, "{f}");
+            }
+        }
+        let (a, b) = (Color32::from_rgb(10, 200, 30), Color32::from_rgba_premultiplied(40, 40, 40, 128));
+        assert_eq!(mix(a, b, 0.3).to_core(), core::mix(a.to_core(), b.to_core(), 0.3));
+        assert_eq!(mix(b, a, 0.7).to_core(), core::mix(b.to_core(), a.to_core(), 0.7));
         assert_eq!(parse_hex("#4f8fd8"), Some(Color32::from_rgb(0x4f, 0x8f, 0xd8)));
-        assert_eq!(hex(Color32::from_rgb(0x4f, 0x8f, 0xd8)), "#4f8fd8");
-        for bad in ["", "#", "4f8fd8", "#4f8fd", "#4f8fdz", "#ééé", "#4f8fd8ff"] {
-            assert_eq!(parse_hex(bad), None, "{bad}");
-        }
-    }
-
-    #[test]
-    fn oklch_round_trips_and_never_leaves_gamut() {
-        for c in [Color32::from_rgb(0xc9, 0xa2, 0x27), Color32::WHITE, Color32::BLACK, Color32::from_rgb(20, 200, 90)] {
-            let (l, ch, h) = oklch(c);
-            let back = from_oklch(l, ch, h);
-            assert!(delta_e(c, back) < 0.5, "{c:?} -> {back:?}");
-        }
-        for bad in [f32::NAN, f32::INFINITY, -1.0, 9.0] {
-            let _ = from_oklch(bad, bad, bad);
-        }
+        assert_eq!(hex(a), "#0ac81e");
+        assert_eq!(from_oklch(0.7, 0.1, 30.0).to_core(), core::from_oklch(0.7, 0.1, 30.0));
+        assert_eq!(contrast(a, b), core::contrast(a.to_core(), b.to_core()));
     }
 }

@@ -1000,17 +1000,7 @@ fn thumb_note(run: &NodeRun) -> Option<String> {
     }
 }
 
-/// The hover of a thumbnail from an earlier run.
-pub const OLDER_THUMB: &str = "From the previous run: this run hasn't reached the node yet.";
-
-/// Why a node is stale: the edits since its last run that changed it or what feeds it.
-pub fn stale_tooltip(run: &NodeRun) -> String {
-    if run.stale_why.is_empty() {
-        return "Stale: an edit since the last run changed this node or something upstream.".into();
-    }
-    let lines: Vec<String> = run.stale_why.iter().map(|w| format!("• {w}")).collect();
-    format!("Stale since the last run:\n{}\nRun again to bring it up to date.", lines.join("\n"))
-}
+pub use plumcraft_editor_core::run_text::{OLDER_THUMB, stale_tooltip};
 
 /// A widget row's caption: a fixed-width column, so widgets line up and never overlap it.
 fn caption(ui: &mut egui::Ui, rich: egui::RichText, text: &str, tooltip: Option<&str>) -> egui::Response {

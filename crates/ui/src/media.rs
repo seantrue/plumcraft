@@ -198,16 +198,17 @@ pub(crate) fn paint_picture(ui: &egui::Ui, zp: &ZoomPan, tex: &egui::TextureHand
 
 // ---------- decoding ----------
 
-/// A picture: RGBA8, unpremultiplied, `w × h`.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Rgba {
-    pub w: u32,
-    pub h: u32,
-    pub pixels: Vec<u8>,
+/// A picture: RGBA8, unpremultiplied, `w × h` (moved to the core, stage N1).
+pub use plumcraft_editor_core::raster::Rgba;
+
+/// A core picture as an egui image (an extension: [`Rgba`] is the core's type now, so its old
+/// `image()` method lives here; `use plumcraft_ui::media::RgbaImage`).
+pub trait RgbaImage {
+    fn image(&self) -> egui::ColorImage;
 }
 
-impl Rgba {
-    pub fn image(&self) -> egui::ColorImage {
+impl RgbaImage for Rgba {
+    fn image(&self) -> egui::ColorImage {
         egui::ColorImage::from_rgba_unmultiplied([self.w as usize, self.h as usize], &self.pixels)
     }
 }

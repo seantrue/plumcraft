@@ -123,6 +123,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: scripts/check-hash-gates.sh
 
+      # The editor core builds no GUI toolkit (docs/research/24-native-shells.md section 3).
+      - name: core gate
+        if: ${{ !cancelled() }}
+        run: scripts/check-core-toolkit-free.sh
+
   # The Python SDK's tests and lint: they don't use the Rust build, so they run beside it.
   python:
     name: python
