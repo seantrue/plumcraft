@@ -713,10 +713,11 @@ mod tests {
                 if ["plumcraft-text-engine", "plumcraft-audio-engine", "plumcraft-craft-engine"].iter().all(|b| engine_binary(b).is_ok_and(|p| p.is_file())) {
                     return;
                 }
-                // <target>/<profile>/deps/<this test>
+                // <target>/<profile>, wherever this cargo put this test
                 let exe = std::env::current_exe().unwrap();
-                let target = exe.parent().and_then(Path::parent).and_then(Path::parent).unwrap();
-                let release = exe.parent().and_then(Path::parent).is_some_and(|p| p.ends_with("release"));
+                let profile = plumcraft_editor_core::engines::profile_dir(&exe).unwrap();
+                let target = profile.parent().unwrap();
+                let release = profile.ends_with("release");
                 let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
                 cmd.args(["build", "-p", "plumcraft-text", "-p", "plumcraft-audio", "-p", "plumcraft-craft", "--bins", "--target-dir"]).arg(target);
                 if release {
