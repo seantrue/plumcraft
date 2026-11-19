@@ -222,6 +222,23 @@ fn external(i: u16) -> Option<External> {
     EXTERNALS.with_borrow(|e| e.get(usize::from(i)).cloned())
 }
 
+/// The engine manifests this thread has read, to start their engines on another thread: the
+/// engine worker ([`crate::worker`]) starts them for the thread that owns the document.
+#[derive(Debug, Clone, Default)]
+pub struct Manifests(Vec<External>);
+
+impl Manifests {
+    /// What this thread has read ([`load_manifests`]).
+    pub fn here() -> Manifests {
+        Manifests(EXTERNALS.with_borrow(Clone::clone))
+    }
+
+    /// Make them this thread's (a worker that starts engines for one document).
+    pub fn install(&self) {
+        EXTERNALS.with_borrow_mut(|e| e.clone_from(&self.0));
+    }
+}
+
 /// The folder engines install their manifests in.
 pub fn manifest_folder() -> Option<PathBuf> {
     // home(), not $HOME: Windows sets no HOME for an app started from the desktop, so the folder
@@ -503,19 +520,35 @@ pub fn choices_for(caps: &Capabilities) -> Vec<EngineChoice> {
     offers(caps).into_iter().filter(|o| o.why_not.is_none()).map(|o| o.choice).collect()
 }
 
-/// Where engine binary `name` is: beside this program, or (tests run from
-/// `target/<profile>/deps`) one folder up.
+/// The `<target>/<profile>` folder a test program was built under, where cargo puts the
+/// workspace's binaries: `None` for a program that isn't one.
+///
+/// Cargo up to 1.99 builds a test program in `<profile>/deps/`; 1.100 builds it in
+/// `<profile>/build/<package>/<hash>/out/`.
+pub fn profile_dir(exe: &Path) -> Option<&Path> {
+    let dir = exe.parent()?;
+    if dir.file_name()? == "deps" {
+        return dir.parent();
+    }
+    let build = dir.parent()?.parent()?.parent()?;
+    (dir.file_name()? == "out" && build.file_name()? == "build").then(|| build.parent()).flatten()
+}
+
+/// Where engine binary `name` is: beside this program, or, for a test program, in its build's
+/// profile folder ([`profile_dir`]).
 pub fn engine_binary(name: &str) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     // `plumcraft-text-engine.exe` on Windows
     let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let name = name.as_str();
+    Ok(engine_binary_from(&exe, &name))
+}
+
+fn engine_binary_from(exe: &Path, name: &str) -> PathBuf {
     let beside = exe.with_file_name(name);
     if beside.exists() {
-        return Ok(beside);
+        return beside;
     }
-    let up = exe.parent().filter(|d| d.file_name().is_some_and(|n| n == "deps")).and_then(Path::parent).map(|d| d.join(name));
-    Ok(up.filter(|p| p.exists()).unwrap_or(beside))
+    profile_dir(exe).map(|d| d.join(name)).filter(|p| p.exists()).unwrap_or(beside)
 }
 
 /// Starts engine `engine` hosted as `mode` (an [`EngineChoice`]'s ids) and links to it, woken by
@@ -705,6 +738,31 @@ pub fn with_engine_arg(mut args: Vec<String>) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// B27: a test program finds the engine binaries in its build's profile folder, where cargo
+    /// 1.99 (`deps/`) and cargo 1.100 (`build/<package>/<hash>/out/`) each put it.
+    #[test]
+    fn a_test_program_finds_engine_binaries_in_either_cargo_layout() {
+        let profile = plumcraft_scratch::dir("core-engine-binary").join("target").join("debug");
+        let old = profile.join("deps");
+        let new = profile.join("build").join("plumcraft-ffi").join("9d267b73553d9f8b").join("out");
+        std::fs::create_dir_all(&old).unwrap();
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::write(profile.join("an-engine"), b"").unwrap();
+        for exe in [old.join("a_test-0123"), new.join("a_test-0123")] {
+            assert_eq!(profile_dir(&exe), Some(profile.as_path()), "{}", exe.display());
+            assert_eq!(engine_binary_from(&exe, "an-engine"), profile.join("an-engine"), "{}", exe.display());
+            // a binary that isn't there: the message names the place beside the program
+            assert_eq!(engine_binary_from(&exe, "no-engine"), exe.with_file_name("no-engine"));
+        }
+        // beside the program wins, and an installed program has no profile folder
+        std::fs::write(new.join("an-engine"), b"").unwrap();
+        assert_eq!(engine_binary_from(&new.join("a_test-0123"), "an-engine"), new.join("an-engine"));
+        let installed = Path::new("/Applications/PlumCraft.app/Contents/MacOS/plumcraft-editor");
+        assert_eq!(profile_dir(installed), None);
+        assert_eq!(profile_dir(Path::new("/x/build/out/prog")), None);
+        assert_eq!(profile_dir(Path::new("prog")), None);
+    }
 
     /// Every (engine, mode) id an offer list holds, split into the startable and the refused.
     fn split(offers: &[Offer]) -> (Vec<String>, Vec<(String, String)>) {

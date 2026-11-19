@@ -27,7 +27,18 @@
 //! still the shell's fields (the egui editor's are public, and its tests read them), so a
 //! [`Switchboard`] borrows them for one operation; what the shell must redo afterwards (forget its
 //! caches of the old run, rebuild its canvas) comes back in [`Effects`].
+//!
+//! **Off the shell's thread** (slice 3; `docs/shell-interface.md` 3.1 rule 6). An operation comes
+//! in three parts: [`Switchboard::begin`] does on the shell's thread what waits for nothing
+//! (forget the old run, retire the old engine, say what is coming); the part that waits for
+//! engines, [`Work`] (stop the old engine, start the new, read its catalogue), goes to the
+//! document's engine worker ([`crate::worker::EngineWorker::switch`]); [`Switchboard::finish`]
+//! takes what came back on the shell's thread and gives the outcome, or the next part (a
+//! reconnect adds its engines again one by one). Meanwhile the session's engine request is taken
+//! and [`Switching::busy`] is true: the shell shows that as connecting. [`Switchboard::pump`] does
+//! all three in place, for callers that may wait.
 
+use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -39,6 +50,7 @@ use plumcraft_proto::session::EngineState;
 use plumcraft_session::{EngineChange, EngineChoice, EngineTarget, Session};
 use serde_json::{Value, json};
 
+use crate::engines::{EngineKind, Manifests, Mode};
 use crate::install::{Installer, Installing};
 use crate::link::{self, Link, Waker};
 
@@ -61,6 +73,163 @@ pub struct Effects {
     pub redraw: bool,
 }
 
+/// An old engine on its way out: the runs to cancel on it, then its link and coordinator to drop.
+/// [`Retired::stop`] does both; the shell has its engine worker do it, off the shell's thread
+/// (`run.cancel` is a call, dropping a link joins its pump, and dropping a spawned engine's last
+/// holder stops the process).
+#[derive(Default)]
+pub struct Retired {
+    link: Option<Link>,
+    cancels: Vec<String>,
+    coordinator: Option<Arc<Coordinator>>,
+}
+
+impl Retired {
+    pub fn is_empty(&self) -> bool {
+        self.link.is_none() && self.coordinator.is_none()
+    }
+
+    /// Cancel its runs, then let it go.
+    pub fn stop(self) {
+        if let Some(l) = &self.link {
+            for run_id in &self.cancels {
+                let _ = l.conn.call("run.cancel", json!({"run_id": run_id}));
+            }
+        }
+        drop(self);
+    }
+}
+
+/// What an operation in flight is waiting for (the shell keeps it between [`Switchboard::begin`]
+/// and [`Switchboard::finish`]).
+enum Op {
+    /// A switch or attach to `target`.
+    Switch { target: EngineTarget, wanted: String },
+    /// An added engine starting, before the coordinator takes it.
+    AddEngine { target: EngineTarget, wanted: String, first: Arc<dyn Connection>, first_id: String, coordinator: Option<Arc<Coordinator>> },
+    /// The coordinator relinked after an add or a remove.
+    Relink { what: String, then: Then },
+}
+
+enum Then {
+    Added(EngineTarget),
+    Removed(String),
+}
+
+/// A document's engine switching between calls: what is in flight, a reconnect's engines still to
+/// add, and old engines to stop. The shell keeps one per document and lends it with the rest.
+#[derive(Default)]
+pub struct Switching {
+    in_flight: Option<Op>,
+    /// A reconnect's: the engines to add again, and the switch's outcome (what it returns).
+    reconnect: Option<(VecDeque<EngineTarget>, Value)>,
+    retired: Vec<Retired>,
+}
+
+impl Switching {
+    /// An operation's waiting part is with the worker.
+    pub fn busy(&self) -> bool {
+        self.in_flight.is_some()
+    }
+
+    /// Old engines to stop ([`crate::worker::EngineWorker::retire`]).
+    pub fn take_retired(&mut self) -> Vec<Retired> {
+        std::mem::take(&mut self.retired)
+    }
+}
+
+/// An operation's next step: finished, or waiting on an engine.
+pub enum Next {
+    Done(Result<Value, String>),
+    /// Do this ([`Work::run`]) on the engine worker, then hand the result to
+    /// [`Switchboard::finish`].
+    Work(Work),
+}
+
+/// The part of an operation that waits for engines: stopping the old one, starting the new,
+/// reading its catalogue. Sent to the engine worker.
+pub struct Work {
+    task: Task,
+    retired: Vec<Retired>,
+    /// The manifests of the thread that owns the document, for starting their engines.
+    manifests: Manifests,
+    waker: Option<Waker>,
+}
+
+enum Task {
+    Connect(EngineTarget),
+    Engine { engine: String, mode: String },
+    Relink { coordinator: Arc<Coordinator>, add: Option<(String, Arc<dyn Connection>)>, remove: Option<String> },
+}
+
+/// What [`Work`] came back with.
+pub struct Worked(Got);
+
+/// A relink's new link, the engines' catalogue, and where they disagree.
+type Relinked = Result<(Link, Result<SchemaReply, String>, Vec<String>), String>;
+
+enum Got {
+    Linked(Result<(Link, Result<SchemaReply, String>), String>),
+    Engine(Result<Arc<dyn Connection>, String>),
+    Relinked { coordinator: Arc<Coordinator>, linked: Relinked },
+}
+
+fn schema(conn: &dyn Connection) -> Result<SchemaReply, String> {
+    match conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
+        Ok(Ok(c)) => Ok(c),
+        Ok(Err(e)) => Err(format!("the engine's catalogue: {e}")),
+        Err(e) => Err(format!("schema: {}", e.message)),
+    }
+}
+
+impl Work {
+    /// Is it only starting an engine compiled into this program (no process, no network)? Such
+    /// work waits for nothing but this program's own code.
+    pub fn in_process(&self) -> bool {
+        let compiled =
+            |engine: &str, mode: &str| Mode::from_id(mode) == Some(Mode::InProc) && EngineKind::from_id(engine).is_some_and(|k| !k.spawns(Mode::InProc));
+        match &self.task {
+            Task::Connect(EngineTarget::Choice { engine, mode }) | Task::Engine { engine, mode } => compiled(engine, mode),
+            _ => false,
+        }
+    }
+
+    /// The old engines it stops first, to stop elsewhere instead (in-process work done in place).
+    pub fn take_retired(&mut self) -> Vec<Retired> {
+        std::mem::take(&mut self.retired)
+    }
+
+    /// Stop the old engines, then start and link the new (`connect` starts an engine the
+    /// application knows; attaching needs nothing from it).
+    pub fn run(self, connect: &mut Connect<'_>) -> Worked {
+        self.manifests.install();
+        self.retired.into_iter().for_each(Retired::stop);
+        let linked = |l: Result<Link, String>| l.map(|link| (schema(&*link.conn), link)).map(|(c, l)| (l, c));
+        Worked(match self.task {
+            Task::Connect(EngineTarget::Attach { url, token }) => Got::Linked(linked(crate::engines::attach(&url, &token, self.waker))),
+            Task::Connect(EngineTarget::Choice { engine, mode }) => Got::Linked(linked(connect(&engine, &mode))),
+            // the coordinator holds the connection; this link's own pump stops (here)
+            Task::Engine { engine, mode } => Got::Engine(connect(&engine, &mode).map(|link| Arc::clone(&link.conn))),
+            Task::Relink { coordinator, add, remove } => {
+                if let Some((id, conn)) = add {
+                    coordinator.add(id, conn);
+                }
+                // what is removed stops here
+                drop(remove.and_then(|id| coordinator.remove(&id)));
+                let n = coordinator.engines().len();
+                let conn: Arc<dyn Connection> = coordinator.clone();
+                let linked = Link::start(Arc::clone(&conn), format!("{n} engines"), self.waker).map(|link| {
+                    let catalog = schema(&*conn).map_err(|e| e.replace("the engine's catalogue", "the engines' catalogue"));
+                    // read now, while the catalogue is fresh (the shell reads it again cached)
+                    let warnings = coordinator.warnings();
+                    (link, catalog, warnings)
+                });
+                Got::Relinked { coordinator, linked }
+            }
+        })
+    }
+}
+
 /// The parts of a document an engine switch works on, borrowed from the shell for one operation.
 pub struct Switchboard<'a> {
     pub session: &'a mut Session,
@@ -78,6 +247,8 @@ pub struct Switchboard<'a> {
     pub installer: &'a Option<Installer>,
     /// An install running in the background.
     pub installing: &'a mut Option<Installing>,
+    /// What is in flight between calls.
+    pub switching: &'a mut Switching,
     /// What a new link wakes when its events arrive.
     pub waker: Option<Waker>,
     /// What the shell must redo afterwards.
@@ -85,32 +256,107 @@ pub struct Switchboard<'a> {
 }
 
 impl Switchboard<'_> {
-    /// Perform a switch the session recorded (`engine.switch`, `engine.reconnect`,
-    /// `engine.attach`, `engine.use`, `engine.add`, `engine.remove`, `engine.clear`,
-    /// `engine.manifests.reload`, `engine.install`). `None` when none was asked for; else the
-    /// outcome.
+    /// Perform a switch the session recorded, here and now, waiting for the engines on this
+    /// thread: `None` when none was asked for; else the outcome. The synchronous form of
+    /// [`Switchboard::begin`], [`Work::run`] and [`Switchboard::finish`], for callers with no
+    /// window to keep drawing (tests, scripts); a shell's own thread uses those three.
     pub fn pump(&mut self, connect: &mut Connect<'_>) -> Option<Result<Value, String>> {
+        let mut next = self.begin()?;
+        loop {
+            match next {
+                Next::Done(out) => {
+                    self.switching.take_retired().into_iter().for_each(Retired::stop);
+                    return Some(out);
+                }
+                Next::Work(w) => next = self.finish(w.run(connect)),
+            }
+        }
+    }
+
+    /// Begin the next operation the session recorded (`engine.switch`, `engine.reconnect`,
+    /// `engine.attach`, `engine.use`, `engine.add`, `engine.remove`, `engine.clear`,
+    /// `engine.manifests.reload`, `engine.install`): `None` when none was asked for, or one is
+    /// in flight. What doesn't wait for an engine is done here; the rest is [`Next::Work`].
+    pub fn begin(&mut self) -> Option<Next> {
+        if self.switching.busy() {
+            return None;
+        }
         if let Some(target) = self.session.engines.take_request() {
             // Reconnect restarts the first engine and adds the others again; a switch drops them.
             let reconnect = self.session.engines.current.as_ref() == Some(&target);
             let added = std::mem::take(&mut self.session.engines.added);
-            let out = self.switch(target, connect);
-            if reconnect && out.is_ok() {
-                for t in added {
-                    if let Err(e) = self.add(t, connect) {
-                        return Some(Err(e));
-                    }
-                }
-            }
-            return Some(out);
+            self.switching.reconnect = (reconnect && !added.is_empty()).then(|| (added.into(), Value::Null));
+            return Some(self.begin_switch(target));
         }
         Some(match self.session.engines.take_change()? {
-            EngineChange::Add(t) => self.add(t, connect),
-            EngineChange::Remove(id) => self.remove(&id),
-            EngineChange::Reload => self.reload(),
-            EngineChange::Clear => Ok(self.clear()),
-            EngineChange::Install(url) => self.start_install(url),
+            EngineChange::Add(t) => self.begin_add(t),
+            EngineChange::Remove(id) => self.begin_remove(&id),
+            EngineChange::Reload => Next::Done(self.reload()),
+            EngineChange::Clear => Next::Done(Ok(self.clear())),
+            EngineChange::Install(url) => Next::Done(self.start_install(url)),
         })
+    }
+
+    /// Take what [`Work`] came back with: the operation's outcome, or its next step.
+    pub fn finish(&mut self, worked: Worked) -> Next {
+        let Some(op) = self.switching.in_flight.take() else { return Next::Done(Err("no engine switch was in flight".into())) };
+        match (op, worked.0) {
+            (Op::Switch { target, wanted }, Got::Linked(linked)) => {
+                let out = self.linked(&target, &wanted, linked);
+                match (out, self.switching.reconnect.take()) {
+                    (Ok(out), Some((rest, _))) => self.next_add(rest, out),
+                    (out, _) => Next::Done(out),
+                }
+            }
+            (Op::AddEngine { target, wanted, first, first_id, coordinator }, Got::Engine(conn)) => match conn {
+                Err(e) => {
+                    let e = format!("engine: {wanted}: {e}");
+                    *self.last_error = Some(e.clone());
+                    self.chain(Err(e))
+                }
+                Ok(conn) => {
+                    let EngineTarget::Choice { engine, .. } = &target else { return self.chain(Err("only an engine the editor starts can be added".into())) };
+                    let engine = engine.clone();
+                    let coordinator = coordinator.unwrap_or_else(|| Arc::new(Coordinator::new().with_engine(first_id, first)));
+                    self.session.engines.added.push(target.clone());
+                    self.begin_relink(coordinator, Some((engine, conn)), None, wanted, Then::Added(target))
+                }
+            },
+            (Op::Relink { what, then }, Got::Relinked { coordinator, linked }) => {
+                let out = self.relinked(coordinator, &what, linked).map(|mut out| {
+                    match then {
+                        Then::Added(t) => out["added"] = t.to_json(),
+                        Then::Removed(id) => out["removed"] = json!(id),
+                    }
+                    out
+                });
+                self.chain(out)
+            }
+            _ => Next::Done(Err("an engine switch came back mismatched".into())),
+        }
+    }
+
+    /// A reconnect's next engine to add again, or its end.
+    fn next_add(&mut self, mut rest: VecDeque<EngineTarget>, out: Value) -> Next {
+        match rest.pop_front() {
+            None => Next::Done(Ok(out)),
+            Some(t) => {
+                self.switching.reconnect = Some((rest, out));
+                match self.begin_add(t) {
+                    Next::Done(r) => self.chain(r),
+                    work => work,
+                }
+            }
+        }
+    }
+
+    /// An add or remove done: within a reconnect, go on (or stop at an error, returning it);
+    /// else that is the outcome.
+    fn chain(&mut self, out: Result<Value, String>) -> Next {
+        match (self.switching.reconnect.take(), out) {
+            (Some((rest, first)), Ok(_)) => self.next_add(rest, first),
+            (_, out) => Next::Done(out),
+        }
     }
 
     /// Start installing `url` on a thread of its own; [`Switchboard::poll_install`] takes the end.
@@ -155,9 +401,10 @@ impl Switchboard<'_> {
     }
 
     /// Stop every engine (`engine.clear`). The graph stays, on the catalogue it had, with none
-    /// connected; the Engine menu starts the next.
+    /// connected; the Engine menu starts the next. (The engines stop on the worker:
+    /// [`Switching::take_retired`].)
     pub fn clear(&mut self) -> Value {
-        *self.coordinator = None;
+        self.retire_coordinator();
         self.session.engines.added.clear();
         self.forget_runs(Instant::now());
         self.session.engines.current = None;
@@ -166,72 +413,69 @@ impl Switchboard<'_> {
         json!({"engines": [], "label": self.label()})
     }
 
+    fn retire_coordinator(&mut self) {
+        if let Some(c) = self.coordinator.take() {
+            self.switching.retired.push(Retired { coordinator: Some(c), ..Default::default() });
+        }
+    }
+
+    fn work(&mut self, task: Task, op: Op) -> Next {
+        self.switching.in_flight = Some(op);
+        let retired = self.switching.take_retired();
+        Next::Work(Work { task, retired, manifests: Manifests::here(), waker: self.waker.clone() })
+    }
+
     /// Start `target` beside the engines there are (see the module docs).
-    pub fn add(&mut self, target: EngineTarget, connect: &mut Connect<'_>) -> Result<Value, String> {
-        let EngineTarget::Choice { engine, mode } = &target else { return Err("only an engine the editor starts can be added".into()) };
+    fn begin_add(&mut self, target: EngineTarget) -> Next {
+        let EngineTarget::Choice { engine, mode } = &target else { return Next::Done(Err("only an engine the editor starts can be added".into())) };
         let Some(first) = self.link.as_ref().map(|l| Arc::clone(&l.conn)) else {
-            return Err("connect an engine first (Engine menu)".into());
+            return Next::Done(Err("connect an engine first (Engine menu)".into()));
         };
         let wanted = target_label(self.session, &target);
-        let conn = match connect(engine, mode) {
-            // The coordinator holds the connection; this link's own pump stops.
-            Ok(link) => Arc::clone(&link.conn),
-            Err(e) => {
-                let e = format!("engine: {wanted}: {e}");
-                *self.last_error = Some(e.clone());
-                return Err(e);
-            }
+        let first_id = match &self.session.engines.current {
+            Some(EngineTarget::Choice { engine, .. }) => engine.clone(),
+            _ => self.session.catalog().engine.id.clone(),
         };
-        let coordinator = match &*self.coordinator {
-            Some(c) => Arc::clone(c),
-            None => {
-                let first_id = match &self.session.engines.current {
-                    Some(EngineTarget::Choice { engine, .. }) => engine.clone(),
-                    _ => self.session.catalog().engine.id.clone(),
-                };
-                Arc::new(Coordinator::new().with_engine(first_id, first))
-            }
-        };
-        coordinator.add(engine.clone(), conn);
-        self.session.engines.added.push(target.clone());
-        self.relink(coordinator, &wanted).map(|mut out| {
-            out["added"] = target.to_json();
-            out
-        })
+        let task = Task::Engine { engine: engine.clone(), mode: mode.clone() };
+        let coordinator = self.coordinator.clone();
+        self.work(task, Op::AddEngine { target, wanted, first, first_id, coordinator })
     }
 
     /// Stop an added engine.
-    pub fn remove(&mut self, id: &str) -> Result<Value, String> {
-        let Some(coordinator) = self.coordinator.clone() else { return Err("no engine was added".into()) };
-        coordinator.remove(id);
+    fn begin_remove(&mut self, id: &str) -> Next {
+        let Some(coordinator) = self.coordinator.clone() else { return Next::Done(Err("no engine was added".into())) };
         self.session.engines.added.retain(|t| !matches!(t, EngineTarget::Choice { engine, .. } if engine == id));
-        self.relink(coordinator, id).map(|mut out| {
-            out["removed"] = json!(id);
-            out
-        })
+        self.begin_relink(coordinator, None, Some(id.to_owned()), id.to_owned(), Then::Removed(id.to_owned()))
     }
 
-    /// Link to `coordinator` in place of the link there is, and take its merged catalogue.
-    fn relink(&mut self, coordinator: Arc<Coordinator>, what: &str) -> Result<Value, String> {
+    /// Link to `coordinator` (once `add` is added and `remove` removed) in place of the link
+    /// there is, and take its merged catalogue. Until it is done there is no coordinator: what
+    /// reads one (`ui.inspect`'s warnings) would otherwise ask its engines for their catalogues.
+    fn begin_relink(
+        &mut self,
+        coordinator: Arc<Coordinator>,
+        add: Option<(String, Arc<dyn Connection>)>,
+        remove: Option<String>,
+        what: String,
+        then: Then,
+    ) -> Next {
         self.forget_runs(Instant::now());
-        let n = coordinator.engines().len();
-        let conn: Arc<dyn Connection> = coordinator.clone();
-        *self.coordinator = Some(coordinator);
-        let link = Link::start(Arc::clone(&conn), format!("{n} engines"), self.waker.clone())?;
-        let catalog = match conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(format!("the engines' catalogue: {e}")),
-            Err(e) => Err(format!("schema: {}", e.message)),
-        };
+        *self.coordinator = None;
+        self.work(Task::Relink { coordinator, add, remove }, Op::Relink { what, then })
+    }
+
+    fn relinked(&mut self, coordinator: Arc<Coordinator>, what: &str, linked: Relinked) -> Result<Value, String> {
+        *self.coordinator = Some(Arc::clone(&coordinator));
+        let (link, catalog, warnings) = linked?;
         *self.state = link.state();
         sync_state(self.session, self.state);
+        let conn = Arc::clone(&link.conn);
         self.session.docs.resolver = Some(Arc::new(move |r: &DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
         *self.link = Some(link);
         share_connection(self.session, self.link);
         let catalog = catalog.inspect_err(|e| *self.last_error = Some(format!("engine: {what}: {e}")))?;
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
-        let warnings = self.coordinator.as_ref().map(|c| c.warnings()).unwrap_or_default();
         *self.last_error = problems
             .first()
             .map(|first| format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len()))
@@ -241,21 +485,29 @@ impl Switchboard<'_> {
         )
     }
 
-    /// Cancel the run in flight (telling the engine) and forget the results; what is watched
-    /// stays.
+    /// Cancel the run in flight and forget the results; what is watched stays. The old engine
+    /// is told and dropped later, off this thread ([`Switching::take_retired`]).
     pub fn forget_runs(&mut self, now: Instant) {
         if self.session.run.running {
             self.session.run.cancel();
         }
-        for out in self.session.run.take_outbox() {
-            if let (plumcraft_session::run::Outgoing::Cancel(run_id), Some(link)) = (out, &*self.link) {
-                let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
-            }
-        }
-        // Dropping the link joins its pump; an engine with no other holder stops (the session's
-        // clone for the application's commands goes first).
+        let cancels: Vec<String> = self
+            .session
+            .run
+            .take_outbox()
+            .into_iter()
+            .filter_map(|out| match out {
+                plumcraft_session::run::Outgoing::Cancel(run_id) => Some(run_id),
+                _ => None,
+            })
+            .collect();
+        // The session's clones go first, so the retired link holds the last (an engine with no
+        // other holder stops when it is dropped).
         self.session.set_connection(None);
-        *self.link = None;
+        self.session.docs.resolver = None;
+        if let Some(link) = self.link.take() {
+            self.switching.retired.push(Retired { link: Some(link), cancels, ..Default::default() });
+        }
         *self.state = EngineState::Off;
         self.session.connected = false;
         let watch = std::mem::take(&mut self.session.run.watch);
@@ -268,33 +520,28 @@ impl Switchboard<'_> {
         self.effects.runs_forgotten = true;
     }
 
-    /// Connect to `target` in place of the engines there are (see the module docs).
-    pub fn switch(&mut self, target: EngineTarget, connect: &mut Connect<'_>) -> Result<Value, String> {
-        let now = Instant::now();
-        *self.coordinator = None;
+    /// Connect to `target` in place of the engines there are (see the module docs): the old
+    /// engines are retired, and the connect is [`Next::Work`].
+    fn begin_switch(&mut self, target: EngineTarget) -> Next {
+        self.retire_coordinator();
         self.session.engines.added.clear();
         // The run in flight is cancelled, the old engine told, and its results forgotten.
-        self.forget_runs(now);
-
-        let linked = match &target {
-            EngineTarget::Attach { url, token } => crate::engines::attach(url, token, self.waker.clone()),
-            EngineTarget::Choice { engine, mode } => connect(engine, mode),
-        };
+        self.forget_runs(Instant::now());
         let wanted = target_label(self.session, &target);
+        // (said now: while it connects, the title and status bar name what is coming)
         self.session.engines.current = Some(target.clone());
-        let link = match linked {
-            Ok(link) => link,
+        self.work(Task::Connect(target.clone()), Op::Switch { target, wanted })
+    }
+
+    fn linked(&mut self, target: &EngineTarget, wanted: &str, linked: Result<(Link, Result<SchemaReply, String>), String>) -> Result<Value, String> {
+        let (link, catalog) = match linked {
+            Ok(l) => l,
             Err(e) => {
                 let e = format!("engine: {wanted}: {e}");
                 *self.last_error = Some(e.clone());
                 self.effects.redraw = true;
                 return Err(e);
             }
-        };
-        let catalog = match link.conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(format!("the engine's catalogue: {e}")),
-            Err(e) => Err(format!("schema: {}", e.message)),
         };
         *self.state = link.state();
         sync_state(self.session, self.state);
@@ -315,6 +562,38 @@ impl Switchboard<'_> {
         out["label"] = json!(self.label());
         out["problems"] = json!(problems);
         Ok(out)
+    }
+
+    /// Connect to `target` in place of the engines there are, waiting here.
+    pub fn switch(&mut self, target: EngineTarget, connect: &mut Connect<'_>) -> Result<Value, String> {
+        self.switching.reconnect = None;
+        self.run_here(|b| b.begin_switch(target), connect)
+    }
+
+    /// Start `target` beside the engines there are, waiting here.
+    pub fn add(&mut self, target: EngineTarget, connect: &mut Connect<'_>) -> Result<Value, String> {
+        self.run_here(|b| b.begin_add(target), connect)
+    }
+
+    /// Stop an added engine, waiting here.
+    pub fn remove(&mut self, id: &str) -> Result<Value, String> {
+        self.run_here(|b| b.begin_remove(id), &mut |_: &str, _: &str| Err("removing starts no engine".into()))
+    }
+
+    fn run_here(&mut self, begin: impl FnOnce(&mut Self) -> Next, connect: &mut Connect<'_>) -> Result<Value, String> {
+        if self.switching.busy() {
+            return Err("an engine is still starting".into());
+        }
+        let mut next = begin(self);
+        loop {
+            match next {
+                Next::Done(out) => {
+                    self.switching.take_retired().into_iter().for_each(Retired::stop);
+                    return out;
+                }
+                Next::Work(w) => next = self.finish(w.run(connect)),
+            }
+        }
     }
 
     /// Replace the catalogue (the graph is kept).
@@ -362,18 +641,32 @@ pub fn target_label(session: &Session, target: &EngineTarget) -> String {
 /// The engine the editor has (or tried to have), for the window title; `linked` when it has a
 /// link.
 pub fn engine_title(session: &Session, linked: bool) -> Option<String> {
+    engine_title_connecting(session, linked, false)
+}
+
+/// [`engine_title`], saying so while a switch is under way ([`Switching::busy`]).
+pub fn engine_title_connecting(session: &Session, linked: bool, connecting: bool) -> Option<String> {
     let current = session.engines.current.as_ref()?;
     let mut label = target_label(session, current);
     for t in &session.engines.added {
         label = format!("{label} + {}", target_label(session, t));
     }
-    Some(if linked { label } else { format!("{label}, not connected") })
+    Some(match (linked, connecting) {
+        (_, true) => format!("{label}, connecting"),
+        (true, false) => label,
+        (false, false) => format!("{label}, not connected"),
+    })
 }
 
 /// The status bar's engine label.
 pub fn engine_label(session: &Session, link: Option<&Link>, state: &EngineState) -> String {
+    engine_label_connecting(session, link, state, false)
+}
+
+/// [`engine_label`], saying so while a switch is under way ([`Switching::busy`]).
+pub fn engine_label_connecting(session: &Session, link: Option<&Link>, state: &EngineState, connecting: bool) -> String {
     match link {
-        None => match engine_title(session, false) {
+        None => match engine_title_connecting(session, false, connecting) {
             Some(wanted) => format!("engine: {wanted}"),
             None => "engine: not connected".into(),
         },
@@ -387,8 +680,13 @@ pub fn engine_label(session: &Session, link: Option<&Link>, state: &EngineState)
 
 /// The engine cell's main line: the engine's name and state (the whole label without a link).
 pub fn engine_short_label(session: &Session, link: Option<&Link>, state: &EngineState) -> String {
+    engine_short_label_connecting(session, link, state, false)
+}
+
+/// [`engine_short_label`], saying so while a switch is under way ([`Switching::busy`]).
+pub fn engine_short_label_connecting(session: &Session, link: Option<&Link>, state: &EngineState, connecting: bool) -> String {
     if link.is_none() {
-        return engine_label(session, link, state);
+        return engine_label_connecting(session, link, state, connecting);
     }
     let name = &session.catalog().engine;
     let state = if matches!(state, EngineState::Connected { .. }) { "connected".to_owned() } else { link::state_text(state) };
@@ -442,6 +740,7 @@ mod tests {
         reloader: Option<Reloader>,
         installer: Option<Installer>,
         installing: Option<Installing>,
+        switching: Switching,
     }
 
     impl Doc {
@@ -455,6 +754,7 @@ mod tests {
                 reloader: &mut self.reloader,
                 installer: &self.installer,
                 installing: &mut self.installing,
+                switching: &mut self.switching,
                 waker: None,
                 effects: Effects::default(),
             }
@@ -503,5 +803,63 @@ mod tests {
         assert!(e.contains("this device can't start programs"), "{e}");
         assert!(fx.redraw && d.last_error.as_deref() == Some(e.as_str()));
         assert!(d.session.catalog().node("text.upper").is_some());
+    }
+
+    impl Doc {
+        /// `id` begun here, its waiting part done by `worker` with `launcher`, finished here:
+        /// the outcome, and whether the operation was under way meanwhile.
+        fn through(&mut self, worker: &mut crate::worker::EngineWorker, id: &str, params: Value, launcher: &Launcher) -> (Result<Value, String>, bool) {
+            self.session.execute(id, &params).unwrap();
+            let mut next = self.board().begin().unwrap();
+            let mut busy = false;
+            loop {
+                match next {
+                    Next::Done(out) => {
+                        worker.retire(self.switching.take_retired());
+                        return (out, busy);
+                    }
+                    Next::Work(w) => {
+                        busy |= self.switching.busy();
+                        let owner = std::thread::current().id();
+                        worker.switch(w, launcher.clone(), move |l: &mut Launcher, e: &str, m: &str| {
+                            assert_ne!(std::thread::current().id(), owner, "started on the owner's thread");
+                            l.connect_ids(e, m, None)
+                        });
+                        assert!(worker.wait(std::time::Duration::from_secs(60)));
+                        let Some(crate::worker::Done::Switched { worked, .. }) = worker.drain().pop() else { panic!("no switch came back") };
+                        next = self.board().finish(*worked);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_switch_waits_on_the_worker_and_a_reconnect_adds_its_engines_again() {
+        let launcher = Launcher::default();
+        let mut worker = crate::worker::EngineWorker::new(None);
+        let mut d = Doc::default();
+        d.session.engines.choices = choices();
+        let (r, busy) = d.through(&mut worker, "engine.switch", json!({"engine": "text", "mode": "inproc"}), &launcher);
+        assert!(busy && !d.switching.busy(), "under way, then done");
+        assert_eq!(r.unwrap()["connected"], true);
+        let (r, _) = d.through(&mut worker, "engine.add", json!({"engine": "array", "mode": "inproc"}), &launcher);
+        assert_eq!(r.unwrap()["engines"], json!(["text", "array"]));
+        // reconnect: the first again, then the array engine added again; the switch's outcome
+        let (r, _) = d.through(&mut worker, "engine.reconnect", json!({}), &launcher);
+        let r = r.unwrap();
+        assert_eq!((r["engine"].as_str(), r["mode"].as_str()), (Some("text"), Some("inproc")), "{r}");
+        assert_eq!(d.session.engines.engine_ids(), ["text", "array"]);
+        assert!(d.coordinator.is_some() && d.session.catalog().node("array.arithmetic").is_some() && d.session.connected);
+        // a switch's begin says what is coming before it has come
+        d.session.execute("engine.switch", &json!({"engine": "array", "mode": "inproc"})).unwrap();
+        let Some(Next::Work(w)) = d.board().begin() else { panic!("a switch waits for an engine") };
+        assert!(w.in_process(), "an engine compiled in");
+        assert!(d.link.is_none() && d.coordinator.is_none() && !d.session.connected);
+        assert_eq!(engine_title(&d.session, false).as_deref(), Some("Array · Rust · in-process (mode 1), not connected"));
+        let Next::Done(r) = d.board().finish(w.run(&mut |e: &str, m: &str| launcher.connect_ids(e, m, None))) else { panic!("one step") };
+        assert_eq!(r.unwrap()["engine"], "array");
+        assert!(d.board().begin().is_none(), "nothing more asked");
+        worker.retire(d.switching.take_retired());
     }
 }

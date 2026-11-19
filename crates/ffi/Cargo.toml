@@ -30,7 +30,10 @@ jni = ["dep:jni-sys"]
 
 [dependencies]
 plumcraft-automation = { workspace = true }
-# The engine event pump (Link) and its Waker; starting the engine the config names (Launcher).
+# Engines added beside the first (engine.add) go behind one.
+plumcraft-coordinator = { workspace = true }
+# The engine event pump (Link) and its Waker; starting the engine the config names (Launcher);
+# switching engines (Switchboard) and the engine worker.
 plumcraft-editor-core = { workspace = true }
 plumcraft-graph = { workspace = true }
 plumcraft-host = { workspace = true }

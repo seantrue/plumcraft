@@ -713,10 +713,11 @@ mod tests {
                 if ["plumcraft-text-engine", "plumcraft-audio-engine", "plumcraft-craft-engine"].iter().all(|b| engine_binary(b).is_ok_and(|p| p.is_file())) {
                     return;
                 }
-                // <target>/<profile>/deps/<this test>
+                // <target>/<profile>, wherever this cargo put this test
                 let exe = std::env::current_exe().unwrap();
-                let target = exe.parent().and_then(Path::parent).and_then(Path::parent).unwrap();
-                let release = exe.parent().and_then(Path::parent).is_some_and(|p| p.ends_with("release"));
+                let profile = plumcraft_editor_core::engines::profile_dir(&exe).unwrap();
+                let target = profile.parent().unwrap();
+                let release = profile.ends_with("release");
                 let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
                 cmd.args(["build", "-p", "plumcraft-text", "-p", "plumcraft-audio", "-p", "plumcraft-craft", "--bins", "--target-dir"]).arg(target);
                 if release {
@@ -1210,14 +1211,17 @@ mod tests {
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: "wrong".into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            // (attaching is a network call, made on the engine worker: settled once it is done)
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             // a wrong token: refused, said, the window stays for another try
             assert!(!h.state().session.connected);
             assert!(h.state().last_error.as_deref().unwrap_or_default().contains("HTTP · attached"), "{:?}", h.state().last_error);
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: token.into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
             assert!(h.state().engine_label().contains(&format!("HTTP · attached · {url}")), "{}", h.state().engine_label());
             let v = inspect(&mut h);

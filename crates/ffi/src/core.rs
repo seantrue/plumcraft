@@ -3,8 +3,13 @@
 //! until the shell has polled). No `unsafe` here; `lib.rs` is the boundary.
 //!
 //! Threads, per core:
-//! - **core** (`plumcraft-ffi-core`): the session, every command, every engine call but the
-//!   long poll. The only thread that calls the shell's `wake`.
+//! - **core** (`plumcraft-ffi-core`): the session and every command. The only thread that calls
+//!   the shell's `wake`. It never waits for an engine (`docs/shell-interface.md` 3.1 rule 6).
+//! - **engine worker** (`plumcraft-engine-worker`): the editor core's [`EngineWorker`], which makes
+//!   every engine call the session asks for (runs, cancels, releases) and does an engine switch's
+//!   waiting part (stopping the old engine, starting the new, its catalogue), in order, and hands
+//!   back what came of it; the core thread applies that when woken. A request that switches
+//!   engines (`command.run engine.*`) replies once the switch is done.
 //! - **pump** (`plumcraft-editor-pump`): the editor core's [`Link`], which long-polls
 //!   `events.poll` and holds the events; its [`link::Waker`] tells the core thread to drain them.
 //! - the engine's own worker (`plumcraft-engine`), or its process, started by the editor core's
@@ -24,8 +29,11 @@ use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
 use plumcraft_automation::{ControlReply, ControlRequest};
+use plumcraft_coordinator::Coordinator;
 use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
 use plumcraft_editor_core::link::{self, Link};
+use plumcraft_editor_core::switchboard::{Effects, Next, Switchboard, Switching};
+use plumcraft_editor_core::worker::{Done, EngineWorker};
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::Connection;
 use plumcraft_proto::data::DataRef;
@@ -158,7 +166,8 @@ pub struct Shared {
     outbox: Mutex<Outbox>,
     waker: Waker,
     counters: Counters,
-    conn: Arc<dyn Connection>,
+    /// The engine connection, following switches (none while one is under way or failed).
+    conn: Mutex<Option<Arc<dyn Connection>>>,
     /// The store the engine publishes to: the config's root, else the shared default.
     store: Store,
     /// Every DataRef seen in the engine's events, by handle: how `plum_blob` resolves one through
@@ -220,9 +229,11 @@ impl Shared {
             return Ok(b);
         }
         let known = lock(&self.refs).get(handle).cloned();
-        let blob = match known {
-            Some(r) => self.conn.resolve(&r),
-            None => {
+        let conn = lock(&self.conn).clone();
+        let blob = match (known, conn) {
+            (Some(r), Some(conn)) => conn.resolve(&r),
+            (Some(_), None) => None,
+            (None, _) => {
                 let h: Handle = handle.parse().map_err(|e| format!("not a handle: {e}"))?;
                 self.store.map_handle(&h).or_else(|| self.store.read_handle(&h))
             }
@@ -274,7 +285,7 @@ impl Core {
         let waker = link::Waker::new(move || {
             let _ = drain.send(Msg::Drain);
         });
-        let link = launcher.connect_core(kind, mode, Some(waker))?;
+        let link = launcher.connect_core(kind, mode, Some(waker.clone()))?;
         match link.state() {
             EngineState::Connected { .. } => {}
             other => return Err(format!("the {} engine didn't start: {other:?}", kind.id())),
@@ -287,6 +298,11 @@ impl Core {
         let mut session = Session::new(catalog);
         session.connected = true;
         session.set_connection(Some(Arc::clone(&conn)));
+        // engine.* commands switch among what this platform can start, and attach
+        session.engines.choices = launcher.choices();
+        session.engines.current = Some(plumcraft_session::EngineTarget::Choice { engine: kind.id(), mode: mode.id().to_owned() });
+        session.engines.can_attach = true;
+        let state = link.state();
         if config.demo {
             load_demo(&mut session, kind)?;
         }
@@ -295,12 +311,27 @@ impl Core {
             outbox: Mutex::default(),
             waker: Waker { f: wake, ctx: ctx as usize, pending: AtomicBool::new(false), sent: AtomicU64::new(0) },
             counters: Counters::default(),
-            conn,
+            conn: Mutex::new(Some(conn)),
             store,
             refs: Mutex::default(),
             lent: Mutex::default(),
         });
-        let worker = Worker { session, shared: Arc::clone(&shared), waiters: Vec::new(), link, kind };
+        let engines = EngineWorker::new(Some(waker.clone()));
+        let worker = Worker {
+            session,
+            shared: Arc::clone(&shared),
+            waiters: Vec::new(),
+            link: Some(link),
+            kind,
+            engines,
+            launcher,
+            waker,
+            coordinator: None,
+            state,
+            last_error: None,
+            switching: Switching::default(),
+            switch_waits: Vec::new(),
+        };
         let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
         Ok(Core { tx, shared, next_id: AtomicU64::new(1), thread: Mutex::new(Some(thread)), thread_id })
@@ -343,15 +374,37 @@ struct Waiter {
     deadline: Instant,
 }
 
+/// A request that switched engines, waiting for the switch to be done.
+struct SwitchWait {
+    id: u64,
+    tag: Option<Value>,
+    /// The command's own result (its `how`).
+    command: Value,
+    last: Option<Value>,
+}
+
 /// The core thread's state.
 struct Worker {
     session: Session,
     shared: Arc<Shared>,
     waiters: Vec<Waiter>,
-    /// The engine's event pump; dropping it stops the pump and waits for it.
-    link: Link,
-    /// Which engine it is (`spike.demo` opens its demo).
+    /// The engine's event pump; dropping it stops the pump and waits for it. None while a
+    /// switch is under way, or after one failed.
+    link: Option<Link>,
+    /// Which engine it opened on (`spike.demo` opens its demo).
     kind: EngineKind,
+    /// Every engine call, off this thread.
+    engines: EngineWorker,
+    /// Starts the engines `engine.*` asks for (on the worker).
+    launcher: Launcher,
+    /// What new links (and the worker) wake: a `Drain` to this thread.
+    waker: link::Waker,
+    /// The switchboard's parts (`plumcraft_editor_core::switchboard`).
+    coordinator: Option<Arc<Coordinator>>,
+    state: EngineState,
+    last_error: Option<String>,
+    switching: Switching,
+    switch_waits: Vec<SwitchWait>,
 }
 
 impl Worker {
@@ -366,10 +419,11 @@ impl Worker {
                 Some(Msg::Stop) => break,
                 Some(Msg::Request { id, body }) => self.request(id, &body),
                 Some(Msg::Drain) => {
-                    let events = self.link.drain();
+                    let events = self.link.as_ref().map(Link::drain).unwrap_or_default();
                     if !events.is_empty() {
                         self.events(events);
                     }
+                    self.step_engines();
                 }
                 None => {}
             }
@@ -378,10 +432,12 @@ impl Worker {
                 self.shared.waker.wake();
             }
         }
-        // a run in flight is cancelled; the engine stops when the last holder drops it
-        if let Some(run_id) = self.session.run.run_id.clone().filter(|_| self.session.run.running) {
-            let _ = self.shared.conn.call("run.cancel", json!({"run_id": run_id}));
+        // a run in flight is cancelled (the core is closing: the shell is waiting for that);
+        // the engine stops when the last holder drops it
+        if let (Some(run_id), Some(link)) = (self.session.run.run_id.clone().filter(|_| self.session.run.running), &self.link) {
+            let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
         }
+        *lock(&self.shared.conn) = None;
     }
 
     fn reply(&self, id: u64, tag: Option<&Value>, r: Result<Value, String>) {
@@ -410,6 +466,13 @@ impl Worker {
             "command.run" | "engine.execute" | "command.list" | "engine.commands" | "graph.get" => {
                 let r = plumcraft_automation::dispatch(&mut self.session, &ControlRequest { id, method: method.to_owned(), params });
                 self.send_outgoing();
+                if r.ok && self.session.engines.is_pending() {
+                    // an engine switch: it replies once it is done (the editor's control channel
+                    // does the same), and this thread doesn't wait for it
+                    self.switch_waits.push(SwitchWait { id, tag, command: r.result, last: None });
+                    self.step_engines();
+                    return;
+                }
                 if r.ok { Ok(r.result) } else { Err(r.error.unwrap_or_default()) }
             }
             // `command.run run.start`, shorter
@@ -433,23 +496,107 @@ impl Worker {
         self.reply(id, tag.as_ref(), r);
     }
 
-    /// Send what the session queued for the engine (`pump_runs`, without the window's prompts).
+    /// Hand what the session queued for the engine to the worker (`pump_runs`, without the
+    /// window's prompts). A refusal comes back to [`Worker::step_engines`].
     fn send_outgoing(&mut self) {
         for out in self.session.run.take_outbox() {
+            let Some(conn) = self.link.as_ref().map(|l| Arc::clone(&l.conn)) else {
+                if matches!(out, Outgoing::Run(_)) {
+                    self.session.run.fail("run: the engine is not connected");
+                }
+                continue;
+            };
             match out {
-                Outgoing::Run(req) => {
-                    let sent =
-                        serde_json::to_value(&*req).map_err(|e| e.to_string()).and_then(|body| self.shared.conn.call("run", body).map_err(|e| e.message));
-                    if let Err(why) = sent {
+                Outgoing::Run(req) => match serde_json::to_value(&*req) {
+                    Ok(body) => self.engines.run(conn, body, req.run_id.clone(), req.generation),
+                    Err(e) => self.session.run.fail(&format!("run: {e}")),
+                },
+                Outgoing::Release(scope) => self.engines.call(conn, "graph.release", json!({"scope": scope})),
+                Outgoing::Cancel(run_id) => self.engines.cancel(conn, run_id),
+            }
+        }
+    }
+
+    /// The engine parts, lent to the core's switchboard for `f`.
+    fn board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>) -> R) -> R {
+        let (mut reloader, installer, mut installing) = (None, None, None);
+        let mut b = Switchboard {
+            session: &mut self.session,
+            link: &mut self.link,
+            coordinator: &mut self.coordinator,
+            state: &mut self.state,
+            last_error: &mut self.last_error,
+            reloader: &mut reloader,
+            installer: &installer,
+            installing: &mut installing,
+            switching: &mut self.switching,
+            waker: Some(self.waker.clone()),
+            effects: Effects::default(),
+        };
+        f(&mut b)
+    }
+
+    /// Engine switching without waiting: take what the worker brought back (a refused run, a
+    /// switch's end), begin what the session asked for next, and answer the requests waiting
+    /// for it once nothing is left to do.
+    fn step_engines(&mut self) {
+        let mut out = Vec::new();
+        for done in self.engines.drain() {
+            match done {
+                Done::RunFailed { run_id, generation, why } => {
+                    let run = &self.session.run;
+                    if run.run_id.as_deref() == Some(run_id.as_str()) && run.generation == generation {
                         self.session.run.fail(&format!("run: {why}"));
                     }
                 }
-                Outgoing::Release(scope) => {
-                    let _ = self.shared.conn.call("graph.release", json!({"scope": scope}));
+                Done::Switched { worked, .. } => {
+                    let next = self.board(|b| b.finish(*worked));
+                    self.go(next, &mut out);
                 }
-                Outgoing::Cancel(run_id) => {
-                    let _ = self.shared.conn.call("run.cancel", json!({"run_id": run_id}));
+            }
+        }
+        while !self.switching.busy() && self.session.engines.is_pending() {
+            let Some(next) = self.board(|b| b.begin()) else { break };
+            self.go(next, &mut out);
+        }
+        let retired = self.switching.take_retired();
+        self.engines.retire(retired);
+        *lock(&self.shared.conn) = self.link.as_ref().map(|l| Arc::clone(&l.conn));
+        for r in out {
+            match r {
+                Ok(v) => self.switch_waits.iter_mut().for_each(|w| w.last = Some(v.clone())),
+                Err(e) => {
+                    for w in std::mem::take(&mut self.switch_waits) {
+                        self.reply(w.id, w.tag.as_ref(), Err(e.clone()));
+                    }
                 }
+            }
+        }
+        if !self.switching.busy() && !self.session.engines.is_pending() {
+            for w in std::mem::take(&mut self.switch_waits) {
+                let v = match w.last {
+                    Some(mut out) => {
+                        if let (Some(how), Some(o)) = (w.command.get("how"), out.as_object_mut()) {
+                            o.insert("how".into(), how.clone());
+                        }
+                        out
+                    }
+                    None => w.command,
+                };
+                self.reply(w.id, w.tag.as_ref(), Ok(v));
+            }
+        }
+    }
+
+    /// Carry an operation on: its waiting part to the worker, with the launcher.
+    fn go(&mut self, next: Next, out: &mut Vec<Result<Value, String>>) {
+        match next {
+            Next::Done(r) => out.push(r),
+            Next::Work(w) => {
+                let carry = (self.launcher.clone(), self.waker.clone());
+                self.engines.switch(w, carry, |(launcher, waker): &mut (Launcher, link::Waker), engine: &str, mode: &str| {
+                    launcher.connect_ids(engine, mode, Some(waker.clone()))
+                });
             }
         }
     }

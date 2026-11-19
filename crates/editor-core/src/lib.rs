@@ -12,6 +12,8 @@
 //! - [`engines`]: which engines there are, how each may be hosted on this platform
 //!   ([`engines::Capabilities`]), and starting one ([`engines::Launcher`]);
 //! - [`switchboard`]: switching, adding, removing, attaching and clearing engines while editing;
+//! - [`worker`]: a document's engine calls (runs, cancels, releases, a switch's connect), off the
+//!   shell's thread, in order, handed back through an inbox;
 //! - [`install`]: installing an engine from GitHub, off the shell's thread;
 //! - [`headless`]: the windowless commands `run`, `check`, `tidy` and `nodes`;
 //! - [`prefs`], [`appearance`], [`theme`]: preferences, the user's look, and themes as data;
@@ -43,4 +45,5 @@ pub mod run_text;
 pub mod switchboard;
 pub mod theme;
 pub mod wire_path;
+pub mod worker;
 pub mod yaml;

@@ -494,6 +494,20 @@ pub struct EditorApp {
     pub command_form: Option<form_view::FormDialog>,
     /// An install running in the background.
     pub installing: Option<engine_view::Installing>,
+    /// Every engine call the editor makes, made off the window's thread
+    /// ([`plumcraft_editor_core::worker`]): runs, cancels, releases, a switch's connect.
+    pub(crate) engine_worker: plumcraft_editor_core::worker::EngineWorker,
+    /// An engine switch under way ([`engine_view`]).
+    pub(crate) switching: plumcraft_editor_core::switchboard::Switching,
+    /// Control requests waiting for a switch to finish ([`engine_view`]).
+    pub(crate) engine_waits: Vec<engine_view::EngineWait>,
+    /// The last command run asked for an engine switch.
+    pub(crate) engine_asked: bool,
+    /// Drawing a frame: what a command starts on an engine goes to the worker, and the frame
+    /// goes on. Outside a frame (tests, scripts, the API) a command waits for it, as before.
+    pub(crate) in_frame: bool,
+    /// The Attach… window's attach is under way: it closes once connected.
+    pub(crate) attaching: bool,
     /// The context a new engine link wakes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
@@ -561,6 +575,12 @@ impl EditorApp {
             install_form: None,
             command_form: None,
             installing: None,
+            engine_worker: Default::default(),
+            switching: Default::default(),
+            engine_waits: Vec::new(),
+            engine_asked: false,
+            in_frame: false,
+            attaching: false,
             repaint: None,
         }
     }
@@ -817,11 +837,23 @@ impl EditorApp {
                 }
                 // The session recorded an engine switch: perform it now, so the caller gets
                 // its outcome (crate::engine_view). A pick can take steps (out, then in again
-                // the new way); the caller gets the last, and how the pick was taken.
-                let mut done = None;
-                while let Some(outcome) = self.pump_engine() {
-                    done = Some(outcome?);
-                }
+                // the new way); the caller gets the last, and how the pick was taken. Inside a
+                // frame, what waits for an engine goes to the worker, and the outcome comes later
+                // (a control request waits for it); outside one, the caller waits.
+                self.engine_asked = self.session.engines.is_pending();
+                let done = if !self.engine_asked {
+                    None
+                } else if self.in_frame {
+                    let mut done = None;
+                    let mut out = Vec::new();
+                    self.step_engines(&mut out);
+                    for r in out {
+                        done = Some(r?);
+                    }
+                    done
+                } else {
+                    self.engines_now().transpose()?
+                };
                 match done {
                     Some(mut out) => {
                         if let (Some(how), Some(o)) = (v.get("how"), out.as_object_mut()) {
@@ -1393,12 +1425,21 @@ impl EditorApp {
             self.prompt = Some(Prompt::Review(Box::new(self.session.review())));
             ctx.request_repaint();
         }
+        // Sent by the engine worker, in order (a cancel after the run it cancels), never here:
+        // the window doesn't wait for an engine to take a run (plumcraft_editor_core::worker).
+        // A refusal comes back to engine_view's pump, which fails the run if it is still the
+        // latest.
+        if !self.engine_worker.has_waker() && !self.offscreen {
+            self.engine_worker.set_waker(Some(link::repaint_waker(ctx.clone())));
+        }
         for out in self.session.run.take_outbox() {
             match out {
                 Outgoing::Run(req) => {
+                    let body = serde_json::to_value(&*req);
                     // files for an engine nobody here started: ask first, and send this run after
-                    let pending = match (&self.link, serde_json::to_value(&*req)) {
-                        (Some(link), Ok(body)) => link.conn.uploads_pending(&body),
+                    // (the host's own list: no call to the engine)
+                    let pending = match (&self.link, &body) {
+                        (Some(link), Ok(body)) => link.conn.uploads_pending(body),
                         _ => Vec::new(),
                     };
                     if !pending.is_empty() {
@@ -1407,25 +1448,22 @@ impl EditorApp {
                         ctx.request_repaint();
                         continue;
                     }
-                    let sent = match (&self.link, serde_json::to_value(&*req)) {
-                        (Some(link), Ok(body)) => link.conn.call("run", body).map_err(|e| e.message),
-                        (None, _) => Err("the engine is not connected".into()),
-                        (_, Err(e)) => Err(e.to_string()),
-                    };
-                    if let Err(why) = sent {
-                        self.session.run.fail(&format!("run: {why}"));
+                    match (&self.link, body) {
+                        (Some(link), Ok(body)) => self.engine_worker.run(std::sync::Arc::clone(&link.conn), body, req.run_id.clone(), req.generation),
+                        (None, _) => self.session.run.fail("run: the engine is not connected"),
+                        (_, Err(e)) => self.session.run.fail(&format!("run: {e}")),
                     }
                 }
                 Outgoing::Release(scope) => {
                     if let Some(link) = &self.link {
                         // an engine without the capability has nothing to release
-                        let _ = link.conn.call("graph.release", json!({"scope": scope}));
+                        self.engine_worker.call(std::sync::Arc::clone(&link.conn), "graph.release", json!({"scope": scope}));
                     }
                 }
                 Outgoing::Cancel(run_id) => {
                     if let Some(link) = &self.link {
                         // the run's late records are ignored by generation whatever the reply
-                        let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
+                        self.engine_worker.cancel(std::sync::Arc::clone(&link.conn), run_id);
                     }
                 }
             }
@@ -1705,13 +1743,13 @@ impl EditorApp {
 
     /// The status bar's engine label.
     pub fn engine_label(&self) -> String {
-        plumcraft_editor_core::switchboard::engine_label(&self.session, self.link.as_ref(), &self.engine)
+        plumcraft_editor_core::switchboard::engine_label_connecting(&self.session, self.link.as_ref(), &self.engine, self.switching.busy())
     }
 
     /// The engine cell's main line (layout B, plumcraft #86): the engine's name and state. The
     /// link and the engine's node count are in its hover, which is the whole [`Self::engine_label`].
     pub fn engine_short_label(&self) -> String {
-        plumcraft_editor_core::switchboard::engine_short_label(&self.session, self.link.as_ref(), &self.engine)
+        plumcraft_editor_core::switchboard::engine_short_label_connecting(&self.session, self.link.as_ref(), &self.engine, self.switching.busy())
     }
 
     /// The engine's status line (`texts::ENGINE_STATUS`, plumcraft #86) and its tone, while the
@@ -1959,6 +1997,15 @@ impl EditorApp {
 
     /// Draw one frame into `ui` (the whole window).
     pub fn show(&mut self, ui: &mut egui::Ui) {
+        // what a command starts on an engine meanwhile goes to the worker (engine_view)
+        let outside = !std::mem::replace(&mut self.in_frame, true);
+        self.show_frame(ui);
+        if outside {
+            self.in_frame = false;
+        }
+    }
+
+    fn show_frame(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         if self.repaint.is_none() && !self.offscreen {
             self.repaint = Some(ctx.clone());
