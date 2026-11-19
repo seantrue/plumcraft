@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1 slice 6: plumcraft-media and values off the UI thread; B27 fixed; B29 found (Claude Opus 5.5 agent for the slice; Claude Fable 5.2 controlling, and for the fix)
+
+**What the maintainer asked for.** The standing go-ahead for N1's slices. On the CI failures: "record the two main CI failures as bugs", then "fix B27 on the dev branch, then merge. FIle bugs. remove the dirs.workflow.write value", then "file bugs." for the third. And a rule, after the controller had offered `main` as a place to fix: "All work should be on dev branch. NOTHING merges back to main without a decision by me".
+
+**Slice 6, by the agent** (`git diff --numstat` and the new files). `crates/media` (1,989 lines, most of it decoders moved from `crates/ui` unchanged): `plumcraft-media`, with a media service that resolves and decodes on two workers, answers ready, pending, missing or failed at once, drops requests nobody wants, and caches within a byte budget. `crates/editor-core/src/values.rs`. `crates/ui` (+518 −551) uploads textures and draws. `crates/ffi` (+275 −36): `plum_blob` never waits; `media.get`. 25 new tests; `scrolling_in_past_the_picture_asks_for_detail_once` gained a wait for the service, its assertion unchanged. The agent's hostile-input sweep found an overflow panic in the existing `shrink` code and fixed it.
+
+**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,366 of 1,367, the same one failure, no flake. 202 decoded outputs byte-identical before and after. Against an engine whose `resolve` takes 300 ms, `resolve` calls on the editor's thread: 13 of 13 before, 0 of 11 after. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (133), the thread-rule tests and the edited kittest.
+
+**What fell short in the slice.** Peak memory on a 500-node graph is about 10% higher and nobody knows why (the agent's guess, a second copy of each thumbnail, is unmeasured). PlumImpress's Curves and Mask editors read a picture once when opened and saw "gone" under the new pending state: 3 of its 7 editor tests failed until the agent added a read-ahead; on an HTTP engine they can still show "gone" briefly. The controller's brief asked to move array-to-picture mappings out of the UI; they were never there (the engine SDK has them).
+
+**B27, by the controller** (+50 −12 in three files). Linux CI runs the newest stable Rust; cargo 1.100 builds test programs in `<profile>/build/<package>/<hash>/out/`, where `engine_binary` did not look. Confirmed with a scratch project under both versions, reproduced on the Mac with `cargo +1.100.0`, fixed with `engines::profile_dir`, and checked there before and after (the FFI switch test and the editor's kittests) and on Linux CI (pull request #100: no failing test). Not checked: the whole suite locally for that commit. The fix is on the dev branch only; `main` still fails.
+
+**The controller's mistakes.** It merged #98 and #99 because their failures were "the same eight tests as `main`" without reading why those failed; the cause was a week old and one log line away. It then offered fixing on `main` as an option when the maintainer had already made `feat/native-n0` the dev branch; the maintainer restated the rule. It expected the rerun of #101 to pass ("I suspect a flake"); it failed again.
+
+**B29, found and not fixed.** `mode2_python_kill_9_mid_run_recovers` failed 2 of 2 Linux runs of #101 and none of the four before. Not reproduced on the Mac in 88 runs. A suspected race in `crates/host/src/process.rs` is written in the bug entry as a suspicion, read from the code. #101 is held.
+
 ### 2026-11-19 — N1 slice 5: one control dispatcher for every shell (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** In the original request: "Preserve the current capability for logging, debug driving, et al." The standing go-ahead for N1's slices.

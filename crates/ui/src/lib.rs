@@ -93,14 +93,12 @@ use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
 use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply};
-use plumcraft_proto::data::DataRef;
 use plumcraft_proto::event::Event;
 use plumcraft_proto::run::SaveReply;
 use plumcraft_proto::session::EngineState;
 use plumcraft_session::run::Outgoing;
 use plumcraft_session::viewer_cmds::Tools;
 use plumcraft_session::{CommandSpec, Session, command_specs};
-use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
 use crate::canvas::{Action, Canvas, RunView};
@@ -376,8 +374,12 @@ pub struct EditorApp {
     pub panel_pane: viewers::Pane,
     /// Compare: A and B ([`compare_view`]).
     pub compare: compare_view::CompareView,
-    /// Full values in memory, shared by every viewer of them.
-    fulls: watched::Fulls,
+    /// Every value shown, read and decoded off this thread: thumbnails, renditions, the Watched
+    /// panel's full value, compare, pop-outs, wire previews ([`plumcraft_media::MediaService`]).
+    /// Its bytes are shared by every viewer of them, as `Fulls` shared them.
+    pub media_service: plumcraft_media::MediaService,
+    /// Keeps the media service reading through the current engine link.
+    media_follow: plumcraft_editor_core::values::Follow,
     /// Pop-out windows ([`popouts`]).
     pub popouts: Vec<popouts::PopoutWindow>,
     /// The Parameters window's doc lines being edited, by name ([`graph_params_view`]).
@@ -498,7 +500,8 @@ impl EditorApp {
             audio: audio::AudioView::default(),
             panel_pane: viewers::Pane::default(),
             compare: compare_view::CompareView::default(),
-            fulls: watched::Fulls::default(),
+            media_service: plumcraft_media::MediaService::new(media_config()),
+            media_follow: plumcraft_editor_core::values::Follow::default(),
             popouts: Vec::new(),
             param_docs: std::collections::HashMap::new(),
             popouts_float: false,
@@ -554,8 +557,8 @@ impl EditorApp {
         }
         self.engine = link.state();
         self.sync_engine();
-        let conn = std::sync::Arc::clone(&link.conn);
-        self.session.docs.resolver = Some(std::sync::Arc::new(move |r: &DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
+        self.media_follow.follow(&self.media_service, Some(&link.conn));
+        self.session.docs.resolver = Some(plumcraft_editor_core::values::docs_resolver(&self.media_service));
         self.link = Some(link);
         self.share_connection();
         self
@@ -1115,16 +1118,34 @@ impl EditorApp {
         }
     }
 
-    /// A blob's bytes through the engine link (nothing without one).
-    fn resolver(&self) -> impl Fn(&DataRef) -> Option<Blob> + 'static {
-        let conn = self.link.as_ref().map(|l| std::sync::Arc::clone(&l.conn));
-        move |r: &DataRef| conn.as_ref().and_then(|c| c.resolve(r))
+    /// The media service, as what the viewers read from (a handle: cheap to clone, so a frame
+    /// can hold it beside `&mut self`).
+    pub(crate) fn source(&self) -> plumcraft_media::MediaService {
+        self.media_service.clone()
     }
 
-    /// A full value's bytes, shared with whatever else holds them ([`watched::Fulls`]).
-    fn full_reader(&self) -> impl Fn(&DataRef) -> Option<std::sync::Arc<Blob>> + 'static {
-        let (fulls, resolve) = (self.fulls.clone(), self.resolver());
-        move |r: &DataRef| fulls.read(r, &resolve)
+    /// Whether the media service is reading or decoding a value a frame asked for (a thumbnail,
+    /// the Watched panel's value, a picture): it arrives with a repaint.
+    pub fn media_busy(&self) -> bool {
+        self.media_service.busy()
+    }
+
+    /// Wait (at most `timeout`) until the media service has made everything asked of it: whether
+    /// it came to that. For tests and scripts, never a frame.
+    pub fn wait_media(&self, timeout: std::time::Duration) -> bool {
+        self.media_service.wait_idle(timeout)
+    }
+
+    /// Use these limits for the media service (its cache's budget: a small machine wants less).
+    /// What it holds is dropped.
+    pub fn with_media(mut self, config: plumcraft_media::Config) -> Self {
+        self.media_service = plumcraft_media::MediaService::new(config);
+        self.media_follow = plumcraft_editor_core::values::Follow::default();
+        if let Some(link) = &self.link {
+            self.media_follow.follow(&self.media_service, Some(&link.conn));
+            self.session.docs.resolver = Some(plumcraft_editor_core::values::docs_resolver(&self.media_service));
+        }
+        self
     }
 
     /// Give the compare view A and B while it shows; it lets go of them when it doesn't.
@@ -1134,12 +1155,11 @@ impl EditorApp {
             self.compare.clear();
             return;
         }
-        let resolve = self.resolver();
-        let full = self.full_reader();
+        let source = self.source();
         let nan = self.tokens.error;
         let sides = compare_view::sides(&self.session);
         let state = self.session.views.compare.clone();
-        if self.compare.sync(ctx, &state, sides, &mut self.thumbs, &resolve, &full, nan) {
+        if self.compare.sync(ctx, &state, sides, &mut self.thumbs, &source, nan) {
             self.rerun_pending = true;
         }
     }
@@ -1150,20 +1170,28 @@ impl EditorApp {
         let Some(link) = &self.link else {
             self.session.connected = false;
             self.session.docs.resolver = None;
+            self.media_follow.follow(&self.media_service, None);
             return;
         };
         self.engine = link.state();
         self.sync_engine();
         let Some(link) = &self.link else { return };
-        let conn = std::sync::Arc::clone(&link.conn);
-        self.session.docs.resolver = Some(std::sync::Arc::new(move |r: &DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
+        // values are read through the current link, on the media service's workers; the
+        // session's own reads (doc.open, value.open) share what it has read
+        self.media_follow.follow(&self.media_service, Some(&link.conn));
+        self.session.docs.resolver = Some(plumcraft_editor_core::values::docs_resolver(&self.media_service));
         let events = link.drain();
         let now = Instant::now();
         for e in &events {
             if self.session.run.apply_event(e, now) && matches!(e.event, Event::RunReply(_)) {
                 // Reaped thumbnails were published again by this run: try them again.
                 self.thumbs.forget_misses();
+                self.media_service.forget_misses();
             }
+        }
+        if !events.is_empty() {
+            // what an application's value editor will read, asked for now, off this thread
+            plumcraft_editor_core::values::read_ahead(&self.media_service, &self.session.run);
         }
         if self.session.run.running && matches!(self.engine, EngineState::EngineDown { .. } | EngineState::Unavailable { .. }) {
             self.session.run.fail(&format!("the engine went away: {}", link::state_text(&self.engine)));
@@ -1237,10 +1265,16 @@ impl EditorApp {
             ctx.request_repaint_after(HELD_OUTBOX);
         }
         self.pump_saves(ctx);
-        let resolve = self.resolver();
-        let full = self.full_reader();
+        // a value arriving from the media service's workers repaints, and what no frame asks for
+        // any more is dropped before it is read
+        if !self.media_service.has_wake() && !self.offscreen {
+            let repaint = ctx.clone();
+            self.media_service.set_wake(Some(std::sync::Arc::new(move || repaint.request_repaint())));
+        }
+        self.media_service.frame();
+        let source = self.source();
         let display = panel_display(&self.app_display, &self.session.run);
-        if self.watched.update(display, &full) {
+        if self.watched.update_from(display, &source) {
             self.rerun_pending = true;
         }
         self.audio.sync(display, self.watched.full.as_deref());
@@ -1248,7 +1282,7 @@ impl EditorApp {
         let offered = plumcraft_session::run_cmds::offered_views(&self.session);
         let panel_display = panel_display(&self.app_display, &self.session.run).cloned();
         self.panel_pane.chosen.clone_from(&self.session.views.panel_viewer);
-        self.panel_pane.sync(ctx, panel_display.as_ref(), offered, &mut self.thumbs, &resolve, &full, Default::default());
+        self.panel_pane.sync(ctx, panel_display.as_ref(), offered, &mut self.thumbs, &source, Default::default());
         self.sync_compare(ctx);
         self.sync_popouts(ctx);
         self.cache_displays();
@@ -1286,12 +1320,12 @@ impl EditorApp {
     /// Give the watched display to the picture viewers, with its rendition's texture, and set
     /// the document view's "Open in …" (enabled, or disabled with why).
     fn sync_media(&mut self, ctx: &egui::Context) {
-        let resolve = self.resolver();
+        let source = self.source();
         let display = panel_display(&self.app_display, &self.session.run);
         // (an array's pictures are the viewer's, below: a second texture of one would be 48 MB)
         let rendition = display.filter(|d| d.media != plumcraft_proto::catalogue::Media::Ndarray).and_then(|d| {
             d.renditions.iter().find_map(|r| match r {
-                plumcraft_proto::display::Rendition::Rgba8 { data, .. } => self.thumbs.get(ctx, data, &resolve).ok(),
+                plumcraft_proto::display::Rendition::Rgba8 { data, .. } => self.thumbs.get_from(ctx, data, &source).ok(),
                 _ => None,
             })
         });
@@ -1313,7 +1347,7 @@ impl EditorApp {
                     .iter()
                     .filter_map(|r| match r {
                         plumcraft_proto::display::Rendition::Rgba8 { data, role, caption, .. } if role == "view" => {
-                            self.thumbs.picture(ctx, data, &resolve).ok().map(|t| (caption.clone(), t))
+                            self.thumbs.picture_from(ctx, data, &source).ok().map(|t| (caption.clone(), t))
                         }
                         _ => None,
                     })
@@ -1742,12 +1776,12 @@ impl EditorApp {
         self.watched_panel(ui);
         self.canvas.sync(self.session.generation(), self.session.graph(), self.session.catalog());
         let frame = egui::Frame::new().fill(self.tokens.canvas);
-        let resolve = self.resolver();
+        let source = self.source();
         let watched = self.watched_node();
         let runs = RunView {
             run: &self.session.run,
             thumbs: &mut self.thumbs,
-            resolve: &resolve,
+            source: &source,
             docs: &self.session.docs.apps,
             recent_apps: &self.session.docs.recent_apps,
             app_text: &self.app.texts,
@@ -1906,7 +1940,10 @@ impl EditorApp {
         if self.session.views.editors.is_empty() && self.value_editors.is_empty() {
             return;
         }
-        let resolve = self.resolver();
+        // an application's editor asks again each frame: it gets the bytes once read, off this thread
+        // an application's editor asks again each frame: it gets the bytes once read, off this
+        // thread (read ahead as the run's reports arrived: values::read_ahead)
+        let resolve = plumcraft_editor_core::values::nonblocking(&self.media_service);
         let (actions, note) = self.value_editors.show(ctx, &self.session, &resolve, &self.tokens);
         self.run_all(actions);
         if note.is_some() {
@@ -2063,6 +2100,14 @@ fn run_anim_plan(session: &Session, needed: &std::collections::BTreeSet<String>)
         plan.lane.insert(id.clone(), lane);
     }
     plan
+}
+
+/// The egui editor's media service: the default's workers and queue, and a 64 MiB cache, since
+/// this shell keeps every picture it shows as a texture besides ([`run_view::Thumbs`]).
+/// `PLUMCRAFT_MEDIA_CACHE_MB` sets the cache (1 to 65,536).
+pub fn media_config() -> plumcraft_media::Config {
+    let mb = std::env::var("PLUMCRAFT_MEDIA_CACHE_MB").ok().and_then(|v| v.trim().parse::<u64>().ok()).filter(|n| (1..=65_536).contains(n)).unwrap_or(64);
+    plumcraft_media::Config { budget: usize::try_from(mb << 20).unwrap_or(64 << 20), ..plumcraft_media::Config::default() }
 }
 
 #[cfg(test)]

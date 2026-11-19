@@ -1,0 +1,155 @@
+//! Every value an engine sends is hostile input (spec 18, golden rule 1): the media crate's
+//! decoders and its service answer junk with an error, never a panic, a hang or an allocation
+//! the size a header claims. This joins the hostile-input sweep (`crates/proto/tests/hostile.rs`)
+//! for what the editor decodes.
+
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+#[cfg(feature = "spectrogram")]
+use plumcraft_media::audio::spectrogram;
+use plumcraft_media::audio::{Clip, Peaks, decode_inline};
+use plumcraft_media::decode::{decode_numbers, decode_picture, numbers, picture_size, rendition};
+use plumcraft_media::raster::{Rgba, shrink};
+use plumcraft_media::{Config, Fetch, MediaService, Want};
+use plumcraft_proto::data::{BlobMeta, DataRef, Form, Locator};
+use plumcraft_store::Blob;
+
+fn blobs() -> Vec<Blob> {
+    let shapes: Vec<Vec<u64>> = vec![
+        vec![],
+        vec![0],
+        vec![0, 0, 4],
+        vec![1, 1, 4],
+        vec![2, 3, 4],
+        vec![u64::MAX, u64::MAX, 4],
+        vec![u64::MAX, 2],
+        vec![1 << 40, 1 << 40, 4],
+        vec![4096, 4096, 4],
+        vec![1, u64::MAX, 2, 2],
+        vec![u64::MAX, 1, 1, 2],
+        vec![1, 1, 1 << 20, 2],
+        vec![3],
+    ];
+    let dtypes = ["|u1", "<f4", "<f8", "<i2", "|b1", "", "garbage", "<c16"];
+    let payloads: Vec<Vec<u8>> =
+        vec![vec![], vec![0; 3], vec![255; 24], vec![7; 4096], b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR\xff\xff\xff\xff\xff\xff\xff\xff".to_vec()];
+    let mut out = Vec::new();
+    for s in &shapes {
+        for d in dtypes {
+            for p in &payloads {
+                out.push(Blob { dtype: d.into(), shape: s.clone(), bytes: p.clone().into() });
+            }
+        }
+    }
+    out
+}
+
+fn files() -> Vec<Vec<u8>> {
+    let mut png = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    png.extend_from_slice(&0x7fff_ffffu32.to_be_bytes());
+    png.extend_from_slice(&0x7fff_ffffu32.to_be_bytes());
+    png.extend_from_slice(&[8, 6, 0, 0, 0]);
+    let mut zero = b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR".to_vec();
+    zero.extend_from_slice(&[0; 8]);
+    vec![
+        Vec::new(),
+        b"\x89PNG".to_vec(),
+        png,
+        zero,
+        b"\xff\xd8\xff\xe0junk".to_vec(),
+        b"II*\x00\x08\x00\x00\x00\xff\xff".to_vec(),
+        b"GIF89a\xff\xff\xff\xff".to_vec(),
+        b"RIFF\x00\x00\x00\x00WEBPVP8 ".to_vec(),
+        b"<svg xmlns='http://www.w3.org/2000/svg' width='1e30' height='1e30'/>".to_vec(),
+        b"<svg xmlns='http://www.w3.org/2000/svg' width='0' height='0'/>".to_vec(),
+        b"<svg".to_vec(),
+        vec![0xff; 70_000],
+    ]
+}
+
+#[test]
+fn hostile_blobs_never_panic_a_decoder() {
+    for b in blobs() {
+        let _ = rendition(&b);
+        let _ = Peaks::from_blob(&b);
+        let _ = numbers(&b);
+        for rate in [0, 1, 8000, u32::MAX] {
+            let _ = Clip::from_blob(&b, rate);
+        }
+    }
+    // a torn picture shrinks to nothing worse than itself
+    let _ = shrink(Rgba { w: u32::MAX, h: u32::MAX, pixels: vec![1; 16] }, 2);
+    let _ = shrink(Rgba { w: 0, h: 0, pixels: Vec::new() }, 0);
+}
+
+#[test]
+fn hostile_files_never_panic_a_decoder() {
+    for f in files() {
+        let t = Instant::now();
+        let _ = picture_size(&f);
+        assert!(decode_picture(&f, 64).is_err(), "{:?}", String::from_utf8_lossy(&f[..f.len().min(16)]));
+        let _ = decode_numbers(&f);
+        #[cfg(feature = "svg")]
+        {
+            let _ = plumcraft_media::svg::rasterise(&f, 1e9);
+            let _ = plumcraft_media::svg::rasterise(&f, f32::NAN);
+        }
+        assert!(t.elapsed() < Duration::from_secs(5), "a header's claim was believed");
+    }
+    #[cfg(feature = "spectrogram")]
+    for v in [vec![], vec![f32::NAN; 5000], vec![f32::INFINITY; 2000], vec![1e38; 4096]] {
+        let s = spectrogram(&v, 0, 0, 0, 0);
+        let _ = s.rgba(&|t| [(t * 255.0) as u8, 0, 0, 255]);
+    }
+}
+
+#[test]
+fn hostile_references_are_answered_by_the_service() {
+    let m = MediaService::new(Config { workers: 2, ..Config::default() });
+    let junk = blobs();
+    let n = junk.len();
+    let junk = Arc::new(junk);
+    let j = Arc::clone(&junk);
+    m.set_resolver(Some(Arc::new(move |r: &DataRef| {
+        let i = r.meta.size as usize % n;
+        j.get(i).cloned()
+    })));
+    let forms = [
+        Form::Array { dtype: "|u1".into(), shape: vec![u64::MAX, 3, 4], space: None, names: Vec::new(), table: false },
+        Form::Audio { dtype: "<f4".into(), channels: u16::MAX, frames: u64::MAX, sample_rate: 0 },
+        Form::Image { width: u32::MAX, height: 0 },
+        Form::default(),
+    ];
+    let wants = [Want::Bytes, Want::Rendition, Want::Peaks, Want::Picture(0), Want::Picture(u32::MAX), Want::Svg(u32::MAX), Want::Numbers];
+    let mut refs = Vec::new();
+    for (i, form) in forms.iter().enumerate() {
+        for k in 0..n {
+            let meta = BlobMeta { size: k as u64, form: form.clone(), ..BlobMeta::default() };
+            let at = match k % 3 {
+                0 => vec![],
+                1 => vec![Locator::Inline { b64: "!!not base64".into() }],
+                _ => vec![Locator::Inline { b64: "AAAAAAAAAAAAAAAAAAAAAA==".into() }],
+            };
+            refs.push(DataRef { handle: Some(plumcraft_proto::Handle::raw(format!("{i}/{k}").as_bytes())), meta, at });
+        }
+    }
+    let t = Instant::now();
+    for r in &refs {
+        for w in wants {
+            let _ = m.get(r, w);
+        }
+    }
+    assert!(t.elapsed() < Duration::from_secs(5), "asking never waits");
+    assert!(m.wait_idle(Duration::from_secs(60)), "{:?}", m.stats());
+    for r in &refs {
+        for w in wants {
+            match m.get(r, w) {
+                Fetch::Pending => {} // refused while the queue was full: asked again later
+                Fetch::Ready(_) | Fetch::Missing | Fetch::Failed(_) => {}
+            }
+        }
+    }
+    assert!(m.wait_idle(Duration::from_secs(60)));
+    let _ = decode_inline(&refs[1]);
+}

@@ -26,7 +26,6 @@ pub mod xml;
 pub use plumcraft_editor_core::yaml;
 
 use plumcraft_proto::catalogue::Media;
-use plumcraft_proto::data::DataRef;
 use plumcraft_proto::display::{Display, Rendition};
 use plumcraft_session::run::WatchRole;
 use plumcraft_session::viewer_cmds::Tools;
@@ -250,31 +249,30 @@ pub struct Pane {
 impl Pane {
     /// Take the newest display for the port (`None` while a run hasn't sent one: the last
     /// stays). True when the value's bytes are gone and a rerun should publish them again.
-    /// `full` reads the full value, `resolve` renditions; `tools` is this pane's probe and zoom.
-    #[allow(clippy::too_many_arguments)]
+    /// `source` reads the full value and renditions (the media service: off the UI thread, each
+    /// arriving on a later frame); `tools` is this pane's probe and zoom.
     pub fn sync(
         &mut self,
         ctx: &egui::Context,
         display: Option<&Display>,
         offered_views: Vec<String>,
         thumbs: &mut Thumbs,
-        resolve: &dyn Fn(&DataRef) -> Option<Blob>,
-        full: &dyn Fn(&DataRef) -> Option<Arc<Blob>>,
+        source: &dyn plumcraft_media::Source,
         tools: Tools,
     ) -> bool {
         self.tools = tools;
         let Some(d) = display.or(self.display.as_ref()).cloned() else { return false };
-        let rerun = self.read.update(Some(&d), full);
+        let rerun = self.read.update_from(Some(&d), source);
         let rgba = |r: &Rendition| match r {
             Rendition::Rgba8 { data, role, .. } if role.is_empty() || role == "thumb" => Some(data.clone()),
             _ => None,
         };
-        self.rendition = d.renditions.iter().find_map(rgba).and_then(|data| thumbs.get(ctx, &data, resolve).ok());
+        self.rendition = d.renditions.iter().find_map(rgba).and_then(|data| thumbs.get_from(ctx, &data, source).ok());
         self.pictures = d
             .renditions
             .iter()
             .filter_map(|r| match r {
-                Rendition::Rgba8 { data, role, caption, .. } if role == "view" => thumbs.picture(ctx, data, resolve).ok().map(|t| (caption.clone(), t)),
+                Rendition::Rgba8 { data, role, caption, .. } if role == "view" => thumbs.picture_from(ctx, data, source).ok().map(|t| (caption.clone(), t)),
                 _ => None,
             })
             .collect();
@@ -285,7 +283,7 @@ impl Pane {
             .sheet
             .iter()
             .map(|c| match &c.thumb {
-                Some(Rendition::Rgba8 { data, .. }) => thumbs.get(ctx, data, resolve).ok(),
+                Some(Rendition::Rgba8 { data, .. }) => thumbs.get_from(ctx, data, source).ok(),
                 _ => None,
             })
             .collect();

@@ -37,6 +37,8 @@ plumcraft-coordinator = { workspace = true }
 plumcraft-editor-core = { workspace = true }
 plumcraft-graph = { workspace = true }
 plumcraft-host = { workspace = true }
+# Values read through the engine and decoded on workers: what plum_blob and media.get lend.
+plumcraft-media = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }

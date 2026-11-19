@@ -25,6 +25,8 @@
 //! - [`wire_path`]: a bent wire's curve and hit testing on it;
 //! - [`palette`]: the node palette's search index;
 //! - [`probe`], [`diff`], [`dtype`], [`raster`]: exact readings and differences of arrays;
+//! - [`values`]: a document's values as pictures, through the media service
+//!   ([`plumcraft_media`]), which reads and decodes them off the shell's thread (slice 6);
 //! - [`yaml`]: JSON values as YAML, for display.
 //!
 //! `plumcraft-ui` re-exports each at its old path, so code written against it still compiles;
@@ -51,6 +53,10 @@ pub mod run_anim;
 pub mod run_text;
 pub mod switchboard;
 pub mod theme;
+pub mod values;
 pub mod wire_path;
 pub mod worker;
 pub mod yaml;
+
+/// The media crate, for shells that reach it through the core.
+pub use plumcraft_media as media;

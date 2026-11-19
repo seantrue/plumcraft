@@ -107,19 +107,18 @@ impl EditorApp {
         } else if cached.is_none() {
             ctx.request_repaint_after(Duration::from_millis(100));
         }
-        let resolve = self.resolver();
-        let full = self.full_reader();
+        let source = self.source();
         if let Some(d) = &cached {
             if self.wires.shown.as_ref() != Some(&key) {
                 self.wires.pane = Pane::default();
                 self.wires.shown = Some(key.clone());
             }
-            self.wires.pane.sync(ctx, Some(d), Vec::new(), &mut self.thumbs, &resolve, &full, Default::default());
+            self.wires.pane.sync(ctx, Some(d), Vec::new(), &mut self.thumbs, &source, Default::default());
         }
         // The source node's state and thumbnail, while its value isn't known.
         let node_run = self.session.run.node(&from.node.0).cloned();
         let thumb = node_run.as_ref().and_then(|n| n.thumb.as_ref()).and_then(|r| match r {
-            Rendition::Rgba8 { data, .. } => self.thumbs.get(ctx, data, &resolve).ok(),
+            Rendition::Rgba8 { data, .. } => self.thumbs.get_from(ctx, data, &source).ok(),
             _ => None,
         });
         let first_output = plumcraft_session::default_output(&self.session, &from.node).is_some_and(|p| p == from.port);

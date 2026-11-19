@@ -28,12 +28,10 @@ use egui_snarl::ui::{NodeLayout, NodeLayoutKind, PinInfo, SnarlPin, SnarlViewer,
 use egui_snarl::{InPin, InPinId, NodeId as SnarlId, OutPin, OutPinId, Snarl};
 use plumcraft_graph::{Graph, GroupId, NodeCache, NodeId, NodeView, PortRef};
 use plumcraft_proto::catalogue::{NodeDef, Port, SchemaReply, Socket, scalars};
-use plumcraft_proto::data::DataRef;
 use plumcraft_proto::display::Rendition;
 use plumcraft_proto::event::NodeState;
 use plumcraft_session::RunState;
 use plumcraft_session::run::NodeRun;
-use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
 use crate::bundle_view::{self, Source};
@@ -302,8 +300,9 @@ pub type Action = (&'static str, Value);
 pub struct RunView<'a> {
     pub run: &'a RunState,
     pub thumbs: &'a mut Thumbs,
-    /// Reads a thumbnail's bytes (the connection's `resolve`; nothing without an engine).
-    pub resolve: &'a dyn Fn(&DataRef) -> Option<Blob>,
+    /// Reads and decodes a thumbnail (the media service, off the UI thread: a thumbnail on its
+    /// way is drawn as a placeholder; nothing without an engine).
+    pub source: &'a dyn plumcraft_media::Source,
     /// The apps that open document outputs ("Open in VectorCraft", `doc.open`).
     pub docs: &'a [plumcraft_session::DocApp],
     /// Apps chosen before with Open with… (`value.open`), most recent first.
@@ -652,7 +651,7 @@ impl Canvas {
             to_global: self.to_global,
             run: runs.run,
             thumbs: runs.thumbs,
-            resolve: runs.resolve,
+            source: runs.source,
             docs: runs.docs,
             recent_apps: runs.recent_apps,
             app_text: runs.app_text,
@@ -932,7 +931,7 @@ struct NodeViewer<'a> {
     to_global: TSTransform,
     run: &'a RunState,
     thumbs: &'a mut Thumbs,
-    resolve: &'a dyn Fn(&DataRef) -> Option<Blob>,
+    source: &'a dyn plumcraft_media::Source,
     docs: &'a [plumcraft_session::DocApp],
     recent_apps: &'a [std::path::PathBuf],
     app_text: &'a HashMap<String, String>,
@@ -1641,7 +1640,7 @@ impl NodeViewer<'_> {
             Some(note) => format!("{channels}\n{note}\nClick to watch"),
             None => format!("{channels}\nClick to watch"),
         };
-        let clicked = match self.thumbs.peaks(data, self.resolve) {
+        let clicked = match self.thumbs.peaks_from(data, self.source) {
             Ok(peaks) => {
                 crate::audio::draw_waveform(ui.painter(), rect, &peaks, self.tokens, faded);
                 let tokens = self.tokens.clone();
@@ -1652,9 +1651,14 @@ impl NodeViewer<'_> {
                 })
                 .clicked()
             }
+            // on its way (the media service): the waveform's ground, nothing written on it
+            Err(run_view::ThumbMiss::Pending) => {
+                ui.painter().rect_filled(rect, f32::from(self.tokens.radius), self.tokens.waveform_bg);
+                r.on_hover_text(&hover).clicked()
+            }
             Err(miss) => {
                 let text = match miss {
-                    run_view::ThumbMiss::Missing => "re-run to refresh".to_owned(),
+                    run_view::ThumbMiss::Missing | run_view::ThumbMiss::Pending => "re-run to refresh".to_owned(),
                     run_view::ThumbMiss::Shape(s) => format!("waveform unreadable: {s}"),
                 };
                 let p = ui.painter();
@@ -1677,7 +1681,7 @@ impl NodeViewer<'_> {
         let summary = if summary.is_empty() { caption.clone() } else { summary.clone() };
         let ctx = ui.ctx().clone();
         let id = ui.id().with(("plumcraft-thumb", node.id.0.as_str()));
-        let clicked = match self.thumbs.get(&ctx, data, self.resolve) {
+        let clicked = match self.thumbs.get_from(&ctx, data, self.source) {
             Ok(tex) => {
                 let mut image = egui::Image::new((tex.id(), rect.size())).corner_radius(f32::from(self.tokens.radius));
                 if self.thumb_faded_now(node, n) {
@@ -1700,9 +1704,18 @@ impl NodeViewer<'_> {
                 })
                 .clicked()
             }
+            // on its way (the media service): the placeholder alone, labelled as the preview it
+            // becomes, for the frame or two it takes
+            Err(run_view::ThumbMiss::Pending) => {
+                let r = ui.interact(rect, id, egui::Sense::click());
+                ui.painter().rect_filled(rect, f32::from(self.tokens.radius), self.tokens.placeholder);
+                let label = format!("Preview of {}", node.id);
+                r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
+                r.on_hover_text(format!("{summary}\nClick to watch")).clicked()
+            }
             Err(miss) => {
                 let text = match miss {
-                    run_view::ThumbMiss::Missing => "re-run to refresh".to_owned(),
+                    run_view::ThumbMiss::Missing | run_view::ThumbMiss::Pending => "re-run to refresh".to_owned(),
                     run_view::ThumbMiss::Shape(s) => format!("preview unreadable: {s}"),
                 };
                 let r = ui.interact(rect, id, egui::Sense::click());

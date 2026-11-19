@@ -26,6 +26,8 @@ plumcraft-automation = { workspace = true }
 plumcraft-session = { workspace = true }
 # The toolkit-free core under this shell: preferences, themes as data, the event pump, geometry.
 plumcraft-editor-core = { workspace = true }
+# Values as plain pictures, read and decoded on workers (the media service); this shell uploads them.
+plumcraft-media = { workspace = true }
 plumcraft-store = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }

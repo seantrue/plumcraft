@@ -444,7 +444,7 @@ fn scrolling_in_past_the_picture_asks_for_detail_once() {
         h.run_steps(1);
     }
     h.run_steps(30);
-    until(&mut h, "the larger picture", |h| idle(h) && inspect(h)["watched"]["px"] == 2000);
+    until(&mut h, "the larger picture", |h| idle(h) && inspect(h)["watched"]["px"] == 2000 && !h.state().media_busy());
     let tools = inspect(&h)["watched"]["view"]["tools"].clone();
     assert_eq!(tools["arrayPixelsPerBlock"], 1.0, "a block is a pixel now: {tools}");
 }
