@@ -12,7 +12,10 @@
 //! - **One wake, no payload,** from the core thread, coalesced: after a wake, none until the
 //!   shell has polled. The shell hops to its own thread and calls `plum_poll`.
 //! - **Borrowed bytes.** `plum_blob` lends a store blob's bytes (pointer and length) and holds
-//!   them until `plum_release(token)`, which may come after `plum_close`.
+//!   them until `plum_release(token)`, which may come after `plum_close`. It never waits for an
+//!   engine: what must be read through one (an HTTP engine's value) or made (a thumbnail, a
+//!   decoded picture: a `derive:` key, `media.get`) is `PLUM_PENDING` until the media service has
+//!   it, which `plum_poll`'s `media` says.
 //!
 //! Every entry catches unwinds. Every pointer from the caller is checked for null; lengths are
 //! believed (C cannot do better), and the bytes behind them are hostile input.
@@ -33,9 +36,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard};
 
-use plumcraft_store::Blob;
-
-use crate::core::{Config, Core, WakeFn};
+use crate::core::{Config, Core, Lease, WakeFn};
 
 /// The ABI's version; it changes only when a signature does.
 pub const PLUM_ABI_VERSION: u32 = 1;
@@ -50,6 +51,10 @@ pub const PLUM_ERR_ARG: i32 = -2;
 pub const PLUM_ERR_MISSING: i32 = -3;
 /// A panic was caught at the boundary.
 pub const PLUM_ERR_PANIC: i32 = -4;
+/// Its bytes were read and aren't what they claim (a picture that won't decode).
+pub const PLUM_ERR_UNREADABLE: i32 = -5;
+/// Not here yet: the media service is reading or making it; `plum_poll`'s `media` says when.
+pub const PLUM_PENDING: i32 = 1;
 
 /// A buffer the library made (JSON from `plum_poll`, `plum_last_error`). Free it with
 /// `plum_free`, once. `ptr` is null and `len` 0 when there is nothing.
@@ -93,8 +98,8 @@ impl PlumBytes {
 /// The open cores, by number.
 static CORES: LazyLock<Mutex<HashMap<u64, Arc<Core>>>> = LazyLock::new(Mutex::default);
 static NEXT_CORE: AtomicU64 = AtomicU64::new(1);
-/// Blobs lent out, by token: process-wide, so bytes outlive the core that lent them.
-static LEASES: LazyLock<Mutex<HashMap<u64, Arc<Blob>>>> = LazyLock::new(Mutex::default);
+/// Bytes lent out, by token: process-wide, so bytes outlive the core that lent them.
+static LEASES: LazyLock<Mutex<HashMap<u64, Lease>>> = LazyLock::new(Mutex::default);
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
 
 thread_local! {
@@ -237,8 +242,10 @@ pub unsafe extern "C" fn plum_free(buf: PlumBuf) {
 }
 
 /// Lend the bytes of a store blob by handle (UTF-8, as in a DataRef: `md5:raw:…`), without a
-/// copy. A blob already lent is shared. Read the bytes, never write them (they may be a mapped
-/// file); release with `plum_release(token)`.
+/// copy, or what the media service made by a `derive:` key (`media.get`'s `key`: an RGBA8
+/// picture, peaks, a file's numbers). A blob already lent is shared. Read the bytes, never write
+/// them (they may be a mapped file); release with `plum_release(token)`. Never waits for an
+/// engine: `PLUM_PENDING` while the bytes are on their way (`plum_poll`'s `media` says when).
 ///
 /// # Safety
 ///
@@ -255,10 +262,13 @@ pub unsafe extern "C" fn plum_blob(core: u64, handle: *const u8, len: usize) -> 
                 return PlumBytes::err(PLUM_ERR_ARG);
             }
             let Some(c) = self::core(core) else { return PlumBytes::err(PLUM_ERR_CORE) };
-            let Ok(blob) = c.shared.blob(handle) else { return PlumBytes::err(PLUM_ERR_MISSING) };
+            let lease = match c.shared.blob(handle) {
+                Ok(l) => l,
+                Err(status) => return PlumBytes::err(status),
+            };
             let token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
-            let (ptr, len) = (blob.bytes.as_ptr(), blob.bytes.len());
-            lock(&LEASES).insert(token, blob);
+            let (ptr, len) = (lease.bytes().as_ptr(), lease.bytes().len());
+            lock(&LEASES).insert(token, lease);
             PlumBytes { ptr, len, token, status: PLUM_OK }
         },
     )

@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+use plumcraft_media::{Fetch, Source, Want};
 use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{DataRef, Locator};
 use plumcraft_proto::display::{Display, Rendition, WatchRequest};
@@ -38,6 +39,10 @@ pub const MAX_ROWS: usize = 1000;
 /// Full values already in memory, by handle: the panel, its tabs, the pins and the pop-outs that
 /// show one value share its bytes, which can be hundreds of megabytes, rather than each read
 /// them. Held weakly: a value goes when the last viewer lets it go.
+///
+/// The editor reads through the media service now ([`plumcraft_media::MediaService`], which
+/// shares bytes the same way and reads them off the UI thread); this stays for code that reads
+/// in place.
 #[derive(Clone, Default)]
 pub struct Fulls(Arc<Mutex<HashMap<String, Weak<Blob>>>>);
 
@@ -67,6 +72,8 @@ pub struct Watched {
     pub missing: bool,
     /// A rerun was asked for because of it (once per value, F58).
     reran_for_missing: bool,
+    /// Its bytes are on their way (the media service is reading them): not missing, not here.
+    pub pending: bool,
 }
 
 impl Watched {
@@ -76,15 +83,27 @@ impl Watched {
     }
 
     /// Take the session's watched display, reading its full value with `resolve` when it is
-    /// new. True when the value's bytes are gone and a rerun should publish them again (once).
+    /// new, in place. True when the value's bytes are gone and a rerun should publish them again
+    /// (once).
     pub fn update(&mut self, d: Option<&Display>, resolve: &dyn Fn(&DataRef) -> Option<Arc<Blob>>) -> bool {
-        if self.seen.as_ref() == d {
+        self.update_fetch(d, &|r: &DataRef| resolve(r).map_or(Fetch::Missing, Fetch::Ready))
+    }
+
+    /// [`Watched::update`], asking `source` (the media service) for the bytes: until they arrive
+    /// the value is [`Watched::pending`], not missing, and is asked for again each frame.
+    pub fn update_from(&mut self, d: Option<&Display>, source: &dyn Source) -> bool {
+        self.update_fetch(d, &|r: &DataRef| source.fetch(r, Want::Bytes).bytes())
+    }
+
+    fn update_fetch(&mut self, d: Option<&Display>, fetch: &dyn Fn(&DataRef) -> Fetch<Arc<Blob>>) -> bool {
+        if self.seen.as_ref() == d && !self.pending {
             return false;
         }
         let Some(d) = d else {
             self.seen = None;
             self.full = None;
             self.missing = false;
+            self.pending = false;
             return false;
         };
         // A document is never read: the UI doesn't decode it (spec 10.1), and it may be huge.
@@ -93,15 +112,21 @@ impl Watched {
         let id = |f: &DataRef| f.handle.as_ref().map_or_else(|| format!("{:?}", f.at), ToString::to_string);
         let same = self.seen.as_ref().and_then(|w| w.full.as_ref()).map(id) == d.full.as_ref().map(id);
         if !same || self.full.is_none() {
-            self.full = d.full.as_ref().filter(|_| readable).and_then(resolve);
+            let (full, pending) = match d.full.as_ref().filter(|_| readable).map(fetch) {
+                Some(Fetch::Ready(b)) => (Some(b), false),
+                Some(Fetch::Pending) => (None, true),
+                _ => (None, false),
+            };
+            self.full = full;
+            self.pending = pending;
         }
-        self.missing = readable && d.full.is_some() && self.full.is_none();
+        self.missing = readable && d.full.is_some() && self.full.is_none() && !self.pending;
         self.seen = Some(d.clone());
         if self.missing && !self.reran_for_missing {
             self.reran_for_missing = true;
             return true;
         }
-        if !self.missing {
+        if !self.missing && !self.pending {
             self.reran_for_missing = false;
         }
         false
@@ -206,6 +231,7 @@ impl Watched {
                 (Some(_), _) => format!("{} bytes from the store", f.meta.size),
                 (None, _) if d.media == Media::Doc && f.at.is_empty() => format!("{} bytes, on the engine's machine", f.meta.size),
                 (None, _) if d.media == Media::Doc => format!("{} bytes, in the engine's CAS", f.meta.size),
+                (None, _) if self.pending => format!("{} bytes, reading…", f.meta.size),
                 (None, _) => "gone (reaped); rerun to publish it again".to_owned(),
             };
             let handle = f.handle.as_ref().map(|h| h.to_string()).unwrap_or_default();
@@ -403,21 +429,8 @@ pub fn table_view(ui: &mut egui::Ui, t: &Value, tokens: &Tokens) {
     }
 }
 
-/// A 1-d array's values as numbers, for the dtypes the text engine makes and a few more.
-pub fn numbers(b: &Blob) -> Option<Vec<f64>> {
-    if b.shape.len() != 1 {
-        return None;
-    }
-    let v: Vec<f64> = match b.dtype.as_str() {
-        "|u1" => b.bytes.iter().map(|x| f64::from(*x)).collect(),
-        "<u4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(u32::from_le_bytes(*c))).collect(),
-        "<i4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(i32::from_le_bytes(*c))).collect(),
-        "<f4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(f32::from_le_bytes(*c))).collect(),
-        "<f8" => b.bytes.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect(),
-        _ => return None,
-    };
-    Some(v)
-}
+/// A 1-d array's values as numbers ([`plumcraft_media::decode::numbers`]).
+pub use plumcraft_media::decode::numbers;
 
 /// A 1-d plot: a bar per value when they fit, otherwise each pixel column spans the min and max
 /// of its values; the range is labelled.

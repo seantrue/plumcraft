@@ -3047,6 +3047,7 @@ dependencies = [
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
+ "plumcraft-media",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
@@ -3082,6 +3083,7 @@ dependencies = [
  "plumcraft-editor-core",
  "plumcraft-graph",
  "plumcraft-host",
+ "plumcraft-media",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
@@ -3114,6 +3116,21 @@ dependencies = [
 [[package]]
 name = "plumcraft-layout"
 version = "0.7.0"
+
+[[package]]
+name = "plumcraft-media"
+version = "0.7.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-store",
+ "plumcraft-svg",
+ "png 0.18.1",
+ "rustfft",
+ "serde_json",
+]
 
 [[package]]
 name = "plumcraft-proto"
@@ -3210,6 +3227,7 @@ dependencies = [
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
+ "plumcraft-media",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",

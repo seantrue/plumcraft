@@ -37,15 +37,12 @@ use serde_json::{Value, json};
 
 use crate::theme::Tokens;
 
-/// The longest texture side made for a picture.
-pub const MAX_TEXTURE_SIDE: u32 = 4096;
-/// The most pixels an SVG is rasterised to.
-pub const MAX_RENDER_PIXELS: u64 = 16 << 20;
-/// The largest PNG decoded: 16,384 px a side, 256 Mpx (spec 18).
-pub const MAX_DECODE_SIDE: u32 = 16_384;
-pub const MAX_DECODE_PIXELS: u64 = 256 << 20;
-/// The largest SVG parsed.
-pub const MAX_SVG_BYTES: usize = plumcraft_svg::MAX_SVG_BYTES;
+/// The bounds and decoders moved to the media crate (stage N1, slice 6); re-exported here.
+pub use plumcraft_media::decode::{
+    MAX_DECODE_PIXELS, MAX_DECODE_SIDE, MAX_TEXTURE_SIDE, decode_numbers, decode_picture, decode_png, image_channel_names, picture_size, png_size,
+};
+pub use plumcraft_media::raster::shrink;
+pub use plumcraft_media::svg::{MAX_RENDER_PIXELS, MAX_SVG_BYTES, parse_svg, render_svg};
 /// The zoom range, relative to fitting the view.
 pub const MIN_ZOOM: f32 = 0.1;
 pub const MAX_ZOOM: f32 = 64.0;
@@ -213,172 +210,10 @@ impl RgbaImage for Rgba {
     }
 }
 
-/// A PNG's size from its header.
-pub fn png_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    if bytes.get(..8)? != b"\x89PNG\r\n\x1a\n" || bytes.get(12..16)? != b"IHDR" {
-        return None;
-    }
-    let w = u32::from_be_bytes(bytes.get(16..20)?.try_into().ok()?);
-    let h = u32::from_be_bytes(bytes.get(20..24)?.try_into().ok()?);
-    Some((w, h))
-}
-
-/// A picture file's size from its header, whatever its format.
-pub fn picture_size(bytes: &[u8]) -> Option<(u32, u32)> {
-    png_size(bytes).or_else(|| image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().ok()?.into_dimensions().ok())
-}
-
-/// Decode a picture file (bounded) to RGBA8, shrunk to at most `max_side`: PNG here, the other
-/// formats with the `image` crate, which reads them in RGB order whatever made them.
-pub fn decode_picture(bytes: &[u8], max_side: u32) -> Result<Rgba, String> {
-    if png_size(bytes).is_some() {
-        return decode_png(bytes, max_side);
-    }
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_DECODE_SIDE);
-    limits.max_image_height = Some(MAX_DECODE_SIDE);
-    limits.max_alloc = Some(MAX_DECODE_PIXELS * 4);
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
-    if reader.format().is_none() {
-        return Err("not a picture this editor reads".into());
-    }
-    reader.limits(limits);
-    let picture = reader.decode().map_err(|e| e.to_string())?.into_rgba8();
-    let (w, h) = picture.dimensions();
-    Ok(shrink(Rgba { w, h, pixels: picture.into_raw() }, max_side))
-}
-
-/// Decode a PNG (bounded) to RGBA8, shrunk (box filter) to at most `max_side`.
-pub fn decode_png(bytes: &[u8], max_side: u32) -> Result<Rgba, String> {
-    let (w0, h0) = png_size(bytes).ok_or("not a PNG")?;
-    if w0 == 0 || h0 == 0 || w0 > MAX_DECODE_SIDE || h0 > MAX_DECODE_SIDE || u64::from(w0) * u64::from(h0) > MAX_DECODE_PIXELS {
-        return Err(format!("a {w0}×{h0} PNG is too large to show"));
-    }
-    let mut dec = png::Decoder::new(std::io::Cursor::new(bytes));
-    dec.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
-    let mut reader = dec.read_info().map_err(|e| e.to_string())?;
-    let mut buf = vec![0u8; reader.output_buffer_size().ok_or("PNG too large")?];
-    let info = reader.next_frame(&mut buf).map_err(|e| e.to_string())?;
-    let (w, h) = (info.width as usize, info.height as usize);
-    let src = buf.get(..info.buffer_size()).ok_or("a torn PNG")?;
-    let ch = match info.color_type {
-        png::ColorType::Rgba => 4,
-        png::ColorType::Rgb => 3,
-        png::ColorType::GrayscaleAlpha => 2,
-        png::ColorType::Grayscale => 1,
-        png::ColorType::Indexed => return Err("an indexed PNG wasn't expanded".into()),
-    };
-    if src.len() < w * h * ch {
-        return Err("a torn PNG".into());
-    }
-    let mut rgba = Vec::with_capacity(w * h * 4);
-    for px in src.chunks_exact(ch).take(w * h) {
-        let g = |k: usize| px.get(k).copied().unwrap_or(0);
-        rgba.extend_from_slice(&match ch {
-            4 => [g(0), g(1), g(2), g(3)],
-            3 => [g(0), g(1), g(2), 255],
-            2 => [g(0), g(0), g(0), g(1)],
-            _ => [g(0), g(0), g(0), 255],
-        });
-    }
-    Ok(shrink(Rgba { w: info.width, h: info.height, pixels: rgba }, max_side))
-}
-
-/// Shrink to at most `max_side` a side (box filter); smaller pictures are returned as they are.
-pub fn shrink(img: Rgba, max_side: u32) -> Rgba {
-    let (w, h) = (img.w as usize, img.h as usize);
-    if img.w.max(img.h) <= max_side || max_side == 0 || img.pixels.len() < w * h * 4 {
-        return img;
-    }
-    let scale = f64::from(max_side) / f64::from(img.w.max(img.h));
-    let (tw, th) = (((w as f64 * scale).round() as usize).max(1), ((h as f64 * scale).round() as usize).max(1));
-    let mut out = Vec::with_capacity(tw * th * 4);
-    for ty in 0..th {
-        let (y0, y1) = (ty * h / th, ((ty + 1) * h / th).clamp(ty * h / th + 1, h));
-        for tx in 0..tw {
-            let (x0, x1) = (tx * w / tw, ((tx + 1) * w / tw).clamp(tx * w / tw + 1, w));
-            let mut acc = [0u64; 4];
-            let mut n = 0u64;
-            for y in y0..y1 {
-                for x in x0..x1 {
-                    let i = (y * w + x) * 4;
-                    for (k, a) in acc.iter_mut().enumerate() {
-                        *a += u64::from(img.pixels.get(i + k).copied().unwrap_or(0));
-                    }
-                    n += 1;
-                }
-            }
-            out.extend(acc.map(|a| u8::try_from(a / n.max(1)).unwrap_or(255)));
-        }
-    }
-    Rgba { w: tw as u32, h: th as u32, pixels: out }
-}
-
-/// A picture file's own numbers, as an array: its bit depth kept, nothing shrunk or stripped, so
-/// the probe and |A−B| read what the file holds. Bounded as [`decode_picture`] is.
-pub fn decode_numbers(bytes: &[u8]) -> Result<Blob, String> {
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(MAX_DECODE_SIDE);
-    limits.max_image_height = Some(MAX_DECODE_SIDE);
-    limits.max_alloc = Some(MAX_DECODE_PIXELS * 4);
-    let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes)).with_guessed_format().map_err(|e| e.to_string())?;
-    reader.limits(limits);
-    let picture = reader.decode().map_err(|e| e.to_string())?;
-    let (w, h) = (u64::from(picture.width()), u64::from(picture.height()));
-    use image::ColorType as C;
-    let (dtype, channels) = match picture.color() {
-        C::L8 => ("|u1", 1),
-        C::La8 => ("|u1", 2),
-        C::Rgb8 => ("|u1", 3),
-        C::Rgba8 => ("|u1", 4),
-        C::L16 => ("<u2", 1),
-        C::La16 => ("<u2", 2),
-        C::Rgb16 => ("<u2", 3),
-        C::Rgba16 => ("<u2", 4),
-        C::Rgb32F => ("<f4", 3),
-        C::Rgba32F => ("<f4", 4),
-        other => return Err(format!("this viewer can't read {other:?} pixels")),
-    };
-    let shape = if channels == 1 { vec![h, w] } else { vec![h, w, channels] };
-    Ok(Blob { dtype: dtype.into(), shape, bytes: (picture.into_bytes()).into() })
-}
-
-/// The names of a picture file's channels.
-fn image_channel_names(channels: usize) -> Vec<String> {
-    let names: &[&str] = match channels {
-        2 => &["L", "A"],
-        3 => &["R", "G", "B"],
-        4 => &["R", "G", "B", "A"],
-        _ => &[],
-    };
-    names.iter().map(|n| (*n).to_owned()).collect()
-}
-
-/// Parse an SVG (bounded; [`plumcraft_svg::parse`]).
-pub fn parse_svg(bytes: &[u8]) -> Result<resvg::usvg::Tree, String> {
-    plumcraft_svg::parse(bytes)
-}
-
 /// The pixel size an SVG of `size` is rasterised to for `long` pixels on its long side, within
-/// the bounds.
+/// the bounds ([`plumcraft_media::svg::render_size`]).
 pub fn render_size(size: Vec2, long: f32) -> (u32, u32) {
-    if !(size.x > 0.0 && size.y > 0.0 && size.x.is_finite() && size.y.is_finite()) {
-        return (1, 1);
-    }
-    let mut long = long.clamp(16.0, MAX_TEXTURE_SIDE as f32);
-    let px = |l: f32| (((size.x / size.x.max(size.y)) * l).round().max(1.0) as u32, ((size.y / size.x.max(size.y)) * l).round().max(1.0) as u32);
-    let (mut w, mut h) = px(long);
-    while u64::from(w) * u64::from(h) > MAX_RENDER_PIXELS && long > 16.0 {
-        long *= 0.9;
-        (w, h) = px(long);
-    }
-    (w, h)
-}
-
-/// Rasterise `tree` to `w × h`, on white as a browser shows it ([`plumcraft_svg::render`]): a
-/// drawing's dark lines can't be seen on the dark checkerboard.
-pub fn render_svg(tree: &resvg::usvg::Tree, w: u32, h: u32) -> Result<Rgba, String> {
-    plumcraft_svg::render(tree, w, h).map(plumcraft_svg::Raster::on_paper).map(|r| Rgba { w: r.w, h: r.h, pixels: r.pixels })
+    plumcraft_media::svg::render_size((size.x, size.y), long)
 }
 
 /// A picture with the texture made from it. Textures belong to one egui context: an offscreen

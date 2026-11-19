@@ -25,6 +25,8 @@ extern "C" {
 #define PLUM_ERR_ARG (-2)     /* a null, empty or non-UTF-8 argument */
 #define PLUM_ERR_MISSING (-3) /* no bytes for that handle; no such token */
 #define PLUM_ERR_PANIC (-4)   /* a panic was caught at the boundary */
+#define PLUM_ERR_UNREADABLE (-5) /* read, and not what it claims (a picture that won't decode) */
+#define PLUM_PENDING 1        /* plum_blob: on its way; plum_poll's "media" says when */
 
 /* A core, by number (0 is none). A number, not a pointer: a second close or a call after
  * close is an error code, never a use after free. */
@@ -71,13 +73,19 @@ int32_t plum_close(plum_core core);
 uint64_t plum_request(plum_core core, const uint8_t *json, size_t len);
 
 /* Everything since the last poll: {"replies": [{id, ok, result | error, tag?}],
- * "events": [engine event envelopes], "dropped": n}. Empty when there is nothing. */
+ * "events": [engine event envelopes], "dropped": n}, with "asks" and "asksEnded" when the core
+ * asked the shell something, and "media": [{key, handle, want, status, w?, h?, len?, format?,
+ * reason?}] when values asked for (media.get, a pending plum_blob) arrived. Empty when there is
+ * nothing. */
 plum_buf plum_poll(plum_core core);
 
 /* Free a buffer from plum_poll or plum_last_error. An empty buffer is ignored. */
 void plum_free(plum_buf buf);
 
-/* Lend a store blob's bytes by handle ("md5:raw:..."), without a copy. */
+/* Lend a store blob's bytes by handle ("md5:raw:..."), without a copy, or what media.get made
+ * by its "key" ("derive:rgba:<handle>", "derive:image:<handle>@<px>", ...: RGBA8, straight
+ * alpha, w and h from media.get or the feed). Never waits for an engine: PLUM_PENDING while the
+ * bytes are on their way, and plum_poll's "media" says when they are here. */
 plum_bytes plum_blob(plum_core core, const uint8_t *handle, size_t len);
 
 /* Give lent bytes back. PLUM_OK or PLUM_ERR_MISSING. Allowed after plum_close. */

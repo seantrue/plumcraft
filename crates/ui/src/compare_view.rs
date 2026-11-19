@@ -13,11 +13,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 use egui::{Color32, Pos2, Rect, Sense, Stroke, pos2, vec2};
 use plumcraft_proto::catalogue::Media;
-use plumcraft_proto::data::DataRef;
 use plumcraft_proto::display::{Display, Rendition};
 use plumcraft_session::Session;
 use plumcraft_session::run::WatchRole;
 use plumcraft_session::viewer_cmds::{Compare, CompareHow, DiffMode};
+#[cfg(test)]
 use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
@@ -52,33 +52,25 @@ pub struct Side {
 impl Side {
     /// Take the newest display (`None` while a run computes: the last stays). True when its
     /// bytes are gone and a rerun should publish them again.
-    fn sync(
-        &mut self,
-        ctx: &egui::Context,
-        title: String,
-        display: Option<Display>,
-        thumbs: &mut Thumbs,
-        resolve: &dyn Fn(&DataRef) -> Option<Blob>,
-        full: &dyn Fn(&DataRef) -> Option<Arc<Blob>>,
-    ) -> bool {
+    fn sync(&mut self, ctx: &egui::Context, title: String, display: Option<Display>, thumbs: &mut Thumbs, source: &dyn plumcraft_media::Source) -> bool {
         self.title = title;
         if display.is_some() {
             self.display = display;
         }
         let Some(d) = &self.display else { return false };
-        let rerun = self.read.update(Some(d), full);
+        let rerun = self.read.update_from(Some(d), source);
         let views = d.renditions.iter().filter_map(|r| match r {
             Rendition::Rgba8 { data, role, caption, .. } if role == "view" => Some((caption.clone(), data)),
             _ => None,
         });
-        let mut pictures: Vec<(String, egui::TextureHandle)> = views.filter_map(|(c, data)| Some((c, thumbs.picture(ctx, data, resolve).ok()?))).collect();
+        let mut pictures: Vec<(String, egui::TextureHandle)> = views.filter_map(|(c, data)| Some((c, thumbs.picture_from(ctx, data, source).ok()?))).collect();
         if pictures.is_empty()
             && let Some(data) = d.renditions.iter().find_map(|r| match r {
                 Rendition::Rgba8 { data, .. } => Some(data),
                 _ => None,
             })
         {
-            pictures.extend(thumbs.picture(ctx, data, resolve).ok().map(|t| (String::new(), t)));
+            pictures.extend(thumbs.picture_from(ctx, data, source).ok().map(|t| (String::new(), t)));
         }
         if d.media == Media::Image {
             self.image.want_numbers = true;
@@ -173,23 +165,22 @@ impl CompareView {
         self.on
     }
 
-    /// Take the session's state and each side. True when a rerun should publish a value again.
-    #[allow(clippy::too_many_arguments)]
+    /// Take the session's state and each side, read through `source` (the media service). True
+    /// when a rerun should publish a value again.
     pub fn sync(
         &mut self,
         ctx: &egui::Context,
         state: &Compare,
         sides: [(String, Option<Display>); 2],
         thumbs: &mut Thumbs,
-        resolve: &dyn Fn(&DataRef) -> Option<Blob>,
-        full: &dyn Fn(&DataRef) -> Option<Arc<Blob>>,
+        source: &dyn plumcraft_media::Source,
         nan: Color32,
     ) -> bool {
         self.on = true;
         self.state = state.clone();
         let [a, b] = sides;
-        let rerun = self.a.sync(ctx, a.0, a.1, thumbs, resolve, full);
-        let rerun = self.b.sync(ctx, b.0, b.1, thumbs, resolve, full) || rerun;
+        let rerun = self.a.sync(ctx, a.0, a.1, thumbs, source);
+        let rerun = self.b.sync(ctx, b.0, b.1, thumbs, source) || rerun;
         if state.how == CompareHow::Difference {
             self.sync_diff(ctx, nan);
         }

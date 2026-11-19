@@ -4,9 +4,11 @@
 //!
 //! Lifted from the research software's `crates/ui-egui/src/run_view.rs`, without settings bundles. Run states
 //! are protocol 2's [`NodeState`]; their colours are theme tokens ([`crate::theme::Tokens::state_color`]).
-//! Thumbnails are [`Rendition`]s: an `rgba8` one is read through the connection
-//! ([`Thumbs`]); a `peaks` one is decoded (inline) and drawn as a waveform
-//! ([`crate::audio::draw_waveform`]); an excerpt is drawn as text.
+//! Thumbnails are [`Rendition`]s: an `rgba8` one is read and decoded by the media service, off
+//! this thread ([`Thumbs`], [`plumcraft_media::MediaService`]), and only uploaded here; a `peaks`
+//! one is decoded (inline) and drawn as a waveform ([`crate::audio::draw_waveform`]); an excerpt
+//! is drawn as text. One still on its way is [`ThumbMiss::Pending`]: a plain placeholder for the
+//! frame or two it takes, as a picture still decoding is drawn.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -15,8 +17,11 @@ use std::rc::Rc;
 use egui::{Painter, Pos2, Rect, Style, Vec2, pos2};
 use egui_snarl::ui::{PinInfo, PinWireInfo, SnarlPin, SnarlStyle};
 use egui_snarl::{InPinId, OutPinId};
+use plumcraft_media::{Blocking, Fetch, Source, Want};
 use plumcraft_proto::data::DataRef;
 use plumcraft_store::Blob;
+
+use crate::media::RgbaImage;
 
 /// The longest side of a thumbnail in a node body (half the preview size, so nodes stay
 /// compact; the research software's maintainer, 2026-10-17).
@@ -28,7 +33,7 @@ pub use plumcraft_editor_core::run_text::{
     state_name, truncate_chars,
 };
 /// The largest rgba8 thumbnail read (pixels on its long side).
-pub const MAX_THUMB_SIDE: u64 = 4096;
+pub use plumcraft_media::decode::MAX_THUMB_SIDE;
 
 /// The size to show a `w`×`h` picture at: the long side `max`, aspect kept.
 pub fn thumb_size(w: f32, h: f32, max: f32) -> Vec2 {
@@ -48,6 +53,19 @@ pub enum ThumbMiss {
     Missing,
     /// Not an (h, w, 4) `|u1` array, or too large.
     Shape(String),
+    /// On its way: the media service is reading or decoding it (an engine's `resolve` may be a
+    /// network fetch). Drawn as a placeholder; asked again next frame.
+    Pending,
+}
+
+/// What a fetch came to, as a thumbnail's miss.
+fn miss<T>(f: Fetch<T>) -> Result<T, ThumbMiss> {
+    match f {
+        Fetch::Ready(t) => Ok(t),
+        Fetch::Pending => Err(ThumbMiss::Pending),
+        Fetch::Missing => Err(ThumbMiss::Missing),
+        Fetch::Failed(why) => Err(ThumbMiss::Shape(why)),
+    }
 }
 
 /// Textures of rgba8 thumbnails, by handle. Read once through the connection; a miss is kept
@@ -83,15 +101,22 @@ pub fn load_picture(ctx: &egui::Context, name: &str, img: egui::ColorImage, opti
 const MAX_PICTURE_BYTES: usize = 512 << 20;
 
 impl Thumbs {
-    /// The texture for `data`, read with `resolve` the first time.
+    /// The texture for `data`, read with `resolve` the first time, in place (code that may wait:
+    /// tests, scripts). The editor asks the media service instead ([`Thumbs::get_from`]).
     pub fn get(&mut self, ctx: &egui::Context, data: &DataRef, resolve: &dyn Fn(&DataRef) -> Option<Blob>) -> Result<egui::TextureHandle, ThumbMiss> {
+        self.get_from(ctx, data, &Blocking(resolve))
+    }
+
+    /// The texture for `data`, from `source` (the media service: [`ThumbMiss::Pending`] until
+    /// it has read and decoded it). A miss is kept until [`Thumbs::forget_misses`].
+    pub fn get_from(&mut self, ctx: &egui::Context, data: &DataRef, source: &dyn Source) -> Result<egui::TextureHandle, ThumbMiss> {
         let key = data.handle.as_ref().map(ToString::to_string).unwrap_or_else(|| format!("{:?}", data.at));
         if let Some(hit) = self.cache.get(&key) {
             return hit.clone();
         }
-        let made = match resolve(data) {
-            None => Err(ThumbMiss::Missing),
-            Some(blob) => rgba_image(&blob).map(|img| load_picture(ctx, &format!("plumcraft-thumb-{key}"), img, egui::TextureOptions::LINEAR)),
+        let made = match miss(source.fetch(data, Want::Rendition).picture()) {
+            Err(ThumbMiss::Pending) => return Err(ThumbMiss::Pending),
+            r => r.map(|img| load_picture(ctx, &format!("plumcraft-thumb-{key}"), img.image(), egui::TextureOptions::LINEAR)),
         };
         if self.cache.len() > 512 {
             self.cache.clear();
@@ -100,15 +125,20 @@ impl Thumbs {
         made
     }
 
-    /// The texture of a viewer's picture for `data`, read with `resolve` the first time.
+    /// The texture of a viewer's picture for `data`, read with `resolve` the first time, in place.
     pub fn picture(&mut self, ctx: &egui::Context, data: &DataRef, resolve: &dyn Fn(&DataRef) -> Option<Blob>) -> Result<egui::TextureHandle, ThumbMiss> {
+        self.picture_from(ctx, data, &Blocking(resolve))
+    }
+
+    /// The texture of a viewer's picture for `data`, from `source`.
+    pub fn picture_from(&mut self, ctx: &egui::Context, data: &DataRef, source: &dyn Source) -> Result<egui::TextureHandle, ThumbMiss> {
         let key = data.handle.as_ref().map(ToString::to_string).unwrap_or_else(|| format!("{:?}", data.at));
         if let Some(hit) = self.pictures.get(&key) {
             return hit.clone();
         }
-        let made = match resolve(data) {
-            None => Err(ThumbMiss::Missing),
-            Some(blob) => rgba_image(&blob).map(|img| load_picture(ctx, &format!("plumcraft-picture-{key}"), img, PIXEL_TEXTURE)),
+        let made = match miss(source.fetch(data, Want::Rendition).picture()) {
+            Err(ThumbMiss::Pending) => return Err(ThumbMiss::Pending),
+            r => r.map(|img| load_picture(ctx, &format!("plumcraft-picture-{key}"), img.image(), PIXEL_TEXTURE)),
         };
         let size = made.as_ref().map_or(0, |t| t.size()[0] * t.size()[1] * 4);
         if self.picture_bytes + size > MAX_PICTURE_BYTES {
@@ -121,13 +151,21 @@ impl Thumbs {
     }
 
     /// The waveform overview for a `peaks` rendition's `data`, decoded the first time (inline
-    /// bytes, else read with `resolve`).
+    /// bytes, else read with `resolve`, in place).
     pub fn peaks(&mut self, data: &DataRef, resolve: &dyn Fn(&DataRef) -> Option<Blob>) -> Result<Rc<crate::audio::Peaks>, ThumbMiss> {
+        self.peaks_from(data, &Blocking(resolve))
+    }
+
+    /// The waveform overview for a `peaks` rendition's `data`, from `source`.
+    pub fn peaks_from(&mut self, data: &DataRef, source: &dyn Source) -> Result<Rc<crate::audio::Peaks>, ThumbMiss> {
         let key = crate::audio::key_of(data);
         if let Some(hit) = self.peaks.get(&key) {
             return hit.clone();
         }
-        let made = crate::audio::peaks_of(data, resolve).map(Rc::new);
+        let made = match miss(source.fetch(data, Want::Peaks).peaks()) {
+            Err(ThumbMiss::Pending) => return Err(ThumbMiss::Pending),
+            r => r.map(|p| Rc::new((*p).clone())),
+        };
         if self.peaks.len() > 512 {
             self.peaks.clear();
         }
@@ -153,20 +191,10 @@ impl Thumbs {
     }
 }
 
-/// An (h, w, 4) `|u1` blob as an image; anything else is a [`ThumbMiss::Shape`].
+/// An (h, w, 4) `|u1` blob as an image; anything else is a [`ThumbMiss::Shape`]
+/// ([`plumcraft_media::decode::rendition`]).
 pub fn rgba_image(b: &Blob) -> Result<egui::ColorImage, ThumbMiss> {
-    let [h, w, 4] = b.shape.as_slice() else { return Err(ThumbMiss::Shape(format!("shape {:?}, not (h, w, 4)", b.shape))) };
-    if b.dtype != "|u1" {
-        return Err(ThumbMiss::Shape(format!("dtype {}, not |u1", b.dtype)));
-    }
-    if *h == 0 || *w == 0 || *h > MAX_THUMB_SIDE || *w > MAX_THUMB_SIDE {
-        return Err(ThumbMiss::Shape(format!("{w}×{h}")));
-    }
-    let (Ok(hu), Ok(wu)) = (usize::try_from(*h), usize::try_from(*w)) else { return Err(ThumbMiss::Shape(format!("{w}×{h}"))) };
-    if b.bytes.len() != hu.saturating_mul(wu).saturating_mul(4) {
-        return Err(ThumbMiss::Shape(format!("{} bytes for {w}×{h}", b.bytes.len())));
-    }
-    Ok(egui::ColorImage::from_rgba_unmultiplied([wu, hu], &b.bytes))
+    plumcraft_media::decode::rendition(b).map(|r| r.image()).map_err(ThumbMiss::Shape)
 }
 
 // ---------- wire geometry (mirrors egui-snarl 0.12's Bezier5 wires, MIT) ----------

@@ -38,8 +38,7 @@ impl EditorApp {
             .map(|o| (o.id, o.viewer.clone(), plumcraft_session::viewer_cmds::Tools { zoom: o.tools.zoom.take(), ..o.tools }))
             .collect();
         self.popouts.retain(|w| open.iter().any(|(id, ..)| *id == w.id));
-        let resolve = self.resolver();
-        let full = self.full_reader();
+        let source = self.source();
         for (id, viewer, tools) in open {
             let role = WatchRole::Popout(id);
             let (title, display) = match self.session.run.entry(role) {
@@ -57,7 +56,7 @@ impl EditorApp {
             };
             w.title = title;
             w.pane.chosen = viewer;
-            if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &resolve, &full, tools) {
+            if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
                 self.rerun_pending = true;
             }
         }

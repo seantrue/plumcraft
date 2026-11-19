@@ -15,6 +15,12 @@
 //! - the engine's own worker (`plumcraft-engine`), or its process, started by the editor core's
 //!   [`Launcher`] as the config names it (the text engine, in-process, by default).
 //!
+//! - **media** (`plumcraft-media-N`, started on first use): the media service
+//!   ([`plumcraft_media::MediaService`]), which reads a value through the engine (for an HTTP
+//!   engine, a network fetch) and decodes it (a thumbnail, a picture, peaks), so neither
+//!   `plum_blob` nor this core thread ever waits for that. `media.get` asks for one; what finishes
+//!   comes out of `plum_poll`'s `media`, after a wake; `plum_blob` then lends it.
+//!
 //! - **control** (`plumcraft-control`, only when the config names a `control` port): the same
 //!   loopback control server the desktop editor's `--control` starts, so a probe drives an app on
 //!   the C ABI as it drives the egui editor. Its requests come to the core thread.
@@ -45,6 +51,7 @@ use plumcraft_editor_core::switchboard::{Effects, Switchboard, Switching, Work, 
 use plumcraft_editor_core::worker::EngineWorker;
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::Connection;
+use plumcraft_media::{Fetch, Made, MediaService, Want};
 use plumcraft_proto::data::DataRef;
 use plumcraft_proto::event::{Envelope, Event};
 use plumcraft_proto::handle::Handle;
@@ -87,6 +94,9 @@ pub struct Config {
     /// The control channel (`control: {port, token_file}`, 4.1 and 5.3): serve it on
     /// `127.0.0.1:port` (0 picks a free one) when a port is given. Loopback only, always.
     pub control: Option<ControlConfig>,
+    /// The media service's limits (`media: {cache_mb, workers, queue}`): a phone wants a smaller
+    /// cache than the default 256 MiB.
+    pub media: plumcraft_media::Config,
 }
 
 /// Where the control channel listens, and its token's file (none: a fresh token, printed to
@@ -100,7 +110,15 @@ pub struct ControlConfig {
 impl Default for Config {
     /// The text engine, compiled in, on a platform that has declared nothing.
     fn default() -> Self {
-        Config { store_root: None, demo: false, engine: None, mode: None, platform: Capabilities::NONE, control: None }
+        Config {
+            store_root: None,
+            demo: false,
+            engine: None,
+            mode: None,
+            platform: Capabilities::NONE,
+            control: None,
+            media: media_config(None).unwrap_or_default(),
+        }
     }
 }
 
@@ -120,6 +138,7 @@ impl Config {
             mode: named("mode", "mode"),
             platform: Capabilities::declared(o.get("platform")),
             control: control_config(o.get("control"))?,
+            media: media_config(o.get("media"))?,
         })
     }
 
@@ -162,6 +181,13 @@ fn control_config(v: Option<&Value>) -> Result<Option<ControlConfig>, String> {
     Ok(Some(ControlConfig { port, token_file }))
 }
 
+/// `media: {cache_mb, workers, queue}`: the media service's limits, every one optional; finished
+/// requests are reported (`plum_poll`'s `media`).
+fn media_config(v: Option<&Value>) -> Result<plumcraft_media::Config, String> {
+    let c = plumcraft_media::Config::from_json(v).map_err(|e| format!("config: {e}"))?;
+    Ok(plumcraft_media::Config { report: true, ..c })
+}
+
 /// The shell's wake, called only by the core thread.
 struct Waker {
     f: Option<WakeFn>,
@@ -191,6 +217,8 @@ struct Outbox {
     /// Asks raised, and asks ended (`{ask, ended}`), since the last poll.
     asks: Vec<String>,
     asks_ended: Vec<String>,
+    /// Media requests finished (`{key, handle, want, status, w?, h?, len?, format?, reason?}`).
+    media: Vec<String>,
     dropped: u64,
 }
 
@@ -217,6 +245,88 @@ pub struct Shared {
     refs: Mutex<HashMap<String, DataRef>>,
     /// Blobs lent out and still held, by handle, so a second borrow shares the first's bytes.
     lent: Mutex<HashMap<String, Weak<Blob>>>,
+    /// Values read through the engine and decoded, on workers (`media.get`, `plum_blob`).
+    pub media: MediaService,
+    /// A delay added to every read through the engine (`spike.slowResolve`, ms): a slow engine
+    /// for the tests and measurements.
+    slow_resolve: AtomicU64,
+}
+
+/// What `plum_blob` lends: a store blob's bytes, or a picture or numbers the media service made.
+pub enum Lease {
+    Blob(Arc<Blob>),
+    Picture(Arc<plumcraft_media::Rgba>),
+    Bytes(Arc<Vec<u8>>),
+}
+
+impl Lease {
+    pub fn bytes(&self) -> &[u8] {
+        match self {
+            Lease::Blob(b) => &b.bytes,
+            Lease::Picture(p) => &p.pixels,
+            Lease::Bytes(v) => v,
+        }
+    }
+}
+
+/// What a `derive:` key (`docs/shell-interface.md` 10.2) or a plain handle asks for.
+pub fn parse_key(key: &str) -> Option<(String, Want)> {
+    let Some(rest) = key.strip_prefix("derive:") else { return Some((key.to_owned(), Want::Bytes)) };
+    let (kind, rest) = rest.split_once(':')?;
+    let px = |r: &str| -> Option<(String, u32)> {
+        let (h, px) = r.rsplit_once('@')?;
+        let px = px.parse::<u32>().ok().filter(|p| (1..=plumcraft_media::decode::MAX_TEXTURE_SIDE).contains(p))?;
+        Some((h.to_owned(), px))
+    };
+    let (handle, want) = match kind {
+        "rgba" => (rest.to_owned(), Want::Rendition),
+        "peaks" => (rest.to_owned(), Want::Peaks),
+        "numbers" => (rest.to_owned(), Want::Numbers),
+        "image" => px(rest).map(|(h, p)| (h, Want::Picture(p)))?,
+        "svg" => px(rest).map(|(h, p)| (h, Want::Svg(p)))?,
+        _ => return None,
+    };
+    (!handle.is_empty()).then_some((handle, want))
+}
+
+/// The key `plum_blob` lends `want` of `handle` by.
+pub fn key_for(handle: &str, want: Want) -> String {
+    match want {
+        Want::Bytes => handle.to_owned(),
+        Want::Rendition => format!("derive:rgba:{handle}"),
+        Want::Peaks => format!("derive:peaks:{handle}"),
+        Want::Numbers => format!("derive:numbers:{handle}"),
+        Want::Picture(px) => format!("derive:image:{handle}@{px}"),
+        Want::Svg(px) => format!("derive:svg:{handle}@{px}"),
+    }
+}
+
+/// A fetch as `media.get` replies and `plum_poll`'s `media` reports it.
+fn describe(handle: &str, want: Want, f: &Fetch<Made>) -> Value {
+    let mut v = json!({"key": key_for(handle, want), "handle": handle, "want": want.name(), "status": f.status()});
+    match f {
+        Fetch::Ready(Made::Picture(p)) => {
+            v["w"] = json!(p.w);
+            v["h"] = json!(p.h);
+            v["len"] = json!(p.pixels.len());
+            v["format"] = json!("rgba8");
+        }
+        Fetch::Ready(Made::Bytes(b)) => {
+            v["len"] = json!(b.bytes.len());
+            v["format"] = json!("bytes");
+            v["dtype"] = json!(b.dtype);
+            v["shape"] = json!(b.shape);
+        }
+        Fetch::Ready(Made::Peaks(p)) => {
+            v["len"] = json!(p.data.len() * 8);
+            v["format"] = json!("f32");
+            v["channels"] = json!(p.channels);
+            v["bins"] = json!(p.bins);
+        }
+        Fetch::Failed(why) => v["reason"] = json!(why),
+        Fetch::Pending | Fetch::Missing => {}
+    }
+    v
 }
 
 impl Shared {
@@ -232,6 +342,22 @@ impl Shared {
             o.events.drain(..excess);
             o.dropped += excess as u64;
         }
+    }
+
+    /// The media requests that finished since the last look, described for the shell's feed.
+    fn push_media(&self) {
+        let done = self.media.take_finished();
+        if done.is_empty() {
+            return;
+        }
+        let items: Vec<String> = done
+            .into_iter()
+            .filter_map(|f| {
+                let r = self.reference(&f.key).ok()?;
+                Some(describe(&f.key, f.want, &self.media.get(&r, f.want)).to_string())
+            })
+            .collect();
+        lock(&self.outbox).media.extend(items);
     }
 
     fn push_asks(&self, raised: Vec<Value>, ended: Vec<Value>) {
@@ -250,9 +376,9 @@ impl Shared {
     pub fn poll(&self) -> Option<Vec<u8>> {
         // cleared first: anything pushed after this wakes again
         self.waker.pending.store(false, Ordering::Release);
-        let (replies, events, dropped, asks, asks_ended) = {
+        let (replies, events, dropped, asks, asks_ended, media) = {
             let mut o = lock(&self.outbox);
-            if o.replies.is_empty() && o.events.is_empty() && o.dropped == 0 && o.asks.is_empty() && o.asks_ended.is_empty() {
+            if o.replies.is_empty() && o.events.is_empty() && o.dropped == 0 && o.asks.is_empty() && o.asks_ended.is_empty() && o.media.is_empty() {
                 return None;
             }
             (
@@ -261,6 +387,7 @@ impl Shared {
                 std::mem::take(&mut o.dropped),
                 std::mem::take(&mut o.asks),
                 std::mem::take(&mut o.asks_ended),
+                std::mem::take(&mut o.media),
             )
         };
         let c = &self.counters;
@@ -282,32 +409,63 @@ impl Shared {
             out.extend_from_slice(b"],\"asksEnded\":[");
             join_into(&mut out, &asks_ended);
         }
+        if !media.is_empty() {
+            out.extend_from_slice(b"],\"media\":[");
+            join_into(&mut out, &media);
+        }
         out.extend_from_slice(format!("],\"dropped\":{dropped}}}").as_bytes());
         Some(out)
     }
 
-    /// A store blob's bytes, held: by a DataRef the engine sent (through the connection, checked
-    /// against the handle), else the plain segment mapped, else read from the store. A blob
-    /// already lent is shared, not read again.
-    pub fn blob(&self, handle: &str) -> Result<Arc<Blob>, String> {
-        if let Some(b) = lock(&self.lent).get(handle).and_then(Weak::upgrade) {
-            return Ok(b);
+    /// The reference a key's handle names: one the engine sent, else a store handle's.
+    fn reference(&self, handle: &str) -> Result<DataRef, i32> {
+        if let Some(r) = lock(&self.refs).get(handle).cloned() {
+            return Ok(r);
         }
-        let known = lock(&self.refs).get(handle).cloned();
-        let conn = lock(&self.conn).clone();
-        let blob = match (known, conn) {
-            (Some(r), Some(conn)) => conn.resolve(&r),
-            (Some(_), None) => None,
-            (None, _) => {
-                let h: Handle = handle.parse().map_err(|e| format!("not a handle: {e}"))?;
-                self.store.map_handle(&h).or_else(|| self.store.read_handle(&h))
+        let h: Handle = handle.parse().map_err(|_| crate::PLUM_ERR_MISSING)?;
+        Ok(DataRef { handle: Some(h), meta: Default::default(), at: Vec::new() })
+    }
+
+    /// What `plum_blob` lends for `key`, never waiting for an engine: bytes already lent (shared);
+    /// a store blob by handle, or by the locators of a value the engine sent (a mapping or a read
+    /// on this machine: no engine, no network); else what the
+    /// media service has made, or `PLUM_PENDING` while it reads through the engine (it says so
+    /// in the feed's `media` when done), or why not.
+    pub fn blob(&self, key: &str) -> Result<Lease, i32> {
+        let (handle, want) = parse_key(key).ok_or(crate::PLUM_ERR_ARG)?;
+        if want == Want::Bytes {
+            if let Some(b) = lock(&self.lent).get(&handle).and_then(Weak::upgrade) {
+                return Ok(Lease::Blob(b));
             }
-        };
-        let blob = Arc::new(blob.ok_or_else(|| format!("no bytes for {handle}"))?);
+            if let Ok(h) = handle.parse::<Handle>()
+                && let Some(b) = self.store.map_handle(&h).or_else(|| self.store.read_handle(&h))
+            {
+                return Ok(Lease::Blob(self.lend(&handle, Arc::new(b))));
+            }
+            // a value the engine sent, where its locators say on this machine (a commonkit key
+            // under this store, a path): mapped or read here, still no engine and no network
+            let known = lock(&self.refs).get(&handle).cloned();
+            if let Some(b) = known.and_then(|r| self.store.resolve(&r, true)) {
+                return Ok(Lease::Blob(self.lend(&handle, Arc::new(b))));
+            }
+        }
+        let r = self.reference(&handle)?;
+        match self.media.get(&r, want) {
+            Fetch::Ready(Made::Bytes(b)) => Ok(if want == Want::Bytes { Lease::Blob(self.lend(&handle, b)) } else { Lease::Blob(b) }),
+            Fetch::Ready(Made::Picture(p)) => Ok(Lease::Picture(p)),
+            Fetch::Ready(Made::Peaks(p)) => Ok(Lease::Bytes(Arc::new(p.data.iter().flat_map(|[a, b]| [a.to_le_bytes(), b.to_le_bytes()]).flatten().collect()))),
+            Fetch::Pending => Err(crate::PLUM_PENDING),
+            Fetch::Missing => Err(crate::PLUM_ERR_MISSING),
+            Fetch::Failed(_) => Err(crate::PLUM_ERR_UNREADABLE),
+        }
+    }
+
+    /// Keep `b` as the bytes lent for `handle`, so a second borrow shares them.
+    fn lend(&self, handle: &str, b: Arc<Blob>) -> Arc<Blob> {
         let mut lent = lock(&self.lent);
         lent.retain(|_, w| w.strong_count() > 0);
-        lent.insert(handle.to_owned(), Arc::downgrade(&blob));
-        Ok(blob)
+        lent.insert(handle.to_owned(), Arc::downgrade(&b));
+        b
     }
 }
 
@@ -330,6 +488,8 @@ enum Msg {
     Drain,
     /// The control channel queued a request.
     Control,
+    /// The media service finished something.
+    Media,
     Stop,
 }
 
@@ -384,7 +544,25 @@ impl Core {
             store,
             refs: Mutex::default(),
             lent: Mutex::default(),
+            media: MediaService::new(config.media.clone()),
+            slow_resolve: AtomicU64::new(0),
         });
+        // values are read through the current engine connection (following switches), or from
+        // the store by handle; only ever on the media service's workers
+        let weak = Arc::downgrade(&shared);
+        shared.media.set_resolver(Some(Arc::new(move |r: &DataRef| {
+            let s = weak.upgrade()?;
+            let delay = s.slow_resolve.load(Ordering::Relaxed);
+            if delay > 0 {
+                std::thread::sleep(Duration::from_millis(delay.min(60_000)));
+            }
+            let conn = lock(&s.conn).clone();
+            conn.and_then(|c| c.resolve(r)).or_else(|| r.handle.as_ref().and_then(|h| s.store.map_handle(h).or_else(|| s.store.read_handle(h))))
+        })));
+        let to_core = tx.clone();
+        shared.media.set_wake(Some(Arc::new(move || {
+            let _ = to_core.send(Msg::Media);
+        })));
         let engines = EngineWorker::new(Some(waker.clone()));
         let (control_server, control_rx, control_token_file) = match &config.control {
             None => (None, None, None),
@@ -600,6 +778,7 @@ impl Worker {
                     }
                     self.step_engines();
                 }
+                Some(Msg::Media) => self.shared.push_media(),
                 Some(Msg::Control) | None => {}
             }
             self.control_requests();
@@ -607,7 +786,7 @@ impl Worker {
             control::tick(&mut self);
             self.feed_asks();
             let o = lock(&self.shared.outbox);
-            let any = !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty();
+            let any = !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty() || !o.media.is_empty();
             drop(o);
             if any {
                 self.shared.waker.wake();
@@ -690,6 +869,19 @@ impl Worker {
             "spike.scene" => self.scene(&params),
             "spike.publish" => self.publish(&params),
             "spike.stats" => Ok(self.stats()),
+            // a value as plain data, made on the media service's workers: the reply says at once
+            // whether it is ready (then plum_blob lends it by `key`) or pending (the feed's
+            // `media` says when)
+            "media.get" => self.media_get(&params),
+            "media.stats" => Ok(self.shared.media.stats().json()),
+            // every read through the engine takes this long (a slow engine, for the tests)
+            "spike.slowResolve" => match params.get("ms").and_then(Value::as_u64) {
+                Some(ms) => {
+                    self.shared.slow_resolve.store(ms.min(60_000), Ordering::Relaxed);
+                    Ok(json!({"ms": ms.min(60_000)}))
+                }
+                None => Err("spike.slowResolve needs {ms}".into()),
+            },
             // every control-channel method, as the egui editor answers it: a command that
             // switches engines replies once switched, and this thread doesn't wait for it
             _ => {
@@ -701,6 +893,33 @@ impl Worker {
             }
         };
         self.reply(id, tag.as_ref(), r);
+    }
+
+    /// `media.get {handle, want?, px?}`: `want` one of `bytes` (the default), `rgba` (an engine's
+    /// rgba8 rendition as a picture), `peaks`, `image` (a picture file decoded, at most `px` a
+    /// side, 256 by default), `svg` (drawn `px` on its long side), `numbers` (a picture file's
+    /// own numbers). Replies at once.
+    fn media_get(&self, p: &Value) -> Result<Value, String> {
+        let handle = p.get("handle").and_then(Value::as_str).filter(|h| !h.is_empty() && h.len() <= 512).ok_or("media.get needs {handle}")?;
+        let px = match p.get("px") {
+            None | Some(Value::Null) => 256,
+            Some(v) => v
+                .as_u64()
+                .and_then(|n| u32::try_from(n).ok())
+                .filter(|n| (1..=plumcraft_media::decode::MAX_TEXTURE_SIDE).contains(n))
+                .ok_or("px must be a whole number from 1 to 4096")?,
+        };
+        let want = match p.get("want").and_then(Value::as_str).unwrap_or("bytes") {
+            "bytes" => Want::Bytes,
+            "rgba" => Want::Rendition,
+            "peaks" => Want::Peaks,
+            "image" => Want::Picture(px),
+            "svg" => Want::Svg(px),
+            "numbers" => Want::Numbers,
+            other => return Err(format!("want {other:?}: one of bytes, rgba, peaks, image, svg, numbers")),
+        };
+        let r = self.shared.reference(handle).map_err(|_| format!("{handle:?} is not a value this core has seen, nor a handle"))?;
+        Ok(describe(handle, want, &self.shared.media.get(&r, want)))
     }
 
     /// What was asked and what ended, to the shell's feed.
