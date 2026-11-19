@@ -250,8 +250,11 @@ fn short_value(v: Option<&Value>) -> String {
 /// [`changed_nodes`] with the reasons: for each node an edit invalidates, what changed on it (a
 /// widget, an input's wire, its type) or which edited nodes upstream reach it.
 pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<String>> {
-    let incoming =
-        |g: &Graph, id: &NodeId| -> BTreeMap<String, Wire> { g.wires.iter().filter(|w| &w.to.node == id).map(|w| (w.to.port.clone(), w.clone())).collect() };
+    // Each graph's wires indexed once by the node and port they feed (a later wire to the same
+    // port wins, as before). Scanning every wire per node made an edit O(nodes × wires):
+    // 30 ms for one `node.add` on a 2,000-node graph (N0(b), claude-debug/native-n0-ffi.md).
+    let (in_before, in_after) = (incoming_by_node(before), incoming_by_node(after));
+    let none = BTreeMap::new();
     let mut out: BTreeMap<NodeId, Vec<String>> = BTreeMap::new();
     for (id, n) in &after.nodes {
         let Some(b) = before.nodes.get(id) else {
@@ -273,8 +276,8 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
                 why.push(format!("widget {k} changed: {} → {}", short_value(old), short_value(new)));
             }
         }
-        let (wb, wa) = (incoming(before, id), incoming(after, id));
-        let ports: BTreeSet<&String> = wb.keys().chain(wa.keys()).collect();
+        let (wb, wa) = (in_before.get(id).unwrap_or(&none), in_after.get(id).unwrap_or(&none));
+        let ports: BTreeSet<&str> = wb.keys().chain(wa.keys()).copied().collect();
         for port in ports {
             match (wb.get(port), wa.get(port)) {
                 (None, Some(w)) => why.push(format!("input {port} wired from {}", w.from)),
@@ -296,10 +299,11 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
     }
     // Everything downstream, naming the edited nodes that reach it.
     let roots: Vec<NodeId> = out.keys().cloned().collect();
+    let next = outgoing_by_node(after);
     let mut reached: BTreeMap<NodeId, BTreeSet<NodeId>> = BTreeMap::new();
     for root in &roots {
         let mut set = BTreeSet::from([root.clone()]);
-        downstream(after, &mut set);
+        downstream_indexed(&next, &mut set);
         set.remove(root);
         for n in set {
             reached.entry(n).or_default().insert(root.clone());
@@ -318,13 +322,36 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
     out
 }
 
+/// The wires into each node, by input port (a later wire to the same port wins).
+fn incoming_by_node(g: &Graph) -> BTreeMap<&NodeId, BTreeMap<&str, &Wire>> {
+    let mut idx: BTreeMap<&NodeId, BTreeMap<&str, &Wire>> = BTreeMap::new();
+    for w in &g.wires {
+        idx.entry(&w.to.node).or_default().insert(w.to.port.as_str(), w);
+    }
+    idx
+}
+
+/// The nodes each node's wires feed.
+fn outgoing_by_node(g: &Graph) -> BTreeMap<&NodeId, Vec<&NodeId>> {
+    let mut idx: BTreeMap<&NodeId, Vec<&NodeId>> = BTreeMap::new();
+    for w in &g.wires {
+        idx.entry(&w.from.node).or_default().push(&w.to.node);
+    }
+    idx
+}
+
 /// Add everything downstream of `set` (in `graph`) to it.
 pub fn downstream(graph: &Graph, set: &mut BTreeSet<NodeId>) {
+    downstream_indexed(&outgoing_by_node(graph), set);
+}
+
+/// [`downstream`] over a prebuilt [`outgoing_by_node`] index.
+fn downstream_indexed(next: &BTreeMap<&NodeId, Vec<&NodeId>>, set: &mut BTreeSet<NodeId>) {
     let mut frontier: Vec<NodeId> = set.iter().cloned().collect();
     while let Some(id) = frontier.pop() {
-        for w in graph.wires.iter().filter(|w| w.from.node == id) {
-            if set.insert(w.to.node.clone()) {
-                frontier.push(w.to.node.clone());
+        for &to in next.get(&id).map(Vec::as_slice).unwrap_or_default() {
+            if set.insert(to.clone()) {
+                frontier.push(to.clone());
             }
         }
     }

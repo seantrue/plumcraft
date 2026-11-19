@@ -1,0 +1,5 @@
+module PlumCraftFFI {
+    header "plumcraft.h"
+    link "plumcraft_ffi"
+    export *
+}

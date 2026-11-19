@@ -111,6 +111,33 @@ fn a_slice_is_a_stale_reason() {
     assert_eq!(why[&plumcraft_graph::NodeId::from("b")], ["input text slice changed: none → [1:]"]);
 }
 
+/// Wiring, unwiring and rewiring each name the input, and everything downstream names the edited
+/// nodes that reach it (the wire indexes in `stale_reasons` must agree with a scan of every wire).
+#[test]
+fn stale_reasons_name_wire_changes_and_what_is_downstream() {
+    let graph = |wires: Value| {
+        let nodes = json!({"a": {"kind": "x"}, "b": {"kind": "x"}, "c": {"kind": "x"}, "d": {"kind": "x"}, "e": {"kind": "x"}});
+        plumcraft_graph::Graph::from_json(&json!({"version": 1, "nodes": nodes, "wires": wires}).to_string()).unwrap()
+    };
+    let w = |f: &str, fp: &str, t: &str, tp: &str| json!({"from": {"node": f, "port": fp}, "to": {"node": t, "port": tp}});
+    let before = graph(json!([w("a", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i"), w("a", "o", "e", "j")]));
+    // b's input moves from a to e; e loses its input; c and d are downstream of b
+    let after = graph(json!([w("e", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i")]));
+    let why = plumcraft_session::run::stale_reasons(&before, &after);
+    let id = plumcraft_graph::NodeId::from;
+    assert_eq!(why[&id("b")], ["input i now from e.o (was a.o)", "upstream e (x) changed"]);
+    assert_eq!(why[&id("e")], ["input j disconnected (was a.o)"]);
+    assert_eq!(why[&id("c")], ["upstream b (x), e (x) changed"]);
+    assert_eq!(why[&id("d")], ["upstream b (x), e (x) changed"]);
+    assert!(!why.contains_key(&id("a")));
+    // wiring a fresh input is named too
+    let why = plumcraft_session::run::stale_reasons(
+        &after,
+        &graph(json!([w("e", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i"), w("a", "o", "d", "k")])),
+    );
+    assert_eq!(why[&id("d")], ["input k wired from a.o"]);
+}
+
 #[test]
 fn edit_and_run_end_to_end() {
     let mut s = session();

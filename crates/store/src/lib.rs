@@ -419,6 +419,14 @@ impl Store {
         plain.or_else(|| (handle.recipe() == Recipe::Raw).then(|| self.read_key(&z_key_for(handle))).flatten().filter(|b| matches_handle(Some(handle), b)))
     }
 
+    /// Map the segment that holds `handle` under this root, as it is stored (never a compressed
+    /// one, which must be inflated): the bytes stay in the page cache and are not read, copied or
+    /// checked against the handle, as [`Store::resolve`] maps a large array. `None` when the
+    /// plain segment isn't here.
+    pub fn map_handle(&self, handle: &Handle) -> Option<Blob> {
+        mapped(self.path_for(handle).filter(|p| p.is_file())?)
+    }
+
     /// Store bytes that claim to be `handle`, verifying first (see [`verifies`]). `false` when
     /// they don't match (nothing stored; spec 13.1) or when the store declines them (its
     /// budget, free-space floor or size limit): check [`verifies`] to tell the two apart.
@@ -638,6 +646,32 @@ mod tests {
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    #[test]
+    fn a_plain_raw_blob_maps_by_handle_and_a_compressed_one_does_not() {
+        let s = Store::new(temp_root("map-handle"));
+        // incompressible bytes are stored as they are: mapped, the same bytes, no copy
+        let mut x = 0x9e37_79b9_7f4a_7c15u64;
+        let plain: Vec<u8> = (0..(1 << 20) / 8)
+            .flat_map(|_| {
+                x ^= x << 13;
+                x ^= x >> 7;
+                x ^= x << 17;
+                x.to_le_bytes()
+            })
+            .collect();
+        let (h, _) = s.publish_raw(&plain).unwrap();
+        let b = s.map_handle(&h).expect("mapped");
+        assert!(matches!(b.bytes, Bytes::Mapped(_)));
+        assert_eq!(&b.bytes[..], &plain[..]);
+        // compressible bytes are stored deflated: not mappable, still readable
+        let text = vec![b'a'; COMPRESS_MIN * 2];
+        let (hz, _) = s.publish_raw(&text).unwrap();
+        assert!(s.map_handle(&hz).is_none());
+        assert_eq!(&s.read_handle(&hz).unwrap().bytes[..], &text[..]);
+        // nothing there
+        assert!(s.map_handle(&Handle::raw(b"never published")).is_none());
     }
 
     #[test]

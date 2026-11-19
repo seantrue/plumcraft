@@ -3054,6 +3054,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumcraft-ffi"
+version = "0.7.0"
+dependencies = [
+ "jni-sys 0.4.1",
+ "plumcraft-automation",
+ "plumcraft-engine",
+ "plumcraft-graph",
+ "plumcraft-host",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-session",
+ "plumcraft-store",
+ "plumcraft-text",
+ "serde_json",
+]
+
+[[package]]
 name = "plumcraft-graph"
 version = "0.7.0"
 dependencies = [

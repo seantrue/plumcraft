@@ -20,6 +20,29 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — Native editors: the plan, its decisions, and stage N0 (Claude Fable 5.2 controlling; Claude Opus 5.5 agents)
+
+**What the maintainer asked for.** "Plan a separate implementation of the editor portion of plumcraft on multiple ui framework/languages (MacOS/Swift, iOS/Swift, Android/Kotlin). The existing egui experience is inferior in MacOS, and terrible in iOS", attending to "native platform gestures and conventions", "clean interfaces and performant interactions", keeping the non-GUI code and "the current capability for logging, debug driving, et al."; egui to be taken as "fatally flawed" on handhelds and "temporarily adequate" on desktops. They pointed at the iPad spike and at the native virtimp.com app as prior art. They answered the plan's twelve decisions (all as recommended), then, after N0, the contract's twenty questions (all as recommended but one: documents share one in-process engine from the start), and set: "Run agents on opus 5.5, keep fable for controller"; "Initial target would be < 500 active nodes. Current rendering is adequate."; "Free space floor is 2GB on mobile; virtimp_com_app already has an answer as to where to put the store; commit the gradlew jar"; and the branch rule, "No merging of this branch into main until ready to switch in production. Treat feat/native-n0 as the dev branch." The maintainer also asked the right question about commonkit ("aren't default values written into a config file in the store location?"), which sent the 2 GB floor to the tree's `.policy.json` instead of a commonkit change.
+
+**What the AI did** (`git diff --cached --numstat`; the lockfile and the Gradle wrapper left out).
+- **The plan** (the controller): `docs/research/24-native-shells.md` (~420 lines): a toolkit-free editor core, a second contract between it and each shell, native drawing from a shared scene, asks for platform services, stages N0 to N6, and N0's results. Written from two read-only surveys by agents (the seam in `plumcraft-ui`; the iPad spike and the native app). `AGENTS.md` rule 2 gained the `crates/ffi` exception the maintainer decided; `docs/plan.md` D25; a decisions checklist page.
+- **The boundary** (an agent): `crates/ffi` (`plumcraft-ffi`, ~1,920 lines with tests and the header): a hand-written C ABI over a session with the text engine in-process, a core thread, a wake with no payload, borrowed bytes, JNI shims; `native/apple/PlumCraftFFI` (~420) and `native/android` (~560) wrap it; `Store::map_handle` (+34, `crates/store`). One flow passes from Rust, Swift (macOS, iOS simulator), a host JVM and, from Rust, an Android emulator. Measured: a request 7 to 52 µs, `graph.get` of 500 nodes 1.5 ms.
+- **The canvas spike** (an agent): `native/apple/CanvasSpike` (~1,630 lines, throwaway): a layer per node, four ways of layering wires, a scripted bench, Instruments hitch tables. It ran on the Mac, an iPad simulator and the maintainer's iPad Pro.
+- **The contract** (an agent): `docs/shell-interface.md` (~1,000 lines, draft 1), with an inventory of what `plumcraft-ui` holds.
+- **`run::stale_reasons`** (an agent, at the maintainer's word; `crates/session`, +62 −8 with a test): wires indexed once a call. `node.add` on 2,000 nodes: 30.1 ms to 12.5 ms.
+
+**Checked.** fmt and clippy `-D warnings` clean; the ffi and session tests rerun by the controller; an agent's whole run as CI runs it under b3: 1,296 of 1,297, the one failure `hidden_params_match_the_baseline`, which reads the craft apps installed on this Mac (not checked against `main` this time). **Not run:** the md5 pass, the Python tests, any iOS or Android device through the FFI, JNI on Android itself. **Not measured:** the iPad at 120 Hz (it ran at 60) and its compositor hitches.
+
+**What the AI got wrong.**
+- **The plan, against the code.** The agent drafting the contract found the controller's plan wrong or short in a dozen places: it treated "everything is a command" as met (selection, Fit, the palette and the Edit menu's canvas items are egui code); took wires for cubics (they are degree 5); mixed a node's run state with the run animation's; left a third of the dialogs out of its table of asks; undercounted the process-wide registries and the commands. Section 15.3 of the note records them.
+- **The canvas spike measured the wrong clock first.** Its own frame timing said every wire layout held 120 Hz; Instruments showed batched wires late on a third of frames. Caught by the agent taking a trace, not by review.
+- **It filled the maintainer's disk.** Instruments recordings whose saves stalled left about 140 GB of raw traces in the temporary folder; every session on the machine stopped until space was freed. The script now records briefly and removes its raw trace.
+- **Its wait loops hung** on `pgrep -f`, which matched their own command line. The maintainer noticed the hang and had a rule against it added to their global instructions.
+- **An agent gave the maintainer a stale answer**, telling them the boundary and the contract were still to do after both were finished: it knew only its own piece.
+- **The controller recommended keeping the Gradle wrapper jar out of git** against Gradle's own convention; the maintainer chose to commit it.
+
+**Division of labour.** The maintainer set the goal, the constraints and every decision; the controller planned, briefed, reviewed and recorded; the agents surveyed, built and measured.
+
 ### 2026-11-13 — Release 0.7.0 and Python SDK 0.2.0, crates and SDK only (Claude Opus 5.5)
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.

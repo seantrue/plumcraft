@@ -1,0 +1,5 @@
+jniLibs/
+.gradle/
+build/
+plumcraft/build/
+local.properties
