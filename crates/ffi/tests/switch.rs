@@ -66,12 +66,12 @@ fn engine_binary() {
         if plumcraft_editor_core::engines::engine_binary("plumcraft-text-engine").is_ok_and(|p| p.is_file()) {
             return;
         }
-        // <target>/<profile>/deps/<this test>
+        // <target>/<profile>, wherever this cargo put this test
         let exe = std::env::current_exe().unwrap();
-        let target = exe.parent().and_then(std::path::Path::parent).and_then(std::path::Path::parent).unwrap();
+        let profile = plumcraft_editor_core::engines::profile_dir(&exe).unwrap();
         let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
-        cmd.args(["build", "-p", "plumcraft-text", "--bins", "--target-dir"]).arg(target);
-        if exe.parent().and_then(std::path::Path::parent).is_some_and(|p| p.ends_with("release")) {
+        cmd.args(["build", "-p", "plumcraft-text", "--bins", "--target-dir"]).arg(profile.parent().unwrap());
+        if profile.ends_with("release") {
             cmd.arg("--release");
         }
         assert!(cmd.status().unwrap().success(), "building the text engine");
