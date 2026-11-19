@@ -167,6 +167,19 @@ impl Engines {
     pub fn is_current(&self, engine: &str, mode: &str) -> bool {
         matches!(&self.current, Some(EngineTarget::Choice { engine: e, mode: m }) if e == engine && m == mode)
     }
+
+    /// Ask the host to connect `target` in place of the engines there are, as `engine.switch`
+    /// does: how a shell starts its first engine without waiting for it (the host connects it
+    /// off the shell's thread, and the editor shows it as connecting meanwhile).
+    pub fn ask_switch(&mut self, target: EngineTarget) {
+        self.request = Some(target);
+    }
+
+    /// Ask the host for an engine change (an add, say: `--engine a,b`'s others), after any
+    /// switch asked for.
+    pub fn ask_change(&mut self, change: EngineChange) {
+        self.changes.push(change);
+    }
 }
 
 fn can_switch(s: &Session) -> std::result::Result<(), String> {

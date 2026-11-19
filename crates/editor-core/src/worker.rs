@@ -235,12 +235,54 @@ impl EngineWorker {
     }
 }
 
+/// Workers let go by [`EngineWorker::close`] whose threads may still be finishing.
+static CLOSED: Mutex<Vec<std::sync::Weak<Shared>>> = Mutex::new(Vec::new());
+
+/// Wait at most `timeout` for every worker let go by [`EngineWorker::close`] to finish what it
+/// was given: whether all have. For a program about to exit, after its windows have gone.
+pub fn wait_closed(timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    let workers: Vec<Arc<Shared>> = {
+        let mut c = lock(&CLOSED);
+        c.retain(|w| w.upgrade().is_some_and(|s| !lock(&s.state).exited));
+        c.iter().filter_map(std::sync::Weak::upgrade).collect()
+    };
+    for shared in workers {
+        let mut s = lock(&shared.state);
+        while !s.exited {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return false;
+            }
+            s = shared.changed.wait_timeout(s, left).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
+        }
+    }
+    true
+}
+
+impl EngineWorker {
+    /// Let the worker go without waiting for it: what it was given still runs, in order (a run's
+    /// cancel, an old engine stopped), then its thread ends on its own. Nothing is joined, so the
+    /// caller never waits for an engine; [`wait_closed`] can, bounded. Jobs given after this run
+    /// on a new thread.
+    pub fn close(&mut self) {
+        drop(self.tx.take());
+        if self.thread.take().is_some() {
+            let mut c = lock(&CLOSED);
+            c.retain(|w| w.strong_count() > 0);
+            c.push(Arc::downgrade(&self.shared));
+        }
+        self.set_waker(None);
+    }
+}
+
 impl Drop for EngineWorker {
     fn drop(&mut self) {
+        // none started, or let go by `close` (whose jobs still run)
+        let Some(thread) = self.thread.take() else { return };
         lock(&self.shared.state).stop = true;
         // closing the queue ends the thread's loop once the job in hand is done
         drop(self.tx.take());
-        let Some(thread) = self.thread.take() else { return };
         let deadline = Instant::now() + SHUTDOWN_WAIT;
         let mut s = lock(&self.shared.state);
         while !s.exited {

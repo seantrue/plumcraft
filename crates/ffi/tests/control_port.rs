@@ -106,7 +106,11 @@ fn a_core_opened_through_the_c_abi_is_driven_over_its_control_port() {
     // ui.inspect: the core's parts, no geometry from a shell that reports none
     let i = s.call("ui.inspect", json!({}))["result"].clone();
     assert_eq!(i["graph"]["nodes"].as_array().map(Vec::len), Some(2), "{i}");
-    assert_eq!(i["run"]["nodes"][&up]["state"], "done", "{i}");
+    // `run.watch` runs what the node needs, as the editor's command does (docs/shell-interface.md
+    // 6.2), so `run.start` is the second run: done when it superseded the first, cached when the
+    // first had finished (a slow machine). Either way the node was computed and is current.
+    let state = i["run"]["nodes"][&up]["state"].as_str();
+    assert!(matches!(state, Some("done" | "cached")), "{i}");
     assert!(i["title"].as_str().unwrap().starts_with("Untitled • — PlumCraft (Text"), "{i}");
     assert_eq!((i["asks"].clone(), i["engine"]["connected"].clone(), i.get("canvas")), (json!([]), json!(true), None), "{i}");
     // the same request through plum_request gets the same answer

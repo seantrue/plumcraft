@@ -159,7 +159,7 @@ impl Store {
         if let Some(path) = &self.path
             && let Err(e) = self.prefs.save_to(path)
         {
-            eprintln!("preferences not saved to {}: {e}", path.display());
+            crate::log::say(crate::log::Level::Warn, "core", &format!("preferences not saved to {}: {e}", path.display()));
         }
     }
 

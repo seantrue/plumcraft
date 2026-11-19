@@ -8,10 +8,8 @@
 //! Lifted from the research software's `crates/ui-egui/src/palette.rs`. The search index is the
 //! core's ([`plumcraft_editor_core::palette`], stage N1); drawing it is here.
 
-use std::collections::BTreeMap;
-
 use egui::{Key, Pos2};
-use plumcraft_proto::catalogue::{NodeDef, SchemaReply};
+use plumcraft_proto::catalogue::SchemaReply;
 
 pub use plumcraft_editor_core::palette::{MAX_SHOWN, PaletteIndex, category_path, display_name};
 
@@ -119,59 +117,4 @@ pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex,
         return PaletteOutcome::Closed;
     }
     outcome
-}
-
-/// Nested menus of node types by category path (Node › Add), under a menu per engine first
-/// when several are connected. Returns the kind clicked.
-pub fn node_menus(ui: &mut egui::Ui, catalog: &SchemaReply) -> Option<String> {
-    #[derive(Default)]
-    struct Tree<'a> {
-        children: BTreeMap<&'a str, Tree<'a>>,
-        leaves: Vec<&'a NodeDef>,
-    }
-    fn draw(ui: &mut egui::Ui, tree: &Tree<'_>, picked: &mut Option<String>) {
-        for (name, sub) in &tree.children {
-            ui.menu_button(*name, |ui| draw(ui, sub, picked));
-        }
-        for def in &tree.leaves {
-            let r = ui.button(display_name(def));
-            let r = if def.description.is_empty() { r } else { r.on_hover_text(&def.description) };
-            if r.clicked() {
-                *picked = Some(def.id.clone());
-                ui.close();
-            }
-        }
-    }
-    fn sort_leaves(t: &mut Tree<'_>) {
-        t.leaves.sort_by_key(|d| display_name(d).to_lowercase());
-        for c in t.children.values_mut() {
-            sort_leaves(c);
-        }
-    }
-    // Several engines (a merged catalogue): a menu per engine first, and the kinds more than one
-    // offers (the building blocks) under Shared.
-    let several = catalog.nodes.iter().flat_map(|d| d.engines.iter()).collect::<std::collections::BTreeSet<_>>().len() > 1;
-    let mut root = Tree::default();
-    for def in &catalog.nodes {
-        let mut at = &mut root;
-        if several {
-            let branch = match def.engines.as_slice() {
-                [one] => one.as_str(),
-                [] => "Other",
-                _ => "Shared",
-            };
-            at = at.children.entry(branch).or_default();
-        }
-        if def.category.is_empty() {
-            at = at.children.entry("Other").or_default();
-        }
-        for part in &def.category {
-            at = at.children.entry(part.as_str()).or_default();
-        }
-        at.leaves.push(def);
-    }
-    sort_leaves(&mut root);
-    let mut picked = None;
-    draw(ui, &root, &mut picked);
-    picked
 }

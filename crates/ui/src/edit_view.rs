@@ -375,77 +375,36 @@ pub enum EditOp {
     Frame,
 }
 
-/// Align menu items: (label, edge).
-pub const ALIGN_EDGES: [(&str, &str); 6] = [
-    ("Left Edges", "left"),
-    ("Right Edges", "right"),
-    ("Top Edges", "top"),
-    ("Bottom Edges", "bottom"),
-    ("Centres Horizontally", "centerX"),
-    ("Centres Vertically", "centerY"),
-];
+/// Align menu items: (label, edge), as the core's menu model has them.
+pub use plumcraft_editor_core::menu::ALIGN_EDGES;
 
-/// The Edit menu's canvas items, for `many` things selected. Returns the one clicked.
-pub fn edit_menu(ui: &mut egui::Ui, many: usize) -> Option<EditOp> {
-    let has_selection = many > 0;
-    let mut op = None;
-    ui.separator();
-    let item = |ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool| -> bool {
-        let r = ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut));
-        let clicked = r.clicked();
-        if clicked {
-            ui.close();
-        }
-        clicked
-    };
-    let cmd = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
-    if item(ui, "Cut", &format!("{cmd}X"), has_selection) {
-        op = Some(EditOp::Cut);
-    }
-    if item(ui, "Copy", &format!("{cmd}C"), has_selection) {
-        op = Some(EditOp::Copy);
-    }
-    if item(ui, "Paste", &format!("{cmd}V"), true) {
-        op = Some(EditOp::Paste);
-    }
-    if item(ui, "Delete", "⌫", has_selection) {
-        op = Some(EditOp::Delete);
-    }
-    if item(ui, "Select All", &format!("{cmd}A"), true) {
-        op = Some(EditOp::SelectAll);
-    }
-    if item(ui, "Frame Selection", "", has_selection) {
-        op = Some(EditOp::Frame);
-    }
-    ui.separator();
-    ui.add_enabled_ui(many >= 2, |ui| {
-        ui.menu_button("Align", |ui| {
-            for (label, edge) in ALIGN_EDGES {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Align(edge));
-                    ui.close();
-                }
-            }
+impl EditOp {
+    /// The Edit menu's canvas item `item` (the core's menu model names it; the shell does it
+    /// until N2 gives it a command).
+    pub fn from_item(item: &plumcraft_editor_core::menu::Item) -> Option<EditOp> {
+        let param = |key: &str, from: &[(&'static str, &'static str)]| {
+            let want = item.params.as_ref()?.get(key)?.as_str()?;
+            from.iter().find(|(_, v)| *v == want).map(|(_, v)| *v)
+        };
+        Some(match item.id.as_str() {
+            "edit.cut" => EditOp::Cut,
+            "edit.copy" => EditOp::Copy,
+            "edit.paste" => EditOp::Paste,
+            "edit.delete" => EditOp::Delete,
+            "selection.all" => EditOp::SelectAll,
+            "frame.add" => EditOp::Frame,
+            "edit.align" => EditOp::Align(param("edge", &ALIGN_EDGES)?),
+            "edit.distribute" => EditOp::Distribute(param("axis", &[("Horizontally", "horizontal"), ("Vertically", "vertical")])?),
+            _ => return None,
         })
-    });
-    ui.add_enabled_ui(many >= 3, |ui| {
-        ui.menu_button("Distribute", |ui| {
-            for (label, axis) in [("Horizontally", "horizontal"), ("Vertically", "vertical")] {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Distribute(axis));
-                    ui.close();
-                }
-            }
-        })
-    });
-    op
+    }
 }
 
 impl EditorApp {
     /// The selected nodes that are still in the graph, with the members of selected collapsed
     /// groups.
     fn selected_ids(&self) -> Vec<NodeId> {
-        let g = self.session.graph();
+        let g = self.doc.session.graph();
         let mut ids: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
         for gid in self.canvas.picked.groups() {
             for m in g.group_members(gid) {
@@ -461,7 +420,7 @@ impl EditorApp {
     fn copy_selection(&mut self, id: &str) -> bool {
         let nodes = self.selected_ids();
         if nodes.is_empty() {
-            self.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
+            self.doc.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
             return false;
         }
         let Some(r) = self.run(id, &json!({"nodes": nodes})) else { return false };
@@ -506,7 +465,7 @@ impl EditorApp {
             EditOp::SelectAll => self.canvas.select_all(),
             EditOp::Delete => {
                 if nodes.is_empty() {
-                    self.last_error = Some("select nodes to delete first".into());
+                    self.doc.last_error = Some("select nodes to delete first".into());
                 } else if self.run("node.remove", &json!({"nodes": nodes})).is_some() {
                     self.canvas.picked.clear();
                 }
@@ -526,7 +485,7 @@ impl EditorApp {
     /// The selection as what arranging takes: its nodes, its collapsed groups (as the one node
     /// each is on the canvas, not their members) and the sizes they were drawn at.
     fn selection_params(&self, mut p: Value) -> Value {
-        let g = self.session.graph();
+        let g = self.doc.session.graph();
         let nodes: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
         p["nodes"] = json!(nodes);
         p["groups"] = json!(self.canvas.picked.groups());
@@ -542,7 +501,7 @@ impl EditorApp {
     /// Edit › Frame Selection.
     pub(crate) fn frame_selection(&mut self) {
         if self.canvas.picked.is_empty() {
-            self.last_error = Some("select nodes to frame first".into());
+            self.doc.last_error = Some("select nodes to frame first".into());
         } else {
             self.arrange("frame.add", json!({}));
         }
@@ -576,7 +535,7 @@ impl EditorApp {
             (
                 i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::A),
-                self.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                self.doc.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
             )
         });
         if delete {

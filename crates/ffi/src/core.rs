@@ -1,16 +1,30 @@
-//! The core thread: it owns the [`Session`] and the engine, takes requests from a channel,
-//! answers them into an outbox, and wakes the shell once per batch (coalesced: no second wake
-//! until the shell has polled). No `unsafe` here; `lib.rs` is the boundary.
+//! The core thread: it holds the core's documents (`docs/shell-interface.md` 4.3), each a
+//! [`Document`] of the editor core (its session, engine link and worker, asks: the same document
+//! the egui editor holds), takes requests from a channel, answers them into an outbox, and wakes
+//! the shell once per batch (coalesced: no second wake until the shell has polled). No `unsafe`
+//! here; `lib.rs` is the boundary.
+//!
+//! **Documents.** `plum_open` opens the first; `document.open {demo?, path?}` more, `document.list`
+//! lists them, `document.close {doc, discard?}` closes one (asking first over unsaved changes). A
+//! request names its document with a top-level `doc`; one that names none acts on the first still
+//! open, so a shell with one document never names it. An engine compiled in is shared by the
+//! documents (decision 11B: one engine, a link each; each document forwards only its own runs'
+//! events, each naming its `doc`).
+//!
+//! **Nothing waits for an engine, not even `plum_open`.** A document's first engine connects on
+//! its worker; requests for it meanwhile are held and answered in order once it has (or once it
+//! failed to start), and the feed's `changed` says so (`{doc, domain: "engine", gen, connected,
+//! label, ready}`).
 //!
 //! Threads, per core:
-//! - **core** (`plumcraft-ffi-core`): the session and every command. The only thread that calls
+//! - **core** (`plumcraft-ffi-core`): the documents and every command. The only thread that calls
 //!   the shell's `wake`. It never waits for an engine (`docs/shell-interface.md` 3.1 rule 6).
-//! - **engine worker** (`plumcraft-engine-worker`): the editor core's [`EngineWorker`], which makes
+//! - **engine worker** (`plumcraft-engine-worker`, one per document): the editor core's engine worker, which makes
 //!   every engine call the session asks for (runs, cancels, releases) and does an engine switch's
 //!   waiting part (stopping the old engine, starting the new, its catalogue), in order, and hands
 //!   back what came of it; the core thread applies that when woken. A request that switches
 //!   engines (`command.run engine.*`) replies once the switch is done.
-//! - **pump** (`plumcraft-editor-pump`): the editor core's [`Link`], which long-polls
+//! - **pump** (`plumcraft-editor-pump`): the editor core's [`link::Link`], which long-polls
 //!   `events.poll` and holds the events; its [`link::Waker`] tells the core thread to drain them.
 //! - the engine's own worker (`plumcraft-engine`), or its process, started by the editor core's
 //!   [`Launcher`] as the config names it (the text engine, in-process, by default).
@@ -41,23 +55,20 @@ use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
 use plumcraft_automation::server::{self, ControlRequest};
-use plumcraft_coordinator::Coordinator;
-use plumcraft_editor_core::asks::Asks;
-use plumcraft_editor_core::control::{self, Driver, Parked, Shell, View};
+use plumcraft_editor_core::asks::By;
+use plumcraft_editor_core::control::{self, Shell};
+use plumcraft_editor_core::document::{self, DocId, Document, Opening, SharedEngines, shared_starter};
 use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
-use plumcraft_editor_core::invoke::{self, Cont, Host};
-use plumcraft_editor_core::link::{self, Link};
-use plumcraft_editor_core::switchboard::{Effects, Switchboard, Switching, Work, Worked};
-use plumcraft_editor_core::worker::EngineWorker;
+use plumcraft_editor_core::invoke;
+use plumcraft_editor_core::link;
+use plumcraft_editor_core::switchboard;
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::Connection;
 use plumcraft_media::{Fetch, Made, MediaService, Want};
 use plumcraft_proto::data::DataRef;
 use plumcraft_proto::event::{Envelope, Event};
 use plumcraft_proto::handle::Handle;
-use plumcraft_proto::session::EngineState;
 use plumcraft_session::Session;
-use plumcraft_session::run::Outgoing;
 use plumcraft_store::{Blob, Store};
 use serde_json::{Value, json};
 
@@ -68,6 +79,8 @@ pub type WakeFn = extern "C" fn(*mut c_void);
 const MAX_EVENTS: usize = 20_000;
 /// How long the core sleeps between looks at its timers (`spike.waitRun` deadlines).
 const TICK: Duration = Duration::from_millis(50);
+/// How long a busy core goes at most without looking whether its menus changed.
+const MENUS_EVERY: Duration = Duration::from_secs(1);
 /// The largest buffer `spike.publish` makes.
 const MAX_PUBLISH: u64 = 256 << 20;
 
@@ -97,6 +110,10 @@ pub struct Config {
     /// The media service's limits (`media: {cache_mb, workers, queue}`): a phone wants a smaller
     /// cache than the default 256 MiB.
     pub media: plumcraft_media::Config,
+    /// The log's level (`log: {level}`; `PLUMCRAFT_LOG` wins); none: as it is (`info`).
+    pub log_level: Option<plumcraft_editor_core::log::Level>,
+    /// Where the log file goes (`dirs.logs`, or `log: {dir}`): `plumcraft.log` there, bounded.
+    pub log_dir: Option<PathBuf>,
 }
 
 /// Where the control channel listens, and its token's file (none: a fresh token, printed to
@@ -118,6 +135,8 @@ impl Default for Config {
             platform: Capabilities::NONE,
             control: None,
             media: media_config(None).unwrap_or_default(),
+            log_level: None,
+            log_dir: None,
         }
     }
 }
@@ -139,6 +158,8 @@ impl Config {
             platform: Capabilities::declared(o.get("platform")),
             control: control_config(o.get("control"))?,
             media: media_config(o.get("media"))?,
+            log_level: log_level(o.get("log"))?,
+            log_dir: log_dir(o)?,
         })
     }
 
@@ -181,6 +202,27 @@ fn control_config(v: Option<&Value>) -> Result<Option<ControlConfig>, String> {
     Ok(Some(ControlConfig { port, token_file }))
 }
 
+/// `log: {level}`: the log's level, if given.
+fn log_level(v: Option<&Value>) -> Result<Option<plumcraft_editor_core::log::Level>, String> {
+    match v.and_then(|l| l.get("level")) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => {
+            plumcraft_editor_core::log::Level::parse(s).map(Some).ok_or_else(|| "config: log.level must be error, warn, info, debug or trace".into())
+        }
+        Some(_) => Err("config: log.level must be error, warn, info, debug or trace".into()),
+    }
+}
+
+/// `dirs.logs` (or `log: {dir}`): where the log file goes, if given.
+fn log_dir(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, String> {
+    let v = o.get("dirs").and_then(|d| d.get("logs")).or_else(|| o.get("log").and_then(|l| l.get("dir")));
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d))),
+        Some(_) => Err("config: dirs.logs must be a folder's path".into()),
+    }
+}
+
 /// `media: {cache_mb, workers, queue}`: the media service's limits, every one optional; finished
 /// requests are reported (`plum_poll`'s `media`).
 fn media_config(v: Option<&Value>) -> Result<plumcraft_media::Config, String> {
@@ -219,6 +261,12 @@ struct Outbox {
     asks_ended: Vec<String>,
     /// Media requests finished (`{key, handle, want, status, w?, h?, len?, format?, reason?}`).
     media: Vec<String>,
+    /// What changed of a document (`{doc, domain, …}`: its engine connected, it closed, its
+    /// menus changed).
+    changed: Vec<String>,
+    /// The log has entries past what the shell was told of: the newest's seq, and the worst level
+    /// among them (`log.tail` reads them).
+    log: Option<(u64, plumcraft_editor_core::log::Level)>,
     dropped: u64,
 }
 
@@ -236,8 +284,9 @@ pub struct Shared {
     outbox: Mutex<Outbox>,
     waker: Waker,
     counters: Counters,
-    /// The engine connection, following switches (none while one is under way or failed).
-    conn: Mutex<Option<Arc<dyn Connection>>>,
+    /// Every document's engine connection, following switches (a value is read through the
+    /// first that has it).
+    conns: Mutex<Vec<Arc<dyn Connection>>>,
     /// The store the engine publishes to: the config's root, else the shared default.
     store: Store,
     /// Every DataRef seen in the engine's events, by handle: how `plum_blob` resolves one through
@@ -376,9 +425,17 @@ impl Shared {
     pub fn poll(&self) -> Option<Vec<u8>> {
         // cleared first: anything pushed after this wakes again
         self.waker.pending.store(false, Ordering::Release);
-        let (replies, events, dropped, asks, asks_ended, media) = {
+        let (replies, events, dropped, asks, asks_ended, media, changed, log) = {
             let mut o = lock(&self.outbox);
-            if o.replies.is_empty() && o.events.is_empty() && o.dropped == 0 && o.asks.is_empty() && o.asks_ended.is_empty() && o.media.is_empty() {
+            if o.replies.is_empty()
+                && o.events.is_empty()
+                && o.dropped == 0
+                && o.asks.is_empty()
+                && o.asks_ended.is_empty()
+                && o.media.is_empty()
+                && o.changed.is_empty()
+                && o.log.is_none()
+            {
                 return None;
             }
             (
@@ -388,6 +445,8 @@ impl Shared {
                 std::mem::take(&mut o.asks),
                 std::mem::take(&mut o.asks_ended),
                 std::mem::take(&mut o.media),
+                std::mem::take(&mut o.changed),
+                o.log.take(),
             )
         };
         let c = &self.counters;
@@ -413,7 +472,15 @@ impl Shared {
             out.extend_from_slice(b"],\"media\":[");
             join_into(&mut out, &media);
         }
-        out.extend_from_slice(format!("],\"dropped\":{dropped}}}").as_bytes());
+        if !changed.is_empty() {
+            out.extend_from_slice(b"],\"changed\":[");
+            join_into(&mut out, &changed);
+        }
+        out.push(b']');
+        if let Some((seq, worst)) = log {
+            out.extend_from_slice(format!(",\"log\":{{\"seq\":{seq},\"worst\":\"{}\"}}", worst.name()).as_bytes());
+        }
+        out.extend_from_slice(format!(",\"dropped\":{dropped}}}").as_bytes());
         Some(out)
     }
 
@@ -484,7 +551,7 @@ enum Msg {
         id: u64,
         body: Vec<u8>,
     },
-    /// The link has events waiting.
+    /// A link or the engine worker has something waiting.
     Drain,
     /// The control channel queued a request.
     Control,
@@ -503,52 +570,43 @@ pub struct Core {
 }
 
 impl Core {
-    /// Start the engine, the session, the pump and the core thread.
+    /// Check the config, start the core thread and open the first document, and return at once:
+    /// the engine connects on the document's engine worker (an engine compiled in shared by
+    /// every document), and the feed says when (`changed`, domain `engine`). Requests for a
+    /// document whose engine hasn't connected yet are held and answered once it has.
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
         let (kind, mode) = config.engine_and_mode()?;
+        if let Some(level) = config.log_level {
+            plumcraft_editor_core::log::set_level(level);
+        }
+        if let Some(dir) = &config.log_dir
+            && let Err(e) = plumcraft_editor_core::log::set_file(Some(dir))
+        {
+            // the core runs without a file rather than not at all
+            plumcraft_editor_core::log::warn("ffi", &e);
+        }
+        // the demo is part of the program: read now, so a bad one is the config's error
+        let demo = if config.demo { Some(demo_graph(kind)?) } else { None };
         let launcher = Launcher { caps: config.platform, store_root: config.store_root.clone(), ..Default::default() };
         let (tx, rx) = channel();
         let drain = tx.clone();
         let waker = link::Waker::new(move || {
             let _ = drain.send(Msg::Drain);
         });
-        let link = launcher.connect_core(kind, mode, Some(waker.clone()))?;
-        match link.state() {
-            EngineState::Connected { .. } => {}
-            other => return Err(format!("the {} engine didn't start: {other:?}", kind.id())),
-        }
-        let conn = Arc::clone(&link.conn);
-        let catalog = conn
-            .call("schema", json!({}))
-            .map_err(|e| e.message)
-            .and_then(|v| serde_json::from_value(v).map_err(|e| format!("the engine's catalogue: {e}")))?;
-        let mut session = Session::new(catalog);
-        // the session's app starts (`/usr/bin/open`) become open.external asks for the shell
-        let launches = invoke::route_launches(&mut session);
-        session.connected = true;
-        session.set_connection(Some(Arc::clone(&conn)));
-        // engine.* commands switch among what this platform can start, and attach
-        session.engines.choices = launcher.choices();
-        session.engines.current = Some(plumcraft_session::EngineTarget::Choice { engine: kind.id(), mode: mode.id().to_owned() });
-        session.engines.can_attach = true;
-        let state = link.state();
-        if config.demo {
-            load_demo(&mut session, kind)?;
-        }
         let store = Store::new(config.store_root.clone().unwrap_or_else(plumcraft_store::default_root));
         let shared = Arc::new(Shared {
             outbox: Mutex::default(),
             waker: Waker { f: wake, ctx: ctx as usize, pending: AtomicBool::new(false), sent: AtomicU64::new(0) },
             counters: Counters::default(),
-            conn: Mutex::new(Some(conn)),
+            conns: Mutex::default(),
             store,
             refs: Mutex::default(),
             lent: Mutex::default(),
             media: MediaService::new(config.media.clone()),
             slow_resolve: AtomicU64::new(0),
         });
-        // values are read through the current engine connection (following switches), or from
-        // the store by handle; only ever on the media service's workers
+        // values are read through the documents' engine connections (following switches), or
+        // from the store by handle; only ever on the media service's workers
         let weak = Arc::downgrade(&shared);
         shared.media.set_resolver(Some(Arc::new(move |r: &DataRef| {
             let s = weak.upgrade()?;
@@ -556,14 +614,13 @@ impl Core {
             if delay > 0 {
                 std::thread::sleep(Duration::from_millis(delay.min(60_000)));
             }
-            let conn = lock(&s.conn).clone();
-            conn.and_then(|c| c.resolve(r)).or_else(|| r.handle.as_ref().and_then(|h| s.store.map_handle(h).or_else(|| s.store.read_handle(h))))
+            let conns = lock(&s.conns).clone();
+            conns.iter().find_map(|c| c.resolve(r)).or_else(|| r.handle.as_ref().and_then(|h| s.store.map_handle(h).or_else(|| s.store.read_handle(h))))
         })));
         let to_core = tx.clone();
         shared.media.set_wake(Some(Arc::new(move || {
             let _ = to_core.send(Msg::Media);
         })));
-        let engines = EngineWorker::new(Some(waker.clone()));
         let (control_server, control_rx, control_token_file) = match &config.control {
             None => (None, None, None),
             Some(c) => {
@@ -573,36 +630,42 @@ impl Core {
                     let _ = to_core.send(Msg::Control);
                 });
                 let (srv, rx) = server::Server::start(c.port, token.clone(), wake).map_err(|e| e.to_string())?;
-                eprintln!("plumcraft: control channel on 127.0.0.1:{}", srv.port());
+                // the token is printed on stderr, as the desktop editor's --control prints it, and
+                // never kept in the log
+                plumcraft_editor_core::log::redact(&token);
+                let say = |line: &str| plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Info, "ffi", line);
+                say(&format!("plumcraft: control channel on 127.0.0.1:{}", srv.port()));
                 match &c.token_file {
-                    Some(p) => eprintln!("plumcraft: control token in {}", p.display()),
-                    None => eprintln!("plumcraft: control token: {token}"),
-                }
+                    Some(p) => say(&format!("plumcraft: control token in {}", p.display())),
+                    None => say(&format!("plumcraft: control token: {token}")),
+                };
                 (Some(srv), Some(rx), c.token_file.clone())
             }
         };
-        let worker = Worker {
-            session,
-            shared: Arc::clone(&shared),
-            waiters: Vec::new(),
-            link: Some(link),
-            kind,
-            engines,
-            launcher,
-            waker,
-            coordinator: None,
-            state,
-            last_error: None,
-            switching: Switching::default(),
-            parked: Parked::default(),
-            asks: Asks::default(),
-            prefs: plumcraft_editor_core::prefs::Store::default(),
-            launches,
-            control_rx,
-            control_server,
-            control_token_file,
-        };
-        let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
+        let thread_shared = Arc::clone(&shared);
+        let thread = std::thread::Builder::new()
+            .name("plumcraft-ffi-core".into())
+            .spawn(move || {
+                // a document's parts live on this thread only
+                let mut worker = Worker {
+                    shared: thread_shared,
+                    docs: BTreeMap::new(),
+                    waiters: Vec::new(),
+                    kind,
+                    mode,
+                    launcher,
+                    engines: SharedEngines::default(),
+                    waker,
+                    control_rx,
+                    control_server,
+                    control_token_file,
+                    log_seen: plumcraft_editor_core::log::last_seq(),
+                    menus_at: Instant::now(),
+                };
+                worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
+                worker.run(&rx);
+            })
+            .map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
         Ok(Core { tx, shared, next_id: AtomicU64::new(1), thread: Mutex::new(Some(thread)), thread_id })
     }
@@ -614,7 +677,9 @@ impl Core {
     }
 
     /// Stop the core thread and wait for it, unless this is the core thread itself (a shell that
-    /// closes from inside its wake): then it stops on its own after this message.
+    /// closes from inside its wake): then it stops on its own after this message. The thread
+    /// closes its documents without waiting for their engines (each document's worker stops
+    /// them), so this waits for no engine.
     pub fn close(&self) {
         let _ = self.tx.send(Msg::Stop);
         if self.thread_id == Some(std::thread::current().id()) {
@@ -626,10 +691,15 @@ impl Core {
     }
 }
 
+/// The engine's demo graph (an empty one for an engine without).
+fn demo_graph(kind: EngineKind) -> Result<Graph, String> {
+    let demo = kind.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.to_owned());
+    Graph::from_json(&demo).map_err(|e| e.to_string())
+}
+
 /// The engine's demo graph (an empty one for an engine without), as one undo step.
 fn load_demo(s: &mut Session, kind: EngineKind) -> Result<(), String> {
-    let demo = kind.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.to_owned());
-    let demo = Graph::from_json(&demo).map_err(|e| e.to_string())?;
+    let demo = demo_graph(kind)?;
     s.edit("Open Demo", |g, _| {
         *g = demo;
         Ok(())
@@ -637,130 +707,105 @@ fn load_demo(s: &mut Session, kind: EngineKind) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// A `spike.waitRun` waiting for the run to end.
+/// A `spike.waitRun` waiting for its document's run to end.
 struct Waiter {
     id: u64,
+    doc: DocId,
     tag: Option<Value>,
     deadline: Instant,
 }
 
-/// The core thread's state.
+/// A request for a document whose engine hasn't connected yet, answered once it has.
+enum Held {
+    Request { id: u64, tag: Option<Value>, method: String, params: Value },
+    Control(ControlRequest),
+}
+
+/// The most requests held for one document while its engine connects.
+const MAX_HELD: usize = 256;
+
+/// A document of this core, and what waits for its engine.
+struct Doc {
+    doc: Document,
+    /// Its first engine has connected (or failed to), and what it opens with is open.
+    ready: bool,
+    held: Vec<Held>,
+    /// The `engine` domain's generation, for the feed's `changed`.
+    generation: u64,
+    /// The menu model's generation last told the shell (`changed`, domain `menus`).
+    menus_sent: u64,
+    /// A shell has asked for the menus (`menu.get`), so it hears when they change; one that never
+    /// asks costs the core nothing.
+    menus_watched: bool,
+}
+
+/// The core thread's state: its documents, by id, and what they share.
 struct Worker {
-    session: Session,
     shared: Arc<Shared>,
+    docs: BTreeMap<DocId, Doc>,
     waiters: Vec<Waiter>,
-    /// The engine's event pump; dropping it stops the pump and waits for it. None while a
-    /// switch is under way, or after one failed.
-    link: Option<Link>,
-    /// Which engine it opened on (`spike.demo` opens its demo).
+    /// The engine the config names, and its hosting: every document starts on it.
     kind: EngineKind,
-    /// Every engine call, off this thread.
-    engines: EngineWorker,
-    /// Starts the engines `engine.*` asks for (on the worker).
+    mode: Mode,
+    /// Starts the engines (on each document's worker).
     launcher: Launcher,
-    /// What new links (and the worker) wake: a `Drain` to this thread.
+    /// The engines compiled in, one of each for every document (decision 11B).
+    engines: SharedEngines,
+    /// What new links and the workers wake: a `Drain` to this thread.
     waker: link::Waker,
-    /// The switchboard's parts (`plumcraft_editor_core::switchboard`).
-    coordinator: Option<Arc<Coordinator>>,
-    state: EngineState,
-    last_error: Option<String>,
-    switching: Switching,
-    /// Control requests whose reply waits (a switch, a run, a screenshot asked of the shell).
-    parked: Parked,
-    /// What the core asks the shell (`docs/shell-interface.md` section 11).
-    asks: Asks<Cont>,
-    /// The folders each kind of file ask last used (in memory: the shell keeps its own).
-    prefs: plumcraft_editor_core::prefs::Store,
-    /// The apps the session asked to start, until they are asked of the shell.
-    launches: Option<invoke::Launches>,
     /// The control channel's requests (declared before its server, so they drop first and a
     /// connection waiting on one is answered at once).
     control_rx: Option<Receiver<ControlRequest>>,
     /// The control server; dropping it (the core closing) closes the port and its connections.
     control_server: Option<server::Server>,
     control_token_file: Option<PathBuf>,
+    /// The newest log entry the shell was told of (the feed's `log`).
+    log_seen: u64,
+    /// When the documents' menus were last looked at (`note_menus`).
+    menus_at: Instant,
 }
 
-/// The invoke machine's view of this core: no canvas, so no selection.
-impl Host for Worker {
-    fn session(&self) -> &Session {
-        &self.session
-    }
-    fn session_mut(&mut self) -> &mut Session {
-        &mut self.session
-    }
-    fn asks(&mut self) -> &mut Asks<Cont> {
-        &mut self.asks
-    }
-    fn run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
-        let r = self.session.execute(id, params).map_err(|e| e.to_string());
-        self.send_outgoing();
-        if let Err(e) = &r {
-            self.last_error = Some(e.clone());
-        }
-        r
-    }
-    fn say(&mut self, text: String) {
-        self.last_error = Some(text);
-    }
-    fn prefs(&mut self) -> Option<&mut plumcraft_editor_core::prefs::Store> {
-        Some(&mut self.prefs)
-    }
-    fn take_launches(&mut self) -> Vec<(PathBuf, Vec<String>, PathBuf)> {
-        invoke::drain_launches(self.launches.as_ref())
-    }
-}
-
-/// The control channel's view of this core: the core's parts of `ui.inspect`, no geometry; a
-/// `screenshot` ask for `ui.screenshot`; no `ui.set` or `ui.audio`.
-impl Shell for Worker {
-    fn view(&self) -> View<'_> {
-        View {
-            link: self.link.as_ref(),
-            state: &self.state,
-            coordinator: self.coordinator.as_ref(),
-            switching: &self.switching,
-            last_error: self.last_error.as_deref(),
-            asks: &self.asks,
-            document: control::UNTITLED,
-            app_title: control::APP_TITLE,
-            run_anim: None,
-            prefs: Some(&self.prefs),
-            theme: None,
-        }
-    }
-    fn parked(&mut self) -> &mut Parked {
-        &mut self.parked
-    }
-    fn clear_last_error(&mut self) {
-        self.last_error = None;
-    }
-    fn presented(&mut self) {
-        self.feed_asks();
-    }
-}
-
-/// Engine switching on this core: everything that waits goes to the worker.
-impl Driver for Worker {
-    fn worker(&mut self) -> &mut EngineWorker {
-        &mut self.engines
-    }
-    fn switching(&mut self) -> &mut Switching {
-        &mut self.switching
-    }
-    fn board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>) -> R) -> R {
-        Worker::board(self, f)
-    }
-    fn start(&mut self, w: Work) -> Option<Worked> {
-        let carry = (self.launcher.clone(), self.waker.clone());
-        self.engines.switch(w, carry, |(launcher, waker): &mut (Launcher, link::Waker), engine: &str, mode: &str| {
-            launcher.connect_ids(engine, mode, Some(waker.clone()))
-        });
-        None
-    }
+/// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
+fn coded(code: &str, message: impl Into<String>) -> Value {
+    let mut v = control::err(message);
+    v["code"] = json!(code);
+    v
 }
 
 impl Worker {
+    /// Open a document on the config's engine, which connects on its worker; `opening` opens once
+    /// it has. Its id.
+    fn open_doc(&mut self, opening: Opening) -> DocId {
+        let mut session = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
+        // engine.* commands switch among what this platform can start, and attach
+        session.engines.choices = self.launcher.choices();
+        let target = plumcraft_session::EngineTarget::Choice { engine: self.kind.id(), mode: self.mode.id().to_owned() };
+        session.engines.current = Some(target.clone());
+        session.engines.can_attach = true;
+        let mut doc = Document::with_media(session, self.shared.media.clone(), false);
+        doc.caps = self.launcher.caps;
+        doc.set_waker(Some(self.waker.clone()));
+        let launcher = self.launcher.clone();
+        doc.starter = Some(shared_starter(self.engines.clone(), move |e: &str, m: &str, w: Option<link::Waker>| launcher.connect_ids(e, m, w)));
+        let shared = Arc::clone(&self.shared);
+        doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
+        doc.start_engines(target, Vec::new(), opening);
+        let id = doc.id;
+        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, menus_watched: false });
+        id
+    }
+
+    /// The document a request names (`doc`), or the first one open when it names none.
+    fn target(&self, doc: Option<&Value>) -> Result<DocId, Value> {
+        match doc {
+            None | Some(Value::Null) => self.docs.keys().next().copied().ok_or_else(|| coded("unknown_doc", "no document is open")),
+            Some(d) => {
+                let id = d.as_u64().ok_or_else(|| coded("bad_params", "doc must be a document's number (document.list)"))?;
+                if self.docs.contains_key(&id) { Ok(id) } else { Err(coded("unknown_doc", format!("no document {id} is open"))) }
+            }
+        }
+    }
+
     fn run(mut self, rx: &Receiver<Msg>) {
         loop {
             let msg = match rx.recv_timeout(TICK) {
@@ -768,36 +813,166 @@ impl Worker {
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            // nothing came for a tick: the core is idle
+            let idle = msg.is_none();
             match msg {
                 Some(Msg::Stop) => break,
                 Some(Msg::Request { id, body }) => self.request(id, &body),
-                Some(Msg::Drain) => {
-                    let events = self.link.as_ref().map(Link::drain).unwrap_or_default();
-                    if !events.is_empty() {
-                        self.events(events);
-                    }
-                    self.step_engines();
-                }
                 Some(Msg::Media) => self.shared.push_media(),
-                Some(Msg::Control) | None => {}
+                Some(Msg::Drain | Msg::Control) | None => {}
             }
             self.control_requests();
+            self.turn_all();
             self.answer_waiters();
-            control::tick(&mut self);
-            self.feed_asks();
+            self.note_log();
+            // the menus are looked at when the core is idle (at most a tick after a change), and at
+            // least every second when it never is, never in the middle of a stream of requests
+            if idle || self.menus_at.elapsed() >= MENUS_EVERY {
+                self.menus_at = Instant::now();
+                let ids: Vec<DocId> = self.docs.keys().copied().collect();
+                for id in ids {
+                    self.note_menus(id);
+                }
+            }
             let o = lock(&self.shared.outbox);
-            let any = !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty() || !o.media.is_empty();
+            let any = !o.replies.is_empty()
+                || !o.events.is_empty()
+                || !o.asks.is_empty()
+                || !o.asks_ended.is_empty()
+                || !o.media.is_empty()
+                || !o.changed.is_empty()
+                || o.log.is_some();
             drop(o);
             if any {
                 self.shared.waker.wake();
             }
         }
-        // a run in flight is cancelled (the core is closing: the shell is waiting for that);
-        // the engine stops when the last holder drops it
-        if let (Some(run_id), Some(link)) = (self.session.run.run_id.clone().filter(|_| self.session.run.running), &self.link) {
-            let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
+        // the documents close: runs cancelled and engines stopped on their workers, not here
+        for (_, mut d) in std::mem::take(&mut self.docs) {
+            for h in std::mem::take(&mut d.held) {
+                self.refuse(h, "the core closed");
+            }
+            d.doc.close();
         }
-        *lock(&self.shared.conn) = None;
+        lock(&self.shared.conns).clear();
+    }
+
+    /// The log has entries the shell hasn't been told of: say so in the feed (`log: {seq, worst}`).
+    fn note_log(&mut self) {
+        use plumcraft_editor_core::log;
+        let seq = log::last_seq();
+        if seq <= self.log_seen {
+            return;
+        }
+        let worst = log::worst_after(self.log_seen).unwrap_or(log::Level::Trace);
+        self.log_seen = seq;
+        let mut o = lock(&self.shared.outbox);
+        o.log = Some(match o.log {
+            Some((_, w)) => (seq, w.min(worst)),
+            None => (seq, worst),
+        });
+    }
+
+    /// The document's menu bar, noted: the feed says when it changed (`changed`, domain `menus`),
+    /// so a shell rebuilds its native menus then and not on every wake.
+    fn note_menus(&mut self, id: DocId) {
+        let Some(d) = self.docs.get_mut(&id) else { return };
+        if !d.ready || !d.menus_watched {
+            return;
+        }
+        let facts = control::Shell::menu_facts(&d.doc);
+        let model = serde_json::to_value(plumcraft_editor_core::menu::bar(&d.doc.session, &facts)).unwrap_or(Value::Null);
+        let generation = d.doc.menus.note(&model);
+        if generation != d.menus_sent {
+            d.menus_sent = generation;
+            lock(&self.shared.outbox).changed.push(json!({"doc": id, "domain": "menus", "gen": generation}).to_string());
+        }
+    }
+
+    /// Every document's turn: what its engine and worker brought back, its events forwarded, what
+    /// it queued sent; held requests answered once its engine is there; closed documents gone.
+    fn turn_all(&mut self) {
+        let ids: Vec<DocId> = self.docs.keys().copied().collect();
+        for id in ids {
+            let Some(d) = self.docs.get_mut(&id) else { continue };
+            let t = document::turn(&mut d.doc);
+            if !t.events.is_empty() {
+                self.forward(id, &t.events);
+            }
+            let Some(d) = self.docs.get_mut(&id) else { continue };
+            if t.ready || !t.outcomes.is_empty() {
+                d.generation += 1;
+                let changed = json!({"doc": id, "domain": "engine", "gen": d.generation, "connected": d.doc.session.connected,
+                                     "label": switchboard::engine_label(&d.doc.session, d.doc.link.as_ref(), &d.doc.engine), "ready": t.ready || d.ready});
+                lock(&self.shared.outbox).changed.push(changed.to_string());
+            }
+            if t.ready && !d.ready {
+                d.ready = true;
+                for h in std::mem::take(&mut d.held) {
+                    self.replay(id, h);
+                }
+                // what the held requests queued, sent now
+                if let Some(d) = self.docs.get_mut(&id) {
+                    let _ = document::turn(&mut d.doc);
+                }
+            }
+            if let Some(d) = self.docs.get_mut(&id) {
+                control::tick(&mut d.doc);
+                if d.doc.close_asked {
+                    self.close_doc(id);
+                }
+            }
+        }
+        let conns: Vec<Arc<dyn Connection>> = self.docs.values().filter_map(|d| d.doc.link.as_ref().map(|l| Arc::clone(&l.conn))).collect();
+        *lock(&self.shared.conns) = conns;
+    }
+
+    /// A document's engine events, to the shell as they came (each naming its document), their
+    /// DataRefs remembered. A document linked to an engine others share sees their runs' events
+    /// too: only its own runs' go out, with the engine's own (no run).
+    fn forward(&self, id: DocId, events: &[Envelope]) {
+        let Some(d) = self.docs.get(&id) else { return };
+        let mut out = Vec::with_capacity(events.len());
+        for e in events {
+            if e.run_id.as_deref().is_some_and(|r| !d.doc.owns_run(r)) {
+                continue;
+            }
+            let mut v = serde_json::to_value(e).unwrap_or(Value::Null);
+            if matches!(e.event, Event::RunReply(_) | Event::Status(_)) {
+                let mut refs = lock(&self.shared.refs);
+                collect_refs(&v, &mut refs);
+            }
+            if let Some(o) = v.as_object_mut() {
+                o.insert("doc".into(), json!(id));
+            }
+            out.push(v.to_string());
+        }
+        self.shared.push_events(out);
+    }
+
+    /// Close document `id` now: its asks withdrawn (the feed says so), what waits on it answered,
+    /// its engine stopped on its worker.
+    fn close_doc(&mut self, id: DocId) {
+        let Some(mut d) = self.docs.remove(&id) else { return };
+        for h in std::mem::take(&mut d.held) {
+            self.refuse(h, "the document closed");
+        }
+        let (gone, keep): (Vec<Waiter>, Vec<Waiter>) = std::mem::take(&mut self.waiters).into_iter().partition(|w| w.doc == id);
+        self.waiters = keep;
+        for w in gone {
+            self.reply(w.id, w.tag.as_ref(), Err("the document closed".into()));
+        }
+        d.doc.close();
+        lock(&self.shared.outbox).changed.push(json!({"doc": id, "domain": "document", "closing": true}).to_string());
+    }
+
+    fn refuse(&self, h: Held, why: &str) {
+        match h {
+            Held::Request { id, tag, .. } => self.reply(id, tag.as_ref(), Err(why.into())),
+            Held::Control(req) => {
+                let _ = req.reply.send(control::err(why));
+            }
+        }
     }
 
     fn reply(&self, id: u64, tag: Option<&Value>, r: Result<Value, String>) {
@@ -814,7 +989,8 @@ impl Worker {
         Box::new(move |v: Value| shared.push_reply(framed(id, tag.as_ref(), v)))
     }
 
-    /// The control channel's requests, through the same dispatcher.
+    /// The control channel's requests, through the same dispatcher, for the first document (the
+    /// control protocol names none), held while its engine connects.
     fn control_requests(&mut self) {
         let Some(rx) = &self.control_rx else { return };
         let requests: Vec<ControlRequest> = rx.try_iter().collect();
@@ -823,17 +999,53 @@ impl Worker {
                 let _ = req.reply.send(control::err("timeout: the request expired before it ran"));
                 continue;
             }
-            let reply = req.reply.clone();
-            control::handle(
-                self,
-                &req.method,
-                &req.params,
-                Box::new(move |v: Value| {
-                    let _ = reply.send(v);
-                }),
-            );
-            self.send_outgoing();
-            self.step_engines();
+            let id = match self.target(None) {
+                Ok(id) => id,
+                Err(e) => {
+                    let _ = req.reply.send(e);
+                    continue;
+                }
+            };
+            self.hold_or(id, Held::Control(req));
+        }
+    }
+
+    /// Run `h` for document `id`, or hold it while its engine connects.
+    fn hold_or(&mut self, id: DocId, h: Held) {
+        let Some(d) = self.docs.get_mut(&id) else { return self.refuse(h, "the document closed") };
+        if !d.ready {
+            if d.held.len() >= MAX_HELD {
+                return self.refuse(h, "busy: the document's engine is still connecting");
+            }
+            d.held.push(h);
+            return;
+        }
+        self.replay(id, h);
+    }
+
+    /// A request for a ready document.
+    fn replay(&mut self, id: DocId, h: Held) {
+        match h {
+            Held::Request { id: rid, tag, method, params } => self.doc_request(id, rid, tag, &method, &params),
+            Held::Control(req) => {
+                if req.expired() {
+                    let _ = req.reply.send(control::err("timeout: the request expired before it ran"));
+                    return;
+                }
+                let Some(d) = self.docs.get_mut(&id) else { return };
+                if req.method == "menu.get" {
+                    d.menus_watched = true;
+                }
+                let reply = req.reply.clone();
+                control::handle(
+                    &mut d.doc,
+                    &req.method,
+                    &req.params,
+                    Box::new(move |v: Value| {
+                        let _ = reply.send(v);
+                    }),
+                );
+            }
         }
     }
 
@@ -848,27 +1060,14 @@ impl Worker {
         };
         let params = v.get("params").cloned().unwrap_or(Value::Null);
         let r = match method {
-            // `command.run run.start`, shorter
-            "run" => {
-                let r = self.session.execute("run.start", &params).map_err(|e| e.to_string());
-                self.send_outgoing();
-                r
-            }
             "ping" => Ok(json!({"pong": true})),
             // where the control channel listens, if it does
             "core.control" => Ok(match &self.control_server {
                 Some(srv) => json!({"port": srv.port(), "tokenFile": self.control_token_file}),
                 None => json!({"port": null}),
             }),
-            "spike.waitRun" => {
-                let ms = params.get("timeout_ms").and_then(Value::as_u64).unwrap_or(25_000).min(600_000);
-                self.waiters.push(Waiter { id, tag, deadline: Instant::now() + Duration::from_millis(ms) });
-                return;
-            }
-            "spike.demo" => load_demo(&mut self.session, self.kind).map(|()| json!({"nodes": self.session.graph().nodes.len()})),
-            "spike.scene" => self.scene(&params),
-            "spike.publish" => self.publish(&params),
             "spike.stats" => Ok(self.stats()),
+            "spike.publish" => self.publish(&params),
             // a value as plain data, made on the media service's workers: the reply says at once
             // whether it is ready (then plum_blob lends it by `key`) or pending (the feed's
             // `media` says when)
@@ -882,17 +1081,122 @@ impl Worker {
                 }
                 None => Err("spike.slowResolve needs {ms}".into()),
             },
+            "document.open" => self.document_open(&params),
+            "document.list" => Ok(self.document_list()),
+            "document.close" => {
+                // the document named in params (as the contract has it), or in the request
+                let named = params.get("doc").or_else(|| v.get("doc"));
+                match self.target(named) {
+                    Ok(doc) => self.document_close(doc, &params),
+                    Err(e) => return self.shared.push_reply(framed(id, tag.as_ref(), e)),
+                }
+            }
+            // everything else acts on a document: the one named, or the first
+            _ => {
+                let doc = match self.target(v.get("doc")) {
+                    Ok(d) => d,
+                    Err(e) => return self.shared.push_reply(framed(id, tag.as_ref(), e)),
+                };
+                return self.hold_or(doc, Held::Request { id, tag, method: method.to_owned(), params });
+            }
+        };
+        self.reply(id, tag.as_ref(), r);
+    }
+
+    /// A request for document `doc`, whose engine has connected (or failed to).
+    fn doc_request(&mut self, doc: DocId, id: u64, tag: Option<Value>, method: &str, params: &Value) {
+        let kind = self.kind;
+        let Some(d) = self.docs.get_mut(&doc) else { return self.reply(id, tag.as_ref(), Err("the document closed".into())) };
+        let r = match method {
+            // `command.run run.start`, shorter
+            "run" => document::execute(&mut d.doc, "run.start", params),
+            "spike.waitRun" => {
+                let ms = params.get("timeout_ms").and_then(Value::as_u64).unwrap_or(25_000).min(600_000);
+                self.waiters.push(Waiter { id, doc, tag, deadline: Instant::now() + Duration::from_millis(ms) });
+                return;
+            }
+            "spike.demo" => load_demo(&mut d.doc.session, kind).map(|()| json!({"nodes": d.doc.session.graph().nodes.len()})),
+            "spike.scene" => scene(&mut d.doc.session, params),
             // every control-channel method, as the egui editor answers it: a command that
             // switches engines replies once switched, and this thread doesn't wait for it
             _ => {
                 let reply = self.replier(id, tag);
-                control::handle(self, method, &params, reply);
-                self.send_outgoing();
-                self.step_engines();
+                if let Some(d) = self.docs.get_mut(&doc) {
+                    if method == "menu.get" {
+                        d.menus_watched = true;
+                    }
+                    control::handle(&mut d.doc, method, params, reply);
+                }
                 return;
             }
         };
         self.reply(id, tag.as_ref(), r);
+    }
+
+    /// `document.open {demo?, path?}`: a new document on the config's engine (one compiled in is
+    /// shared), replying at once with its id; requests for it are held until its engine is there.
+    fn document_open(&mut self, p: &Value) -> Result<Value, String> {
+        control::check_fields(p, &["demo", "path"])?;
+        let demo = match p.get("demo") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("demo must be a boolean".into()),
+        };
+        let path = match p.get("path") {
+            None | Some(Value::Null) => None,
+            Some(Value::String(s)) if !s.trim().is_empty() && s.len() <= 4096 && !s.contains('\0') => Some(PathBuf::from(s)),
+            Some(_) => return Err("path must be a workflow's file path".into()),
+        };
+        let opening = match (path, demo) {
+            (Some(_), true) => return Err("give path or demo, not both".into()),
+            (Some(path), false) => Opening::Path(path),
+            (None, true) => Opening::Edit("Open Demo".into(), demo_graph(self.kind)?),
+            (None, false) => Opening::Nothing,
+        };
+        let id = self.open_doc(opening);
+        let title = self.docs.get(&id).map(|d| control::window_title(&d.doc.session, &Shell::view(&d.doc))).unwrap_or_default();
+        Ok(json!({"doc": id, "title": title}))
+    }
+
+    /// `document.list {}`: every open document.
+    fn document_list(&self) -> Value {
+        let first = self.docs.keys().next().copied();
+        let docs: Vec<Value> = self
+            .docs
+            .iter()
+            .map(|(id, d)| {
+                let s = &d.doc.session;
+                json!({"doc": id, "title": control::window_title(s, &Shell::view(&d.doc)), "path": s.path(), "dirty": s.is_dirty(),
+                       "ready": d.ready, "first": Some(*id) == first,
+                       "engine": {"connected": s.connected, "pending": d.doc.engine_busy(), "label": switchboard::engine_label(s, d.doc.link.as_ref(), &d.doc.engine)}})
+            })
+            .collect();
+        json!({"docs": docs})
+    }
+
+    /// `document.close {doc, discard?}`: closed at once when nothing is unsaved or `discard` is
+    /// true (`{closing: true}`); else the unsaved-changes prompt is asked (`{closing: false, ask}`)
+    /// and the document closes once it is answered Discard, or saved.
+    fn document_close(&mut self, doc: DocId, p: &Value) -> Result<Value, String> {
+        control::check_fields(p, &["doc", "discard"])?;
+        let discard = match p.get("discard") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("discard must be a boolean".into()),
+        };
+        let Some(d) = self.docs.get_mut(&doc) else { return Err(format!("no document {doc} is open")) };
+        if discard {
+            d.doc.close_asked = true;
+        } else {
+            invoke::quit(&mut d.doc, By::Script);
+            d.doc.feed_asks();
+        }
+        if d.doc.close_asked {
+            self.close_doc(doc);
+            return Ok(json!({"closing": true}));
+        }
+        let ask = invoke::open_prompt(&d.doc.asks).map(|(id, _)| id);
+        Ok(json!({"closing": false, "ask": ask}))
     }
 
     /// `media.get {handle, want?, px?}`: `want` one of `bytes` (the default), `rgba` (an engine's
@@ -922,146 +1226,23 @@ impl Worker {
         Ok(describe(handle, want, &self.shared.media.get(&r, want)))
     }
 
-    /// What was asked and what ended, to the shell's feed.
-    fn feed_asks(&mut self) {
-        invoke::tidy(self);
-        let (raised, ended) = self.asks.take_feed();
-        self.shared.push_asks(raised, ended);
-    }
-
-    /// Hand what the session queued for the engine to the worker (`pump_runs`, without the
-    /// window's prompts). A refusal comes back to [`Worker::step_engines`].
-    fn send_outgoing(&mut self) {
-        for out in self.session.run.take_outbox() {
-            let Some(conn) = self.link.as_ref().map(|l| Arc::clone(&l.conn)) else {
-                if matches!(out, Outgoing::Run(_)) {
-                    self.session.run.fail("run: the engine is not connected");
-                }
-                continue;
-            };
-            match out {
-                Outgoing::Run(req) => match serde_json::to_value(&*req) {
-                    Ok(body) => self.engines.run(conn, body, req.run_id.clone(), req.generation),
-                    Err(e) => self.session.run.fail(&format!("run: {e}")),
-                },
-                Outgoing::Release(scope) => self.engines.call(conn, "graph.release", json!({"scope": scope})),
-                Outgoing::Cancel(run_id) => self.engines.cancel(conn, run_id),
-            }
-        }
-    }
-
-    /// The engine parts, lent to the core's switchboard for `f`.
-    fn board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>) -> R) -> R {
-        let (mut reloader, installer, mut installing) = (None, None, None);
-        let mut b = Switchboard {
-            session: &mut self.session,
-            link: &mut self.link,
-            coordinator: &mut self.coordinator,
-            state: &mut self.state,
-            last_error: &mut self.last_error,
-            reloader: &mut reloader,
-            installer: &installer,
-            installing: &mut installing,
-            switching: &mut self.switching,
-            waker: Some(self.waker.clone()),
-            effects: Effects::default(),
-        };
-        f(&mut b)
-    }
-
-    /// Engine switching without waiting, as the editor core drives it for every shell
-    /// ([`control::step`]); then `plum_blob` follows the connection.
-    fn step_engines(&mut self) {
-        let mut out = Vec::new();
-        control::step(self, &mut out);
-        *lock(&self.shared.conn) = self.link.as_ref().map(|l| Arc::clone(&l.conn));
-    }
-
-    /// The engine's events: into the session's run state, their DataRefs remembered, and on to
-    /// the shell as they came.
-    fn events(&mut self, events: Vec<Envelope>) {
-        let now = Instant::now();
-        let mut out = Vec::with_capacity(events.len());
-        for e in &events {
-            self.session.run.apply_event(e, now);
-            let v = serde_json::to_value(e).unwrap_or(Value::Null);
-            if matches!(e.event, Event::RunReply(_) | Event::Status(_)) {
-                let mut refs = lock(&self.shared.refs);
-                collect_refs(&v, &mut refs);
-            }
-            out.push(v.to_string());
-        }
-        self.shared.push_events(out);
-        // a reply may have queued work (a rerun the watch asked for)
-        self.send_outgoing();
-    }
-
     fn answer_waiters(&mut self) {
         if self.waiters.is_empty() {
             return;
         }
         let now = Instant::now();
-        let idle = !self.session.run.running && self.session.run.outbox_is_empty();
-        let (done, waiting): (Vec<Waiter>, Vec<Waiter>) = std::mem::take(&mut self.waiters).into_iter().partition(|w| idle || now >= w.deadline);
+        let idle = |d: Option<&Doc>| d.is_none_or(|d| !d.doc.session.run.running && d.doc.session.run.outbox_is_empty());
+        let (done, waiting): (Vec<Waiter>, Vec<Waiter>) =
+            std::mem::take(&mut self.waiters).into_iter().partition(|w| idle(self.docs.get(&w.doc)) || now >= w.deadline);
         self.waiters = waiting;
         for w in done {
-            let r = if idle { Ok(self.run_summary()) } else { Err("timeout: the run is still going".into()) };
+            let r = match self.docs.get(&w.doc) {
+                Some(d) if idle(Some(d)) => Ok(run_summary(&d.doc.session)),
+                Some(_) => Err("timeout: the run is still going".into()),
+                None => Err("the document closed".into()),
+            };
             self.reply(w.id, w.tag.as_ref(), r);
         }
-    }
-
-    fn run_summary(&self) -> Value {
-        let run = &self.session.run;
-        let nodes: BTreeMap<&str, Value> =
-            run.nodes.iter().map(|(id, n)| (id.as_str(), json!({"state": n.state.map(|s| format!("{s:?}").to_lowercase()), "ms": n.ms}))).collect();
-        let watch: Vec<Value> = run.watched.iter().map(|d| serde_json::to_value(d).unwrap_or(Value::Null)).collect();
-        json!({"running": run.running, "runId": run.run_id, "generation": run.generation, "runError": run.run_error, "nodes": nodes, "watch": watch})
-    }
-
-    /// `spike.scene {nodes, wires}`: a large graph in one undo step, of text nodes that a run
-    /// could compute (Join nodes take two wires, Upper case one), wired from earlier nodes only.
-    fn scene(&mut self, p: &Value) -> Result<Value, String> {
-        let n = p.get("nodes").and_then(Value::as_u64).unwrap_or(500).clamp(2, 20_000) as usize;
-        let want = p.get("wires").and_then(Value::as_u64).unwrap_or(800) as usize;
-        let cat = self.session.catalog().clone();
-        let def = |k: &str| cat.node(k).cloned().ok_or_else(|| format!("no node type {k}"));
-        let (lit, join, upper) = (def("text.literal")?, def("text.join")?, def("text.upper")?);
-        // joins take two wires each, the rest one: enough joins to reach `want`
-        let inputs_wanted = want.min(2 * (n - 1));
-        let joins = inputs_wanted.saturating_sub(n - 1).min(n - 1);
-        self.session
-            .edit("Scene", move |g, cat| {
-                *g = Graph::new();
-                let mut ids = Vec::with_capacity(n);
-                let mut wires = 0;
-                for i in 0..n {
-                    let pos = [(i % 25) as f32 * 260.0, (i / 25) as f32 * 160.0];
-                    let kind = if i == 0 {
-                        &lit
-                    } else if i <= joins {
-                        &join
-                    } else {
-                        &upper
-                    };
-                    let id = g.add_node(kind, pos);
-                    if i > 0 {
-                        let ports: &[&str] = if i <= joins { &["a", "b"] } else { &["text"] };
-                        for (k, port) in ports.iter().enumerate() {
-                            if wires >= want {
-                                break;
-                            }
-                            let from: &plumcraft_graph::NodeId = &ids[(i * 7 + k * 13) % i];
-                            g.connect(cat, PortRef::new(from.clone(), "text"), PortRef::new(id.clone(), *port))?;
-                            wires += 1;
-                        }
-                    }
-                    ids.push(id);
-                }
-                Ok(())
-            })
-            .map_err(|e| e.to_string())?;
-        let g = self.session.graph();
-        Ok(json!({"nodes": g.nodes.len(), "wires": g.wires.len()}))
     }
 
     /// `spike.publish {bytes, seed?}`: that many pseudo-random bytes (so the store keeps them as
@@ -1093,6 +1274,59 @@ impl Worker {
             "maxEventsPerPoll": get(&c.max_events_per_poll),
         })
     }
+}
+
+fn run_summary(s: &Session) -> Value {
+    let run = &s.run;
+    let nodes: BTreeMap<&str, Value> =
+        run.nodes.iter().map(|(id, n)| (id.as_str(), json!({"state": n.state.map(|s| format!("{s:?}").to_lowercase()), "ms": n.ms}))).collect();
+    let watch: Vec<Value> = run.watched.iter().map(|d| serde_json::to_value(d).unwrap_or(Value::Null)).collect();
+    json!({"running": run.running, "runId": run.run_id, "generation": run.generation, "runError": run.run_error, "nodes": nodes, "watch": watch})
+}
+
+/// `spike.scene {nodes, wires}`: a large graph in one undo step, of text nodes that a run could
+/// compute (Join nodes take two wires, Upper case one), wired from earlier nodes only.
+fn scene(s: &mut Session, p: &Value) -> Result<Value, String> {
+    let n = p.get("nodes").and_then(Value::as_u64).unwrap_or(500).clamp(2, 20_000) as usize;
+    let want = p.get("wires").and_then(Value::as_u64).unwrap_or(800) as usize;
+    let cat = s.catalog().clone();
+    let def = |k: &str| cat.node(k).cloned().ok_or_else(|| format!("no node type {k}"));
+    let (lit, join, upper) = (def("text.literal")?, def("text.join")?, def("text.upper")?);
+    // joins take two wires each, the rest one: enough joins to reach `want`
+    let inputs_wanted = want.min(2 * (n - 1));
+    let joins = inputs_wanted.saturating_sub(n - 1).min(n - 1);
+    s.edit("Scene", move |g, cat| {
+        *g = Graph::new();
+        let mut ids = Vec::with_capacity(n);
+        let mut wires = 0;
+        for i in 0..n {
+            let pos = [(i % 25) as f32 * 260.0, (i / 25) as f32 * 160.0];
+            let kind = if i == 0 {
+                &lit
+            } else if i <= joins {
+                &join
+            } else {
+                &upper
+            };
+            let id = g.add_node(kind, pos);
+            if i > 0 {
+                let ports: &[&str] = if i <= joins { &["a", "b"] } else { &["text"] };
+                for (k, port) in ports.iter().enumerate() {
+                    if wires >= want {
+                        break;
+                    }
+                    let from: &plumcraft_graph::NodeId = &ids[(i * 7 + k * 13) % i];
+                    g.connect(cat, PortRef::new(from.clone(), "text"), PortRef::new(id.clone(), *port))?;
+                    wires += 1;
+                }
+            }
+            ids.push(id);
+        }
+        Ok(())
+    })
+    .map_err(|e| e.to_string())?;
+    let g = s.graph();
+    Ok(json!({"nodes": g.nodes.len(), "wires": g.wires.len()}))
 }
 
 /// A dispatcher's reply (`{ok, result | error}`) as request `id`'s, with its `tag`; a null result

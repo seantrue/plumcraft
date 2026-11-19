@@ -35,19 +35,19 @@ pub struct Presented {
 
 impl Host for EditorApp {
     fn session(&self) -> &Session {
-        &self.session
+        &self.doc.session
     }
     fn session_mut(&mut self) -> &mut Session {
-        &mut self.session
+        &mut self.doc.session
     }
     fn asks(&mut self) -> &mut Asks<Cont> {
-        &mut self.asks
+        &mut self.doc.asks
     }
     fn run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
         self.try_run(id, params)
     }
     fn say(&mut self, text: String) {
-        self.last_error = Some(text);
+        self.doc.last_error = Some(text);
     }
     fn prefs(&mut self) -> Option<&mut prefs::Store> {
         Some(&mut self.prefs)
@@ -63,10 +63,10 @@ impl Host for EditorApp {
         self.canvas.rect.is_finite().then_some([center.x, center.y])
     }
     fn measured(&self) -> (Map<String, Value>, Map<String, Value>) {
-        self.canvas.measured_for_tidy(self.session.catalog())
+        self.canvas.measured_for_tidy(self.doc.session.catalog())
     }
     fn select_result(&mut self, result: &Value) {
-        self.canvas.select_result(result, self.session.graph());
+        self.canvas.select_result(result, self.doc.session.graph());
     }
     fn fit(&mut self) {
         self.canvas.request_fit();
@@ -102,18 +102,18 @@ impl Host for EditorApp {
         }
     }
     fn allow_uploads(&mut self, files: &[String]) {
-        if let Some(link) = &self.link {
+        if let Some(link) = &self.doc.link {
             link.conn.allow_uploads(files);
         }
     }
     fn take_held_run(&mut self) -> Option<Box<plumcraft_proto::run::RunRequest>> {
-        self.upload_held.take()
+        self.doc.upload_held.take()
     }
     fn theme_name(&self) -> String {
         self.tokens.name.to_owned()
     }
     fn take_launches(&mut self) -> Vec<(PathBuf, Vec<String>, PathBuf)> {
-        invoke::drain_launches(self.launches.as_ref())
+        invoke::drain_launches(self.doc.launches.as_ref())
     }
 }
 
@@ -184,7 +184,7 @@ impl EditorApp {
         invoke::raise_launches(self);
         // (a chain is a few steps; the bound only guards against a loop)
         for _ in 0..32 {
-            let next = self.asks.open().find(|a| !self.presented.ids.contains(&a.id) && self.presents_now(a)).cloned();
+            let next = self.doc.asks.open().find(|a| !self.presented.ids.contains(&a.id) && self.presents_now(a)).cloned();
             let Some(a) = next else { break };
             self.present(&a);
         }
@@ -251,7 +251,7 @@ impl EditorApp {
         match ask_dialogs(self.dialogs.as_mut(), a) {
             Some(answer) => {
                 if let Err(e) = invoke::answer(self, a.id, &answer) {
-                    self.last_error = Some(e);
+                    self.doc.last_error = Some(e);
                 }
             }
             None => {
@@ -263,16 +263,16 @@ impl EditorApp {
     /// The windows follow the asks: the prompt shown is the open prompt ask's, and the form
     /// closes once its ask has ended (a script answered it).
     pub(crate) fn sync_asks(&mut self) {
-        self.prompt = open_prompt(&self.asks).map(|(_, p)| p.clone());
+        self.prompt = open_prompt(&self.doc.asks).map(|(_, p)| p.clone());
         if let Some(d) = &mut self.command_form
             && let Some(id) = d.ask
         {
-            match self.asks.get(id) {
+            match self.doc.asks.get(id) {
                 None => self.command_form = None,
                 Some(a) => d.error = a.param_str("error").map(str::to_owned),
             }
         }
-        let open: HashSet<AskId> = self.asks.open().map(|a| a.id).collect();
+        let open: HashSet<AskId> = self.doc.asks.open().map(|a| a.id).collect();
         self.presented.ids.retain(|id| open.contains(id));
     }
 
@@ -286,7 +286,7 @@ impl EditorApp {
     /// A Paste event's text: the answer to Edit › Paste when one is waiting, else the window
     /// offering the clipboard (⌘V) to the core.
     pub(crate) fn pasted(&mut self, text: &str) {
-        match self.asks.first(Kind::ClipboardGet).map(|a| a.id) {
+        match self.doc.asks.first(Kind::ClipboardGet).map(|a| a.id) {
             Some(id) => {
                 let _ = invoke::answer(self, id, &json!({"text": text}));
             }
@@ -298,7 +298,7 @@ impl EditorApp {
     /// A script's file ask, while it waits: a note saying so, with the native dialog to take
     /// it over, and Cancel.
     pub(crate) fn script_asks_window(&mut self, ctx: &egui::Context) {
-        let Some(a) = self.asks.open().find(|a| a.kind.is_file() && a.by == By::Script).cloned() else { return };
+        let Some(a) = self.doc.asks.open().find(|a| a.kind.is_file() && a.by == By::Script).cloned() else { return };
         let (mut choose, mut cancel) = (false, false);
         egui::Window::new("Waiting for a script")
             .id(egui::Id::new("plumcraft-script-ask"))

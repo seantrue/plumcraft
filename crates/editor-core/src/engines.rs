@@ -510,6 +510,22 @@ pub fn offers(caps: &Capabilities) -> Vec<Offer> {
         .collect()
 }
 
+/// Only the hostings a platform with `caps` can't start, each with why ([`offers`]' refused
+/// ones), without working out a label for the rest: nothing on a desktop.
+pub fn refused(caps: &Capabilities) -> Vec<Offer> {
+    EngineKind::all()
+        .into_iter()
+        .flat_map(|k| Mode::ALL.into_iter().filter(move |m| k.hosts(*m)).map(move |m| (k, m)))
+        .filter_map(|(k, m)| {
+            let why = caps.refuses(k, m)?;
+            Some(Offer {
+                choice: EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m) },
+                why_not: Some(why),
+            })
+        })
+        .collect()
+}
+
 /// Every engine and hosting the Engine menu offers on a desktop.
 pub fn choices() -> Vec<EngineChoice> {
     choices_for(&Capabilities::DESKTOP)

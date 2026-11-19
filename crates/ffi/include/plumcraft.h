@@ -55,19 +55,24 @@ typedef struct {
 /* PLUM_ABI_VERSION of the library linked. */
 uint32_t plum_abi_version(void);
 
-/* Open a core (the session, the in-process text engine). config_json may be NULL; its fields:
- * {"store_root": path, "demo": bool}. wake may be NULL. ctx is passed to wake untouched and
- * must stay valid until plum_close returns. Returns 0 on failure: see plum_last_error. */
+/* Open a core and its first document (the in-process text engine by default). config_json may
+ * be NULL; its fields: {"store_root": path, "demo": bool, ...}. wake may be NULL. ctx is passed to
+ * wake untouched and must stay valid until plum_close returns. Returns at once: the engine
+ * connects on a worker, requests meanwhile are held and answered once it has, and plum_poll's
+ * "changed" says when ({doc, domain: "engine", ready, ...}). Returns 0 on a bad config: see
+ * plum_last_error. */
 plum_core plum_open(const uint8_t *config_json, size_t len, plum_wake_fn wake, void *ctx);
 
 /* Why the last plum_open on this thread failed (UTF-8 text). */
 plum_buf plum_last_error(void);
 
-/* Close a core: cancel its run, stop its threads. Waits for the core thread, except when
+/* Close a core: close its documents (their runs cancelled and engines stopped on their own
+ * workers, which nothing waits for), stop its threads. Waits for the core thread, except when
  * called from wake. Lent bytes stay valid until released. PLUM_OK or PLUM_ERR_CORE. */
 int32_t plum_close(plum_core core);
 
-/* Queue a control-protocol request, {"id"?, "method", "params"?} (copied). Returns the
+/* Queue a control-protocol request, {"id"?, "method", "params"?, "doc"?} (copied; without "doc",
+ * for the first document open; document.open, document.list and document.close manage them). Returns the
  * request's number, which its reply carries as "id" (the caller's id comes back as "tag"),
  * or 0 when the core isn't open. Bad JSON gets an error reply, not a 0. */
 uint64_t plum_request(plum_core core, const uint8_t *json, size_t len);
@@ -75,8 +80,9 @@ uint64_t plum_request(plum_core core, const uint8_t *json, size_t len);
 /* Everything since the last poll: {"replies": [{id, ok, result | error, tag?}],
  * "events": [engine event envelopes], "dropped": n}, with "asks" and "asksEnded" when the core
  * asked the shell something, and "media": [{key, handle, want, status, w?, h?, len?, format?,
- * reason?}] when values asked for (media.get, a pending plum_blob) arrived. Empty when there is
- * nothing. */
+ * reason?}] when values asked for (media.get, a pending plum_blob) arrived, and "changed":
+ * [{doc, domain, ...}] when a document's engine connected or the document closed. Each event and
+ * each ask raised names its "doc". Empty when there is nothing. */
 plum_buf plum_poll(plum_core core);
 
 /* Free a buffer from plum_poll or plum_last_error. An empty buffer is ignored. */

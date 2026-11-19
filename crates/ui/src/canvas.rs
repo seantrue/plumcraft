@@ -26,7 +26,7 @@ use egui::emath::TSTransform;
 use egui::{Pos2, Rect, Vec2};
 use egui_snarl::ui::{NodeLayout, NodeLayoutKind, PinInfo, SnarlPin, SnarlViewer, SnarlWidget};
 use egui_snarl::{InPin, InPinId, NodeId as SnarlId, OutPin, OutPinId, Snarl};
-use plumcraft_graph::{Graph, GroupId, NodeCache, NodeId, NodeView, PortRef};
+use plumcraft_graph::{Graph, GroupId, NodeId, NodeView, PortRef};
 use plumcraft_proto::catalogue::{NodeDef, Port, SchemaReply, Socket, scalars};
 use plumcraft_proto::display::Rendition;
 use plumcraft_proto::event::NodeState;
@@ -35,6 +35,7 @@ use plumcraft_session::run::NodeRun;
 use serde_json::{Value, json};
 
 use crate::bundle_view::{self, Source};
+use crate::menu_view;
 use crate::palette::{self, PaletteIndex, PaletteOutcome, PaletteState};
 use crate::run_view::{self, PinKey, PinSink, Thumbs, TrackedPin};
 use crate::theme::{CLEAR, FamilyTint, Text, Tokens, parse_hex};
@@ -58,31 +59,9 @@ pub const WIRE_WIDTH: f32 = 2.5;
 /// The width a node's header keeps for its run status ("stale 12.34 ms" fits; longer grows).
 pub const STATUS_SLOT: f32 = 88.0;
 
-/// What an input row stands for.
-#[derive(Debug, Clone, PartialEq)]
-pub enum RowKind {
-    Plain,
-    /// A sub-port of choice port `parent`.
-    Sub {
-        parent: String,
-    },
-    /// Slot `index` (0-based) of variadic port `parent`.
-    Slot {
-        parent: String,
-        index: usize,
-    },
-}
-
-/// One input row of a node.
-#[derive(Debug, Clone, PartialEq)]
-pub struct InputRow {
-    /// The value and wire key: `sigma`, `mode.turn`, `c2`.
-    pub key: String,
-    /// The label shown beside the pin.
-    pub label: String,
-    pub port: Port,
-    pub kind: RowKind,
-}
+// What an input row stands for, and one input row of a node: the core's (N1 slice 8).
+use plumcraft_editor_core::rows::port_label;
+pub use plumcraft_editor_core::rows::{InputRow, RowKind, input_rows};
 
 /// What a snarl node stands for.
 #[derive(Debug, Clone, PartialEq)]
@@ -97,13 +76,6 @@ pub struct CanvasNode {
     pub all_fields: bool,
     /// Set when this node is a collapsed group's proxy ([`crate::groups_view`]).
     pub proxy: Option<crate::groups_view::Proxy>,
-}
-
-fn port_label(p: &Port) -> String {
-    match p.label.as_deref() {
-        Some(l) if !l.is_empty() => l.to_owned(),
-        _ => p.name.clone(),
-    }
 }
 
 /// A socket's label with its wire type after it (`audio · WAV`), unless the label already
@@ -123,13 +95,10 @@ fn typed_tip(ty: &str, tip: Option<&str>) -> String {
     }
 }
 
-/// The save buttons, on a result node and in the Watched panel.
-pub const SAVE_RESULT: &str = "Save Result…";
+/// The save buttons, on a result node and in the Watched panel (the core's menu model words them).
+pub use plumcraft_editor_core::menu::{CONTACT_SHEET, SAVE_HELP, SAVE_RESULT, SHEET_HELP};
 /// Characters of the engine's text shown on a node; the rest is on hover.
 const NODE_TEXT_CHARS: usize = 120;
-pub const SAVE_HELP: &str = "Save this result as a file with its recipe";
-pub const CONTACT_SHEET: &str = "Contact Sheet…";
-pub const SHEET_HELP: &str = "Save every item on one picture, each labelled with the value that varied, with the sweep's recipe";
 
 /// `run.save` for `node.port`, asking where first ([`crate::EditorApp`]).
 fn save_action(node: &NodeId, port: &str, sheet: bool) -> Action {
@@ -142,44 +111,6 @@ fn thumb_items(r: &Rendition) -> u64 {
         Rendition::Rgba8 { items, .. } => *items,
         _ => 0,
     }
-}
-
-/// The input rows of a node of type `def` in `graph`.
-pub fn input_rows(def: &NodeDef, id: &NodeId, graph: &Graph) -> Vec<InputRow> {
-    let values = graph.node(id).map(|n| &n.values);
-    let mut rows = Vec::new();
-    for port in &def.inputs {
-        if let Some(v) = &port.variadic {
-            let names = plumcraft_graph::variadic_slots(port);
-            let wired: Vec<bool> = names.iter().map(|n| graph.wire_into(&PortRef::new(id.clone(), n.clone())).is_some()).collect();
-            let last = wired.iter().rposition(|w| *w).map_or(0, |i| i + 1);
-            let count = last.saturating_add(1).max(v.min as usize).min(names.len());
-            let base = port_label(port);
-            for (index, name) in names.into_iter().take(count).enumerate() {
-                let mut slot = port.clone();
-                slot.variadic = None;
-                rows.push(InputRow { label: format!("{base} {name}"), key: name, port: slot, kind: RowKind::Slot { parent: port.name.clone(), index } });
-            }
-            continue;
-        }
-        rows.push(InputRow { key: port.name.clone(), label: port_label(port), port: port.clone(), kind: RowKind::Plain });
-        if let Some(options) = &port.options {
-            let choice = values.and_then(|v| v.get(&port.name)).unwrap_or(&port.default);
-            let key = match choice {
-                Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            for sub in options.get(&key).map(Vec::as_slice).unwrap_or_default() {
-                rows.push(InputRow {
-                    key: format!("{}.{}", port.name, sub.name),
-                    label: format!("{} › {}", port_label(port), port_label(sub)),
-                    port: sub.clone(),
-                    kind: RowKind::Sub { parent: port.name.clone() },
-                });
-            }
-        }
-    }
-    rows
 }
 
 // ---------- pins ↔ graph ports: a proxy's pins name its members' ports ----------
@@ -819,44 +750,24 @@ impl Canvas {
             let mut close = false;
             let area = egui::Area::new(egui::Id::new("plumcraft-wire-menu")).order(egui::Order::Foreground).fixed_pos(menu.screen_pos).show(&ctx, |ui| {
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
-                    ui.weak(format!("{}.{} -> {}.{}", menu.from.node, menu.from.port, menu.to.node, menu.to.port));
-                    if ui.button("Watch").on_hover_text("Show this wire's value in the Watched panel").clicked() {
-                        actions.push(("run.watch", json!({"node": menu.from.node, "port": menu.from.port})));
-                        close = true;
-                    }
-                    if ui.button("Pop Out").on_hover_text("Show this wire's value in a window of its own, updated by every run").clicked() {
-                        actions.push(("view.popout", json!({"node": menu.from.node, "port": menu.from.port})));
-                        close = true;
-                    }
-                    let slice = graph.wire_into(&menu.to).and_then(|w| w.slice.clone());
-                    let label = if slice.is_some() { "Edit Slice…" } else { "Slice…" };
-                    if ui.button(label).on_hover_text("Take part of the list this wire carries: start:stop:step (1:-1:2, :-1) or an index (-1)").clicked() {
-                        self.slice_edit = Some(crate::slice_view::SliceEdit::new(menu.from.clone(), menu.to.clone(), slice.as_deref(), menu.screen_pos));
-                        close = true;
-                    }
-                    if slice.is_some() && ui.button("Clear Slice").clicked() {
-                        actions.push(("wire.slice", json!({"to": menu.to, "slice": null})));
-                        close = true;
-                    }
-                    if ui.button("Add Bend Point").on_hover_text("Bend the wire here: drag the point to shape it").clicked() {
-                        if let Some(via) = &bend {
-                            actions.push(("wire.route", json!({"to": menu.to, "via": via})));
+                    // the core's menu model, with where Add Bend Point would put the point
+                    let parts = menu_view::Parts { graph, catalog, run: runs.run, doc_apps: runs.docs, recent_apps: runs.recent_apps };
+                    let cx = menu_view::Context::Wire { to: menu.to.clone(), bend: bend.as_ref().map(|via| json!(via)) };
+                    let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &cx);
+                    let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens, bar: false, close: false }) else { return };
+                    close = true;
+                    match (menu_view::action(&item), item.id.as_str()) {
+                        (Some(a), _) => actions.push(a),
+                        (None, "wire.slice") => {
+                            let slice = graph.wire_into(&menu.to).and_then(|w| w.slice.clone());
+                            self.slice_edit = Some(crate::slice_view::SliceEdit::new(menu.from.clone(), menu.to.clone(), slice.as_deref(), menu.screen_pos));
                         }
-                        close = true;
-                    }
-                    if graph.wire_into(&menu.to).is_some_and(|w| !w.via.is_empty()) && ui.button("Straighten").on_hover_text("Remove the bend points").clicked()
-                    {
-                        actions.push(("wire.route", json!({"to": menu.to, "via": []})));
-                        close = true;
-                    }
-                    if ui.button("Label All Uses…").on_hover_text("Draw every wire from this output as a net label, as a schematic does").clicked() {
-                        let name = crate::net_view::suggested_name(graph, &menu.from);
-                        self.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Output(menu.from.clone()), name, menu.screen_pos));
-                        close = true;
-                    }
-                    if ui.button("Disconnect").clicked() {
-                        actions.push(("wire.disconnect", json!({"to": menu.to})));
-                        close = true;
+                        (None, "output.label") => {
+                            let name = crate::net_view::suggested_name(graph, &menu.from);
+                            self.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Output(menu.from.clone()), name, menu.screen_pos));
+                        }
+                        // Add Bend Point where no point could be worked out: nothing to do
+                        (None, _) => {}
                     }
                 });
             });
@@ -1047,37 +958,24 @@ impl NodeViewer<'_> {
         ui.label(egui::RichText::new(format!("{name} →")).monospace().small().color(color)).on_hover_text(hover);
     }
 
-    /// An input's right-click menu: name it, or rename or unname its name.
-    fn input_menu(&mut self, r: &egui::Response, at: &PortRef, port: &Port) {
-        let named = self.graph.name_of_port(at).map(str::to_owned);
-        let wired = self.graph.wire_into(at).is_some();
+    /// An input's right-click menu: name it, or rename or unname its name (the core's menu model).
+    fn input_menu(&mut self, r: &egui::Response, at: &PortRef, _port: &Port) {
         let pos = r.rect.left_bottom();
         let mut request = None;
         // a caption only senses hover; its menu needs the secondary click
         let r = r.interact(egui::Sense::click());
-        r.context_menu(|ui| match &named {
-            Some(name) => {
-                if ui.button("Rename Port…").clicked() {
-                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name.clone(), pos));
-                    ui.close();
+        r.context_menu(|ui| {
+            let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+            let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &menu_view::Context::Input { port: at.clone() });
+            let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }) else { return };
+            let name = item.params.as_ref().and_then(|p| p.get("name")).and_then(serde_json::Value::as_str).map(str::to_owned);
+            match (menu_view::action(&item), item.id.as_str(), name) {
+                (Some(a), ..) => self.actions.push(a),
+                (None, "rename.port", Some(name)) => {
+                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name, pos))
                 }
-                if ui.button("Remove Name").on_hover_text("The port stops being one of the graph's parameters; its value stays").clicked() {
-                    self.actions.push(("graph.port.unname", json!({"name": name})));
-                    ui.close();
-                }
-            }
-            None if port.has_widget() && !wired => {
-                if ui
-                    .button("Name This Port…")
-                    .on_hover_text("Make it one of the graph's parameters, set from outside by name (run --set NAME=VALUE)")
-                    .clicked()
-                {
-                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Port(at.clone()), at.port.clone(), pos));
-                    ui.close();
-                }
-            }
-            None => {
-                ui.label("A wired input can't be named");
+                (None, "name.port", _) => request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Port(at.clone()), at.port.clone(), pos)),
+                _ => {}
             }
         });
         if let Some(edit) = request {
@@ -1244,9 +1142,12 @@ impl NodeViewer<'_> {
             self.actions.push(("run.watch", json!({"node": at.node, "port": at.port})));
         }
         r.context_menu(|ui| {
-            if ui.button(format!("Watch {}", port.name)).clicked() {
-                self.actions.push(("run.watch", json!({"node": node_id, "port": port.name})));
-                ui.close();
+            let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+            let cx = menu_view::Context::Output { port: PortRef::new(node_id.clone(), port.name.clone()) };
+            let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &cx);
+            if let Some(a) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }).as_ref().and_then(menu_view::action)
+            {
+                self.actions.push(a);
             }
         });
         self.pin(&port.ty)
@@ -1432,186 +1333,27 @@ impl NodeViewer<'_> {
         }
     }
 
-    /// A node's actions: its right-click menu, and the menu in its header.
-    /// Expand a command into the graph it is made of (`node.expand`), when the catalogue says
-    /// how. Into a group is the usual choice, so it comes first.
-    fn expand_items(&mut self, n: &CanvasNode, ui: &mut egui::Ui) {
-        if !plumcraft_session::expand_cmds::has_expansion(self.catalog, &n.kind) {
-            return;
-        }
-        let name = plumcraft_session::display_name(self.catalog, &n.kind);
-        // what the engine says it unrolls into, under what the item does
-        let note = plumcraft_session::expand_cmds::expansion_of(self.catalog, &n.kind).map(|e| e.note).unwrap_or_default();
-        let hover = |what: &str| if note.is_empty() { what.to_owned() } else { format!("{what}\n\n{note}") };
-        ui.separator();
-        if ui
-            .button(format!("Expand into Group {name}"))
-            .on_hover_text(hover("Replace this node with the nodes it is made of, grouped, with its settings promoted"))
-            .clicked()
-        {
-            self.actions.push(("node.expand", json!({"node": n.id, "group": name})));
-            ui.close();
-        }
-        if ui.button("Expand without a Group").on_hover_text(hover("Replace this node with the nodes it is made of")).clicked() {
-            self.actions.push(("node.expand", json!({"node": n.id})));
-            ui.close();
-        }
-    }
-
+    /// A node's actions: its right-click menu, and the menu in its header, as the core's menu
+    /// model has them ([`plumcraft_editor_core::menu`]; a collapsed group's is all group items).
     fn node_menu_items(&mut self, n: &CanvasNode, ui: &mut egui::Ui) {
-        if n.proxy.is_none() && ui.button("Edit Parameters…").on_hover_text("Every input of this node in a window of its own").clicked() {
-            self.actions.push(("node.parameters", json!({"node": n.id})));
-            ui.close();
+        let cx = match &n.proxy {
+            Some(p) => menu_view::Context::Proxy { group: p.group.clone() },
+            None => menu_view::Context::Node { node: n.id.clone() },
+        };
+        let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+        let facts = menu_view::Facts {
+            selected: self.selected.clone(),
+            selected_groups: self.selected_groups.clone(),
+            editors: value_editors::facts(),
+            ..menu_view::Facts::default()
+        };
+        let items = plumcraft_editor_core::menu::context(&parts, &facts, &cx);
+        let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }) else { return };
+        match menu_view::action(&item) {
+            Some(a) => self.actions.push(a),
+            // a window: a text field can't live in a menu
+            None => menu_view::open_window(ui.ctx(), &item),
         }
-        let cx = crate::groups_view::MenuCtx { graph: self.graph, catalog: self.catalog, selected: &self.selected, selected_groups: &self.selected_groups };
-        if n.proxy.is_some() {
-            crate::groups_view::node_menu(ui, &cx, n, &mut self.actions);
-            return;
-        }
-        if let Some(kind) = self.own_editor(n)
-            && ui.button(kind.label).on_hover_text(kind.help).clicked()
-        {
-            self.actions.push(("node.editor", json!({"node": n.id})));
-            ui.close();
-        }
-        ui.weak(format!("{} ({})", n.id, n.kind));
-        let current = self.graph.node(&n.id).and_then(|g| g.title.clone()).unwrap_or_default();
-        let shown = self.node_title(&n.id);
-        // (a window: a text field can't live in a menu, crate::rename_view)
-        if ui.button("Rename…").on_hover_text(format!("Title this node (now \"{shown}\")")).clicked() {
-            let target = crate::rename_view::RenameTarget::Node(n.id.clone());
-            crate::rename_view::request(ui.ctx(), target, &current, &plumcraft_session::display_name(self.catalog, &n.kind));
-            ui.close();
-        }
-        // How the node shows: for the selection when the node is in it.
-        let view = self.view_of(n);
-        let targets: Vec<NodeId> = if self.selected.contains(&n.id) { self.selected.clone() } else { vec![n.id.clone()] };
-        ui.horizontal(|ui| {
-            ui.label("View");
-            for (v, name, key, tip) in [
-                (NodeView::Full, "Full", "full", "Pins, widgets and the preview"),
-                (NodeView::Compact, "No preview", "compact", "Pins and widgets, without the preview"),
-                (NodeView::Collapsed, "Collapsed", "collapsed", "The title only"),
-            ] {
-                if ui.selectable_label(view == v, name).on_hover_text(tip).clicked() {
-                    self.actions.push(("node.view", json!({"nodes": targets, "view": key})));
-                    ui.close();
-                }
-            }
-        });
-        // Whether the engine keeps the result across restarts (session node.cache, spec 14.5).
-        let cache = self.graph.node(&n.id).map(|g| g.cache).unwrap_or_default();
-        ui.horizontal(|ui| {
-            ui.label("Keep result");
-            for (c, name, key, tip) in [
-                (NodeCache::Auto, "When slow", "auto", "Kept in the store across restarts when the node took a second or more"),
-                (NodeCache::Always, "Always", "always", "Always kept in the store across restarts"),
-                (NodeCache::Never, "Never", "never", "Computed again after a restart"),
-            ] {
-                if ui.selectable_label(cache == c, name).on_hover_text(tip).clicked() {
-                    self.actions.push(("node.cache", json!({"nodes": targets, "cache": key})));
-                    ui.close();
-                }
-            }
-        });
-        // With several engines offering the kind: pin the nodes to one (session node.engine).
-        if let Some((engine, pinned, offered)) = self.engine_of(n).filter(|(_, _, o)| o.len() > 1) {
-            ui.horizontal(|ui| {
-                ui.label("Run on");
-                for e in &offered {
-                    let on = &engine == e && pinned;
-                    if ui.selectable_label(on, e).on_hover_text(format!("node.engine {{engine: {e:?}}}")).clicked() {
-                        self.actions.push(("node.engine", json!({"nodes": targets, "engine": e})));
-                        ui.close();
-                    }
-                }
-                if ui.selectable_label(!pinned, "Any").on_hover_text("Unpinned: the first of the workflow's engines that offers it").clicked() {
-                    self.actions.push(("node.engine", json!({"nodes": targets, "engine": null})));
-                    ui.close();
-                }
-            });
-        }
-        ui.separator();
-        let outputs: Vec<(String, String)> = self.def(n).map(|d| d.outputs.iter().map(|o| (o.name.clone(), o.ty.clone())).collect()).unwrap_or_default();
-        for (port, _) in &outputs {
-            if ui.button(format!("Watch {port}")).on_hover_text("Show this output in the Watched panel, and run").clicked() {
-                self.actions.push(("run.watch", json!({"node": n.id, "port": port})));
-                ui.close();
-            }
-        }
-        if let Some(run) = self.node_run(n).cloned()
-            && let Some(port) = self.savable_output(n, &run)
-        {
-            if ui.button(SAVE_RESULT).on_hover_text(SAVE_HELP).clicked() {
-                self.actions.push(save_action(&n.id, &port, false));
-                ui.close();
-            }
-            if run.thumb.as_ref().map_or(0, thumb_items) > 1 && ui.button(CONTACT_SHEET).on_hover_text(SHEET_HELP).clicked() {
-                self.actions.push(save_action(&n.id, &port, true));
-                ui.close();
-            }
-        }
-        if let Some(a) = bundle_view::detach_button(ui, self.graph, self.catalog, &n.id) {
-            self.actions.push(a);
-            ui.close();
-        }
-        self.expand_items(n, ui);
-        // A document output opens in its craft's app (session doc.open: a verified copy).
-        for (port, ty) in &outputs {
-            let Some(app) = self.docs.iter().find(|a| &a.wire == ty) else { continue };
-            let r = ui.add_enabled(app.program.is_ok(), egui::Button::new(format!("Open {port} in {}", app.label)));
-            let r = match &app.program {
-                Err(e) => r.on_disabled_hover_text(format!("{} isn't installed: {e}", app.label)),
-                Ok(_) => r.on_hover_text(format!("Open a copy of this document in {} (runs first when it has no value yet)", app.label)),
-            };
-            if r.clicked() {
-                self.actions.push(("doc.open", json!({"node": n.id, "port": port})));
-                ui.close();
-            }
-        }
-        // An output the Watched panel can't show (a PDF, a video, a mesh) opens in another app
-        // (session value.open: a verified copy).
-        for (port, ty) in &outputs {
-            let media = self.catalog.wire_type(ty).map(|w| w.media).unwrap_or_default();
-            if plumcraft_session::open_cmds::has_viewer(media) || self.docs.iter().any(|a| &a.wire == ty) {
-                continue;
-            }
-            let target = json!({"node": n.id, "port": port});
-            if ui.button(format!("Open {port}")).on_hover_text("Open a copy in the default app for its type (runs first when it has no value yet)").clicked() {
-                self.actions.push(("value.open", target.clone()));
-                ui.close();
-            }
-            ui.menu_button(format!("Open {port} with"), |ui| {
-                for app in self.recent_apps {
-                    if ui.button(plumcraft_session::open_cmds::app_name(app)).on_hover_text(app.display().to_string()).clicked() {
-                        let mut p = target.clone();
-                        p["app"] = json!(app);
-                        self.actions.push(("value.open", p));
-                        ui.close();
-                    }
-                }
-                if !self.recent_apps.is_empty() {
-                    ui.separator();
-                }
-                if ui.button("Choose an App…").clicked() {
-                    let mut p = target.clone();
-                    p["choose"] = json!(true);
-                    self.actions.push(("value.open", p));
-                    ui.close();
-                }
-            });
-        }
-        if ui.button("Duplicate").clicked() {
-            self.actions.push(("node.duplicate", json!({"nodes": targets})));
-            ui.close();
-        }
-        if ui.button("Remove").clicked() {
-            self.actions.push(("node.remove", json!({"nodes": [n.id]})));
-            ui.close();
-        }
-        // Group the selection, promote an input, expose an output (crate::groups_view).
-        let cx = crate::groups_view::MenuCtx { graph: self.graph, catalog: self.catalog, selected: &self.selected, selected_groups: &self.selected_groups };
-        crate::groups_view::node_menu(ui, &cx, n, &mut self.actions);
     }
 
     /// The rgba8 thumbnail's size when the node shows one (it has run, and is shown in full).

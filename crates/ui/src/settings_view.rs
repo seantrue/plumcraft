@@ -51,7 +51,7 @@ impl EditorApp {
     /// `app.settings`'s reply. Anything else passes `v` through.
     pub(crate) fn window_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
         let mut out = v;
-        for (ask, p) in std::mem::take(&mut self.session.views.ui_asks) {
+        for (ask, p) in std::mem::take(&mut self.doc.session.views.ui_asks) {
             out = self.appearance_command(&ask, &p)?;
         }
         if id == "app.settings"
@@ -72,8 +72,8 @@ impl EditorApp {
             "themes": theme::ALL.iter().map(|t| json!({"name": t.name, "label": t.label})).collect::<Vec<_>>(),
             "appearance": a.summary(),
             "contrast": {"pairs": self.tokens.checks().len(), "below": below},
-            "autoEngines": self.session.engines.auto,
-            "cacheReport": self.session.views.cache_report,
+            "autoEngines": self.doc.session.engines.auto,
+            "cacheReport": self.doc.session.views.cache_report,
         })
     }
 
@@ -144,7 +144,7 @@ impl EditorApp {
                     ));
                 }
                 self.change_appearance(|a| a.pin(family, to));
-                let header = self.tokens.family_tint(self.session.catalog(), family).header;
+                let header = self.tokens.family_tint(self.doc.session.catalog(), family).header;
                 Ok(json!({"family": family, "to": to, "fruit": theme::hex(header)}))
             }
             "theme.reset" => {
@@ -179,7 +179,7 @@ impl EditorApp {
     /// Draw the Settings window while it is open; what its controls ask for is returned.
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context) -> Vec<Action> {
         let mut out = Vec::new();
-        let Some(tab) = self.session.views.settings.clone() else { return out };
+        let Some(tab) = self.doc.session.views.settings.clone() else { return out };
         let mut open = true;
         egui::Window::new("Settings")
             .id(egui::Id::new("plumcraft-settings"))
@@ -218,7 +218,7 @@ impl EditorApp {
     }
 
     fn engines_tab(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
-        let mut auto = self.session.engines.auto;
+        let mut auto = self.doc.session.engines.auto;
         let tip = "Start the engines a workflow needs when it is opened or inserted, each hosted the fastest way it can be: in-process (mode 1), then a separate process, then HTTP";
         if ui.checkbox(&mut auto, "Pick Engines Automatically").on_hover_text(tip).changed() {
             out.push(("engine.auto", json!({"on": auto})));
@@ -231,11 +231,11 @@ impl EditorApp {
     fn cache_tab(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
         ui.label("What the caches did: the latest run, this session, each engine and each node.");
         ui.add_space(4.0);
-        let label = if self.session.views.cache_report { "Close Cache Report" } else { "Open Cache Report" };
+        let label = if self.doc.session.views.cache_report { "Close Cache Report" } else { "Open Cache Report" };
         if ui.button(label).clicked() {
-            out.push(("run.cacheReport", json!({"open": !self.session.views.cache_report})));
+            out.push(("run.cacheReport", json!({"open": !self.doc.session.views.cache_report})));
         }
-        if self.session.run.cache.last.is_none() {
+        if self.doc.session.run.cache.last.is_none() {
             ui.label(RichText::new("No run has reported yet.").color(self.tokens.text_dim));
         }
     }
@@ -322,18 +322,18 @@ impl EditorApp {
                 }
             });
             let families: std::collections::BTreeSet<String> =
-                self.session.catalog().nodes.iter().map(|n| n.family.clone()).filter(|f| !f.is_empty()).collect();
+                self.doc.session.catalog().nodes.iter().map(|n| n.family.clone()).filter(|f| !f.is_empty()).collect();
             if !families.is_empty() {
                 ui.add_space(6.0);
                 ui.label(RichText::new("This catalogue's families").color(t.text_dim));
                 egui::Grid::new("plumcraft-settings-families").num_columns(3).spacing([10.0, 4.0]).show(ui, |ui| {
                     for f in &families {
-                        let tint = t.family_tint(self.session.catalog(), f);
+                        let tint = t.family_tint(self.doc.session.catalog(), f);
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 3.0, tint.header);
                         ui.label(f);
                         let pinned = a.families.get(f).cloned();
-                        let own = t.family_fruit(self.session.catalog(), f).unwrap_or("default");
+                        let own = t.family_fruit(self.doc.session.catalog(), f).unwrap_or("default");
                         let shown = pinned.clone().unwrap_or_else(|| format!("its own ({own})"));
                         egui::ComboBox::from_id_salt(("plumcraft-pin", f.as_str())).selected_text(shown).show_ui(ui, |ui| {
                             if ui.selectable_label(pinned.is_none(), format!("its own ({own})")).clicked() {

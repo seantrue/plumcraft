@@ -57,6 +57,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use plumcraft_automation::server;
+use plumcraft_editor_core::document::Opening;
 #[cfg(test)]
 use plumcraft_editor_core::engines::engine_binary;
 use plumcraft_editor_core::engines::{
@@ -67,9 +68,10 @@ use plumcraft_editor_core::headless;
 use plumcraft_editor_core::install::install_engine;
 #[cfg(test)]
 use plumcraft_editor_core::install::installed_executables;
+use plumcraft_editor_core::log::Level;
 use plumcraft_graph::Graph;
 use plumcraft_proto::catalogue::SchemaReply;
-use plumcraft_session::Session;
+use plumcraft_session::{EngineTarget, Session};
 use plumcraft_ui::link::{Link, repaint_waker};
 use plumcraft_ui::{EditorApp, Shot};
 
@@ -211,20 +213,28 @@ fn no_default_menu(builder: &mut eframe::EventLoopBuilder<eframe::UserEvent>) {
 #[cfg(not(target_os = "macos"))]
 fn no_default_menu(_: &mut eframe::EventLoopBuilder<eframe::UserEvent>) {}
 
+/// A line the editor printed on stderr: printed as before, and kept in the core's log
+/// ([`plumcraft_editor_core::log`]) under `editor`.
+fn say(level: Level, line: &str) {
+    plumcraft_editor_core::log::say(level, "editor", line);
+}
+
 /// Start the control server and hand its requests to `app` (errors are printed, not fatal).
 fn start_control(program: &str, app: &mut EditorApp, ctx: &egui::Context, port: u16, token: String, token_file: Option<&Path>) {
     let wake_ctx = ctx.clone();
     let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || wake_ctx.request_repaint());
     match server::start(port, token.clone(), wake) {
         Ok((rx, bound)) => {
-            eprintln!("{program}: control channel on 127.0.0.1:{bound}");
+            // printed for the user as before; the log keeps the line without the token
+            plumcraft_editor_core::log::redact(&token);
+            say(Level::Info, &format!("{program}: control channel on 127.0.0.1:{bound}"));
             match token_file {
-                Some(p) => eprintln!("{program}: control token in {}", p.display()),
-                None => eprintln!("{program}: control token: {token}"),
+                Some(p) => say(Level::Info, &format!("{program}: control token in {}", p.display())),
+                None => say(Level::Info, &format!("{program}: control token: {token}")),
             }
             app.control_rx = Some(rx);
         }
-        Err(e) => eprintln!("{program}: {e}"),
+        Err(e) => say(Level::Error, &format!("{program}: {e}")),
     }
 }
 
@@ -233,6 +243,7 @@ trait LauncherExt {
     /// The Engine menu's connector: `engine.switch`'s ids, checked, then the launcher's connect.
     fn connector(self) -> plumcraft_ui::engine_view::Connector;
     /// Start engine `kind` in `mode` and link to it, repainting `ctx` when events arrive.
+    #[cfg(test)]
     fn connect(&self, kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>) -> Result<Link, String>;
 }
 
@@ -241,6 +252,7 @@ impl LauncherExt for Launcher {
         Box::new(move |engine, mode, ctx| self.connect_ids(engine, mode, ctx.cloned().map(repaint_waker)).map(Link::from))
     }
 
+    #[cfg(test)]
     fn connect(&self, kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>) -> Result<Link, String> {
         self.connect_core(kind, mode, ctx.cloned().map(repaint_waker)).map(Link::from)
     }
@@ -288,7 +300,10 @@ fn editor(ctx: &egui::Context, graph: Graph, path: Option<&Path>, name: String, 
     editor_with(ctx, graph, path, name, kind, mode, shot, Launcher::default())
 }
 
-/// [`editor`], starting engines with `launcher` (tests point it at other binaries).
+/// [`editor`], starting engines with `launcher` (tests point it at other binaries). It waits for
+/// the engine and its catalogue, so a test reads them at once; the application's own startup
+/// doesn't ([`editor_starting`]).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn editor_with(
     ctx: &egui::Context,
@@ -338,6 +353,58 @@ fn editor_with(
     }
 }
 
+/// The editor on `graph` (read from `path`, which it opens with `graph.open`, or the demo), with
+/// its window up before its engine: `kind` hosted as `mode` connects on the engine worker from the
+/// first frame (the title and status bar say "connecting"), `extras` are added after it, and the
+/// graph opens once the catalogue is there ([`EditorApp::start_engines`]). The application's own
+/// startup; [`editor_with`] is the one that waits, for tests.
+#[allow(clippy::too_many_arguments)]
+fn editor_starting(
+    program: &str,
+    ctx: &egui::Context,
+    graph: Graph,
+    path: Option<&Path>,
+    name: String,
+    kind: EngineKind,
+    mode: Mode,
+    extras: &[EngineKind],
+    shot: Option<Shot>,
+    launcher: Launcher,
+) -> EditorApp {
+    let mut app = EditorApp::new(Session::new(SchemaReply::default()));
+    // "Open in VectorCraft" on document values (session doc.open)
+    app.session.docs.apps = doc_apps();
+    app.document = name;
+    app.shot = shot;
+    app.setup_context(ctx);
+    // The Engine menu: every engine and hosting, this one checked.
+    let manifests = launcher.manifests.clone();
+    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
+        let problems = load_manifests(&manifests, manifest_folder().as_deref());
+        (choices(), problems)
+    }));
+    let app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
+    // `--engine a,b`: the others beside the first (Engine › Add Engine), hosted as the first where
+    // they can be, else as they are by default. A pack's hosting is its own: its application may
+    // be one executable, with no engine binaries beside it.
+    let extras: Vec<EngineTarget> = extras
+        .iter()
+        .filter_map(|extra| {
+            let m = if extra.hosts(mode) && !matches!(kind, EngineKind::Pack(_)) { mode } else { extra.default_mode() };
+            if app.session.engines.find(&extra.id(), m.id()).is_none() {
+                say(Level::Error, &format!("{program}: --engine {}: no engine {:?} hosted {:?}", extra.id(), extra.id(), m.id()));
+                return None;
+            }
+            Some(EngineTarget::Choice { engine: extra.id(), mode: m.id().to_owned() })
+        })
+        .collect();
+    let opening = match path {
+        Some(p) => Opening::Path(p.to_path_buf()),
+        None => Opening::Graph(graph),
+    };
+    app.start_engines(EngineTarget::Choice { engine: kind.id(), mode: mode.id().to_owned() }, extras, opening)
+}
+
 /// Run the application `config` describes.
 pub fn run(config: AppConfig) -> ExitCode {
     let AppConfig { name: program, title, version, versions, help, icon, packs, default_engine, commands, forms, viewers, editors, openers, hooks } = config;
@@ -348,8 +415,14 @@ pub fn run(config: AppConfig) -> ExitCode {
         .and_then(|()| plumcraft_ui::value_editors::register(editors))
         .and_then(|()| plumcraft_session::file_cmds::register_openers(openers));
     if let Err(e) = added.and_then(|()| set_packs(packs)) {
-        eprintln!("{program}: {e}");
+        say(Level::Error, &format!("{program}: {e}"));
         return ExitCode::FAILURE;
+    }
+    // the log's level: the preferences' `log_level`, else info; PLUMCRAFT_LOG wins
+    if let Some(level) =
+        plumcraft_editor_core::prefs::Store::for_app(program).prefs().extra.get("log_level").and_then(serde_json::Value::as_str).and_then(Level::parse)
+    {
+        plumcraft_editor_core::log::set_level(level);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == WORKER_FLAG) {
@@ -357,7 +430,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         return match serve_worker(&id, &args) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("{program}: {e}");
+                say(Level::Error, &format!("{program}: {e}"));
                 ExitCode::FAILURE
             }
         };
@@ -376,13 +449,13 @@ pub fn run(config: AppConfig) -> ExitCode {
     }
     let manifests = manifest_args(&args);
     for problem in load_manifests(&manifests, manifest_folder().as_deref()) {
-        eprintln!("{program}: {problem}");
+        say(Level::Error, &format!("{program}: {problem}"));
     }
     let args = with_engine_arg(args);
     let (kind, mode) = match choose(&args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
@@ -402,7 +475,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         Some(p) if plumcraft_session::archive::is_zip(&p) => match plumcraft_session::archive::extract_bundle(&p) {
             Ok(workflow) => Some(workflow),
             Err(e) => {
-                eprintln!("{program}: {e}");
+                say(Level::Error, &format!("{program}: {e}"));
                 return ExitCode::from(2);
             }
         },
@@ -411,7 +484,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     let control = match control_args(&args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
@@ -423,7 +496,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     let (graph, name) = match read {
         Ok(g) => g,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
@@ -431,7 +504,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     // A bad icon costs the icon, not the editor.
     match eframe::icon_data::from_png_bytes(icon) {
         Ok(icon) => viewport = viewport.with_icon(icon),
-        Err(e) => eprintln!("{program}: app icon: {e}"),
+        Err(e) => say(Level::Error, &format!("{program}: app icon: {e}")),
     }
     let options =
         eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, event_loop_builder: Some(Box::new(no_default_menu)), ..Default::default() };
@@ -440,7 +513,9 @@ pub fn run(config: AppConfig) -> ExitCode {
         // `--screenshot FILE` is an unattended run of a file named here: nobody to ask, and naming
         // it is the approval, as with the `run` command
         let unattended = shot.is_some();
-        let mut app = editor_with(&cc.egui_ctx, graph, path.as_deref(), name, kind, mode, shot, launcher);
+        // the window first: the engine connects on the worker, and the graph opens once its
+        // catalogue is there
+        let mut app = editor_starting(program, &cc.egui_ctx, graph, path.as_deref(), name, kind, mode, &extras, shot, launcher);
         app.app_title = title;
         if !unattended && let Some(file) = plumcraft_ui::prefs::trust_path_for(program) {
             app.session.set_trust_file(file);
@@ -448,27 +523,40 @@ pub fn run(config: AppConfig) -> ExitCode {
         app.session.about = about(title, version, &versions());
         // this application's own preferences, by its name
         app.use_prefs(plumcraft_ui::prefs::Store::for_app(program), &cc.egui_ctx);
-        // `--engine a,b`: the others beside the first (Engine › Add Engine), hosted as the
-        // first where they can be, else as they are by default. A pack's hosting is its own: its
-        // application may be one executable, with no engine binaries beside it.
-        for extra in extras {
-            let m = if extra.hosts(mode) && !matches!(kind, EngineKind::Pack(_)) { mode } else { extra.default_mode() };
-            if let Err(e) = app.try_run("engine.add", &serde_json::json!({"engine": extra.id(), "mode": m.id()})) {
-                eprintln!("{program}: --engine {}: {e}", extra.id());
-            }
-        }
+        // The control channel opens once the engine has connected and the graph is open, so a
+        // client sees what it saw when the window waited for the engine (it connects a little
+        // later than the window shows).
         if let Some((port, token, token_file)) = control {
-            start_control(program, &mut app, &cc.egui_ctx, port, token, token_file.as_deref());
+            let ctx = cc.egui_ctx.clone();
+            app.on_ready = Some(Box::new(move |app: &mut EditorApp| start_control(program, app, &ctx, port, token, token_file.as_deref())));
+        }
+        // Begin the engine now, before the first frame: one that must be started (a process, an
+        // HTTP engine) starts on the worker while the window opens; one compiled in connects here
+        // in a few milliseconds (as engines compiled in always do in this shell), so the editor
+        // is ready, and its control channel open, before its first frame, as before.
+        app.wake_with(&cc.egui_ctx);
+        if let Some(Err(e)) = app.pump_engine() {
+            app.last_error = Some(e);
         }
         Ok(Box::new(app))
     };
-    match eframe::run_native(title, options, Box::new(creator)) {
+    let code = match eframe::run_native(title, options, Box::new(creator)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             ExitCode::FAILURE
         }
+    };
+    // The window has gone; its document handed its engines to its worker to stop (never on the
+    // window's thread). Let a process engine's shutdown finish before the program ends.
+    if plumcraft_ui::trace_startup() {
+        say(Level::Info, &format!("{program}: window closed"));
     }
+    let stopped = plumcraft_editor_core::document::wait_closed(std::time::Duration::from_secs(3));
+    if plumcraft_ui::trace_startup() {
+        say(Level::Info, &format!("{program}: engines stopped: {stopped}"));
+    }
+    code
 }
 
 fn about(title: &str, version: &str, parts: &[(String, String)]) -> plumcraft_session::About {

@@ -12,6 +12,8 @@
 //! - [`engines`]: which engines there are, how each may be hosted on this platform
 //!   ([`engines::Capabilities`]), and starting one ([`engines::Launcher`]);
 //! - [`switchboard`]: switching, adding, removing, attaching and clearing engines while editing;
+//! - [`document`]: one open document, owning its session, engine link, worker, asks and media,
+//!   with the per-turn work every shell calls (slice 7);
 //! - [`worker`]: a document's engine calls (runs, cancels, releases, a switch's connect), off the
 //!   shell's thread, in order, handed back through an inbox;
 //! - [`install`]: installing an engine from GitHub, off the shell's thread;
@@ -23,6 +25,10 @@
 //! - [`prefs`], [`appearance`], [`theme`]: preferences, the user's look, and themes as data;
 //! - [`run_anim`], [`run_text`]: the run animation's model and run states as words;
 //! - [`wire_path`]: a bent wire's curve and hit testing on it;
+//! - [`menu`]: every menu as data (the bar, context menus, shortcuts, roles), for every shell
+//!   (slice 8); [`rows`]: a node's input rows and a collapsed group's outputs, which it lists;
+//! - [`log`]: one log for the core and every shell: a bounded ring, levels, an optional file
+//!   (slice 8);
 //! - [`palette`]: the node palette's search index;
 //! - [`probe`], [`diff`], [`dtype`], [`raster`]: exact readings and differences of arrays;
 //! - [`values`]: a document's values as pictures, through the media service
@@ -38,17 +44,21 @@ pub mod appearance;
 pub mod asks;
 pub mod control;
 pub mod diff;
+pub mod document;
 pub mod dtype;
 pub mod engines;
 pub mod headless;
 pub mod install;
 pub mod invoke;
 pub mod link;
+pub mod log;
+pub mod menu;
 pub mod palette;
 pub mod plain;
 pub mod prefs;
 pub mod probe;
 pub mod raster;
+pub mod rows;
 pub mod run_anim;
 pub mod run_text;
 pub mod switchboard;

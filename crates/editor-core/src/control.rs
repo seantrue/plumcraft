@@ -169,6 +169,15 @@ pub trait Shell: Host {
     fn ui_audio(&mut self, _params: &Value) -> Result<Value, String> {
         Err(not_here("ui.audio"))
     }
+    /// What the menu model needs from the shell (`menu.get`): its selection, its canvas's
+    /// centre, its platform. By default: nothing selected, on a desktop.
+    fn menu_facts(&self) -> crate::menu::Facts {
+        crate::menu::Facts { live: self.view().link.is_some(), ..crate::menu::Facts::default() }
+    }
+    /// Where the menu bar's generation is kept (`menu.get`'s `gen`); none: no `gen`.
+    fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
+        None
+    }
 }
 
 /// A method this shell has nothing to answer with.
@@ -228,6 +237,19 @@ impl Parked {
     pub fn next_token(&mut self) -> u64 {
         self.next_token = self.next_token.wrapping_add(1);
         self.next_token
+    }
+
+    /// Answer every request still waiting with `why` (its document closed).
+    pub fn close(&mut self, why: &str) {
+        for w in std::mem::take(&mut self.switches) {
+            (w.reply)(err(why));
+        }
+        for w in std::mem::take(&mut self.runs) {
+            (w.reply)(err(why));
+        }
+        for w in std::mem::take(&mut self.shots) {
+            (w.reply)(err(why));
+        }
     }
 
     /// An engine operation's outcome: the waits keep the latest; the first error is the answer
@@ -400,6 +422,31 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 Err(e) => err(e),
             }
         }
+        // the menu model (N1 slice 8): the bar, or a context's menu
+        "menu.get" => {
+            let facts = s.menu_facts();
+            let model = crate::menu::get(s.session(), &facts, params, None);
+            match model {
+                Ok(mut v) => {
+                    if v.get("menus").is_some()
+                        && let Some(r) = s.menu_revision()
+                    {
+                        v["gen"] = json!(r.note(&v["menus"]));
+                    }
+                    ok(v)
+                }
+                Err(e) => err(e),
+            }
+        }
+        // the log (N1 slice 8): read it, or add the shell's own entry
+        "log.tail" => match crate::log::tail_request(params) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
+        "log.write" => match crate::log::write_request(params, Some(s.session().doc_id())) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         "ui.set" => match s.ui_set(params) {
             Ok(v) => {
                 s.redraw();

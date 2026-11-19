@@ -146,6 +146,32 @@ pub(crate) fn hooks() -> Hooks {
     HOOKS.get().copied().unwrap_or_default()
 }
 
+thread_local! {
+    /// The document whose work this thread is doing ([`with_doc`]).
+    static CURRENT_DOC: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The document the editor is working on as a hook is called (`docs/shell-interface.md` 4.3,
+/// decision 3): `None` outside one. The hooks keep their signatures, so an application's hook
+/// that must tell two documents apart asks here (`before` and `after` also have the session's
+/// [`Session::doc_id`]).
+pub fn current_doc() -> Option<u64> {
+    CURRENT_DOC.with(std::cell::Cell::get)
+}
+
+/// Run `f` as document `doc`'s work: the hooks it calls see `doc` in [`current_doc`]. Nests; the
+/// document before is restored afterwards, whatever `f` does.
+pub fn with_doc<R>(doc: u64, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CURRENT_DOC.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(CURRENT_DOC.with(|c| c.replace(Some(doc))));
+    f()
+}
+
 /// A form a command asks with before it runs from a menu or a shortcut: a small window of
 /// fields whose values become its params. The command itself is unchanged: the control channel,
 /// scripts and the CLI still name its params, so everything stays a command (golden rule 4). An

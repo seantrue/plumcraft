@@ -41,11 +41,11 @@ impl EditorApp {
         let source = self.source();
         for (id, viewer, tools) in open {
             let role = WatchRole::Popout(id);
-            let (title, display) = match self.session.run.entry(role) {
+            let (title, display) = match self.doc.session.run.entry(role) {
                 Some((w, d)) => (format!("{}.{}", w.node, w.port), d.cloned()),
                 None => continue,
             };
-            let offered = plumcraft_session::run_cmds::offered_views_for(&self.session, role);
+            let offered = plumcraft_session::run_cmds::offered_views_for(&self.doc.session, role);
             let w = match self.popouts.iter_mut().position(|w| w.id == id) {
                 Some(i) => &mut self.popouts[i],
                 None => {
@@ -57,7 +57,7 @@ impl EditorApp {
             w.title = title;
             w.pane.chosen = viewer;
             if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
-                self.rerun_pending = true;
+                self.doc.rerun_pending = true;
             }
         }
     }
