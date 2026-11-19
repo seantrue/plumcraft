@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1's exit review (Claude Fable 5.2)
+
+**What the maintainer asked for.** The standing go-ahead for N1's slices, which ends here; N2 needs a new one.
+
+**What the AI did.** Merged slices 7 and 8 into `feat/native-n0` (#106) after a Linux run on which every test passed. Wrote `claude-debug/native-n1-exit.md` (about 80 lines): the stage against the plan's exit line, item by item; what a native shell can and cannot do through the C ABI; the open items; what went wrong in the process. Line counts in it are measured (`crates/ui/src` 23,762 to 19,500; the core 13,040; media 1,834).
+
+**What it says against the AI's own work.** The exit line ("every existing test passes unchanged… no user-visible change") is met only with four test edits and three small visible changes. The plan's "two-sessions audit" was not done. The Mac passed three things Linux then failed. The stage's gate never covered the C ABI.
+
 ### 2026-11-19 — Slice 7's two Linux failures: both in the tests (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** Nothing new: the standing go-ahead for N1's slices, whose gate a red Linux run fails.
