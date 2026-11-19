@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1 slice 3: the UI thread stops waiting for engines on runs and switches (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** The standing go-ahead for N1's slices. The slice is rule 6 of note 24: "the UI thread never waits for an engine".
+
+**What the AI did** (`git diff --numstat` and the new files: +1,789 −158, about 620 of it tests). `crates/editor-core/src/worker.rs`, `EngineWorker`: one ordered thread a document for runs, cancels, releases and engine switches, its results drained by the owner on its own thread. The switchboard split into `begin`, `Work` and `finish`. The egui editor (`crates/ui`, +327 −34) sends through it and parks a control request that switches until the switch is done; the C ABI's core (`crates/ffi`, +176 −26) uses the same worker and now performs `engine.*`. `crates/ui/tests/engine_thread.rs` fails if the editor's thread calls or starts an engine; it fails on the tree before this slice. 6 new tests.
+
+**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,319 of 1,320 each time, the same one failure, no flake. Longest frame (debug): a switch to a process engine 190 to 244 ms before, 3 to 6 ms after; 2.2 s to 10 ms with an engine that takes 2 s to start. The real editor driven over the control channel: a switch replied after 465 ms while a second connection's `ui.inspect` was answered nine times, the slowest in 18 ms. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (91), and the thread-rule test.
+
+**What fell short.** Two of the brief's five items are not done. Startup still waits for the first catalogue before the window: `with_link` promises it, and thirteen test files read it at once. `resolve` is still called on the UI thread (thumbnails, Watched, compare, pop-outs, `plum_blob`); it blocks only for an HTTP engine. And the rule has an exception the agent chose: an engine compiled in still connects on the UI thread, about 3 ms, to leave two kittests unedited. **One existing test was edited:** `attach_connects_to_a_running_http_engine` now waits for the attach instead of three frames. That is a visible change, small and for the better (the Attach button says "Connecting…" where the window froze), in a stage whose gate was "no user-visible change"; it is written into `docs/control-protocol.md` (`engine.pending`).
+
 ### 2026-11-19 — N1 slice 2: engines start and switch in the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "standing go-ahead for the remaining N1 slices": each slice that passes its gate is committed and merged into `feat/native-n0`, never `main`.

@@ -1210,14 +1210,17 @@ mod tests {
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: "wrong".into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            // (attaching is a network call, made on the engine worker: settled once it is done)
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             // a wrong token: refused, said, the window stays for another try
             assert!(!h.state().session.connected);
             assert!(h.state().last_error.as_deref().unwrap_or_default().contains("HTTP · attached"), "{:?}", h.state().last_error);
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: token.into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
             assert!(h.state().engine_label().contains(&format!("HTTP · attached · {url}")), "{}", h.state().engine_label());
             let v = inspect(&mut h);

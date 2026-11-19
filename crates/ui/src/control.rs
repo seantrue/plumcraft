@@ -159,6 +159,21 @@ impl EditorApp {
                 self.control.waits.push(Wait { deadline, reply });
                 ctx.request_repaint();
             }
+            // a command that switches engines replies once it has switched, and no frame waits
+            // for that (docs/control-protocol.md: engine.* "switch before they reply")
+            "command.run" | "engine.execute" | "ui.invoke" | "ui.prompt" => {
+                let outside = !std::mem::replace(&mut self.in_frame, true);
+                self.engine_asked = false;
+                let v = self.control_now(ctx, method, params);
+                if outside {
+                    self.in_frame = false;
+                }
+                if self.engine_asked && self.engine_busy() && v["ok"] == true {
+                    self.wait_for_switch(ctx, method, v, reply);
+                } else {
+                    reply(v);
+                }
+            }
             _ => {
                 let v = self.control_now(ctx, method, params);
                 reply(v);

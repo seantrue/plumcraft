@@ -130,6 +130,7 @@ The transport is `crates/automation/src/server.rs`. The handlers are `crates/ui/
   - **Value editors:** `command.run node.editor {node, open?}` opens and closes the editor a node names (`docs/interface.md` 7.4). `ui.inspect`'s `editors` lists those open: `{node, kind, state}`, `state` being whatever that editor reports.
   - **Wires:** hovering one shows its value's preview; a double click pops it out.
   - **Ports:** hovering an output (its pin or its name, wired or not) or a wired input shows the value available there, and a click on it watches it.
+- `engine.pending` is true while an engine switch is in flight (the engine is starting on a worker; the title says "connecting"). A control request that switches still replies only once the switch is done; other connections are answered meanwhile.
 - `engine.state` is the host's `EngineState` (`docs/interface.md`): `off`, `connecting`, `unreachable` (with `url`, `reason`, `hint`), `engine_down` (with `reason`, `hint`, `stderr_tail`), `loading_schema`, `unavailable`, `busy` or `connected`.
 - `banner` is the text of the banner shown when the engine is down or can't be reached, including the fix.
 - `engineStatus` is `{text, tone}`: the engine's `texts.engine_status` and its tone (`info`, `warn` or `error`) while the engine is connected and the text isn't empty, else null. The status bar draws it under the engine's name (plumcraft #86).

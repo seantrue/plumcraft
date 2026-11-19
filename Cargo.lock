@@ -3078,6 +3078,7 @@ version = "0.7.0"
 dependencies = [
  "jni-sys 0.4.1",
  "plumcraft-automation",
+ "plumcraft-coordinator",
  "plumcraft-editor-core",
  "plumcraft-graph",
  "plumcraft-host",

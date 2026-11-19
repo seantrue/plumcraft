@@ -11,21 +11,54 @@
 //! What stays here is what draws or needs an egui context: the [`Connector`] (it takes the
 //! context its link repaints), the Engine menu's choices, the Attach… and Install Engine…
 //! windows, and putting the core's [`Effects`] on the canvas and the Watched panel.
+//!
+//! **The window never waits for an engine** (slice 3). Inside a frame, the part of a switch that
+//! waits for engines (stopping the old, starting the new, its catalogue) goes to the editor's
+//! engine worker ([`plumcraft_editor_core::worker`]), with the connector, and the frame goes on;
+//! the title and status bar say what is connecting. The worker's answer is taken at the start of
+//! a later frame ([`EditorApp::pump_engine`]). The one exception is an engine compiled into the
+//! program (in-process, no process or network to wait for), which is started in place, as
+//! before. A control request that switched replies once the switch is done
+//! (`docs/control-protocol.md`: `engine.*` "switch before they reply"). Outside a frame (tests,
+//! scripts, the API) a command that switches waits for the worker, as it always waited.
 
-use plumcraft_editor_core::switchboard::{self, Effects, Switchboard};
+use std::time::{Duration, Instant};
+
+use plumcraft_editor_core::switchboard::{self, Effects, Next, Switchboard};
+use plumcraft_editor_core::worker::Done;
 use plumcraft_session::{EngineChoice, EngineTarget};
 use serde_json::{Value, json};
 
 use crate::EditorApp;
+use crate::control::{Reply, err, ok};
 use crate::link::{Link, repaint_waker};
 use crate::run_view::Thumbs;
+
+/// The longest a caller that may wait (outside a frame) waits for an engine to start: the
+/// slowest start the launcher allows (60 s), and then some.
+pub const START_WAIT: Duration = Duration::from_secs(120);
 
 pub use plumcraft_editor_core::install::{Installer, Installing, KNOWN_ENGINES};
 pub use plumcraft_editor_core::switchboard::Reloader;
 
 /// Starts engine `engine` hosted as `mode` (one of the app's [`EngineChoice`]s) and links to it;
-/// `repaint` is woken when its events arrive.
-pub type Connector = Box<dyn FnMut(&str, &str, Option<&egui::Context>) -> Result<Link, String>>;
+/// `repaint` is woken when its events arrive. It is called on the editor's engine worker, so it
+/// is `Send`.
+pub type Connector = Box<dyn FnMut(&str, &str, Option<&egui::Context>) -> Result<Link, String> + Send>;
+
+/// A control request waiting for an engine switch to finish.
+pub(crate) struct EngineWait {
+    reply: Reply,
+    ctx: egui::Context,
+    /// `command.run`'s: the command's own result (for its `how`); else `ui.invoke`'s command.
+    command: Option<Value>,
+    invoked: Option<Value>,
+    /// The switch's latest outcome.
+    last: Option<Value>,
+}
+
+/// What the worker carries for a switch: the connector, and the context new links repaint.
+type Carry = (Option<Connector>, Option<egui::Context>);
 
 /// The Install Engine… window's field.
 #[derive(Debug, Clone, Default)]
@@ -53,6 +86,7 @@ macro_rules! board {
             reloader: &mut $app.reloader,
             installer: &$app.installer,
             installing: &mut $app.installing,
+            switching: &mut $app.switching,
             waker: $app.repaint.clone().map(repaint_waker),
             effects: Effects::default(),
         }
@@ -172,20 +206,205 @@ impl EditorApp {
         self
     }
 
-    /// Perform a switch the session recorded (`engine.switch`, `engine.reconnect`,
-    /// `engine.attach`, …). `None` when none was asked for; else the outcome.
+    /// Engine switching, without waiting (every frame): take what the worker brought back, and
+    /// begin what the session recorded (`engine.switch`, `engine.reconnect`, `engine.attach`, …).
+    /// `None` when nothing finished; else the last outcome.
     pub fn pump_engine(&mut self) -> Option<Result<Value, String>> {
-        if !self.session.engines.is_pending() {
-            // every frame: nothing to lend
-            return None;
+        let mut out = Vec::new();
+        self.step_engines(&mut out);
+        out.pop()
+    }
+
+    /// Is an engine switch asked for, or under way?
+    pub fn engine_busy(&self) -> bool {
+        self.switching.busy() || self.session.engines.is_pending()
+    }
+
+    /// Wait (at most `timeout`) until no switch is asked for or under way and the engine worker
+    /// has sent everything given it (runs, cancels): whether it came to that. For tests and
+    /// scripts, never a frame.
+    pub fn wait_engines(&mut self, timeout: Duration) -> bool {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let _ = self.pump_engine();
+            if !self.engine_busy() && self.engine_worker.idle() {
+                return true;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() || !self.engine_worker.wait(left) {
+                return false;
+            }
         }
-        self.with_board(|b, connect| b.pump(connect))
+    }
+
+    /// Perform what the session asked of the engines, waiting for it here (a caller outside a
+    /// frame): the last outcome, or the first error. The engines still start on the worker.
+    pub(crate) fn engines_now(&mut self) -> Option<Result<Value, String>> {
+        let deadline = Instant::now() + START_WAIT;
+        let mut done = None;
+        loop {
+            let mut out = Vec::new();
+            self.step_engines(&mut out);
+            for r in out {
+                if r.is_err() {
+                    return Some(r);
+                }
+                done = Some(r);
+            }
+            if !self.switching.busy() {
+                return done;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() || !self.engine_worker.wait(left) {
+                return Some(Err("the engine didn't start in time".into()));
+            }
+        }
+    }
+
+    /// Lend the engine parts to a [`Switchboard`] for `f`, then put what it changed on the
+    /// canvas and the Watched panel.
+    fn board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>) -> R) -> R {
+        let mut b = board!(self);
+        let out = f(&mut b);
+        let fx = b.effects;
+        self.engine_effects(fx);
+        out
+    }
+
+    /// Take what the worker brought back, finish it, begin what is asked next; outcomes to `out`.
+    pub(crate) fn step_engines(&mut self, out: &mut Vec<Result<Value, String>>) {
+        if !self.engine_worker.has_waker()
+            && let Some(ctx) = &self.repaint
+        {
+            self.engine_worker.set_waker(Some(repaint_waker(ctx.clone())));
+        }
+        for done in self.engine_worker.drain() {
+            match done {
+                Done::RunFailed { run_id, generation, why } => {
+                    // only the latest run fails: a superseded one's refusal is old news
+                    let run = &self.session.run;
+                    if run.run_id.as_deref() == Some(run_id.as_str()) && run.generation == generation {
+                        self.session.run.fail(&format!("run: {why}"));
+                    }
+                }
+                Done::Switched { worked, back } => {
+                    if let Ok(carry) = back.downcast::<Carry>() {
+                        self.connector = carry.0;
+                    }
+                    let next = self.board(|b| b.finish(*worked));
+                    self.go(next, out);
+                }
+            }
+        }
+        while !self.switching.busy() && self.session.engines.is_pending() {
+            let Some(next) = self.board(|b| b.begin()) else { break };
+            self.go(next, out);
+        }
+        let retired = self.switching.take_retired();
+        self.engine_worker.retire(retired);
+        if !self.engine_waits.is_empty() && !self.engine_busy() {
+            self.answer_engine_waits();
+        }
+    }
+
+    /// Carry an operation on: in place for an engine compiled in, else on the worker.
+    fn go(&mut self, mut next: Next, out: &mut Vec<Result<Value, String>>) {
+        loop {
+            match next {
+                Next::Done(r) => {
+                    self.engine_outcome(&r);
+                    out.push(r);
+                    return;
+                }
+                Next::Work(mut w) if w.in_process() => {
+                    // nothing to wait for but this program's own code (no process, no network):
+                    // started here, so a pick from the menu is connected in the same frame
+                    let retired = w.take_retired();
+                    self.engine_worker.retire(retired);
+                    let ctx = self.repaint.clone();
+                    let connector = &mut self.connector;
+                    let worked = w.run(&mut |engine: &str, mode: &str| match connector {
+                        Some(c) => c(engine, mode, ctx.as_ref()).map(Link::into_core),
+                        None => Err("this editor can't start engines".into()),
+                    });
+                    next = self.board(|b| b.finish(worked));
+                }
+                Next::Work(w) => {
+                    let carry: Carry = (self.connector.take(), self.repaint.clone());
+                    self.engine_worker.switch(w, carry, |(connector, ctx): &mut Carry, engine: &str, mode: &str| match connector {
+                        Some(c) => c(engine, mode, ctx.as_ref()).map(Link::into_core),
+                        None => Err("this editor can't start engines".into()),
+                    });
+                    return;
+                }
+            }
+        }
+    }
+
+    /// An outcome, for the control requests waiting on it and the Attach… window.
+    fn engine_outcome(&mut self, r: &Result<Value, String>) {
+        if self.attaching {
+            self.attaching = false;
+            // connected: the window's done; refused: it stays for another try
+            if r.is_ok() {
+                self.attach_form = None;
+            }
+        }
+        match r {
+            Ok(v) => self.engine_waits.iter_mut().for_each(|w| w.last = Some(v.clone())),
+            // the first error is the answer, as a command that waits gets it
+            Err(e) => {
+                let (failed, waiting): (Vec<EngineWait>, Vec<EngineWait>) =
+                    std::mem::take(&mut self.engine_waits).into_iter().partition(|w| w.command.is_some());
+                self.engine_waits = waiting;
+                for w in failed {
+                    (w.reply)(err(e.clone()));
+                }
+            }
+        }
+    }
+
+    /// The engines are idle: answer the control requests that waited for them.
+    fn answer_engine_waits(&mut self) {
+        for w in std::mem::take(&mut self.engine_waits) {
+            let v = match (&w.command, w.last) {
+                (Some(command), Some(mut out)) => {
+                    if let (Some(how), Some(o)) = (command.get("how"), out.as_object_mut()) {
+                        o.insert("how".into(), how.clone());
+                    }
+                    ok(out)
+                }
+                (Some(command), None) => ok(command.clone()),
+                (None, _) => {
+                    let mut out = self.inspect(&w.ctx);
+                    if let Some(id) = &w.invoked {
+                        out["invoked"] = id.clone();
+                    }
+                    ok(out)
+                }
+            };
+            (w.reply)(v);
+        }
+    }
+
+    /// A control request (`command.run`, `ui.invoke`, `ui.prompt`) whose command asked for an
+    /// engine switch that is under way: reply when it is done. `v` is what it would reply now.
+    pub(crate) fn wait_for_switch(&mut self, ctx: &egui::Context, method: &str, v: Value, reply: Reply) {
+        let (command, invoked) = match method {
+            "command.run" | "engine.execute" => (Some(v["result"].clone()), None),
+            _ => (None, v["result"].get("invoked").cloned()),
+        };
+        self.engine_waits.push(EngineWait { reply, ctx: ctx.clone(), command, invoked, last: None });
+        ctx.request_repaint();
     }
 
     /// Stop every engine (`engine.clear`). The graph stays, on the catalogue it had, with none
-    /// connected; the Engine menu starts the next.
+    /// connected; the Engine menu starts the next. (The old engines stop on the worker.)
     pub fn clear_engines(&mut self) -> Value {
-        self.with_board(|b, _| b.clear())
+        let v = self.board(|b| b.clear());
+        let retired = self.switching.take_retired();
+        self.engine_worker.retire(retired);
+        v
     }
 
     /// Start `target` beside the engines there are ([`switchboard`]).
@@ -210,7 +429,7 @@ impl EditorApp {
 
     /// The engine the editor has (or tried to have), for the window title.
     pub fn engine_title(&self) -> Option<String> {
-        switchboard::engine_title(&self.session, self.link.is_some())
+        switchboard::engine_title_connecting(&self.session, self.link.is_some(), self.switching.busy())
     }
 
     /// The Engine menu's choices, after its fixed commands: Remove for each added engine, then
@@ -281,6 +500,7 @@ impl EditorApp {
         let Some(form) = &mut self.attach_form else { return };
         let (mut go, mut cancel) = (false, false);
         let mut open = true;
+        let attaching = self.attaching;
         egui::Window::new("Attach to an Engine")
             .id(egui::Id::new("plumcraft-attach"))
             .collapsible(false)
@@ -298,23 +518,34 @@ impl EditorApp {
                     ui.end_row();
                 });
                 ui.horizontal(|ui| {
-                    go = ui.button("Attach").clicked();
+                    go = ui.add_enabled(!attaching, egui::Button::new(if attaching { "Connecting…" } else { "Attach" })).clicked();
                     cancel = ui.button("Cancel").clicked();
                 });
             });
-        if go {
+        if go && !self.attaching {
             let p = json!({"url": form.url, "token": form.token});
-            if self.run("engine.attach", &p).is_some() {
+            let r = self.run("engine.attach", &p);
+            if self.engine_busy() {
+                // connecting on the worker: the window closes once it has connected
+                self.attaching = true;
+            } else if r.is_some() {
                 self.attach_form = None;
             }
         } else if cancel || !open {
+            self.attaching = false;
             self.attach_form = None;
         }
     }
 
     /// `ui.inspect`'s `engine`.
     pub(crate) fn engine_inspect(&self) -> Value {
-        switchboard::inspect(&self.session, self.link.as_ref(), &self.engine, self.coordinator.as_ref())
+        let mut v = switchboard::inspect(&self.session, self.link.as_ref(), &self.engine, self.coordinator.as_ref());
+        // asked for, or under way on the worker
+        v["pending"] = json!(self.engine_busy());
+        if self.switching.busy() {
+            v["label"] = json!(self.engine_label());
+        }
+        v
     }
 }
 

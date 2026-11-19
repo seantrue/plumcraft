@@ -222,6 +222,23 @@ fn external(i: u16) -> Option<External> {
     EXTERNALS.with_borrow(|e| e.get(usize::from(i)).cloned())
 }
 
+/// The engine manifests this thread has read, to start their engines on another thread: the
+/// engine worker ([`crate::worker`]) starts them for the thread that owns the document.
+#[derive(Debug, Clone, Default)]
+pub struct Manifests(Vec<External>);
+
+impl Manifests {
+    /// What this thread has read ([`load_manifests`]).
+    pub fn here() -> Manifests {
+        Manifests(EXTERNALS.with_borrow(Clone::clone))
+    }
+
+    /// Make them this thread's (a worker that starts engines for one document).
+    pub fn install(&self) {
+        EXTERNALS.with_borrow_mut(|e| e.clone_from(&self.0));
+    }
+}
+
 /// The folder engines install their manifests in.
 pub fn manifest_folder() -> Option<PathBuf> {
     // home(), not $HOME: Windows sets no HOME for an app started from the desktop, so the folder
