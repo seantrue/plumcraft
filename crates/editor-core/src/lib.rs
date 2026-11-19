@@ -4,10 +4,16 @@
 //! (`plumcraft-ffi`) between.
 //!
 //! Stage N1 cuts it out from under the egui editor in slices, with no change a user can see.
-//! This slice holds the pure logic that was stranded in `plumcraft-ui` and the engine event pump:
+//! It holds the pure logic that was stranded in `plumcraft-ui`, the engine event pump, and (slice
+//! 2) starting and switching engines, which was the windowed app's and `plumcraft-ui`'s:
 //!
 //! - [`plain`]: the core's own colour, point and rect, in place of a toolkit's;
 //! - [`link`]: a connection to an engine and the thread pumping its events, with a [`link::Waker`];
+//! - [`engines`]: which engines there are, how each may be hosted on this platform
+//!   ([`engines::Capabilities`]), and starting one ([`engines::Launcher`]);
+//! - [`switchboard`]: switching, adding, removing, attaching and clearing engines while editing;
+//! - [`install`]: installing an engine from GitHub, off the shell's thread;
+//! - [`headless`]: the windowless commands `run`, `check`, `tidy` and `nodes`;
 //! - [`prefs`], [`appearance`], [`theme`]: preferences, the user's look, and themes as data;
 //! - [`run_anim`], [`run_text`]: the run animation's model and run states as words;
 //! - [`wire_path`]: a bent wire's curve and hit testing on it;
@@ -15,13 +21,17 @@
 //! - [`probe`], [`diff`], [`dtype`], [`raster`]: exact readings and differences of arrays;
 //! - [`yaml`]: JSON values as YAML, for display.
 //!
-//! `plumcraft-ui` re-exports each at its old path, so code written against it still compiles.
+//! `plumcraft-ui` re-exports each at its old path, so code written against it still compiles;
+//! `plumcraft-editor` re-exports [`engines::PackEngine`] as before.
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod appearance;
 pub mod diff;
 pub mod dtype;
+pub mod engines;
+pub mod headless;
+pub mod install;
 pub mod link;
 pub mod palette;
 pub mod plain;
@@ -30,6 +40,7 @@ pub mod probe;
 pub mod raster;
 pub mod run_anim;
 pub mod run_text;
+pub mod switchboard;
 pub mod theme;
 pub mod wire_path;
 pub mod yaml;

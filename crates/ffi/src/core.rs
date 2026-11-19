@@ -7,7 +7,8 @@
 //!   long poll. The only thread that calls the shell's `wake`.
 //! - **pump** (`plumcraft-editor-pump`): the editor core's [`Link`], which long-polls
 //!   `events.poll` and holds the events; its [`link::Waker`] tells the core thread to drain them.
-//! - the engine's own worker (`plumcraft-engine`), started by [`Host::start`].
+//! - the engine's own worker (`plumcraft-engine`), or its process, started by the editor core's
+//!   [`Launcher`] as the config names it (the text engine, in-process, by default).
 //!
 //! Spike scope (N0(b)): the methods are the control channel's session methods (`command.run`,
 //! `command.list`, `graph.get`, through [`plumcraft_automation::dispatch`]) plus a few `spike.*`
@@ -23,10 +24,10 @@ use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
 use plumcraft_automation::{ControlReply, ControlRequest};
+use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
 use plumcraft_editor_core::link::{self, Link};
-use plumcraft_engine::host::Host;
 use plumcraft_graph::{Graph, PortRef};
-use plumcraft_host::{Connection, InProc};
+use plumcraft_host::Connection;
 use plumcraft_proto::data::DataRef;
 use plumcraft_proto::event::{Envelope, Event};
 use plumcraft_proto::handle::Handle;
@@ -52,12 +53,27 @@ fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 /// What `plum_open` takes, as JSON. Every field is optional.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Config {
     /// Where the engine publishes blobs (the shell's `Dirs.store`); the commonkit default without.
     pub store_root: Option<PathBuf>,
-    /// Open the text engine's demo graph.
+    /// Open the engine's demo graph.
     pub demo: bool,
+    /// The engine (`engines.default` in `docs/shell-interface.md` 4.1, or the spike's `engine`);
+    /// the text engine when absent.
+    pub engine: Option<String>,
+    /// Its hosting (`engines.mode`, or `mode`); the engine's default when absent.
+    pub mode: Option<String>,
+    /// What the platform has (`platform`, 4.2). What the config doesn't say it has, it hasn't:
+    /// without `platform`, only engines compiled in and engines already running elsewhere.
+    pub platform: Capabilities,
+}
+
+impl Default for Config {
+    /// The text engine, compiled in, on a platform that has declared nothing.
+    fn default() -> Self {
+        Config { store_root: None, demo: false, engine: None, mode: None, platform: Capabilities::NONE }
+    }
 }
 
 impl Config {
@@ -67,10 +83,35 @@ impl Config {
         }
         let v: Value = serde_json::from_slice(bytes).map_err(|e| format!("config: bad JSON: {e}"))?;
         let Some(o) = v.as_object() else { return Err("config: not a JSON object".into()) };
-        if let Some(engine) = o.get("engine").and_then(Value::as_str).filter(|e| *e != "text") {
-            return Err(format!("config: engine {engine:?}: this spike hosts the text engine only"));
+        let engines = o.get("engines").and_then(Value::as_object);
+        let named = |key: &str, short: &str| engines.and_then(|e| e.get(key)).or_else(|| o.get(short)).and_then(Value::as_str).map(str::to_owned);
+        Ok(Config {
+            store_root: o.get("store_root").and_then(Value::as_str).map(PathBuf::from),
+            demo: o.get("demo").and_then(Value::as_bool).unwrap_or(false),
+            engine: named("default", "engine"),
+            mode: named("mode", "mode"),
+            platform: Capabilities::declared(o.get("platform")),
+        })
+    }
+
+    /// The engine and hosting asked for, checked against what exists and what the platform can
+    /// start.
+    fn engine_and_mode(&self) -> Result<(EngineKind, Mode), String> {
+        let kind = match &self.engine {
+            Some(id) => EngineKind::from_id(id).ok_or_else(|| format!("config: engine {id:?}: there is no such engine"))?,
+            None => EngineKind::Text,
+        };
+        let mode = match &self.mode {
+            Some(m) => Mode::from_id(m).ok_or_else(|| format!("config: mode {m:?}: one of inproc, process, python, http, http-python"))?,
+            None => kind.default_mode(),
+        };
+        if !kind.hosts(mode) {
+            return Err(format!("config: the {} engine can't be hosted as {}", kind.id(), mode.id()));
         }
-        Ok(Config { store_root: o.get("store_root").and_then(Value::as_str).map(PathBuf::from), demo: o.get("demo").and_then(Value::as_bool).unwrap_or(false) })
+        if let Some(why) = self.platform.refuses(kind, mode) {
+            return Err(format!("config: the {} engine as {}: {why}", kind.id(), mode.id()));
+        }
+        Ok((kind, mode))
     }
 }
 
@@ -117,7 +158,9 @@ pub struct Shared {
     outbox: Mutex<Outbox>,
     waker: Waker,
     counters: Counters,
-    conn: Arc<InProc>,
+    conn: Arc<dyn Connection>,
+    /// The store the engine publishes to: the config's root, else the shared default.
+    store: Store,
     /// Every DataRef seen in the engine's events, by handle: how `plum_blob` resolves one through
     /// the connection, as the editor does.
     refs: Mutex<HashMap<String, DataRef>>,
@@ -181,8 +224,7 @@ impl Shared {
             Some(r) => self.conn.resolve(&r),
             None => {
                 let h: Handle = handle.parse().map_err(|e| format!("not a handle: {e}"))?;
-                let store = self.conn.0.store().ok_or("the engine has no store")?;
-                store.map_handle(&h).or_else(|| store.read_handle(&h))
+                self.store.map_handle(&h).or_else(|| self.store.read_handle(&h))
             }
         };
         let blob = Arc::new(blob.ok_or_else(|| format!("no bytes for {handle}"))?);
@@ -225,43 +267,40 @@ pub struct Core {
 impl Core {
     /// Start the engine, the session, the pump and the core thread.
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
-        let root = config.store_root.clone();
-        let host =
-            Host::start(Box::new(move || Ok(if root.is_some() { plumcraft_text::engine().with_store(root.clone()) } else { plumcraft_text::engine() })), None);
-        match host.wait_ready(Duration::from_secs(5)) {
+        let (kind, mode) = config.engine_and_mode()?;
+        let launcher = Launcher { caps: config.platform, store_root: config.store_root.clone(), ..Default::default() };
+        let (tx, rx) = channel();
+        let drain = tx.clone();
+        let waker = link::Waker::new(move || {
+            let _ = drain.send(Msg::Drain);
+        });
+        let link = launcher.connect_core(kind, mode, Some(waker))?;
+        match link.state() {
             EngineState::Connected { .. } => {}
-            other => return Err(format!("the text engine didn't start: {other:?}")),
+            other => return Err(format!("the {} engine didn't start: {other:?}", kind.id())),
         }
-        let conn = Arc::new(InProc(host));
+        let conn = Arc::clone(&link.conn);
         let catalog = conn
             .call("schema", json!({}))
             .map_err(|e| e.message)
             .and_then(|v| serde_json::from_value(v).map_err(|e| format!("the engine's catalogue: {e}")))?;
         let mut session = Session::new(catalog);
         session.connected = true;
-        let dyn_conn: Arc<dyn Connection> = Arc::clone(&conn) as Arc<dyn Connection>;
-        session.set_connection(Some(Arc::clone(&dyn_conn)));
+        session.set_connection(Some(Arc::clone(&conn)));
         if config.demo {
-            load_demo(&mut session)?;
+            load_demo(&mut session, kind)?;
         }
+        let store = Store::new(config.store_root.clone().unwrap_or_else(plumcraft_store::default_root));
         let shared = Arc::new(Shared {
             outbox: Mutex::default(),
             waker: Waker { f: wake, ctx: ctx as usize, pending: AtomicBool::new(false), sent: AtomicU64::new(0) },
             counters: Counters::default(),
             conn,
+            store,
             refs: Mutex::default(),
             lent: Mutex::default(),
         });
-        let (tx, rx) = channel();
-        let drain = tx.clone();
-        let link = Link::start(
-            dyn_conn,
-            "in-process",
-            Some(link::Waker::new(move || {
-                let _ = drain.send(Msg::Drain);
-            })),
-        )?;
-        let worker = Worker { session, shared: Arc::clone(&shared), waiters: Vec::new(), link };
+        let worker = Worker { session, shared: Arc::clone(&shared), waiters: Vec::new(), link, kind };
         let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
         Ok(Core { tx, shared, next_id: AtomicU64::new(1), thread: Mutex::new(Some(thread)), thread_id })
@@ -286,9 +325,10 @@ impl Core {
     }
 }
 
-/// The text engine's demo graph, as one undo step.
-fn load_demo(s: &mut Session) -> Result<(), String> {
-    let demo = Graph::from_json(plumcraft_text::DEMO_WORKFLOW).map_err(|e| e.to_string())?;
+/// The engine's demo graph (an empty one for an engine without), as one undo step.
+fn load_demo(s: &mut Session, kind: EngineKind) -> Result<(), String> {
+    let demo = kind.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.to_owned());
+    let demo = Graph::from_json(&demo).map_err(|e| e.to_string())?;
     s.edit("Open Demo", |g, _| {
         *g = demo;
         Ok(())
@@ -310,6 +350,8 @@ struct Worker {
     waiters: Vec<Waiter>,
     /// The engine's event pump; dropping it stops the pump and waits for it.
     link: Link,
+    /// Which engine it is (`spike.demo` opens its demo).
+    kind: EngineKind,
 }
 
 impl Worker {
@@ -382,7 +424,7 @@ impl Worker {
                 self.waiters.push(Waiter { id, tag, deadline: Instant::now() + Duration::from_millis(ms) });
                 return;
             }
-            "spike.demo" => load_demo(&mut self.session).map(|()| json!({"nodes": self.session.graph().nodes.len()})),
+            "spike.demo" => load_demo(&mut self.session, self.kind).map(|()| json!({"nodes": self.session.graph().nodes.len()})),
             "spike.scene" => self.scene(&params),
             "spike.publish" => self.publish(&params),
             "spike.stats" => Ok(self.stats()),
@@ -512,7 +554,7 @@ impl Worker {
             bytes.extend_from_slice(&x.to_le_bytes());
         }
         bytes.truncate(n);
-        let store: Store = self.shared.conn.0.store().ok_or("the engine has no store")?;
+        let store: Store = self.shared.store.clone();
         let (handle, _) = store.publish_raw(&bytes).ok_or("the store declined the bytes")?;
         Ok(json!({"handle": handle.to_string(), "bytes": n}))
     }
@@ -545,5 +587,45 @@ fn collect_refs(v: &Value, into: &mut HashMap<String, DataRef>) {
         }
         Value::Array(a) => a.iter().for_each(|c| collect_refs(c, into)),
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(json: &str) -> Result<Config, String> {
+        Config::parse(json.as_bytes())
+    }
+
+    #[test]
+    fn the_config_names_an_engine_and_its_hosting_on_the_platform_declared() {
+        // as docs/shell-interface.md 4.1 writes it, and as the spike did
+        let c = config(r#"{"engines": {"default": "array", "mode": "inproc"}, "platform": {"subprocess": false}}"#).unwrap();
+        assert_eq!(c.engine_and_mode(), Ok((EngineKind::Array, Mode::InProc)));
+        assert_eq!(config(r#"{"engine": "text"}"#).unwrap().engine_and_mode(), Ok((EngineKind::Text, Mode::InProc)));
+        assert_eq!(config("").unwrap().engine_and_mode(), Ok((EngineKind::Text, Mode::InProc)), "the text engine by default");
+        // what the platform can't start is refused with the reason, before anything starts
+        let e = config(r#"{"engines": {"default": "text", "mode": "process"}}"#).unwrap().engine_and_mode().unwrap_err();
+        assert!(e.contains("can't start programs"), "{e}");
+        let e = config(r#"{"engine": "vectorcraft"}"#).unwrap().engine_and_mode().unwrap_err();
+        assert!(e.contains("no craft apps"), "{e}");
+        let desktop = r#"{"engine": "text", "mode": "python", "platform": {"subprocess": true, "python": false}}"#;
+        assert!(config(desktop).unwrap().engine_and_mode().unwrap_err().contains("no Python"));
+        // what doesn't exist, or can't be hosted so
+        assert!(config(r#"{"engine": "nonesuch"}"#).unwrap().engine_and_mode().unwrap_err().contains("nonesuch"));
+        assert!(config(r#"{"engine": "text", "mode": "pigeon"}"#).unwrap().engine_and_mode().unwrap_err().contains("pigeon"));
+        assert!(config(r#"{"engine": "array", "mode": "python"}"#).unwrap().engine_and_mode().unwrap_err().contains("can't be hosted"));
+        // hostile shapes are ignored, not fatal
+        let c = config(r#"{"engines": 7, "engine": ["text"], "platform": "everything"}"#).unwrap();
+        assert_eq!((c.engine_and_mode(), c.platform), (Ok((EngineKind::Text, Mode::InProc)), Capabilities::NONE));
+    }
+
+    #[test]
+    fn a_core_opens_on_the_array_engine_named_in_its_config() {
+        let root = plumcraft_scratch::dir("ffi-core-array");
+        let c = config(&format!(r#"{{"engines": {{"default": "array"}}, "store_root": {:?}, "demo": true}}"#, root.display().to_string())).unwrap();
+        let core = Core::open(&c, None, std::ptr::null_mut()).unwrap();
+        core.close();
     }
 }

@@ -103,7 +103,6 @@ use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
 use crate::canvas::{Action, Canvas, RunView};
-use crate::link::Link;
 use crate::run_view::Thumbs;
 use crate::theme::Tokens;
 use crate::watched::Watched;
@@ -408,8 +407,9 @@ pub struct EditorApp {
     /// A refused wire's way through (`wire.convert`'s params and the path's label), offered
     /// beside the error (docs/research/20-convert.md).
     pub convert_offer: Option<(Value, String)>,
-    /// The engine connection, when one was started.
-    pub link: Option<Link>,
+    /// The engine connection, when one was started (the core's link: [`link::Link`] is a
+    /// wrapper that starts one with an egui context).
+    pub link: Option<plumcraft_editor_core::link::Link>,
     /// What the application's hooks show this frame ([`app_hooks`]).
     pub app: app_hooks::AppShown,
     /// The Watched panel's display of the application's value for the watched node, which
@@ -567,7 +567,8 @@ impl EditorApp {
 
     /// Attach an engine link: its catalogue (`schema`) becomes the session's, and its events
     /// are drained every frame. A catalogue that can't be read is the status bar's error.
-    pub fn with_link(mut self, link: Link) -> Self {
+    pub fn with_link(mut self, link: link::Link) -> Self {
+        let link = link.into_core();
         match link.conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
             Ok(Ok(catalog)) => self.set_catalog(catalog),
             Ok(Err(e)) => self.last_error = Some(format!("the engine's catalogue: {e}")),
@@ -586,20 +587,22 @@ impl EditorApp {
     /// ([`plumcraft_session::Session::connection`]); none without a link. Called wherever the link
     /// is set or dropped, and every frame.
     pub(crate) fn share_connection(&mut self) {
-        let conn = self.link.as_ref().map(|l| std::sync::Arc::clone(&l.conn));
-        self.session.set_connection(conn);
+        plumcraft_editor_core::switchboard::share_connection(&mut self.session, &self.link);
     }
 
     /// What the session knows of the engine's state.
     pub(crate) fn sync_engine(&mut self) {
-        self.session.connected = self.engine.is_connected();
-        self.session.caps = if let EngineState::Connected { caps, .. } = &self.engine { caps.clone() } else { Default::default() };
+        plumcraft_editor_core::switchboard::sync_state(&mut self.session, &self.engine);
     }
 
     /// Replace the catalogue (the graph is kept; the canvas rebuilds).
     pub fn set_catalog(&mut self, catalog: SchemaReply) {
-        let first = self.session.catalog().nodes.is_empty();
-        self.session.set_catalog(catalog);
+        let first = plumcraft_editor_core::switchboard::set_catalog(&mut self.session, catalog);
+        self.catalog_changed(first);
+    }
+
+    /// The canvas after a new catalogue: rebuilt, and fitted when it is the first.
+    pub(crate) fn catalog_changed(&mut self, first: bool) {
         self.canvas.invalidate();
         if first && !self.session.graph().nodes.is_empty() {
             // The nodes only get their real sizes now.
@@ -1702,28 +1705,13 @@ impl EditorApp {
 
     /// The status bar's engine label.
     pub fn engine_label(&self) -> String {
-        match &self.link {
-            None => match self.engine_title() {
-                Some(wanted) => format!("engine: {wanted}"),
-                None => "engine: not connected".into(),
-            },
-            Some(link) => {
-                let name = &self.session.catalog().engine;
-                let who = if name.name.is_empty() { String::new() } else { format!("{} {} · ", name.name, name.version) };
-                format!("engine: {who}{} · {}", link.label, link::state_text(&self.engine))
-            }
-        }
+        plumcraft_editor_core::switchboard::engine_label(&self.session, self.link.as_ref(), &self.engine)
     }
 
     /// The engine cell's main line (layout B, plumcraft #86): the engine's name and state. The
     /// link and the engine's node count are in its hover, which is the whole [`Self::engine_label`].
     pub fn engine_short_label(&self) -> String {
-        if self.link.is_none() {
-            return self.engine_label();
-        }
-        let name = &self.session.catalog().engine;
-        let state = if matches!(self.engine, EngineState::Connected { .. }) { "connected".to_owned() } else { link::state_text(&self.engine) };
-        if name.name.is_empty() { format!("engine: {state}") } else { format!("{} {} · {state}", name.name, name.version) }
+        plumcraft_editor_core::switchboard::engine_short_label(&self.session, self.link.as_ref(), &self.engine)
     }
 
     /// The engine's status line (`texts::ENGINE_STATUS`, plumcraft #86) and its tone, while the

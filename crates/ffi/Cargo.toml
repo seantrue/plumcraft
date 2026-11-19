@@ -30,15 +30,13 @@ jni = ["dep:jni-sys"]
 
 [dependencies]
 plumcraft-automation = { workspace = true }
-# The engine event pump (Link) and its Waker.
+# The engine event pump (Link) and its Waker; starting the engine the config names (Launcher).
 plumcraft-editor-core = { workspace = true }
-plumcraft-engine = { workspace = true }
 plumcraft-graph = { workspace = true }
 plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }
-plumcraft-text = { workspace = true }
 serde_json = { workspace = true }
 # the version already in the lock (cpal's)
 jni-sys = { version = "0.4.1", optional = true }

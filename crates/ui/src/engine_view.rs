@@ -1,61 +1,31 @@
 //! The Engine menu and switching engines while the editor runs.
 //!
-//! The split: the session's `engine.*` commands ([`plumcraft_session::engine_cmds`]) only
-//! record the request, as run commands queue theirs; the editor performs it
-//! ([`EditorApp::pump_engine`]), right after the command runs and at the start of every frame.
-//! Only the app knows how to start an engine, so it hands the editor a [`Connector`] and the
-//! list of choices it can start ([`EditorApp::with_engines`]); attaching to a running HTTP engine
-//! needs nothing from the app (`HttpHost::attach`).
+//! The switching itself is the editor core's ([`plumcraft_editor_core::switchboard`], stage N1,
+//! slice 2), whose docs say what a switch, an add, a remove, an attach and a clear do. The
+//! session's `engine.*` commands only record the request; the editor performs it
+//! ([`EditorApp::pump_engine`]), right after the command runs and at the start of every frame, by
+//! lending its engine parts to a [`Switchboard`]. Only the app knows how to start an engine, so it
+//! hands the editor a [`Connector`] and the list of choices it can start
+//! ([`EditorApp::with_engines`]); attaching to a running HTTP engine needs nothing from the app.
 //!
-//! A switch cancels the run in flight (the cancel goes to the old engine), drops the old link
-//! (its pump is joined, so a spawned engine is stopped: `ProcessHost`'s shutdown, `HttpHost`'s
-//! lifeline), forgets the old engine's run state (node states, the last reply, thumbnails, the
-//! watched value; what is watched stays), connects the new one and takes its catalogue. The
-//! graph is kept: nodes or wires the new catalogue doesn't have are reported in the status bar,
-//! as `graph.open` reports a file's problems, and nothing is deleted. A failed connect says why
-//! and leaves the editor usable on the old catalogue, with no engine; the Engine menu still
-//! works.
-//!
-//! **Several engines** (`docs/research/15-multi-engine.md`): picking an engine in the Engine menu
-//! that isn't connected (`engine.use`) starts it beside the ones there are. The first add puts the engines behind a
-//! [`plumcraft_coordinator::Coordinator`], and the editor links to that instead: one catalogue
-//! (merged), one run state, a graph whose nodes run on whichever engine offers them. Remove
-//! stops an added engine. Each add or remove relinks, so the run in flight is cancelled and the
-//! results forgotten, as on a switch. Switch and Attach go back to one engine; Reconnect
-//! restarts the first and adds the others again; Clear Engines stops them all.
+//! What stays here is what draws or needs an egui context: the [`Connector`] (it takes the
+//! context its link repaints), the Engine menu's choices, the Attach… and Install Engine…
+//! windows, and putting the core's [`Effects`] on the canvas and the Watched panel.
 
-use std::sync::Arc;
-use std::time::Instant;
-
-use plumcraft_coordinator::Coordinator;
-use plumcraft_host::Connection;
-use plumcraft_host::http::{HttpHost, HttpOptions};
-use plumcraft_proto::catalogue::SchemaReply;
-use plumcraft_proto::session::EngineState;
-use plumcraft_session::{EngineChange, EngineChoice, EngineTarget};
+use plumcraft_editor_core::switchboard::{self, Effects, Switchboard};
+use plumcraft_session::{EngineChoice, EngineTarget};
 use serde_json::{Value, json};
 
 use crate::EditorApp;
-use crate::link::Link;
+use crate::link::{Link, repaint_waker};
 use crate::run_view::Thumbs;
+
+pub use plumcraft_editor_core::install::{Installer, Installing, KNOWN_ENGINES};
+pub use plumcraft_editor_core::switchboard::Reloader;
 
 /// Starts engine `engine` hosted as `mode` (one of the app's [`EngineChoice`]s) and links to it;
 /// `repaint` is woken when its events arrive.
 pub type Connector = Box<dyn FnMut(&str, &str, Option<&egui::Context>) -> Result<Link, String>>;
-
-/// Reads the engine manifests again: the choices there are now, and what couldn't be read.
-pub type Reloader = Box<dyn FnMut() -> (Vec<EngineChoice>, Vec<String>)>;
-
-/// Downloads an engine from GitHub (its https URL) and installs it, off the UI thread: what to
-/// tell the person, or why it failed. The app supplies it ([`EditorApp::with_installer`]).
-pub type Installer = Arc<dyn Fn(&str) -> Result<String, String> + Send + Sync>;
-
-/// Public engines the Install Engine… window offers, as `(label, owner/repo)`.
-pub const KNOWN_ENGINES: &[(&str, &str)] = &[
-    ("DuckDB: data files into tables, reshaped with SQL", "seantrue/plumcraft-duckdb-engine"),
-    ("OpenCV: filters, edges, thresholds, morphology, geometry", "seantrue/plumcraft-opencv-engine"),
-    ("Atlas: a sample engine with every type", "seantrue/plumcraft-atlas-engine"),
-];
 
 /// The Install Engine… window's field.
 #[derive(Debug, Clone, Default)]
@@ -63,17 +33,30 @@ pub struct InstallForm {
     pub repo: String,
 }
 
-/// An install running in the background.
-pub struct Installing {
-    pub url: String,
-    rx: std::sync::mpsc::Receiver<Result<String, String>>,
-}
-
 /// The Attach… window's fields.
 #[derive(Debug, Clone, Default)]
 pub struct AttachForm {
     pub url: String,
     pub token: String,
+}
+
+/// The editor's engine parts, lent to the core's [`Switchboard`] for one operation (each field
+/// borrowed apart, so the editor's [`Connector`] can be borrowed beside them).
+macro_rules! board {
+    ($app:expr) => {
+        Switchboard {
+            session: &mut $app.session,
+            link: &mut $app.link,
+            coordinator: &mut $app.coordinator,
+            state: &mut $app.engine,
+            last_error: &mut $app.last_error,
+            reloader: &mut $app.reloader,
+            installer: &$app.installer,
+            installing: &mut $app.installing,
+            waker: $app.repaint.clone().map(repaint_waker),
+            effects: Effects::default(),
+        }
+    };
 }
 
 impl EditorApp {
@@ -94,49 +77,49 @@ impl EditorApp {
         self
     }
 
-    /// Start installing `url` on a thread of its own; [`EditorApp::poll_install`] takes the end.
-    fn start_install(&mut self, url: String) -> Result<Value, String> {
-        let Some(installer) = self.installer.clone() else { return Err("this editor can't install engines".into()) };
-        if let Some(i) = &self.installing {
-            return Err(format!("installing {}", i.url));
-        }
-        let (tx, rx) = std::sync::mpsc::channel();
-        let (u, ctx) = (url.clone(), self.repaint.clone());
-        std::thread::Builder::new()
-            .name("plumcraft-install".into())
-            .spawn(move || {
-                let _ = tx.send(installer(&u));
-                if let Some(ctx) = ctx {
-                    ctx.request_repaint();
-                }
-            })
-            .map_err(|e| format!("can't start the install: {e}"))?;
-        self.session.engines.installing = Some(url.clone());
-        self.installing = Some(Installing { url: url.clone(), rx });
-        self.last_error = None;
-        Ok(json!({"installing": url}))
-    }
-
     /// Take a finished install: read the engine manifests again, so the Engine menu offers what
     /// was installed, and say how it went. Returns whether one finished.
     pub fn poll_install(&mut self) -> bool {
-        let Some(i) = &self.installing else { return false };
-        let outcome = match i.rx.try_recv() {
-            Ok(r) => r,
-            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => Err("the install stopped without saying why".into()),
+        if self.installing.is_none() {
+            // every frame: nothing to lend
+            return false;
+        }
+        let mut b = board!(self);
+        let done = b.poll_install();
+        let fx = b.effects;
+        self.engine_effects(fx);
+        done
+    }
+
+    /// Run `f` on the editor's engine parts with its connector, then put what it changed on the
+    /// canvas and the Watched panel.
+    fn with_board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>, &mut switchboard::Connect<'_>) -> R) -> R {
+        let ctx = self.repaint.clone();
+        let connector = &mut self.connector;
+        let mut connect = |engine: &str, mode: &str| match connector {
+            Some(c) => c(engine, mode, ctx.as_ref()).map(Link::into_core),
+            None => Err("this editor can't start engines".into()),
         };
-        let url = i.url.clone();
-        self.installing = None;
-        self.session.engines.installing = None;
-        self.last_error = Some(match outcome {
-            Ok(said) => match self.reload_engines() {
-                Ok(_) => format!("{said}. The Engine menu offers it now."),
-                Err(e) => format!("{said}, but the engine list didn't reload: {e}"),
-            },
-            Err(e) => format!("installing {url}: {e}"),
-        });
-        true
+        let mut b = board!(self);
+        let out = f(&mut b, &mut connect);
+        let fx = b.effects;
+        self.engine_effects(fx);
+        out
+    }
+
+    /// What the core's [`Effects`] mean for what the editor keeps beside the session.
+    pub(crate) fn engine_effects(&mut self, fx: Effects) {
+        if fx.runs_forgotten {
+            self.watched.clear();
+            self.thumbs = Thumbs::default();
+            self.rerun_pending = false;
+        }
+        if let Some(first) = fx.catalog_set {
+            self.catalog_changed(first);
+        }
+        if fx.redraw {
+            self.canvas.invalidate();
+        }
     }
 
     /// The Install Engine… window: a repository, the public engines to pick from, then
@@ -189,235 +172,45 @@ impl EditorApp {
         self
     }
 
-    /// `engine.manifests.reload`: the new choices; what couldn't be read goes to the status bar.
-    fn reload_engines(&mut self) -> Result<Value, String> {
-        let Some(reload) = &mut self.reloader else { return Err("this editor has no engine manifests to read".into()) };
-        let (choices, problems) = reload();
-        let engines = choices.iter().map(|c| c.engine.as_str()).collect::<std::collections::BTreeSet<_>>().len();
-        self.session.engines.choices = choices;
-        self.last_error = problems.first().map(|p| format!("engine manifests: {p}"));
-        Ok(json!({"engines": engines, "problems": problems}))
-    }
-
     /// Perform a switch the session recorded (`engine.switch`, `engine.reconnect`,
-    /// `engine.attach`). `None` when none was asked for; else the outcome.
+    /// `engine.attach`, …). `None` when none was asked for; else the outcome.
     pub fn pump_engine(&mut self) -> Option<Result<Value, String>> {
-        if let Some(target) = self.session.engines.take_request() {
-            // Reconnect restarts the first engine and adds the others again; a switch drops them.
-            let reconnect = self.session.engines.current.as_ref() == Some(&target);
-            let added = std::mem::take(&mut self.session.engines.added);
-            let out = self.switch_engine(target);
-            if reconnect && out.is_ok() {
-                for t in added {
-                    if let Err(e) = self.add_engine(t) {
-                        return Some(Err(e));
-                    }
-                }
-            }
-            return Some(out);
+        if !self.session.engines.is_pending() {
+            // every frame: nothing to lend
+            return None;
         }
-        Some(match self.session.engines.take_change()? {
-            EngineChange::Add(t) => self.add_engine(t),
-            EngineChange::Remove(id) => self.remove_engine(&id),
-            EngineChange::Reload => self.reload_engines(),
-            EngineChange::Clear => Ok(self.clear_engines()),
-            EngineChange::Install(url) => self.start_install(url),
-        })
+        self.with_board(|b, connect| b.pump(connect))
     }
 
     /// Stop every engine (`engine.clear`). The graph stays, on the catalogue it had, with none
     /// connected; the Engine menu starts the next.
     pub fn clear_engines(&mut self) -> Value {
-        self.coordinator = None;
-        self.session.engines.added.clear();
-        self.forget_runs(Instant::now());
-        self.session.engines.current = None;
-        self.last_error = None;
-        self.canvas.invalidate();
-        json!({"engines": [], "label": self.engine_label()})
+        self.with_board(|b, _| b.clear())
     }
 
-    /// Start `target` beside the engines there are (see the module docs).
+    /// Start `target` beside the engines there are ([`switchboard`]).
     pub fn add_engine(&mut self, target: EngineTarget) -> Result<Value, String> {
-        let EngineTarget::Choice { engine, mode } = &target else { return Err("only an engine the editor starts can be added".into()) };
-        let Some(first) = self.link.as_ref().map(|l| Arc::clone(&l.conn)) else {
-            return Err("connect an engine first (Engine menu)".into());
-        };
-        let wanted = self.target_label(&target);
-        let ctx = self.repaint.clone();
-        let linked = match &mut self.connector {
-            Some(connect) => connect(engine, mode, ctx.as_ref()),
-            None => Err("this editor can't start engines".into()),
-        };
-        let conn = match linked {
-            // The coordinator holds the connection; this link's own pump stops.
-            Ok(link) => Arc::clone(&link.conn),
-            Err(e) => {
-                let e = format!("engine: {wanted}: {e}");
-                self.last_error = Some(e.clone());
-                return Err(e);
-            }
-        };
-        let coordinator = match &self.coordinator {
-            Some(c) => Arc::clone(c),
-            None => {
-                let first_id = match &self.session.engines.current {
-                    Some(EngineTarget::Choice { engine, .. }) => engine.clone(),
-                    _ => self.session.catalog().engine.id.clone(),
-                };
-                Arc::new(Coordinator::new().with_engine(first_id, first))
-            }
-        };
-        coordinator.add(engine.clone(), conn);
-        self.session.engines.added.push(target.clone());
-        self.relink(coordinator, &wanted).map(|mut out| {
-            out["added"] = target.to_json();
-            out
-        })
+        self.with_board(|b, connect| b.add(target, connect))
     }
 
     /// Stop an added engine.
     pub fn remove_engine(&mut self, id: &str) -> Result<Value, String> {
-        let Some(coordinator) = self.coordinator.clone() else { return Err("no engine was added".into()) };
-        coordinator.remove(id);
-        self.session.engines.added.retain(|t| !matches!(t, EngineTarget::Choice { engine, .. } if engine == id));
-        self.relink(coordinator, id).map(|mut out| {
-            out["removed"] = json!(id);
-            out
-        })
+        self.with_board(|b, _| b.remove(id))
     }
 
-    /// Link to `coordinator` in place of the link there is, and take its merged catalogue.
-    fn relink(&mut self, coordinator: Arc<Coordinator>, what: &str) -> Result<Value, String> {
-        self.forget_runs(Instant::now());
-        let n = coordinator.engines().len();
-        let conn: Arc<dyn Connection> = coordinator.clone();
-        self.coordinator = Some(coordinator);
-        let link = Link::start(Arc::clone(&conn), format!("{n} engines"), self.repaint.clone())?;
-        let catalog = match conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(format!("the engines' catalogue: {e}")),
-            Err(e) => Err(format!("schema: {}", e.message)),
-        };
-        self.engine = link.state();
-        self.sync_engine();
-        self.session.docs.resolver = Some(Arc::new(move |r: &plumcraft_proto::data::DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
-        self.link = Some(link);
-        self.share_connection();
-        let catalog = catalog.inspect_err(|e| self.last_error = Some(format!("engine: {what}: {e}")))?;
-        self.set_catalog(catalog);
-        let problems: Vec<String> = self.session.problems().into_iter().collect();
-        let warnings = self.coordinator.as_ref().map(|c| c.warnings()).unwrap_or_default();
-        self.last_error = problems
-            .first()
-            .map(|first| format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len()))
-            .or_else(|| warnings.first().map(|w| format!("{what}: the engines disagree: {w}")));
-        Ok(
-            json!({"engines": self.session.engines.engine_ids(), "connected": self.session.connected, "label": self.engine_label(), "problems": problems, "warnings": warnings}),
-        )
-    }
-
-    /// Cancel the run in flight (telling the engine) and forget the results; what is watched
-    /// stays.
-    fn forget_runs(&mut self, now: Instant) {
-        if self.session.run.running {
-            self.session.run.cancel();
-        }
-        for out in self.session.run.take_outbox() {
-            if let (plumcraft_session::run::Outgoing::Cancel(run_id), Some(link)) = (out, &self.link) {
-                let _ = link.conn.call("run.cancel", json!({"run_id": run_id}));
-            }
-        }
-        // Dropping the link joins its pump; an engine with no other holder stops (the session's
-        // clone for the application's commands goes first).
-        self.session.set_connection(None);
-        self.link = None;
-        self.engine = EngineState::Off;
-        self.session.connected = false;
-        let watch = std::mem::take(&mut self.session.run.watch);
-        let roles = std::mem::take(&mut self.session.run.roles);
-        self.session.run.reset(now);
-        self.session.run.last_wall = None;
-        self.session.run.watched = vec![None; watch.len()];
-        self.session.run.watch = watch;
-        self.session.run.roles = roles;
-        self.watched.clear();
-        self.thumbs = Thumbs::default();
-        self.rerun_pending = false;
-    }
-
-    /// Connect to `target` in place of the engines there are (see the module docs).
+    /// Connect to `target` in place of the engines there are ([`switchboard`]).
     pub fn switch_engine(&mut self, target: EngineTarget) -> Result<Value, String> {
-        let now = Instant::now();
-        self.coordinator = None;
-        self.session.engines.added.clear();
-        // The run in flight is cancelled, the old engine told, and its results forgotten.
-        self.forget_runs(now);
-
-        let ctx = self.repaint.clone();
-        let linked = match &target {
-            EngineTarget::Attach { url, token } => attach(url, token, ctx.as_ref()),
-            EngineTarget::Choice { engine, mode } => match &mut self.connector {
-                Some(connect) => connect(engine, mode, ctx.as_ref()),
-                None => Err("this editor can't start engines".into()),
-            },
-        };
-        let wanted = self.target_label(&target);
-        self.session.engines.current = Some(target.clone());
-        let link = match linked {
-            Ok(link) => link,
-            Err(e) => {
-                let e = format!("engine: {wanted}: {e}");
-                self.last_error = Some(e.clone());
-                self.canvas.invalidate();
-                return Err(e);
-            }
-        };
-        let catalog = match link.conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
-            Ok(Ok(c)) => Ok(c),
-            Ok(Err(e)) => Err(format!("the engine's catalogue: {e}")),
-            Err(e) => Err(format!("schema: {}", e.message)),
-        };
-        self.engine = link.state();
-        self.sync_engine();
-        self.link = Some(link);
-        self.share_connection();
-        let catalog = match catalog {
-            Ok(c) => c,
-            Err(e) => {
-                self.last_error = Some(format!("engine: {wanted}: {e}"));
-                return Err(e);
-            }
-        };
-        self.set_catalog(catalog);
-        let problems: Vec<String> = self.session.problems().into_iter().collect();
-        self.last_error = problems.first().map(|first| format!("{wanted}: the graph has {} problem(s) with this engine: {first}", problems.len()));
-        let mut out = target.to_json();
-        out["connected"] = json!(self.session.connected);
-        out["label"] = json!(self.engine_label());
-        out["problems"] = json!(problems);
-        Ok(out)
+        self.with_board(|b, connect| b.switch(target, connect))
     }
 
     /// What `target` is called in the status bar and the title.
     fn target_label(&self, target: &EngineTarget) -> String {
-        match target {
-            EngineTarget::Attach { url, .. } => format!("HTTP · attached · {url}"),
-            EngineTarget::Choice { engine, mode } => match self.session.engines.find(engine, mode) {
-                Some(c) => format!("{} · {}", c.engine_label, c.mode_label),
-                None => format!("{engine} · {mode}"),
-            },
-        }
+        switchboard::target_label(&self.session, target)
     }
 
     /// The engine the editor has (or tried to have), for the window title.
     pub fn engine_title(&self) -> Option<String> {
-        let current = self.session.engines.current.as_ref()?;
-        let mut label = self.target_label(current);
-        for t in &self.session.engines.added {
-            label = format!("{label} + {}", self.target_label(t));
-        }
-        Some(if self.link.is_some() { label } else { format!("{label}, not connected") })
+        switchboard::engine_title(&self.session, self.link.is_some())
     }
 
     /// The Engine menu's choices, after its fixed commands: Remove for each added engine, then
@@ -521,41 +314,8 @@ impl EditorApp {
 
     /// `ui.inspect`'s `engine`.
     pub(crate) fn engine_inspect(&self) -> Value {
-        let e = &self.session.engines;
-        let mut v = json!({
-            "label": self.engine_label(),
-            "state": self.engine,
-            "connected": self.session.connected,
-            "engine": null,
-            "mode": null,
-            "choices": e.choices,
-            "pending": e.is_pending(),
-            "installing": e.installing,
-        });
-        if let Some(t) = &e.current {
-            let tj = t.to_json();
-            v["engine"] = tj["engine"].clone();
-            v["mode"] = tj["mode"].clone();
-            if let Some(url) = tj.get("url") {
-                v["url"] = url.clone();
-            }
-            v["hosting"] = json!(self.target_label(t));
-        }
-        v["warnings"] = json!(self.coordinator.as_ref().map(|c| c.warnings()).unwrap_or_default());
-        // Every engine and its state: the coordinator's, or the one engine's.
-        v["engines"] = match &self.coordinator {
-            Some(c) => c.states().into_iter().map(|(id, state)| json!({"id": id, "state": state})).collect(),
-            None => e.engine_ids().into_iter().map(|id| json!({"id": id, "state": self.engine})).collect(),
-        };
-        v
+        switchboard::inspect(&self.session, self.link.as_ref(), &self.engine, self.coordinator.as_ref())
     }
-}
-
-/// Attach to a running HTTP engine, as a remote UI would (values by URL, sources by upload).
-fn attach(url: &str, token: &str, ctx: Option<&egui::Context>) -> Result<Link, String> {
-    let host = HttpHost::attach(url, token, HttpOptions { remote: true, ..Default::default() })?;
-    let conn: Arc<dyn Connection> = Arc::new(host);
-    Link::start(conn, format!("HTTP · attached · {url}"), ctx.cloned())
 }
 
 /// Choices grouped by engine, in the order they came: each engine's label and its connections.
