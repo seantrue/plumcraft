@@ -4,6 +4,22 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B27. Eight editor kittests fail on `main`'s Linux CI, as in closed issue #89
+
+- Reported: 2026-11-19
+- Report: "record the two main CI failures as bugs"
+- Context: found while comparing the native dev branch's pull requests (#98, #99) with `main`. The `gate` job's "cargo nextest, under md5 and then b3" step fails on every recent run of `main` (latest `34f6aea`, run https://github.com/seantrue/plumcraft/actions/runs/43405581253) with the same eight tests of `apps/plumcraft-editor/src/lib.rs`. `tests::audio_kittest`: `a_1khz_tone_peaks_in_its_spectrogram_bin`, `play_without_an_output_says_so_and_does_not_panic`, `the_audio_demo_runs_with_waveforms_and_an_audio_view`. `tests::engine_kittest`: `a_pick_adds_or_changes_an_engine_and_clear_starts_over`, `a_switch_cancels_the_run_in_flight`, `attach_connects_to_a_running_http_engine`, `switching_text_engines_runs_after_every_switch`, `text_to_audio_keeps_the_graph_and_reports_its_problems`. They pass on the Mac. Issue #89 ("CI gate: 8 editor kittests can't find the engine binaries (no engine binary at …/out/plumcraft-text-engine)") was closed as completed on 2026-11-12; the same eight still fail. The panic messages of the latest run have not been read against #89's, so that it is the same failure and not only the same tests is not confirmed. On the native dev branch the lookup (`engine_binary`) has moved to `crates/editor-core/src/engines.rs`.
+- Found since (2026-11-19): it is #89's failure. `main`'s run panics with `no engine binary at /home/runner/work/plumcraft/plumcraft/target/debug/build/plumcraft-editor/62bf2a2969a8c725/out/plumcraft-text-engine` (and `…/plumcraft-audio-engine`). The test program on CI is at `target/debug/build/<package>/<hash>/out/`, not `target/debug/deps/`; `engine_binary` looks beside the program and, when the program is in `deps`, one folder up, so it finds nothing. CI installs the newest stable Rust, 1.100.0 (2026-11-09) on these runs; the Mac has cargo 1.99.0 and builds test programs in `target/debug/deps/`. That 1.100 moved them is inferred from those two facts, not read from its release notes.
+- Also hit by: `plumcraft-ffi::switch starting_a_process_engine_never_holds_the_core_thread`, new in the native dev branch's pull request #100, which fails on Linux CI with the same message (`…/build/plumcraft-ffi/9d267b73553d9f8b/out/plumcraft-text-engine`).
+- Issue: none (#89 is closed)
+
+### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
+
+- Reported: 2026-11-19
+- Report: "record the two main CI failures as bugs"
+- Context: the `gate` job's "hash gates" step (`scripts/check-hash-gates.sh`) fails on `main` (latest `34f6aea`, run https://github.com/seantrue/plumcraft/actions/runs/43405581253) and on the native dev branch's pull requests, printing `hash gate: 2 runtime commonkit v0.2 lines, want 1; other versions: none`. The same script prints `hash gates: ok` on the Mac, on `main`'s code and on the dev branch's.
+- Issue: none
+
 ## Fixed
 
 ### B26. "Wrap seamlessly at the edges" on Simplex Noise's `tileable`

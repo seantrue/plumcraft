@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1 slice 4: the core asks, the shell answers; and two CI bugs recorded (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** The standing go-ahead for N1's slices, and the answers already given to the shell-interface questions: `ui.invoke` replies at once with the ask and a script answers it (question 1); opening another app always goes through an ask (question 19). Then: "record the two main CI failures as bugs".
+
+**What the AI did** (`git diff --numstat` and the new files). `crates/editor-core/src/asks.rs` (573 lines) and `invoke.rs` (954): the ask queue, and what `EditorApp::invoke` did as a state machine over a small `Host` trait. `crates/ui` (+140 −368, plus `asks_view.rs`, 323): the egui shell answers each kind with the dialogs and windows it had; `FileDialogs` is its adapter. `crates/session/src/doc_cmds.rs` (+16 −1): a launcher hook so app starts become `open.external`. `crates/ffi` (+167 −6): asks in `plum_poll`, `ask.answer` as a request. `docs/control-protocol.md`: `ask.answer`, `asks`, `ui.invoke`'s timing. 16 new tests (`kittest_asks.rs`, `crates/ffi/tests/asks.rs`, and in the two modules); no existing test file edited. The controller wrote `docs/BUGS.md` B27 and B28.
+
+**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,335 of 1,336, the same one failure. The real editor driven over the control channel: Save As answered by script in 17 ms, New over unsaved changes walked through Save. PlumImpress's sources check unchanged and its fake-dialog test passes. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (103), the new kittests and slice 3's thread-rule test.
+
+**Defects and shortfalls.** The agent's first probe run named the wrong environment variable and wrote the maintainer's real editor preferences: `dirs.workflow.write` now points into `claude-debug`, and `trusted.json` gained two entries. The agent reported it; the earlier value is not known. One behaviour changed that the gate did not ask for: a failed app start is reported in the status bar a moment later, not as the command's own error. Not built from the contract's section 11: streamed saves, stored grants, a `doc` field, rename as a `text` ask. The agent added `by` (person or script) to every ask, which the contract does not have.
+
+**Slice 3 on Linux CI: a failure local runs could not show.** Pull request #100 failed one test more than `main` does: slice 3's own new `starting_a_process_engine_never_holds_the_core_thread`, with "no engine binary at …/target/debug/build/plumcraft-ffi/…/out/plumcraft-text-engine". The controller read `main`'s log and found the same message behind the eight kittests of closed issue #89: CI's Rust 1.100 builds test programs where `engine_binary` does not look (the Mac has 1.99). Recorded as B27; #100 is held for the maintainer's decision. The controller had merged #98 and #99 on "the same eight tests as `main`" without reading why they failed.
+
 ### 2026-11-19 — N1 slice 3: the UI thread stops waiting for engines on runs and switches (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** The standing go-ahead for N1's slices. The slice is rule 6 of note 24: "the UI thread never waits for an engine".

@@ -30,7 +30,9 @@ use std::time::{Duration, Instant};
 
 use plumcraft_automation::{ControlReply, ControlRequest};
 use plumcraft_coordinator::Coordinator;
+use plumcraft_editor_core::asks::{Asks, By};
 use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
+use plumcraft_editor_core::invoke::{self, Cont, Host};
 use plumcraft_editor_core::link::{self, Link};
 use plumcraft_editor_core::switchboard::{Effects, Next, Switchboard, Switching};
 use plumcraft_editor_core::worker::{Done, EngineWorker};
@@ -149,6 +151,9 @@ impl Waker {
 struct Outbox {
     replies: Vec<String>,
     events: Vec<String>,
+    /// Asks raised, and asks ended (`{ask, ended}`), since the last poll.
+    asks: Vec<String>,
+    asks_ended: Vec<String>,
     dropped: u64,
 }
 
@@ -192,17 +197,34 @@ impl Shared {
         }
     }
 
+    fn push_asks(&self, raised: Vec<Value>, ended: Vec<Value>) {
+        if raised.is_empty() && ended.is_empty() {
+            return;
+        }
+        let mut o = lock(&self.outbox);
+        o.asks.extend(raised.iter().map(Value::to_string));
+        o.asks_ended.extend(ended.iter().map(Value::to_string));
+    }
+
     /// Everything since the last poll, as one JSON object:
-    /// `{"replies": [...], "events": [...], "dropped": n}`; `None` when there is nothing.
+    /// `{"replies": [...], "events": [...], "dropped": n}`, with `"asks": [...]` (asks raised:
+    /// `{ask, kind, modal, by, params}`) and `"asksEnded": [{ask, ended}]` when there are some;
+    /// `None` when there is nothing.
     pub fn poll(&self) -> Option<Vec<u8>> {
         // cleared first: anything pushed after this wakes again
         self.waker.pending.store(false, Ordering::Release);
-        let (replies, events, dropped) = {
+        let (replies, events, dropped, asks, asks_ended) = {
             let mut o = lock(&self.outbox);
-            if o.replies.is_empty() && o.events.is_empty() && o.dropped == 0 {
+            if o.replies.is_empty() && o.events.is_empty() && o.dropped == 0 && o.asks.is_empty() && o.asks_ended.is_empty() {
                 return None;
             }
-            (std::mem::take(&mut o.replies), std::mem::take(&mut o.events), std::mem::take(&mut o.dropped))
+            (
+                std::mem::take(&mut o.replies),
+                std::mem::take(&mut o.events),
+                std::mem::take(&mut o.dropped),
+                std::mem::take(&mut o.asks),
+                std::mem::take(&mut o.asks_ended),
+            )
         };
         let c = &self.counters;
         c.polls.fetch_add(1, Ordering::Relaxed);
@@ -217,6 +239,12 @@ impl Shared {
         join_into(&mut out, &replies);
         out.extend_from_slice(b"],\"events\":[");
         join_into(&mut out, &events);
+        if !asks.is_empty() || !asks_ended.is_empty() {
+            out.extend_from_slice(b"],\"asks\":[");
+            join_into(&mut out, &asks);
+            out.extend_from_slice(b"],\"asksEnded\":[");
+            join_into(&mut out, &asks_ended);
+        }
         out.extend_from_slice(format!("],\"dropped\":{dropped}}}").as_bytes());
         Some(out)
     }
@@ -296,6 +324,8 @@ impl Core {
             .map_err(|e| e.message)
             .and_then(|v| serde_json::from_value(v).map_err(|e| format!("the engine's catalogue: {e}")))?;
         let mut session = Session::new(catalog);
+        // the session's app starts (`/usr/bin/open`) become open.external asks for the shell
+        let launches = invoke::route_launches(&mut session);
         session.connected = true;
         session.set_connection(Some(Arc::clone(&conn)));
         // engine.* commands switch among what this platform can start, and attach
@@ -331,6 +361,9 @@ impl Core {
             last_error: None,
             switching: Switching::default(),
             switch_waits: Vec::new(),
+            asks: Asks::default(),
+            prefs: plumcraft_editor_core::prefs::Store::default(),
+            launches,
         };
         let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
@@ -381,6 +414,8 @@ struct SwitchWait {
     /// The command's own result (its `how`).
     command: Value,
     last: Option<Value>,
+    /// `ui.invoke` or `ask.answer`: the reply is `command` with the asks open once switched.
+    asks: bool,
 }
 
 /// The core thread's state.
@@ -405,6 +440,42 @@ struct Worker {
     last_error: Option<String>,
     switching: Switching,
     switch_waits: Vec<SwitchWait>,
+    /// What the core asks the shell (`docs/shell-interface.md` section 11).
+    asks: Asks<Cont>,
+    /// The folders each kind of file ask last used (in memory: the shell keeps its own).
+    prefs: plumcraft_editor_core::prefs::Store,
+    /// The apps the session asked to start, until they are asked of the shell.
+    launches: Option<invoke::Launches>,
+}
+
+/// The invoke machine's view of this core: no canvas, so no selection.
+impl Host for Worker {
+    fn session(&self) -> &Session {
+        &self.session
+    }
+    fn session_mut(&mut self) -> &mut Session {
+        &mut self.session
+    }
+    fn asks(&mut self) -> &mut Asks<Cont> {
+        &mut self.asks
+    }
+    fn run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
+        let r = self.session.execute(id, params).map_err(|e| e.to_string());
+        self.send_outgoing();
+        if let Err(e) = &r {
+            self.last_error = Some(e.clone());
+        }
+        r
+    }
+    fn say(&mut self, text: String) {
+        self.last_error = Some(text);
+    }
+    fn prefs(&mut self) -> Option<&mut plumcraft_editor_core::prefs::Store> {
+        Some(&mut self.prefs)
+    }
+    fn take_launches(&mut self) -> Vec<(PathBuf, Vec<String>, PathBuf)> {
+        invoke::drain_launches(self.launches.as_ref())
+    }
 }
 
 impl Worker {
@@ -428,7 +499,11 @@ impl Worker {
                 None => {}
             }
             self.answer_waiters();
-            if !lock(&self.shared.outbox).replies.is_empty() || !lock(&self.shared.outbox).events.is_empty() {
+            self.feed_asks();
+            let o = lock(&self.shared.outbox);
+            let any = !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty();
+            drop(o);
+            if any {
                 self.shared.waker.wake();
             }
         }
@@ -469,7 +544,7 @@ impl Worker {
                 if r.ok && self.session.engines.is_pending() {
                     // an engine switch: it replies once it is done (the editor's control channel
                     // does the same), and this thread doesn't wait for it
-                    self.switch_waits.push(SwitchWait { id, tag, command: r.result, last: None });
+                    self.switch_waits.push(SwitchWait { id, tag, command: r.result, last: None, asks: false });
                     self.step_engines();
                     return;
                 }
@@ -487,6 +562,34 @@ impl Worker {
                 self.waiters.push(Waiter { id, tag, deadline: Instant::now() + Duration::from_millis(ms) });
                 return;
             }
+            // a command as its menu item runs it: what it needs from the shell is asked (`asks` in
+            // the reply and the feed), and answered with ask.answer
+            "ui.invoke" => match ui_command(&params) {
+                Err(e) => Err(e),
+                Ok(command) => match plumcraft_session::find(&command).map(|c| (c.id, (c.enabled)(&self.session))) {
+                    None => Err(format!("unknown command {:?}", command.chars().take(64).collect::<String>())),
+                    Some((cid, Err(why))) => Err(format!("{cid} is not available: {why}")),
+                    Some((cid, Ok(()))) => {
+                        self.last_error = None;
+                        invoke::invoke(self, cid, By::Script);
+                        return self.reply_asks(id, tag, json!({"invoked": cid}));
+                    }
+                },
+            },
+            "ask.answer" => match ask_answer(&params) {
+                Err(e) => Err(e),
+                Ok((ask, answer)) => {
+                    self.last_error = None;
+                    let r = match answer {
+                        Some(a) => invoke::answer(self, ask, &a),
+                        None => invoke::cancel(self, ask),
+                    };
+                    match r {
+                        Err(e) => Err(e),
+                        Ok(()) => return self.reply_asks(id, tag, json!({})),
+                    }
+                }
+            },
             "spike.demo" => load_demo(&mut self.session, self.kind).map(|()| json!({"nodes": self.session.graph().nodes.len()})),
             "spike.scene" => self.scene(&params),
             "spike.publish" => self.publish(&params),
@@ -494,6 +597,34 @@ impl Worker {
             other => Err(format!("unknown method {:?}", other.chars().take(64).collect::<String>())),
         };
         self.reply(id, tag.as_ref(), r);
+    }
+
+    /// Reply to `ui.invoke` or `ask.answer` with `base`, the asks open and the last error, once
+    /// any engine switch the command asked for is done.
+    fn reply_asks(&mut self, id: u64, tag: Option<Value>, base: Value) {
+        self.feed_asks();
+        if self.session.engines.is_pending() {
+            self.switch_waits.push(SwitchWait { id, tag, command: base, last: None, asks: true });
+            self.step_engines();
+            return;
+        }
+        let v = self.with_asks(base);
+        self.reply(id, tag.as_ref(), Ok(v));
+    }
+
+    fn with_asks(&self, mut base: Value) -> Value {
+        if let Some(o) = base.as_object_mut() {
+            o.insert("asks".into(), self.asks.inspect());
+            o.insert("lastError".into(), json!(self.last_error));
+        }
+        base
+    }
+
+    /// What was asked and what ended, to the shell's feed.
+    fn feed_asks(&mut self) {
+        invoke::tidy(self);
+        let (raised, ended) = self.asks.take_feed();
+        self.shared.push_asks(raised, ended);
     }
 
     /// Hand what the session queued for the engine to the worker (`pump_runs`, without the
@@ -574,6 +705,11 @@ impl Worker {
         }
         if !self.switching.busy() && !self.session.engines.is_pending() {
             for w in std::mem::take(&mut self.switch_waits) {
+                if w.asks {
+                    let v = self.with_asks(w.command);
+                    self.reply(w.id, w.tag.as_ref(), Ok(v));
+                    continue;
+                }
                 let v = match w.last {
                     Some(mut out) => {
                         if let (Some(how), Some(o)) = (w.command.get("how"), out.as_object_mut()) {
@@ -720,6 +856,31 @@ impl Worker {
 }
 
 /// Every DataRef in an event, by handle (`{"handle": …, "meta": …, "at": […]}` anywhere in it).
+/// `ui.invoke`'s `{command}`.
+fn ui_command(p: &Value) -> Result<String, String> {
+    let o = p.as_object().ok_or("params must be {command}")?;
+    if let Some(k) = o.keys().find(|k| *k != "command") {
+        return Err(format!("unknown field {:?} (allowed: command)", k.chars().take(64).collect::<String>()));
+    }
+    o.get("command").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| "command must be a command id".into())
+}
+
+/// `ask.answer`'s `{ask, answer}` or `{ask, cancel: true}`: the ask, and the answer (none: cancel).
+fn ask_answer(p: &Value) -> Result<(u64, Option<Value>), String> {
+    let o = p.as_object().ok_or("params must be {ask, answer} or {ask, cancel: true}")?;
+    if let Some(k) = o.keys().find(|k| !["ask", "answer", "cancel"].contains(&k.as_str())) {
+        return Err(format!("unknown field {:?} (allowed: ask, answer, cancel)", k.chars().take(64).collect::<String>()));
+    }
+    let ask = o.get("ask").and_then(Value::as_u64).ok_or("ask must be an ask's id")?;
+    match (o.get("cancel"), o.get("answer")) {
+        (Some(Value::Bool(true)), None) => Ok((ask, None)),
+        (None | Some(Value::Bool(false)), Some(a)) => Ok((ask, Some(a.clone()))),
+        (Some(Value::Bool(_)), Some(_)) => Err("give answer or cancel: true, not both".into()),
+        (Some(_), _) => Err("cancel must be true".into()),
+        (None, None) => Err("answer is required (or cancel: true)".into()),
+    }
+}
+
 fn collect_refs(v: &Value, into: &mut HashMap<String, DataRef>) {
     match v {
         Value::Object(o) => {

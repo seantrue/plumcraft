@@ -79,6 +79,8 @@ pub struct DocApps {
     /// Where copies go (default [`default_root`]).
     pub root: PathBuf,
     pub(crate) launch: Launch,
+    /// `launch` is [`spawn_app`], as nobody set another.
+    default_launch: bool,
     pending: Option<(String, String)>,
     /// The latest open, or why it failed.
     pub last: Option<std::result::Result<Opened, String>>,
@@ -108,6 +110,7 @@ impl Default for DocApps {
             apps: Vec::new(),
             root: default_root(),
             launch: Arc::new(spawn_app),
+            default_launch: true,
             pending: None,
             last: None,
             pending_value: None,
@@ -126,8 +129,20 @@ impl DocApps {
 
     /// Start apps with `launch` instead of spawning them (tests).
     pub fn with_launcher(mut self, launch: Launch) -> Self {
-        self.launch = launch;
+        self.set_launcher(launch);
         self
+    }
+
+    /// Start apps with `launch` from now on (the editor core routes them through its
+    /// `open.external` ask).
+    pub fn set_launcher(&mut self, launch: Launch) {
+        self.launch = launch;
+        self.default_launch = false;
+    }
+
+    /// Apps are still started by spawning them here ([`spawn_app`]): nobody set a launcher.
+    pub fn launches_by_default(&self) -> bool {
+        self.default_launch
     }
 
     pub fn with_root(mut self, root: PathBuf) -> Self {

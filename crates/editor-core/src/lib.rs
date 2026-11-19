@@ -29,11 +29,13 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod appearance;
+pub mod asks;
 pub mod diff;
 pub mod dtype;
 pub mod engines;
 pub mod headless;
 pub mod install;
+pub mod invoke;
 pub mod link;
 pub mod palette;
 pub mod plain;

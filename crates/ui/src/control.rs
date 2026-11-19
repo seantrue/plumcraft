@@ -9,6 +9,10 @@
 //! one reply: a window that never delivers its screenshot (a locked screen) is drawn offscreen
 //! instead ([`crate::offscreen`]) after [`WINDOW_SHOT_WAIT`].
 //!
+//! `ask.answer {ask, answer}` (or `{ask, cancel: true}`) answers what the core asked
+//! (`ui.inspect`'s `asks`): since N1 slice 4, `ui.invoke` of a command that needs a file replies at
+//! once with the ask open, and the script answers it.
+//!
 //! Lifted from the research software's `crates/ui-egui/src/control.rs` (2026-10-27, the research software `8d96021`; plan
 //! 10.3, E1.4) without the viewer or the parameters panel; E2 added the file and undo state to
 //! `ui.inspect`, and `ui.invoke` and `ui.prompt`; E3 added `groups` to `ui.inspect` and `focus`
@@ -161,7 +165,7 @@ impl EditorApp {
             }
             // a command that switches engines replies once it has switched, and no frame waits
             // for that (docs/control-protocol.md: engine.* "switch before they reply")
-            "command.run" | "engine.execute" | "ui.invoke" | "ui.prompt" => {
+            "command.run" | "engine.execute" | "ui.invoke" | "ui.prompt" | "ask.answer" => {
                 let outside = !std::mem::replace(&mut self.in_frame, true);
                 self.engine_asked = false;
                 let v = self.control_now(ctx, method, params);
@@ -219,7 +223,9 @@ impl EditorApp {
                     return err(format!("{id} is not available: {why}"));
                 }
                 self.last_error = None;
-                self.invoke(spec.id);
+                // what it asks (a file, a prompt) is the script's to answer: the reply comes at
+                // once, with the ask in `asks` (ask.answer)
+                self.invoke_by(spec.id, crate::By::Script);
                 ctx.request_repaint();
                 let mut out = self.inspect(ctx);
                 out["invoked"] = json!(spec.id);
@@ -241,6 +247,24 @@ impl EditorApp {
                 }
                 ctx.request_repaint();
                 ok(self.inspect(ctx))
+            }
+            "ask.answer" => {
+                if let Err(e) = check_fields(params, &["ask", "answer", "cancel"]) {
+                    return err(e);
+                }
+                let Some(id) = params.get("ask").and_then(Value::as_u64) else { return err("ask must be an ask's id (ui.inspect's asks)") };
+                let r = match (params.get("cancel"), params.get("answer")) {
+                    (Some(Value::Bool(true)), None) => self.cancel_ask(id),
+                    (None | Some(Value::Bool(false)), Some(answer)) => self.answer_ask(id, answer),
+                    (Some(Value::Bool(_)), Some(_)) => return err("give answer or cancel: true, not both"),
+                    (Some(_), _) => return err("cancel must be true"),
+                    (None, None) => return err("answer is required (or cancel: true)"),
+                };
+                ctx.request_repaint();
+                match r {
+                    Ok(()) => ok(self.inspect(ctx)),
+                    Err(e) => err(e),
+                }
             }
             "ui.set" => match self.ui_set(params) {
                 Ok(()) => {
@@ -309,6 +333,7 @@ impl EditorApp {
                 let answers = if matches!(p, crate::Prompt::Review(_) | crate::Prompt::Uploads(_)) { json!(["trust", "cancel"]) } else { json!(["save", "discard", "cancel"]) };
                 json!({"kind": p.kind(), "text": p.text(), "answers": answers})
             }),
+            "asks": self.asks.inspect(),
             "copied": self.copied.is_some(),
             "closing": self.closing,
             "graph": {"dirty": self.session.is_dirty(), "nodes": nodes, "wires": g.wires.len(), "generation": self.session.generation()},
