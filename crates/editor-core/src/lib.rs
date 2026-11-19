@@ -25,6 +25,10 @@
 //! - [`prefs`], [`appearance`], [`theme`]: preferences, the user's look, and themes as data;
 //! - [`run_anim`], [`run_text`]: the run animation's model and run states as words;
 //! - [`wire_path`]: a bent wire's curve and hit testing on it;
+//! - [`menu`]: every menu as data (the bar, context menus, shortcuts, roles), for every shell
+//!   (slice 8); [`rows`]: a node's input rows and a collapsed group's outputs, which it lists;
+//! - [`log`]: one log for the core and every shell: a bounded ring, levels, an optional file
+//!   (slice 8);
 //! - [`palette`]: the node palette's search index;
 //! - [`probe`], [`diff`], [`dtype`], [`raster`]: exact readings and differences of arrays;
 //! - [`values`]: a document's values as pictures, through the media service
@@ -47,11 +51,14 @@ pub mod headless;
 pub mod install;
 pub mod invoke;
 pub mod link;
+pub mod log;
+pub mod menu;
 pub mod palette;
 pub mod plain;
 pub mod prefs;
 pub mod probe;
 pub mod raster;
+pub mod rows;
 pub mod run_anim;
 pub mod run_text;
 pub mod switchboard;

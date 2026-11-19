@@ -9,8 +9,8 @@
 //! ([`EditorApp::with_engines`]); attaching to a running HTTP engine needs nothing from the app.
 //!
 //! What stays here is what draws or needs an egui context: the [`Connector`] (it takes the
-//! context its link repaints; the document holds it as its starter), the Engine menu's choices,
-//! the Attach… and Install Engine… windows, and putting the core's [`Effects`] on the canvas and
+//! context its link repaints; the document holds it as its starter), the Attach… and Install
+//! Engine… windows, and putting the core's [`Effects`] on the canvas and
 //! the Watched panel. The parts themselves are the document's
 //! ([`plumcraft_editor_core::document::Document`]), and the engine stepping is the core's.
 //!
@@ -251,77 +251,9 @@ impl EditorApp {
         self.with_board(|b, connect| b.switch(target, connect))
     }
 
-    /// What `target` is called in the status bar and the title.
-    fn target_label(&self, target: &EngineTarget) -> String {
-        switchboard::target_label(&self.doc.session, target)
-    }
-
     /// The engine the editor has (or tried to have), for the window title.
     pub fn engine_title(&self) -> Option<String> {
         switchboard::engine_title_connecting(&self.doc.session, self.doc.link.is_some(), self.doc.switching.busy())
-    }
-
-    /// The Engine menu's choices, after its fixed commands: Remove for each added engine, then
-    /// every engine in a list that scrolls, each a submenu of its connections with the one in
-    /// use checked (or, picking engines automatically, one item that starts it the fastest way
-    /// it can be hosted). A pick is `engine.use`: it starts, adds or changes that engine, so Clear
-    /// Engines and a pick make a complete change. Returns the command clicked.
-    pub(crate) fn engine_choices_menu(&self, ui: &mut egui::Ui) -> Option<crate::canvas::Action> {
-        let engines = &self.doc.session.engines;
-        if engines.choices.is_empty() {
-            ui.label(egui::RichText::new("This editor can't start engines.").color(self.tokens.text_dim));
-            return None;
-        }
-        let mut picked = None;
-        let mut removable = false;
-        for t in &engines.added {
-            if let EngineTarget::Choice { engine, .. } = t {
-                removable = true;
-                let label = format!("Remove {}", self.target_label(t));
-                if ui.button(label).on_hover_text(format!("engine.remove {{engine: {engine:?}}}")).clicked() {
-                    picked = Some(("engine.remove", json!({"engine": engine})));
-                    ui.close();
-                }
-            }
-        }
-        if removable {
-            ui.separator();
-        }
-        // after a clear, or a connect that failed, nothing is in use
-        let live = self.doc.link.is_some();
-        let all: Vec<&EngineChoice> = engines.choices.iter().collect();
-        scrolling(ui, "engine-choices", |ui| {
-            for (label, modes) in by_engine(&all) {
-                let using = modes.first().and_then(|c| engines.in_use(&c.engine)).filter(|_| live);
-                let using = using.and_then(|m| modes.iter().copied().find(|c| c.mode == m));
-                // an engine in use says how it's connected
-                let heading = match using {
-                    Some(c) => egui::RichText::new(format!("{label} · {}", c.mode_label)).strong(),
-                    None => egui::RichText::new(label),
-                };
-                // picking automatically, an engine is one item: engine.use with no mode starts it
-                // the fastest way it can be hosted (#24)
-                if engines.auto {
-                    let tip = format!("engine.use {{engine: {:?}}}", group_engine(&modes));
-                    if ui.radio(using.is_some(), heading).on_hover_text(tip).clicked() {
-                        picked = Some(("engine.use", json!({"engine": group_engine(&modes)})));
-                        ui.close();
-                    }
-                    continue;
-                }
-                ui.menu_button(heading, |ui| {
-                    for c in &modes {
-                        let on = using.is_some_and(|u| u.mode == c.mode);
-                        let tip = format!("engine.use {{engine: {:?}, mode: {:?}}}", c.engine, c.mode);
-                        if ui.radio(on, &c.mode_label).on_hover_text(tip).clicked() {
-                            picked = Some(("engine.use", json!({"engine": c.engine, "mode": c.mode})));
-                            ui.close();
-                        }
-                    }
-                });
-            }
-        });
-        picked
     }
 
     /// The Attach… window: a URL and a token, then `engine.attach`.
@@ -426,28 +358,4 @@ impl Holder for EditorApp {
     fn note_engine_asked(&mut self, asked: bool) {
         self.engine_asked = asked;
     }
-}
-
-/// Choices grouped by engine, in the order they came: each engine's label and its connections.
-fn by_engine<'a>(choices: &[&'a EngineChoice]) -> Vec<(&'a str, Vec<&'a EngineChoice>)> {
-    let mut groups: Vec<(&str, Vec<&EngineChoice>)> = Vec::new();
-    for c in choices {
-        match groups.iter_mut().find(|(_, g)| g.first().is_some_and(|f| f.engine == c.engine)) {
-            Some((_, g)) => g.push(c),
-            None => groups.push((c.engine_label.as_str(), vec![c])),
-        }
-    }
-    groups
-}
-
-/// The engine id a group of [`by_engine`] choices share.
-fn group_engine<'a>(modes: &[&'a EngineChoice]) -> &'a str {
-    modes.first().map_or("", |c| c.engine.as_str())
-}
-
-/// A menu list that scrolls once it would run off the bottom of the window.
-fn scrolling(ui: &mut egui::Ui, salt: &str, add: impl FnOnce(&mut egui::Ui)) {
-    let room = (ui.ctx().content_rect().bottom() - ui.cursor().top() - 24.0).max(120.0);
-    // a menu offers less than the window, so the list asks for what is left below it
-    egui::ScrollArea::vertical().id_salt(salt).min_scrolled_height(room).max_height(room).auto_shrink([true, true]).show(ui, add);
 }

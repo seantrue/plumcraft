@@ -456,57 +456,37 @@ impl Canvas {
             self.nets.selected = None;
         }
 
-        actions.extend(self.net_menu(ctx, graph));
+        actions.extend(self.net_menu(ctx, graph, tokens));
         actions.extend(self.name_editor(ctx, tokens));
         actions
     }
 
-    fn net_menu(&mut self, ctx: &egui::Context, graph: &Graph) -> Vec<Action> {
+    fn net_menu(&mut self, ctx: &egui::Context, graph: &Graph, tokens: &Tokens) -> Vec<Action> {
         let mut actions = Vec::new();
         let Some(menu) = self.nets.menu.clone() else { return actions };
         let mut close = false;
         let mut jump = false;
         let area = egui::Area::new(egui::Id::new("plumcraft-net-menu")).order(egui::Order::Foreground).fixed_pos(menu.screen_pos).show(ctx, |ui| {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
-                let from = graph.net(&menu.net).map(|n| n.from.to_string()).unwrap_or_default();
-                ui.weak(format!("Net {}, from {from}", describe(graph, &menu.net)));
-                let go = if matches!(menu.tag, Tag::Use(_)) { "Go to Driver" } else { "Go to Next Use" };
-                if ui.button(go).clicked() {
-                    jump = true;
-                    close = true;
-                }
-                if let Some(net) = graph.net(&menu.net) {
-                    if ui.button("Watch").on_hover_text("Show this net's value in the Watched panel").clicked() {
-                        actions.push(("run.watch", json!({"node": net.from.node, "port": net.from.port})));
-                        close = true;
-                    }
-                    if ui.button("Pop Out").on_hover_text("Show this net's value in a window of its own, updated by every run").clicked() {
-                        actions.push(("view.popout", json!({"node": net.from.node, "port": net.from.port})));
-                        close = true;
-                    }
-                }
-                if ui.button("Select Net").on_hover_text("Highlight every label of this net").clicked() {
-                    self.nets.selected = Some(menu.net.clone());
-                    close = true;
-                }
-                if ui.button("Rename Net…").clicked() {
-                    self.nets.edit = Some(NameEdit::new(NameFor::Rename(menu.net.clone()), menu.net.name.clone(), menu.screen_pos));
-                    close = true;
-                }
-                if let Tag::Use(to) = &menu.tag
-                    && ui.button("Draw as Wire").on_hover_text("Draw this connection as a wire again").clicked()
-                {
-                    actions.push(("wire.unlabel", json!({"to": to})));
-                    close = true;
-                }
-                if !matches!(menu.tag, Tag::Use(_)) || graph.net_wires(&menu.net).count() > 1 {
-                    let net = menu.net.clone();
-                    if ui.button("Draw All as Wires").on_hover_text("Draw every connection of this net as a wire again").clicked() {
-                        for w in graph.net_wires(&net) {
+                // the core's menu model
+                let to = match &menu.tag {
+                    Tag::Use(to) => Some(to),
+                    Tag::Driver(_) => None,
+                };
+                let items = plumcraft_editor_core::menu::net_menu(graph, &menu.net, to);
+                let Some(item) = crate::menu_view::draw(ui, &items, crate::menu_view::Style { tokens, bar: false, close: false }) else { return };
+                close = true;
+                match (crate::menu_view::action(&item), item.id.as_str()) {
+                    (Some(a), _) => actions.push(a),
+                    (None, "canvas.reveal") => jump = true,
+                    (None, "net.select") => self.nets.selected = Some(menu.net.clone()),
+                    (None, "rename.net") => self.nets.edit = Some(NameEdit::new(NameFor::Rename(menu.net.clone()), menu.net.name.clone(), menu.screen_pos)),
+                    (None, "wire.unlabelAll") => {
+                        for w in graph.net_wires(&menu.net) {
                             actions.push(("wire.unlabel", json!({"to": w.to})));
                         }
-                        close = true;
                     }
+                    (None, _) => {}
                 }
             });
         });

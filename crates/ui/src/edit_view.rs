@@ -375,70 +375,29 @@ pub enum EditOp {
     Frame,
 }
 
-/// Align menu items: (label, edge).
-pub const ALIGN_EDGES: [(&str, &str); 6] = [
-    ("Left Edges", "left"),
-    ("Right Edges", "right"),
-    ("Top Edges", "top"),
-    ("Bottom Edges", "bottom"),
-    ("Centres Horizontally", "centerX"),
-    ("Centres Vertically", "centerY"),
-];
+/// Align menu items: (label, edge), as the core's menu model has them.
+pub use plumcraft_editor_core::menu::ALIGN_EDGES;
 
-/// The Edit menu's canvas items, for `many` things selected. Returns the one clicked.
-pub fn edit_menu(ui: &mut egui::Ui, many: usize) -> Option<EditOp> {
-    let has_selection = many > 0;
-    let mut op = None;
-    ui.separator();
-    let item = |ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool| -> bool {
-        let r = ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut));
-        let clicked = r.clicked();
-        if clicked {
-            ui.close();
-        }
-        clicked
-    };
-    let cmd = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
-    if item(ui, "Cut", &format!("{cmd}X"), has_selection) {
-        op = Some(EditOp::Cut);
-    }
-    if item(ui, "Copy", &format!("{cmd}C"), has_selection) {
-        op = Some(EditOp::Copy);
-    }
-    if item(ui, "Paste", &format!("{cmd}V"), true) {
-        op = Some(EditOp::Paste);
-    }
-    if item(ui, "Delete", "⌫", has_selection) {
-        op = Some(EditOp::Delete);
-    }
-    if item(ui, "Select All", &format!("{cmd}A"), true) {
-        op = Some(EditOp::SelectAll);
-    }
-    if item(ui, "Frame Selection", "", has_selection) {
-        op = Some(EditOp::Frame);
-    }
-    ui.separator();
-    ui.add_enabled_ui(many >= 2, |ui| {
-        ui.menu_button("Align", |ui| {
-            for (label, edge) in ALIGN_EDGES {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Align(edge));
-                    ui.close();
-                }
-            }
+impl EditOp {
+    /// The Edit menu's canvas item `item` (the core's menu model names it; the shell does it
+    /// until N2 gives it a command).
+    pub fn from_item(item: &plumcraft_editor_core::menu::Item) -> Option<EditOp> {
+        let param = |key: &str, from: &[(&'static str, &'static str)]| {
+            let want = item.params.as_ref()?.get(key)?.as_str()?;
+            from.iter().find(|(_, v)| *v == want).map(|(_, v)| *v)
+        };
+        Some(match item.id.as_str() {
+            "edit.cut" => EditOp::Cut,
+            "edit.copy" => EditOp::Copy,
+            "edit.paste" => EditOp::Paste,
+            "edit.delete" => EditOp::Delete,
+            "selection.all" => EditOp::SelectAll,
+            "frame.add" => EditOp::Frame,
+            "edit.align" => EditOp::Align(param("edge", &ALIGN_EDGES)?),
+            "edit.distribute" => EditOp::Distribute(param("axis", &[("Horizontally", "horizontal"), ("Vertically", "vertical")])?),
+            _ => return None,
         })
-    });
-    ui.add_enabled_ui(many >= 3, |ui| {
-        ui.menu_button("Distribute", |ui| {
-            for (label, axis) in [("Horizontally", "horizontal"), ("Vertically", "vertical")] {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Distribute(axis));
-                    ui.close();
-                }
-            }
-        })
-    });
-    op
+    }
 }
 
 impl EditorApp {

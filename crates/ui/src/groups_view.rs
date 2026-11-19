@@ -31,20 +31,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use egui::{Pos2, Rect, Vec2};
 use egui_snarl::{InPinId, NodeId as SnarlId, OutPinId, Snarl};
-use plumcraft_graph::{Graph, Group, GroupId, NodeId, PortRef, Promoted, Wire};
-use plumcraft_proto::catalogue::{NodeDef, Port, SchemaReply, scalars, texts};
+use plumcraft_graph::{Graph, GroupId, NodeId, PortRef, Promoted, Wire};
+use plumcraft_proto::catalogue::{NodeDef, SchemaReply, scalars, texts};
 use serde_json::json;
 
 use crate::canvas::{Action, Canvas, CanvasNode, InputRow, RowKind, input_rows};
 use crate::theme::Tokens;
 
-/// An output of a proxy: which member output it stands for.
-#[derive(Debug, Clone, PartialEq)]
-pub struct ProxyOut {
-    pub port: PortRef,
-    pub label: String,
-    pub def: Port,
-}
+/// An output of a proxy: which member output it stands for (the core's).
+pub use plumcraft_editor_core::rows::ProxyOut;
 
 /// What a collapsed group's proxy node stands for.
 #[derive(Debug, Clone, PartialEq)]
@@ -165,24 +160,12 @@ impl Visibility {
     }
 }
 
-fn port_label(p: &Port) -> String {
-    match p.label.as_deref() {
-        Some(l) if !l.is_empty() => l.to_owned(),
-        _ => p.name.clone(),
-    }
-}
-
 fn node_title(graph: &Graph, catalog: &SchemaReply, id: &NodeId) -> String {
     plumcraft_session::node_title(graph, catalog, id)
 }
 
-/// `base`, or `base 2`, `base 3`, … whichever `taken` doesn't have.
-pub fn unique_name(base: &str, taken: &BTreeSet<String>) -> String {
-    if !taken.contains(base) {
-        return base.to_owned();
-    }
-    (2u32..).map(|i| format!("{base} {i}")).find(|n| !taken.contains(n)).unwrap_or_else(|| base.to_owned())
-}
+/// `base`, or `base 2`, `base 3`, … whichever `taken` doesn't have (the core's).
+pub use plumcraft_editor_core::rows::unique_name;
 
 /// The proxy node of collapsed group `gid`, and where it sits.
 pub fn proxy_node(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> Option<(Pos2, CanvasNode)> {
@@ -262,37 +245,8 @@ pub fn proxy_node(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> Option
             rows.push(w.to.node.clone());
         }
     }
-    let out_def = |at: &PortRef| -> Option<Port> { catalog.node(&graph.node(&at.node)?.kind)?.output(&at.port).cloned() };
-    let mut outputs: Vec<ProxyOut> = Vec::new();
-    for o in &grp.outputs {
-        if let Some(def) = out_def(&o.from) {
-            outputs.push(ProxyOut { port: o.from.clone(), label: o.name.clone(), def });
-        }
-    }
-    for (n, def) in &defs {
-        for port in def.outputs.iter().filter(|p| p.external) {
-            let at = PortRef::new((*n).clone(), port.name.clone());
-            if !outputs.iter().any(|o| o.port == at) {
-                outputs.push(ProxyOut { port: at, label: node_title(graph, catalog, n), def: port.clone() });
-            }
-        }
-    }
-    // Member by member: outputs wired to the outside, and (unless the group already names what
-    // it makes) outputs wired nowhere.
-    let loose = outputs.is_empty();
-    for (n, def) in &defs {
-        for port in &def.outputs {
-            let at = PortRef::new((*n).clone(), port.name.clone());
-            if outputs.iter().any(|o| o.port == at) {
-                continue;
-            }
-            let to: Vec<&NodeId> = graph.wires.iter().filter(|w| w.from == at).map(|w| &w.to.node).collect();
-            if to.iter().any(|t| !members.contains(*t)) || (to.is_empty() && loose) {
-                let label = format!("{} › {}", node_title(graph, catalog, n), port_label(port));
-                outputs.push(ProxyOut { port: at, label, def: port.clone() });
-            }
-        }
-    }
+    // what it offers as outputs, as the core's menu model lists them
+    let outputs = plumcraft_editor_core::rows::proxy_outputs(graph, catalog, gid);
     let proxy = Proxy { group: gid.clone(), name: grp.name.clone(), rows, outputs };
     let node =
         CanvasNode { tucked: 0, all_fields: false, id: proxy_node_id(gid), kind: String::new(), outputs: proxy.outputs.len(), inputs, proxy: Some(proxy) };
@@ -353,112 +307,15 @@ pub struct MenuCtx<'a> {
     pub selected_groups: &'a [GroupId],
 }
 
-/// The group items of the node menu of `node` (a proxy's menu is all group items).
-pub fn node_menu(ui: &mut egui::Ui, cx: &MenuCtx<'_>, node: &CanvasNode, actions: &mut Vec<Action>) {
-    if let Some(p) = &node.proxy {
-        proxy_menu(ui, cx, p, actions);
-        return;
-    }
-    let graph = cx.graph;
-    // Group or collapse the selection (or just this node).
-    let (nodes, groups): (Vec<NodeId>, Vec<GroupId>) =
-        if cx.selected.contains(&node.id) { (cx.selected.to_vec(), cx.selected_groups.to_vec()) } else { (vec![node.id.clone()], Vec::new()) };
-    let count = nodes.len() + groups.len();
-    let what = if count == 1 { "this node".to_owned() } else { format!("{count} selected") };
-    ui.separator();
-    if ui.button(format!("Group {what}")).on_hover_text("Make a group of them (rename it from its header)").clicked() {
-        actions.push(("group.create", json!({"nodes": nodes, "groups": groups})));
-        ui.close();
-    }
-    if ui.button(format!("Collapse {what} into a group")).on_hover_text("Group them and show the group as one node").clicked() {
-        actions.push(("group.create", json!({"nodes": nodes, "groups": groups, "collapsed": true})));
-        ui.close();
-    }
-    // Promote and outputs, for each group this node is in, named for the group.
-    let def = cx.catalog.node(&node.kind);
-    for gid in graph.enclosing_groups(&node.id) {
-        let Some(grp) = graph.group(&gid) else { continue };
-        ui.separator();
-        ui.menu_button(format!("Promote input to {}", grp.name), |ui| {
-            let labels: BTreeSet<String> = grp.promoted.iter().map(|p| p.label.clone()).collect();
-            for row in &node.inputs {
-                let at = PortRef::new(node.id.clone(), row.key.clone());
-                match grp.promoted.iter().find(|p| p.port == at) {
-                    Some(p) => {
-                        if ui.button(format!("[x] {} (as {}): unpromote", row.label, p.label)).clicked() {
-                            actions.push(("group.unpromote", json!({"group": gid, "label": p.label})));
-                            ui.close();
-                        }
-                    }
-                    None => {
-                        let label = unique_name(row.key.rsplit('.').next().unwrap_or(&row.key), &labels);
-                        let doc = row.port.tooltip.clone().unwrap_or_default();
-                        if ui.button(&row.label).on_hover_text(format!("Show it on {} as {label}", grp.name)).clicked() {
-                            actions.push(("group.promote", json!({"group": gid, "port": at, "label": label, "doc": doc})));
-                            ui.close();
-                        }
-                    }
-                }
-            }
-        });
-        if let Some(def) = def {
-            ui.menu_button(format!("Output of {}", grp.name), |ui| {
-                let names: BTreeSet<String> = grp.outputs.iter().map(|o| o.name.clone()).collect();
-                for out in &def.outputs {
-                    let from = PortRef::new(node.id.clone(), out.name.clone());
-                    match grp.outputs.iter().find(|o| o.from == from) {
-                        Some(o) => {
-                            if ui.button(format!("[x] {} (as {}): remove", port_label(out), o.name)).clicked() {
-                                actions.push(("group.removeOutput", json!({"group": gid, "name": o.name})));
-                                ui.close();
-                            }
-                        }
-                        None => {
-                            let name = unique_name(&out.name, &names);
-                            if ui.button(port_label(out)).on_hover_text(format!("Show it as {}'s output {name}", grp.name)).clicked() {
-                                actions.push(("group.output", json!({"group": gid, "from": from, "name": name})));
-                                ui.close();
-                            }
-                        }
-                    }
-                }
-            });
+/// A group's menu items: rename and ungroup (the core's menu model). Collapse, expand and enter
+/// are its header's buttons, not menu items (the research software's maintainer, T02).
+fn group_menu(ui: &mut egui::Ui, graph: &Graph, gid: &GroupId, tokens: &Tokens, actions: &mut Vec<Action>) {
+    let items = plumcraft_editor_core::menu::group_menu(graph, gid);
+    if let Some(item) = crate::menu_view::draw(ui, &items, crate::menu_view::Style { tokens, bar: false, close: true }) {
+        match crate::menu_view::action(&item) {
+            Some(a) => actions.push(a),
+            None => crate::menu_view::open_window(ui.ctx(), &item),
         }
-        mark_item(ui, cx, &gid, grp, &node.id, def, actions);
-        parameters_menu(ui, cx, &gid);
-        ui.menu_button(format!("Group {}", grp.name), |ui| group_items(ui, &gid, &grp.name, actions));
-    }
-}
-
-/// What the catalogue calls an export mark.
-fn mark_word<'a>(def: &'a plumcraft_proto::catalogue::NodeDef, catalog: &'a SchemaReply) -> &'a str {
-    Some(def.export.mark.as_str()).filter(|m| !m.is_empty()).or(catalog.text(texts::EXPORT_MARK)).unwrap_or("export mark")
-}
-
-/// The export mark on `node` in group `gid`. Only for node types that take one, or one a file
-/// marked: an engine with no export shows nothing.
-fn mark_item(ui: &mut egui::Ui, cx: &MenuCtx<'_>, gid: &GroupId, grp: &Group, node: &NodeId, def: Option<&NodeDef>, actions: &mut Vec<Action>) {
-    let on = grp.checkpoints.contains(node);
-    let Some(def) = def.filter(|d| d.export.markable || on) else { return };
-    let word = mark_word(def, cx.catalog);
-    let word = word.chars().next().map_or_else(String::new, |c| c.to_uppercase().chain(word.chars().skip(1)).collect());
-    let label = if on { format!("[x] {word} in {}", grp.name) } else { format!("{word} in {}", grp.name) };
-    if ui.button(label).on_hover_text("Marks this step for the group's export; a run ignores it").clicked() {
-        actions.push(("group.checkpoint", json!({"group": gid, "node": node, "on": !on})));
-        ui.close();
-    }
-}
-
-/// A group's menu items: rename and ungroup. Collapse, expand and enter are its header's
-/// buttons, not menu items (the research software's maintainer, T02).
-fn group_items(ui: &mut egui::Ui, gid: &GroupId, name: &str, actions: &mut Vec<Action>) {
-    if ui.button("Rename…").on_hover_text("Rename this group").clicked() {
-        request_rename(ui.ctx(), gid, name);
-        ui.close();
-    }
-    if ui.button("Ungroup").on_hover_text("Dissolve the group; its nodes stay").clicked() {
-        actions.push(("group.ungroup", json!({"group": gid})));
-        ui.close();
     }
 }
 
@@ -518,21 +375,10 @@ fn parameter_window_id() -> egui::Id {
     egui::Id::new("plumcraft-parameter-window")
 }
 
-/// "Parameters of <group> ›": one item per promoted parameter, opening its editor in a window
-/// ([`parameter_window`]; a text field can't live in a menu, which closes on any click in it).
-fn parameters_menu(ui: &mut egui::Ui, cx: &MenuCtx<'_>, gid: &GroupId) {
-    let Some(grp) = cx.graph.group(gid) else { return };
-    if grp.promoted.is_empty() {
-        return;
-    }
-    ui.menu_button(format!("Parameters of {}", grp.name), |ui| {
-        for pr in &grp.promoted {
-            if ui.button(format!("{}…", pr.label)).on_hover_text("Rename, document, set its range or unpromote it").clicked() {
-                ui.data_mut(|d| d.insert_temp(parameter_window_id(), (gid.clone(), pr.label.clone())));
-                ui.close();
-            }
-        }
-    });
+/// Open the window for promoted parameter `label` of group `gid` ("Parameters of <group> ›
+/// <label>…" in the menu model).
+pub fn open_parameter(ctx: &egui::Context, gid: &GroupId, label: &str) {
+    ctx.data_mut(|d| d.insert_temp(parameter_window_id(), (gid.clone(), label.to_owned())));
 }
 
 /// The window for one promoted parameter, opened from "Parameters of <group> › <label>…".
@@ -636,34 +482,6 @@ pub fn parameter_editor(ui: &mut egui::Ui, cx: &MenuCtx<'_>, gid: &GroupId, pr: 
         }
     });
     done
-}
-
-fn proxy_menu(ui: &mut egui::Ui, cx: &MenuCtx<'_>, p: &Proxy, actions: &mut Vec<Action>) {
-    let Some(grp) = cx.graph.group(&p.group) else { return };
-    ui.weak(format!("group {} ({}, {} nodes)", grp.name, p.group, cx.graph.group_members(&p.group).len()));
-    if ui.button("Expand").on_hover_text("Show the group's nodes in place").clicked() {
-        actions.push(("group.collapse", json!({"group": p.group, "collapsed": false})));
-        ui.close();
-    }
-    group_items(ui, &p.group, &grp.name, actions);
-    parameters_menu(ui, cx, &p.group);
-    if !grp.outputs.is_empty() {
-        ui.menu_button("Outputs", |ui| {
-            for o in &grp.outputs {
-                if ui.button(format!("Remove {}", o.name)).on_hover_text(format!("{}", o.from)).clicked() {
-                    actions.push(("group.removeOutput", json!({"group": p.group, "name": o.name})));
-                    ui.close();
-                }
-            }
-        });
-    }
-    ui.separator();
-    for o in &p.outputs {
-        if ui.button(format!("Watch {}", o.label)).on_hover_text("Show this output in the Watched panel, and run").clicked() {
-            actions.push(("run.watch", json!({"node": o.port.node, "port": o.port.port})));
-            ui.close();
-        }
-    }
 }
 
 /// Small header badges on a member node: one of its groups' outputs, and its export mark, in the
@@ -850,7 +668,7 @@ impl Canvas {
                         request_rename(ui.ctx(), gid, &grp.name);
                     }
                     r.on_hover_text(format!("{summary}\nDouble-click to rename; right-click for its menu"))
-                        .context_menu(|ui| group_items(ui, gid, &grp.name, &mut actions));
+                        .context_menu(|ui| group_menu(ui, graph, gid, tokens, &mut actions));
                 });
             });
             // its actions at the band's right
@@ -868,7 +686,7 @@ impl Canvas {
                     if crate::icons::button(ui, ENTER_ICON, icon, tokens.text, "Enter group").clicked() {
                         requests.push(CanvasRequest::Enter(gid.clone()));
                     }
-                    crate::icons::menu(ui, "ellipsis-vertical", icon, tokens.text, "Group actions", |ui| group_items(ui, gid, &grp.name, &mut actions));
+                    crate::icons::menu(ui, "ellipsis-vertical", icon, tokens.text, "Group actions", |ui| group_menu(ui, graph, gid, tokens, &mut actions));
                 });
             });
         }

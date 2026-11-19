@@ -79,6 +79,8 @@ pub type WakeFn = extern "C" fn(*mut c_void);
 const MAX_EVENTS: usize = 20_000;
 /// How long the core sleeps between looks at its timers (`spike.waitRun` deadlines).
 const TICK: Duration = Duration::from_millis(50);
+/// How long a busy core goes at most without looking whether its menus changed.
+const MENUS_EVERY: Duration = Duration::from_secs(1);
 /// The largest buffer `spike.publish` makes.
 const MAX_PUBLISH: u64 = 256 << 20;
 
@@ -108,6 +110,10 @@ pub struct Config {
     /// The media service's limits (`media: {cache_mb, workers, queue}`): a phone wants a smaller
     /// cache than the default 256 MiB.
     pub media: plumcraft_media::Config,
+    /// The log's level (`log: {level}`; `PLUMCRAFT_LOG` wins); none: as it is (`info`).
+    pub log_level: Option<plumcraft_editor_core::log::Level>,
+    /// Where the log file goes (`dirs.logs`, or `log: {dir}`): `plumcraft.log` there, bounded.
+    pub log_dir: Option<PathBuf>,
 }
 
 /// Where the control channel listens, and its token's file (none: a fresh token, printed to
@@ -129,6 +135,8 @@ impl Default for Config {
             platform: Capabilities::NONE,
             control: None,
             media: media_config(None).unwrap_or_default(),
+            log_level: None,
+            log_dir: None,
         }
     }
 }
@@ -150,6 +158,8 @@ impl Config {
             platform: Capabilities::declared(o.get("platform")),
             control: control_config(o.get("control"))?,
             media: media_config(o.get("media"))?,
+            log_level: log_level(o.get("log"))?,
+            log_dir: log_dir(o)?,
         })
     }
 
@@ -192,6 +202,27 @@ fn control_config(v: Option<&Value>) -> Result<Option<ControlConfig>, String> {
     Ok(Some(ControlConfig { port, token_file }))
 }
 
+/// `log: {level}`: the log's level, if given.
+fn log_level(v: Option<&Value>) -> Result<Option<plumcraft_editor_core::log::Level>, String> {
+    match v.and_then(|l| l.get("level")) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) => {
+            plumcraft_editor_core::log::Level::parse(s).map(Some).ok_or_else(|| "config: log.level must be error, warn, info, debug or trace".into())
+        }
+        Some(_) => Err("config: log.level must be error, warn, info, debug or trace".into()),
+    }
+}
+
+/// `dirs.logs` (or `log: {dir}`): where the log file goes, if given.
+fn log_dir(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, String> {
+    let v = o.get("dirs").and_then(|d| d.get("logs")).or_else(|| o.get("log").and_then(|l| l.get("dir")));
+    match v {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d))),
+        Some(_) => Err("config: dirs.logs must be a folder's path".into()),
+    }
+}
+
 /// `media: {cache_mb, workers, queue}`: the media service's limits, every one optional; finished
 /// requests are reported (`plum_poll`'s `media`).
 fn media_config(v: Option<&Value>) -> Result<plumcraft_media::Config, String> {
@@ -230,8 +261,12 @@ struct Outbox {
     asks_ended: Vec<String>,
     /// Media requests finished (`{key, handle, want, status, w?, h?, len?, format?, reason?}`).
     media: Vec<String>,
-    /// What changed of a document (`{doc, domain, …}`: its engine connected, it closed).
+    /// What changed of a document (`{doc, domain, …}`: its engine connected, it closed, its
+    /// menus changed).
     changed: Vec<String>,
+    /// The log has entries past what the shell was told of: the newest's seq, and the worst level
+    /// among them (`log.tail` reads them).
+    log: Option<(u64, plumcraft_editor_core::log::Level)>,
     dropped: u64,
 }
 
@@ -390,7 +425,7 @@ impl Shared {
     pub fn poll(&self) -> Option<Vec<u8>> {
         // cleared first: anything pushed after this wakes again
         self.waker.pending.store(false, Ordering::Release);
-        let (replies, events, dropped, asks, asks_ended, media, changed) = {
+        let (replies, events, dropped, asks, asks_ended, media, changed, log) = {
             let mut o = lock(&self.outbox);
             if o.replies.is_empty()
                 && o.events.is_empty()
@@ -399,6 +434,7 @@ impl Shared {
                 && o.asks_ended.is_empty()
                 && o.media.is_empty()
                 && o.changed.is_empty()
+                && o.log.is_none()
             {
                 return None;
             }
@@ -410,6 +446,7 @@ impl Shared {
                 std::mem::take(&mut o.asks_ended),
                 std::mem::take(&mut o.media),
                 std::mem::take(&mut o.changed),
+                o.log.take(),
             )
         };
         let c = &self.counters;
@@ -439,7 +476,11 @@ impl Shared {
             out.extend_from_slice(b"],\"changed\":[");
             join_into(&mut out, &changed);
         }
-        out.extend_from_slice(format!("],\"dropped\":{dropped}}}").as_bytes());
+        out.push(b']');
+        if let Some((seq, worst)) = log {
+            out.extend_from_slice(format!(",\"log\":{{\"seq\":{seq},\"worst\":\"{}\"}}", worst.name()).as_bytes());
+        }
+        out.extend_from_slice(format!(",\"dropped\":{dropped}}}").as_bytes());
         Some(out)
     }
 
@@ -535,6 +576,15 @@ impl Core {
     /// document whose engine hasn't connected yet are held and answered once it has.
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
         let (kind, mode) = config.engine_and_mode()?;
+        if let Some(level) = config.log_level {
+            plumcraft_editor_core::log::set_level(level);
+        }
+        if let Some(dir) = &config.log_dir
+            && let Err(e) = plumcraft_editor_core::log::set_file(Some(dir))
+        {
+            // the core runs without a file rather than not at all
+            plumcraft_editor_core::log::warn("ffi", &e);
+        }
         // the demo is part of the program: read now, so a bad one is the config's error
         let demo = if config.demo { Some(demo_graph(kind)?) } else { None };
         let launcher = Launcher { caps: config.platform, store_root: config.store_root.clone(), ..Default::default() };
@@ -580,11 +630,15 @@ impl Core {
                     let _ = to_core.send(Msg::Control);
                 });
                 let (srv, rx) = server::Server::start(c.port, token.clone(), wake).map_err(|e| e.to_string())?;
-                eprintln!("plumcraft: control channel on 127.0.0.1:{}", srv.port());
+                // the token is printed on stderr, as the desktop editor's --control prints it, and
+                // never kept in the log
+                plumcraft_editor_core::log::redact(&token);
+                let say = |line: &str| plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Info, "ffi", line);
+                say(&format!("plumcraft: control channel on 127.0.0.1:{}", srv.port()));
                 match &c.token_file {
-                    Some(p) => eprintln!("plumcraft: control token in {}", p.display()),
-                    None => eprintln!("plumcraft: control token: {token}"),
-                }
+                    Some(p) => say(&format!("plumcraft: control token in {}", p.display())),
+                    None => say(&format!("plumcraft: control token: {token}")),
+                };
                 (Some(srv), Some(rx), c.token_file.clone())
             }
         };
@@ -605,6 +659,8 @@ impl Core {
                     control_rx,
                     control_server,
                     control_token_file,
+                    log_seen: plumcraft_editor_core::log::last_seq(),
+                    menus_at: Instant::now(),
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -676,6 +732,11 @@ struct Doc {
     held: Vec<Held>,
     /// The `engine` domain's generation, for the feed's `changed`.
     generation: u64,
+    /// The menu model's generation last told the shell (`changed`, domain `menus`).
+    menus_sent: u64,
+    /// A shell has asked for the menus (`menu.get`), so it hears when they change; one that never
+    /// asks costs the core nothing.
+    menus_watched: bool,
 }
 
 /// The core thread's state: its documents, by id, and what they share.
@@ -698,6 +759,10 @@ struct Worker {
     /// The control server; dropping it (the core closing) closes the port and its connections.
     control_server: Option<server::Server>,
     control_token_file: Option<PathBuf>,
+    /// The newest log entry the shell was told of (the feed's `log`).
+    log_seen: u64,
+    /// When the documents' menus were last looked at (`note_menus`).
+    menus_at: Instant,
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -718,6 +783,7 @@ impl Worker {
         session.engines.current = Some(target.clone());
         session.engines.can_attach = true;
         let mut doc = Document::with_media(session, self.shared.media.clone(), false);
+        doc.caps = self.launcher.caps;
         doc.set_waker(Some(self.waker.clone()));
         let launcher = self.launcher.clone();
         doc.starter = Some(shared_starter(self.engines.clone(), move |e: &str, m: &str, w: Option<link::Waker>| launcher.connect_ids(e, m, w)));
@@ -725,7 +791,7 @@ impl Worker {
         doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
         doc.start_engines(target, Vec::new(), opening);
         let id = doc.id;
-        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0 });
+        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, menus_watched: false });
         id
     }
 
@@ -747,6 +813,8 @@ impl Worker {
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
             };
+            // nothing came for a tick: the core is idle
+            let idle = msg.is_none();
             match msg {
                 Some(Msg::Stop) => break,
                 Some(Msg::Request { id, body }) => self.request(id, &body),
@@ -756,9 +824,24 @@ impl Worker {
             self.control_requests();
             self.turn_all();
             self.answer_waiters();
+            self.note_log();
+            // the menus are looked at when the core is idle (at most a tick after a change), and at
+            // least every second when it never is, never in the middle of a stream of requests
+            if idle || self.menus_at.elapsed() >= MENUS_EVERY {
+                self.menus_at = Instant::now();
+                let ids: Vec<DocId> = self.docs.keys().copied().collect();
+                for id in ids {
+                    self.note_menus(id);
+                }
+            }
             let o = lock(&self.shared.outbox);
-            let any =
-                !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty() || !o.media.is_empty() || !o.changed.is_empty();
+            let any = !o.replies.is_empty()
+                || !o.events.is_empty()
+                || !o.asks.is_empty()
+                || !o.asks_ended.is_empty()
+                || !o.media.is_empty()
+                || !o.changed.is_empty()
+                || o.log.is_some();
             drop(o);
             if any {
                 self.shared.waker.wake();
@@ -772,6 +855,38 @@ impl Worker {
             d.doc.close();
         }
         lock(&self.shared.conns).clear();
+    }
+
+    /// The log has entries the shell hasn't been told of: say so in the feed (`log: {seq, worst}`).
+    fn note_log(&mut self) {
+        use plumcraft_editor_core::log;
+        let seq = log::last_seq();
+        if seq <= self.log_seen {
+            return;
+        }
+        let worst = log::worst_after(self.log_seen).unwrap_or(log::Level::Trace);
+        self.log_seen = seq;
+        let mut o = lock(&self.shared.outbox);
+        o.log = Some(match o.log {
+            Some((_, w)) => (seq, w.min(worst)),
+            None => (seq, worst),
+        });
+    }
+
+    /// The document's menu bar, noted: the feed says when it changed (`changed`, domain `menus`),
+    /// so a shell rebuilds its native menus then and not on every wake.
+    fn note_menus(&mut self, id: DocId) {
+        let Some(d) = self.docs.get_mut(&id) else { return };
+        if !d.ready || !d.menus_watched {
+            return;
+        }
+        let facts = control::Shell::menu_facts(&d.doc);
+        let model = serde_json::to_value(plumcraft_editor_core::menu::bar(&d.doc.session, &facts)).unwrap_or(Value::Null);
+        let generation = d.doc.menus.note(&model);
+        if generation != d.menus_sent {
+            d.menus_sent = generation;
+            lock(&self.shared.outbox).changed.push(json!({"doc": id, "domain": "menus", "gen": generation}).to_string());
+        }
     }
 
     /// Every document's turn: what its engine and worker brought back, its events forwarded, what
@@ -918,6 +1033,9 @@ impl Worker {
                     return;
                 }
                 let Some(d) = self.docs.get_mut(&id) else { return };
+                if req.method == "menu.get" {
+                    d.menus_watched = true;
+                }
                 let reply = req.reply.clone();
                 control::handle(
                     &mut d.doc,
@@ -1004,6 +1122,9 @@ impl Worker {
             _ => {
                 let reply = self.replier(id, tag);
                 if let Some(d) = self.docs.get_mut(&doc) {
+                    if method == "menu.get" {
+                        d.menus_watched = true;
+                    }
                     control::handle(&mut d.doc, method, params, reply);
                 }
                 return;

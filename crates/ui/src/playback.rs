@@ -143,7 +143,9 @@ where
                     }
                 }
             },
-            |e| eprintln!("plumcraft: audio output: {e}"),
+            |e| {
+                plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Warn, "editor", &format!("plumcraft: audio output: {e}"));
+            },
             None,
         )
         .map_err(|e| format!("audio output: {e}"))

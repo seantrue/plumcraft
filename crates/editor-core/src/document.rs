@@ -237,6 +237,10 @@ pub struct Document {
     /// The last command asked for an engine switch (a control request replies once it is done).
     engine_asked: bool,
     closed: bool,
+    /// What the platform can start (the Engine menu lists what it can't, disabled with why).
+    pub caps: crate::engines::Capabilities,
+    /// The menu bar's generation (`menu.get`'s `gen`), up when what it holds changed.
+    pub menus: crate::menu::Revision,
 }
 
 impl std::fmt::Debug for Document {
@@ -292,6 +296,8 @@ impl Document {
             asks_sink: None,
             engine_asked: false,
             closed: false,
+            caps: crate::engines::Capabilities::DESKTOP,
+            menus: crate::menu::Revision::default(),
         }
     }
 
@@ -451,6 +457,23 @@ impl Document {
         }
     }
 
+    /// An engine that just went down or away is logged, with what its stderr said last (a process
+    /// engine's stderr goes to a tail the host keeps; this is where it reaches the log).
+    fn log_engine_down(&self) {
+        let source = match &self.session.engines.current {
+            Some(EngineTarget::Choice { engine, .. }) => format!("engine.{engine}"),
+            _ => "engine".to_owned(),
+        };
+        let text = match &self.engine {
+            EngineState::EngineDown { stderr_tail: Some(tail), .. } if !tail.trim().is_empty() => {
+                format!("{}\n{}", link::state_text(&self.engine), tail.trim_end())
+            }
+            EngineState::EngineDown { .. } | EngineState::Unavailable { .. } => link::state_text(&self.engine),
+            _ => return,
+        };
+        crate::log::write(crate::log::Level::Warn, &source, &text, Some(self.id));
+    }
+
     /// Engine housekeeping: the engine's state, its events into the session's run state. The
     /// events applied, and whether a run's reply came (values reaped before may be there again).
     pub fn drain_engine(&mut self) -> (Vec<Envelope>, bool) {
@@ -463,7 +486,11 @@ impl Document {
             }
             return (Vec::new(), false);
         };
+        let was_down = matches!(self.engine, EngineState::EngineDown { .. } | EngineState::Unavailable { .. });
         self.engine = link.state();
+        if !was_down {
+            self.log_engine_down();
+        }
         switchboard::sync_state(&mut self.session, &self.engine);
         self.follow_link();
         let Some(link) = &self.link else { return (Vec::new(), false) };
@@ -1050,6 +1077,12 @@ impl Shell for Document {
     }
     fn engine_asked(&self) -> bool {
         self.engine_asked
+    }
+    fn menu_facts(&self) -> crate::menu::Facts {
+        crate::menu::Facts { live: self.link.is_some(), caps: self.caps, ..crate::menu::Facts::default() }
+    }
+    fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
+        Some(&mut self.menus)
     }
 }
 

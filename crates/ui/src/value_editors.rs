@@ -92,6 +92,11 @@ pub fn register(kinds: Vec<EditorKind>) -> Result<(), String> {
     Ok(())
 }
 
+/// Every kind as the core's menu model takes them: `(editor.kind, label, help)`.
+pub fn facts() -> Vec<(String, String, String)> {
+    registry().iter().map(|k| (k.kind.to_owned(), k.label.to_owned(), k.help.to_owned())).collect()
+}
+
 /// Every kind this application has. PlumCraft itself has none.
 pub fn registry() -> &'static [EditorKind] {
     KINDS.get_or_init(|| {
@@ -99,7 +104,7 @@ pub fn registry() -> &'static [EditorKind] {
         let mut kinds: Vec<EditorKind> = Vec::with_capacity(added.len());
         for k in added {
             if kinds.iter().any(|x| x.kind == k.kind) {
-                eprintln!("value editor {}: the kind is taken", k.kind);
+                plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Warn, "editor", &format!("value editor {}: the kind is taken", k.kind));
             } else {
                 kinds.push(k);
             }

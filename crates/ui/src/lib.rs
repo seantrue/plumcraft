@@ -61,6 +61,7 @@ pub mod icons;
 pub use plumcraft_session::layout;
 pub mod link;
 pub mod media;
+pub mod menu_view;
 pub mod net_view;
 pub mod offscreen;
 pub mod palette;
@@ -94,8 +95,10 @@ use std::time::{Duration, Instant};
 
 use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply};
 use plumcraft_proto::session::EngineState;
+use plumcraft_session::Session;
+#[cfg(test)]
+use plumcraft_session::command_specs;
 use plumcraft_session::viewer_cmds::Tools;
-use plumcraft_session::{CommandSpec, Session, command_specs};
 use serde_json::{Value, json};
 
 use plumcraft_editor_core::document::{self, Document};
@@ -116,10 +119,6 @@ fn panel_display<'a>(
 
 /// The window title's app name.
 pub const APP_TITLE: &str = plumcraft_editor_core::control::APP_TITLE;
-
-/// Top-level menus, in order. Commands name theirs in `CommandSpec::menu`; menus the registry
-/// adds later appear after these.
-const MENUS: &[&str] = &["File", "Edit", "View", "Node", "Run"];
 
 /// The workflow file extension.
 pub const WORKFLOW_EXT: &str = "json";
@@ -1070,20 +1069,18 @@ impl EditorApp {
             self.invoke(id);
         }
         let mut fired = Vec::new();
-        // egui matches Shift and Alt as wildcards when a shortcut doesn't name them, so the most
-        // specific go first: Cmd+Shift+Z is Redo, not Undo; Cmd+Shift+S is Save As, not Save.
-        let mut specs: Vec<(&CommandSpec, egui::KeyboardShortcut)> =
-            command_specs().iter().filter_map(|c| Some((c, c.shortcut.and_then(parse_shortcut)?))).collect();
-        specs.sort_by_key(|(_, sc)| std::cmp::Reverse(u8::from(sc.modifiers.shift) + u8::from(sc.modifiers.alt)));
-        // a text field keeps its own undo
+        // the core's table, the most specific first: egui matches Shift and Alt as wildcards when
+        // a shortcut doesn't name them, so Cmd+Shift+Z is Redo, not Undo; Cmd+Shift+S is Save As
         let typing = ctx.text_edit_focused();
-        for (spec, sc) in specs {
-            if typing && spec.id.starts_with("edit.") {
+        for b in plumcraft_editor_core::menu::shortcut_table() {
+            let Some(sc) = menu_view::to_egui(&b.shortcut) else { continue };
+            // a text field keeps its own undo
+            if typing && b.text_field_keeps {
                 continue;
             }
             // consumed even when disabled, so a disabled Redo's keys don't fall through to Undo
-            if ctx.input_mut(|i| i.consume_shortcut(&sc)) && (spec.enabled)(&self.doc.session).is_ok() {
-                fired.push(spec.id);
+            if ctx.input_mut(|i| i.consume_shortcut(&sc)) && plumcraft_session::find(b.command).is_some_and(|spec| (spec.enabled)(&self.doc.session).is_ok()) {
+                fired.push(b.command);
             }
         }
         if typing && !fired.is_empty() {
@@ -1098,84 +1095,53 @@ impl EditorApp {
         }
     }
 
-    fn menu_bar(&mut self, ui: &mut egui::Ui) {
-        let mut invoked: Vec<&'static str> = Vec::new();
-        let mut actions: Vec<Action> = Vec::new();
-        let mut fit = false;
-        let mut edit_op = None;
-        let selected = self.canvas.picked.nodes().len() + self.canvas.picked.groups().len();
-        let mut menus: Vec<&str> = MENUS.to_vec();
-        for spec in command_specs() {
-            if let Some(m) = spec.menu.first()
-                && !menus.contains(m)
-            {
-                menus.push(m);
-            }
+    /// What the core's menu model needs from this shell: the selection, the canvas's centre, the
+    /// engine link, the platform, the application's value editors.
+    pub fn menu_facts(&self) -> menu_view::Facts {
+        let center = self.canvas.to_global.inverse() * self.canvas.rect.center();
+        menu_view::Facts {
+            selected: self.canvas.picked.nodes().to_vec(),
+            selected_groups: self.canvas.picked.groups().to_vec(),
+            center: Some([center.x, center.y]),
+            live: self.doc.link.is_some(),
+            caps: self.doc.caps,
+            editors: value_editors::facts(),
         }
+    }
+
+    /// The menu bar, drawn from the core's menu model ([`plumcraft_editor_core::menu`]); a menu's
+    /// items are built when it is open.
+    fn menu_bar(&mut self, ui: &mut egui::Ui) {
+        let mut clicked: Option<plumcraft_editor_core::menu::Item> = None;
+        let facts = self.menu_facts();
+        let style = menu_view::Style { tokens: &self.tokens, bar: true, close: true };
+        let session = &self.doc.session;
         egui::MenuBar::new().ui(ui, |ui| {
-            for menu in menus {
-                ui.menu_button(menu, |ui| {
-                    command_menu(ui, &self.doc.session, menu, 1, &mut invoked);
-                    // the engines after the menu's own commands: there are many, and they scroll
-                    if menu == "Engine" {
-                        ui.separator();
-                        if let Some(action) = self.engine_choices_menu(ui) {
-                            actions.push(action);
-                        }
-                    }
-                    match menu {
-                        "Edit" => edit_op = edit_view::edit_menu(ui, selected),
-                        "View" => {
-                            ui.menu_button("Animation Speed", |ui| {
-                                for &ms in run_anim::SPEEDS {
-                                    let mark = if self.doc.session.views.anim_ms() == ms { "✓ " } else { "    " };
-                                    let (label, hover) = if ms == 0 {
-                                        ("Real Time".to_owned(), "Replay every node at its recorded timing")
-                                    } else {
-                                        (format!("{ms} ms per node"), "Show each node running at least this long")
-                                    };
-                                    if ui.button(format!("{mark}{label}")).on_hover_text(hover).clicked() {
-                                        actions.push(("view.animationSpeed", json!({"ms": ms})));
-                                        ui.close();
-                                    }
-                                }
-                            });
-                            let fit_button = egui::Button::new("Fit").shortcut_text("F");
-                            if ui.add(fit_button).on_hover_text("Fit the view to all nodes").clicked() {
-                                fit = true;
-                                ui.close();
-                            }
-                        }
-                        "Node" => {
-                            ui.menu_button("Add", |ui| {
-                                if self.doc.session.catalog().nodes.is_empty() {
-                                    ui.label("No node types: the engine is not connected.");
-                                } else if let Some(kind) = palette::node_menus(ui, self.doc.session.catalog()) {
-                                    let center = self.canvas.to_global.inverse() * self.canvas.rect.center();
-                                    actions.push(("node.add", json!({"kind": kind, "pos": [center.x, center.y]})));
-                                }
-                            });
-                            if ui.add(egui::Button::new("Search…").shortcut_text("Tab")).clicked() {
-                                self.canvas.open_palette(self.canvas.rect.center());
-                                ui.close();
-                            }
-                        }
-                        _ => {}
+            for title in plumcraft_editor_core::menu::bar_titles() {
+                ui.menu_button(title, |ui| {
+                    let menu = plumcraft_editor_core::menu::bar_menu(session, &facts, title);
+                    if let Some(item) = menu_view::draw(ui, &menu.items, style) {
+                        clicked = Some(item);
                     }
                 });
             }
         });
-        if fit {
-            self.canvas.request_fit();
+        let Some(item) = clicked else { return };
+        match (&item.command, &item.params) {
+            // a registry command as its menu item: asks first what it needs
+            (Some(id), None) => self.invoke(id),
+            (Some(_), Some(_)) => self.run_all(menu_view::action(&item).into_iter().collect()),
+            (None, _) => match item.id.as_str() {
+                "canvas.fit" => self.canvas.request_fit(),
+                "canvas.palette" => self.canvas.open_palette(self.canvas.rect.center()),
+                _ => {
+                    if let Some(op) = edit_view::EditOp::from_item(&item) {
+                        let ctx = ui.ctx().clone();
+                        self.edit_op(&ctx, op);
+                    }
+                }
+            },
         }
-        if let Some(op) = edit_op {
-            let ctx = ui.ctx().clone();
-            self.edit_op(&ctx, op);
-        }
-        for id in invoked {
-            self.invoke(id);
-        }
-        self.run_all(actions);
     }
 
     /// What's wrong with the engine and how to fix it, when something is.
@@ -1417,7 +1383,7 @@ impl EditorApp {
         static FIRST_FRAME: std::sync::Once = std::sync::Once::new();
         FIRST_FRAME.call_once(|| {
             if trace_startup() {
-                eprintln!("plumcraft-editor: first frame");
+                plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Info, "editor", "plumcraft-editor: first frame");
             }
         });
         // what a command starts on an engine meanwhile goes to the worker (engine_view)
@@ -1516,7 +1482,7 @@ impl EditorApp {
         let title = self.window_title();
         if title != self.title {
             if trace_startup() {
-                eprintln!("plumcraft-editor: title {title}");
+                plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Info, "editor", &format!("plumcraft-editor: title {title}"));
             }
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
@@ -1578,7 +1544,11 @@ impl EditorApp {
             match self.render_offscreen(ctx) {
                 Ok(img) => image = Some(std::sync::Arc::new(img)),
                 Err(e) => {
-                    eprintln!("plumcraft-editor: {}: {e}", shot.path.display());
+                    plumcraft_editor_core::log::say(
+                        plumcraft_editor_core::log::Level::Error,
+                        "editor",
+                        &format!("plumcraft-editor: {}: {e}", shot.path.display()),
+                    );
                     self.closing = true;
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     return;
@@ -1588,7 +1558,13 @@ impl EditorApp {
         if let Some(image) = image {
             match save_png(&image, &shot.path) {
                 Ok(()) => println!("wrote {}", shot.path.display()),
-                Err(e) => eprintln!("plumcraft-editor: {}: {e}", shot.path.display()),
+                Err(e) => {
+                    plumcraft_editor_core::log::say(
+                        plumcraft_editor_core::log::Level::Error,
+                        "editor",
+                        &format!("plumcraft-editor: {}: {e}", shot.path.display()),
+                    );
+                }
             }
             self.closing = true;
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -1695,78 +1671,11 @@ pub fn save_png(image: &egui::ColorImage, path: &Path) -> Result<(), String> {
     writer.write_image_data(&bytes).map_err(|e| e.to_string())
 }
 
-/// A toggle command's current state, for a check mark in its menu.
-fn checked(session: &Session, id: &str) -> Option<bool> {
-    match id {
-        "run.auto" => Some(session.run.auto),
-        "view.runColors" => Some(!session.views.run_colors_off),
-        _ => None,
-    }
-}
-
-/// The menu items of `menu` at `depth` (submenus for longer menu paths). Pushes clicked ids.
-fn command_menu(ui: &mut egui::Ui, session: &Session, menu: &str, depth: usize, invoked: &mut Vec<&'static str>) {
-    let specs: Vec<&CommandSpec> = command_specs().iter().filter(|c| c.menu.first() == Some(&menu)).collect();
-    command_items(ui, session, &specs, depth, invoked);
-}
-
-fn command_items(ui: &mut egui::Ui, session: &Session, specs: &[&CommandSpec], depth: usize, invoked: &mut Vec<&'static str>) {
-    let mut subs: Vec<&str> = Vec::new();
-    for spec in specs {
-        match spec.menu.get(depth) {
-            None => {
-                if menu_item(ui, session, spec) {
-                    invoked.push(spec.id);
-                }
-            }
-            Some(sub) if !subs.contains(sub) => subs.push(sub),
-            Some(_) => {}
-        }
-    }
-    for sub in subs {
-        let inner: Vec<&CommandSpec> = specs.iter().copied().filter(|c| c.menu.get(depth) == Some(&sub)).collect();
-        ui.menu_button(sub, |ui| command_items(ui, session, &inner, depth + 1, invoked));
-    }
-}
-
-/// A menu item for `spec`: its label, shortcut and enabled state. True when clicked.
-fn menu_item(ui: &mut egui::Ui, session: &Session, spec: &CommandSpec) -> bool {
-    let reason = (spec.enabled)(session).err();
-    let mut button = egui::Button::new(spec.label);
-    if let Some(on) = checked(session, spec.id) {
-        button = egui::Button::new(if on { format!("✓ {}", spec.label) } else { format!("    {}", spec.label) });
-    }
-    if let Some(sc) = spec.shortcut.and_then(parse_shortcut) {
-        button = button.shortcut_text(ui.ctx().format_shortcut(&sc));
-    }
-    let r = ui.add_enabled(reason.is_none(), button);
-    let r = match &reason {
-        Some(why) => r.on_disabled_hover_text(why),
-        None => r,
-    };
-    let clicked = r.clicked();
-    if clicked {
-        ui.close();
-    }
-    clicked
-}
-
-/// Parse a shortcut in the registry's notation (`Cmd+Shift+Z`). `Cmd` is egui's COMMAND (⌘ on
-/// macOS, Ctrl elsewhere).
+/// Parse a shortcut in the registry's notation (`Cmd+Shift+Z`) as egui's. `Cmd` is egui's
+/// COMMAND (⌘ on macOS, Ctrl elsewhere). The parsing is the core's
+/// ([`plumcraft_editor_core::menu::parse_shortcut`]).
 pub fn parse_shortcut(s: &str) -> Option<egui::KeyboardShortcut> {
-    let mut mods = egui::Modifiers::NONE;
-    let mut key = None;
-    for part in s.split('+') {
-        match part {
-            "Cmd" => mods |= egui::Modifiers::COMMAND,
-            "Ctrl" => mods |= egui::Modifiers::CTRL,
-            "Shift" => mods |= egui::Modifiers::SHIFT,
-            "Alt" | "Opt" => mods |= egui::Modifiers::ALT,
-            k if key.is_none() => key = Some(egui::Key::from_name(k)?),
-            _ => return None,
-        }
-    }
-    Some(egui::KeyboardShortcut::new(mods, key?))
+    plumcraft_editor_core::menu::parse_shortcut(s).and_then(|sc| menu_view::to_egui(&sc))
 }
 
 /// What the run animation needs of the graph: each node's upstream nodes, and the engine

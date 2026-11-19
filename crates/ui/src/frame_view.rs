@@ -27,11 +27,10 @@ use crate::theme::{Tokens, parse_hex};
 pub const FRAME_ICON: &str = "frame";
 
 /// What a frame with no title is called.
-const UNTITLED: &str = "Frame";
+pub(crate) const UNTITLED: &str = "Frame";
 
 /// Colours a frame can take from its menu (the theme's accent when none is chosen).
-pub const SWATCHES: [(&str, &str); 6] =
-    [("Blue", "#3d6fb6"), ("Green", "#3f8f5a"), ("Amber", "#b5852e"), ("Red", "#b54a4a"), ("Violet", "#7a58b0"), ("Grey", "#6b7280")];
+pub use plumcraft_editor_core::menu::SWATCHES;
 
 fn tint(frame: &Frame, tokens: &Tokens) -> Color32 {
     frame.color.as_deref().and_then(parse_hex).unwrap_or(tokens.accent)
@@ -101,7 +100,7 @@ impl Canvas {
                         ui.set_max_width((screen.width() - 12.0).max(180.0));
                         ui.horizontal(|ui| {
                             ui.spacing_mut().button_padding = Vec2::splat(2.0);
-                            crate::icons::menu(ui, "menu", size + 1.0, tokens.text, "Frame actions", |ui| frame_menu(ui, id, frame, &mut actions));
+                            crate::icons::menu(ui, "menu", size + 1.0, tokens.text, "Frame actions", |ui| frame_menu(ui, graph, id, tokens, &mut actions));
                             crate::icons::icon(ui, FRAME_ICON, size + 1.0, tokens.text, "");
                             ui.add(egui::Label::new(text).truncate().selectable(false).sense(egui::Sense::click_and_drag()))
                         })
@@ -132,7 +131,7 @@ impl Canvas {
                 }
                 r.on_hover_cursor(egui::CursorIcon::Grab)
                     .on_hover_text(format!("{title}\n\nDrag to move the frame and its nodes; double-click to rename; right-click for its menu"))
-                    .context_menu(|ui| frame_menu(ui, id, frame, &mut actions));
+                    .context_menu(|ui| frame_menu(ui, graph, id, tokens, &mut actions));
             });
             self.frame_tabs.push(shown.response.rect);
             let handle = egui::Area::new(egui::Id::new(("plumcraft-frame-resize", id.0.as_str())))
@@ -163,31 +162,14 @@ impl Canvas {
     }
 }
 
-/// A frame's menu: its title, a colour, remove.
-fn frame_menu(ui: &mut egui::Ui, id: &FrameId, frame: &Frame, actions: &mut Vec<Action>) {
-    ui.weak(format!("frame {id}"));
-    // (a window: a text field can't live in a menu, crate::rename_view)
-    if ui.button("Rename…").clicked() {
-        rename_view::request(ui.ctx(), RenameTarget::Frame(id.clone()), &frame.title, UNTITLED);
-        ui.close();
-    }
-    ui.menu_button("Colour", |ui| {
-        for (name, hex) in SWATCHES {
-            let c = parse_hex(hex).unwrap_or(Color32::GRAY);
-            let picked = frame.color.as_deref() == Some(hex);
-            if ui.add(egui::Button::new(egui::RichText::new(format!("■ {name}")).color(c)).selected(picked)).clicked() {
-                actions.push(("frame.set", json!({"frame": id, "color": hex})));
-                ui.close();
-            }
+/// A frame's menu: its title, a colour, remove (the core's menu model).
+fn frame_menu(ui: &mut egui::Ui, graph: &Graph, id: &FrameId, tokens: &Tokens, actions: &mut Vec<Action>) {
+    let items = plumcraft_editor_core::menu::frame_menu(graph, &id.0);
+    if let Some(item) = crate::menu_view::draw(ui, &items, crate::menu_view::Style { tokens, bar: false, close: true }) {
+        match crate::menu_view::action(&item) {
+            Some(a) => actions.push(a),
+            None => crate::menu_view::open_window(ui.ctx(), &item),
         }
-        if ui.add(egui::Button::new("Theme accent").selected(frame.color.is_none())).clicked() {
-            actions.push(("frame.set", json!({"frame": id, "color": null})));
-            ui.close();
-        }
-    });
-    if ui.button("Remove Frame").on_hover_text("Its nodes stay").clicked() {
-        actions.push(("frame.remove", json!({"frame": id})));
-        ui.close();
     }
 }
 
