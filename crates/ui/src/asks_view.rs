@@ -196,7 +196,8 @@ impl EditorApp {
         match a.kind {
             Kind::FileOpen | Kind::FileSave | Kind::FolderPick => a.by == By::Person,
             Kind::ClipboardSet | Kind::ClipboardGet | Kind::Share | Kind::OpenExternal | Kind::Form => true,
-            Kind::Prompt | Kind::Text => false,
+            // (this window takes its own screenshots: the core never asks it for one)
+            Kind::Prompt | Kind::Text | Kind::Screenshot => false,
         }
     }
 
@@ -241,7 +242,7 @@ impl EditorApp {
             Kind::Share => {
                 let _ = invoke::answer(self, a.id, &json!({"error": "share isn't available here"}));
             }
-            Kind::Prompt | Kind::Text => {}
+            Kind::Prompt | Kind::Text | Kind::Screenshot => {}
         }
     }
 

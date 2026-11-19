@@ -11,9 +11,10 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -200,6 +201,96 @@ pub fn start(port: u16, token: String, wake: Arc<dyn Fn() + Send + Sync>) -> Res
     });
     spawned.map_err(|e| ControlError::Io(format!("cannot start the control thread: {e}")))?;
     Ok((rx, bound))
+}
+
+/// How often a [`Server`]'s listener looks for a stop between connections.
+const ACCEPT_POLL: Duration = Duration::from_millis(50);
+
+/// A control server that stops when it is dropped: the listener closes and every connection is
+/// shut, so its threads end. What a core that is opened and closed many times (the C ABI's)
+/// starts; the windowed editor's lives as long as the process ([`start`]).
+pub struct Server {
+    port: u16,
+    stop: Arc<AtomicBool>,
+    /// Open connections, by number, so a drop can shut them.
+    conns: Arc<Mutex<Vec<(u64, TcpStream)>>>,
+    listener: Option<JoinHandle<()>>,
+}
+
+impl Server {
+    /// Start serving on `127.0.0.1:port` (0 picks a free one); requests arrive on the returned
+    /// receiver, and `wake` is called after each is queued.
+    pub fn start(port: u16, token: String, wake: Arc<dyn Fn() + Send + Sync>) -> Result<(Server, Receiver<ControlRequest>), ControlError> {
+        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| ControlError::Io(format!("cannot listen on 127.0.0.1:{port}: {e}")))?;
+        let bound = listener.local_addr().map(|a| a.port()).unwrap_or(port);
+        listener.set_nonblocking(true).map_err(|e| ControlError::Io(format!("cannot listen on 127.0.0.1:{bound}: {e}")))?;
+        let (tx, rx) = channel::<ControlRequest>();
+        let stop = Arc::new(AtomicBool::new(false));
+        let conns: Arc<Mutex<Vec<(u64, TcpStream)>>> = Arc::default();
+        let (stop2, conns2, token) = (Arc::clone(&stop), Arc::clone(&conns), Arc::new(token));
+        let thread = std::thread::Builder::new()
+            .name("plumcraft-control".into())
+            .spawn(move || {
+                let (active, next) = (Arc::new(AtomicUsize::new(0)), AtomicU64::new(0));
+                while !stop2.load(Ordering::Acquire) {
+                    let mut stream = match listener.accept() {
+                        Ok((s, _)) => s,
+                        Err(_) => {
+                            std::thread::sleep(ACCEPT_POLL);
+                            continue;
+                        }
+                    };
+                    if stream.set_nonblocking(false).is_err() {
+                        continue;
+                    }
+                    if active.fetch_add(1, Ordering::AcqRel) >= MAX_CONNECTIONS {
+                        active.fetch_sub(1, Ordering::AcqRel);
+                        let _ = writeln!(stream, "{}", json!({"id": null, "ok": false, "error": "connection limit reached"}));
+                        continue;
+                    }
+                    let n = next.fetch_add(1, Ordering::Relaxed);
+                    if let Ok(held) = stream.try_clone() {
+                        lock(&conns2).push((n, held));
+                    }
+                    let (tx, token, wake, act, conns) = (tx.clone(), Arc::clone(&token), Arc::clone(&wake), Arc::clone(&active), Arc::clone(&conns2));
+                    let spawned = std::thread::Builder::new().name("plumcraft-control-conn".into()).spawn(move || {
+                        serve(stream, &token, &tx, wake.as_ref(), AUTH_DEADLINE);
+                        lock(&conns).retain(|(i, _)| *i != n);
+                        act.fetch_sub(1, Ordering::AcqRel);
+                    });
+                    if spawned.is_err() {
+                        lock(&conns2).retain(|(i, _)| *i != n);
+                        active.fetch_sub(1, Ordering::AcqRel);
+                    }
+                }
+            })
+            .map_err(|e| ControlError::Io(format!("cannot start the control thread: {e}")))?;
+        Ok((Server { port: bound, stop, conns, listener: Some(thread) }, rx))
+    }
+
+    /// The port it listens on.
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+}
+
+impl Drop for Server {
+    /// Stop listening (within [`ACCEPT_POLL`]) and shut every connection; their threads end
+    /// on their own once their sockets are shut.
+    fn drop(&mut self) {
+        self.stop.store(true, Ordering::Release);
+        for (_, s) in lock(&self.conns).drain(..) {
+            let _ = s.shutdown(std::net::Shutdown::Both);
+        }
+        if let Some(t) = self.listener.take() {
+            let _ = t.join();
+        }
+    }
+}
+
+/// Lock, taking a poisoned lock as it is.
+fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 fn write_line(out: &mut TcpStream, v: &Value) -> bool {

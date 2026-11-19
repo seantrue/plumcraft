@@ -15,9 +15,15 @@
 //! - the engine's own worker (`plumcraft-engine`), or its process, started by the editor core's
 //!   [`Launcher`] as the config names it (the text engine, in-process, by default).
 //!
-//! Spike scope (N0(b)): the methods are the control channel's session methods (`command.run`,
-//! `command.list`, `graph.get`, through [`plumcraft_automation::dispatch`]) plus a few `spike.*`
-//! helpers for the measurements. `plumcraft-editor-core` (N1) replaces this file.
+//! - **control** (`plumcraft-control`, only when the config names a `control` port): the same
+//!   loopback control server the desktop editor's `--control` starts, so a probe drives an app on
+//!   the C ABI as it drives the egui editor. Its requests come to the core thread.
+//!
+//! Every control-channel method (`command.*`, `graph.get`, `ui.*`, `ask.answer`) is the editor
+//! core's dispatcher ([`plumcraft_editor_core::control`]), the one the egui editor uses, whether
+//! it comes through `plum_request` or the control port; this core is its [`Shell`] (no canvas,
+//! no pixels: `ui.screenshot` becomes a `screenshot` ask). Beside them: `run`, `ping`,
+//! `core.control` (the control port, if any) and a few `spike.*` helpers for the measurements.
 
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::c_void;
@@ -28,14 +34,15 @@ use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
-use plumcraft_automation::{ControlReply, ControlRequest};
+use plumcraft_automation::server::{self, ControlRequest};
 use plumcraft_coordinator::Coordinator;
-use plumcraft_editor_core::asks::{Asks, By};
+use plumcraft_editor_core::asks::Asks;
+use plumcraft_editor_core::control::{self, Driver, Parked, Shell, View};
 use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
 use plumcraft_editor_core::invoke::{self, Cont, Host};
 use plumcraft_editor_core::link::{self, Link};
-use plumcraft_editor_core::switchboard::{Effects, Next, Switchboard, Switching};
-use plumcraft_editor_core::worker::{Done, EngineWorker};
+use plumcraft_editor_core::switchboard::{Effects, Switchboard, Switching, Work, Worked};
+use plumcraft_editor_core::worker::EngineWorker;
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::Connection;
 use plumcraft_proto::data::DataRef;
@@ -77,12 +84,23 @@ pub struct Config {
     /// What the platform has (`platform`, 4.2). What the config doesn't say it has, it hasn't:
     /// without `platform`, only engines compiled in and engines already running elsewhere.
     pub platform: Capabilities,
+    /// The control channel (`control: {port, token_file}`, 4.1 and 5.3): serve it on
+    /// `127.0.0.1:port` (0 picks a free one) when a port is given. Loopback only, always.
+    pub control: Option<ControlConfig>,
+}
+
+/// Where the control channel listens, and its token's file (none: a fresh token, printed to
+/// stderr as the desktop editor's `--control` prints it).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ControlConfig {
+    pub port: u16,
+    pub token_file: Option<PathBuf>,
 }
 
 impl Default for Config {
     /// The text engine, compiled in, on a platform that has declared nothing.
     fn default() -> Self {
-        Config { store_root: None, demo: false, engine: None, mode: None, platform: Capabilities::NONE }
+        Config { store_root: None, demo: false, engine: None, mode: None, platform: Capabilities::NONE, control: None }
     }
 }
 
@@ -101,6 +119,7 @@ impl Config {
             engine: named("default", "engine"),
             mode: named("mode", "mode"),
             platform: Capabilities::declared(o.get("platform")),
+            control: control_config(o.get("control"))?,
         })
     }
 
@@ -123,6 +142,24 @@ impl Config {
         }
         Ok((kind, mode))
     }
+}
+
+/// `control: {port, token_file}`: none when absent, null or with a null port (4.1: "Null `port`:
+/// no control channel"); an error for a port that isn't one.
+fn control_config(v: Option<&Value>) -> Result<Option<ControlConfig>, String> {
+    let Some(o) = v.filter(|v| !v.is_null()).map(|v| v.as_object().ok_or("config: control must be {port, token_file}")).transpose()? else {
+        return Ok(None);
+    };
+    let port = match o.get("port") {
+        None | Some(Value::Null) => return Ok(None),
+        Some(p) => p.as_u64().and_then(|p| u16::try_from(p).ok()).ok_or("config: control.port must be a port number (0 picks a free one)")?,
+    };
+    let token_file = match o.get("token_file") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(f)) if !f.trim().is_empty() && !f.contains('\0') => Some(PathBuf::from(f)),
+        Some(_) => return Err("config: control.token_file must be a file path".into()),
+    };
+    Ok(Some(ControlConfig { port, token_file }))
 }
 
 /// The shell's wake, called only by the core thread.
@@ -291,6 +328,8 @@ enum Msg {
     },
     /// The link has events waiting.
     Drain,
+    /// The control channel queued a request.
+    Control,
     Stop,
 }
 
@@ -347,6 +386,23 @@ impl Core {
             lent: Mutex::default(),
         });
         let engines = EngineWorker::new(Some(waker.clone()));
+        let (control_server, control_rx, control_token_file) = match &config.control {
+            None => (None, None, None),
+            Some(c) => {
+                let token = server::server_token(c.token_file.as_deref()).map_err(|e| format!("control token: {e}"))?;
+                let to_core = tx.clone();
+                let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+                    let _ = to_core.send(Msg::Control);
+                });
+                let (srv, rx) = server::Server::start(c.port, token.clone(), wake).map_err(|e| e.to_string())?;
+                eprintln!("plumcraft: control channel on 127.0.0.1:{}", srv.port());
+                match &c.token_file {
+                    Some(p) => eprintln!("plumcraft: control token in {}", p.display()),
+                    None => eprintln!("plumcraft: control token: {token}"),
+                }
+                (Some(srv), Some(rx), c.token_file.clone())
+            }
+        };
         let worker = Worker {
             session,
             shared: Arc::clone(&shared),
@@ -360,10 +416,13 @@ impl Core {
             state,
             last_error: None,
             switching: Switching::default(),
-            switch_waits: Vec::new(),
+            parked: Parked::default(),
             asks: Asks::default(),
             prefs: plumcraft_editor_core::prefs::Store::default(),
             launches,
+            control_rx,
+            control_server,
+            control_token_file,
         };
         let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
@@ -407,17 +466,6 @@ struct Waiter {
     deadline: Instant,
 }
 
-/// A request that switched engines, waiting for the switch to be done.
-struct SwitchWait {
-    id: u64,
-    tag: Option<Value>,
-    /// The command's own result (its `how`).
-    command: Value,
-    last: Option<Value>,
-    /// `ui.invoke` or `ask.answer`: the reply is `command` with the asks open once switched.
-    asks: bool,
-}
-
 /// The core thread's state.
 struct Worker {
     session: Session,
@@ -439,13 +487,20 @@ struct Worker {
     state: EngineState,
     last_error: Option<String>,
     switching: Switching,
-    switch_waits: Vec<SwitchWait>,
+    /// Control requests whose reply waits (a switch, a run, a screenshot asked of the shell).
+    parked: Parked,
     /// What the core asks the shell (`docs/shell-interface.md` section 11).
     asks: Asks<Cont>,
     /// The folders each kind of file ask last used (in memory: the shell keeps its own).
     prefs: plumcraft_editor_core::prefs::Store,
     /// The apps the session asked to start, until they are asked of the shell.
     launches: Option<invoke::Launches>,
+    /// The control channel's requests (declared before its server, so they drop first and a
+    /// connection waiting on one is answered at once).
+    control_rx: Option<Receiver<ControlRequest>>,
+    /// The control server; dropping it (the core closing) closes the port and its connections.
+    control_server: Option<server::Server>,
+    control_token_file: Option<PathBuf>,
 }
 
 /// The invoke machine's view of this core: no canvas, so no selection.
@@ -478,6 +533,55 @@ impl Host for Worker {
     }
 }
 
+/// The control channel's view of this core: the core's parts of `ui.inspect`, no geometry; a
+/// `screenshot` ask for `ui.screenshot`; no `ui.set` or `ui.audio`.
+impl Shell for Worker {
+    fn view(&self) -> View<'_> {
+        View {
+            link: self.link.as_ref(),
+            state: &self.state,
+            coordinator: self.coordinator.as_ref(),
+            switching: &self.switching,
+            last_error: self.last_error.as_deref(),
+            asks: &self.asks,
+            document: control::UNTITLED,
+            app_title: control::APP_TITLE,
+            run_anim: None,
+            prefs: Some(&self.prefs),
+            theme: None,
+        }
+    }
+    fn parked(&mut self) -> &mut Parked {
+        &mut self.parked
+    }
+    fn clear_last_error(&mut self) {
+        self.last_error = None;
+    }
+    fn presented(&mut self) {
+        self.feed_asks();
+    }
+}
+
+/// Engine switching on this core: everything that waits goes to the worker.
+impl Driver for Worker {
+    fn worker(&mut self) -> &mut EngineWorker {
+        &mut self.engines
+    }
+    fn switching(&mut self) -> &mut Switching {
+        &mut self.switching
+    }
+    fn board<R>(&mut self, f: impl FnOnce(&mut Switchboard<'_>) -> R) -> R {
+        Worker::board(self, f)
+    }
+    fn start(&mut self, w: Work) -> Option<Worked> {
+        let carry = (self.launcher.clone(), self.waker.clone());
+        self.engines.switch(w, carry, |(launcher, waker): &mut (Launcher, link::Waker), engine: &str, mode: &str| {
+            launcher.connect_ids(engine, mode, Some(waker.clone()))
+        });
+        None
+    }
+}
+
 impl Worker {
     fn run(mut self, rx: &Receiver<Msg>) {
         loop {
@@ -496,9 +600,11 @@ impl Worker {
                     }
                     self.step_engines();
                 }
-                None => {}
+                Some(Msg::Control) | None => {}
             }
+            self.control_requests();
             self.answer_waiters();
+            control::tick(&mut self);
             self.feed_asks();
             let o = lock(&self.shared.outbox);
             let any = !o.replies.is_empty() || !o.events.is_empty() || !o.asks.is_empty() || !o.asks_ended.is_empty();
@@ -516,15 +622,40 @@ impl Worker {
     }
 
     fn reply(&self, id: u64, tag: Option<&Value>, r: Result<Value, String>) {
-        let reply = match r {
-            Ok(v) => ControlReply::ok(id, v),
-            Err(e) => ControlReply::err(id, e),
+        let v = match r {
+            Ok(v) => control::ok(v),
+            Err(e) => control::err(e),
         };
-        let mut v = serde_json::to_value(&reply).unwrap_or(Value::Null);
-        if let (Some(tag), Some(o)) = (tag, v.as_object_mut()) {
-            o.insert("tag".into(), tag.clone());
+        self.shared.push_reply(framed(id, tag, v));
+    }
+
+    /// Where a dispatcher's reply goes: the outbox, as request `id`'s (with its `tag`).
+    fn replier(&self, id: u64, tag: Option<Value>) -> control::Reply {
+        let shared = Arc::clone(&self.shared);
+        Box::new(move |v: Value| shared.push_reply(framed(id, tag.as_ref(), v)))
+    }
+
+    /// The control channel's requests, through the same dispatcher.
+    fn control_requests(&mut self) {
+        let Some(rx) = &self.control_rx else { return };
+        let requests: Vec<ControlRequest> = rx.try_iter().collect();
+        for req in requests {
+            if req.expired() {
+                let _ = req.reply.send(control::err("timeout: the request expired before it ran"));
+                continue;
+            }
+            let reply = req.reply.clone();
+            control::handle(
+                self,
+                &req.method,
+                &req.params,
+                Box::new(move |v: Value| {
+                    let _ = reply.send(v);
+                }),
+            );
+            self.send_outgoing();
+            self.step_engines();
         }
-        self.shared.push_reply(v.to_string());
     }
 
     fn request(&mut self, id: u64, body: &[u8]) {
@@ -538,18 +669,6 @@ impl Worker {
         };
         let params = v.get("params").cloned().unwrap_or(Value::Null);
         let r = match method {
-            "command.run" | "engine.execute" | "command.list" | "engine.commands" | "graph.get" => {
-                let r = plumcraft_automation::dispatch(&mut self.session, &ControlRequest { id, method: method.to_owned(), params });
-                self.send_outgoing();
-                if r.ok && self.session.engines.is_pending() {
-                    // an engine switch: it replies once it is done (the editor's control channel
-                    // does the same), and this thread doesn't wait for it
-                    self.switch_waits.push(SwitchWait { id, tag, command: r.result, last: None, asks: false });
-                    self.step_engines();
-                    return;
-                }
-                if r.ok { Ok(r.result) } else { Err(r.error.unwrap_or_default()) }
-            }
             // `command.run run.start`, shorter
             "run" => {
                 let r = self.session.execute("run.start", &params).map_err(|e| e.to_string());
@@ -557,67 +676,31 @@ impl Worker {
                 r
             }
             "ping" => Ok(json!({"pong": true})),
+            // where the control channel listens, if it does
+            "core.control" => Ok(match &self.control_server {
+                Some(srv) => json!({"port": srv.port(), "tokenFile": self.control_token_file}),
+                None => json!({"port": null}),
+            }),
             "spike.waitRun" => {
                 let ms = params.get("timeout_ms").and_then(Value::as_u64).unwrap_or(25_000).min(600_000);
                 self.waiters.push(Waiter { id, tag, deadline: Instant::now() + Duration::from_millis(ms) });
                 return;
             }
-            // a command as its menu item runs it: what it needs from the shell is asked (`asks` in
-            // the reply and the feed), and answered with ask.answer
-            "ui.invoke" => match ui_command(&params) {
-                Err(e) => Err(e),
-                Ok(command) => match plumcraft_session::find(&command).map(|c| (c.id, (c.enabled)(&self.session))) {
-                    None => Err(format!("unknown command {:?}", command.chars().take(64).collect::<String>())),
-                    Some((cid, Err(why))) => Err(format!("{cid} is not available: {why}")),
-                    Some((cid, Ok(()))) => {
-                        self.last_error = None;
-                        invoke::invoke(self, cid, By::Script);
-                        return self.reply_asks(id, tag, json!({"invoked": cid}));
-                    }
-                },
-            },
-            "ask.answer" => match ask_answer(&params) {
-                Err(e) => Err(e),
-                Ok((ask, answer)) => {
-                    self.last_error = None;
-                    let r = match answer {
-                        Some(a) => invoke::answer(self, ask, &a),
-                        None => invoke::cancel(self, ask),
-                    };
-                    match r {
-                        Err(e) => Err(e),
-                        Ok(()) => return self.reply_asks(id, tag, json!({})),
-                    }
-                }
-            },
             "spike.demo" => load_demo(&mut self.session, self.kind).map(|()| json!({"nodes": self.session.graph().nodes.len()})),
             "spike.scene" => self.scene(&params),
             "spike.publish" => self.publish(&params),
             "spike.stats" => Ok(self.stats()),
-            other => Err(format!("unknown method {:?}", other.chars().take(64).collect::<String>())),
+            // every control-channel method, as the egui editor answers it: a command that
+            // switches engines replies once switched, and this thread doesn't wait for it
+            _ => {
+                let reply = self.replier(id, tag);
+                control::handle(self, method, &params, reply);
+                self.send_outgoing();
+                self.step_engines();
+                return;
+            }
         };
         self.reply(id, tag.as_ref(), r);
-    }
-
-    /// Reply to `ui.invoke` or `ask.answer` with `base`, the asks open and the last error, once
-    /// any engine switch the command asked for is done.
-    fn reply_asks(&mut self, id: u64, tag: Option<Value>, base: Value) {
-        self.feed_asks();
-        if self.session.engines.is_pending() {
-            self.switch_waits.push(SwitchWait { id, tag, command: base, last: None, asks: true });
-            self.step_engines();
-            return;
-        }
-        let v = self.with_asks(base);
-        self.reply(id, tag.as_ref(), Ok(v));
-    }
-
-    fn with_asks(&self, mut base: Value) -> Value {
-        if let Some(o) = base.as_object_mut() {
-            o.insert("asks".into(), self.asks.inspect());
-            o.insert("lastError".into(), json!(self.last_error));
-        }
-        base
     }
 
     /// What was asked and what ended, to the shell's feed.
@@ -667,74 +750,12 @@ impl Worker {
         f(&mut b)
     }
 
-    /// Engine switching without waiting: take what the worker brought back (a refused run, a
-    /// switch's end), begin what the session asked for next, and answer the requests waiting
-    /// for it once nothing is left to do.
+    /// Engine switching without waiting, as the editor core drives it for every shell
+    /// ([`control::step`]); then `plum_blob` follows the connection.
     fn step_engines(&mut self) {
         let mut out = Vec::new();
-        for done in self.engines.drain() {
-            match done {
-                Done::RunFailed { run_id, generation, why } => {
-                    let run = &self.session.run;
-                    if run.run_id.as_deref() == Some(run_id.as_str()) && run.generation == generation {
-                        self.session.run.fail(&format!("run: {why}"));
-                    }
-                }
-                Done::Switched { worked, .. } => {
-                    let next = self.board(|b| b.finish(*worked));
-                    self.go(next, &mut out);
-                }
-            }
-        }
-        while !self.switching.busy() && self.session.engines.is_pending() {
-            let Some(next) = self.board(|b| b.begin()) else { break };
-            self.go(next, &mut out);
-        }
-        let retired = self.switching.take_retired();
-        self.engines.retire(retired);
+        control::step(self, &mut out);
         *lock(&self.shared.conn) = self.link.as_ref().map(|l| Arc::clone(&l.conn));
-        for r in out {
-            match r {
-                Ok(v) => self.switch_waits.iter_mut().for_each(|w| w.last = Some(v.clone())),
-                Err(e) => {
-                    for w in std::mem::take(&mut self.switch_waits) {
-                        self.reply(w.id, w.tag.as_ref(), Err(e.clone()));
-                    }
-                }
-            }
-        }
-        if !self.switching.busy() && !self.session.engines.is_pending() {
-            for w in std::mem::take(&mut self.switch_waits) {
-                if w.asks {
-                    let v = self.with_asks(w.command);
-                    self.reply(w.id, w.tag.as_ref(), Ok(v));
-                    continue;
-                }
-                let v = match w.last {
-                    Some(mut out) => {
-                        if let (Some(how), Some(o)) = (w.command.get("how"), out.as_object_mut()) {
-                            o.insert("how".into(), how.clone());
-                        }
-                        out
-                    }
-                    None => w.command,
-                };
-                self.reply(w.id, w.tag.as_ref(), Ok(v));
-            }
-        }
-    }
-
-    /// Carry an operation on: its waiting part to the worker, with the launcher.
-    fn go(&mut self, next: Next, out: &mut Vec<Result<Value, String>>) {
-        match next {
-            Next::Done(r) => out.push(r),
-            Next::Work(w) => {
-                let carry = (self.launcher.clone(), self.waker.clone());
-                self.engines.switch(w, carry, |(launcher, waker): &mut (Launcher, link::Waker), engine: &str, mode: &str| {
-                    launcher.connect_ids(engine, mode, Some(waker.clone()))
-                });
-            }
-        }
     }
 
     /// The engine's events: into the session's run state, their DataRefs remembered, and on to
@@ -855,32 +876,22 @@ impl Worker {
     }
 }
 
+/// A dispatcher's reply (`{ok, result | error}`) as request `id`'s, with its `tag`; a null result
+/// is left out, as before.
+fn framed(id: u64, tag: Option<&Value>, mut v: Value) -> String {
+    if let Some(o) = v.as_object_mut() {
+        if o.get("result").is_some_and(Value::is_null) {
+            o.remove("result");
+        }
+        o.insert("id".into(), json!(id));
+        if let Some(tag) = tag {
+            o.insert("tag".into(), tag.clone());
+        }
+    }
+    v.to_string()
+}
+
 /// Every DataRef in an event, by handle (`{"handle": …, "meta": …, "at": […]}` anywhere in it).
-/// `ui.invoke`'s `{command}`.
-fn ui_command(p: &Value) -> Result<String, String> {
-    let o = p.as_object().ok_or("params must be {command}")?;
-    if let Some(k) = o.keys().find(|k| *k != "command") {
-        return Err(format!("unknown field {:?} (allowed: command)", k.chars().take(64).collect::<String>()));
-    }
-    o.get("command").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| "command must be a command id".into())
-}
-
-/// `ask.answer`'s `{ask, answer}` or `{ask, cancel: true}`: the ask, and the answer (none: cancel).
-fn ask_answer(p: &Value) -> Result<(u64, Option<Value>), String> {
-    let o = p.as_object().ok_or("params must be {ask, answer} or {ask, cancel: true}")?;
-    if let Some(k) = o.keys().find(|k| !["ask", "answer", "cancel"].contains(&k.as_str())) {
-        return Err(format!("unknown field {:?} (allowed: ask, answer, cancel)", k.chars().take(64).collect::<String>()));
-    }
-    let ask = o.get("ask").and_then(Value::as_u64).ok_or("ask must be an ask's id")?;
-    match (o.get("cancel"), o.get("answer")) {
-        (Some(Value::Bool(true)), None) => Ok((ask, None)),
-        (None | Some(Value::Bool(false)), Some(a)) => Ok((ask, Some(a.clone()))),
-        (Some(Value::Bool(_)), Some(_)) => Err("give answer or cancel: true, not both".into()),
-        (Some(_), _) => Err("cancel must be true".into()),
-        (None, None) => Err("answer is required (or cancel: true)".into()),
-    }
-}
-
 fn collect_refs(v: &Value, into: &mut HashMap<String, DataRef>) {
     match v {
         Value::Object(o) => {

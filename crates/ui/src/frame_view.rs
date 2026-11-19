@@ -193,13 +193,5 @@ fn frame_menu(ui: &mut egui::Ui, id: &FrameId, frame: &Frame, actions: &mut Vec<
 
 /// `ui.inspect`'s `frames`: each frame, with what it holds now.
 pub fn inspect(graph: &Graph) -> Value {
-    let list: Vec<Value> = graph
-        .frames
-        .iter()
-        .map(|(id, f)| {
-            let held = graph.frame_held(id);
-            json!({"id": id, "title": f.title, "pos": f.pos, "size": f.size, "color": f.color, "nodes": held.nodes, "groups": held.groups})
-        })
-        .collect();
-    Value::Array(list)
+    plumcraft_editor_core::control::frames_inspect(graph)
 }

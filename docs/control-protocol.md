@@ -1,6 +1,6 @@
 # Control protocol
 
-*Last updated 2026-10-29 (several engines; before that E1.4, engine switching). Lifted from the research software's `docs/control-protocol.md` (the research software supporting www.virtimp.com `8d96021`), itself modelled on photocraft's.*
+*Last updated 2026-11-19 (N1 slice 5: the dispatcher in the editor core, and the C ABI's control port; before that 2026-10-29, several engines, and E1.4, engine switching). Lifted from the research software's `docs/control-protocol.md` (the research software supporting www.virtimp.com `8d96021`), itself modelled on photocraft's.*
 
 The editor (`plumcraft-editor`) serves a JSON control channel on the loopback interface, so agents, tests and scripts can drive the real window: run any session command, read the UI state, wait for runs and take screenshots.
 
@@ -15,7 +15,22 @@ plumcraft-editor --control 7878 --control-token-file ~/.config/plumcraft/control
 - The token is 64 hexadecimal characters.
 - Other launch options: a workflow file to open (the text engine's demo without one), the engine and its hosting (`--engine text|audio`, `--process`, `--python`, `--http [--python]`; the Engine menu, or `engine.switch`, changes them while the editor runs) and `--screenshot OUT.png [--shot-runs N]`.
 
-The transport is `crates/automation/src/server.rs`. The handlers are `crates/ui/src/control.rs`; the editor app (`EditorApp`) drains the transport's queue at the start of every frame, and `apps/plumcraft-editor/src/main.rs` starts the server.
+The transport is `crates/automation/src/server.rs`. The handlers are the editor core's (`crates/editor-core/src/control.rs`, since N1 slice 5), the same for every shell; what only the window can do (its part of `ui.inspect`, `ui.set`, `ui.audio`, `ui.screenshot`) is `crates/ui/src/control.rs`. The editor app (`EditorApp`) drains the transport's queue at the start of every frame, and `apps/plumcraft-editor/src/main.rs` starts the server.
+
+### On a core opened through the C ABI
+
+An app built on the C ABI (`crates/ffi`, the native shells) serves the same channel when `plum_open`'s config names a port (`docs/shell-interface.md` 4.1):
+
+```json
+{"control": {"port": 0, "token_file": "/path/to/control.token"}}
+```
+
+- The same server, on `127.0.0.1` only, with the same token rules, framing, limits and methods, answered by the same dispatcher as the editor's. `port: 0` picks a free port. A null or absent `port` serves nothing. A port that isn't one, or a `token_file` that isn't a path, makes `plum_open` fail with the reason.
+- The core prints `plumcraft: control channel on 127.0.0.1:<port>` and the token (or its file) to stderr, as the editor does. The request `core.control` (through `plum_request`) answers `{port, tokenFile}`, or `{port: null}`.
+- Closing the core (`plum_close`) closes the port and every connection to it.
+- What such a core has no window for: `ui.inspect` has the core's parts (the document, graph, engine, run, asks, prompt, frames, docs, save, `lastError`, `title`) and not the window's (`canvas`, `selection`, `popups`, `watched`, `groups`, `popouts`, `parameters`, `editors`, `wirePreview`, `rename`, `copied`, `runAnim`, `theme`). `ui.set` and `ui.audio` answer `"… isn't available from this shell"`.
+- `ui.screenshot` becomes a `screenshot` ask to the shell, `{path, offscreen}` (in `plum_poll`'s `asks` and `ui.inspect`'s `asks`). The shell writes the picture and answers `ask.answer {ask, answer: {path, width, height, source?}}` (`source`: `"window"` by default, or `"offscreen"`), or `{error}`; `ui.screenshot` then replies `{path, width, height, source}`, or the error. Unanswered after 2 s, it replies with an error starting `timeout:`.
+- The same methods also come through `plum_request`, with replies in `plum_poll`.
 
 ## Framing and authentication
 

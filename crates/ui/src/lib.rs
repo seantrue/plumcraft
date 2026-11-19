@@ -92,9 +92,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, channel};
 use std::time::{Duration, Instant};
 
-use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply, texts};
+use plumcraft_proto::catalogue::{PathHint, SaveFormat, SchemaReply};
 use plumcraft_proto::data::DataRef;
-use plumcraft_proto::event::{Event, NodeState};
+use plumcraft_proto::event::Event;
 use plumcraft_proto::run::SaveReply;
 use plumcraft_proto::session::EngineState;
 use plumcraft_session::run::Outgoing;
@@ -118,7 +118,7 @@ fn panel_display<'a>(
 }
 
 /// The window title's app name.
-pub const APP_TITLE: &str = "PlumCraft";
+pub const APP_TITLE: &str = plumcraft_editor_core::control::APP_TITLE;
 
 /// Top-level menus, in order. Commands name theirs in `CommandSpec::menu`; menus the registry
 /// adds later appear after these.
@@ -325,15 +325,7 @@ pub use plumcraft_editor_core::asks::{AskId, By};
 /// ([`EditorApp::answer_prompt`]).
 pub use plumcraft_editor_core::invoke::{AfterDiscard, Prompt, PromptAnswer};
 
-/// A path as the status bar shows it: its last two components.
-fn short_path(path: &str) -> String {
-    let p = Path::new(path);
-    match (p.parent().and_then(Path::file_name), p.file_name()) {
-        (Some(dir), Some(name)) => format!("{}/{}", dir.to_string_lossy(), name.to_string_lossy()),
-        (None, Some(name)) => name.to_string_lossy().into_owned(),
-        _ => path.to_owned(),
-    }
-}
+use plumcraft_editor_core::control::short_path;
 
 /// How long a screenshot waits for its runs before it takes the window as it is.
 pub const SHOT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -460,8 +452,6 @@ pub struct EditorApp {
     pub(crate) engine_worker: plumcraft_editor_core::worker::EngineWorker,
     /// An engine switch under way ([`engine_view`]).
     pub(crate) switching: plumcraft_editor_core::switchboard::Switching,
-    /// Control requests waiting for a switch to finish ([`engine_view`]).
-    pub(crate) engine_waits: Vec<engine_view::EngineWait>,
     /// The last command run asked for an engine switch.
     pub(crate) engine_asked: bool,
     /// Drawing a frame: what a command starts on an engine goes to the worker, and the frame
@@ -471,6 +461,8 @@ pub struct EditorApp {
     pub(crate) attaching: bool,
     /// The context a new engine link wakes (set every frame).
     pub(crate) repaint: Option<egui::Context>,
+    /// The context of the last control request: what its replies read and repaint.
+    pub(crate) control_ctx: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
     pub app_title: &'static str,
     /// The latest run, replayed for the canvas's run colours ([`run_anim`]).
@@ -543,11 +535,11 @@ impl EditorApp {
             installing: None,
             engine_worker: Default::default(),
             switching: Default::default(),
-            engine_waits: Vec::new(),
             engine_asked: false,
             in_frame: false,
             attaching: false,
             repaint: None,
+            control_ctx: None,
         }
     }
 
@@ -1350,16 +1342,12 @@ impl EditorApp {
 
     /// The window title's name: the workflow's file name, or [`EditorApp::document`] without one.
     pub fn document_name(&self) -> String {
-        self.session.path().and_then(Path::file_name).map_or_else(|| self.document.clone(), |n| n.to_string_lossy().into_owned())
+        plumcraft_editor_core::control::document_name(&self.session, &self.document)
     }
 
     /// The window title: the workflow's name and a dot while it has unsaved changes.
     pub fn window_title(&self) -> String {
-        let dot = if self.session.is_dirty() { " •" } else { "" };
-        match self.engine_title() {
-            Some(engine) => format!("{}{dot} — {} ({engine})", self.document_name(), self.app_title),
-            None => format!("{}{dot} — {}", self.document_name(), self.app_title),
-        }
+        plumcraft_editor_core::control::window_title(&self.session, &plumcraft_editor_core::control::Shell::view(self))
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context) {
@@ -1481,26 +1469,7 @@ impl EditorApp {
 
     /// What's wrong with the engine and how to fix it, when something is.
     pub fn banner_text(&self) -> Option<String> {
-        let with_hint = |what: String, hint: &str| if hint.is_empty() { what } else { format!("{what}. Fix: {hint}") };
-        match &self.engine {
-            EngineState::EngineDown { reason, hint, stderr_tail, .. } => {
-                let tail = stderr_tail.as_deref().filter(|t| !t.is_empty()).map(|t| format!("\n{t}")).unwrap_or_default();
-                Some(format!("{}{tail}", with_hint(format!("The engine is down: {reason}"), hint)))
-            }
-            EngineState::Unreachable { url, reason, hint, .. } => Some(with_hint(format!("The engine at {url} can't be reached: {reason}"), hint)),
-            EngineState::Unavailable { reason } => Some(format!("The engine is up but can't run: {reason}")),
-            // connected, with something to say: what this graph lacks, and the engine's own notice
-            _ => {
-                let known = !self.session.catalog().nodes.is_empty();
-                let missing = known.then(|| self.session.missing_engines()).flatten().map(|m| m.text);
-                let notice = self.session.catalog().text(texts::ENGINE_NOTICE).filter(|n| !n.is_empty()).map(str::to_owned);
-                match (missing, notice) {
-                    (Some(m), Some(n)) => Some(format!("{m}\n{n}")),
-                    (Some(m), None) => Some(m),
-                    (None, n) => n,
-                }
-            }
-        }
+        plumcraft_editor_core::control::banner_text(&self.session, &self.engine)
     }
 
     fn banner(&self, ui: &mut egui::Ui) {
@@ -1528,12 +1497,7 @@ impl EditorApp {
     /// The engine's status line (`texts::ENGINE_STATUS`, plumcraft #86) and its tone, while the
     /// engine is connected and the text isn't empty.
     pub fn engine_status(&self) -> Option<(String, plumcraft_session::commands::Tone)> {
-        if !self.engine.is_connected() {
-            return None;
-        }
-        let c = self.session.catalog();
-        let text = c.text(texts::ENGINE_STATUS).filter(|t| !t.trim().is_empty())?;
-        Some((text.to_owned(), plumcraft_session::commands::Tone::from_text(c.text(texts::ENGINE_STATUS_TONE).unwrap_or_default())))
+        plumcraft_editor_core::control::engine_status(&self.session, &self.engine)
     }
 
     /// The status bar, in two-line cells (layout B; the maintainer: "D17 B"): the engine over
@@ -1673,45 +1637,8 @@ impl EditorApp {
     /// The status bar's messages, most serious first within each kind: the run's errors, the
     /// application's segment, a save's outcome, the last thing that went wrong.
     pub fn status_messages(&self) -> Vec<status_msgs::Msg> {
-        use plumcraft_session::commands::Tone;
-        use status_msgs::Msg;
-        let run = &self.session.run;
-        let mut msgs = Vec::new();
-        let errors = run.errors();
-        if errors > 0 {
-            let names: Vec<String> = run.nodes.iter().filter(|(_, n)| n.state == Some(NodeState::Error)).map(|(id, _)| id.clone()).collect();
-            let text = if errors == 1 { "1 error".to_owned() } else { format!("{errors} errors") };
-            msgs.push(Msg::new(Tone::Error, text).detail(format!("in {}", names.join(", "))));
-        }
-        if let Some(e) = &run.run_error {
-            msgs.push(Msg::new(Tone::Error, e.clone()));
-        }
-        // the application's own segment (crate::app_hooks)
-        if let Some(text) = &self.app.status {
-            msgs.push(Msg::new(self.app.status_tone, text.clone()));
-        }
-        if self.session.save.pending.is_none()
-            && let Some((ask, reply)) = &self.session.save.last
-        {
-            msgs.push(match (&reply.error, reply.ok) {
-                (None, true) => {
-                    let shown = reply.paths.first().map_or(ask.path.as_str(), String::as_str);
-                    let text = match (ask.sheet, reply.paths.len()) {
-                        (true, _) => format!("saved a sheet of {} as {}", reply.items, short_path(shown)),
-                        (false, 0 | 1) => format!("saved {}", short_path(shown)),
-                        (false, n) => format!("saved {n} files as {}", short_path(&ask.path)),
-                    };
-                    let text = if reply.recipe { text } else { format!("{text}, without its recipe") };
-                    Msg::new(Tone::Info, text).detail(reply.paths.join("\n"))
-                }
-                (Some(e), _) => Msg::new(Tone::Error, format!("not saved: {}", e.message)).detail(ask.path.clone()),
-                (None, false) => Msg::new(Tone::Error, "not saved").detail(ask.path.clone()),
-            });
-        }
-        if let Some(err) = &self.last_error {
-            msgs.push(Msg::new(Tone::Error, err.clone()));
-        }
-        msgs
+        let app = self.app.status.as_deref().map(|text| (text, self.app.status_tone));
+        plumcraft_editor_core::control::status_messages(&self.session, self.last_error.as_deref(), app)
     }
 
     fn watched_panel(&mut self, ui: &mut egui::Ui) {

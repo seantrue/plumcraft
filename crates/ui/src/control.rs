@@ -1,6 +1,11 @@
-//! Control-channel handlers that need the UI: `command.run`/`engine.execute`,
-//! `command.list`/`engine.commands`, `graph.get`, `ui.inspect`, `ui.set`, `ui.invoke`,
-//! `ui.prompt`, `ui.audio`, `ui.screenshot` and `ui.waitRun` (`docs/control-protocol.md`).
+//! The egui window's side of the control channel (`docs/control-protocol.md`).
+//!
+//! The dispatcher is the editor core's ([`plumcraft_editor_core::control`], N1 slice 5): every
+//! method, the parked replies and engine switching are answered there, the same for every shell.
+//! What stays here is what only this window can do, as its [`core::Shell`]: its part of
+//! `ui.inspect` (the canvas, selection, windows, popups, the Watched panel's views), `ui.set`
+//! (the canvas's transform, the palette, group focus), `ui.audio` (the audio device) and
+//! `ui.screenshot` (pixels).
 //!
 //! The transport (`plumcraft-automation`) queues requests; the app drains them at the start of
 //! every frame ([`EditorApp::drain_control`]) and hands each to [`EditorApp::handle_control`]
@@ -8,10 +13,6 @@
 //! window delivers the image, and a run wait when the run finishes. Every request gets exactly
 //! one reply: a window that never delivers its screenshot (a locked screen) is drawn offscreen
 //! instead ([`crate::offscreen`]) after [`WINDOW_SHOT_WAIT`].
-//!
-//! `ask.answer {ask, answer}` (or `{ask, cancel: true}`) answers what the core asked
-//! (`ui.inspect`'s `asks`): since N1 slice 4, `ui.invoke` of a command that needs a file replies at
-//! once with the ask open, and the script answers it.
 //!
 //! Lifted from the research software's `crates/ui-egui/src/control.rs` (2026-10-27, the research software `8d96021`; plan
 //! 10.3, E1.4) without the viewer or the parameters panel; E2 added the file and undo state to
@@ -23,21 +24,18 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use egui::emath::TSTransform;
-use serde_json::{Value, json};
+use plumcraft_editor_core::control::{self as core, Parked, ShotRequest, View, check_fields};
+use serde_json::{Map, Value, json};
 
 use crate::EditorApp;
 
-/// Sends one reply (`{"ok": true, "result"}` or `{"ok": false, "error"}`).
-pub type Reply = Box<dyn FnOnce(Value) + Send>;
+pub use plumcraft_editor_core::control::{Reply, WAIT_RUN_MAX_S, default_screenshot_path, err, ok};
 
 /// Frames to wait before capturing, so layout and fades settle.
 const SETTLE_FRAMES: u32 = 3;
 
 /// How long the window has to deliver a screenshot before the app draws one offscreen.
 pub const WINDOW_SHOT_WAIT: Duration = Duration::from_secs(2);
-
-/// The longest `ui.waitRun` may wait: under the transport's 30 s reply timeout.
-pub const WAIT_RUN_MAX_S: f64 = 29.0;
 
 struct Shot {
     token: u64,
@@ -50,55 +48,88 @@ struct Shot {
     reply: Reply,
 }
 
-/// A `ui.waitRun` waiting for the current run to finish.
-struct Wait {
-    deadline: Instant,
-    reply: Reply,
-}
-
-/// Screenshots and run waits in flight.
+/// Screenshots in flight, and the replies the core parked (engine switches, run waits).
 pub struct ControlState {
     shots: Vec<Shot>,
-    next_token: u64,
-    waits: Vec<Wait>,
+    /// What the core's dispatcher holds for later ([`plumcraft_editor_core::control::Parked`]).
+    pub parked: Parked,
     /// How long a window screenshot may take before the offscreen fallback ([`WINDOW_SHOT_WAIT`]).
     pub window_shot_wait: Duration,
 }
 
 impl Default for ControlState {
     fn default() -> Self {
-        ControlState { shots: Vec::new(), next_token: 0, waits: Vec::new(), window_shot_wait: WINDOW_SHOT_WAIT }
+        ControlState { shots: Vec::new(), parked: Parked::default(), window_shot_wait: WINDOW_SHOT_WAIT }
     }
 }
 
 impl ControlState {
     /// Requests still waiting for their reply.
     pub fn pending(&self) -> usize {
-        self.shots.len() + self.waits.len()
+        self.shots.len() + self.parked.pending()
     }
 }
 
-pub fn ok(result: Value) -> Value {
-    json!({"ok": true, "result": result})
-}
-
-pub fn err(message: impl Into<String>) -> Value {
-    json!({"ok": false, "error": message.into()})
-}
-
-/// Where a screenshot goes when the request names no path.
-pub fn default_screenshot_path(token: u64) -> PathBuf {
-    std::env::temp_dir().join("plumcraft-screenshots").join(format!("plumcraft-{}-{token}.png", std::process::id()))
-}
-
-fn check_fields(params: &Value, allowed: &[&str]) -> Result<(), String> {
-    match params {
-        Value::Null => Ok(()),
-        Value::Object(o) => match o.keys().find(|k| !allowed.contains(&k.as_str())) {
-            Some(k) => Err(format!("unknown field {k:?} (allowed: {})", allowed.join(", "))),
-            None => Ok(()),
-        },
-        _ => Err("params must be a JSON object".into()),
+/// What only this window can do for the control channel: its canvas, windows and pixels.
+impl core::Shell for EditorApp {
+    fn view(&self) -> View<'_> {
+        View {
+            link: self.link.as_ref(),
+            state: &self.engine,
+            coordinator: self.coordinator.as_ref(),
+            switching: &self.switching,
+            last_error: self.last_error.as_deref(),
+            asks: &self.asks,
+            document: &self.document,
+            app_title: self.app_title,
+            run_anim: Some(&self.run_anim),
+            prefs: Some(&self.prefs),
+            theme: Some(self.tokens.name),
+        }
+    }
+    fn parked(&mut self) -> &mut Parked {
+        &mut self.control.parked
+    }
+    fn clear_last_error(&mut self) {
+        self.last_error = None;
+    }
+    /// What the command starts on an engine goes to the worker meanwhile, as in a frame.
+    fn request<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let outside = !std::mem::replace(&mut self.in_frame, true);
+        self.engine_asked = false;
+        let r = f(self);
+        if outside {
+            self.in_frame = false;
+        }
+        r
+    }
+    fn engine_asked(&self) -> bool {
+        self.engine_asked
+    }
+    fn presented(&mut self) {
+        self.present_asks();
+    }
+    fn redraw(&self) {
+        if let Some(ctx) = self.control_ctx() {
+            ctx.request_repaint();
+        }
+    }
+    fn inspect_shell(&self) -> Map<String, Value> {
+        self.shell_inspect(self.control_ctx())
+    }
+    fn screenshot(&mut self, shot: ShotRequest, reply: Reply) {
+        let token = self.control.parked.next_token();
+        let path = shot.path.unwrap_or_else(|| default_screenshot_path(token));
+        self.control.shots.push(Shot { token, path, frames: 0, requested_at: None, offscreen: shot.offscreen, reply });
+        core::Shell::redraw(self);
+    }
+    fn ui_set(&mut self, params: &Value) -> Result<Value, String> {
+        self.apply_ui_set(params)?;
+        Ok(self.shell_inspect(self.control_ctx()).remove("canvas").unwrap_or(Value::Null))
+    }
+    fn ui_audio(&mut self, params: &Value) -> Result<Value, String> {
+        self.apply_ui_audio(params)?;
+        Ok(self.audio.inspect())
     }
 }
 
@@ -125,184 +156,41 @@ impl EditorApp {
         }
     }
 
-    /// Handle one control request. `reply` is called exactly once, now or a few frames later.
+    /// Handle one control request ([`plumcraft_editor_core::control::handle`]). `reply` is
+    /// called exactly once, now or a few frames later.
     pub fn handle_control(&mut self, ctx: &egui::Context, method: &str, params: &Value, reply: Reply) {
-        match method {
-            "ui.screenshot" => {
-                if let Err(e) = check_fields(params, &["path", "offscreen"]) {
-                    return reply(err(e));
-                }
-                let offscreen = match params.get("offscreen") {
-                    None | Some(Value::Null) => false,
-                    Some(Value::Bool(b)) => *b,
-                    Some(_) => return reply(err("offscreen must be a boolean")),
-                };
-                let path = match params.get("path") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::String(p)) if !p.trim().is_empty() => Some(PathBuf::from(p)),
-                    Some(_) => return reply(err("path must be a file path")),
-                };
-                self.control.next_token = self.control.next_token.wrapping_add(1);
-                let token = self.control.next_token;
-                let path = path.unwrap_or_else(|| default_screenshot_path(token));
-                self.control.shots.push(Shot { token, path, frames: 0, requested_at: None, offscreen, reply });
-                ctx.request_repaint();
-            }
-            "ui.waitRun" => {
-                if let Err(e) = check_fields(params, &["timeout"]) {
-                    return reply(err(e));
-                }
-                let timeout = match params.get("timeout") {
-                    None | Some(Value::Null) => 25.0,
-                    Some(v) => match v.as_f64().filter(|t| t.is_finite() && *t >= 0.0) {
-                        Some(t) => t.min(WAIT_RUN_MAX_S),
-                        None => return reply(err("timeout must be a number of seconds")),
-                    },
-                };
-                let deadline = Instant::now() + Duration::from_secs_f64(timeout);
-                self.control.waits.push(Wait { deadline, reply });
-                ctx.request_repaint();
-            }
-            // a command that switches engines replies once it has switched, and no frame waits
-            // for that (docs/control-protocol.md: engine.* "switch before they reply")
-            "command.run" | "engine.execute" | "ui.invoke" | "ui.prompt" | "ask.answer" => {
-                let outside = !std::mem::replace(&mut self.in_frame, true);
-                self.engine_asked = false;
-                let v = self.control_now(ctx, method, params);
-                if outside {
-                    self.in_frame = false;
-                }
-                if self.engine_asked && self.engine_busy() && v["ok"] == true {
-                    self.wait_for_switch(ctx, method, v, reply);
-                } else {
-                    reply(v);
-                }
-            }
-            _ => {
-                let v = self.control_now(ctx, method, params);
-                reply(v);
-            }
-        }
+        self.control_ctx = Some(ctx.clone());
+        core::handle(self, method, params, reply);
     }
 
-    /// Handle a request that replies at once.
+    /// Handle a request that replies at once ([`plumcraft_editor_core::control::now`]).
     pub fn control_now(&mut self, ctx: &egui::Context, method: &str, params: &Value) -> Value {
-        match method {
-            "command.run" | "engine.execute" => {
-                if let Err(e) = check_fields(params, &["command", "params"]) {
-                    return err(e);
-                }
-                let Some(command) = params.get("command").and_then(Value::as_str) else {
-                    return err("params.command must be a command id");
-                };
-                let p = params.get("params").cloned().unwrap_or(Value::Null);
-                let r = self.try_run(command, &p);
-                ctx.request_repaint();
-                match r {
-                    Ok(v) => ok(v),
-                    Err(e) => err(e),
-                }
-            }
-            "command.list" | "engine.commands" => ok(plumcraft_automation::command_rows(&self.session)),
-            "graph.get" => ok(serde_json::to_value(self.session.graph()).unwrap_or(Value::Null)),
-            "ui.inspect" => ok(self.inspect(ctx)),
-            "ui.audio" => match self.ui_audio(params) {
-                Ok(()) => {
-                    ctx.request_repaint();
-                    ok(self.audio.inspect())
-                }
-                Err(e) => err(e),
-            },
-            "ui.invoke" => {
-                if let Err(e) = check_fields(params, &["command"]) {
-                    return err(e);
-                }
-                let Some(id) = params.get("command").and_then(Value::as_str) else { return err("command must be a command id") };
-                let Some(spec) = plumcraft_session::find(id) else { return err(format!("unknown command {:?}", id.chars().take(64).collect::<String>())) };
-                if let Err(why) = (spec.enabled)(&self.session) {
-                    return err(format!("{id} is not available: {why}"));
-                }
-                self.last_error = None;
-                // what it asks (a file, a prompt) is the script's to answer: the reply comes at
-                // once, with the ask in `asks` (ask.answer)
-                self.invoke_by(spec.id, crate::By::Script);
-                ctx.request_repaint();
-                let mut out = self.inspect(ctx);
-                out["invoked"] = json!(spec.id);
-                ok(out)
-            }
-            "ui.prompt" => {
-                if let Err(e) = check_fields(params, &["answer"]) {
-                    return err(e);
-                }
-                let answer = match params.get("answer").and_then(Value::as_str) {
-                    Some("discard") => crate::PromptAnswer::Discard,
-                    Some("save") => crate::PromptAnswer::Save,
-                    Some("cancel") => crate::PromptAnswer::Cancel,
-                    Some("trust") => crate::PromptAnswer::Trust,
-                    _ => return err("answer must be \"save\", \"discard\", \"trust\" or \"cancel\""),
-                };
-                if !self.answer_prompt(answer) {
-                    return err("no prompt takes that answer");
-                }
-                ctx.request_repaint();
-                ok(self.inspect(ctx))
-            }
-            "ask.answer" => {
-                if let Err(e) = check_fields(params, &["ask", "answer", "cancel"]) {
-                    return err(e);
-                }
-                let Some(id) = params.get("ask").and_then(Value::as_u64) else { return err("ask must be an ask's id (ui.inspect's asks)") };
-                let r = match (params.get("cancel"), params.get("answer")) {
-                    (Some(Value::Bool(true)), None) => self.cancel_ask(id),
-                    (None | Some(Value::Bool(false)), Some(answer)) => self.answer_ask(id, answer),
-                    (Some(Value::Bool(_)), Some(_)) => return err("give answer or cancel: true, not both"),
-                    (Some(_), _) => return err("cancel must be true"),
-                    (None, None) => return err("answer is required (or cancel: true)"),
-                };
-                ctx.request_repaint();
-                match r {
-                    Ok(()) => ok(self.inspect(ctx)),
-                    Err(e) => err(e),
-                }
-            }
-            "ui.set" => match self.ui_set(params) {
-                Ok(()) => {
-                    ctx.request_repaint();
-                    ok(self.inspect(ctx)["canvas"].clone())
-                }
-                Err(e) => err(e),
-            },
-            other => err(format!("unknown method {other:?}")),
-        }
+        self.control_ctx = Some(ctx.clone());
+        core::now(self, method, params)
     }
 
-    /// The UI state as JSON.
-    /// The run animation: whether the colours are on, the animation speed, whether a replay is
-    /// showing, how strongly it shows, and each node
-    /// of the run as shown ([`crate::run_anim`]).
-    fn run_anim_inspect(&self) -> Value {
-        let now = Instant::now();
-        let a = &self.run_anim;
-        let shown: serde_json::Map<String, Value> =
-            self.session.run.needed.iter().filter_map(|id| a.shown(id, now).map(|s| (id.clone(), json!(s.name())))).collect();
-        json!({"colors": !self.session.views.run_colors_off, "animMs": self.session.views.anim_ms(), "replay": a.is_replay(), "generation": a.generation(),
-               "strength": a.strength(now), "shown": shown})
+    /// The context control replies read (what popups are open) and repaint.
+    fn control_ctx(&self) -> Option<&egui::Context> {
+        self.control_ctx.as_ref().or(self.repaint.as_ref())
     }
 
+    /// The UI state as JSON: the core's parts ([`plumcraft_editor_core::control::inspect_core`])
+    /// and this window's.
     pub fn inspect(&self, ctx: &egui::Context) -> Value {
+        let mut m = core::inspect_core(self);
+        m.extend(self.shell_inspect(Some(ctx)));
+        Value::Object(m)
+    }
+
+    /// `ui.inspect`'s parts only this window knows: the canvas, the selection, its windows and
+    /// popups, the Watched panel's views, pop-outs and wire previews, what was copied.
+    fn shell_inspect(&self, ctx: Option<&egui::Context>) -> Map<String, Value> {
         let g = self.session.graph();
-        let catalog = self.session.catalog();
-        let nodes: Vec<Value> = g
-            .nodes
-            .iter()
-            .map(|(id, n)| json!({"id": id, "kind": n.kind, "title": plumcraft_session::node_title(g, catalog, id), "pos": n.pos, "view": n.view}))
-            .collect();
         let t = self.canvas.to_global;
         let r = self.canvas.rect;
         let popups = json!({
             "palette": self.canvas.palette.as_ref().map(|p| json!({"query": p.query, "selected": p.selected, "at": [p.screen_pos.x, p.screen_pos.y]})),
-            "anyPopup": egui::Popup::is_any_open(ctx),
+            "anyPopup": ctx.is_some_and(egui::Popup::is_any_open),
         });
         let run = &self.session.run;
         let watched = run.panel().map(|(w, d)| {
@@ -318,52 +206,30 @@ impl EditorApp {
                    "px": w.px,
                    "compare": self.compare.inspect()})
         });
-        json!({
+        let v = json!({
             "popouts": self.popouts_inspect(),
             "parameters": self.session.views.parameters.as_ref().map(|n| json!({"node": n, "fields": self.params.rects.iter().map(|(k, _)| k).collect::<Vec<_>>()})),
             "editors": self.value_editors.inspect(),
             "wirePreview": self.wires.inspect(),
-            "title": self.window_title(),
-            "document": self.document_name(),
-            "path": self.session.path(),
-            "dirty": self.session.is_dirty(),
-            "undo": self.session.undo_label(),
-            "redo": self.session.redo_label(),
-            "prompt": self.prompt.as_ref().map(|p| {
-                let answers = if matches!(p, crate::Prompt::Review(_) | crate::Prompt::Uploads(_)) { json!(["trust", "cancel"]) } else { json!(["save", "discard", "cancel"]) };
-                json!({"kind": p.kind(), "text": p.text(), "answers": answers})
-            }),
-            "asks": self.asks.inspect(),
             "copied": self.copied.is_some(),
-            "closing": self.closing,
-            "graph": {"dirty": self.session.is_dirty(), "nodes": nodes, "wires": g.wires.len(), "generation": self.session.generation()},
             "selection": self.canvas.selection(),
             "canvas": {"zoom": t.scaling, "pan": [t.translation.x, t.translation.y],
                        "rect": if r.is_finite() { json!([r.min.x, r.min.y, r.max.x, r.max.y]) } else { Value::Null },
                        "editing": self.canvas.edits.is_editing()},
-            "engine": self.engine_inspect(),
-            "banner": self.banner_text(),
-            "engineStatus": self.engine_status().map(|(text, tone)| json!({"text": text, "tone": tone.name()})),
-            "about": self.session.views.about.then_some(&self.session.about),
-            "catalog": {"nodes": catalog.nodes.len(), "engine": catalog.engine.name, "version": catalog.engine.version},
             "popups": popups,
-            "lastError": self.last_error,
-            "run": run.summary(Instant::now()),
-            "runAnim": self.run_anim_inspect(),
             "watched": watched,
-            "theme": self.tokens.name,
-            "prefs": {"path": self.prefs.path(), "theme": self.prefs.prefs().theme, "dirs": self.prefs.prefs().dirs},
             "groups": crate::groups_view::inspect(&self.canvas, g),
-            "frames": crate::frame_view::inspect(g),
             "rename": self.rename.as_ref().map(rename_inspect),
-            "docs": self.session.docs.inspect(),
-            "save": self.session.save.summary(),
-        })
+        });
+        match v {
+            Value::Object(m) => m,
+            _ => Map::new(),
+        }
     }
 
     /// `ui.audio {play?, loop?}`: play or stop the watched audio, loop it or not. The reply is
     /// the audio view's state (as `ui.inspect`'s `watched.audio`).
-    fn ui_audio(&mut self, params: &Value) -> Result<(), String> {
+    fn apply_ui_audio(&mut self, params: &Value) -> Result<(), String> {
         check_fields(params, &["play", "loop"])?;
         if let Some(l) = params.get("loop") {
             self.audio.player.set_looping(l.as_bool().ok_or("loop must be a boolean")?);
@@ -377,7 +243,7 @@ impl EditorApp {
 
     /// `ui.set {zoom?, pan?, fit?, palette?, focus?}` (`focus`: a group id to enter, or null to
     /// leave it).
-    fn ui_set(&mut self, params: &Value) -> Result<(), String> {
+    fn apply_ui_set(&mut self, params: &Value) -> Result<(), String> {
         check_fields(params, &["zoom", "pan", "fit", "palette", "focus"])?;
         if let Some(f) = params.get("focus") {
             crate::groups_view::set_focus(&mut self.canvas, self.session.graph(), f)?;
@@ -440,7 +306,9 @@ fn rename_inspect(d: &crate::rename_view::RenameDialog) -> Value {
 /// End of frame: answer finished run waits, ask the window for settled screenshots, save the
 /// ones it delivered, and draw offscreen the ones it didn't.
 pub(crate) fn frame_end(app: &mut EditorApp, ctx: &egui::Context) {
-    answer_waits(app, ctx);
+    if core::tick(app) {
+        ctx.request_repaint_after(Duration::from_millis(20));
+    }
     if app.control.shots.is_empty() {
         return;
     }
@@ -485,28 +353,6 @@ pub(crate) fn frame_end(app: &mut EditorApp, ctx: &egui::Context) {
         }
     }
     if !app.control.shots.is_empty() {
-        ctx.request_repaint_after(Duration::from_millis(20));
-    }
-}
-
-/// Answer `ui.waitRun`s whose run finished (or whose time ran out).
-fn answer_waits(app: &mut EditorApp, ctx: &egui::Context) {
-    if app.control.waits.is_empty() {
-        return;
-    }
-    let now = Instant::now();
-    let busy = app.session.run.is_busy(now);
-    let waits = std::mem::take(&mut app.control.waits);
-    for w in waits {
-        if !busy {
-            (w.reply)(ok(app.session.run.summary(now)));
-        } else if now >= w.deadline {
-            (w.reply)(err("timeout: the run is still going"));
-        } else {
-            app.control.waits.push(w);
-        }
-    }
-    if !app.control.waits.is_empty() {
         ctx.request_repaint_after(Duration::from_millis(20));
     }
 }

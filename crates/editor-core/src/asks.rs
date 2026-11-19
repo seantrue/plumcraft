@@ -57,10 +57,13 @@ pub enum Kind {
     ClipboardGet,
     Share,
     OpenExternal,
+    /// `ui.screenshot` asked of a shell that draws its own pixels (`docs/shell-interface.md`
+    /// 11.2): `{path, offscreen}`, answered `{path, width, height, source?}` or `{error}`.
+    Screenshot,
 }
 
 impl Kind {
-    pub const ALL: [Kind; 10] = [
+    pub const ALL: [Kind; 11] = [
         Kind::FileOpen,
         Kind::FileSave,
         Kind::FolderPick,
@@ -71,6 +74,7 @@ impl Kind {
         Kind::ClipboardGet,
         Kind::Share,
         Kind::OpenExternal,
+        Kind::Screenshot,
     ];
 
     /// Its name in the feed and on the control channel.
@@ -86,6 +90,7 @@ impl Kind {
             Kind::ClipboardGet => "clipboard.get",
             Kind::Share => "share",
             Kind::OpenExternal => "open.external",
+            Kind::Screenshot => "screenshot",
         }
     }
 
@@ -162,8 +167,11 @@ pub enum Answer {
     Text(String),
     /// `clipboard.set`, `share`, `open.external`: done, perhaps with a word for the status bar.
     Done(Option<String>),
-    /// `clipboard.set`, `share`, `open.external`: it couldn't be done, and why.
+    /// `clipboard.set`, `share`, `open.external`, `screenshot`: it couldn't be done, and why.
     Failed(String),
+    /// `screenshot`: the picture written, as `ui.screenshot` replies it:
+    /// `{path, width, height, source}`.
+    Shot(Value),
 }
 
 /// How an ask ended.
@@ -459,7 +467,37 @@ fn parse(ask: &Ask, v: &Value) -> Result<Answer, String> {
             Ok(Answer::Text(text_of(o.get("text"), "text")?))
         }
         Kind::ClipboardSet | Kind::Share | Kind::OpenExternal => done_of(v),
+        Kind::Screenshot => shot_of(v),
     }
+}
+
+/// The largest side a screenshot answer may name, in pixels.
+const MAX_SHOT_SIDE: u64 = 1 << 16;
+
+/// A `screenshot` answer: `{path, width, height, source?}` (`source`: `window` or `offscreen`), or
+/// `{error}`.
+fn shot_of(v: &Value) -> Result<Answer, String> {
+    let o = fields(v, &["path", "width", "height", "source", "error"])?;
+    if let Some(e) = o.get("error") {
+        if o.len() > 1 {
+            return Err("give error alone, or the picture's path, width and height".into());
+        }
+        return Ok(Answer::Failed(text_of(Some(e), "error")?.chars().take(1024).collect()));
+    }
+    let path = path_of(o.get("path"), "path")?;
+    let side = |k: &str| {
+        o.get(k)
+            .and_then(Value::as_u64)
+            .filter(|n| (1..=MAX_SHOT_SIDE).contains(n))
+            .ok_or_else(|| format!("{k} must be a number of pixels, 1 to {MAX_SHOT_SIDE}"))
+    };
+    let (width, height) = (side("width")?, side("height")?);
+    let source = match o.get("source") {
+        None => "window",
+        Some(Value::String(s)) if s == "window" || s == "offscreen" => s.as_str(),
+        Some(_) => return Err("source must be \"window\" or \"offscreen\"".into()),
+    };
+    Ok(Answer::Shot(json!({"path": path, "width": width, "height": height, "source": source})))
 }
 
 #[cfg(test)]

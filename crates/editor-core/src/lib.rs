@@ -16,6 +16,10 @@
 //!   shell's thread, in order, handed back through an inbox;
 //! - [`install`]: installing an engine from GitHub, off the shell's thread;
 //! - [`headless`]: the windowless commands `run`, `check`, `tidy` and `nodes`;
+//! - [`asks`], [`invoke`]: what the core asks the shell, and running a command as its menu item
+//!   does (slice 4);
+//! - [`control`]: the control channel's requests, for every shell, over a [`control::Shell`]
+//!   trait for what only a shell can do, and engine switching without waiting (slice 5);
 //! - [`prefs`], [`appearance`], [`theme`]: preferences, the user's look, and themes as data;
 //! - [`run_anim`], [`run_text`]: the run animation's model and run states as words;
 //! - [`wire_path`]: a bent wire's curve and hit testing on it;
@@ -30,6 +34,7 @@
 
 pub mod appearance;
 pub mod asks;
+pub mod control;
 pub mod diff;
 pub mod dtype;
 pub mod engines;

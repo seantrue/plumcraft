@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1 slice 5: one control dispatcher for every shell (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** In the original request: "Preserve the current capability for logging, debug driving, et al." The standing go-ahead for N1's slices.
+
+**What the AI did** (`git diff --numstat` and the new files: about +1,770 −740, some 415 of the added lines tests). `crates/editor-core/src/control.rs` (1,011 lines): the control channel's dispatcher and the core's share of `ui.inspect`, over a `Shell` trait. `crates/ui` (+186 −556) and `crates/ffi` (+190 −179) both call it, and their two ways of holding a reply until an engine switch is done became one. `crates/automation` (+93 −2): a `Server` that closes when dropped, so a C ABI core can open the control port from its config. A `screenshot` ask. `docs/control-protocol.md`: the C ABI section. 6 new tests, among them `crates/ffi/tests/control_port.rs`, which drives a C ABI core over TCP; no existing test file edited.
+
+**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,341 of 1,342, the same one failure. 41 control replies captured from the real editor before the change and after, in nine states, differ in nothing once times, run ids, scratch paths and the canvas transform are masked. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's, FFI's and automation's tests (116), slice 3's thread-rule test and slice 4's kittests; and the checksums of the maintainer's `prefs.json` and `trusted.json`, which match the agent's (the probe was isolated this time).
+
+**What fell short, and what was wrong.** The plan and the brief spoke of preserving the editor's logging; there is none to preserve beyond stderr, the status bar and `lastError`, and the contract's log section is unbuilt. `ui.set` and `ui.audio` are refused over the C ABI. The agent edited one sentence of `docs/control-protocol.md` beyond what the brief allowed (the handlers' location, now wrong otherwise); kept. Slices 3 to 5 are stacked on a pull request that is held (#100, B27), so none of this has run on Linux.
+
 ### 2026-11-19 — N1 slice 4: the core asks, the shell answers; and two CI bugs recorded (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** The standing go-ahead for N1's slices, and the answers already given to the shell-interface questions: `ui.invoke` replies at once with the ask and a script answers it (question 1); opening another app always goes through an ask (question 19). Then: "record the two main CI failures as bugs".
