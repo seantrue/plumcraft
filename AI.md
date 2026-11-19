@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N1 slice 2: engines start and switch in the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "standing go-ahead for the remaining N1 slices": each slice that passes its gate is committed and merged into `feat/native-n0`, never `main`.
+
+**What the AI did** (`git diff --numstat` and the new files). Moved starting, hosting, connecting, switching and installing engines out of `apps/plumcraft-editor` (+44 −1,121) and `crates/ui` (+103 −355) into `plumcraft-editor-core`: `engines.rs`, `switchboard.rs`, `install.rs`, `headless.rs` (~1,980 lines, mostly moved). New: `Capabilities {subprocess, craft_apps, python}`, which the hosting rules consult, with tests that a platform without subprocesses is offered only in-process engines, a running HTTP engine and attach, every other hosting listed with its reason. `crates/ffi` (+118 −38) starts its engine through the core's `Launcher` and reads `engines.default`, `engines.mode` and `platform` from its config. 8 new tests; no existing test file edited.
+
+**Checked.** By the agent, as CI runs them, under b3 and md5: 1,313 of 1,314, the one failure the same as before. Python 224. A copy of PlumImpress's sources checks against the tree unchanged. Rerun by the controller: fmt, clippy `-D warnings`, both gate scripts, the core's and the FFI's tests (86).
+
+**What fell short, and what was wrong.** The controller's brief asked again for windowless use without egui; the commands are now a core module that links none, but `plumcraft-editor` is one executable with the window, so the brief's aim was not reachable by moving code. The brief's "in-process and HTTP hostings" was loose: an HTTP engine the editor starts is a subprocess too, and the agent read it that way. `engine.*` commands sent over the C ABI are recorded and not performed. The core now carries the array engine's image and PDF decoders into every build, the phone's included.
+
+**On CI.** Slice 1's pull request (#98) ran the Linux gate: red, with the same 8 editor kittests and the same hash-gate line as `main`'s own latest run, compared test by test before merging. The maintainer had not expected CI on a feature branch ("It's doing CI on a feature branch?"): `ci.yml` runs on every pull request, whatever its base.
+
 ### 2026-11-19 — N1 slice 1: `plumcraft-editor-core`, the pure logic and the pump (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "go for 1 and 2" (commit N0, start N1), then "CPM" for this slice. The slice is the first of note 24's stage N1: cut a toolkit-free core out from under the egui editor with no user-visible change.

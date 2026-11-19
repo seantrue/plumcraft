@@ -10,13 +10,16 @@
 //! application's openers, so a picture runs from its recipe) and `run.save` makes each request, so
 //! a file written here is the one Save Result writes. Engines start as the window starts them,
 //! several behind a coordinator.
+//!
+//! Moved here from the windowed `plumcraft-editor` (stage N1, slice 2): nothing in it draws, so it
+//! builds without a GUI toolkit, and `plumcraft-editor run …` delegates to it unchanged. `usage`
+//! is the application's own `--help` text, which a misused command prints after its error.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
 
 use plumcraft_coordinator::Coordinator;
-use plumcraft_editor_core::link::Link;
 use plumcraft_engine::host::PollReply;
 use plumcraft_graph::NodeId;
 use plumcraft_host::Connection;
@@ -30,7 +33,8 @@ use plumcraft_session::save_cmds::{format_of, suggested_name};
 use plumcraft_session::{EngineTarget, Session};
 use serde_json::{Value, json};
 
-use crate::{EngineKind, Launcher, Mode, choices};
+use crate::engines::{EngineKind, Launcher, Mode, choices};
+use crate::link::Link;
 
 /// Flags the engine choice has read, and whether each takes a value.
 const ENGINE_FLAGS: &[(&str, bool)] =
@@ -120,7 +124,7 @@ fn node_lines(schema: &SchemaReply) -> Vec<String> {
     schema.nodes.iter().map(|n| format!("{:<width$}  {:<16}  {}", n.id, n.display, n.category.join(" › "))).collect()
 }
 
-pub(crate) fn nodes(program: &str, kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
+pub fn nodes(program: &str, kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
     let listed = connect(kind, mode, extras, manifests).and_then(|(links, conn)| {
         let c = catalogue(conn.as_ref());
         drop(links);
@@ -366,11 +370,11 @@ fn one_file(args: &[String]) -> Result<PathBuf, String> {
 }
 
 /// `check FILE`: every problem, one per line; exit 1 when there is any.
-pub(crate) fn check(program: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
+pub fn check(program: &str, usage: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
     let file = match one_file(args) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{program}: check: {e}\n\n{}", crate::usage(program));
+            eprintln!("{program}: check: {e}\n\n{usage}");
             return ExitCode::from(2);
         }
     };
@@ -391,11 +395,11 @@ pub(crate) fn check(program: &str, args: &[String], kind: EngineKind, mode: Mode
 }
 
 /// `tidy FILE`: Edit › Tidy, then Save, in place.
-pub(crate) fn tidy(program: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
+pub fn tidy(program: &str, usage: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
     let file = match one_file(args) {
         Ok(f) => f,
         Err(e) => {
-            eprintln!("{program}: tidy: {e}\n\n{}", crate::usage(program));
+            eprintln!("{program}: tidy: {e}\n\n{usage}");
             return ExitCode::from(2);
         }
     };
@@ -459,11 +463,11 @@ fn write_all(program: &str, ask: &Ask, kind: EngineKind, mode: Mode, extras: &[E
     Ok(())
 }
 
-pub(crate) fn run(program: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
+pub fn run(program: &str, usage: &str, args: &[String], kind: EngineKind, mode: Mode, extras: &[EngineKind], manifests: Vec<PathBuf>) -> ExitCode {
     let ask = match parse(args) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{program}: {e}\n\n{}", crate::usage(program));
+            eprintln!("{program}: {e}\n\n{usage}");
             return ExitCode::from(2);
         }
     };

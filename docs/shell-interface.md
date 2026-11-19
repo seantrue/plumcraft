@@ -123,6 +123,8 @@ Unknown fields are ignored. A path outside `dirs` is never written by the core e
 
 The mechanism is today's: a command's `enabled` returns `Err(reason)` (`crates/session/src/commands.rs:11`), shown as the disabled item's tooltip and in `command.list`'s `disabledReason`.
 
+**As built (N1 slice 2, 2026-11-19).** `plumcraft_editor_core::engines::Capabilities` holds three of these so far: `subprocess`, `craft_apps`, `python`. A desktop's default has all three; a config read through the C ABI declares only what its `platform` object states, so one without `platform` declares none. `refuses(kind, mode)` gives the reason a hosting can't start, the most specific first: "‹Craft›: this device has no craft apps", "this device has no Python", "this device can't start programs". Without `subprocess` what is offered is text and array in-process, a running HTTP engine a manifest names, and `engine.attach`; an HTTP engine the editor would have to start is refused, like a process engine. `offers(caps)` lists every hosting with its reason. The C ABI's config reads `engines.default`, `engines.mode` and `platform`.
+
 ### 4.3 Core and documents
 
 - **The core** is process-wide: preferences and the theme, the engine list and manifests, the store, the command, form, hook, viewer and value-editor registries, the log ring, the control channel.

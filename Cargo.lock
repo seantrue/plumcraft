@@ -3022,9 +3022,7 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
- "plumcraft-array",
  "plumcraft-automation",
- "plumcraft-coordinator",
  "plumcraft-craft",
  "plumcraft-editor-core",
  "plumcraft-engine",
@@ -3043,11 +3041,17 @@ dependencies = [
 name = "plumcraft-editor-core"
 version = "0.7.0"
 dependencies = [
+ "plumcraft-array",
+ "plumcraft-coordinator",
+ "plumcraft-craft",
+ "plumcraft-engine",
+ "plumcraft-graph",
  "plumcraft-host",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
  "plumcraft-store",
+ "plumcraft-text",
  "serde",
  "serde_json",
  "serde_yaml",
@@ -3075,14 +3079,12 @@ dependencies = [
  "jni-sys 0.4.1",
  "plumcraft-automation",
  "plumcraft-editor-core",
- "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
  "plumcraft-store",
- "plumcraft-text",
  "serde_json",
 ]
 
