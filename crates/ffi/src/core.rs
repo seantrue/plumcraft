@@ -5,8 +5,8 @@
 //! Threads, per core:
 //! - **core** (`plumcraft-ffi-core`): the session, every command, every engine call but the
 //!   long poll. The only thread that calls the shell's `wake`.
-//! - **pump** (`plumcraft-ffi-pump`): long-polls `events.poll` and forwards the events to core,
-//!   as `plumcraft-ui`'s `Link` does, without egui.
+//! - **pump** (`plumcraft-editor-pump`): the editor core's [`Link`], which long-polls
+//!   `events.poll` and holds the events; its [`link::Waker`] tells the core thread to drain them.
 //! - the engine's own worker (`plumcraft-engine`), started by [`Host::start`].
 //!
 //! Spike scope (N0(b)): the methods are the control channel's session methods (`command.run`,
@@ -23,7 +23,8 @@ use std::thread::{JoinHandle, ThreadId};
 use std::time::{Duration, Instant};
 
 use plumcraft_automation::{ControlReply, ControlRequest};
-use plumcraft_engine::host::{Host, PollReply};
+use plumcraft_editor_core::link::{self, Link};
+use plumcraft_engine::host::Host;
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::{Connection, InProc};
 use plumcraft_proto::data::DataRef;
@@ -203,8 +204,12 @@ fn join_into(out: &mut Vec<u8>, items: &[String]) {
 
 /// What the core thread is sent.
 enum Msg {
-    Request { id: u64, body: Vec<u8> },
-    Events(Vec<Envelope>),
+    Request {
+        id: u64,
+        body: Vec<u8>,
+    },
+    /// The link has events waiting.
+    Drain,
     Stop,
 }
 
@@ -248,12 +253,15 @@ impl Core {
             lent: Mutex::default(),
         });
         let (tx, rx) = channel();
-        let stop = Arc::new(AtomicBool::new(false));
-        let pump = {
-            let (conn, tx, stop) = (Arc::clone(&dyn_conn), tx.clone(), Arc::clone(&stop));
-            std::thread::Builder::new().name("plumcraft-ffi-pump".into()).spawn(move || pump(conn.as_ref(), &tx, &stop)).map_err(|e| e.to_string())?
-        };
-        let worker = Worker { session, shared: Arc::clone(&shared), waiters: Vec::new(), pump: Some((pump, stop)) };
+        let drain = tx.clone();
+        let link = Link::start(
+            dyn_conn,
+            "in-process",
+            Some(link::Waker::new(move || {
+                let _ = drain.send(Msg::Drain);
+            })),
+        )?;
+        let worker = Worker { session, shared: Arc::clone(&shared), waiters: Vec::new(), link };
         let thread = std::thread::Builder::new().name("plumcraft-ffi-core".into()).spawn(move || worker.run(&rx)).map_err(|e| e.to_string())?;
         let thread_id = Some(thread.thread().id());
         Ok(Core { tx, shared, next_id: AtomicU64::new(1), thread: Mutex::new(Some(thread)), thread_id })
@@ -288,21 +296,6 @@ fn load_demo(s: &mut Session) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
-/// The event pump: `events.poll`, forwarded to the core thread.
-fn pump(conn: &dyn Connection, tx: &Sender<Msg>, stop: &AtomicBool) {
-    let mut since = 0;
-    while !stop.load(Ordering::SeqCst) {
-        let Ok(Ok(p)) = conn.call("events.poll", json!({"since": since, "wait_ms": 250})).map(serde_json::from_value::<PollReply>) else {
-            std::thread::sleep(Duration::from_millis(100));
-            continue;
-        };
-        since = p.last_seq;
-        if !p.events.is_empty() && tx.send(Msg::Events(p.events)).is_err() {
-            return;
-        }
-    }
-}
-
 /// A `spike.waitRun` waiting for the run to end.
 struct Waiter {
     id: u64,
@@ -315,16 +308,8 @@ struct Worker {
     session: Session,
     shared: Arc<Shared>,
     waiters: Vec<Waiter>,
-    pump: Option<(JoinHandle<()>, Arc<AtomicBool>)>,
-}
-
-impl Drop for Worker {
-    fn drop(&mut self) {
-        if let Some((pump, stop)) = self.pump.take() {
-            stop.store(true, Ordering::SeqCst);
-            let _ = pump.join();
-        }
-    }
+    /// The engine's event pump; dropping it stops the pump and waits for it.
+    link: Link,
 }
 
 impl Worker {
@@ -338,7 +323,12 @@ impl Worker {
             match msg {
                 Some(Msg::Stop) => break,
                 Some(Msg::Request { id, body }) => self.request(id, &body),
-                Some(Msg::Events(events)) => self.events(events),
+                Some(Msg::Drain) => {
+                    let events = self.link.drain();
+                    if !events.is_empty() {
+                        self.events(events);
+                    }
+                }
                 None => {}
             }
             self.answer_waiters();

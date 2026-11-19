@@ -12,8 +12,8 @@
 //! kept, so a newer build's survive an older one.
 //!
 //! Lifted from the research software's `crates/ui-egui/src/prefs.rs` (`8480c03`), where the name and file were
-//! The research software's own; an [`EditorApp`](crate::EditorApp) that isn't given a file keeps them in
-//! memory, so tests never touch the real one.
+//! The research software's own; an editor (`plumcraft_ui::EditorApp`) that isn't given a file keeps them in
+//! memory, so tests never touch the real one. Moved from `plumcraft-ui` to the core (stage N1).
 
 use std::collections::BTreeMap;
 use std::io::Read;

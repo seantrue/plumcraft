@@ -1,0 +1,25 @@
+[package]
+name = "plumcraft-editor-core"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L4: the editor's toolkit-free core (preferences, themes as data, run animation, the engine event pump, wire geometry, the palette's index, probes and differences, run texts), under every shell (docs/research/24-native-shells.md)"
+
+[lints]
+workspace = true
+
+# No GUI toolkit, directly or transitively: no egui, eframe, egui-snarl, winit, wgpu, rfd or
+# plumcraft-ui (scripts/check-core-toolkit-free.sh holds it to that, in CI beside the hash gates).
+[dependencies]
+plumcraft-host = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-store = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+plumcraft-scratch = { path = "../scratch" }
+serde_yaml = "0.9"

@@ -23,7 +23,7 @@ pub mod pdf;
 pub mod plot;
 pub mod wrap;
 pub mod xml;
-pub mod yaml;
+pub use plumcraft_editor_core::yaml;
 
 use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::DataRef;

@@ -33,6 +33,8 @@ plumcraft-array = { workspace = true }
 plumcraft-coordinator = { workspace = true }
 plumcraft-craft = { workspace = true }
 plumcraft-ui = { workspace = true }
+# The windowless commands (src/headless.rs) link engines through the core, not the egui shell.
+plumcraft-editor-core = { workspace = true }
 serde_json = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }

@@ -30,6 +30,8 @@ jni = ["dep:jni-sys"]
 
 [dependencies]
 plumcraft-automation = { workspace = true }
+# The engine event pump (Link) and its Waker.
+plumcraft-editor-core = { workspace = true }
 plumcraft-engine = { workspace = true }
 plumcraft-graph = { workspace = true }
 plumcraft-host = { workspace = true }

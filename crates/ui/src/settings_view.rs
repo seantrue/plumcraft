@@ -107,7 +107,7 @@ impl EditorApp {
                 }
                 let color = color_param(p);
                 self.change_appearance(|a| a.set_token(theme, token, color));
-                let t = self.prefs.prefs().appearance.resolve(theme);
+                let t = Tokens::from(self.prefs.prefs().appearance.resolve(theme));
                 let checks: Vec<Value> = t
                     .checks_of(token)
                     .into_iter()
@@ -127,7 +127,7 @@ impl EditorApp {
                 }
                 let color = color_param(p);
                 self.change_appearance(|a| a.set_fruit(theme, fruit, color));
-                let t = self.prefs.prefs().appearance.resolve(theme);
+                let t = Tokens::from(self.prefs.prefs().appearance.resolve(theme));
                 Ok(json!({"theme": theme, "fruit": fruit, "color": t.fruit(fruit).map(theme::hex)}))
             }
             "theme.pinFamily" => {
@@ -248,7 +248,7 @@ impl EditorApp {
         ui.heading("Theme");
         ui.horizontal_wrapped(|ui| {
             for th in &theme::ALL {
-                let shown = a.resolve(th.name);
+                let shown = Tokens::from(a.resolve(th.name));
                 let r = theme_card(ui, &shown, th.name == t.name);
                 if r.clicked() && th.name != t.name {
                     out.push(("view.theme", json!({"name": th.name})));

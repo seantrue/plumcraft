@@ -61,6 +61,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use plumcraft_automation::server;
+use plumcraft_editor_core::link::{Link as CoreLink, Waker};
 use plumcraft_engine::host::Host;
 use plumcraft_graph::Graph;
 use plumcraft_host::http::{HttpHost, HttpOptions};
@@ -69,7 +70,7 @@ use plumcraft_host::process::{Manifest, ProcessHost};
 use plumcraft_host::{Connection, InProc};
 use plumcraft_proto::catalogue::SchemaReply;
 use plumcraft_session::{EngineChoice, Session};
-use plumcraft_ui::link::Link;
+use plumcraft_ui::link::{Link, repaint_waker};
 use plumcraft_ui::{EditorApp, Shot};
 
 /// An engine compiled into the application.
@@ -619,19 +620,34 @@ impl Launcher {
         })
     }
 
-    /// Start engine `kind` in `mode` and link to it.
+    /// Start engine `kind` in `mode` and link to it, repainting `ctx` when events arrive.
     fn connect(&self, kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>) -> Result<Link, String> {
-        let bin = self.binaries.iter().find(|(k, _)| *k == kind).map(|(_, p)| p.clone());
-        connect_with(kind, mode, ctx, bin)
+        connect_with(kind, mode, ctx, self.binary(kind))
+    }
+
+    /// The engine binary to use for `kind`, when a test gave one.
+    fn binary(&self, kind: EngineKind) -> Option<PathBuf> {
+        self.binaries.iter().find(|(k, _)| *k == kind).map(|(_, p)| p.clone())
+    }
+
+    /// Start engine `kind` in `mode` and link to it, with no window: the core's link, woken by
+    /// `waker` (the headless commands pass none).
+    fn connect_core(&self, kind: EngineKind, mode: Mode, waker: Option<Waker>) -> Result<CoreLink, String> {
+        connect_core_with(kind, mode, waker, self.binary(kind))
     }
 }
 
 /// Start engine `kind` in `mode` (as `plumcraft-view` does) and link to it, with the engine
 /// binary `bin` (mode 2 and 3, Rust) when given.
 fn connect_with(kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>, bin: Option<PathBuf>) -> Result<Link, String> {
+    connect_core_with(kind, mode, ctx.cloned().map(repaint_waker), bin).map(Link::from)
+}
+
+/// [`connect_with`] without a window: the core's link, woken by `waker`.
+fn connect_core_with(kind: EngineKind, mode: Mode, waker: Option<Waker>, bin: Option<PathBuf>) -> Result<CoreLink, String> {
     if let EngineKind::External(i) = kind {
         let e = external(i).ok_or("that engine's manifest is gone (Engine › Reload Engine List)")?;
-        return connect_external(&e, mode, kind.ready_wait(), ctx);
+        return connect_external(&e, mode, kind.ready_wait(), waker);
     }
     let manifest = match mode {
         Mode::InProc => None,
@@ -676,12 +692,12 @@ fn connect_with(kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>, bin: 
         h.wait_ready(kind.ready_wait());
         Arc::new(InProc(h))
     };
-    Link::start(conn, mode.label(), ctx.cloned())
+    CoreLink::start(conn, mode.label(), waker)
 }
 
 /// Start the engine a manifest names and link to it: a process on a socket, or HTTP, spawned or
 /// already running.
-fn connect_external(e: &External, mode: Mode, wait: Duration, ctx: Option<&egui::Context>) -> Result<Link, String> {
+fn connect_external(e: &External, mode: Mode, wait: Duration, waker: Option<Waker>) -> Result<CoreLink, String> {
     let (conn, label): (Arc<dyn Connection>, &str) = match (&e.resolved.start, mode) {
         (Start::Attach { url, token }, _) => (Arc::new(HttpHost::attach(url, token, HttpOptions::default())?), "mode 3 · HTTP, running"),
         (Start::Command(m), Mode::HttpRust) => (Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?), "mode 3 · HTTP"),
@@ -691,7 +707,7 @@ fn connect_external(e: &External, mode: Mode, wait: Duration, ctx: Option<&egui:
             (Arc::new(h), "mode 2 · process")
         }
     };
-    Link::start(conn, label, ctx.cloned())
+    CoreLink::start(conn, label, waker)
 }
 
 /// The demos for several engines (`demos/`, docs/research/15-multi-engine.md): the engines each

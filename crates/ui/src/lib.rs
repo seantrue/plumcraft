@@ -38,7 +38,7 @@
 
 pub mod about_view;
 pub mod app_hooks;
-pub mod appearance;
+pub use plumcraft_editor_core::appearance;
 pub mod array_view;
 pub mod audio;
 pub mod bundle_view;
@@ -66,13 +66,14 @@ pub mod palette;
 pub mod param_widgets;
 pub mod params_view;
 pub mod picture_tools;
+pub mod plain;
 pub mod playback;
 pub mod popouts;
-pub mod prefs;
+pub use plumcraft_editor_core::prefs;
 pub mod probe;
 pub mod recipe_view;
 pub mod rename_view;
-pub mod run_anim;
+pub use plumcraft_editor_core::run_anim;
 pub mod run_view;
 pub mod settings_view;
 pub mod slice_view;
@@ -616,7 +617,7 @@ impl EditorApp {
     /// The tokens again from the theme and the appearance settings; installed on the next frame.
     pub(crate) fn retheme(&mut self) {
         let semibold = self.tokens.semibold;
-        self.tokens = self.prefs.prefs().appearance.resolve(self.tokens.name);
+        self.tokens = Tokens::from(self.prefs.prefs().appearance.resolve(self.tokens.name));
         self.tokens.semibold = semibold;
         self.restyle = true;
     }
@@ -643,7 +644,7 @@ impl EditorApp {
         self.session.use_labels(app, labels);
         let name = self.prefs.prefs().theme.as_deref().and_then(theme::by_name).map_or(theme::DEFAULT.name, |t| t.name);
         let semibold = self.tokens.semibold;
-        self.tokens = self.prefs.prefs().appearance.resolve(name);
+        self.tokens = Tokens::from(self.prefs.prefs().appearance.resolve(name));
         self.tokens.semibold = semibold;
         self.restyle_now(ctx);
         // after the first graph opened: turning it on starts what that graph needs

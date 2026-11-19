@@ -3026,6 +3026,7 @@ dependencies = [
  "plumcraft-automation",
  "plumcraft-coordinator",
  "plumcraft-craft",
+ "plumcraft-editor-core",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
@@ -3036,6 +3037,20 @@ dependencies = [
  "plumcraft-ui",
  "serde_json",
  "winit",
+]
+
+[[package]]
+name = "plumcraft-editor-core"
+version = "0.7.0"
+dependencies = [
+ "plumcraft-host",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-session",
+ "plumcraft-store",
+ "serde",
+ "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -3059,6 +3074,7 @@ version = "0.7.0"
 dependencies = [
  "jni-sys 0.4.1",
  "plumcraft-automation",
+ "plumcraft-editor-core",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
@@ -3187,6 +3203,7 @@ dependencies = [
  "plumcraft-audio",
  "plumcraft-automation",
  "plumcraft-coordinator",
+ "plumcraft-editor-core",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
