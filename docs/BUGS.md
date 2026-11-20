@@ -44,7 +44,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 - Cause (2026-11-20, confirmed): the test, not a decoder. One input is slow. It is the empty SVG that claims `width='1e30'`, drawn by `svg::rasterise(&f, 1e9)`. The clamp holds: it is drawn at 4096 × 4096 (`MAX_RENDER_PIXELS`), not at its claim. Drawing those 16.8 million pixels and making them opaque takes 4.1 s in the test profile, against 0.23 s in release, so a 5 s limit on each file fails under load. Each file was timed alone through each decoder: every other input takes under 1 ms, apart from the first SVG parse, which loads the system fonts once (0.3 s). With 40 copies at once on the Linux test host it failed 37 of 200.
 - Fix: the picture decoders stay timed against 5 s, which they reach only by believing a header. Each SVG raster is checked against the clamp that bounds its work (each side at most 4096, at most `MAX_RENDER_PIXELS`, a buffer of exactly w × h × 4) instead of being timed. After: 0 of 200 under the same load.
-- Fixed: 2026-11-20, PR pending
+- Fixed: 2026-11-20, PR #119
 
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 
