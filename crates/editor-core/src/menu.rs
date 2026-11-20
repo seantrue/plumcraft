@@ -18,9 +18,11 @@
 //!   header, a wire, an input, an output, a frame, a net's tag, the canvas.
 //!
 //! **Invoking an item** is `ui.invoke {command}` for an item with a command and no params, and
-//! `command.run {command, params}` for one with params. An item with no command is one the shell
-//! does itself until N2 gives it a command (`docs/shell-interface.md` 12.3: the selection, the
-//! clipboard, fit, the palette, the rename and name editors); its `id` names it.
+//! `command.run {command, params}` for one with params. The Edit menu's canvas items, Fit,
+//! Search… and the canvas menu are commands since N2 slice 1 ([`crate::canvas_cmds`]; the
+//! selection is the core's). An item with no command is one the shell still does itself
+//! (Align ›, Distribute ›, which take its measured sizes; a net's Go to Driver or Next Use,
+//! which it resolves to a `canvas.reveal`; the rename and name editors); its `id` names it.
 //!
 //! **Roles** mark items a platform places itself ([`Role`]): a macOS shell puts About,
 //! Preferences and Quit in the application menu, an iPadOS shell leaves Quit out, and the edit
@@ -390,8 +392,8 @@ impl Item {
     }
 }
 
-/// What the shell knows that the core doesn't yet (the selection and the canvas are the shell's
-/// until N2).
+/// What the menus are built from beside the session: the selection (the document's since N2
+/// slice 1), and what only the shell knows (the canvas's centre, the application's editors).
 #[derive(Debug, Clone, Default)]
 pub struct Facts {
     /// The selected nodes, and the selected collapsed groups.
@@ -513,12 +515,14 @@ pub fn command_item(session: &Session, spec: &CommandSpec) -> Item {
     item
 }
 
-/// The Edit menu's canvas items (the shell does them until N2 gives them commands).
+/// The Edit menu's canvas items: commands that `ui.invoke` fills with the selection (N2 slice
+/// 1), but Align and Distribute, which take the sizes the shell measured and so stay the shell's
+/// until it reports its geometry (slice 3).
 fn edit_items(facts: &Facts) -> Vec<Item> {
     let many = facts.selected.len() + facts.selected_groups.len();
     let has = many > 0;
     let item = |id: &str, label: &str, key: Option<Shortcut>, enabled: bool, role: Option<Role>| {
-        let mut i = Item::local(id, label, None);
+        let mut i = Item::new(id, label, Some(id), None);
         i.shortcut = key;
         i.role = role;
         if enabled { i } else { i.disabled(None) }
@@ -564,7 +568,7 @@ fn view_items(session: &Session) -> Vec<Item> {
             Item::run("view.animationSpeed", label, json!({"ms": ms})).hover(hover).look(Look::Check, session.views.anim_ms() == ms)
         })
         .collect();
-    let mut fit = Item::local("canvas.fit", "Fit", None).hover("Fit the view to all nodes");
+    let mut fit = Item::new("canvas.fit", "Fit", Some("canvas.fit"), None).hover("Fit the view to all nodes");
     fit.shortcut = Some(Shortcut::key("F"));
     vec![Item::submenu("view.animationSpeed", "Animation Speed", speeds), fit]
 }
@@ -574,7 +578,7 @@ fn node_items(session: &Session, facts: &Facts) -> Vec<Item> {
     let catalog = session.catalog();
     let add =
         if catalog.nodes.is_empty() { vec![Item::line(Look::Text, "No node types: the engine is not connected.")] } else { add_tree(catalog, facts.center) };
-    let mut search = Item::local("canvas.palette", "Search…", None);
+    let mut search = Item::new("canvas.palette", "Search…", Some("canvas.palette"), None);
     search.shortcut = Some(Shortcut::key("Tab"));
     vec![Item::submenu("node.add", "Add", add), search]
 }
@@ -852,10 +856,10 @@ pub fn context(parts: &Parts<'_>, facts: &Facts, cx: &Context) -> Vec<Item> {
 /// draws none; a touch shell shows these on a long press.
 fn canvas_menu() -> Vec<Item> {
     vec![
-        Item::local("canvas.palette", "Add Node…", None),
-        Item::local("edit.paste", "Paste", None).role(Role::Paste),
-        Item::local("selection.all", "Select All", None).role(Role::SelectAll),
-        Item::local("canvas.fit", "Fit", None),
+        Item::new("canvas.palette", "Add Node…", Some("canvas.palette"), None),
+        Item::new("edit.paste", "Paste", Some("edit.paste"), None).role(Role::Paste),
+        Item::new("selection.all", "Select All", Some("selection.all"), None).role(Role::SelectAll),
+        Item::new("canvas.fit", "Fit", Some("canvas.fit"), None),
     ]
 }
 
@@ -1245,7 +1249,7 @@ pub fn net_menu(graph: &plumcraft_graph::Graph, key: &plumcraft_graph::NetKey, t
         out.push(Item::run("run.watch", "Watch", watch.clone()).hover("Show this net's value in the Watched panel"));
         out.push(Item::run("view.popout", "Pop Out", watch).hover("Show this net's value in a window of its own, updated by every run"));
     }
-    out.push(Item::local("net.select", "Select Net", None).hover("Highlight every label of this net"));
+    out.push(Item::run("net.select", "Select Net", json!({"name": key.name, "group": key.group})).hover("Highlight every label of this net"));
     out.push(Item::local("rename.net", "Rename Net…", None));
     if let Some(to) = to {
         out.push(Item::run("wire.unlabel", "Draw as Wire", json!({"to": to})).hover("Draw this connection as a wire again"));

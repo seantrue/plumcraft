@@ -50,6 +50,9 @@ impl EditorApp {
     /// After a command ran: carry out what it left for the window (the look), and fill in
     /// `app.settings`'s reply. Anything else passes `v` through.
     pub(crate) fn window_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
+        // the canvas's commands: what the core keeps, shown; what only the view does, done
+        self.follow_core();
+        self.canvas_command(id, &v);
         let mut out = v;
         for (ask, p) in std::mem::take(&mut self.doc.session.views.ui_asks) {
             out = self.appearance_command(&ask, &p)?;

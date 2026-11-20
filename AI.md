@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N2 slice 1: the selection and the canvas's actions as commands (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "go for N2"; "same arrangement for N2".
+
+**What the AI did** (Rust +1,386 −342: `crates/editor-core/src/selection.rs` 425 lines and `canvas_cmds.rs` 367, new; the rest in `document.rs`, `invoke.rs`, `menu.rs` and nine files of `crates/ui`). The controller cut N2 into four slices and briefed the first. The agent moved the selection and the group entered into the core's `Document` and added nine commands; the egui editor dispatches them for every click, key and menu item that used to change the selection in place. 12 new tests, one over the C ABI.
+
+**Checked.** By the agent: the suite as CI runs it, 1,394 of 1,395 before and 1,406 of 1,407 after under b3 and md5 (the one failure the known local one); 124 menu dumps identical; 41 control replies identical but for nine new `command.list` rows; the maintainer's preferences file unchanged by checksum. By the controller: fmt, clippy, both gate scripts and the core and C ABI tests (148) rerun; the eleven listed changes in C ABI and control behaviour read against the brief.
+
+**What is weak.** egui-snarl's selection is private, so the editor keeps two selections bridged each frame, and a gesture's effect is drawn a frame late. `Picked` keeps setters that bypass commands so 12 kittests need no edit. The controller did not read all 1,386 lines.
+
 ### 2026-11-19 — CI tests under b3 only (Claude Fable 5.2)
 
 **What the maintainer asked for.** "Drop all MD5 tests from the active tests."
