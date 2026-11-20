@@ -1,0 +1,5057 @@
+{
+  "anim": {
+    "fade_ms": 600,
+    "generation": 0,
+    "hold_ms": 1000,
+    "on": false,
+    "pulse_ms": 1200,
+    "replay": false
+  },
+  "doc": 1,
+  "focus": null,
+  "frames": [
+    {
+      "id": "f1",
+      "nid": 31,
+      "paint": {
+        "color": [
+          44,
+          102,
+          173,
+          255
+        ],
+        "token": "accent"
+      },
+      "pos": [
+        -320.0,
+        -40.0
+      ],
+      "rev": 1,
+      "size": [
+        260.0,
+        200.0
+      ],
+      "title": "Inputs"
+    }
+  ],
+  "full": true,
+  "gen": 1,
+  "groups": [
+    {
+      "collapsed": true,
+      "depth": 0,
+      "id": "g1",
+      "name": "pair",
+      "nid": 32,
+      "parent": null,
+      "proxy": true,
+      "rev": 1
+    }
+  ],
+  "marks": [],
+  "nets": [
+    {
+      "driver": {
+        "at": [
+          14,
+          0
+        ],
+        "face": "n2",
+        "from": {
+          "node": "n2",
+          "port": "text"
+        },
+        "pin": 1
+      },
+      "id": "caption",
+      "key": {
+        "name": "caption"
+      },
+      "nid": 30,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "rev": 1,
+      "selected": false,
+      "uses": [
+        {
+          "at": [
+            -14,
+            0
+          ],
+          "face": "n5",
+          "pin": 0,
+          "to": {
+            "node": "n5",
+            "port": "text"
+          }
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "border": {
+        "paint": {
+          "color": [
+            237,
+            184,
+            231,
+            255
+          ],
+          "token": "group"
+        },
+        "width": 2.0
+      },
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "Expand it (>) to edit its nodes in place, or enter it (pencil) to see only them",
+          "family": null,
+          "id": "group:g1",
+          "known": true,
+          "name": "Collapsed group pair",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": true,
+        "icon": "boxes",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [],
+        "title": {
+          "text": "Group: pair",
+          "watch": false
+        }
+      },
+      "id": "group:g1",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: TEXT",
+          "inactive": null,
+          "key": "c2",
+          "label": "Join 2 › c c2",
+          "list": false,
+          "named": null,
+          "node": "n21",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "Join 2 › c c2 · TEXT",
+          "ty": "TEXT",
+          "widget": null
+        }
+      ],
+      "kind": "",
+      "menu": "proxy",
+      "nid": 20,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "Source 2 › pic · x.t.pic",
+          "list": false,
+          "node": "n20",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] Source 2 › pics · x.t.pic",
+          "list": true,
+          "node": "n20",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "Join 2 › text · TEXT",
+          "list": false,
+          "node": "n21",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        }
+      ],
+      "pos": [
+        900.0,
+        0.0
+      ],
+      "preview": null,
+      "proxy": {
+        "group": "g1",
+        "name": "pair"
+      },
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            250,
+            243,
+            244,
+            255
+          ],
+          "token": "group_body"
+        },
+        "header": {
+          "color": [
+            237,
+            184,
+            231,
+            255
+          ],
+          "token": "group"
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [
+        {
+          "all": true,
+          "hover": "Show the fields this choice doesn't use",
+          "kind": "fields",
+          "text": "1 more field"
+        },
+        {
+          "hover": "Edit the dial in its window",
+          "kind": "editor",
+          "label": "Edit Dial…"
+        },
+        {
+          "full": "the application's line",
+          "kind": "appText",
+          "text": "the application's line"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "One input of each widget kind",
+          "family": "Effects: Change a picture",
+          "id": "t.all",
+          "known": true,
+          "name": "Every widget",
+          "path": "Test › Widgets"
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "sliders",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Every widget",
+          "watch": true
+        }
+      },
+      "id": "n1",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "How loud",
+          "inactive": null,
+          "key": "gain",
+          "label": "gain",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "FLOAT",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": 3,
+            "default": 0.375,
+            "hover": "How loud",
+            "int": false,
+            "kind": "number",
+            "max": 4.0,
+            "min": 0.0,
+            "pathMode": null,
+            "softMax": 2.0,
+            "softMin": 0.0,
+            "step": null,
+            "value": 1.25
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "count",
+          "label": "count",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "INT",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": 3,
+            "hover": null,
+            "int": true,
+            "kind": "number",
+            "max": null,
+            "min": 1.0,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": 1.0,
+            "value": 3
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "on",
+          "label": "on",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "BOOL",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": true,
+            "hover": null,
+            "int": false,
+            "kind": "toggle",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": true
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "name",
+          "label": "name",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "",
+            "hover": null,
+            "int": false,
+            "kind": "text",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": ""
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "mode",
+          "label": "mode",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "ENUM",
+          "widget": {
+            "blank": false,
+            "choices": [
+              {
+                "disabled": null,
+                "label": "fast",
+                "value": "fast"
+              },
+              {
+                "disabled": null,
+                "label": "good",
+                "value": "good"
+              },
+              {
+                "disabled": "no GPU here",
+                "label": "gpu",
+                "value": "gpu"
+              }
+            ],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "fast",
+            "hover": null,
+            "int": false,
+            "kind": "choice",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": "fast"
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "tags",
+          "label": "tags",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [
+              {
+                "disabled": null,
+                "label": "a",
+                "value": "a"
+              },
+              {
+                "disabled": null,
+                "label": "b",
+                "value": "b"
+              }
+            ],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "",
+            "hover": null,
+            "int": false,
+            "kind": "multichoice",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": ""
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "notes",
+          "label": "notes",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "",
+            "hover": null,
+            "int": false,
+            "kind": "multiline",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": ""
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "file",
+          "label": "file",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "",
+            "hover": null,
+            "int": false,
+            "kind": "path",
+            "max": null,
+            "min": null,
+            "pathMode": "open",
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": ""
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "tint",
+          "label": "tint",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": "rgb",
+            "decimals": null,
+            "default": "1,0,0",
+            "hover": null,
+            "int": false,
+            "kind": "color",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": "1,0,0"
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "hex",
+          "label": "hex",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "STRING",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": "hex",
+            "decimals": null,
+            "default": "#ff0000",
+            "hover": null,
+            "int": false,
+            "kind": "color",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": "#ff0000"
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "blank",
+          "label": "blank",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "FLOAT",
+          "widget": {
+            "blank": true,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": 1,
+            "default": null,
+            "hover": null,
+            "int": false,
+            "kind": "number",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": null
+          }
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: x.t.pic",
+          "inactive": null,
+          "key": "pic",
+          "label": "pic",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "pic · x.t.pic",
+          "ty": "x.t.pic",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: x.t.pic",
+          "inactive": null,
+          "key": "pics",
+          "label": "pics [ ]",
+          "list": true,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "pics [ ] · x.t.pic",
+          "ty": "x.t.pic",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "curve",
+          "label": "curve",
+          "list": false,
+          "named": null,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                0,
+                0,
+                0,
+                0
+              ],
+              "token": "pin_hidden"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": false
+          },
+          "source": "readonly",
+          "text": "curve: 2 points",
+          "ty": "x.t.curve",
+          "widget": null
+        }
+      ],
+      "kind": "t.all",
+      "menu": "node",
+      "nid": 1,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "out",
+          "label": "out · x.t.pic",
+          "list": false,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "outs",
+          "label": "[ ] outs · x.t.pic",
+          "list": true,
+          "node": "n1",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        0.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            239,
+            246,
+            243,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            134,
+            207,
+            218,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            58,
+            138,
+            76,
+            255
+          ],
+          "token": "state_done"
+        },
+        "width": 2.0
+      },
+      "footer": [
+        {
+          "kind": "save",
+          "port": "pic",
+          "sheet": true
+        },
+        {
+          "full": "3 faces found",
+          "kind": "engineText",
+          "text": "3 faces found"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "done",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              58,
+              138,
+              76,
+              255
+            ],
+            "token": "state_done"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "12 ms"
+          }
+        ],
+        "title": {
+          "text": "done",
+          "watch": true
+        }
+      },
+      "id": "n10",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 2,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n10",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n10",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n10",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        780.0
+      ],
+      "preview": {
+        "faded": false,
+        "h": 480,
+        "handle": {
+          "at": [],
+          "meta": {
+            "form": {
+              "kind": "bytes"
+            },
+            "media": "image/x-rgba8",
+            "size": 0
+          }
+        },
+        "hoverSize": [
+          160.0,
+          120.0
+        ],
+        "items": 3,
+        "kind": "rgba8",
+        "note": null,
+        "size": [
+          80.0,
+          60.0
+        ],
+        "summary": "picture 640×480",
+        "w": 640
+      },
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "done"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            111,
+            156,
+            120,
+            255
+          ],
+          "token": "state_cached"
+        },
+        "width": 2.0
+      },
+      "footer": [
+        {
+          "kind": "save",
+          "port": "pic",
+          "sheet": false
+        },
+        {
+          "faded": false,
+          "hover": "Click to watch",
+          "kind": "excerpt",
+          "text": "one\ntwo\nthree\n…"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "cached",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              111,
+              156,
+              120,
+              255
+            ],
+            "token": "state_cached"
+          }
+        },
+        "status": [
+          {
+            "hover": "Computed in 40 ms, fetched in 0.20 ms",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "cached · 40 ms"
+          }
+        ],
+        "title": {
+          "text": "cached",
+          "watch": true
+        }
+      },
+      "id": "n11",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 3,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n11",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n11",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n11",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        900.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "cached"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            192,
+            57,
+            43,
+            255
+          ],
+          "token": "state_error"
+        },
+        "width": 2.5
+      },
+      "footer": [
+        {
+          "full": "value error: the picture is empty",
+          "kind": "error",
+          "paint": {
+            "color": [
+              179,
+              52,
+              42,
+              255
+            ],
+            "token": "error"
+          },
+          "text": "value error: the picture is empty"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "error",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              192,
+              57,
+              43,
+              255
+            ],
+            "token": "state_error"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "3.00 ms"
+          }
+        ],
+        "title": {
+          "text": "error",
+          "watch": true
+        }
+      },
+      "id": "n12",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 4,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n12",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n12",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n12",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        1020.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "error"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            162,
+            157,
+            148,
+            255
+          ],
+          "token": "state_skipped"
+        },
+        "width": 2.0
+      },
+      "footer": [
+        {
+          "full": "skipped: an input failed",
+          "kind": "error",
+          "paint": {
+            "color": [
+              87,
+              82,
+              74,
+              255
+            ],
+            "token": "text_dim"
+          },
+          "text": "skipped: an input failed"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "skipped",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              162,
+              157,
+              148,
+              255
+            ],
+            "token": "state_skipped"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "skipped"
+          }
+        ],
+        "title": {
+          "text": "skipped",
+          "watch": true
+        }
+      },
+      "id": "n13",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 5,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n13",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n13",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n13",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        1140.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "skipped"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            162,
+            157,
+            148,
+            255
+          ],
+          "token": "state_cancelled"
+        },
+        "width": 2.0
+      },
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "cancelled",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              162,
+              157,
+              148,
+              255
+            ],
+            "token": "state_cancelled"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "cancelled"
+          }
+        ],
+        "title": {
+          "text": "cancelled",
+          "watch": true
+        }
+      },
+      "id": "n14",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 6,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n14",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n14",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n14",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        1260.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "cancelled"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            176,
+            125,
+            18,
+            255
+          ],
+          "token": "stale"
+        },
+        "width": 2.0
+      },
+      "footer": [
+        {
+          "kind": "save",
+          "port": "pic",
+          "sheet": false
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "done",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              58,
+              138,
+              76,
+              255
+            ],
+            "token": "state_done"
+          }
+        },
+        "status": [
+          {
+            "hover": "Stale since the last run:\n• gain changed\nRun again to bring it up to date.",
+            "paint": {
+              "color": [
+                176,
+                125,
+                18,
+                255
+              ],
+              "token": "stale"
+            },
+            "strong": false,
+            "text": "stale"
+          },
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "5.00 ms"
+          }
+        ],
+        "title": {
+          "text": "stale",
+          "watch": true
+        }
+      },
+      "id": "n15",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 7,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n15",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n15",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n15",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        300.0,
+        300.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": true,
+        "state": "done"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.ink",
+          "known": true,
+          "name": "Ink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Ink 1",
+          "watch": true
+        }
+      },
+      "id": "n16",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: x.t.tune",
+          "inactive": null,
+          "key": "tuning",
+          "label": "tuning",
+          "list": false,
+          "named": null,
+          "node": "n16",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "tuning · x.t.tune",
+          "ty": "x.t.tune",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "ink.width",
+          "label": "ink.width",
+          "list": false,
+          "named": null,
+          "node": "n16",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "FLOAT",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": 1,
+            "default": 1.0,
+            "hover": null,
+            "int": false,
+            "kind": "number",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": 5.0
+          }
+        }
+      ],
+      "kind": "t.ink",
+      "menu": "node",
+      "nid": 8,
+      "outputs": [
+        {
+          "hover": "Type: x.t.tune",
+          "key": "tuning",
+          "label": "tuning · x.t.tune",
+          "list": false,
+          "node": "n16",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "x.t.tune"
+        },
+        {
+          "hover": "Type: FLOAT",
+          "key": "level",
+          "label": "level",
+          "list": false,
+          "node": "n16",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "FLOAT"
+        }
+      ],
+      "pos": [
+        0.0,
+        1600.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.ink",
+          "known": true,
+          "name": "Ink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Ink 2",
+          "watch": true
+        }
+      },
+      "id": "n17",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: x.t.tune",
+          "inactive": null,
+          "key": "tuning",
+          "label": "tuning",
+          "list": false,
+          "named": null,
+          "node": "n17",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "tuning · x.t.tune",
+          "ty": "x.t.tune",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": "from tuning",
+          "hover": "ink.width comes from the tuning wired into this node; the widget's own value (1.0) is not used. The node's menu › Detach uses its own values.",
+          "inactive": null,
+          "key": "ink.width",
+          "label": "ink.width",
+          "list": false,
+          "named": null,
+          "node": "n17",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "inherited",
+          "text": "5.0",
+          "ty": "FLOAT",
+          "widget": null
+        }
+      ],
+      "kind": "t.ink",
+      "menu": "node",
+      "nid": 9,
+      "outputs": [
+        {
+          "hover": "Type: x.t.tune",
+          "key": "tuning",
+          "label": "tuning · x.t.tune",
+          "list": false,
+          "node": "n17",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "x.t.tune"
+        },
+        {
+          "hover": "Type: FLOAT",
+          "key": "level",
+          "label": "level",
+          "list": false,
+          "node": "n17",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "FLOAT"
+        }
+      ],
+      "pos": [
+        300.0,
+        1600.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.ink",
+          "known": true,
+          "name": "Ink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Ink 3",
+          "watch": true
+        }
+      },
+      "id": "n18",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: x.t.tune",
+          "inactive": null,
+          "key": "tuning",
+          "label": "tuning",
+          "list": false,
+          "named": null,
+          "node": "n18",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "tuning · x.t.tune",
+          "ty": "x.t.tune",
+          "widget": null
+        },
+        {
+          "badge": {
+            "hover": "This wire overrides the value in the tuning wired into this node",
+            "paint": {
+              "color": [
+                44,
+                102,
+                173,
+                255
+              ],
+              "token": "accent"
+            },
+            "text": "overrides tuning"
+          },
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "ink.width",
+          "label": "ink.width",
+          "list": false,
+          "named": null,
+          "node": "n18",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "wired",
+          "text": "ink.width = 1.0 (wired from Ink 1)",
+          "ty": "FLOAT",
+          "widget": null
+        }
+      ],
+      "kind": "t.ink",
+      "menu": "node",
+      "nid": 10,
+      "outputs": [
+        {
+          "hover": "Type: x.t.tune",
+          "key": "tuning",
+          "label": "tuning · x.t.tune",
+          "list": false,
+          "node": "n18",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "x.t.tune"
+        },
+        {
+          "hover": "Type: FLOAT",
+          "key": "level",
+          "label": "level",
+          "list": false,
+          "node": "n18",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "FLOAT"
+        }
+      ],
+      "pos": [
+        300.0,
+        1800.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [
+        {
+          "kind": "convert",
+          "lines": [
+            {
+              "hover": null,
+              "paint": {
+                "color": [
+                  87,
+                  82,
+                  74,
+                  255
+                ],
+                "token": "text_dim"
+              },
+              "text": "wire both ends"
+            }
+          ]
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "Turns a value into the type the input it feeds needs, by the engines' converters (WAV to Audio, a document's export). Wire both ends; it picks the way and keeps it. When it runs, the converters run in its place.",
+          "family": null,
+          "id": "core.convert",
+          "known": true,
+          "name": "Convert",
+          "path": "Building blocks › Convert"
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "repeat",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Convert",
+          "watch": true
+        }
+      },
+      "id": "n19",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: CONVERT\nAny value an engine can convert",
+          "inactive": null,
+          "key": "value",
+          "label": "value",
+          "list": false,
+          "named": null,
+          "node": "n19",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "value · CONVERT",
+          "ty": "CONVERT",
+          "widget": null
+        }
+      ],
+      "kind": "core.convert",
+      "menu": "node",
+      "nid": 11,
+      "outputs": [
+        {
+          "hover": "Type: CONVERT\nThe value as the inputs it feeds need it",
+          "key": "value",
+          "label": "value · CONVERT",
+          "list": false,
+          "node": "n19",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "ty": "CONVERT"
+        }
+      ],
+      "pos": [
+        0.0,
+        2000.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            242,
+            248,
+            243,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            163,
+            232,
+            214,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Source 1",
+          "watch": true
+        }
+      },
+      "id": "n2",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 12,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n2",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n2",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n2",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        -300.0,
+        0.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.join",
+          "known": true,
+          "name": "Join",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Join 1",
+          "watch": true
+        }
+      },
+      "id": "n3",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: TEXT",
+          "inactive": null,
+          "key": "c1",
+          "label": "c c1",
+          "list": false,
+          "named": null,
+          "node": "n3",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "c c1 · TEXT",
+          "ty": "TEXT",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": "Type: TEXT",
+          "inactive": null,
+          "key": "c2",
+          "label": "c c2",
+          "list": false,
+          "named": null,
+          "node": "n3",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "socket",
+          "text": "c c2 · TEXT",
+          "ty": "TEXT",
+          "widget": null
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "how",
+          "label": "how",
+          "list": false,
+          "named": null,
+          "node": "n3",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "ENUM",
+          "widget": {
+            "blank": false,
+            "choices": [
+              {
+                "disabled": null,
+                "label": "line",
+                "value": "line"
+              },
+              {
+                "disabled": null,
+                "label": "space",
+                "value": "space"
+              }
+            ],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": "line",
+            "hover": null,
+            "int": false,
+            "kind": "choice",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": "line"
+          }
+        },
+        {
+          "badge": null,
+          "dim": true,
+          "from": null,
+          "hover": "(the default value)",
+          "inactive": null,
+          "key": "how.width",
+          "label": "how › width",
+          "list": false,
+          "named": null,
+          "node": "n3",
+          "pin": {
+            "fill": {
+              "color": [
+                127,
+                121,
+                111,
+                255
+              ],
+              "token": "pin_default"
+            },
+            "shape": "circle",
+            "wire": {
+              "color": [
+                125,
+                120,
+                111,
+                255
+              ],
+              "token": "wire"
+            },
+            "wireable": true
+          },
+          "source": "own",
+          "text": null,
+          "ty": "INT",
+          "widget": {
+            "blank": false,
+            "choices": [],
+            "clearable": false,
+            "colorFormat": null,
+            "decimals": null,
+            "default": 80,
+            "hover": null,
+            "int": true,
+            "kind": "number",
+            "max": null,
+            "min": null,
+            "pathMode": null,
+            "softMax": null,
+            "softMin": null,
+            "step": null,
+            "value": 80
+          }
+        }
+      ],
+      "kind": "t.join",
+      "menu": "node",
+      "nid": 13,
+      "outputs": [
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n3",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        }
+      ],
+      "pos": [
+        300.0,
+        0.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.sink",
+          "known": true,
+          "name": "Sink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Sink 1",
+          "watch": false
+        }
+      },
+      "id": "n4",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "named": null,
+          "node": "n4",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "wired",
+          "text": "text = x (wired from Join 1)",
+          "ty": "TEXT",
+          "widget": null
+        }
+      ],
+      "kind": "t.sink",
+      "menu": "node",
+      "nid": 14,
+      "outputs": [],
+      "pos": [
+        600.0,
+        0.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.sink",
+          "known": true,
+          "name": "Sink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Sink 2",
+          "watch": false
+        }
+      },
+      "id": "n5",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "named": null,
+          "node": "n5",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "wired",
+          "text": "text = x (wired from Source 1)",
+          "ty": "TEXT",
+          "widget": null
+        }
+      ],
+      "kind": "t.sink",
+      "menu": "node",
+      "nid": 15,
+      "outputs": [],
+      "pos": [
+        600.0,
+        200.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            125,
+            131,
+            141,
+            255
+          ],
+          "token": "state_queued"
+        },
+        "width": 2.0
+      },
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "queued",
+          "kind": "dot",
+          "paint": {
+            "color": [
+              125,
+              131,
+              141,
+              255
+            ],
+            "token": "state_queued"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "queued"
+          }
+        ],
+        "title": {
+          "text": "queued",
+          "watch": true
+        }
+      },
+      "id": "n6",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 16,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n6",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n6",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n6",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        300.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "queued"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            44,
+            102,
+            173,
+            255
+          ],
+          "token": "state_running"
+        },
+        "width": 2.5
+      },
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "running",
+          "kind": "spinner",
+          "paint": {
+            "color": [
+              44,
+              102,
+              173,
+              255
+            ],
+            "token": "state_running"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                44,
+                102,
+                173,
+                255
+              ],
+              "token": "state_running"
+            },
+            "strong": true,
+            "text": "running"
+          }
+        ],
+        "title": {
+          "text": "started",
+          "watch": true
+        }
+      },
+      "id": "n7",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 17,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n7",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n7",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n7",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        420.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "started"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            44,
+            102,
+            173,
+            255
+          ],
+          "token": "state_running"
+        },
+        "width": 2.5
+      },
+      "footer": [
+        {
+          "fraction": 0.4,
+          "kind": "progress",
+          "stage": "blurring"
+        }
+      ],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "running",
+          "kind": "spinner",
+          "paint": {
+            "color": [
+              44,
+              102,
+              173,
+              255
+            ],
+            "token": "state_running"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                44,
+                102,
+                173,
+                255
+              ],
+              "token": "state_running"
+            },
+            "strong": true,
+            "text": "running 40%"
+          }
+        ],
+        "title": {
+          "text": "progress",
+          "watch": true
+        }
+      },
+      "id": "n8",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 18,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n8",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n8",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n8",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        540.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": 0.4,
+        "notRun": false,
+        "stale": false,
+        "state": "progress"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": {
+        "paint": {
+          "color": [
+            44,
+            102,
+            173,
+            255
+          ],
+          "token": "state_running"
+        },
+        "width": 2.5
+      },
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": "running",
+          "kind": "spinner",
+          "paint": {
+            "color": [
+              44,
+              102,
+              173,
+              255
+            ],
+            "token": "state_running"
+          }
+        },
+        "status": [
+          {
+            "hover": null,
+            "paint": {
+              "color": [
+                44,
+                102,
+                173,
+                255
+              ],
+              "token": "state_running"
+            },
+            "strong": true,
+            "text": "running"
+          }
+        ],
+        "title": {
+          "text": "preview",
+          "watch": true
+        }
+      },
+      "id": "n9",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 19,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n9",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n9",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n9",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        0.0,
+        660.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": false,
+        "stale": false,
+        "state": "preview"
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    }
+  ],
+  "selection": {
+    "groups": [],
+    "net": null,
+    "nodes": []
+  },
+  "shell": 1,
+  "wires": [
+    {
+      "from": {
+        "node": "n2",
+        "port": "pic"
+      },
+      "fromFace": "n2",
+      "fromPin": 0,
+      "id": "n1.pic",
+      "kind": "plain",
+      "net": null,
+      "nid": 21,
+      "paint": {
+        "color": [
+          204,
+          68,
+          102,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n1",
+        "port": "pic"
+      },
+      "toFace": "n1",
+      "toPin": 11,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n2",
+        "port": "pics"
+      },
+      "fromFace": "n2",
+      "fromPin": 2,
+      "id": "n1.pics",
+      "kind": "plain",
+      "net": null,
+      "nid": 25,
+      "paint": {
+        "color": [
+          204,
+          68,
+          102,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": "[:-1]",
+      "to": {
+        "node": "n1",
+        "port": "pics"
+      },
+      "toFace": "n1",
+      "toPin": 12,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n16",
+        "port": "tuning"
+      },
+      "fromFace": "n16",
+      "fromPin": 0,
+      "id": "n17.tuning",
+      "kind": "plain",
+      "net": null,
+      "nid": 26,
+      "paint": {
+        "color": [
+          125,
+          120,
+          111,
+          255
+        ],
+        "token": "wire"
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n17",
+        "port": "tuning"
+      },
+      "toFace": "n17",
+      "toPin": 0,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n16",
+        "port": "level"
+      },
+      "fromFace": "n16",
+      "fromPin": 1,
+      "id": "n18.ink.width",
+      "kind": "plain",
+      "net": null,
+      "nid": 28,
+      "paint": {
+        "color": [
+          125,
+          120,
+          111,
+          255
+        ],
+        "token": "wire"
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n18",
+        "port": "ink.width"
+      },
+      "toFace": "n18",
+      "toPin": 1,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n16",
+        "port": "tuning"
+      },
+      "fromFace": "n16",
+      "fromPin": 0,
+      "id": "n18.tuning",
+      "kind": "plain",
+      "net": null,
+      "nid": 27,
+      "paint": {
+        "color": [
+          125,
+          120,
+          111,
+          255
+        ],
+        "token": "wire"
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n18",
+        "port": "tuning"
+      },
+      "toFace": "n18",
+      "toPin": 0,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n2",
+        "port": "text"
+      },
+      "fromFace": "n2",
+      "fromPin": 1,
+      "id": "n21.c2",
+      "kind": "plain",
+      "net": null,
+      "nid": 29,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n21",
+        "port": "c2"
+      },
+      "toFace": "group:g1",
+      "toPin": 0,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n2",
+        "port": "text"
+      },
+      "fromFace": "n2",
+      "fromPin": 1,
+      "id": "n3.c1",
+      "kind": "plain",
+      "net": null,
+      "nid": 22,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n3",
+        "port": "c1"
+      },
+      "toFace": "n3",
+      "toPin": 0,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n3",
+        "port": "text"
+      },
+      "fromFace": "n3",
+      "fromPin": 0,
+      "id": "n4.text",
+      "kind": "routed",
+      "net": null,
+      "nid": 23,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n4",
+        "port": "text"
+      },
+      "toFace": "n4",
+      "toPin": 0,
+      "via": [
+        [
+          450,
+          60
+        ]
+      ]
+    },
+    {
+      "from": {
+        "node": "n2",
+        "port": "text"
+      },
+      "fromFace": "n2",
+      "fromPin": 1,
+      "id": "n5.text",
+      "kind": "net",
+      "net": {
+        "name": "caption"
+      },
+      "nid": 24,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n5",
+        "port": "text"
+      },
+      "toFace": "n5",
+      "toPin": 0,
+      "via": []
+    }
+  ]
+}

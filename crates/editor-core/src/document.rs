@@ -246,6 +246,8 @@ pub struct Document {
     pub selection: crate::selection::SelectionCell,
     /// The group entered (`canvas.focus`): only its members are shown and selectable.
     pub focus: Option<plumcraft_graph::GroupId>,
+    /// The scene last published, with its revisions (`scene.get`, [`crate::scene`]).
+    pub scene: crate::scene::Published,
 }
 
 impl std::fmt::Debug for Document {
@@ -305,6 +307,7 @@ impl Document {
             menus: crate::menu::Revision::default(),
             selection: crate::selection::SelectionCell::default(),
             focus: None,
+            scene: crate::scene::Published::default(),
         }
     }
 
@@ -1135,6 +1138,54 @@ impl Shell for Document {
     }
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         Some(&mut self.menus)
+    }
+    /// The scene in the default theme, with no run animation and no application editors (this
+    /// shell draws none).
+    fn scene(&self) -> Option<crate::scene::Scene> {
+        Some(self.build_scene(&crate::theme::DEFAULT, None, &crate::scene::app_texts(), &[]))
+    }
+    fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
+        Some(&mut self.scene)
+    }
+}
+
+impl Document {
+    /// The scene of this document now ([`crate::scene::build`]) in `tokens`' colours: the
+    /// selection, the group entered and the Watched panel's node are the document's; the run
+    /// animation, the application's lines and its editors are what the shell shows.
+    pub fn build_scene(
+        &self,
+        tokens: &crate::theme::Tokens,
+        anim: Option<&crate::run_anim::RunAnim>,
+        app_text: &std::collections::HashMap<String, String>,
+        editors: &[crate::scene::Editor],
+    ) -> crate::scene::Scene {
+        crate::scene::build(&self.scene_inputs(tokens, anim, app_text, editors))
+    }
+
+    /// What [`Document::build_scene`] builds from.
+    pub fn scene_inputs<'a>(
+        &'a self,
+        tokens: &'a crate::theme::Tokens,
+        anim: Option<&'a crate::run_anim::RunAnim>,
+        app_text: &'a std::collections::HashMap<String, String>,
+        editors: &'a [crate::scene::Editor],
+    ) -> crate::scene::Inputs<'a> {
+        let watched = self.session.run.panel().map(|(w, _)| plumcraft_graph::NodeId(w.node.clone()));
+        crate::scene::Inputs {
+            doc: self.id,
+            graph: self.session.graph(),
+            catalog: self.session.catalog(),
+            run: &self.session.run,
+            selection: self.selection.get(),
+            focus: self.focus.as_ref(),
+            watched,
+            tokens,
+            anim,
+            now: std::time::Instant::now(),
+            app_text,
+            editors,
+        }
     }
 }
 

@@ -45,6 +45,7 @@
 
 pub mod appearance;
 pub mod asks;
+pub mod bundle;
 pub mod canvas_cmds;
 pub mod control;
 pub mod diff;
@@ -65,10 +66,12 @@ pub mod raster;
 pub mod rows;
 pub mod run_anim;
 pub mod run_text;
+pub mod scene;
 pub mod selection;
 pub mod switchboard;
 pub mod theme;
 pub mod values;
+pub mod widget_text;
 pub mod wire_path;
 pub mod worker;
 pub mod yaml;

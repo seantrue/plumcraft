@@ -45,12 +45,18 @@ pub fn port_label(p: &Port) -> String {
 
 /// The input rows of a node of type `def` in `graph`.
 pub fn input_rows(def: &NodeDef, id: &NodeId, graph: &Graph) -> Vec<InputRow> {
+    input_rows_with(def, id, graph, &|p| graph.wire_into(p).is_some())
+}
+
+/// [`input_rows`], with `wired` saying whether a wire feeds a port (an index of the graph's
+/// wires, for a caller that asks for every node: the scene).
+pub fn input_rows_with(def: &NodeDef, id: &NodeId, graph: &Graph, wired: &dyn Fn(&PortRef) -> bool) -> Vec<InputRow> {
     let values = graph.node(id).map(|n| &n.values);
     let mut rows = Vec::new();
     for port in &def.inputs {
         if let Some(v) = &port.variadic {
             let names = plumcraft_graph::variadic_slots(port);
-            let wired: Vec<bool> = names.iter().map(|n| graph.wire_into(&PortRef::new(id.clone(), n.clone())).is_some()).collect();
+            let wired: Vec<bool> = names.iter().map(|n| wired(&PortRef::new(id.clone(), n.clone()))).collect();
             let last = wired.iter().rposition(|w| *w).map_or(0, |i| i + 1);
             let count = last.saturating_add(1).max(v.min as usize).min(names.len());
             let base = port_label(port);
@@ -84,9 +90,14 @@ pub fn input_rows(def: &NodeDef, id: &NodeId, graph: &Graph) -> Vec<InputRow> {
 /// The rows node `id` shows: [`input_rows`] without the fields its choice doesn't use, unless
 /// the node shows every field. Also how many were tucked away.
 pub fn shown_rows(def: &NodeDef, id: &NodeId, graph: &Graph) -> (Vec<InputRow>, usize) {
-    let mut inputs = input_rows(def, id, graph);
+    shown_rows_with(def, id, graph, &|p| graph.wire_into(p).is_some())
+}
+
+/// [`shown_rows`], with `wired` saying whether a wire feeds a port.
+pub fn shown_rows_with(def: &NodeDef, id: &NodeId, graph: &Graph, wired: &dyn Fn(&PortRef) -> bool) -> (Vec<InputRow>, usize) {
+    let mut inputs = input_rows_with(def, id, graph, wired);
     let Some(node) = graph.node(id) else { return (inputs, 0) };
-    let tucked = plumcraft_graph::ports::tucked(def, node, |p| graph.wire_into(&PortRef::new(id.clone(), p)).is_some());
+    let tucked = plumcraft_graph::ports::tucked(def, node, |p| wired(&PortRef::new(id.clone(), p)));
     if !node.all_fields {
         inputs.retain(|r| !(r.kind == RowKind::Plain && tucked.contains(&r.key)));
     }
@@ -159,6 +170,92 @@ pub fn proxy_outputs(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> Vec
         }
     }
     outputs
+}
+
+/// The input rows of collapsed group `gid`'s node, and the member node each stands for: the
+/// group's external inputs (ports the engine marks `external`), wired or not; then its promoted
+/// inputs (with the parameter's label, doc and range); then, member by member, each input wired
+/// from outside and each required wire-only input nothing feeds; then any other wire from
+/// outside. Moved from `plumcraft-ui`'s `groups_view::proxy_node` in N2 slice 2.
+pub fn proxy_inputs(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> (Vec<InputRow>, Vec<NodeId>) {
+    let mut inputs = Vec::new();
+    let mut rows: Vec<NodeId> = Vec::new();
+    let Some(grp) = graph.group(gid) else { return (inputs, rows) };
+    let members = graph.group_members(gid);
+    let title = |n: &NodeId| plumcraft_session::node_title(graph, catalog, n);
+    let row_for = |at: &PortRef| -> Option<InputRow> {
+        let n = graph.node(&at.node)?;
+        let def = catalog.node(&n.kind)?;
+        input_rows(def, &at.node, graph).into_iter().find(|r| r.key == at.port)
+    };
+    // Members top to bottom as they sit, so the pins keep the members' order.
+    let defs = ordered_members(graph, catalog, gid);
+    // The group's own pins (ports the engine marks external), wired or not.
+    for (n, def) in &defs {
+        for port in def.inputs.iter().filter(|p| p.external) {
+            let at = PortRef::new(n.clone(), port.name.clone());
+            if let Some(mut row) = row_for(&at) {
+                row.label = format!("{} › {}", title(n), row.label);
+                row.kind = RowKind::Plain;
+                inputs.push(row);
+                rows.push(n.clone());
+            }
+        }
+    }
+    for p in &grp.promoted {
+        if rows.iter().zip(&inputs).any(|(n, r)| n == &p.port.node && r.key == p.port.port) {
+            continue;
+        }
+        if let Some(mut row) = row_for(&p.port) {
+            row.label.clone_from(&p.label);
+            if !p.doc.is_empty() {
+                row.port.tooltip = Some(p.doc.clone());
+            }
+            // The parameter's own range, inside the inner port's.
+            row.port.min = p.min.or(row.port.min);
+            row.port.max = p.max.or(row.port.max);
+            row.kind = RowKind::Plain;
+            inputs.push(row);
+            rows.push(p.port.node.clone());
+        }
+    }
+    // Member by member: inputs wired from outside, and required wire-only inputs nothing feeds.
+    for (n, def) in &defs {
+        for mut row in input_rows(def, n, graph) {
+            if rows.iter().zip(&inputs).any(|(m, r)| m == n && r.key == row.key) {
+                continue;
+            }
+            let open = match graph.wire_into(&PortRef::new(n.clone(), row.key.clone())) {
+                Some(w) => !members.contains(&w.from.node),
+                None => !row.port.has_widget() && !row.port.optional && !matches!(row.kind, RowKind::Slot { index, .. } if index > 0),
+            };
+            if open {
+                row.label = format!("{} › {}", title(n), row.label);
+                row.kind = RowKind::Plain;
+                inputs.push(row);
+                rows.push(n.clone());
+            }
+        }
+    }
+    // (any other wire from outside, to a port the member doesn't show as a row)
+    for w in graph.wires.iter().filter(|w| members.contains(&w.to.node) && !members.contains(&w.from.node)) {
+        if rows.iter().zip(&inputs).any(|(n, r)| n == &w.to.node && r.key == w.to.port) {
+            continue;
+        }
+        if let Some(mut row) = row_for(&w.to) {
+            row.label = format!("{} › {}", title(&w.to.node), row.label);
+            row.kind = RowKind::Plain;
+            inputs.push(row);
+            rows.push(w.to.node.clone());
+        }
+    }
+    (inputs, rows)
+}
+
+/// The id a collapsed group's node goes by (never a real node id: those are `n<k>` or a file's
+/// own names, and a file's can't contain `:` and be a group's).
+pub fn proxy_node_id(group: &GroupId) -> NodeId {
+    NodeId(format!("group:{group}"))
 }
 
 #[cfg(test)]

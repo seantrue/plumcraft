@@ -180,6 +180,14 @@ pub trait Shell: Host {
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         None
     }
+    /// The scene as it is now (`scene.get`, N2 slice 2); none: this shell publishes none.
+    fn scene(&self) -> Option<crate::scene::Scene> {
+        None
+    }
+    /// Where the published scene and its revisions are kept.
+    fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
+        None
+    }
 }
 
 /// A method this shell has nothing to answer with.
@@ -442,6 +450,22 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                     ok(v)
                 }
                 Err(e) => err(e),
+            }
+        }
+        // the scene (N2 slice 2): everything, or what changed since a generation
+        "scene.get" => {
+            let since = match crate::scene::parse_since(params) {
+                Ok(s) => s,
+                Err(e) => return err(e),
+            };
+            let Some(scene) = s.scene() else { return err(not_here("scene.get")) };
+            match s.scene_published() {
+                Some(p) => {
+                    p.publish(scene);
+                    p.watched = true;
+                    ok(p.get(since))
+                }
+                None => err(not_here("scene.get")),
             }
         }
         // the log (N1 slice 8): read it, or add the shell's own entry

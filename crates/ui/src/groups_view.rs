@@ -34,10 +34,10 @@ use std::collections::BTreeSet;
 use egui::{Pos2, Rect, Vec2};
 use egui_snarl::{InPinId, NodeId as SnarlId, OutPinId, Snarl};
 use plumcraft_graph::{Graph, GroupId, NodeId, PortRef, Promoted, Wire};
-use plumcraft_proto::catalogue::{NodeDef, SchemaReply, scalars, texts};
+use plumcraft_proto::catalogue::{SchemaReply, scalars};
 use serde_json::json;
 
-use crate::canvas::{Action, Canvas, CanvasNode, InputRow, RowKind, input_rows};
+use crate::canvas::{Action, Canvas, CanvasNode, InputRow};
 use crate::theme::Tokens;
 
 /// An output of a proxy: which member output it stands for (the core's).
@@ -63,11 +63,8 @@ impl Proxy {
     }
 }
 
-/// The graph id a proxy node goes by (never a real node id: those are `n<k>` or a file's own
-/// names, and a file's can't contain `:` and be a group's).
-pub fn proxy_node_id(group: &GroupId) -> NodeId {
-    NodeId(format!("group:{group}"))
-}
+/// The graph id a proxy node goes by (the core's).
+pub use plumcraft_editor_core::rows::proxy_node_id;
 
 /// The node behind input row `index` of a snarl node (a proxy's row stands for a member).
 pub fn row_node(node: &CanvasNode, index: usize) -> NodeId {
@@ -103,81 +100,8 @@ pub use plumcraft_editor_core::rows::unique_name;
 /// The proxy node of collapsed group `gid`, and where it sits.
 pub fn proxy_node(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> Option<(Pos2, CanvasNode)> {
     let grp = graph.group(gid)?;
-    let members = graph.group_members(gid);
-    let mut inputs = Vec::new();
-    let mut rows = Vec::new();
-    let row_for = |at: &PortRef| -> Option<InputRow> {
-        let n = graph.node(&at.node)?;
-        let def = catalog.node(&n.kind)?;
-        input_rows(def, &at.node, graph).into_iter().find(|r| r.key == at.port)
-    };
-    // Members top to bottom as they sit, so the pins keep the members' order.
-    let mut ordered: Vec<&NodeId> = members.iter().collect();
-    ordered.sort_by(|a, b| {
-        let at = |n: &NodeId| graph.node(n).map_or([0.0, 0.0], |n| n.pos);
-        let (pa, pb) = (at(a), at(b));
-        pa[1].total_cmp(&pb[1]).then(pa[0].total_cmp(&pb[0])).then(a.cmp(b))
-    });
-    let defs: Vec<(&NodeId, &NodeDef)> = ordered.iter().filter_map(|n| Some((*n, catalog.node(&graph.node(n)?.kind)?))).collect();
-    // The group's own pins (ports the engine marks external), wired or not.
-    for (n, def) in &defs {
-        for port in def.inputs.iter().filter(|p| p.external) {
-            let at = PortRef::new((*n).clone(), port.name.clone());
-            if let Some(mut row) = row_for(&at) {
-                row.label = format!("{} › {}", node_title(graph, catalog, n), row.label);
-                row.kind = RowKind::Plain;
-                inputs.push(row);
-                rows.push((*n).clone());
-            }
-        }
-    }
-    for p in &grp.promoted {
-        if rows.iter().zip(&inputs).any(|(n, r)| n == &p.port.node && r.key == p.port.port) {
-            continue;
-        }
-        if let Some(mut row) = row_for(&p.port) {
-            row.label.clone_from(&p.label);
-            if !p.doc.is_empty() {
-                row.port.tooltip = Some(p.doc.clone());
-            }
-            // The parameter's own range, inside the inner port's.
-            row.port.min = p.min.or(row.port.min);
-            row.port.max = p.max.or(row.port.max);
-            row.kind = RowKind::Plain;
-            inputs.push(row);
-            rows.push(p.port.node.clone());
-        }
-    }
-    // Member by member: inputs wired from outside, and required wire-only inputs nothing feeds.
-    for (n, def) in &defs {
-        for mut row in input_rows(def, n, graph) {
-            if rows.iter().zip(&inputs).any(|(m, r)| m == *n && r.key == row.key) {
-                continue;
-            }
-            let open = match graph.wire_into(&PortRef::new((*n).clone(), row.key.clone())) {
-                Some(w) => !members.contains(&w.from.node),
-                None => !row.port.has_widget() && !row.port.optional && !matches!(row.kind, RowKind::Slot { index, .. } if index > 0),
-            };
-            if open {
-                row.label = format!("{} › {}", node_title(graph, catalog, n), row.label);
-                row.kind = RowKind::Plain;
-                inputs.push(row);
-                rows.push((*n).clone());
-            }
-        }
-    }
-    // (any other wire from outside, to a port the member doesn't show as a row)
-    for w in graph.wires.iter().filter(|w| members.contains(&w.to.node) && !members.contains(&w.from.node)) {
-        if rows.iter().zip(&inputs).any(|(n, r)| n == &w.to.node && r.key == w.to.port) {
-            continue;
-        }
-        if let Some(mut row) = row_for(&w.to) {
-            row.label = format!("{} › {}", node_title(graph, catalog, &w.to.node), row.label);
-            row.kind = RowKind::Plain;
-            inputs.push(row);
-            rows.push(w.to.node.clone());
-        }
-    }
+    // its rows, and the member each stands for (the core's)
+    let (inputs, rows) = plumcraft_editor_core::rows::proxy_inputs(graph, catalog, gid);
     // what it offers as outputs, as the core's menu model lists them
     let outputs = plumcraft_editor_core::rows::proxy_outputs(graph, catalog, gid);
     let proxy = Proxy { group: gid.clone(), name: grp.name.clone(), rows, outputs };
@@ -430,23 +354,9 @@ pub fn parameter_editor(ui: &mut egui::Ui, cx: &MenuCtx<'_>, gid: &GroupId, pr: 
 /// Small header badges on a member node: one of its groups' outputs, and its export mark, in the
 /// catalogue's words.
 pub fn header_badges(ui: &mut egui::Ui, graph: &Graph, catalog: &SchemaReply, node: &NodeId, tokens: &Tokens) {
-    let mut outputs = Vec::new();
-    let mut marked = None;
-    for g in graph.enclosing_groups(node) {
-        if let Some(grp) = graph.group(&g) {
-            outputs.extend(grp.outputs.iter().filter(|o| &o.from.node == node).map(|o| format!("{} › {}", grp.name, o.name)));
-            if marked.is_none() && grp.checkpoints.contains(node) {
-                marked = Some(grp.name.clone());
-            }
-        }
-    }
-    if let Some(group) = marked {
-        let word = catalog.text(texts::EXPORT_MARK).filter(|w| !w.is_empty()).unwrap_or("marked");
-        let hover = catalog.text(texts::EXPORT_MARK_HOVER).filter(|h| !h.is_empty()).unwrap_or("marked in {group}").replace("{group}", &group);
-        ui.label(egui::RichText::new(word).small().color(tokens.accent)).on_hover_text(hover);
-    }
-    if !outputs.is_empty() {
-        ui.label(egui::RichText::new("output").small().color(tokens.accent)).on_hover_text(format!("group output: {}", outputs.join(", ")));
+    // the words are the core's (N2 slice 2); the canvas draws them from the scene
+    for (text, hover) in plumcraft_editor_core::scene::badges_of(graph, catalog, node) {
+        ui.label(egui::RichText::new(text).small().color(tokens.accent)).on_hover_text(hover);
     }
 }
 

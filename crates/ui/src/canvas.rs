@@ -27,20 +27,20 @@ use egui::{Pos2, Rect, Vec2};
 use egui_snarl::ui::{NodeLayout, NodeLayoutKind, PinInfo, SnarlPin, SnarlViewer, SnarlWidget};
 use egui_snarl::{InPin, InPinId, NodeId as SnarlId, OutPin, OutPinId, Snarl};
 use plumcraft_graph::{Graph, GroupId, NodeId, NodeView, PortRef};
-use plumcraft_proto::catalogue::{NodeDef, Port, SchemaReply, Socket, scalars};
+use plumcraft_proto::catalogue::{Port, SchemaReply};
 use plumcraft_proto::display::Rendition;
-use plumcraft_proto::event::NodeState;
 use plumcraft_session::RunState;
 use plumcraft_session::run::NodeRun;
 use serde_json::{Value, json};
 
-use crate::bundle_view::{self, Source};
 use crate::menu_view;
 use crate::palette::{self, PaletteIndex, PaletteOutcome, PaletteState};
+use crate::plain::ToEgui;
 use crate::run_view::{self, PinKey, PinSink, Thumbs, TrackedPin};
-use crate::theme::{CLEAR, FamilyTint, Text, Tokens, parse_hex};
+use crate::theme::{CLEAR, FamilyTint, Text, Tokens};
 use crate::value_editors;
 use crate::widgets::{self, EditBuffers};
+use plumcraft_editor_core::scene::{self, Face, Footer, Paint};
 
 /// The width of a widget row's caption; longer labels are truncated with an ellipsis.
 pub const CAPTION_WIDTH: f32 = 96.0;
@@ -60,7 +60,6 @@ pub const WIRE_WIDTH: f32 = 2.5;
 pub const STATUS_SLOT: f32 = 88.0;
 
 // What an input row stands for, and one input row of a node: the core's (N1 slice 8).
-use plumcraft_editor_core::rows::port_label;
 pub use plumcraft_editor_core::rows::{InputRow, RowKind, input_rows};
 
 /// What a snarl node stands for.
@@ -78,39 +77,11 @@ pub struct CanvasNode {
     pub proxy: Option<crate::groups_view::Proxy>,
 }
 
-/// A socket's label with its wire type after it (`audio · WAV`), unless the label already
-/// names the type (`audio` on an AUDIO port) or the type is a scalar a widget shows. Two ports
-/// both called `audio` that can't be wired together then say why at a glance.
-fn typed_label(label: &str, ty: &str) -> String {
-    let norm = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
-    let scalar = matches!(ty, "FLOAT" | "INT" | "BOOL" | "STRING" | "ENUM" | "ANY" | "");
-    if scalar || norm(label) == norm(ty) { label.to_owned() } else { format!("{label} · {ty}") }
-}
-
-/// A port's tooltip with its type on the first line.
-fn typed_tip(ty: &str, tip: Option<&str>) -> String {
-    match tip.filter(|t| !t.is_empty()) {
-        Some(t) => format!("Type: {ty}\n{t}"),
-        None => format!("Type: {ty}"),
-    }
-}
-
 /// The save buttons, on a result node and in the Watched panel (the core's menu model words them).
 pub use plumcraft_editor_core::menu::{CONTACT_SHEET, SAVE_HELP, SAVE_RESULT, SHEET_HELP};
-/// Characters of the engine's text shown on a node; the rest is on hover.
-const NODE_TEXT_CHARS: usize = 120;
-
 /// `run.save` for `node.port`, asking where first ([`crate::EditorApp`]).
 fn save_action(node: &NodeId, port: &str, sheet: bool) -> Action {
     ("run.save", json!({"node": node, "port": port, "sheet": sheet, "ask": true}))
-}
-
-/// How many items a node's thumbnail stands for.
-fn thumb_items(r: &Rendition) -> u64 {
-    match r {
-        Rendition::Rgba8 { items, .. } => *items,
-        _ => 0,
-    }
 }
 
 // ---------- pins ↔ graph ports: a proxy's pins name its members' ports ----------
@@ -239,10 +210,22 @@ pub struct RunView<'a> {
     pub docs: &'a [plumcraft_session::DocApp],
     /// Apps chosen before with Open with… (`value.open`), most recent first.
     pub recent_apps: &'a [std::path::PathBuf],
-    /// The application's line on each node, by node id ([`crate::app_hooks`]).
-    pub app_text: &'a HashMap<String, String>,
     /// The latest run's replay ([`crate::run_anim`]); `None` when run colours are off.
     pub anim: Option<&'a crate::run_anim::RunAnim>,
+    /// The faces as the core's scene has them, by id (N2 slice 2): their words, colours, rows,
+    /// previews and footers.
+    pub faces: &'a HashMap<String, Face>,
+}
+
+// (the tests' names for what the core now words: N2 slice 2)
+#[cfg(test)]
+use plumcraft_editor_core::widget_text::{typed_label, typed_tip};
+#[cfg(test)]
+use plumcraft_proto::catalogue::NodeDef;
+
+/// A scene colour in egui's.
+fn paint(p: &Paint) -> egui::Color32 {
+    p.color().to_egui()
 }
 
 /// The transform that shows every rect in `nodes` inside `view`.
@@ -497,17 +480,9 @@ impl Canvas {
         out
     }
 
-    /// Draw the canvas; returns the commands its gestures asked for. `watched` is the node the
-    /// Watched panel shows (outlined).
-    pub fn show(
-        &mut self,
-        ui: &mut egui::Ui,
-        graph: &Graph,
-        catalog: &SchemaReply,
-        tokens: &Tokens,
-        runs: RunView<'_>,
-        watched: Option<&NodeId>,
-    ) -> Vec<Action> {
+    /// Draw the canvas; returns the commands its gestures asked for. The node the Watched panel
+    /// shows is outlined as the scene's faces say (`runs.faces`).
+    pub fn show(&mut self, ui: &mut egui::Ui, graph: &Graph, catalog: &SchemaReply, tokens: &Tokens, runs: RunView<'_>) -> Vec<Action> {
         self.rect = ui.max_rect();
         crate::icons::ensure_loaders(ui.ctx());
         self.palette_index.refresh(catalog);
@@ -598,12 +573,10 @@ impl Canvas {
             source: runs.source,
             docs: runs.docs,
             recent_apps: runs.recent_apps,
-            app_text: runs.app_text,
             pins: self.pins.clone(),
             wire_clicked: None,
             port_hovered: None,
             highlight,
-            watched: watched.cloned(),
             selected,
             selected_groups,
             canvas_requests: Vec::new(),
@@ -612,6 +585,7 @@ impl Canvas {
             name_request: None,
             anim: runs.anim,
             now: std::time::Instant::now(),
+            faces: runs.faces,
         };
         SnarlWidget::new().id(egui::Id::new(CANVAS_ID)).style(snarl_style(tokens)).show(&mut self.snarl, &mut viewer, ui);
         self.to_global = viewer.to_global;
@@ -860,15 +834,12 @@ struct NodeViewer<'a> {
     source: &'a dyn plumcraft_media::Source,
     docs: &'a [plumcraft_session::DocApp],
     recent_apps: &'a [std::path::PathBuf],
-    app_text: &'a HashMap<String, String>,
     pins: PinSink,
     /// A wire right-clicked this frame.
     wire_clicked: Option<(PortRef, PortRef)>,
     /// The output whose label the pointer is over this frame (its value is previewed).
     port_hovered: Option<PortRef>,
     highlight: Option<NodeId>,
-    /// The node the Watched panel shows.
-    watched: Option<NodeId>,
     /// The selection when the frame began (node menus act on it when their node is in it).
     selected: Vec<NodeId>,
     selected_groups: Vec<GroupId>,
@@ -883,6 +854,8 @@ struct NodeViewer<'a> {
     /// The latest run's replay, and the time it is shown at.
     anim: Option<&'a crate::run_anim::RunAnim>,
     now: std::time::Instant,
+    /// What each face shows (the core's scene).
+    faces: &'a HashMap<String, Face>,
 }
 
 /// Space between a node's thumbnail and the outputs beside it, and what follows below.
@@ -909,21 +882,8 @@ fn rich_label(ui: &mut egui::Ui, rich: egui::RichText, text: &str, tooltip: Opti
 }
 
 /// Is a node's thumbnail drawn faded: stale, failed, or from an earlier run than the one now
-/// computing the node (B22: thumbnails of two runs side by side must look it)?
-pub fn thumb_faded(run: &NodeRun) -> bool {
-    run.is_stale() || run.state == Some(NodeState::Error) || run.thumb_is_older()
-}
-
-/// What a thumbnail's hover adds about how current it is.
-fn thumb_note(run: &NodeRun) -> Option<String> {
-    if run.is_stale() {
-        Some(stale_tooltip(run))
-    } else if run.thumb_is_older() {
-        Some(OLDER_THUMB.to_owned())
-    } else {
-        None
-    }
-}
+/// computing the node (B22): the core's scene decides (N2 slice 2).
+pub use plumcraft_editor_core::scene::thumb_faded;
 
 pub use plumcraft_editor_core::run_text::{OLDER_THUMB, stale_tooltip};
 
@@ -937,40 +897,27 @@ fn caption(ui: &mut egui::Ui, rich: egui::RichText, text: &str, tooltip: Option<
     .inner
 }
 
-impl NodeViewer<'_> {
-    fn def(&self, node: &CanvasNode) -> Option<&NodeDef> {
-        self.catalog.node(&node.kind)
+impl<'a> NodeViewer<'a> {
+    /// The node's face as the core's scene has it (N2 slice 2): what the face shows.
+    fn face(&self, node: &CanvasNode) -> Option<&'a Face> {
+        self.faces.get(&node.id.0)
     }
 
-    /// With several engines (a merged catalogue): the engine that runs the node, whether it is
-    /// pinned, and the engines that offer its kind; as the coordinator decides (spec 8.2): the
-    /// pin, else the first of the workflow's engines that offers it, else the first that does.
-    fn engine_of(&self, node: &CanvasNode) -> Option<(String, bool, Vec<String>)> {
-        if node.proxy.is_some() {
-            return None;
+    /// A pin as the scene has it: round or square, in its wire type's colour; hidden when the
+    /// port can't be wired.
+    fn pin_of(&self, p: &scene::Pin) -> PinInfo {
+        if !p.wireable {
+            return PinInfo::circle().with_fill(self.tokens.pin_hidden).with_stroke(egui::Stroke::NONE);
         }
-        let offered = self.def(node).map(|d| d.engines.clone()).filter(|e| !e.is_empty())?;
-        let pin = self.graph.node(&node.id).and_then(|n| n.engine.clone()).filter(|p| offered.contains(p));
-        let engine = pin.clone().or_else(|| self.graph.engines.iter().find(|e| offered.contains(e)).cloned()).or_else(|| offered.first().cloned())?;
-        Some((engine, pin.is_some(), offered))
+        let pin = if p.shape == "square" { PinInfo::square() } else { PinInfo::circle() };
+        pin.with_fill(paint(&p.fill)).with_wire_color(paint(&p.wire))
     }
 
-    /// A pin in its wire type's colour (the engine's, else the theme's): round for scalars,
-    /// square for everything else.
-    fn pin(&self, ty: &str) -> PinInfo {
-        let typed = self.catalog.wire_type(ty).and_then(|w| w.color.as_deref()).and_then(parse_hex);
-        let pin = if scalars::is_scalar(ty) { PinInfo::circle() } else { PinInfo::square() };
-        pin.with_fill(typed.unwrap_or(self.tokens.pin_default)).with_wire_color(typed.unwrap_or(self.tokens.wire))
-    }
-
-    /// A named input's name, drawn as a net label with no wire: a stub and the name before the
-    /// caption, in the wire type's colour (docs/research/23-named-ports.md 3).
-    fn named_tag(&self, ui: &mut egui::Ui, at: &PortRef, ty: &str) {
-        let Some(name) = self.graph.name_of_port(at) else { return };
-        let color = self.catalog.wire_type(ty).and_then(|w| w.color.as_deref()).and_then(parse_hex).unwrap_or(self.tokens.wire);
-        let doc = self.graph.named_port(name).map(|n| n.doc.as_str()).filter(|d| !d.is_empty());
-        let hover = format!("Named port {name:?}: set from outside with run --set {name}=VALUE{}", doc.map(|d| format!("\n\n{d}")).unwrap_or_default());
-        ui.label(egui::RichText::new(format!("{name} →")).monospace().small().color(color)).on_hover_text(hover);
+    /// A named input's name, drawn as a net label with no wire: the name before the caption, in
+    /// the wire type's colour (docs/research/23-named-ports.md 3).
+    fn named_tag(ui: &mut egui::Ui, named: Option<&scene::Named>) {
+        let Some(n) = named else { return };
+        ui.label(egui::RichText::new(format!("{} →", n.name)).monospace().small().color(paint(&n.paint))).on_hover_text(&n.hover);
     }
 
     /// An input's right-click menu: name it, or rename or unname its name (the core's menu model).
@@ -1037,77 +984,59 @@ impl NodeViewer<'_> {
         Some(crate::theme::mix(self.tint(node).body, color, amount * strength))
     }
 
-    /// Is the node's thumbnail shown faded: out of date ([`thumb_faded`]), or ahead of the
-    /// replay, which hasn't shown the node finished yet?
-    fn thumb_faded_now(&self, node: &CanvasNode, n: &NodeRun) -> bool {
-        use crate::run_anim::Shown;
-        thumb_faded(n) || (n.is_finished() && matches!(self.shown(node), Some(Shown::Waiting | Shown::Running)))
-    }
-
     fn node_run(&self, node: &CanvasNode) -> Option<&NodeRun> {
         self.run.node(&node.id.0)
     }
 
-    /// The node's view (full, without its preview, or collapsed).
-    fn view_of(&self, node: &CanvasNode) -> NodeView {
-        self.graph.node(&node.id).map(|g| g.view).unwrap_or_default()
-    }
-
+    /// An input row as the scene words it ([`scene::InRow`]): its source decides what is drawn.
     fn input_pin(&mut self, pin: &InPin, ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) -> PinInfo {
         let Some(node) = snarl.get_node(pin.id.node) else { return PinInfo::circle() };
         let Some(row) = node.inputs.get(pin.id.input).cloned() else { return PinInfo::circle() };
+        let Some(face) = self.face(node).and_then(|f| f.inputs.get(pin.id.input)) else { return PinInfo::circle() };
         // a proxy's row stands for a member's port
         let node_id = crate::groups_view::row_node(node, pin.id.input);
         let port = &row.port;
         let at = PortRef::new(node_id.clone(), row.key.clone());
-        let tip = port.tooltip.as_deref();
-        let label = if port.list { format!("{} [ ]", row.label) } else { row.label.clone() };
-        let wire = self.graph.wire_into(&at);
-        let graph_node = self.graph.node(&node_id);
-        let def = graph_node.and_then(|n| self.catalog.node(&n.kind));
-        let current = graph_node.zip(def).map_or_else(|| port.default.clone(), |(n, d)| plumcraft_graph::ports::current_value(d, n, &row.key, port));
-        let source = bundle_view::source(self.graph, self.catalog, &at, port, bundle_view::provenance(self.run, &node_id, &row.key));
-        match (wire, port.socket_mode()) {
-            (Some(w), Socket::Both | Socket::Widget) => {
-                let text = format!("{label} = {} (wired from {})", widgets::value_text(&current), self.node_title(&w.from.node));
-                if source == Source::Overridden {
-                    let word = bundle_view::bundle_word(self.graph, self.catalog, &node_id);
+        let label = face.label.as_str();
+        let text = face.text.as_deref().unwrap_or_default();
+        let hover = face.hover.as_deref();
+        match face.source.as_str() {
+            "wired" => match &face.badge {
+                Some(badge) => {
                     ui.horizontal(|ui| {
-                        pin_label(ui, &text, tip, PIN_LABEL_WIDTH + CAPTION_WIDTH);
-                        self.actions.extend(bundle_view::override_badge(ui, self.tokens, &word, &at));
+                        pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
+                        ui.label(egui::RichText::new(&badge.text).small().color(paint(&badge.paint))).on_hover_text(&badge.hover);
+                        let r = ui.small_button("Reset").on_hover_text("Reset to inherited: remove the wire, so the bundle's value applies");
+                        if r.clicked() {
+                            self.actions.push(("bundle.reset", json!({"node": at.node, "port": at.port})));
+                        }
                     });
-                } else {
-                    pin_label(ui, &text, tip, PIN_LABEL_WIDTH + CAPTION_WIDTH);
                 }
+                None => {
+                    pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
+                }
+            },
+            "socket" => {
+                pin_label(ui, text, hover, SOCKET_LABEL_WIDTH);
             }
-            (_, Socket::Socket) => {
-                let tip = typed_tip(&port.ty, tip);
-                pin_label(ui, &typed_label(&label, &port.ty), Some(&tip), SOCKET_LABEL_WIDTH);
-            }
-            (None, _) if let Source::Inherited(value) = &source => {
+            "inherited" => {
                 // The bundle's value goes over the widget's, so the widget gives way to it.
-                let word = bundle_view::bundle_word(self.graph, self.catalog, &node_id);
-                let shown = value.as_ref().map_or_else(|| format!("(from {word})"), widgets::value_text);
-                let hover = format!(
-                    "{label} comes from the {word} wired into this node; the widget's own value ({}) is not used. The node's menu › Detach uses its own values.",
-                    widgets::value_text(&current)
-                );
+                let hover = hover.unwrap_or_default();
                 ui.horizontal(|ui| {
-                    caption(ui, egui::RichText::new(&label).italics(), &label, Some(&hover));
-                    ui.label(egui::RichText::new(&shown).italics()).on_hover_text(&hover);
-                    ui.label(egui::RichText::new(format!("from {word}")).small().color(self.tokens.text_dim)).on_hover_text(&hover);
+                    caption(ui, egui::RichText::new(label).italics(), label, Some(hover));
+                    ui.label(egui::RichText::new(text).italics()).on_hover_text(hover);
+                    ui.label(egui::RichText::new(face.from.as_deref().unwrap_or_default()).small().color(self.tokens.text_dim)).on_hover_text(hover);
                 });
             }
-            (None, _) if widgets::has_editor(port) => {
+            "own" => {
                 let blank = self.catalog.text(plumcraft_proto::catalogue::texts::BLANK_VALUE);
-                // A value nobody changed stays quiet (by the graph, or what the run used), and one
-                // somebody did stands out: a label's own colour is already the dim one.
-                let dim = current == port.default || bundle_view::provenance(self.run, &node_id, &row.key) == Some("default");
-                let rich = if dim { egui::RichText::new(&label) } else { egui::RichText::new(&label).color(self.tokens.text) };
-                let hover = dim.then(|| format!("{}{}(the default value)", tip.unwrap_or(""), if tip.is_some() { "\n\n" } else { "" }));
+                // A value nobody changed stays quiet, and one somebody did stands out: a label's
+                // own colour is already the dim one.
+                let rich = if face.dim { egui::RichText::new(label) } else { egui::RichText::new(label).color(self.tokens.text) };
+                let current = face.widget.as_ref().map_or(Value::Null, |w| w.value.clone());
                 ui.horizontal(|ui| {
-                    self.named_tag(ui, &at, &port.ty);
-                    let r = caption(ui, rich, &label, hover.as_deref().or(tip));
+                    Self::named_tag(ui, face.named.as_ref());
+                    let r = caption(ui, rich, label, hover);
                     self.input_menu(&r, &at, port);
                     let key = (node_id.clone(), row.key.clone());
                     if let Some(value) = widgets::port_widget(ui, port, &key, &current, self.edits, blank) {
@@ -1115,41 +1044,26 @@ impl NodeViewer<'_> {
                     }
                 });
             }
-            (None, _) => {
-                // A widget the editor doesn't know: show its value read-only, or what the
+            _ => {
+                // A widget the editor doesn't know: its value read-only, or what the
                 // application's editor for it says of it.
-                let shown = match def.and_then(|d| value_editors::for_port(d, &row.key)) {
-                    Some(editor) => (editor.summary)(&current),
-                    None => widgets::value_text(&current),
-                };
                 ui.horizontal(|ui| {
-                    self.named_tag(ui, &at, &port.ty);
-                    let r = pin_label(ui, &format!("{label}: {shown}"), tip, PIN_LABEL_WIDTH + CAPTION_WIDTH);
+                    Self::named_tag(ui, face.named.as_ref());
+                    let r = pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
                     self.input_menu(&r, &at, port);
                 });
             }
         }
-        if port.wireable() { self.pin(&port.ty) } else { PinInfo::circle().with_fill(self.tokens.pin_hidden).with_stroke(egui::Stroke::NONE) }
+        self.pin_of(&face.pin)
     }
 
+    /// An output row as the scene words it ([`scene::OutRow`]).
     fn output_pin(&mut self, pin: &OutPin, ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) -> PinInfo {
         let Some(node) = snarl.get_node(pin.id.node) else { return PinInfo::circle() };
-        let (node_id, port, label) = match node.proxy.as_ref().map(|p| p.outputs.get(pin.id.output)) {
-            // A collapsed group's output stands for a member's.
-            Some(Some(o)) => (o.port.node.clone(), o.def.clone(), o.label.clone()),
-            Some(None) => return PinInfo::circle(),
-            None => {
-                let Some(port) = self.def(node).and_then(|d| d.outputs.get(pin.id.output)).cloned() else { return PinInfo::circle() };
-                let label = port_label(&port);
-                (node.id.clone(), port, label)
-            }
-        };
-        let label = typed_label(&label, &port.ty);
-        let label = if port.list { format!("[ ] {label}") } else { label };
-        let tip = typed_tip(&port.ty, port.tooltip.as_deref());
-        let r = pin_label(ui, &label, Some(&tip), PIN_LABEL_WIDTH).interact(egui::Sense::click());
+        let Some(out) = self.face(node).and_then(|f| f.outputs.get(pin.id.output)) else { return PinInfo::circle() };
+        let r = pin_label(ui, &out.label, Some(&out.hover), PIN_LABEL_WIDTH).interact(egui::Sense::click());
         // Hovering the label previews the output's value, wired or not; a click watches it.
-        let at = PortRef::new(node_id.0.clone(), port.name.clone());
+        let at = PortRef::new(out.node.as_str(), out.key.clone());
         if r.hovered() {
             self.port_hovered = Some(at.clone());
         }
@@ -1158,194 +1072,124 @@ impl NodeViewer<'_> {
         }
         r.context_menu(|ui| {
             let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
-            let cx = menu_view::Context::Output { port: PortRef::new(node_id.clone(), port.name.clone()) };
+            let cx = menu_view::Context::Output { port: at.clone() };
             let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &cx);
             if let Some(a) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }).as_ref().and_then(menu_view::action)
             {
                 self.actions.push(a);
             }
         });
-        self.pin(&port.ty)
+        self.pin_of(&out.pin)
     }
 
-    /// The node's footer: its progress, its error and its text excerpt.
+    /// The node's footer as the scene lists it ([`scene::Footer`]): more fields, a Convert's
+    /// path, the application's editor, the run's progress, error, save buttons, excerpt and
+    /// text, and the application's line.
     fn footer(&mut self, node: &CanvasNode, ui: &mut egui::Ui) {
+        let Some(face) = self.face(node) else { return };
+        let dim = self.tokens.text_dim;
         ui.with_layout(egui::Layout::top_down(egui::Align::Min), |ui| {
-            if node.tucked > 0 {
-                let (text, tip) = if node.all_fields {
-                    ("Fewer fields".to_owned(), "Tuck away the fields this choice doesn't use")
-                } else {
-                    (format!("{} more field{}", node.tucked, if node.tucked == 1 { "" } else { "s" }), "Show the fields this choice doesn't use")
-                };
-                if ui.small_button(egui::RichText::new(text).color(self.tokens.text_dim)).on_hover_text(tip).clicked() {
-                    self.actions.push(("node.fields", json!({"node": node.id, "all": !node.all_fields})));
+            let mut items = face.footer.iter().peekable();
+            while let Some(item) = items.next_if(|i| matches!(i, Footer::Fields { .. } | Footer::Convert { .. } | Footer::Editor { .. })) {
+                match item {
+                    Footer::Fields { text, hover, all } => {
+                        let clicked = ui.small_button(egui::RichText::new(text).color(dim)).on_hover_text(hover).clicked();
+                        if clicked {
+                            self.actions.push(("node.fields", json!({"node": node.id, "all": all})));
+                        }
+                    }
+                    Footer::Convert { lines } => {
+                        for l in lines {
+                            let r = ui.label(egui::RichText::new(&l.text).small().color(paint(&l.paint)));
+                            if let Some(h) = &l.hover {
+                                r.on_hover_text(h);
+                            }
+                        }
+                    }
+                    Footer::Editor { label, hover } => {
+                        let clicked = ui.small_button(label).on_hover_text(hover).clicked();
+                        if clicked {
+                            self.actions.push(("node.editor", json!({"node": node.id})));
+                        }
+                    }
+                    _ => {}
                 }
             }
-            if self.graph.is_convert(&node.id) {
-                self.convert_path(node, ui);
-            }
-            if let Some(kind) = self.own_editor(node)
-                && ui.small_button(kind.label).on_hover_text(kind.help).clicked()
-            {
-                self.actions.push(("node.editor", json!({"node": node.id})));
-            }
-            if let Some(n) = self.run.node(&node.id.0).cloned() {
-                self.footer_items(node, &n, ui);
+            if self.run.node(&node.id.0).is_some() {
+                // Stay inside the node: egui-snarl lays the footer out at the node's width, and
+                // wider content spills over its left edge.
+                let width = ui.available_width().max(48.0);
+                ui.set_max_width(width);
+                while let Some(item) = items.next_if(|i| !matches!(i, Footer::AppText { .. })) {
+                    self.run_footer_item(node, item, width, ui);
+                }
             }
             // what the application says on the node (crate::app_hooks)
-            if node.proxy.is_none()
-                && let Some(text) = self.app_text.get(&node.id.0)
-            {
-                ui.set_max_width(ui.available_width().max(48.0));
-                let (short, _) = run_view::truncate_chars(text, crate::app_hooks::NODE_CHARS);
-                ui.add(egui::Label::new(egui::RichText::new(short).small().color(self.tokens.text_dim)).wrap()).on_hover_text(text);
+            for item in items {
+                if let Footer::AppText { text, full } = item {
+                    ui.set_max_width(ui.available_width().max(48.0));
+                    ui.add(egui::Label::new(egui::RichText::new(text).small().color(dim)).wrap()).on_hover_text(full);
+                }
             }
         });
     }
 
-    /// A Convert node's path (docs/research/20-convert.md): its types and steps, or what it
-    /// still needs.
-    fn convert_path(&mut self, node: &CanvasNode, ui: &mut egui::Ui) {
-        use plumcraft_proto::convert;
+    /// One of the run's footer items.
+    fn run_footer_item(&mut self, node: &CanvasNode, item: &Footer, width: f32, ui: &mut egui::Ui) {
         let dim = self.tokens.text_dim;
-        match self.graph.convert_path(self.catalog, &node.id) {
-            Some(p) if p.is_empty() => {
-                ui.label(egui::RichText::new("the types meet: it passes the value on").small().color(dim));
-            }
-            Some(p) => {
-                let tip = format!("{}\nnode.convert picks again", convert::label(&p));
-                ui.label(egui::RichText::new(convert::types(&p)).small().color(dim)).on_hover_text(tip);
-                ui.label(egui::RichText::new(convert::label(&p)).small().color(dim));
-                if !convert::lossless(&p) {
-                    ui.label(egui::RichText::new("a step isn't lossless").small().color(self.tokens.warning));
+        match item {
+            Footer::Progress { fraction, stage } => {
+                ui.add(egui::ProgressBar::new(*fraction as f32).show_percentage().desired_width(width.min(200.0)).fill(self.tokens.state_running));
+                if let Some(s) = stage {
+                    ui.label(egui::RichText::new(s).small().color(dim));
                 }
             }
-            None => {
-                ui.label(egui::RichText::new("wire both ends").small().color(dim));
+            Footer::Error { text, full, paint: p } => {
+                ui.add(egui::Label::new(egui::RichText::new(text).color(paint(p))).wrap()).on_hover_text(full);
             }
-        }
-    }
-
-    /// The editor this node offers: the application has one for what it names, and the value
-    /// isn't on a wire.
-    fn own_editor(&self, node: &CanvasNode) -> Option<&'static value_editors::EditorKind> {
-        if node.proxy.is_some() {
-            return None;
-        }
-        let def = self.def(node)?;
-        let kind = value_editors::offered(def)?;
-        let port = def.editor.as_ref()?.port.clone();
-        self.graph.wire_into(&PortRef::new(node.id.clone(), port)).is_none().then_some(kind)
-    }
-
-    fn footer_items(&mut self, node: &CanvasNode, n: &NodeRun, ui: &mut egui::Ui) {
-        // Stay inside the node: egui-snarl lays the footer out at the node's width, and wider
-        // content spills over its left edge.
-        let width = ui.available_width().max(48.0);
-        ui.set_max_width(width);
-        if n.state == Some(NodeState::Progress) {
-            let f = n.fraction.filter(|f| f.is_finite()).unwrap_or(0.0).clamp(0.0, 1.0) as f32;
-            ui.add(egui::ProgressBar::new(f).show_percentage().desired_width(width.min(200.0)).fill(self.tokens.state_running));
-            if let Some(s) = &n.stage {
-                ui.label(egui::RichText::new(s).small().color(self.tokens.text_dim));
+            // A result that has run: save it with its recipe; a list of them also as one
+            // labelled contact sheet.
+            Footer::Save { port, sheet } => {
+                ui.horizontal(|ui| {
+                    if ui.small_button(SAVE_RESULT).on_hover_text(SAVE_HELP).clicked() {
+                        self.actions.push(save_action(&node.id, port, false));
+                    }
+                    if *sheet && ui.small_button(CONTACT_SHEET).on_hover_text(SHEET_HELP).clicked() {
+                        self.actions.push(save_action(&node.id, port, true));
+                    }
+                });
             }
-        }
-        if let Some(e) = &n.error {
-            // A skipped node isn't at fault: say why quietly; real errors in red.
-            let (full, color) = match e.kind.as_str() {
-                "skipped" => (format!("skipped: {}", e.message), self.tokens.text_dim),
-                "" => (e.message.clone(), self.tokens.error),
-                kind => (format!("{kind} error: {}", e.message), self.tokens.error),
-            };
-            let (short, _) = run_view::truncate_chars(&full, run_view::ERROR_CHARS);
-            ui.add(egui::Label::new(egui::RichText::new(short).color(color)).wrap()).on_hover_text(&full);
-        }
-        // A result that has run: save it with its recipe; a list of them also as one labelled
-        // contact sheet.
-        if let Some(port) = self.savable_output(node, n) {
-            let items = n.thumb.as_ref().map_or(0, thumb_items);
-            ui.horizontal(|ui| {
-                if ui.small_button(SAVE_RESULT).on_hover_text(SAVE_HELP).clicked() {
-                    self.actions.push(save_action(&node.id, &port, false));
+            Footer::Excerpt { text, faded, hover } => {
+                let color = if *faded { self.tokens.text_faint } else { dim };
+                let r = ui.add(egui::Label::new(egui::RichText::new(text).monospace().small().color(color)).wrap().sense(egui::Sense::click()));
+                if r.on_hover_text(hover).clicked() {
+                    self.actions.push(("run.watch", json!({"node": node.id})));
                 }
-                if items > 1 && ui.small_button(CONTACT_SHEET).on_hover_text(SHEET_HELP).clicked() {
-                    self.actions.push(save_action(&node.id, &port, true));
-                }
-            });
-        }
-        if let Some(Rendition::Excerpt { text, .. }) = n.thumb.as_ref().filter(|_| self.view_of(node) == NodeView::Full)
-            && !text.is_empty()
-        {
-            let color = if self.thumb_faded_now(node, n) { self.tokens.text_faint } else { self.tokens.text_dim };
-            let hover = match thumb_note(n) {
-                Some(note) => format!("{note}\nClick to watch"),
-                None => "Click to watch".to_owned(),
-            };
-            let r = ui
-                .add(egui::Label::new(egui::RichText::new(run_view::excerpt_lines(text)).monospace().small().color(color)).wrap().sense(egui::Sense::click()));
-            if r.on_hover_text(hover).clicked() {
-                self.actions.push(("run.watch", json!({"node": node.id})));
             }
-        }
-        // what the engine says on the node
-        if let Some(text) = n.text.as_deref().filter(|t| !t.is_empty()) {
-            let (short, _) = run_view::truncate_chars(text, NODE_TEXT_CHARS);
-            ui.add(egui::Label::new(egui::RichText::new(short).small().color(self.tokens.text_dim)).wrap()).on_hover_text(text);
+            // what the engine says on the node
+            Footer::EngineText { text, full } => {
+                ui.add(egui::Label::new(egui::RichText::new(text).small().color(dim)).wrap()).on_hover_text(full);
+            }
+            _ => {}
         }
     }
 
-    /// The output a result node's "Save Result…" saves, once a run has made it and the engine
-    /// has somewhere to put it.
-    fn savable_output(&self, node: &CanvasNode, run: &NodeRun) -> Option<String> {
-        if self.catalog.save_formats.is_empty() || node.proxy.is_some() || !matches!(run.state, Some(NodeState::Done | NodeState::Cached)) {
-            return None;
-        }
-        self.def(node).filter(|d| d.flags.result)?.outputs.first().map(|o| o.name.clone())
-    }
-
-    /// A node's title on the canvas.
-    fn node_title(&self, id: &NodeId) -> String {
-        plumcraft_session::node_title(self.graph, self.catalog, id)
-    }
-
-    /// A node's colours: its family's (the engine's `NodeDef::family`), or a group's.
+    /// A node's colours: the scene's (its family's, or a group's).
     fn tint(&self, node: &CanvasNode) -> FamilyTint {
-        if node.proxy.is_some() {
-            return self.tokens.group;
+        match self.face(node) {
+            Some(f) => FamilyTint { header: paint(&f.tint.header), body: paint(&f.tint.body) },
+            None => self.tokens.family_default,
         }
-        self.tokens.family_tint(self.catalog, self.def(node).map_or("", |d| d.family.as_str()))
     }
 
-    /// A node's header icon: the engine's `NodeDef::icon`, or a group's.
-    fn icon_name<'n>(&'n self, node: &CanvasNode) -> &'n str {
-        if node.proxy.is_some() {
-            return crate::groups_view::GROUP_ICON;
-        }
-        self.def(node).map(|d| d.icon.as_str()).filter(|i| !i.is_empty()).unwrap_or(crate::icons::FALLBACK)
-    }
-
-    /// A node's border: revealed, stale, or its run state (none: the theme's), thicker when
-    /// it is the watched node.
+    /// A node's border: revealed (the canvas's own highlight), else the scene's (stale, or its
+    /// run state, thicker when it is the watched node).
     fn border(&self, n: &CanvasNode) -> Option<egui::Stroke> {
         if self.highlight.as_ref() == Some(&n.id) {
             return Some(egui::Stroke::new(3.0, self.tokens.highlight));
         }
-        if n.proxy.is_some() {
-            return Some(egui::Stroke::new(2.0, self.tokens.group.header));
-        }
-        let watched = self.watched.as_ref() == Some(&n.id);
-        let width = |base: f32| if watched { base + 1.5 } else { base };
-        let run = self.node_run(n);
-        // stale is for a result an edit made out of date (a node that never completed has none),
-        // and gives way to queued and running while a run computes the node again
-        if run.is_some_and(run_view::shows_stale) {
-            return Some(egui::Stroke::new(width(2.0), self.tokens.stale));
-        }
-        match run.and_then(|r| r.state).and_then(|s| self.tokens.state_color(s).map(|c| (s, c))) {
-            Some((s, c)) => Some(egui::Stroke::new(width(if s == NodeState::Error || run_view::is_running(s) { 2.5 } else { 2.0 }), c)),
-            None if watched => Some(egui::Stroke::new(2.5, self.tokens.accent)),
-            None => None,
-        }
+        let b = self.face(n)?.border.as_ref()?;
+        Some(egui::Stroke::new(b.width, paint(&b.paint)))
     }
 
     /// A node's actions: its right-click menu, and the menu in its header, as the core's menu
@@ -1371,16 +1215,10 @@ impl NodeViewer<'_> {
         }
     }
 
-    /// The rgba8 thumbnail's size when the node shows one (it has run, and is shown in full).
+    /// The preview's size when the node shows one (the scene's: it has run, and is shown in full).
     fn shown_thumb(&self, node: &CanvasNode) -> Option<Vec2> {
-        if self.view_of(node) != NodeView::Full {
-            return None;
-        }
-        match self.node_run(node)?.thumb.as_ref()? {
-            Rendition::Rgba8 { w, h, .. } => Some(run_view::thumb_size(*w as f32, *h as f32, run_view::THUMB_PX)),
-            Rendition::Peaks { .. } => Some(crate::audio::THUMB_SIZE),
-            _ => None,
-        }
+        let [w, h] = self.face(node)?.preview.as_ref()?.size();
+        Some(Vec2::new(w, h))
     }
 
     /// The node's waveform thumbnail (a `peaks` rendition) in `rect`: click to watch, hover for
@@ -1389,11 +1227,15 @@ impl NodeViewer<'_> {
         let Some(Rendition::Peaks { data, channels, .. }) = &n.thumb else { return };
         let id = ui.id().with(("plumcraft-thumb", node.id.0.as_str()));
         let r = ui.interact(rect, id, egui::Sense::click());
-        let faded = self.thumb_faded_now(node, n);
+        // faded and the note: the scene's preview
+        let (faded, note) = match self.face(node).and_then(|f| f.preview.as_ref()) {
+            Some(scene::Preview::Peaks { faded, note, .. }) => (*faded, note.clone()),
+            _ => (false, None),
+        };
         let label = format!("Waveform of {}", node.id);
         r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
         let channels = if *channels == 1 { "mono".to_owned() } else { format!("{channels} channels") };
-        let hover = match thumb_note(n) {
+        let hover = match note {
             Some(note) => format!("{channels}\n{note}\nClick to watch"),
             None => format!("{channels}\nClick to watch"),
         };
@@ -1434,17 +1276,18 @@ impl NodeViewer<'_> {
         if matches!(n.thumb, Some(Rendition::Peaks { .. })) {
             return self.waveform(node, n, ui, rect);
         }
-        let Some(Rendition::Rgba8 { data, w, h, summary, caption, .. }) = &n.thumb else { return };
-        let summary = if summary.is_empty() { caption.clone() } else { summary.clone() };
+        let Some(Rendition::Rgba8 { data, .. }) = &n.thumb else { return };
+        // what it shows of the picture, its size on hover, faded and the note: the scene's preview
+        let Some(scene::Preview::Rgba8 { summary, note, faded, hover_size, .. }) = self.face(node).and_then(|f| f.preview.as_ref()) else { return };
         let ctx = ui.ctx().clone();
         let id = ui.id().with(("plumcraft-thumb", node.id.0.as_str()));
         let clicked = match self.thumbs.get_from(&ctx, data, self.source) {
             Ok(tex) => {
                 let mut image = egui::Image::new((tex.id(), rect.size())).corner_radius(f32::from(self.tokens.radius));
-                if self.thumb_faded_now(node, n) {
+                if *faded {
                     image = image.tint(self.tokens.faded);
                 }
-                let hover = match thumb_note(n) {
+                let hover = match note {
                     Some(note) => format!("{summary}\n{note}\nClick to watch"),
                     None => format!("{summary}\nClick to watch"),
                 };
@@ -1453,7 +1296,7 @@ impl NodeViewer<'_> {
                 let r = ui.interact(rect, id, egui::Sense::click());
                 let label = format!("Preview of {}", node.id);
                 r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Image, true, &label));
-                let big = run_view::thumb_size(*w as f32, *h as f32, run_view::THUMB_HOVER_PX);
+                let big = Vec2::new(hover_size[0], hover_size[1]);
                 let tid = tex.id();
                 r.on_hover_ui(|ui| {
                     ui.image((tid, big));
@@ -1492,10 +1335,7 @@ impl NodeViewer<'_> {
 
 impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     fn title(&mut self, node: &CanvasNode) -> String {
-        if let Some(p) = &node.proxy {
-            return format!("Group: {}", p.name);
-        }
-        self.node_title(&node.id)
+        self.face(node).map(|f| f.header.title.text.clone()).unwrap_or_default()
     }
 
     /// The node's body in its family's colour, bordered by its run state.
@@ -1523,7 +1363,6 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         let band = ui.painter().add(egui::Shape::Noop);
         let inner = ui.max_rect();
         let title = self.title(&n);
-        let run = self.node_run(&n).cloned();
         let tint = self.tint(&n);
         let open = snarl.get_node_info(node).is_none_or(|i| i.open);
         // (PlumCraft's own collapse chevron: snarl's triangle would sit under the band; a
@@ -1538,39 +1377,40 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
                 snarl.open_node(node, !open);
             }
         }
+        // what the header shows: the scene's
+        let Some(face) = self.face(&n) else { return };
+        let head = &face.header;
         // the icon says what the node is: its doc, its family, where it sits in the palette
-        let about = crate::icons::icon(ui, self.icon_name(&n), HEADER_ICON, self.tokens.header_text, "");
-        match (&n.proxy, self.def(&n)) {
-            (Some(p), _) => {
-                about.on_hover_text(format!("Collapsed group {}\n\nExpand it (>) to edit its nodes in place, or enter it (pencil) to see only them", p.name));
+        let about = crate::icons::icon(ui, &head.icon, HEADER_ICON, self.tokens.header_text, "");
+        match (&n.proxy, head.about.known) {
+            (Some(_), _) => {
+                about.on_hover_text(format!("{}\n\n{}", head.about.name, head.about.description));
             }
-            (None, Some(def)) => {
-                let def = def.clone();
-                about.on_hover_ui(|ui| node_about(ui, &def, self.catalog));
+            (None, true) => {
+                about.on_hover_ui(|ui| node_about(ui, &head.about));
             }
-            (None, None) => {
-                about.on_hover_text(format!("{}\n\nThe engine doesn't know this node type", n.kind));
+            (None, false) => {
+                about.on_hover_text(format!("{}\n\n{}", head.about.name, head.about.description));
             }
         }
         // the state: a spinner while running, else a dot; its place kept before any run, so the
         // header is as wide either way
-        match run.as_ref().and_then(|r| r.state) {
-            Some(state) if run_view::is_running(state) => {
-                ui.add(egui::Spinner::new().size(12.0).color(self.tokens.state_running)).on_hover_text("running");
+        match (head.state.kind.as_str(), &head.state.paint) {
+            ("spinner", Some(p)) => {
+                ui.add(egui::Spinner::new().size(12.0).color(paint(p))).on_hover_text(head.state.hover.as_deref().unwrap_or_default());
             }
-            Some(state) if let Some(c) = self.tokens.state_color(state) => {
+            ("dot", Some(p)) => {
                 let (rect, r) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
-                ui.painter().circle_filled(rect.center(), 4.5, c);
-                r.on_hover_text(run_view::state_name(state));
+                ui.painter().circle_filled(rect.center(), 4.5, paint(p));
+                r.on_hover_text(head.state.hover.as_deref().unwrap_or_default());
             }
             _ => {
                 ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
             }
         }
         // the title: a click watches the node's first output (and runs)
-        let has_outputs = n.proxy.is_none() && self.def(&n).is_some_and(|d| !d.outputs.is_empty());
         let rich = egui::RichText::new(&title).color(self.tokens.header_text).font(self.tokens.font(Text::Title));
-        if has_outputs {
+        if head.title.watch {
             let r = ui
                 .add(egui::Label::new(rich).selectable(false).sense(egui::Sense::click()))
                 .on_hover_text("Click to watch this node's output; double-click for its parameters");
@@ -1584,42 +1424,26 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         } else {
             ui.add(egui::Label::new(rich).selectable(false));
         }
-        crate::groups_view::header_badges(ui, self.graph, self.catalog, &n.id, self.tokens);
+        // a member's badges: its export mark, a group's output
+        for b in &head.badges {
+            ui.label(egui::RichText::new(&b.text).small().color(paint(&b.paint))).on_hover_text(&b.hover);
+        }
         // With several engines: the one that runs the node (docs/research/15-multi-engine.md).
-        if let Some((engine, pinned, offered)) = self.engine_of(&n) {
-            let tip = match (pinned, offered.len()) {
-                (true, _) => format!("Runs on {engine} (pinned). These offer it: {}. Change it in the node's menu (Run on)", offered.join(", ")),
-                (false, 1) => format!("Runs on {engine}, the only engine that offers it"),
-                (false, _) => format!("Runs on {engine}, the first of {} that offers it. Pin another in the node's menu (Run on)", offered.join(", ")),
-            };
-            let text = if pinned { format!("{engine} •") } else { engine };
-            ui.label(egui::RichText::new(text).small().color(self.tokens.text_dim)).on_hover_text(tip);
+        if let Some(e) = &head.engine {
+            ui.label(egui::RichText::new(&e.text).small().color(self.tokens.text_dim)).on_hover_text(&e.hover);
         }
         // The run's status (stale, cached, the time) in a slot of its own width, kept whether
         // the node has run or not: a node is as wide before a run as after, so Tidy's spacing
         // (measured from the drawn nodes) holds when a run fills the slot in.
         let status_start = ui.cursor().min.x;
-        if n.proxy.is_none() && run.as_ref().is_none_or(NodeRun::is_not_run) {
-            ui.label(egui::RichText::new(run_view::NOT_RUN).small().color(self.tokens.header_text)).on_hover_text(run_view::NOT_RUN_HOVER);
-        } else if let Some(run) = &run {
-            if run_view::shows_stale(run) {
-                ui.label(egui::RichText::new("stale").small().color(self.tokens.stale)).on_hover_text(stale_tooltip(run));
+        for st in &head.status {
+            let mut rich = egui::RichText::new(&st.text).small().color(paint(&st.paint));
+            if st.strong {
+                rich = rich.strong();
             }
-            match (run.state, run.ms) {
-                (Some(NodeState::Cached), fetched) => {
-                    let (short, hover) = run_view::cached_text(run.computed_ms, fetched);
-                    ui.label(egui::RichText::new(short).small().color(self.tokens.header_text)).on_hover_text(hover);
-                }
-                (Some(NodeState::Done | NodeState::Error), Some(ms)) => {
-                    ui.label(egui::RichText::new(run_view::format_ms(ms)).small().color(self.tokens.header_text));
-                }
-                (Some(s), _) if run_view::is_running(s) => {
-                    ui.label(egui::RichText::new(run_view::running_text(run.fraction)).small().strong().color(self.tokens.state_running));
-                }
-                (Some(s @ (NodeState::Queued | NodeState::Skipped | NodeState::Cancelled)), _) => {
-                    ui.label(egui::RichText::new(run_view::state_name(s)).small().color(self.tokens.header_text));
-                }
-                _ => {}
+            let r = ui.label(rich);
+            if let Some(h) = &st.hover {
+                r.on_hover_text(h);
             }
         }
         let used = ui.cursor().min.x - status_start;
@@ -1739,18 +1563,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     }
 
     fn has_footer(&mut self, node: &CanvasNode) -> bool {
-        let full = self.view_of(node) == NodeView::Full;
-        node.tucked > 0
-            || (node.proxy.is_none() && self.app_text.contains_key(&node.id.0))
-            || self.graph.is_convert(&node.id)
-            || self.own_editor(node).is_some()
-            || self.node_run(node).is_some_and(|n| {
-                n.error.is_some()
-                    || n.state == Some(NodeState::Progress)
-                    || (full && matches!(&n.thumb, Some(Rendition::Excerpt { text, .. }) if !text.is_empty()))
-                    || n.text.as_deref().is_some_and(|t| !t.is_empty())
-                    || self.savable_output(node, n).is_some()
-            })
+        self.face(node).is_some_and(|f| !f.footer.is_empty())
     }
 
     fn show_footer(&mut self, node: SnarlId, _inputs: &[InPin], _outputs: &[OutPin], ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) {
@@ -1809,32 +1622,32 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
     }
 
     fn has_on_hover_popup(&mut self, node: &CanvasNode) -> bool {
-        node.proxy.is_none() && self.def(node).is_some_and(|d| !d.description.is_empty())
+        node.proxy.is_none() && self.face(node).is_some_and(|f| f.header.about.known && !f.header.about.description.is_empty())
     }
 
     fn show_on_hover_popup(&mut self, node: SnarlId, _inputs: &[InPin], _outputs: &[OutPin], ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) {
-        if let Some(def) = snarl.get_node(node).and_then(|n| self.catalog.node(&n.kind)) {
-            node_about(ui, def, self.catalog);
+        if let Some(face) = snarl.get_node(node).and_then(|n| self.face(n)) {
+            node_about(ui, &face.header.about);
         }
     }
 }
 
 /// What a node type is, for its icon's tooltip and its hover popup: its name and doc, its
-/// family and what that means, where it sits in the palette, and its id.
-fn node_about(ui: &mut egui::Ui, def: &NodeDef, catalog: &SchemaReply) {
+/// family and what that means, where it sits in the palette, and its id (the scene's).
+fn node_about(ui: &mut egui::Ui, about: &scene::About) {
     ui.set_max_width(340.0);
-    ui.strong(&def.display);
-    if !def.description.is_empty() {
-        ui.label(&def.description);
+    ui.strong(&about.name);
+    if !about.description.is_empty() {
+        ui.label(&about.description);
     }
-    if let Some(f) = catalog.families.iter().find(|f| f.id == def.family) {
+    if let Some(f) = &about.family {
         ui.add_space(4.0);
-        ui.label(egui::RichText::new(format!("{}: {}", f.display, f.description)).italics());
+        ui.label(egui::RichText::new(f).italics());
     }
-    if !def.category.is_empty() {
-        ui.weak(def.category.join(" › "));
+    if let Some(path) = &about.path {
+        ui.weak(path);
     }
-    ui.weak(&def.id);
+    ui.weak(&about.id);
 }
 
 #[cfg(test)]
