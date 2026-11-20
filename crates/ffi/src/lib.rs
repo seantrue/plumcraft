@@ -417,8 +417,8 @@ pub extern "C" fn plum_wire_target(core: u64, doc: u64, face: u64, side: u32, pi
 }
 
 /// The paths of every wire with an end on one of the `n` faces at `faces` (nids), as if those
-/// faces were moved by `(dx, dy)` graph units: per wire its nid's low 32 bits and its point count
-/// (each a `uint32_t` bit-cast into a float), then that many points as `x, y`, a cubic chain
+/// faces were moved by `(dx, dy)` graph units: per wire its nid's low and high 32 bits and its
+/// point count (each a `uint32_t` bit-cast into a float), then that many points as `x, y`, a cubic chain
 /// (the start, then three points a segment). Returns the floats needed; when that is more than
 /// `cap` (or `out` is null) nothing is written. 0 for a core or document that isn't there.
 ///
@@ -446,6 +446,57 @@ pub unsafe extern "C" fn plum_wire_paths(core: u64, doc: u64, faces: *const u64,
                 unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
             }
             v.len()
+        },
+    )
+}
+
+/// Where a drag under way is (`plum_gesture_move`, N2 slice 4): what `ui.gesture {kind: "drag",
+/// phase: "move"}` answers, typed.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlumDrag {
+    /// `PLUM_OK`; `PLUM_ERR_CORE`; `PLUM_ERR_MISSING` (no such document, no drag under way, or no
+    /// scene published); `PLUM_ERR_PANIC`; with `kind` 0.
+    pub status: i32,
+    /// 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group.
+    pub kind: u32,
+    /// The drag's number (`ui.gesture`'s `begin` reply says it): a shell checks it is its own.
+    pub serial: u64,
+    /// The offset from where the drag began (graph units).
+    pub dx: f32,
+    pub dy: f32,
+    /// A marquee's rect (x0, y0, x1, y1); zeros for the others.
+    pub rect: [f32; 4],
+    /// A wire's target: where it would land (`kind` 2, a pin, `x, y` its point) and whether it
+    /// fits (`fits`), as `plum_wire_target` answers.
+    pub target: PlumHit,
+}
+
+impl PlumDrag {
+    fn err(status: i32) -> PlumDrag {
+        PlumDrag { status, kind: 0, serial: 0, dx: 0.0, dy: 0.0, rect: [0.0; 4], target: PlumHit::err(status) }
+    }
+}
+
+/// Where the drag under way in document `doc` (0: the first) is with the pointer at `(x, y)`
+/// (graph units), within `slop`: the offset, a marquee's rect, a wire's target and whether it
+/// fits. Nothing changes; the drag began, and ends or is cancelled, with `ui.gesture`. Reads the
+/// document's drag and its latest snapshot without waiting for the core.
+#[unsafe(no_mangle)]
+pub extern "C" fn plum_gesture_move(core: u64, doc: u64, x: f32, y: f32, slop: f32) -> PlumDrag {
+    guard(
+        || PlumDrag::err(PLUM_ERR_PANIC),
+        || {
+            let Some(c) = self::core(core) else { return PlumDrag::err(PLUM_ERR_CORE) };
+            let (Some(d), Some(s)) = (c.shared.drag(doc), c.shared.snapshot(doc)) else { return PlumDrag::err(PLUM_ERR_MISSING) };
+            if !(x.is_finite() && y.is_finite()) {
+                return PlumDrag::err(PLUM_ERR_ARG);
+            }
+            let slop = if slop.is_nan() { 0.0 } else { slop.clamp(0.0, 1.0e4) };
+            let at = plumcraft_editor_core::plain::Point::new(plumcraft_editor_core::wire_path::coord(x), plumcraft_editor_core::wire_path::coord(y));
+            let u = d.update(&s, at, slop);
+            let rect = u.rect.map_or([0.0; 4], |r| [r.min.x, r.min.y, r.max.x, r.max.y]);
+            PlumDrag { status: PLUM_OK, kind: u.code, serial: u.serial, dx: u.dx, dy: u.dy, rect, target: PlumHit::of(u.target) }
         },
     )
 }
@@ -497,6 +548,7 @@ pub unsafe extern "C" fn plum_geometry_set(core: u64, doc: u64, faces: *const Pl
                     outputs: o.iter().map(pin).collect(),
                     rows: r.as_chunks::<4>().0.iter().map(|q| q.iter().all(|v| v.is_finite()).then(|| q.map(coord))).collect(),
                     parts: Vec::new(),
+                    offset: [0.0; 2],
                 };
                 out.push((f.face, (f.rev > 0).then_some(f.rev), geometry));
             }

@@ -150,6 +150,22 @@ fn hot_calls_cost() {
             std::hint::black_box(unsafe { plumcraft_ffi::plum_wire_paths(c.core, 0, picked.as_ptr(), picked.len(), 3.0, 4.0, out.as_mut_ptr(), out.len()) });
             paths.push(t0.elapsed().as_secs_f64() * 1e6);
         }
+        // a drag's moves through plum_gesture_move (N2 slice 4): a wire from the first face's
+        // output (each move finds its target), and a face moved (each move is the offset)
+        let mut drag = |at: [f32; 2]| {
+            let r = c.call("ui.gesture", json!({"kind": "drag", "phase": "begin", "at": at, "slop": 4}));
+            assert_eq!(r["ok"], true, "{r}");
+            let mut us = Vec::with_capacity(400);
+            for k in 0..400usize {
+                let (x, y) = ((k % 25) as f32 * 260.0 + 100.0, (k / 25 % 80) as f32 * 160.0 + 62.0);
+                let t0 = Instant::now();
+                std::hint::black_box(plumcraft_ffi::plum_gesture_move(c.core, 0, x, y, 24.0));
+                us.push(t0.elapsed().as_secs_f64() * 1e6);
+            }
+            assert_eq!(c.call("ui.gesture", json!({"kind": "drag", "phase": "cancel"}))["result"]["cancelled"], true);
+            stats(us)
+        };
+        let (wire_moves, face_moves) = (drag([200.0, 40.0]), drag([100.0, 10.0]));
         // a one-node delta with the geometry in the scene
         let generation = timed(&mut c, &json!({"method": "scene.get", "params": {}})).0["gen"].as_u64().unwrap();
         let first_node = c.call("graph.get", json!({}))["result"]["nodes"].as_object().unwrap().keys().next().unwrap().clone();
@@ -160,6 +176,7 @@ fn hot_calls_cost() {
             "MEASURE {}",
             json!({"name": format!("hot.ffi.{nodes}"), "geometry_set_call_us": set_us, "geometry_to_snapshot_us": applied_us,
                    "hit_test": stats(hit), "wire_target": stats(target), "wire_paths_20_faces": stats(paths),
+                   "gesture_move_wire": wire_moves, "gesture_move_face": face_moves,
                    "delta_after_one_run": {"faces": d["upsert"]["nodes"].as_array().unwrap().len(), "bytes": dbytes, "us": dus}})
         );
         c.close();

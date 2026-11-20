@@ -304,17 +304,29 @@ pub struct Shared {
     /// A delay added to every read through the engine (`spike.slowResolve`, ms): a slow engine
     /// for the tests and measurements.
     slow_resolve: AtomicU64,
-    /// Each document's hot-call snapshot (N2 slice 3), swapped in by the core thread after a
-    /// publish made a new one; the hot calls take the `Arc` under this lock and read it with the
-    /// lock let go, so the core thread never waits for a reader (section 9.4).
-    snapshots: Mutex<BTreeMap<DocId, Arc<Snapshot>>>,
+    /// Each document's hot-call snapshot (N2 slice 3), the document's own cell, which it swaps
+    /// the moment a publish makes a new one (N2 slice 4: before, the core thread shared it at
+    /// the end of its turn, after the replies); the hot calls take the `Arc` and read it with
+    /// every lock let go, so the core thread never waits for a reader (section 9.4).
+    snapshots: Mutex<BTreeMap<DocId, plumcraft_editor_core::geometry::SnapshotCell>>,
+    /// Each document's drag under way (`ui.gesture`, N2 slice 4), the document's own cell, so
+    /// `plum_gesture_move` sees a drag as soon as its `begin` has been decided.
+    drags: Mutex<BTreeMap<DocId, plumcraft_editor_core::gesture::DragCell>>,
 }
 
 impl Shared {
     /// Document `doc`'s snapshot (0: the first document's), none before its scene is published.
     pub fn snapshot(&self, doc: u64) -> Option<Arc<Snapshot>> {
         let s = lock(&self.snapshots);
-        if doc == 0 { s.values().next().cloned() } else { s.get(&doc).cloned() }
+        let cell = if doc == 0 { s.values().next() } else { s.get(&doc) };
+        cell.and_then(plumcraft_editor_core::geometry::SnapshotCell::get)
+    }
+
+    /// Document `doc`'s drag under way (0: the first document's).
+    pub fn drag(&self, doc: u64) -> Option<Arc<plumcraft_editor_core::gesture::Drag>> {
+        let d = lock(&self.drags);
+        let cell = if doc == 0 { d.values().next() } else { d.get(&doc) };
+        cell.and_then(plumcraft_editor_core::gesture::DragCell::get)
     }
 }
 
@@ -628,6 +640,7 @@ impl Core {
             media: MediaService::new(config.media.clone()),
             slow_resolve: AtomicU64::new(0),
             snapshots: Mutex::default(),
+            drags: Mutex::default(),
         });
         // values are read through the documents' engine connections (following switches), or
         // from the store by handle; only ever on the media service's workers
@@ -826,6 +839,8 @@ impl Worker {
         doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
         doc.start_engines(target, Vec::new(), opening);
         let id = doc.id;
+        lock(&self.shared.drags).insert(id, doc.drag.clone());
+        lock(&self.shared.snapshots).insert(id, doc.snapshot_out.clone());
         self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, scene_sent: 0, menus_watched: false });
         id
     }
@@ -887,7 +902,6 @@ impl Worker {
             } else {
                 scene_owed = true;
             }
-            self.share_snapshots();
             let o = lock(&self.shared.outbox);
             let any = !o.replies.is_empty()
                 || !o.events.is_empty()
@@ -985,20 +999,6 @@ impl Worker {
         d.doc.apply_geometry(reports);
     }
 
-    /// Hand the hot calls each document's snapshot when a publish made a new one.
-    fn share_snapshots(&self) {
-        let mut shared = lock(&self.shared.snapshots);
-        shared.retain(|id, _| self.docs.contains_key(id));
-        for (id, d) in &self.docs {
-            if d.doc.snapshot.generation == 0 {
-                continue;
-            }
-            if shared.get(id).is_none_or(|s| !Arc::ptr_eq(s, &d.doc.snapshot)) {
-                shared.insert(*id, Arc::clone(&d.doc.snapshot));
-            }
-        }
-    }
-
     /// Every document's turn: what its engine and worker brought back, its events forwarded, what
     /// it queued sent; held requests answered once its engine is there; closed documents gone.
     fn turn_all(&mut self) {
@@ -1064,6 +1064,8 @@ impl Worker {
     /// its engine stopped on its worker.
     fn close_doc(&mut self, id: DocId) {
         let Some(mut d) = self.docs.remove(&id) else { return };
+        lock(&self.shared.drags).remove(&id);
+        lock(&self.shared.snapshots).remove(&id);
         for h in std::mem::take(&mut d.held) {
             self.refuse(h, "the document closed");
         }

@@ -35,12 +35,6 @@
       {
         "border": {
           "paint": {
-            "color": [
-              44,
-              102,
-              173,
-              255
-            ],
             "token": "state_running"
           },
           "width": 2.5
@@ -70,12 +64,6 @@
             "hover": "running",
             "kind": "spinner",
             "paint": {
-              "color": [
-                44,
-                102,
-                173,
-                255
-              ],
               "token": "state_running"
             }
           },
@@ -83,12 +71,6 @@
             {
               "hover": null,
               "paint": {
-                "color": [
-                  44,
-                  102,
-                  173,
-                  255
-                ],
                 "token": "state_running"
               },
               "strong": true,

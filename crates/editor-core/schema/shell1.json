@@ -1,0 +1,2785 @@
+{
+  "$defs": {
+    "About": {
+      "description": "The node type, for the icon's hover and the hover card.",
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "family": {
+          "description": "`Family: what it means`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "id": {
+          "type": "string"
+        },
+        "known": {
+          "description": "The engine knows the type.",
+          "type": "boolean"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "description": "Where it sits in the palette (`A › B`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name",
+        "description",
+        "id",
+        "known"
+      ],
+      "type": "object"
+    },
+    "Anim": {
+      "description": "The run animation's switches. The fill a face takes from `shown` (and its pulse and fade)\nis the shell's to compute per frame (section 8.6); the core never publishes per frame.",
+      "properties": {
+        "fade_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "generation": {
+          "description": "The run shown.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "hold_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "on": {
+          "description": "Faces are washed with their run state (View › Colour Nodes While Running, or a replay).",
+          "type": "boolean"
+        },
+        "pulse_ms": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "replay": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "on",
+        "replay",
+        "generation",
+        "hold_ms",
+        "fade_ms",
+        "pulse_ms"
+      ],
+      "type": "object"
+    },
+    "Badge": {
+      "properties": {
+        "hover": {
+          "type": "string"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "paint",
+        "hover"
+      ],
+      "type": "object"
+    },
+    "Border": {
+      "properties": {
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "width": {
+          "format": "float",
+          "type": "number"
+        }
+      },
+      "required": [
+        "paint",
+        "width"
+      ],
+      "type": "object"
+    },
+    "Choice": {
+      "properties": {
+        "disabled": {
+          "description": "Why it can't be picked here.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "label": {
+          "type": "string"
+        },
+        "value": true
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    },
+    "CommandRun": {
+      "description": "What a gesture ran: one per command, in order.",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "error": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "params": true,
+        "result": {
+          "default": null
+        }
+      },
+      "required": [
+        "command",
+        "params",
+        "ok"
+      ],
+      "type": "object"
+    },
+    "Crumb": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Delta": {
+      "description": "What `scene.get {since}` returns when it isn't everything (section 8.12): the items whose\nrevision is past `since`, the ids gone since, and the parts that come every time.",
+      "properties": {
+        "anim": {
+          "$ref": "#/$defs/Anim"
+        },
+        "doc": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Focus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "gen": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "remove": {
+          "$ref": "#/$defs/Removed"
+        },
+        "selection": {
+          "$ref": "#/$defs/Picked"
+        },
+        "shell": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "since": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upsert": {
+          "$ref": "#/$defs/Upsert"
+        },
+        "view": {
+          "$ref": "#/$defs/View",
+          "default": {
+            "fit": null
+          }
+        }
+      },
+      "required": [
+        "shell",
+        "doc",
+        "gen",
+        "full",
+        "since",
+        "upsert",
+        "remove",
+        "selection",
+        "anim"
+      ],
+      "type": "object"
+    },
+    "DragUpdate": {
+      "description": "Where a drag is (`ui.gesture`'s `update`; `plum_drag` typed).",
+      "properties": {
+        "dx": {
+          "format": "double",
+          "type": "number"
+        },
+        "dy": {
+          "format": "double",
+          "type": "number"
+        },
+        "rect": {
+          "default": null,
+          "description": "A marquee's rect, and the faces it touches.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "serial": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A wire's target."
+        },
+        "touches": {
+          "default": null,
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "serial",
+        "dx",
+        "dy"
+      ],
+      "type": "object"
+    },
+    "Driver": {
+      "properties": {
+        "at": {
+          "description": "The tag's offset from its pin.",
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "face": {
+          "type": "string"
+        },
+        "from": {
+          "$ref": "#/$defs/PortRefSchema"
+        },
+        "pin": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "from",
+        "face",
+        "pin",
+        "at"
+      ],
+      "type": "object"
+    },
+    "EngineMark": {
+      "properties": {
+        "hover": {
+          "type": "string"
+        },
+        "pinned": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "pinned",
+        "hover"
+      ],
+      "type": "object"
+    },
+    "Face": {
+      "description": "A node's face: a node, or a collapsed group's node (`proxy`).",
+      "properties": {
+        "border": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Border"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "None: the theme's."
+        },
+        "footer": {
+          "items": {
+            "$ref": "#/$defs/Footer"
+          },
+          "type": "array"
+        },
+        "header": {
+          "$ref": "#/$defs/Header"
+        },
+        "id": {
+          "description": "The node's id; a collapsed group's is `group:<id>`.",
+          "type": "string"
+        },
+        "inputs": {
+          "items": {
+            "$ref": "#/$defs/InRow"
+          },
+          "type": "array"
+        },
+        "kind": {
+          "description": "The node type (\"\" for a proxy).",
+          "type": "string"
+        },
+        "menu": {
+          "description": "The context menu to fetch with `menu.get` (`node` or `proxy`).",
+          "type": "string"
+        },
+        "nid": {
+          "description": "Stable for the document's life, never reused (hot calls use it).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "outputs": {
+          "items": {
+            "$ref": "#/$defs/OutRow"
+          },
+          "type": "array"
+        },
+        "pos": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "preview": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Preview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "proxy": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProxyOf"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "rev": {
+          "description": "The scene generation at which this face last changed.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "run": {
+          "$ref": "#/$defs/RunShown"
+        },
+        "shown": {
+          "description": "The run animation's state for the face (`waiting`, `running`, `done`, `cached`,\n`failed`, `skipped`); a proxy shows its members' busiest.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tint": {
+          "$ref": "#/$defs/Tint"
+        },
+        "view": {
+          "description": "`full`, `compact` or `collapsed`.",
+          "type": "string"
+        },
+        "watched": {
+          "description": "The Watched panel shows it (the border is 1.5 wider).",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "kind",
+        "pos",
+        "view",
+        "watched",
+        "tint",
+        "header",
+        "inputs",
+        "outputs",
+        "footer",
+        "run",
+        "menu"
+      ],
+      "type": "object"
+    },
+    "FaceReport": {
+      "additionalProperties": false,
+      "description": "One face's measurements in `geometry.set` (graph units, at zoom 1).",
+      "properties": {
+        "header": {
+          "default": null,
+          "description": "The header's height (default 28).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "node": {
+          "description": "The face's id (a node's; `group:<id>` for a collapsed group's).",
+          "type": "string"
+        },
+        "offset": {
+          "default": null,
+          "description": "Where the face's top left is drawn, from its position (default `[0, 0]`).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "parts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PartsReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The header's parts and the footer's items, face coordinates."
+        },
+        "pins": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PinsReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Each pin's height from the face's top, in row order; null: not measured."
+        },
+        "rev": {
+          "default": null,
+          "description": "The face's `rev` measured; absent: not said.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rows": {
+          "default": null,
+          "description": "Each input row's widget rect `[x0, y0, x1, y1]` in face coordinates; null: none.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "size": {
+          "description": "`[w, h]`, 0 to 1e6.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        }
+      },
+      "required": [
+        "node",
+        "size"
+      ],
+      "type": "object"
+    },
+    "Fit": {
+      "description": "A fit the core asks for: the shell fits `rect` (graph units) into its view, zoom at most 1\n(and at least 0.2), and animates there. `seq` rises with every request, so a shell fits once\na request however often the scene comes.",
+      "properties": {
+        "rect": {
+          "description": "`[x0, y0, x1, y1]`: every face shown, and the frames outside an entered group, with a\nmargin of 32.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "rect"
+      ],
+      "type": "object"
+    },
+    "Focus": {
+      "description": "The group entered, and the breadcrumb to it (outermost first).",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/$defs/Crumb"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "group",
+        "path"
+      ],
+      "type": "object"
+    },
+    "Footer": {
+      "description": "A footer item, in the order drawn (section 8.7).",
+      "oneOf": [
+        {
+          "description": "\"3 more fields\" / \"Fewer fields\": `node.fields {node, all}`.",
+          "properties": {
+            "all": {
+              "type": "boolean"
+            },
+            "hover": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "fields",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "hover",
+            "all"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A Convert node's path, a line each.",
+          "properties": {
+            "kind": {
+              "const": "convert",
+              "type": "string"
+            },
+            "lines": {
+              "items": {
+                "$ref": "#/$defs/Line"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "lines"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The application's editor: `node.editor {node}`.",
+          "properties": {
+            "hover": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "editor",
+              "type": "string"
+            },
+            "label": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "label",
+            "hover"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "fraction": {
+              "format": "double",
+              "type": "number"
+            },
+            "kind": {
+              "const": "progress",
+              "type": "string"
+            },
+            "stage": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "fraction"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "full": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "paint": {
+              "$ref": "#/$defs/Paint"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "full",
+            "paint"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Save Result… (and Contact Sheet… with `sheet`): `run.save {node, port, sheet, ask: true}`.",
+          "properties": {
+            "kind": {
+              "const": "save",
+              "type": "string"
+            },
+            "port": {
+              "type": "string"
+            },
+            "sheet": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "port",
+            "sheet"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The text the node made, a few lines: a tap watches it.",
+          "properties": {
+            "faded": {
+              "type": "boolean"
+            },
+            "hover": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "excerpt",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "faded",
+            "hover"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "full": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "engineText",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "full"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "full": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "appText",
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "text",
+            "full"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Frame": {
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "nid": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "pos": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "rev": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "size": {
+          "items": {
+            "format": "float",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "title",
+        "pos",
+        "size",
+        "paint"
+      ],
+      "type": "object"
+    },
+    "GeometrySet": {
+      "additionalProperties": false,
+      "description": "`geometry.set`'s params.",
+      "properties": {
+        "faces": {
+          "items": {
+            "$ref": "#/$defs/FaceReport"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "faces"
+      ],
+      "type": "object"
+    },
+    "GeometrySetReply": {
+      "description": "`geometry.set`'s reply.",
+      "properties": {
+        "applied": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stale": {
+          "description": "Faces measured at an older `rev` than the scene's: kept, and to measure again.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "unknown": {
+          "description": "Faces the graph doesn't have (at most 64), skipped.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "applied",
+        "stale",
+        "unknown"
+      ],
+      "type": "object"
+    },
+    "Gesture": {
+      "additionalProperties": false,
+      "description": "`ui.gesture`'s params: a recognised gesture in graph units.",
+      "properties": {
+        "at": {
+          "default": null,
+          "description": "`[x, y]`, within ±1e7 (a drag's cancel needs none).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/GestureKind"
+        },
+        "mods": {
+          "default": null,
+          "items": {
+            "$ref": "#/$defs/Modifier"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "phase": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Phase"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A drag's phase (only a drag's)."
+        },
+        "slop": {
+          "default": null,
+          "description": "The hit distance, graph units (default 12).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "to": {
+          "default": null,
+          "description": "A marquee's other corner.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "GestureKind": {
+      "description": "A gesture's kind.",
+      "oneOf": [
+        {
+          "enum": [
+            "tap",
+            "doubleTap",
+            "longPress",
+            "drag",
+            "marquee"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "context",
+          "description": "A secondary click, a Control-click, a long press (`longPress` is taken too).",
+          "type": "string"
+        }
+      ]
+    },
+    "GestureReply": {
+      "description": "`ui.gesture`'s reply.",
+      "properties": {
+        "cancelled": {
+          "default": null,
+          "description": "A drag's cancel: was one under way.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "commands": {
+          "items": {
+            "$ref": "#/$defs/CommandRun"
+          },
+          "type": "array"
+        },
+        "context": {
+          "default": null,
+          "description": "A context gesture's: `menu.get`'s `context` for what it was on, and the menu."
+        },
+        "drag": {
+          "default": null,
+          "description": "A drag's: `{serial, kind: move | wire | marquee | bend | frame | resize | group, faces?\n(a move's, nids), from? (a wire's fixed end), picked? (an input whose wire's end was\npicked up)}`."
+        },
+        "hit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Hit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "menu": {
+          "default": null
+        },
+        "update": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DragUpdate"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "commands"
+      ],
+      "type": "object"
+    },
+    "Group": {
+      "description": "A group. A collapsed one is drawn as its proxy face; an open one as a frame around its\nmembers, whose rect needs measured geometry (slice 3).",
+      "properties": {
+        "collapsed": {
+          "type": "boolean"
+        },
+        "depth": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nid": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "parent": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "proxy": {
+          "description": "Its proxy face is drawn (the outermost collapsed group, visible).",
+          "type": "boolean"
+        },
+        "rect": {
+          "description": "An open group's frame, `[x0, y0, x1, y1]`, the header band its top\n[`crate::geometry::GROUP_HEADER`] ([`crate::geometry::open_group_rects`]); none when\ncollapsed, entered, or none of its faces is shown. N2 slice 3.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "rev": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "name",
+        "collapsed",
+        "depth",
+        "proxy"
+      ],
+      "type": "object"
+    },
+    "Header": {
+      "properties": {
+        "about": {
+          "$ref": "#/$defs/About",
+          "description": "What the icon's hover says of the node type."
+        },
+        "badges": {
+          "items": {
+            "$ref": "#/$defs/Badge"
+          },
+          "type": "array"
+        },
+        "engine": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EngineMark"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "enter": {
+          "description": "A proxy's enter button (`canvas.focus`).",
+          "type": "boolean"
+        },
+        "icon": {
+          "description": "A Lucide icon name.",
+          "type": "string"
+        },
+        "open": {
+          "description": "The node is open (not `collapsed`); a proxy's chevron expands its group.",
+          "type": "boolean"
+        },
+        "state": {
+          "$ref": "#/$defs/Spot"
+        },
+        "status": {
+          "items": {
+            "$ref": "#/$defs/Status"
+          },
+          "type": "array"
+        },
+        "title": {
+          "$ref": "#/$defs/Title"
+        }
+      },
+      "required": [
+        "open",
+        "icon",
+        "about",
+        "state",
+        "title",
+        "badges",
+        "status",
+        "enter"
+      ],
+      "type": "object"
+    },
+    "Hit": {
+      "description": "What is at a point, as the JSON queries give it (`geometry.hit`, `geometry.wireTarget`, a\ngesture's `hit` and a wire's `target`); `plum_hit` is its typed form.",
+      "properties": {
+        "at": {
+          "description": "A pin's point (where a wire snaps), else the point asked.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "fits": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "frame": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "group": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "index": {
+          "default": null,
+          "description": "A row, footer item or bend point.",
+          "format": "int64",
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "`none`, `node`, `pin`, `wire`, `bend`, `tag`, `frame` or `group`.",
+          "type": "string"
+        },
+        "net": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "nid": {
+          "default": null,
+          "description": "The nid of what was hit.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "node": {
+          "default": null,
+          "description": "The face (node, pin, tag).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "part": {
+          "default": null,
+          "description": "A node's part (`body`, `header`, `title`, `chevron`, `icon`, `menu`, `enter`, `row`,\n`preview`, `footer`), a tag's (`driver`, `use`), a frame's (`body`, `tab`, `handle`), a\ngroup's (`band`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "pin": {
+          "default": null,
+          "format": "uint32",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "side": {
+          "default": null,
+          "description": "A pin's side (`in`, `out`), index, type, and whether a wire fits it (0, 1, 2 through a\nConvert).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "type": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wire": {
+          "default": null,
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind",
+        "at"
+      ],
+      "type": "object"
+    },
+    "HitQuery": {
+      "additionalProperties": false,
+      "description": "`geometry.hit`'s params.",
+      "properties": {
+        "at": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "slop": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "type": "object"
+    },
+    "InRow": {
+      "description": "An input row.",
+      "properties": {
+        "badge": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Badge"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`wired` over a bundled value: the badge whose button resets it (`bundle.reset`)."
+        },
+        "dim": {
+          "description": "The caption is dim: the value is the default.",
+          "type": "boolean"
+        },
+        "from": {
+          "description": "`inherited`: `from <bundle>`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "hover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inactive": {
+          "description": "Not read with the node's current values (`Port::active_when`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "key": {
+          "description": "The value and wire key (`sigma`, `mode.turn`, `c2`).",
+          "type": "string"
+        },
+        "label": {
+          "description": "The label as drawn (`[ ]` after it for a list).",
+          "type": "string"
+        },
+        "list": {
+          "type": "boolean"
+        },
+        "named": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Named"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A named port's tag before the caption."
+        },
+        "node": {
+          "description": "The node whose port it is: the face's own, or on a proxy the member it stands for.",
+          "type": "string"
+        },
+        "pin": {
+          "$ref": "#/$defs/Pin"
+        },
+        "source": {
+          "description": "`wired`, `socket`, `inherited`, `own` or `readonly` (section 8.4).",
+          "type": "string"
+        },
+        "text": {
+          "description": "The row's words where it has no widget: `label = value (wired from Title)`, the typed\nlabel, the bundle's value, `label: value`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ty": {
+          "type": "string"
+        },
+        "widget": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Widget"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "key",
+        "node",
+        "label",
+        "list",
+        "ty",
+        "pin",
+        "source",
+        "dim"
+      ],
+      "type": "object"
+    },
+    "Line": {
+      "properties": {
+        "hover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "paint"
+      ],
+      "type": "object"
+    },
+    "LocateReply": {
+      "description": "`geometry.locate`'s reply.",
+      "properties": {
+        "at": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "measured": {
+          "default": null,
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "nid": {
+          "default": null,
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "rect": {
+          "default": null,
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at"
+      ],
+      "type": "object"
+    },
+    "Mark": {
+      "description": "An application's mark on a wire (`Hooks::wire_marks`).",
+      "properties": {
+        "at": {
+          "description": "Where it is drawn: its wire's middle (none when its wire isn't drawn). N2 slice 3.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "id": {
+          "description": "The wire it marks (`node.port` of its input).",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        },
+        "nid": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "rev": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tone": {
+          "description": "`info`, `warn` or `error`.",
+          "type": "string"
+        },
+        "tooltip": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "label",
+        "tone",
+        "paint"
+      ],
+      "type": "object"
+    },
+    "Modifier": {
+      "oneOf": [
+        {
+          "enum": [
+            "shift",
+            "alt",
+            "ctrl"
+          ],
+          "type": "string"
+        },
+        {
+          "const": "primary",
+          "description": "⌘ on Apple platforms, Ctrl elsewhere.",
+          "type": "string"
+        }
+      ]
+    },
+    "Named": {
+      "properties": {
+        "hover": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        }
+      },
+      "required": [
+        "name",
+        "paint",
+        "hover"
+      ],
+      "type": "object"
+    },
+    "Net": {
+      "description": "A net drawn through labels: its driving tag at the output, a receiving tag at each input.",
+      "properties": {
+        "driver": {
+          "$ref": "#/$defs/Driver"
+        },
+        "id": {
+          "description": "`name`, or `name@group` for a net local to a group.",
+          "type": "string"
+        },
+        "key": {
+          "$ref": "#/$defs/NetKeySchema"
+        },
+        "nid": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "rev": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "selected": {
+          "type": "boolean"
+        },
+        "uses": {
+          "items": {
+            "$ref": "#/$defs/Use"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "key",
+        "paint",
+        "selected",
+        "driver",
+        "uses"
+      ],
+      "type": "object"
+    },
+    "NetKeySchema": {
+      "description": "A net's key: its name, and the group it is local to (absent: the top level).",
+      "properties": {
+        "group": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "OutRow": {
+      "description": "An output row.",
+      "properties": {
+        "hover": {
+          "type": "string"
+        },
+        "key": {
+          "type": "string"
+        },
+        "label": {
+          "description": "The label as drawn (typed, `[ ]` before it for a list).",
+          "type": "string"
+        },
+        "list": {
+          "type": "boolean"
+        },
+        "node": {
+          "description": "The node whose output it is (on a proxy, the member's).",
+          "type": "string"
+        },
+        "pin": {
+          "$ref": "#/$defs/Pin"
+        },
+        "ty": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "node",
+        "label",
+        "list",
+        "ty",
+        "pin",
+        "hover"
+      ],
+      "type": "object"
+    },
+    "Paint": {
+      "description": "A colour: a theme token by name, or `[r, g, b, a]` where there is none (computed: a family's\ntint, an engine's wire-type colour, a frame's own). Exactly one of the two is sent\n(`docs/shell-interface.md` question 13, decided 13A; built in N2 slice 4): a shell resolves a\ntoken with `theme.get`, so a theme change changes only the faces whose computed colours change.",
+      "properties": {
+        "color": {
+          "description": "`[r, g, b, a]`, premultiplied; none when `token` names it.",
+          "items": {
+            "format": "uint8",
+            "maximum": 255,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "token": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PartsReport": {
+      "additionalProperties": false,
+      "properties": {
+        "chevron": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "enter": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "footer": {
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "icon": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "menu": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "preview": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "title": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "Phase": {
+      "enum": [
+        "begin",
+        "move",
+        "end",
+        "cancel"
+      ],
+      "type": "string"
+    },
+    "Picked": {
+      "description": "The selection, as the scene carries it.",
+      "properties": {
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetKeySchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nodes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "groups"
+      ],
+      "type": "object"
+    },
+    "Pin": {
+      "description": "A pin: round for scalars, square otherwise; a port that can't be wired has a hidden pin.",
+      "properties": {
+        "fill": {
+          "$ref": "#/$defs/Paint"
+        },
+        "shape": {
+          "description": "`circle` or `square`.",
+          "type": "string"
+        },
+        "wire": {
+          "$ref": "#/$defs/Paint",
+          "description": "The colour of a wire drawn from it."
+        },
+        "wireable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "shape",
+        "fill",
+        "wire",
+        "wireable"
+      ],
+      "type": "object"
+    },
+    "PinRef": {
+      "additionalProperties": false,
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "pin": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "side": {
+          "description": "`in` or `out`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "side",
+        "pin"
+      ],
+      "type": "object"
+    },
+    "PinsReport": {
+      "additionalProperties": false,
+      "properties": {
+        "in": {
+          "default": null,
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "out": {
+          "default": null,
+          "items": {
+            "format": "double",
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortRefSchema": {
+      "description": "A graph port: `{node, port}`.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "port"
+      ],
+      "type": "object"
+    },
+    "Preview": {
+      "description": "A node's preview (only in view `full`).",
+      "oneOf": [
+        {
+          "description": "A picture, by its value reference (`media.get`).",
+          "properties": {
+            "faded": {
+              "type": "boolean"
+            },
+            "h": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "handle": true,
+            "hoverSize": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "items": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "rgba8",
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "size": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
+            "summary": {
+              "type": "string"
+            },
+            "w": {
+              "format": "uint32",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "handle",
+            "w",
+            "h",
+            "size",
+            "hoverSize",
+            "items",
+            "summary",
+            "faded"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A waveform (`media.peaks`).",
+          "properties": {
+            "channels": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "faded": {
+              "type": "boolean"
+            },
+            "handle": true,
+            "kind": {
+              "const": "peaks",
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "size": {
+              "items": {
+                "format": "float",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "handle",
+            "channels",
+            "size",
+            "faded"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProxyOf": {
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "group",
+        "name"
+      ],
+      "type": "object"
+    },
+    "Removed": {
+      "properties": {
+        "frames": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "marks": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nets": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "wires": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "wires",
+        "nets",
+        "frames",
+        "groups",
+        "marks"
+      ],
+      "type": "object"
+    },
+    "RunShown": {
+      "description": "The node's real run state (section 8.6's first layer).",
+      "properties": {
+        "fraction": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "notRun": {
+          "type": "boolean"
+        },
+        "stale": {
+          "type": "boolean"
+        },
+        "state": {
+          "description": "`queued`, `running` (started), `progress`, `preview`, `done`, `cached`, `error`,\n`skipped`, `cancelled`; none before any run.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "stale",
+        "notRun"
+      ],
+      "type": "object"
+    },
+    "Scene": {
+      "description": "The whole scene, or (from [`Published::get`] with `since`) what changed.",
+      "properties": {
+        "anim": {
+          "$ref": "#/$defs/Anim"
+        },
+        "doc": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "focus": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Focus"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/Frame"
+          },
+          "type": "array"
+        },
+        "full": {
+          "type": "boolean"
+        },
+        "gen": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/Group"
+          },
+          "type": "array"
+        },
+        "marks": {
+          "items": {
+            "$ref": "#/$defs/Mark"
+          },
+          "type": "array"
+        },
+        "nets": {
+          "items": {
+            "$ref": "#/$defs/Net"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/Face"
+          },
+          "type": "array"
+        },
+        "selection": {
+          "$ref": "#/$defs/Picked"
+        },
+        "shell": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "view": {
+          "$ref": "#/$defs/View",
+          "default": {
+            "fit": null
+          },
+          "description": "What the core asks the shell's view to show (N2 slice 3)."
+        },
+        "wires": {
+          "items": {
+            "$ref": "#/$defs/Wire"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "shell",
+        "doc",
+        "gen",
+        "full",
+        "nodes",
+        "wires",
+        "nets",
+        "frames",
+        "groups",
+        "marks",
+        "selection",
+        "anim"
+      ],
+      "type": "object"
+    },
+    "Spot": {
+      "description": "The header's state mark: `spinner` while running, `dot` in the state's colour, `none`\nbefore any run (the slot is kept).",
+      "properties": {
+        "hover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "type": "string"
+        },
+        "paint": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Paint"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "type": "object"
+    },
+    "Status": {
+      "description": "A piece of the header's status slot (at least 88 wide).",
+      "properties": {
+        "hover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "strong": {
+          "type": "boolean"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "paint",
+        "strong"
+      ],
+      "type": "object"
+    },
+    "ThemeReply": {
+      "description": "`theme.get`'s reply: every token a scene may name.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "shell": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens": {
+          "additionalProperties": {
+            "items": {
+              "format": "uint8",
+              "maximum": 255,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "type": "array"
+          },
+          "description": "`[r, g, b, a]`, premultiplied, by token name.",
+          "type": "object"
+        }
+      },
+      "required": [
+        "shell",
+        "name",
+        "tokens"
+      ],
+      "type": "object"
+    },
+    "Tint": {
+      "properties": {
+        "body": {
+          "$ref": "#/$defs/Paint"
+        },
+        "header": {
+          "$ref": "#/$defs/Paint"
+        }
+      },
+      "required": [
+        "header",
+        "body"
+      ],
+      "type": "object"
+    },
+    "Title": {
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "watch": {
+          "description": "A tap watches the node's first output (it has outputs), a double tap opens its parameters.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "text",
+        "watch"
+      ],
+      "type": "object"
+    },
+    "Upsert": {
+      "properties": {
+        "frames": {
+          "items": {
+            "$ref": "#/$defs/Frame"
+          },
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/$defs/Group"
+          },
+          "type": "array"
+        },
+        "marks": {
+          "items": {
+            "$ref": "#/$defs/Mark"
+          },
+          "type": "array"
+        },
+        "nets": {
+          "items": {
+            "$ref": "#/$defs/Net"
+          },
+          "type": "array"
+        },
+        "nodes": {
+          "items": {
+            "$ref": "#/$defs/Face"
+          },
+          "type": "array"
+        },
+        "wires": {
+          "items": {
+            "$ref": "#/$defs/Wire"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "nodes",
+        "wires",
+        "nets",
+        "frames",
+        "groups",
+        "marks"
+      ],
+      "type": "object"
+    },
+    "Use": {
+      "properties": {
+        "at": {
+          "items": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "face": {
+          "type": "string"
+        },
+        "pin": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "$ref": "#/$defs/PortRefSchema"
+        }
+      },
+      "required": [
+        "to",
+        "face",
+        "pin",
+        "at"
+      ],
+      "type": "object"
+    },
+    "View": {
+      "description": "What the core asks the shell's view to show (`docs/shell-interface.md` 8.9's view domain, as\nfar as N2 slice 3 builds it): the latest fit.",
+      "properties": {
+        "fit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Fit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The latest fit asked for (`canvas.fit`), or none since the document opened."
+        }
+      },
+      "type": "object"
+    },
+    "Widget": {
+      "description": "A widget: what it shows and what bounds it. Every widget commits one `node.set` (8.5).",
+      "properties": {
+        "blank": {
+          "description": "The value is JSON null (shown as `blank`).",
+          "type": "boolean"
+        },
+        "choices": {
+          "items": {
+            "$ref": "#/$defs/Choice"
+          },
+          "type": "array"
+        },
+        "clearable": {
+          "description": "The default is null and the value not: a `×` sets null.",
+          "type": "boolean"
+        },
+        "colorFormat": {
+          "description": "`color`: `rgb` (`r,g,b` in 0..1) or `hex`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "decimals": {
+          "description": "FLOAT: the decimals shown ([`widget_text::float_decimals`]).",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "default": true,
+        "hover": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "int": {
+          "type": "boolean"
+        },
+        "kind": {
+          "description": "`number`, `toggle`, `choice`, `multichoice`, `text`, `multiline`, `path`, `color`.",
+          "type": "string"
+        },
+        "max": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "min": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "pathMode": {
+          "description": "`path`: `open`, `save`, `dir`, `files`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "softMax": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "softMin": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "step": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "value": true
+      },
+      "required": [
+        "kind",
+        "value",
+        "default",
+        "blank",
+        "clearable",
+        "int",
+        "choices"
+      ],
+      "type": "object"
+    },
+    "Wire": {
+      "description": "A wire, keyed by the input it feeds (one wire an input).",
+      "properties": {
+        "from": {
+          "$ref": "#/$defs/PortRefSchema"
+        },
+        "fromFace": {
+          "description": "The faces and pins it is drawn between (a collapsed group's node stands for its members).",
+          "type": "string"
+        },
+        "fromPin": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "id": {
+          "description": "`node.port` of the input.",
+          "type": "string"
+        },
+        "kind": {
+          "description": "`plain`, `routed` (through `via`) or `net` (drawn through its net's tags).",
+          "type": "string"
+        },
+        "net": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NetKeySchema"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "nid": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "paint": {
+          "$ref": "#/$defs/Paint"
+        },
+        "path": {
+          "description": "Its path as a cubic chain, graph units: the start, then two control points and the end a\nsegment ([`crate::wire_path`]); every shell draws this curve and the core hit-tests it.\nEmpty for a wire drawn through a net (its tags are drawn). N2 slice 3.",
+          "items": {
+            "items": {
+              "format": "double",
+              "type": "number"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "rev": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "slice": {
+          "description": "A slice's label (`[:-1]`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "to": {
+          "$ref": "#/$defs/PortRefSchema"
+        },
+        "toFace": {
+          "type": "string"
+        },
+        "toPin": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "via": {
+          "items": {
+            "items": {
+              "format": "int32",
+              "type": "integer"
+            },
+            "maxItems": 2,
+            "minItems": 2,
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "nid",
+        "rev",
+        "from",
+        "to",
+        "fromFace",
+        "fromPin",
+        "toFace",
+        "toPin",
+        "paint",
+        "kind",
+        "via",
+        "path"
+      ],
+      "type": "object"
+    },
+    "WireTargetQuery": {
+      "additionalProperties": false,
+      "description": "`geometry.wireTarget`'s params: where a wire dragged from `from` may land.",
+      "properties": {
+        "at": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": "array"
+        },
+        "from": {
+          "$ref": "#/$defs/PinRef"
+        },
+        "slop": {
+          "default": null,
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "from"
+      ],
+      "type": "object"
+    }
+  },
+  "$id": "https://github.com/seantrue/plumcraft/schema/shell1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "The editor core <-> shell interface (docs/shell-interface.md): scene.get's reply (Scene, or Delta with since), geometry.set (GeometrySet, GeometrySetReply), ui.gesture (Gesture, GestureReply), geometry.hit (HitQuery), geometry.wireTarget (WireTargetQuery), their replies (Hit), geometry.locate (LocateReply), theme.get (ThemeReply). Readers skip unknown fields and kinds.",
+  "messages": {
+    "Delta": {
+      "$ref": "#/$defs/Delta"
+    },
+    "GeometrySet": {
+      "$ref": "#/$defs/GeometrySet"
+    },
+    "GeometrySetReply": {
+      "$ref": "#/$defs/GeometrySetReply"
+    },
+    "Gesture": {
+      "$ref": "#/$defs/Gesture"
+    },
+    "GestureReply": {
+      "$ref": "#/$defs/GestureReply"
+    },
+    "Hit": {
+      "$ref": "#/$defs/Hit"
+    },
+    "HitQuery": {
+      "$ref": "#/$defs/HitQuery"
+    },
+    "LocateReply": {
+      "$ref": "#/$defs/LocateReply"
+    },
+    "Scene": {
+      "$ref": "#/$defs/Scene"
+    },
+    "ThemeReply": {
+      "$ref": "#/$defs/ThemeReply"
+    },
+    "WireTargetQuery": {
+      "$ref": "#/$defs/WireTargetQuery"
+    }
+  },
+  "title": "PlumCraft shell interface 1"
+}

@@ -105,13 +105,13 @@ fn a_shell_measures_and_the_hot_calls_answer() {
     let nids = [lit_nid];
     // SAFETY: nids live for the call; a null out asks only for the size.
     let need = unsafe { plum_wire_paths(c.core, 0, nids.as_ptr(), 1, 10.0, 0.0, std::ptr::null_mut(), 0) };
-    assert_eq!(need, 2 + 2 * 13, "one wire of four cubics");
+    assert_eq!(need, 3 + 2 * 13, "one wire of four cubics: its nid in two words, its count, its points");
     let mut out = vec![0.0f32; need];
     // SAFETY: out holds `need` floats.
     let wrote = unsafe { plum_wire_paths(c.core, 0, nids.as_ptr(), 1, 10.0, 0.0, out.as_mut_ptr(), out.len()) };
     assert_eq!(wrote, need);
-    assert_eq!((u64::from(out[0].to_bits()), out[1].to_bits()), (w["nid"].as_u64().unwrap(), 13));
-    assert_eq!((out[2], out[3]), (110.0, 30.0), "its start moved with the literal");
+    assert_eq!((u64::from(out[0].to_bits()) | (u64::from(out[1].to_bits()) << 32), out[2].to_bits()), (w["nid"].as_u64().unwrap(), 13));
+    assert_eq!((out[3], out[4]), (110.0, 30.0), "its start moved with the literal");
     let mut short = vec![-1.0f32; need - 1];
     // SAFETY: short holds need - 1 floats: too few, so nothing is written.
     assert_eq!(unsafe { plum_wire_paths(c.core, 0, nids.as_ptr(), 1, 10.0, 0.0, short.as_mut_ptr(), short.len()) }, need);

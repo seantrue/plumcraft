@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The last slice of N2 under the maintainer's "same arrangement for N2". The colour question was the maintainer's earlier answer "13A" (tokens, not colours beside them).
+
+**What the agent did (~2,650 LOC of Rust added, ~210 removed, tests included; fixtures, schema and docs apart).** `ui.gesture` in the core (`gesture.rs`): a shell reports a recognised tap, drag or marquee and the core decides what it means by running existing commands. A typed C ABI call `plum_gesture_move` for the drag path. `geometry.locate` and `theme.get`. A scene paint is now a token or a colour, never both. A JSON schema of the shell interface (`schema/shell1.json`) with a staleness test. A conformance suite of 19 cases and 197 steps kept as data, run through the C ABI, the C ABI's control port, the egui editor's control dispatcher and the core's own document; all pass on the Mac. Draft 2 of `docs/shell-interface.md`. 12 new tests.
+
+**Defects this slice's tests found in slice 3's AI-written code.** egui's faces were about 7 graph units from where the core placed them (egui-snarl draws a margin around a node's position), caught by a kittest; and egui's control port refused `geometry.*`, caught by the egui driver's first run (17 of 19 cases failed).
+
+**Defects in this slice's own work.** A duplicate JSON key in a case (the agent's review) and an unused helper (clippy).
+
+**Not done, and limits.** egui-snarl still owns node drags, wire drags, and double and secondary clicks, so those don't go through `ui.gesture` in egui. The egui driver goes through the control dispatcher, not simulated pointer input. No Swift or Kotlin code has called any of it. The agent chose several gesture meanings the maintainer has not reviewed (listed in `claude-debug/native-n2-slice4.md`).
+
 ### 2026-11-20 — N2 slice 3: geometry in the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** Slice 3 of N2 under the maintainer's "same arrangement for N2". The maintainer also said "Update the craft apps" on the Linux test host, asked "what is the ffmpeg issue?", and answered "File b30; record the others".

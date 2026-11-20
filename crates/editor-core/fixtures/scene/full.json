@@ -14,12 +14,6 @@
       "id": "f1",
       "nid": 34,
       "paint": {
-        "color": [
-          44,
-          102,
-          173,
-          255
-        ],
         "token": "accent"
       },
       "pos": [
@@ -115,12 +109,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            237,
-            184,
-            231,
-            255
-          ],
           "token": "group"
         },
         "width": 2.0
@@ -298,21 +286,9 @@
       "shown": null,
       "tint": {
         "body": {
-          "color": [
-            250,
-            243,
-            244,
-            255
-          ],
           "token": "group_body"
         },
         "header": {
-          "color": [
-            237,
-            184,
-            231,
-            255
-          ],
           "token": "group"
         }
       },
@@ -362,12 +338,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -394,22 +364,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -449,22 +407,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -504,22 +450,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -559,22 +493,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -614,22 +536,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -685,22 +595,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -751,22 +649,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -806,22 +692,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -861,22 +735,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -916,22 +778,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -971,22 +821,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -1098,22 +936,10 @@
           "node": "n1",
           "pin": {
             "fill": {
-              "color": [
-                0,
-                0,
-                0,
-                0
-              ],
               "token": "pin_hidden"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": false
@@ -1223,12 +1049,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            58,
-            138,
-            76,
-            255
-          ],
           "token": "state_done"
         },
         "width": 2.0
@@ -1263,12 +1083,6 @@
           "hover": "done",
           "kind": "dot",
           "paint": {
-            "color": [
-              58,
-              138,
-              76,
-              255
-            ],
             "token": "state_done"
           }
         },
@@ -1276,12 +1090,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -1448,12 +1256,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            111,
-            156,
-            120,
-            255
-          ],
           "token": "state_cached"
         },
         "width": 2.0
@@ -1489,12 +1291,6 @@
           "hover": "cached",
           "kind": "dot",
           "paint": {
-            "color": [
-              111,
-              156,
-              120,
-              255
-            ],
             "token": "state_cached"
           }
         },
@@ -1502,12 +1298,6 @@
           {
             "hover": "Computed in 40 ms, fetched in 0.20 ms",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -1648,12 +1438,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            192,
-            57,
-            43,
-            255
-          ],
           "token": "state_error"
         },
         "width": 2.5
@@ -1663,12 +1447,6 @@
           "full": "value error: the picture is empty",
           "kind": "error",
           "paint": {
-            "color": [
-              179,
-              52,
-              42,
-              255
-            ],
             "token": "error"
           },
           "text": "value error: the picture is empty"
@@ -1692,12 +1470,6 @@
           "hover": "error",
           "kind": "dot",
           "paint": {
-            "color": [
-              192,
-              57,
-              43,
-              255
-            ],
             "token": "state_error"
           }
         },
@@ -1705,12 +1477,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -1851,12 +1617,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            162,
-            157,
-            148,
-            255
-          ],
           "token": "state_skipped"
         },
         "width": 2.0
@@ -1866,12 +1626,6 @@
           "full": "skipped: an input failed",
           "kind": "error",
           "paint": {
-            "color": [
-              87,
-              82,
-              74,
-              255
-            ],
             "token": "text_dim"
           },
           "text": "skipped: an input failed"
@@ -1895,12 +1649,6 @@
           "hover": "skipped",
           "kind": "dot",
           "paint": {
-            "color": [
-              162,
-              157,
-              148,
-              255
-            ],
             "token": "state_skipped"
           }
         },
@@ -1908,12 +1656,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2054,12 +1796,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            162,
-            157,
-            148,
-            255
-          ],
           "token": "state_cancelled"
         },
         "width": 2.0
@@ -2083,12 +1819,6 @@
           "hover": "cancelled",
           "kind": "dot",
           "paint": {
-            "color": [
-              162,
-              157,
-              148,
-              255
-            ],
             "token": "state_cancelled"
           }
         },
@@ -2096,12 +1826,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2242,12 +1966,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            176,
-            125,
-            18,
-            255
-          ],
           "token": "stale"
         },
         "width": 2.0
@@ -2277,12 +1995,6 @@
           "hover": "done",
           "kind": "dot",
           "paint": {
-            "color": [
-              58,
-              138,
-              76,
-              255
-            ],
             "token": "state_done"
           }
         },
@@ -2290,12 +2002,6 @@
           {
             "hover": "Stale since the last run:\n• gain changed\nRun again to bring it up to date.",
             "paint": {
-              "color": [
-                176,
-                125,
-                18,
-                255
-              ],
               "token": "stale"
             },
             "strong": false,
@@ -2304,12 +2010,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2473,12 +2173,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2505,22 +2199,10 @@
           "node": "n16",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2543,22 +2225,10 @@
           "node": "n16",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2598,22 +2268,10 @@
           "node": "n16",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2628,22 +2286,10 @@
           "node": "n16",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2712,12 +2358,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2744,22 +2384,10 @@
           "node": "n17",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2782,22 +2410,10 @@
           "node": "n17",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2820,22 +2436,10 @@
           "node": "n17",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2850,22 +2454,10 @@
           "node": "n17",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2934,12 +2526,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -2966,22 +2552,10 @@
           "node": "n18",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -2995,12 +2569,6 @@
           "badge": {
             "hover": "This wire overrides the value in the tuning wired into this node",
             "paint": {
-              "color": [
-                44,
-                102,
-                173,
-                255
-              ],
               "token": "accent"
             },
             "text": "overrides tuning"
@@ -3016,22 +2584,10 @@
           "node": "n18",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3054,22 +2610,10 @@
           "node": "n18",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3084,22 +2628,10 @@
           "node": "n18",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3151,12 +2683,6 @@
             {
               "hover": null,
               "paint": {
-                "color": [
-                  87,
-                  82,
-                  74,
-                  255
-                ],
                 "token": "text_dim"
               },
               "text": "wire both ends"
@@ -3187,12 +2713,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -3219,22 +2739,10 @@
           "node": "n19",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3257,22 +2765,10 @@
           "node": "n19",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "square",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3341,12 +2837,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -3510,12 +3000,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -3679,12 +3163,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -3800,12 +3278,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -3904,22 +3376,10 @@
           "node": "n3",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -3970,22 +3430,10 @@
           "node": "n3",
           "pin": {
             "fill": {
-              "color": [
-                127,
-                121,
-                111,
-                255
-              ],
               "token": "pin_default"
             },
             "shape": "circle",
             "wire": {
-              "color": [
-                125,
-                120,
-                111,
-                255
-              ],
               "token": "wire"
             },
             "wireable": true
@@ -4107,12 +3555,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -4228,12 +3670,6 @@
           {
             "hover": "No run has completed this node yet. Run to compute it.",
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -4326,12 +3762,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            125,
-            131,
-            141,
-            255
-          ],
           "token": "state_queued"
         },
         "width": 2.0
@@ -4355,12 +3785,6 @@
           "hover": "queued",
           "kind": "dot",
           "paint": {
-            "color": [
-              125,
-              131,
-              141,
-              255
-            ],
             "token": "state_queued"
           }
         },
@@ -4368,12 +3792,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                34,
-                32,
-                28,
-                255
-              ],
               "token": "header_text"
             },
             "strong": false,
@@ -4514,12 +3932,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            44,
-            102,
-            173,
-            255
-          ],
           "token": "state_running"
         },
         "width": 2.5
@@ -4543,12 +3955,6 @@
           "hover": "running",
           "kind": "spinner",
           "paint": {
-            "color": [
-              44,
-              102,
-              173,
-              255
-            ],
             "token": "state_running"
           }
         },
@@ -4556,12 +3962,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                44,
-                102,
-                173,
-                255
-              ],
               "token": "state_running"
             },
             "strong": true,
@@ -4702,12 +4102,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            44,
-            102,
-            173,
-            255
-          ],
           "token": "state_running"
         },
         "width": 2.5
@@ -4737,12 +4131,6 @@
           "hover": "running",
           "kind": "spinner",
           "paint": {
-            "color": [
-              44,
-              102,
-              173,
-              255
-            ],
             "token": "state_running"
           }
         },
@@ -4750,12 +4138,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                44,
-                102,
-                173,
-                255
-              ],
               "token": "state_running"
             },
             "strong": true,
@@ -4896,12 +4278,6 @@
     {
       "border": {
         "paint": {
-          "color": [
-            44,
-            102,
-            173,
-            255
-          ],
           "token": "state_running"
         },
         "width": 2.5
@@ -4925,12 +4301,6 @@
           "hover": "running",
           "kind": "spinner",
           "paint": {
-            "color": [
-              44,
-              102,
-              173,
-              255
-            ],
             "token": "state_running"
           }
         },
@@ -4938,12 +4308,6 @@
           {
             "hover": null,
             "paint": {
-              "color": [
-                44,
-                102,
-                173,
-                255
-              ],
               "token": "state_running"
             },
             "strong": true,
@@ -5278,12 +4642,6 @@
       "net": null,
       "nid": 28,
       "paint": {
-        "color": [
-          125,
-          120,
-          111,
-          255
-        ],
         "token": "wire"
       },
       "path": [
@@ -5362,12 +4720,6 @@
       "net": null,
       "nid": 30,
       "paint": {
-        "color": [
-          125,
-          120,
-          111,
-          255
-        ],
         "token": "wire"
       },
       "path": [
@@ -5446,12 +4798,6 @@
       "net": null,
       "nid": 29,
       "paint": {
-        "color": [
-          125,
-          120,
-          111,
-          255
-        ],
         "token": "wire"
       },
       "path": [

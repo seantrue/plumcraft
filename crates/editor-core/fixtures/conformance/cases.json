@@ -1,0 +1,316 @@
+{
+  "about": "The shell conformance suite (docs/shell-interface.md section 16; N2 slice 4). Each case runs on a new graph through any shell's control dispatcher: plumcraft_editor_core::conformance is the runner and says what a step is. Points are aimed with $locate, so a case holds whatever sizes the shell measured.",
+  "cases": [
+    {
+      "name": "a shell's measurements are what the core hits",
+      "about": "geometry reported (typed on the C ABI, measured by egui) is what geometry.locate, geometry.hit and the scene use",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"geometry": [{"node": "$a", "size": [180, 100], "pins": {"in": [40], "out": [60]}}, {"node": "$b", "size": [160, 90], "pins": {"in": [44], "out": [44]}}]},
+        {"call": "geometry.locate", "params": {"node": "$a"}, "expect": {"/result/measured": true}},
+        {"call": "geometry.locate", "params": {"node": "$a"}, "only": "reports", "expect": {"/result/rect": [0, 0, 180, 100]}},
+        {"call": "geometry.locate", "params": {"node": "$a", "pin": {"side": "out", "index": 0}}, "only": "reports", "expect": {"/result/at": [180, 60]}},
+        {"call": "geometry.hit", "params": {"at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/kind": "pin", "/result/side": "out", "/result/node": "$a", "/result/pin": 0}},
+        {"call": "geometry.hit", "params": {"at": {"$locate": {"node": "$b", "part": "header"}}, "slop": 2}, "expect": {"/result/kind": "node", "/result/node": "$b", "/result/part": "header"}},
+        {"call": "geometry.hit", "params": {"at": [-3000, -3000]}, "expect": {"/result/kind": "none"}}
+      ]
+    },
+    {
+      "name": "a tap selects; Shift adds; primary takes away; empty canvas clears",
+      "about": "selection.set by the egui canvas's click rules, decided in the core from the hit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/hit/kind": "node", "/result/commands/0/command": "selection.set", "/result/commands/0/ok": true, "/result/commands": {"$len": 1}}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$a"]}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$b", "part": "header"}}, "mods": ["shift"], "slop": 2}, "expect": {"/result/commands/0/params/mode": "add"}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$a", "$b"]}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$a", "part": "body"}}, "mods": ["primary"], "slop": 2}, "expect": {"/result/commands/0/params/mode": "remove"}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$b"]}},
+        {"gesture": {"kind": "tap", "at": [-3000, -3000], "mods": ["shift"]}, "expect": {"/result/commands": {"$len": 0}}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$b"]}},
+        {"gesture": {"kind": "tap", "at": [-3000, -3000]}, "expect": {"/result/hit/kind": "none", "/result/commands/0/command": "selection.clear"}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": []}}
+      ]
+    },
+    {
+      "name": "a tap on a pin or a wire watches its value",
+      "about": "run.watch of an output, of a wired input's source, of a wire's source; a wire's tap clears the selection as empty canvas does",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/hit/kind": "pin", "/result/commands/0/command": "run.watch", "/result/commands/0/params": {"node": "$a", "port": "text"}, "/result/commands": {"$len": 1}}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 4}, "expect": {"/result/commands/0/command": "run.watch", "/result/commands/0/params": {"node": "$a", "port": "text"}}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"wire": "$b.text"}}, "slop": 4}, "expect": {"/result/hit/kind": "wire", "/result/hit/wire": "$b.text", "/result/commands/0/command": "selection.clear", "/result/commands/1/command": "run.watch", "/result/commands/1/params": {"node": "$a", "port": "text"}}}
+      ]
+    },
+    {
+      "name": "a drag moves an unselected face alone and leaves the selection",
+      "about": "drag begin decides a move of the face under it; move changes nothing; end is node.move by the offset; no undo step, as node.move isn't one",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "selection.set", "params": {"nodes": ["$b"]}}},
+        {"call": "ui.inspect", "save": {"undo": "/result/undo"}},
+        {"call": "geometry.locate", "params": {"node": "$a"}, "save": {"anid": "/result/nid"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/drag/kind": "move", "/result/drag/faces": ["$anid"], "/result/commands": {"$len": 0}}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": {"$locate": {"node": "$a", "part": "header"}, "$plus": [40, 25]}}, "expect": {"/result/update/dx": 40, "/result/update/dy": 25, "/result/commands": {"$len": 0}}},
+        {"hot": {"at": {"$locate": {"node": "$a", "part": "header"}, "$plus": [40, 25]}}, "expect": {"/result/kind": 1, "/result/dx": 40, "/result/dy": 25}},
+        {"call": "graph.get", "expect": {"/result/nodes/$a/pos": [0, 0]}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$a", "part": "header"}, "$plus": [40, 25]}}, "expect": {"/result/commands/0/command": "node.move", "/result/commands/0/ok": true, "/result/commands": {"$len": 1}}},
+        {"call": "graph.get", "expect": {"/result/nodes/$a/pos": [40, 25], "/result/nodes/$b/pos": [500, 0]}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$b"]}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "$undo"}}
+      ]
+    },
+    {
+      "name": "a drag on a selected face moves the selection",
+      "about": "every selected face moves by the same offset",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.lower", "pos": [500, 400]}}, "save": {"c": "/result/id"}},
+        {"call": "command.run", "params": {"command": "selection.set", "params": {"nodes": ["$a", "$b"]}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/drag/kind": "move", "/result/drag/faces": {"$len": 2}}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$a", "part": "header"}, "$plus": [10, 20]}}, "expect": {"/result/commands": {"$len": 2}}},
+        {"call": "graph.get", "expect": {"/result/nodes/$a/pos": [10, 20], "/result/nodes/$b/pos": [510, 20], "/result/nodes/$c/pos": [500, 400]}}
+      ]
+    },
+    {
+      "name": "a cancelled drag leaves the document as it was",
+      "about": "begin and move change nothing; cancel forgets the drag; an end after it is an error",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "graph.get", "save": {"before": "/result"}},
+        {"call": "ui.inspect", "save": {"dirty": "/result/dirty", "undo": "/result/undo"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [300, 300]}},
+        {"gesture": {"kind": "drag", "phase": "cancel"}, "expect": {"/result/cancelled": true, "/result/commands": {"$len": 0}}},
+        {"call": "graph.get", "expect": {"/result": "$before"}},
+        {"call": "ui.inspect", "expect": {"/result/dirty": "$dirty", "/result/undo": "$undo"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [300, 300]}, "ok": false},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/kind": "wire"}},
+        {"gesture": {"kind": "drag", "phase": "cancel"}, "expect": {"/result/cancelled": true}},
+        {"call": "graph.get", "expect": {"/result": "$before"}}
+      ]
+    },
+    {
+      "name": "a wire dragged from an output to an input is one undo step",
+      "about": "the target fits while it is dragged (JSON and typed); the drop is wire.connect; one edit.undo takes it away",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "geometry.locate", "params": {"node": "$b"}, "save": {"bnid": "/result/nid"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/kind": "wire", "/result/drag/from/node": "$a", "/result/drag/from/side": "out"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}, "$plus": [3, 2]}, "slop": 12}, "expect": {"/result/update/target/kind": "pin", "/result/update/target/node": "$b", "/result/update/target/side": "in", "/result/update/target/fits": 1}},
+        {"hot": {"at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}, "$plus": [3, 2]}, "slop": 12}, "expect": {"/result/kind": 2, "/result/target/kind": "pin", "/result/target/nid": "$bnid", "/result/target/pin": 0, "/result/target/fits": 1}},
+        {"call": "geometry.wireTarget", "params": {"from": {"node": "$a", "side": "out", "pin": 0}, "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}, "$plus": [3, 2]}, "slop": 12}, "expect": {"/result/fits": 1, "/result/node": "$b"}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 0}}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}, "$plus": [3, 2]}, "slop": 12}, "expect": {"/result/commands": {"$len": 1}, "/result/commands/0/command": "wire.connect", "/result/commands/0/ok": true, "/result/commands/0/params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 1}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": {"$not": null}}},
+        {"call": "command.run", "params": {"command": "edit.undo"}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 0}}}
+      ]
+    },
+    {
+      "name": "a wire dropped on nothing makes nothing",
+      "about": "a new wire's drop on empty canvas runs no command",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/kind": "wire"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [-3000, -3000]}, "expect": {"/result/update/target/kind": "none"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [-3000, -3000]}, "expect": {"/result/commands": {"$len": 0}}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 0}}}
+      ]
+    },
+    {
+      "name": "a drop where a wire doesn't fit is refused with the reason",
+      "about": "a cycle: the target says fits 0 while dragged; the drop's wire.connect is refused and the graph keeps its wires",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.lower", "pos": [1000, 0]}}, "save": {"c": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$b", "port": "text"}, "to": {"node": "$c", "port": "text"}}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$c", "pin": {"side": "out", "index": 0}}}, "slop": 4}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 6}, "expect": {"/result/update/target/kind": "pin", "/result/update/target/fits": 0}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 6}, "expect": {"/result/commands/0/command": "wire.connect", "/result/commands/0/ok": false, "/result/commands/0/error": {"$exists": true}}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 2}}}
+      ]
+    },
+    {
+      "name": "a wire's end picked up off an input is rerouted, or dropped",
+      "about": "a drag on a wired input picks its wire's end up: onto another input it is wire.reroute, onto nothing wire.disconnect",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.lower", "pos": [500, 400]}}, "save": {"c": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/kind": "wire", "/result/drag/from/node": "$a", "/result/drag/picked": {"node": "$b", "port": "text"}}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$c", "pin": {"side": "in", "index": 0}}}, "slop": 6}, "expect": {"/result/commands/0/command": "wire.reroute", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 1}, "/result/wires/0/to": {"node": "$c", "port": "text"}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$c", "pin": {"side": "in", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/picked": {"node": "$c", "port": "text"}}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [-3000, -3000]}, "expect": {"/result/commands/0/command": "wire.disconnect", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/wires": {"$len": 0}}}
+      ]
+    },
+    {
+      "name": "a marquee selects what it touches",
+      "about": "one-shot and dragged marquees: plain replaces, Shift adds, primary takes away",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.lower", "pos": [500, 400]}}, "save": {"c": "/result/id"}},
+        {"gesture": {"kind": "marquee", "at": [-50, -50], "to": [40, 40]}, "expect": {"/result/commands/0/params": {"nodes": ["$a"], "groups": [], "mode": "replace"}}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$a"]}},
+        {"gesture": {"kind": "marquee", "at": [480, 380], "to": [520, 420], "mods": ["shift"]}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$a", "$c"]}},
+        {"gesture": {"kind": "marquee", "at": [-50, -50], "to": [40, 40], "mods": ["primary"]}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$c"]}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": [-2000, -2000]}, "expect": {"/result/drag/kind": "marquee"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [520, 20]}, "expect": {"/result/update/rect": [-2000, -2000, 520, 20], "/result/update/touches": {"$contains": "$b"}}},
+        {"hot": {"at": [520, 20]}, "expect": {"/result/kind": 3, "/result/rect": [-2000, -2000, 520, 20]}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$c"]}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [520, 20]}, "expect": {"/result/commands/0/params/mode": "replace"}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": ["$a", "$b"]}}
+      ]
+    },
+    {
+      "name": "a double tap opens what it is on",
+      "about": "a node's parameters, a wire's value popped out, the palette on empty canvas",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"node": "$b", "part": "header"}}, "slop": 2}, "expect": {"/result/commands/0/command": "node.parameters", "/result/commands/0/params": {"node": "$b"}}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"wire": "$b.text"}}, "slop": 4}, "expect": {"/result/commands/0/command": "view.popout", "/result/commands/0/params": {"node": "$a", "port": "text"}}},
+        {"gesture": {"kind": "doubleTap", "at": [-3000, -3000]}, "expect": {"/result/commands/0/command": "canvas.palette", "/result/commands/0/params/at": [-3000, -3000]}}
+      ]
+    },
+    {
+      "name": "a context gesture gives the menu of what it is on",
+      "about": "a secondary click or long press: the menu model for a node, an input, an output, a wire; the palette on empty canvas",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"gesture": {"kind": "context", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/context": {"kind": "node", "node": "$a"}, "/result/menu": {"$deep": {"command": "node.remove"}}, "/result/commands": {"$len": 0}}},
+        {"gesture": {"kind": "longPress", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 4}, "expect": {"/result/context": {"kind": "input", "port": {"node": "$b", "port": "text"}}, "/result/menu": {"$exists": true}}},
+        {"gesture": {"kind": "context", "at": {"$locate": {"node": "$b", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/context/kind": "output"}},
+        {"gesture": {"kind": "context", "at": {"$locate": {"wire": "$b.text"}}, "slop": 4}, "expect": {"/result/context": {"kind": "wire", "to": {"node": "$b", "port": "text"}}, "/result/menu": {"$deep": {"command": "wire.disconnect"}}}},
+        {"gesture": {"kind": "context", "at": [-3000, -3000]}, "expect": {"/result/commands/0/command": "canvas.palette", "/result/context": {"$exists": false}}}
+      ]
+    },
+    {
+      "name": "a collapsed group's face is its group",
+      "about": "a tap selects the group, a drag moves it with group.move, a double tap enters it",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [300, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$a", "$b"], "collapsed": true}}, "save": {"g": "/result/id"}},
+        {"call": "graph.get", "save": {"gpos": "/result/groups/$g/pos"}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "group:$g", "part": "header"}}, "slop": 2}, "expect": {"/result/commands/0/params": {"groups": ["$g"]}}},
+        {"call": "scene.get", "expect": {"/result/selection/groups": ["$g"], "/result/selection/nodes": []}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "group:$g", "part": "header"}}, "slop": 2}, "expect": {"/result/drag/kind": "move"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "group:$g", "part": "header"}, "$plus": [0, 50]}}, "expect": {"/result/commands/0/command": "group.move", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/nodes/$a/pos": [0, 50], "/result/nodes/$b/pos": [300, 50]}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"node": "group:$g", "part": "header"}}, "slop": 2}, "expect": {"/result/commands/0/command": "canvas.focus", "/result/commands/0/ok": true}},
+        {"call": "scene.get", "expect": {"/result/focus/group": "$g"}}
+      ]
+    },
+    {
+      "name": "a frame is moved by its tab and sized by its handle",
+      "about": "frame.move and frame.resize at a drag's end",
+      "steps": [
+        {"call": "command.run", "params": {"command": "frame.add", "params": {"pos": [-600, 600], "size": [300, 200]}}, "save": {"f": "/result/id"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"frame": "$f", "part": "tab"}}, "slop": 2}, "expect": {"/result/drag/kind": "frame"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"frame": "$f", "part": "tab"}, "$plus": [30, 0]}}, "expect": {"/result/commands/0/command": "frame.move", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/frames/$f/pos": [-570, 600]}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"frame": "$f", "part": "handle"}}, "slop": 2}, "expect": {"/result/drag/kind": "resize"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"frame": "$f", "part": "handle"}, "$plus": [20, 20]}}, "expect": {"/result/commands/0/command": "frame.resize", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/frames/$f/size": [320, 220]}},
+        {"gesture": {"kind": "context", "at": {"$locate": {"frame": "$f", "part": "tab"}}, "slop": 2}, "expect": {"/result/context": {"kind": "frame", "frame": "$f"}}}
+      ]
+    },
+    {
+      "name": "a bend point is dragged, and removed by a double tap",
+      "about": "wire.route with the point moved; wire.route without it",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "wire.route", "params": {"to": {"node": "$b", "port": "text"}, "via": [[350, 300]]}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": [351, 301], "slop": 4}, "expect": {"/result/hit/kind": "bend", "/result/drag/kind": "bend"}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [361, 311]}, "expect": {"/result/commands/0/command": "wire.route", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via": [[360, 310]]}},
+        {"gesture": {"kind": "doubleTap", "at": [360, 310], "slop": 4}, "expect": {"/result/commands/0/command": "wire.route", "/result/commands/0/params/via": []}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via": {"$exists": false}}}
+      ]
+    },
+    {
+      "name": "the scene's colours are tokens alone or colours alone, and theme.get has every token",
+      "about": "question 13, decided 13A: a token by name, a computed colour as [r, g, b, a]",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$b"], "collapsed": true}}},
+        {"call": "scene.get", "save": {"scene": "/result"}},
+        {"call": "theme.get", "save": {"theme": "/result"}, "expect": {"/result/tokens/pin_hidden": {"$len": 4}, "/result/tokens/group": {"$len": 4}}},
+        {"check": "tokensResolved", "scene": "$scene", "theme": "$theme"}
+      ]
+    },
+    {
+      "name": "no two items of a scene share a nid",
+      "about": "faces, wires, nets, frames and groups are numbered from one counter a document",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.lower", "pos": [500, 400]}}, "save": {"c": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "frame.add", "params": {"pos": [-600, 600], "size": [300, 200]}}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$c"]}}},
+        {"call": "scene.get", "save": {"scene": "/result"}, "expect": {"/result/frames": {"$len": 1}, "/result/groups": {"$len": 1}, "/result/wires": {"$len": 1}}},
+        {"check": "nidsUnique", "scene": "$scene"}
+      ]
+    },
+    {
+      "name": "hostile gestures and queries are refused, and the core still serves",
+      "about": "the hostile-input sweep for what a shell sends in N2: ui.gesture, geometry.*, scene.get, theme.get",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"gesture": null, "ok": false},
+        {"gesture": [], "ok": false},
+        {"gesture": {}, "ok": false},
+        {"gesture": {"kind": "pinch", "at": [0, 0]}, "ok": false},
+        {"gesture": {"kind": "tap", "at": [1e300, 0]}, "ok": false},
+        {"gesture": {"kind": "tap", "at": ["x", 0]}, "ok": false},
+        {"gesture": {"kind": "tap", "at": [0, 0, 0]}, "ok": false},
+        {"gesture": {"kind": "tap", "at": [0, 0], "mods": ["meta"]}, "ok": false},
+        {"gesture": {"kind": "tap", "at": [0, 0], "slop": "wide"}, "ok": false},
+        {"gesture": {"kind": "tap", "at": [0, 0], "bogus": true}, "ok": false},
+        {"gesture": {"kind": "drag", "at": [0, 0]}, "ok": false},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [0, 0]}, "ok": false},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [0, 0]}, "ok": false},
+        {"gesture": {"kind": "marquee", "at": [0, 0]}, "ok": false},
+        {"gesture": {"kind": {"nested": [1, 2, 3]}, "at": [0, 0]}, "ok": false},
+        {"call": "geometry.locate", "params": {}, "ok": false},
+        {"call": "geometry.locate", "params": {"node": "n404"}, "ok": false},
+        {"call": "geometry.locate", "params": {"node": "$a", "pin": {"side": "up", "index": 0}}, "ok": false},
+        {"call": "geometry.locate", "params": {"node": "$a", "pin": {"side": "out", "index": 99}}, "ok": false},
+        {"call": "geometry.locate", "params": {"wire": 5}, "ok": false},
+        {"call": "geometry.hit", "params": {"at": "here"}, "ok": false},
+        {"call": "geometry.wireTarget", "params": {"at": [0, 0], "from": {"node": "$a", "side": "sideways", "pin": 0}}, "ok": false},
+        {"call": "geometry.set", "params": {"faces": [{"node": "$a", "size": "big"}]}, "ok": false},
+        {"call": "scene.get", "params": {"since": "yesterday"}, "ok": false},
+        {"call": "theme.get", "params": {}},
+        {"gesture": {"kind": "drag", "phase": "cancel"}, "expect": {"/result/cancelled": false}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/commands/0/command": "selection.set"}}
+      ]
+    }
+  ]
+}

@@ -402,6 +402,29 @@ mod tests {
         assert_eq!(execute(&mut d, "net.select", &json!({})).unwrap()["net"], Value::Null);
     }
 
+    /// A new graph's fit waits for its faces to be measured (N2 slice 4): the geometry report
+    /// that measures the last one asks for it, once.
+    #[test]
+    fn a_fit_owed_is_asked_once_every_face_is_measured() {
+        let (mut d, a, b) = doc();
+        let texts = std::collections::HashMap::new();
+        let scene = d.build_scene(&crate::theme::DEFAULT, None, &texts, &[]);
+        d.publish_scene(scene);
+        d.fit_owed = true;
+        let one = |id: &str| crate::geometry::parse_set(&json!({"faces": [{"node": id, "size": [100, 50]}]})).unwrap();
+        d.apply_geometry(one(&a));
+        assert!(d.fit.is_none() && d.fit_owed, "one face of two measured: no fit yet");
+        d.apply_geometry(one(&b));
+        let fit = d.fit.clone().expect("asked once both are measured");
+        assert_eq!((fit.seq, fit.rect), (1, [-32.0, -32.0, 432.0, 82.0]));
+        assert!(!d.fit_owed);
+        d.apply_geometry(one(&b));
+        assert_eq!(d.fit.as_ref().map(|f| f.seq), Some(1), "paid once");
+        // graph.new owes nothing (nothing to show)
+        execute(&mut d, "graph.new", &json!({"discard": true})).unwrap();
+        assert!(!d.fit_owed);
+    }
+
     #[test]
     fn the_views_commands_are_checked_before_the_shell_is_asked() {
         let (mut d, a, _) = doc();

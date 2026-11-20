@@ -1,6 +1,22 @@
 # The editor core ↔ shell interface, shell interface 1 (normative draft)
 
-*2026-11-19. Status: **Draft 1, shell interface 1, nothing built.** Stage N0(c) of `docs/research/24-native-shells.md` (the plan; its twelve decisions were taken as recommended). Sibling of `docs/interface.md`, which is the contract between the editor and an engine; this file is the contract between the toolkit-free editor core (`plumcraft-editor-core`, not yet written) and a platform shell. Where this file says "today" it describes `main` at `34f6aea` and cites `file:line`; everything else is proposed.*
+*2026-11-20. Status: **Draft 2, shell interface 1, built through stage N2** (`docs/research/24-native-shells.md` 17). Draft 1 (2026-11-19) was written before anything was built; the "As built" notes through the sections below say where N1 and N2 differ from it, and Draft 2 makes them the contract.*
+
+**Changes from Draft 1 (N2, slices 1 to 4):**
+
+1. **The selection and the canvas's actions are commands** (12.3): `selection.set`, `selection.clear`, `selection.all`, `net.select`, `edit.delete`, `canvas.focus`, `canvas.fit`, `canvas.palette`, `canvas.reveal`, `selection.align`, `selection.distribute`, `geometry.set`.
+2. **The scene is built** (8, `scene.get`), with the shapes listed under section 8's "As built"; its types are the schema's (`crates/editor-core/schema/shell1.json`, 3.1 rule 4).
+3. **Colours: a token by name alone, or `[r, g, b, a]` where there is none** (question 13, decided 13A, built in slice 4). `theme.get` resolves every token a scene names (14.1).
+4. **`nid`s are unique within a document across every kind of item** (faces, wires, nets, frames, groups, marks: one counter), never reused; `plum_wire_paths` carries all 64 bits (9.1).
+5. **`geometry.set`** (8.11): pins and rows as lists in row order, `rev` optional, a stale report kept and listed, `unknown`, `parts`, and (slice 4) `offset`. A new graph's fit is asked once every face is measured (8.9).
+6. **Hit testing, the wire target and wire paths** (9): `plum_hit` with `status`, `item` and `x, y`; `plum_wire_target` naming its pin as (face, side, index); wire paths as four cubics fitted to egui-snarl's curve (8.8, question 7).
+7. **`canvas.fit`'s rect is the core's** (8.9, `view.fit` in the scene).
+8. **`ui.gesture` is how every shell's recognised gestures enter the core**, not only a script's (6.3, 8.13), with `plum_gesture_move` for a drag's moves (9.6). Draft 1 had a shell send commands itself; that put the gesture's meaning in the shell (rule 2).
+9. **`geometry.locate` and `theme.get`** are new methods (6.3).
+10. **The conformance suite is built** (16): cases as data, one runner, drivers for the C ABI, its control port, the egui editor and the core's own document.
+11. **`PLUM_ABI_VERSION` stays 1** (5.2, "The ABI's version").
+
+*The rest of this paragraph is Draft 1's: Stage N0(c) of `docs/research/24-native-shells.md` (the plan; its twelve decisions were taken as recommended). Stage N0(c) of `docs/research/24-native-shells.md` (the plan; its twelve decisions were taken as recommended). Sibling of `docs/interface.md`, which is the contract between the editor and an engine; this file is the contract between the toolkit-free editor core (`plumcraft-editor-core`, not yet written) and a platform shell. Where this file says "today" it describes `main` at `34f6aea` and cites `file:line`; everything else is proposed.*
 
 The words MUST, MUST NOT, SHOULD and MAY are used as in RFC 2119.
 
@@ -50,7 +66,7 @@ These are plan section 3's rules, made normative.
 1. **No toolkit in the core.** The core names no egui, AppKit, UIKit or Android type. Colours are `[r, g, b, a]` bytes, points and rects are `f32` pairs in graph units.
 2. **No editing logic in a shell.** A shell MUST NOT decide what a gesture means, which wire may land on which port, what is selected, what a command's parameters are, whether a command is enabled, or how text about a run is worded. If a second shell would have to copy it, it belongs in the core.
 3. **Everything is a command.** Every menu item, shortcut, context-menu item, toolbar button and gesture that changes a document ends in a command id with parameters (`AGENTS.md` rule 4). Section 12.3 lists what is not a command today and the id it gets.
-4. **The shell interface is a contract.** A change to a message changes this file in the same commit, and the schema (`schema/shell1.json`, generated as `schema/protocol2.json` is). Additions are capabilities (3.2).
+4. **The shell interface is a contract.** A change to a message changes this file in the same commit, and the schema (`crates/editor-core/schema/shell1.json`, generated as `schema/protocol2.json` is: `cargo run -p plumcraft-editor-core --example export_shell_schema --features schema`, and a test fails while it is stale). Additions are capabilities (3.2).
 5. **A shell is hostile input, and so is the core.** The core never panics on what a shell sends; the FFI edge catches unwinds (`catch_unwind` on every entry). A shell's parsers of core data MUST skip unknown fields, unknown enum values and unknown item kinds. Every new parser on either side joins a hostile-input sweep.
 6. **The UI thread never waits for an engine.** No call a shell makes on its main thread may block on engine I/O, a file dialog, or another thread's lock held across I/O.
 
@@ -58,7 +74,7 @@ These are plan section 3's rules, made normative.
 
 - Every top-level message from the core carries `"shell": 1`, the shell interface major version. A reader that sees another major refuses with a clear error.
 - **No minor versions.** An addition is a capability string. The core lists its capabilities in `core.hello`'s reply (`caps`); a shell lists its own in the open config (`shell.caps`). Either side uses a feature only when the other lists it.
-- Capabilities of interface 1: `scene.deltas`, `geometry.rows`, `hot.wire_paths`, `hot.hit_test`, `hot.wire_target`, `asks.file`, `asks.prompt`, `asks.form`, `asks.text`, `asks.clipboard`, `asks.share`, `asks.open_external`, `asks.screenshot`, `bytes.borrow`, `log.ring`, `gesture.script`, `docs.multi`. A shell lists the ask kinds it answers; the core never raises one it doesn't, and disables the commands that need it, with the reason (section 4.2).
+- Capabilities of interface 1: `scene.deltas`, `geometry.rows`, `hot.wire_paths`, `hot.hit_test`, `hot.wire_target`, `asks.file`, `asks.prompt`, `asks.form`, `asks.text`, `asks.clipboard`, `asks.share`, `asks.open_external`, `asks.screenshot`, `bytes.borrow`, `log.ring`, `gesture.script`, `docs.multi`. *Draft 2:* `gesture.script` is `gesture` (every shell sends `ui.gesture`), with `hot.gesture_move`, `geometry.locate` and `theme.tokens` beside it. **No capability is listed by anything yet:** `core.hello` is not built, so a shell of interface 1 may use every method this file marks built. A shell lists the ask kinds it answers; the core never raises one it doesn't, and disables the commands that need it, with the reason (section 4.2).
 - The core and the control channel speak the same version; a control client reads `core.hello` too.
 
 ### 3.3 Encoding and limits
@@ -208,6 +224,18 @@ int32_t  plum_geometry_set(plum_core, uint64_t doc, const plum_face *faces, size
 - The JSON forms are `geometry.hit`, `geometry.wireTarget`, `geometry.wirePaths` (methods) and `geometry.set` (a command), on the control port too (`docs/control-protocol.md`).
 - JNI has no hot calls yet (N5).
 
+**As built (N2 slice 4):**
+
+```c
+typedef struct { int32_t status; uint32_t kind; uint64_t serial; float dx, dy; float rect[4]; plum_hit target; } plum_drag;
+plum_drag plum_gesture_move(plum_core, uint64_t doc, float x, float y, float slop);
+```
+
+- **`plum_gesture_move`** is `ui.gesture`'s drag `move`, typed (9.6): the drag began, and ends or is cancelled, through `ui.gesture` (JSON); its moves never cross as JSON.
+- **`plum_wire_paths` carries the whole nid**: per wire its low and high 32 bits and its point count (three floats bit-cast), then the points. Slice 3 sent the low 32 bits only.
+- **The snapshot reaches the hot calls as it is made**, before any reply that follows the publish goes out (each document hands the C ABI a cell it swaps). Slice 3 shared it at the end of the core thread's turn, so a hot call right after a reply could read the one before. Hot calls still never wait.
+- **The ABI's version stays 1.** N2 added exports (`plum_hit_test`, `plum_wire_target`, `plum_wire_paths`, `plum_geometry_set`, `plum_gesture_move`) and changed one layout (`plum_wire_paths`' nid, slice 4) before any shell called it: nothing outside this repository links the library, and the only shell code that does (the N0 spikes under `native/`) calls none of the calls N2 added or changed. The version rises from the first change after a shell is released (N3) that would break it; additions never raise it (3.2).
+
 - `wake` is called from any thread, with no payload, at most once per change batch; the shell hops to its main thread, coalesces, and calls `plum_poll`. No data crosses on a foreign thread (the Swift 6 isolation trap, plan 2.3).
 - Every entry catches unwinds and returns an empty value (`len 0`, `kind 0`, `status` set) on a panic, logging it.
 - JNI: JSON goes as `byte[]`, never `String` (modified UTF-8, plan 2.3).
@@ -221,7 +249,8 @@ The control channel moves into the core (plan section 9), so every shell has it.
 |---|---|---|
 | `command.*`, `graph.get`, `ui.inspect`, `ui.invoke`, `ui.prompt`, `ui.set`, `ui.waitRun`, `ui.audio` | Yes | Yes, unchanged |
 | `ui.screenshot` | No (the shell is the one asked) | Yes: the core raises the `screenshot` ask to the shell (11.2) |
-| `ui.gesture` | No (a shell sends commands) | Yes (6.3) |
+| `ui.gesture` | Yes (since N2 slice 4: how a shell's recognised gestures enter the core) | Yes (6.3) |
+| `geometry.locate`, `theme.get` | Yes | Yes (N2 slice 4) |
 | `ask.answer` | Yes | Yes: a script may answer any pending ask; the first answer wins |
 | `geometry.set`, `ui.viewport`, `ui.report` | Yes | `geometry.set`: yes since N2 slice 3, a command like any other (the egui shell reports its own measurements every frame, so a script's lasts until the next frame there); `ui.viewport`, `ui.report`: no, a script cannot claim to have a view |
 | `geometry.hit`, `geometry.wireTarget`, `geometry.wirePaths` | Yes (typed as hot calls) | Yes (N2 slice 3) |
@@ -282,7 +311,11 @@ Each lists params, result and errors beyond `bad_params` (unknown fields are an 
 
 **`ui.report`** `{palette?, rename?, editing?, popups?, windows?}` → `{}`. Transient state only the shell holds, for `ui.inspect` (open question 4): `editing` is `canvas.editing` (a field has focus or a drag is in progress, today `EditBuffers::is_editing`, `crates/ui/src/widgets.rs:42`); `popups` is `anyPopup`; `windows` the rects of the shell's windows.
 
-**`ui.gesture`** (control channel only) `{kind: "tap" | "doubleTap" | "longPress" | "drag" | "pinch" | "pan", at: [x, y], to?: [x, y], scale?, modifiers?: [..], space?: "graph" | "screen"}` → `{commands: [{command, params, result | error}], ask?}`. Enters where a recognised gesture enters the core: hit-tests `at` (and `to`) against the current snapshot and runs what that gesture means there (the table in 8.13). Default space `graph`. Errors: `not_allowed` when no geometry has been reported (nothing to hit).
+**`ui.gesture`** `{kind: "tap" | "doubleTap" | "context" | "longPress" | "drag" | "marquee", phase?: "begin" | "move" | "end" | "cancel", at: [x, y], to?: [x, y], mods?: ["shift" | "primary" | "alt" | "ctrl"], slop?}` → `{commands: [{command, params, ok, result | error}], hit?, drag?, update?, context?, menu?, cancelled?}`. *As built (N2 slice 4), from every shell and the control channel:* a gesture the shell recognised, in graph units; the core publishes the scene, hit-tests it with `slop` (graph units, default 12: the shell's target size over its zoom) and runs what it means (8.13). `context` is a secondary click or a long press (`longPress` is the same); `drag` has a `phase`; `marquee` is a rect in one go (`at` to `to`), what a Select mode or a Pencil drag sends. Pan and zoom (`pinch`, `pan`) are not gestures here: they never cross (plan 5.3). Draft 1's `space: "screen"` and `scale` are not built: a shell converts. An unknown kind, phase, modifier or field, a point that isn't two finite numbers within ±1e7, and a `move` or `end` with no drag under way are errors. With no geometry reported the core hits its own estimates (220 × 160 faces), not an error.
+
+**`geometry.locate`** `{node, part?, pin?} | {wire} | {frame, part?}` → `{at, rect?, nid?, measured?}` (N2 slice 4): where the core has a face (its centre, header or body), a pin, a point on a wire's path, a frame's body, tab or handle, at the geometry it has; `measured` says whether the shell measured the face. Scripts and the conformance suite aim gestures with it, whatever sizes the shell measured.
+
+**`theme.get`** `{}` → `{shell, name, tokens: {name: [r, g, b, a]}}` (N2 slice 4): every token a scene may name, in the theme the shell's scenes are built in. Draft 1's fuller reply (14.1: fruits, families, radius, spectrogram, text sizes) is not built.
 
 **`ask.answer`** `{ask, answer?, cancel?}` → `{}`. Errors: `bad_params` for an answer of the wrong shape (the ask stays open), `unknown_ask` when it was answered, cancelled or withdrawn.
 
@@ -346,7 +379,7 @@ A domain's JSON is, field for field, what `ui.inspect` reports for it today wher
 
 **As built (N2 slice 2).** `plumcraft_editor_core::scene` builds the scene from the document (graph, catalogue, run state, the Watched panel's node, selection, group entered, the application's node lines and wire marks) and a theme; `scene::Published` keeps it with a revision per item. Rust types (`Scene`, `Face`, `InRow`, `OutRow`, `Widget`, `Preview`, `Footer`, `Wire`, `Net`, `Frame`, `Group`, `Mark`, `Delta`) are the wire shape, serde-encoded; the shared fixtures (16.2) are the reference. Where the subsections below still show the draft's shape, these differences hold:
 
-- **Colours** are `{token?, color: [r, g, b, a]}` everywhere (`paint`, `fill`, `wire`), the colour premultiplied as the core holds it, the token where it came from one. So a theme change changes every face's revision (question 13 asked for tokens alone where there is one; not done, see 17).
+- **Colours** (`paint`, `fill`, `wire`, a tint's `header` and `body`) are `{token}` or `{color: [r, g, b, a]}`, exactly one (N2 slice 4, question 13 as decided): a colour that is a theme token is sent by its name alone, and the shell resolves it with `theme.get` (6.3), which has every token a scene names (the Settings table's, and `pin_hidden`, `group`, `group_body`); a computed colour (a family's tint, an engine's wire-type colour, a frame's own) is sent as itself, premultiplied. So a theme change changes only the faces whose computed colours change. Slices 2 and 3 sent both, and every face changed with the theme.
 - **Geometry (N2 slice 3):** a wire has `path` (8.8: a cubic chain between its pins; empty for a wire drawn through a net), an open group `rect` (`[x0, y0, x1, y1]`, its band the top 28), a mark `at` (its wire's middle), and the top level `view: {fit: {seq, rect} | null}` (8.9). They follow the sizes the shell reported (8.11), else a 220 × 160 face with its pins estimated (header 28, rows 22). Geometry is rounded to a thousandth of a graph unit and sent as `f64`, so its JSON reads back exactly. A face has no size in the scene: the shell measured it. Still none: `clock`, `grid`, `highlight` (a reveal's highlight is the shell's), `buttons`.
 - **The header** is `{open, icon, about: {name, description, family?, path?, id, known}, state: {kind, paint?, hover?}, title: {text, watch}, badges: [{text, paint, hover}], engine: {text, pinned, hover}?, status: [{text, paint, strong, hover?}], enter}`. `title.watch` stands for the draft's tap (`run.watch`) and double tap (`node.parameters`); `enter` for a proxy's pencil (`canvas.focus`); the chevron is `open`.
 - **A face** also has `run: {state, fraction, stale, notRun}` (the real state, 8.6's first layer, `state` one of `queued started progress preview done cached error skipped cancelled`) and `shown` (the animation's, a string). No `about` at the top level (it is the header's), no `highlight`.
@@ -359,7 +392,7 @@ A domain's JSON is, field for field, what `ui.inspect` reports for it today wher
 - **A group** is `{id, nid, rev, name, collapsed, parent?, depth, proxy, rect?}`; a frame `{id, nid, rev, title, pos, size, paint}`; a mark `{id, nid, rev, label, tone, paint, tooltip?, at?}`, `id` the wire's.
 - **Top level:** `{shell, doc, gen, full, nodes, wires, nets, frames, groups, marks, selection: {nodes, groups, net}, focus: {group, path: [{id, name}]} | null, anim: {on, replay, generation, holdMs, fadeMs, pulseMs}, view: {fit: {seq, rect} | null}}`; `view` comes in every reply, as `selection`, `focus` and `anim` do.
 - **Order is drawing order:** faces, wires and the rest come sorted by id (the published scene's order), and the hit test takes the last face as the one on top (9.2).
-- **`nid`** is interned per item kind (a face and a wire may share a number); never reused within a document's life.
+- **`nid`** is one counter for every kind of item in a document (faces, wires, nets, frames, groups, marks), so no two items share one, whatever their kinds; never reused within the document's life. A hit's `item` therefore names one thing. (Slice 2 reported that a face and a wire could share a number; since slice 3 the counter is shared, and slice 4 tests it: the conformance case "no two items of a scene share a nid".)
 
 ### 8.1 Coordinates
 
@@ -545,7 +578,7 @@ An **open group's frame**: `{id, name, rect, depth, menu: "group"}`, computed by
 
 **Focus** (the group entered, `canvas.focus`; the document's since N2 slice 1, `Document::focus`): `view.focus: {group, path: [{id, name}]}` for the breadcrumb ("Graph › outer › inner", each a `canvas.focus`; Leave is `canvas.focus {group: null}`). While focused only the group's members are in `nodes`.
 
-**The view domain**: `{target: {zoom, pan, seq} | null, fit: {seq, rect} | null, reveal: {node, seq} | null, palette: {open, query, selected, at, results} | null}`. The core asks for a transform (after `graph.new`, `graph.open`, `graph.tidy`, `ui.set`, View › Fit, a reveal); the shell animates there and reports back with `ui.viewport`. `fit.rect` is every face's rect (and frames' outside a focused group) expanded by 32, zoom clamped to 0.2..1 (`canvas::fit_transform`, `canvas.rs:318`); the shell fits it to its own rect. **As built (N2 slice 3):** only `fit`, as the scene's top-level `view: {fit: {seq, rect}}`, set by `canvas.fit` (whose reply carries it too), computed from the core's geometry; `seq` rises with each request, so a shell fits once a request. `graph.new` and `graph.open` don't ask for one yet (their faces aren't measured until drawn): the egui shell fits those itself, waiting for its sizes, as before.
+**The view domain**: `{target: {zoom, pan, seq} | null, fit: {seq, rect} | null, reveal: {node, seq} | null, palette: {open, query, selected, at, results} | null}`. The core asks for a transform (after `graph.new`, `graph.open`, `graph.tidy`, `ui.set`, View › Fit, a reveal); the shell animates there and reports back with `ui.viewport`. `fit.rect` is every face's rect (and frames' outside a focused group) expanded by 32, zoom clamped to 0.2..1 (`canvas::fit_transform`, `canvas.rs:318`); the shell fits it to its own rect. **As built (N2 slice 3):** only `fit`, as the scene's top-level `view: {fit: {seq, rect}}`, set by `canvas.fit` (whose reply carries it too), computed from the core's geometry; `seq` rises with each request, so a shell fits once a request. **Since N2 slice 4** `graph.new` and `graph.open` owe a fit when they leave something to show: the `geometry.set` (or `plum_geometry_set`) that measures the last face shown asks for it, once, in `view.fit`. The egui shell measures in process without `geometry.set` and fits those itself, waiting for its sizes, as before.
 
 ### 8.10 What hover does today, and what replaces it
 
@@ -586,7 +619,9 @@ The core computes from them: wire endpoints and paths, hit tests (9.2), Tidy's `
 - `parts` names the header's parts (`title`, `chevron`, `icon`, `menu`, `enter`, `preview`) and the footer's items, for the hit test's parts (9.2); unknown names are refused.
 - The core keeps one entry a face (`Measured`), forgets faces gone from the scene and everything on `graph.new` and `graph.open`, and rebuilds the scene's paths and the hot calls' snapshot when it changes.
 - What uses it: the scene's wire paths, open groups' rects and marks' places; `canvas.fit`; `selection.align`, `selection.distribute` and Frame Selection (`ui.invoke frame.add`), which pass the measured faces' sizes (an unmeasured one is left to the session's estimate); Tidy's measurements on a shell that reports (the egui shell's and the C ABI core's `Host::measured`); the hot calls.
-- **The egui shell reports every frame**, in process (no command): each drawn face's size and pins as the canvas laid them out. It doesn't report headers, rows or parts yet.
+- **The egui shell reports every frame**, in process (no command): each drawn face's size and pins as the canvas laid them out, and (since N2 slice 4) its `offset`. It doesn't report headers, rows or parts yet.
+- **`offset: [dx, dy]`** (N2 slice 4) is where the face's top left is drawn, from its position; default `[0, 0]`, which is what a native shell drawing its face at its position sends (the typed `plum_face` has no offset). egui-snarl draws a frame's margin around the position and its pins on the frame's edges, so the egui shell's faces are the frames and say where they are; until slice 4 the core put them at the position, about 7 graph units off what egui drew (the conformance suite found it: a click on a face's top edge hit nothing).
+- **Decided for Draft 2, not built: measured tags, frames' tabs and groups' bands.** The core still estimates them (9.5). A shell lays their text out, so it could report them; but they are drawn from the scene's data alone (a tag's name, a frame's title, a group's name), the estimates are conservative boxes at most one text line off, and no hit test there has been wrong in the suite or the egui shell's tests. They join `geometry.set` (as `tags`, `frames`, `groups`, each a list of rects by id) when a native shell's hit tests need them. Headers and parts are reported today (`header`, `parts`).
 
 ### 8.12 Revisions and deltas
 
@@ -596,28 +631,36 @@ As built (N2 slice 2): the delta also carries `shell`, `doc` and `since`, and `s
 
 ### 8.13 Gestures and the commands they become
 
-What a recognised gesture means is the core's; `ui.gesture` drives the same table from a script. "Hit" is section 9.2's result.
+What a recognised gesture means is the core's (`crates/editor-core/src/gesture.rs`); every shell sends it as `ui.gesture` (6.3) and a script drives the same table. "Hit" is section 9.2's result. **As built (N2 slice 4):**
 
-| Gesture on | Command (today's source) |
+| Gesture on | Commands, in order |
 |---|---|
-| Tap a node | `selection.set {nodes: [id]}` (a collapsed group's node: `{groups: [g]}`); with Shift `mode: add`, with ⌘ `remove`; tap on empty canvas `selection.clear` (built in N2 slice 1: the egui shell sends these, `edit_view.rs` `click_command`) |
-| Marquee | `selection.set {nodes, groups, mode: add}` (Shift-drag on macOS; Select mode on iPad). The egui shell still lets egui-snarl draw and hit-test the marquee and sends what snarl's own selection gained since the last frame |
-| Tap a net tag | `net.select {name, group?}`, or `net.select {}` when it was selected; Esc and a tap on empty canvas `net.select {}` |
-| Drag a node or proxy | On drop: `node.move {id, pos}` or `group.move {group, pos}`, the whole selection when the dragged node is in it, members of selected groups carried once (`edit_view.rs:247-305`) |
-| Drag from a pin to a pin | `wire.connect {from, to}`; refused with a Convert offer (`wire.convert`, `lib.rs:843`) |
-| Drag a wire's end off an input (⌘-drag today) | `wire.reroute {to, newTo}`, or `wire.disconnect {to}` on empty canvas (`edit_view.rs:181`) |
-| Tap a pin, a wire, an output label, a thumbnail, an excerpt, a title | `run.watch {node, port?}` (`canvas.rs:786-806`) |
-| Double-tap a node | `node.parameters {node}` (`canvas.rs:685`) |
-| Double-tap a wire | `view.popout {node, port}` (`canvas.rs:769`) |
-| Double-tap a bend point | `wire.route {to, via}` without it |
-| Context on empty canvas | The palette (`canvas.palette {open, at}`, `at` in graph coordinates); Tab or Space too (`canvas.rs:585`) |
-| Drop a wire on empty canvas (touch) | The palette, filtered to kinds that take the wire, then `node.add` and `wire.connect` as one step (new; open question 8) |
+| Tap a face's body, header, title, row, preview or footer | `selection.set {nodes: [id]}` (a collapsed group's face: `{groups: [g]}`); Shift `mode: add`, `primary` `mode: remove`. A title, preview or footer item also `run.watch {node}` when the node has an output (only where the shell reported those `parts`) |
+| Tap a header's chevron, enter button | `node.view` (full ↔ collapsed) or `group.collapse {collapsed: false}`; `canvas.focus {group}`. No selection change |
+| Tap an output pin; a wired input pin | `run.watch {node, port}` of the output; of the wire's source. An unwired input: nothing (its row shows its value). No selection change |
+| Tap a wire | `selection.clear` (unless Shift or `primary`), then `run.watch` of its source |
+| Tap a net's tag | `net.select {name, group?}`, or `net.select {}` when that net is selected |
+| Tap a frame's tab | Nothing (the tab's menu and title are the shell's controls) |
+| Tap empty canvas, a bend point, a frame's body, a group's band | `selection.clear` (unless Shift or `primary`); on empty canvas also `net.select {}` when a net is selected |
+| Double tap a face | `node.parameters {node}`; a collapsed group's: `canvas.focus {group}` |
+| Double tap a wire; a bend point; a driver's tag; empty canvas | `view.popout {node, port}` of its source; `wire.route` without the point; `canvas.reveal` of the driver; `canvas.palette {open, at}` |
+| Context (secondary click, Control-click, long press) | No command: `context` (what `menu.get` takes: `node`, `proxy`, `input`, `output`, `wire` (a bend point's too), `net`, `frame`, `group`) and `menu`, the menu model for it. On empty canvas: `canvas.palette {open, at}` |
+| Drag a face | `begin`: the faces moving: the whole selection when the face is in it (selected groups not inside another selected one, and the selected nodes their groups don't carry), else that face alone, and the selection stays. `end`: `group.move` and `node.move` by the offset; nothing when it didn't move |
+| Drag an output pin, or an unwired input pin | A new wire. `move`: the target (`geometry.wireTarget`'s, `fits`). `end` on a pin: `wire.connect {from, to}` (refused, with the reason and a Convert offer, where it doesn't fit); on nothing: nothing (question 8's palette is not built) |
+| Drag a wired input pin | The wire's end picked up (question 17, every platform). `end` on another input: `wire.reroute {to, newTo}`; on its own input: nothing; on nothing: `wire.disconnect {to}` |
+| Drag a bend point; a frame's tab; a frame's handle; an open group's band | `end`: `wire.route` with the point moved; `frame.move` (with what it holds); `frame.resize`; `group.move` |
+| Drag empty canvas, a wire, a tag, a frame's body | A marquee (on touch the shell pans there instead, and sends nothing). `move`: its `rect` and the faces it `touches`. `end`: as a marquee |
+| Marquee | `selection.set {nodes, groups}` of every face it touches: plain `replace`, Shift `add`, `primary` `remove` |
+
+- **A cancelled drag** (`phase: cancel`) runs nothing; the document is as it was (the suite compares `graph.get`, `dirty` and the undo label before and after).
+- **Undo:** a drag runs at most one command that is an undo step (`wire.connect`, `wire.reroute`, `wire.disconnect`, `wire.route`). Moves are not undo steps in this editor (`node.move`, `group.move`, `frame.move` and `frame.resize` never were), so a drag of faces adds none; whether a move should be one is an open decision (plan section 17, slice 4).
+- **The egui shell** sends its clicks (a tap) and its Shift-drag marquees as `ui.gesture` (since slice 4; snarl's private selection is no longer read). egui-snarl owns node drags, wire drags and double and secondary clicks there, so those are still egui's own code (plan section 17, slice 4, lists them).
 
 ## 9. Hot calls
 
 ### 9.1 Wire paths
 
-`plum_wire_paths(doc, nodes, n, dx, dy, out, cap) → size_t`: the paths of every wire with an end on one of `nodes` (by `nid`), as if those nodes were moved by `(dx, dy)` graph units. Output, in floats: per wire `wire_nid (u32 bit-cast), count (u32 bit-cast)`, then `count` points as `x, y`, a cubic chain as in 8.8. Returns the floats needed; if that exceeds `cap` nothing is written. Bounded to a few microseconds for 50 wires: no allocation beyond the snapshot, no JSON.
+`plum_wire_paths(doc, nodes, n, dx, dy, out, cap) → size_t`: the paths of every wire with an end on one of `nodes` (by `nid`), as if those nodes were moved by `(dx, dy)` graph units. Output, in floats: per wire `wire_nid` (low 32 bits, then high 32 bits, each a `u32` bit-cast: since N2 slice 4; Draft 1 had one float) and `count` (u32 bit-cast), then `count` points as `x, y`, a cubic chain as in 8.8. Returns the floats needed; if that exceeds `cap` nothing is written. Bounded to a few microseconds for 50 wires: no allocation beyond the snapshot, no JSON.
 
 ### 9.2 Hit test
 
@@ -645,10 +688,14 @@ Hot calls read the latest published snapshot (scene positions, geometry, pin tab
 ### 9.5 As built (N2 slice 3)
 
 - **The snapshot** (`geometry::Snapshot`) is made on the document's thread after a publish, from the published faces, wires, nets, frames and open groups (with their nids) and the geometry: faces' rects, pins with their types, list-ness and the graph node they stand for, wires' chains and bounds, tags, frames' tabs and handles, groups' bands, and a table of which output type fits which input type (1, or 2 through a Convert, by `SchemaReply::accepts` and `convert_paths_where`). It is made again only when the session's generation, the graph's revision, the geometry or the group entered changed, so a run's progress doesn't rebuild it. The C ABI keeps each document's behind a mutex held only to clone or swap the `Arc` (not lock-free, but a reader never waits for work); the JSON forms publish first and read the document's own.
-- **9.1, as built:** a wire drawn through a net has no path and is left out; nids are cut to their low 32 bits; bend points stay where they are when both ends move.
+- **9.1, as built:** a wire drawn through a net has no path and is left out; bend points stay where they are when both ends move. Slice 3 cut nids to their low 32 bits; slice 4 sends both words.
 - **9.2, as built:** one `slop` for pins, wires and tags (the shell picks its target size); a bend point takes `max(slop, 5)`; a pin must be wireable (a hidden pin isn't hit); the topmost face is the last in the scene's order; a face's part is a named part it reported, else a row's rect, else header (above `header`, default 28) or body; tags, frames' tabs (180 × 22 at most, above the top edge) and open groups' bands are estimated by the core (their text is the shell's to measure, and `geometry.set` doesn't carry them yet), only the band is a group's part (its buttons are the shell's controls); a point that isn't a number hits nothing.
 - **9.3, as built:** among the pins in reach, one that fits beats a nearer one that doesn't; from an input the targets are outputs. `fits` is 0 for a pin that can't be wired (hidden, or a named port), the same node, a cycle (the snapshot keeps what each node feeds), or a single value into a list input; a wire to or from a Convert node shows as fitting (its own rules are `wire.connect`'s, at the drop); else the type table.
 - **Measured, release, Apple M4 Max** (`crates/ffi/tests/measure_scene.rs`, `hot_calls_cost`; medians of 400): at 500 nodes and 800 wires, `plum_hit_test` 0.5 µs, `plum_wire_target` 0.33 µs, `plum_wire_paths` for 20 faces 5.9 µs; at 2,000 and 3,200, 1.6, 1.4 and 5.3 µs. A `plum_geometry_set` of every face reached the snapshot in 5.7 ms (500) and 14 ms (2,000).
+
+### 9.6 A drag's moves (N2 slice 4)
+
+`plum_gesture_move(doc, x, y, slop) → plum_drag`: where the drag under way in document `doc` is with the pointer at `(x, y)`: `kind` (1 move, 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group), `serial` (as the drag's `begin` replied), the offset `dx, dy` from where it began, a marquee's `rect`, and a wire's `target` (a `plum_hit`: the pin it would land on and `fits`, as `plum_wire_target`). Nothing changes. It reads the document's drag (a cell the core writes when `ui.gesture` begins or ends one, before its reply) and its snapshot, from any thread, without waiting for the core. `PLUM_ERR_MISSING` when no drag is under way or no scene is published, `PLUM_ERR_ARG` for a point that isn't a number. A shell moving faces calls `plum_wire_paths` with the `faces` the `begin` named and the `dx, dy` this gives. Measured: see plan section 17, slice 4.
 
 ## 10. Bytes
 
@@ -921,27 +968,31 @@ Five styles today, scaled from a 14 pt base by `view.textSize` (11 to 18, `theme
 
 ### 16.1 The suite
 
-A shell conforms when it passes every scenario of the suite over the control channel, checked with `ui.inspect` and `graph.get`. The scenarios grow from `claude-debug/editor/control_probe.py` (add, wire, run, wait, inspect, screenshot, quit) and `m3_probe.py` (VectorCraft: open, trace, recolour, watch, `doc.open`, cancel):
+**As built (N2 slice 4).** A shell conforms when it passes every case of the suite. The cases are data, `crates/editor-core/fixtures/conformance/cases.json`; the runner is `plumcraft_editor_core::conformance`, written once against an abstract `Driver`:
 
-1. Open, add two nodes, wire them, run, `ui.waitRun`, read `run.nodes`.
-2. Set a widget by `command.run node.set`; by `ui.gesture` on its row; undo; redo.
-3. Select by gesture; move by gesture (one undo step); align three; distribute.
-4. Group, collapse, enter, leave, wire to a proxy pin, ungroup.
-5. Frame the selection; move and resize it.
-6. Bend points, a slice, a net label, Draw as Wire.
-7. Watch, pop out, change viewer, probe, zoom to 1:1 (`px` rises), compare.
-8. Save As (answering `file.save` by script), reopen, `graph.get` unchanged; unsaved changes answered `discard`, `save`, `cancel`.
-9. Every ask kind the shell lists, answered and cancelled by script.
-10. Engine switch, add, remove; a disabled command's reason.
-11. Theme, text size, a token set, `theme.get` matches.
-12. `lifecycle.memory` drops caches; `lifecycle.background` writes the journal.
-13. Hostile requests (the sweep) answered with errors, the core still serving.
+```rust
+pub trait Driver {
+    fn name(&self) -> String;
+    fn call(&mut self, method: &str, params: Value) -> Value;      // one control request: {ok, result | error}
+    fn reports(&self) -> bool;                                     // does the suite give it its measurements?
+    fn report_geometry(&mut self, faces: &Value) -> Result<(), String>;
+    fn settle(&mut self) {}                                        // wait (on a condition) until it drew and measured
+    fn hot_move(&mut self, at: [f32; 2], slop: f32) -> Option<Value> { None }  // plum_gesture_move, where it has one
+}
+```
 
-egui passes it first (N2), the FFI passes it headless, then each native shell.
+- **A case** starts on a new graph (`graph.new {discard: true}`) and runs steps: `call` (a method, its params, `ok` wanted, `expect` (JSON pointers into the reply and what each must be or match), `save` (a value for later steps)), `gesture` (`ui.gesture`), `geometry` (report measurements, typed on the C ABI), `hot` (the typed drag move), `check` (the runner's own: every colour a token or a colour and `theme.get` has every token; no two nids alike). A point is `{"$locate": {…}}`, resolved through `geometry.locate`, so a case holds for whatever sizes the shell measured.
+- **19 cases, 197 steps** today: hit testing on reported geometry; taps (select, add, take away, clear; watch a pin and a wire); a face dragged alone and with the selection; a cancelled drag; a wire dragged, refused where it doesn't fit, dropped on nothing, picked up and rerouted or dropped; marquees, one-shot and dragged; double taps; context menus; a collapsed group's face; a frame's tab and handle; a bend point; the scene's colours and `theme.get`; nids; and a hostile sweep of what a shell sends in N2 (`ui.gesture`, `geometry.*`, `scene.get`, `theme.get`), with the core still serving after.
+- **Drivers today:** the C ABI headless, through the real exported functions (`plum_request`, `plum_poll` after a wake, `plum_geometry_set`, `plum_gesture_move`; `crates/ffi/tests/conformance.rs`); the C ABI's own control port, as JSON lines over TCP (same file); the egui editor through its control dispatcher with the window drawn between requests, measuring its own faces (`crates/ui/tests/conformance.rs`); and the core's own document (`conformance::tests`). All four pass every case.
+- **Waiting:** a driver waits on conditions, never on fixed times: the egui driver draws until every face in the scene is measured (at most 5 s); the C ABI driver polls until `geometry.locate` reports the faces it measured.
+
+**How a Swift or Kotlin shell runs it.** Its core opens a control port (config `control: {port: 0, token_file}`, 4.1); the shell's test harness starts the app with that port, and the runner drives it with the control-port driver (JSON lines, `auth` first: `crates/ffi/tests/conformance.rs`'s `Port`), from Rust (a small test binary pointed at the port) or from any language that reads `cases.json` and implements the step language above. Requests then go through the shell's own core and its real geometry, since the shell reports what it measured (`reports() == false`); what the suite can't see (the shell's drawing, its gesture recognisers) is checked by the platform's own UI tests (plan 11).
+
+**Still to come from Draft 1's list** (16.1 then): run and `ui.waitRun`, widgets set by gesture on their rows, group and frame editing beyond moves, nets and slices, watch and viewers, Save As and reopen through asks, every ask kind, engine switching, themes and text size, `lifecycle.*`. They are cases to add as each is built in the core; the hostile sweep grows with each new parser.
 
 ### 16.2 Shared fixtures
 
-In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene/full.json` (every row source, widget kind, footer kind and run state, wires plain, routed, sliced and through a net, a frame, a collapsed group) and `scene/delta.json` (one node's run state changed), both built (N2 slice 2; `scene::tests::the_shared_fixtures_are_the_scene_and_decode` checks them and `PLUMCRAFT_WRITE_FIXTURES=1` rewrites them; since N2 slice 3 with two faces measured, an open group with its frame, every drawn wire's path and a fit asked for); still to come: `menu.json`, `theme-*.json`, `asks.json` (every kind with params and answers), `geometry.json`, and `hostile/` (malformed of each). Schema: `schema/shell1.json`.
+In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene/full.json` (every row source, widget kind, footer kind and run state, wires plain, routed, sliced and through a net, a frame, a collapsed group, an open group, two faces measured, a fit asked for) and `scene/delta.json` (one node's run state changed), both built (N2 slice 2; `scene::tests::the_shared_fixtures_are_the_scene_and_decode` checks them and `PLUMCRAFT_WRITE_FIXTURES=1` rewrites them; since slice 4 a colour with a token carries the token alone); `conformance/cases.json` (16.1). Still to come: `menu.json`, `theme-*.json`, `asks.json`, `hostile/`. Schema: `crates/editor-core/schema/shell1.json` (the scene, its delta, `geometry.set`, `ui.gesture`, hits, wire targets, `geometry.locate`, `theme.get`).
 
 ## 17. Open questions
 
@@ -955,17 +1006,17 @@ Each with the answer recommended.
 4. **Transient shell state in `ui.inspect`.** `canvas.editing`, `popups.anyPopup`, the rename window and the palette are UI state today. *Recommended:* the palette becomes core state (its index and search are logic, plan 4.1); rename is a `text` ask; `editing` and `anyPopup` come from `ui.report`.
 5. **Viewer-local state.** Grid format, table sort, text wrap and find, PDF page and array log scale are egui-local and not commands (13.2). *Recommended:* make each a command so scripts and every shell share them; keep only per-frame state (mesh camera during a drag, pan) shell-local.
 6. **Audio on mobile.** *Recommended:* the core keeps cpal (it supports CoreAudio on iOS and AAudio on Android); the shell owns the audio session category, interruptions and focus, and tells the core to stop on an interruption.
-7. **Wire shape.** egui-snarl's wires are degree-5 Béziers; native toolkits draw cubics. *Recommended:* the core sends a cubic chain fitted to today's curve (two cubics per wire), and hit-tests that chain, so drawn and hit agree everywhere; egui draws the same chain from N2. *As built in N2 slice 3:* four cubics (8.8), since two strayed up to 2.2 graph units; egui-snarl still draws its own plain wires, up to 0.72 units off the chain.
+7. **Wire shape.** egui-snarl's wires are degree-5 Béziers; native toolkits draw cubics. *Recommended:* the core sends a cubic chain fitted to today's curve (two cubics per wire), and hit-tests that chain, so drawn and hit agree everywhere; egui draws the same chain from N2. *As built in N2 slice 3:* four cubics (8.8), since two strayed up to 2.2 graph units; egui-snarl still draws its own plain wires, up to 0.72 units off the chain (slice 4 put egui's faces where egui draws them, 8.11 `offset`, so its pins and the chains' ends now agree).
 8. **Drop a wire on empty canvas.** It is not an egui behaviour today (egui-snarl drops it). *Recommended:* add it for every shell (plan 5.5 lists it for touch): the palette filtered to kinds that take the wire, one undo step for add and connect (a new command, `node.addWired`).
 9. **Premultiplied alpha.** Today's pictures are straight alpha; Core Graphics draws premultiplied bitmap contexts and Android's `Bitmap` is premultiplied. *Recommended:* keep straight alpha in the contract (one format, what engines send); the Apple shell makes `CGImage`s with `alphaLast` (no copy) and the Android shell premultiplies in its one copy.
 10. **`view.zoom` on mobile.** egui's zoom factor scales the whole window; iOS and Android scale text themselves. *Recommended:* honour `view.zoom` on desktops only; on mobile Settings hides it and the command is disabled with the reason.
 11. **Two documents and one in-process engine.** Not known whether two sessions may share one in-process engine (plan 4.3). *Recommended:* one engine per document until the N1 audit says otherwise. **Decided otherwise: one in-process engine is shared by the documents from the start.** N1's audit then has to make that safe (both in-process engines report one session id today, `s-<pid>`), not decide whether to allow it.
 12. **Node identity for hot calls.** *Recommended:* an interner per document mapping graph ids to `u64`, never reused, so a stale `nid` after a remove misses rather than hitting another node.
-13. **Colours in the scene.** Tokens by name keep theme changes from rebuilding faces, but some colours are computed (family tints, wire types, run fills). *Recommended:* token names where the colour is a token, `[r, g, b, a]` where computed; a theme change bumps the `scene` generation only for faces whose computed colours change. *As built in N2 slice 2, not yet as decided:* every colour carries its `[r, g, b, a]` and, where it has one, its token, so a theme change bumps every face. Dropping the colour where there is a token needs the shells to resolve a few names the theme table lacks (`pin_hidden`, `group`, `group_body`); left for Draft 2.
+13. **Colours in the scene.** Tokens by name keep theme changes from rebuilding faces, but some colours are computed (family tints, wire types, run fills). *Recommended:* token names where the colour is a token, `[r, g, b, a]` where computed; a theme change bumps the `scene` generation only for faces whose computed colours change. *As built in N2 slice 2, not yet as decided:* every colour carried its `[r, g, b, a]` and, where it had one, its token. **Built as decided in N2 slice 4:** a token alone, or a colour alone (8, "As built"); `theme.get` has the three names the Settings table lacks. The full scene shrank by about 11% (the shared fixture: 120 KB to 107 KB).
 14. **Text the core writes.** Status texts ("stale", "12.3 ms", "3 more fields"), menu labels and errors are English and made by the core. *Recommended:* keep them in the core (one wording everywhere) and localise there later; a shell never builds sentences.
 15. **Run colours without per-frame scene changes.** *Recommended:* as section 8.6: the core publishes states and times, the shell animates with the formula given; the core checks `runAnim.strength` against the same formula in `ui.inspect`.
 16. **Command count.** The plan says "the 111 or so commands"; 111 ids are written inline and the settings and named-port commands are built by helpers (`settings_cmds.rs:151-183`, `named_cmds.rs:258`), so there are more. *Recommended:* generate the menu fixture from the registry, never count by hand.
-17. **The ⌘-drag reroute.** egui-snarl's ⌘-drag picks up a wire's end (`edit_view.rs:172`); its touch meaning is unsettled. *Recommended:* a drag starting on a wired input pin picks the wire's end up on every platform (iPad has no ⌘), and a drag on an output pin always starts a new wire.
+17. **The ⌘-drag reroute.** egui-snarl's ⌘-drag picks up a wire's end (`edit_view.rs:172`); its touch meaning is unsettled. *Recommended:* a drag starting on a wired input pin picks the wire's end up on every platform (iPad has no ⌘), and a drag on an output pin always starts a new wire. *Built in N2 slice 4* as `ui.gesture`'s drag (8.13); the egui shell keeps snarl's ⌘-drag, since snarl owns its wire drags.
 18. **Hover-only information** (8.10) on touch. *Recommended:* the plan's popover for ports and wires; tooltips become accessibility hints and long-press menu subtitles. Where today's behaviour is only a tooltip (hash source, a contrast check), nothing native replaces it on touch, and the text moves to Settings or About.
 19. **`open.external` on desktops.** The session spawns `/usr/bin/open` itself today. *Recommended:* always go through the ask, so a sandboxed Mac build (a later App Store build) works; the egui shell answers it by spawning as now.
 20. **The control channel on a device.** Decision 10 allows binding to the local network in debug builds. *Recommended:* the config's `control.bind: "loopback" | "lan"`, `lan` refused in release builds by the core itself, not only by the shell.

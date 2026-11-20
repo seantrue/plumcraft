@@ -252,9 +252,17 @@ pub struct Document {
     pub geometry: crate::geometry::Measured,
     /// The latest fit the core asked the shell's view for (`canvas.fit`): the scene's `view`.
     pub fit: Option<crate::scene::Fit>,
+    /// A fit is owed once every face is measured (N2 slice 4): set by `graph.new` and
+    /// `graph.open` with something to show, paid by the geometry report that measures the last
+    /// face ([`Document::apply_geometry`]), since the core can't size a face until it is drawn.
+    pub fit_owed: bool,
     /// What the hot calls read ([`crate::geometry::Snapshot`]), made again after a publish when
     /// what it is made from changed ([`Document::publish_scene`]).
     pub snapshot: std::sync::Arc<crate::geometry::Snapshot>,
+    /// A drag under way (`ui.gesture`, N2 slice 4), shared with the C ABI's `plum_gesture_move`.
+    pub drag: crate::gesture::DragCell,
+    /// The latest snapshot, for readers on other threads (the C ABI's hot calls), set as it is made.
+    pub snapshot_out: crate::geometry::SnapshotCell,
 }
 
 impl std::fmt::Debug for Document {
@@ -317,7 +325,10 @@ impl Document {
             scene: crate::scene::Published::default(),
             geometry: crate::geometry::Measured::default(),
             fit: None,
+            fit_owed: false,
             snapshot: std::sync::Arc::default(),
+            drag: crate::gesture::DragCell::default(),
+            snapshot_out: crate::geometry::SnapshotCell::default(),
         }
     }
 
@@ -754,8 +765,12 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.selection.update(crate::selection::Selection::clear);
         d.selection.update(|s| s.net = None);
         d.focus = None;
-        // a new graph's faces are measured afresh
+        // a new graph's faces are measured afresh, and no drag goes on across it; a fit is owed
+        // once they are measured, when there is anything to show
         d.geometry.clear();
+        d.drag.set(None);
+        let graph = d.session.graph();
+        d.fit_owed = !graph.nodes.is_empty() || !graph.frames.is_empty();
     } else {
         d.forget_gone();
     }
@@ -1229,6 +1244,9 @@ impl Document {
         let key = self.snapshot_key();
         if self.snapshot.key != key || self.snapshot.doc != self.id || (self.snapshot.generation == 0 && generation > 0) {
             self.snapshot = std::sync::Arc::new(self.scene.snapshot(key, self.session.graph(), self.session.catalog(), &self.geometry));
+            if self.snapshot.generation > 0 {
+                self.snapshot_out.set(std::sync::Arc::clone(&self.snapshot));
+            }
         }
         generation
     }
@@ -1271,6 +1289,11 @@ impl Document {
         }
         // a shell that measures draws the scene: the feed says when it changes
         self.scene.watched = true;
+        // the fit a new graph owed, once every face it shows is measured (the scene's view.fit)
+        if self.fit_owed && self.scene.face_count() > 0 && self.scene.face_ids().values().all(|id| self.geometry.get(id).is_some()) {
+            self.fit_owed = false;
+            self.ask_fit();
+        }
         json!({"applied": applied, "stale": stale, "unknown": unknown})
     }
 

@@ -473,6 +473,32 @@ macro_rules! token_table {
     };
 }
 
+/// The tokens a scene names that the Settings table ([`TOKENS`]) doesn't list.
+pub const SCENE_ONLY: [&str; 3] = ["pin_hidden", "group", "group_body"];
+
+impl Tokens {
+    /// Token `name` as a scene names it: the Settings table's, or one of [`SCENE_ONLY`].
+    pub fn resolve(&self, name: &str) -> Option<Color> {
+        self.token(name).or(match name {
+            "pin_hidden" => Some(self.pin_hidden),
+            "group" => Some(self.group.header),
+            "group_body" => Some(self.group.body),
+            _ => None,
+        })
+    }
+
+    /// `theme.get`'s `tokens`: every token a scene may name, `[r, g, b, a]` premultiplied.
+    pub fn scene_tokens(&self) -> serde_json::Map<String, serde_json::Value> {
+        let mut m = serde_json::Map::new();
+        for name in TOKENS.iter().flat_map(|(_, names)| names.iter()).chain(SCENE_ONLY.iter()) {
+            if let Some(c) = self.resolve(name) {
+                m.insert((*name).to_owned(), serde_json::json!(c.to_array()));
+            }
+        }
+        m
+    }
+}
+
 impl Tokens {
     /// The header colour of fruit `name` (the twelve, olive, or plum).
     pub fn fruit(&self, name: &str) -> Option<Color> {
