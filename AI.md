@@ -30,6 +30,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects and shortfalls.** The agent's own new C ABI test failed in its first full run: it read the feed through a client that discards `changed`. The test was rewritten; no core change. The scene's rebuild is too slow for large graphs (36 ms for a one-node change at 2,000 nodes against a 16 ms budget) and its cause is only partly found. Colours do not yet follow the contract's decision (tokens only). The controller did not read the 2,142 lines, and the brief's baseline count was wrong by one.
 
+### 2026-11-19 — B28: the hash gate counted colour codes (Claude Fable 5.2)
+
+**What the maintainer asked for.** "fix B28,29", and "you run tests for Linux on yellowfin."
+
+**What the AI did** (+4 −1 in `scripts/check-hash-gates.sh`). CI sets `CARGO_TERM_COLOR=always`; `cargo tree` then colours the `[build-dependencies]` heading the script cuts at, the cut misses, and two `commonkit` lines are counted. The script now turns colour off and prints the tree when the count is wrong.
+
+**Checked.** With `CARGO_TERM_COLOR=always` the old script fails on the Mac with CI's exact message and the new one passes.
+
+**What the AI had wrong.** It filed this as a Linux failure and looked at the Rust version and the target's dependency set. It was neither: the gate passes on a Linux host (yellowfin) under both Rust versions. One CI run that printed the tree showed the escape codes at once; that print should have been the first step, a day earlier.
 ### 2026-11-19 — N2 slice 1: the selection and the canvas's actions as commands (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "go for N2"; "same arrangement for N2".

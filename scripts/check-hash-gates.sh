@@ -6,6 +6,9 @@
 #  3. no source outside tests, goldens, build scripts and hash-allowlist.txt names an algorithm,
 #     `fixed::`/`build::`, or builds a handle from text ("md5:…", "b3:…", f"{algo}:…").
 set -u
+# CI sets CARGO_TERM_COLOR=always, which wraps cargo tree's "[build-dependencies]" heading in
+# colour codes; the count below cuts at that heading (B28).
+export CARGO_TERM_COLOR=never
 cd "$(dirname "$0")/.."
 status=0
 for c in md-5 md5 sha1 sha2 blake3; do
@@ -16,7 +19,7 @@ done
 tree=$(cargo tree --locked --workspace --all-features -i commonkit -e normal,build --depth 0)
 n=$(printf '%s\n' "$tree" | sed '/^\[build-dependencies\]/,$d' | grep -c '^commonkit v0\.2\.')
 other=$(printf '%s\n' "$tree" | grep '^commonkit v' | grep -v '^commonkit v0\.2\.')
-[ "$n" = 1 ] && [ -z "$other" ] || { echo "hash gate: $n runtime commonkit v0.2 lines, want 1; other versions: ${other:-none}"; status=1; }
+[ "$n" = 1 ] && [ -z "$other" ] || { echo "hash gate: $n runtime commonkit v0.2 lines, want 1; other versions: ${other:-none}"; printf '%s\n' "$tree" | sed 's/^/  | /'; status=1; }
 rust='Algo::Md5|Algo::B3|digest::fixed|fixed::(raw|nd1|Fixed|Hasher)|digest::build|"md5:|"b3:|md5::|blake3::|sha2::|sha1::'
 py='hashlib|import blake3|fixed\.|build\.both|algo=|"md5:|"b3:|f"\{algo\}:'
 for f in $(git ls-files '*.rs' | grep -v '/tests/' | grep -v 'build\.rs$' | grep -v '/digest\.rs$' | grep -vxF -f hash-allowlist.txt); do
