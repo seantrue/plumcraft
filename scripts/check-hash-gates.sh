@@ -6,6 +6,9 @@
 #  3. no source outside tests, goldens, build scripts and hash-allowlist.txt names an algorithm,
 #     `fixed::`/`build::`, or builds a handle from text ("md5:…", "b3:…", f"{algo}:…").
 set -u
+# CI sets CARGO_TERM_COLOR=always, which wraps cargo tree's "[build-dependencies]" heading in
+# colour codes; the count below cuts at that heading (B28).
+export CARGO_TERM_COLOR=never
 cd "$(dirname "$0")/.."
 status=0
 for c in md-5 md5 sha1 sha2 blake3; do
