@@ -343,9 +343,8 @@ impl Holder for EditorApp {
     fn after_command(&mut self, id: &str, _v: &Value) {
         if id == "graph.new" || id == "graph.open" {
             self.canvas.request_fit();
-            // nothing of the old graph stays selected, entered or watched
-            self.canvas.picked.clear();
-            self.canvas.leave_group();
+            // nothing of the old graph stays watched (nor selected or entered: the core's)
+            self.follow_core();
             self.watched.clear();
         }
         if id == "run.watch" {

@@ -86,7 +86,9 @@ pub fn default_screenshot_path(token: u64) -> PathBuf {
 
 /// The command table as `command.list` rows.
 pub fn command_rows(session: &Session) -> Value {
-    let rows: Vec<Value> = plumcraft_session::command_specs().iter().map(|c| plumcraft_session::commands::list_entry(session, c)).collect();
+    let mut rows: Vec<Value> = plumcraft_session::command_specs().iter().map(|c| plumcraft_session::commands::list_entry(session, c)).collect();
+    // the canvas's commands (N2 slice 1), after the registry's
+    rows.extend(crate::canvas_cmds::commands().iter().map(|c| crate::canvas_cmds::list_entry(session, c)));
     json!(rows)
 }
 
@@ -362,18 +364,22 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 return err(e);
             }
             let Some(id) = params.get("command").and_then(Value::as_str) else { return err("command must be a command id") };
-            let Some(spec) = plumcraft_session::find(id) else { return err(format!("unknown command {:?}", id.chars().take(64).collect::<String>())) };
-            if let Err(why) = (spec.enabled)(s.session()) {
+            let (id, enabled) = match (plumcraft_session::find(id), crate::canvas_cmds::find(id)) {
+                (Some(spec), _) => (spec.id, (spec.enabled)(s.session())),
+                (None, Some(c)) => (c.id, (c.enabled)(s.session())),
+                (None, None) => return err(format!("unknown command {:?}", id.chars().take(64).collect::<String>())),
+            };
+            if let Err(why) = enabled {
                 return err(format!("{id} is not available: {why}"));
             }
             s.clear_last_error();
             // what it asks (a file, a prompt) is the script's to answer: the reply comes at
             // once, with the ask in `asks` (ask.answer)
-            invoke::invoke(s, spec.id, By::Script);
+            invoke::invoke(s, id, By::Script);
             s.presented();
             s.redraw();
             let mut out = inspect(s);
-            out["invoked"] = json!(spec.id);
+            out["invoked"] = json!(id);
             ok(out)
         }
         "ui.prompt" => {
@@ -504,6 +510,8 @@ pub fn inspect_core<S: Shell>(s: &S) -> Map<String, Value> {
     put("theme", json!(v.theme));
     put("prefs", v.prefs.map_or(Value::Null, |p| json!({"path": p.path(), "theme": p.prefs().theme, "dirs": p.prefs().dirs})));
     put("frames", frames_inspect(g));
+    // the selected nodes (the selected collapsed groups are the shell's `groups.selected`)
+    put("selection", json!(s.selection().0));
     put("docs", session.docs.inspect());
     put("save", session.save.summary());
     m

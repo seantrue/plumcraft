@@ -53,7 +53,7 @@ impl Host for EditorApp {
         Some(&mut self.prefs)
     }
     fn selection(&self) -> (Vec<String>, Vec<plumcraft_graph::GroupId>) {
-        (self.canvas.selection().into_iter().map(|n| n.0).collect(), self.canvas.selected_groups())
+        Host::selection(&self.doc)
     }
     fn group_to_ungroup(&self) -> Option<plumcraft_graph::GroupId> {
         EditorApp::group_to_ungroup(self)
@@ -64,9 +64,6 @@ impl Host for EditorApp {
     }
     fn measured(&self) -> (Map<String, Value>, Map<String, Value>) {
         self.canvas.measured_for_tidy(self.doc.session.catalog())
-    }
-    fn select_result(&mut self, result: &Value) {
-        self.canvas.select_result(result, self.doc.session.graph());
     }
     fn fit(&mut self) {
         self.canvas.request_fit();

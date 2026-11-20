@@ -27,7 +27,9 @@
 //! without plugin export, command expansion and settings bundles (VI's pack), and
 //! with names that are any short text rather than Python identifiers.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
+#[cfg(test)]
+use std::collections::BTreeSet;
 
 use egui::{Pos2, Rect, Vec2};
 use egui_snarl::{InPinId, NodeId as SnarlId, OutPinId, Snarl};
@@ -88,77 +90,8 @@ pub fn out_port(snarl: &Snarl<CanvasNode>, catalog: &SchemaReply, pin: OutPinId)
     }
 }
 
-/// What the canvas shows: nodes hidden in collapsed groups (by the group whose proxy stands for
-/// them), nodes outside an entered group, and the proxies to draw.
-#[derive(Debug, Clone, Default)]
-pub struct Visibility {
-    behind: BTreeMap<NodeId, GroupId>,
-    outside: BTreeSet<NodeId>,
-    pub proxies: Vec<GroupId>,
-}
-
-impl Visibility {
-    pub fn new(graph: &Graph, focus: Option<&GroupId>) -> Self {
-        let mut v = Visibility::default();
-        let inside: Option<BTreeSet<NodeId>> = focus.map(|f| graph.group_members(f));
-        if let Some(inside) = &inside {
-            v.outside = graph.nodes.keys().filter(|n| !inside.contains(*n)).cloned().collect();
-        }
-        // The focused group and its ancestors are open while entered.
-        let mut open_chain = BTreeSet::new();
-        let mut at = focus.cloned();
-        while let Some(g) = at {
-            if !open_chain.insert(g.clone()) {
-                break;
-            }
-            at = graph.group(&g).and_then(|grp| grp.parent.clone());
-        }
-        let collapsed = |g: &GroupId| graph.group(g).is_some_and(|grp| grp.collapsed) && !open_chain.contains(g);
-        for gid in graph.groups.keys() {
-            if !collapsed(gid) {
-                continue;
-            }
-            // Only the outermost collapsed group gets a proxy.
-            let mut up = graph.group(gid).and_then(|g| g.parent.clone());
-            let mut covered = false;
-            let mut steps = 0usize;
-            while let Some(p) = up {
-                steps = steps.saturating_add(1);
-                if collapsed(&p) || steps > graph.groups.len() {
-                    covered = true;
-                    break;
-                }
-                up = graph.group(&p).and_then(|g| g.parent.clone());
-            }
-            if covered {
-                continue;
-            }
-            let members = graph.group_members(gid);
-            if members.is_empty() || inside.as_ref().is_some_and(|i| !members.iter().all(|m| i.contains(m))) {
-                continue;
-            }
-            for m in members {
-                v.behind.insert(m, gid.clone());
-            }
-            v.proxies.push(gid.clone());
-        }
-        v
-    }
-
-    /// Is `node` drawn as itself?
-    pub fn shows(&self, node: &NodeId) -> bool {
-        !self.behind.contains_key(node) && !self.outside.contains(node)
-    }
-
-    /// The collapsed group whose proxy stands for `node`.
-    pub fn proxy_of(&self, node: &NodeId) -> Option<&GroupId> {
-        self.behind.get(node)
-    }
-
-    pub fn is_outside(&self, node: &NodeId) -> bool {
-        self.outside.contains(node)
-    }
-}
+/// What the canvas shows (the core's: Select All selects what is shown).
+pub use plumcraft_editor_core::selection::Visibility;
 
 fn node_title(graph: &Graph, catalog: &SchemaReply, id: &NodeId) -> String {
     plumcraft_session::node_title(graph, catalog, id)
@@ -296,6 +229,16 @@ pub fn wire_ends(
 pub enum CanvasRequest {
     Enter(GroupId),
     Leave,
+}
+
+impl CanvasRequest {
+    /// The command it is: `canvas.focus`.
+    pub fn command(self) -> Action {
+        match self {
+            CanvasRequest::Enter(g) => ("canvas.focus", json!({"group": g})),
+            CanvasRequest::Leave => ("canvas.focus", json!({"group": null})),
+        }
+    }
 }
 
 /// What the node menu needs to know.
@@ -576,15 +519,6 @@ impl Canvas {
         }
     }
 
-    pub(crate) fn apply_requests(&mut self, requests: Vec<CanvasRequest>) {
-        for r in requests {
-            match r {
-                CanvasRequest::Enter(g) => self.enter_group(g),
-                CanvasRequest::Leave => self.leave_group(),
-            }
-        }
-    }
-
     /// Frames around open groups, and the breadcrumb of an entered group. Returns commands.
     pub(crate) fn group_overlay(&mut self, ctx: &egui::Context, graph: &Graph, tokens: &Tokens) -> Vec<Action> {
         let mut actions = Vec::new();
@@ -732,7 +666,8 @@ impl Canvas {
                     });
             }
         }
-        self.apply_requests(requests);
+        // entering and leaving are `canvas.focus`, run after the canvas has drawn
+        actions.extend(requests.into_iter().map(CanvasRequest::command));
         actions
     }
 }
@@ -764,7 +699,8 @@ pub fn inspect(canvas: &Canvas, graph: &Graph) -> serde_json::Value {
     json!({"focus": canvas.focus, "list": groups, "proxies": proxies, "selected": canvas.picked.groups()})
 }
 
-/// `ui.set {focus}`: enter a group (its id), or leave (null).
+/// Enter a group (its id), or leave (null), on the canvas alone (tests; the document's group
+/// entered is `canvas.focus`'s).
 pub fn set_focus(canvas: &mut Canvas, graph: &Graph, v: &serde_json::Value) -> Result<(), String> {
     match v {
         serde_json::Value::Null => {
