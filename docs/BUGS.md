@@ -27,13 +27,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::engine_thread`, `crates/ui/tests/engine_thread.rs:546`: a spectrogram took longer than the test's 150 ms limit. Failed in the baseline run of the dev branch at `b4a561b` (80 cores, all tests in parallel); passes alone.
 - Issue: none
 
-### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
-
-- Reported: 2026-11-20
-- Report: "record the others"
-- Context: `plumcraft-media::hostile`, `crates/media/tests/hostile.rs:98`: a decode went past the test's 5 s limit. Failed in the baseline run of the dev branch at `b4a561b`; passes alone.
-- Issue: none
-
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
 
 - Reported: 2026-11-20
@@ -42,6 +35,16 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 
 ## Fixed
+
+### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
+
+- Reported: 2026-11-20
+- Report: "record the others"
+- Context: `plumcraft-media::hostile`, `crates/media/tests/hostile.rs:98`: a decode went past the test's 5 s limit. Failed in the baseline run of the dev branch at `b4a561b`; passes alone.
+- Issue: none
+- Cause (2026-11-20, confirmed): the test, not a decoder. One input is slow. It is the empty SVG that claims `width='1e30'`, drawn by `svg::rasterise(&f, 1e9)`. The clamp holds: it is drawn at 4096 × 4096 (`MAX_RENDER_PIXELS`), not at its claim. Drawing those 16.8 million pixels and making them opaque takes 4.1 s in the test profile, against 0.23 s in release, so a 5 s limit on each file fails under load. Each file was timed alone through each decoder: every other input takes under 1 ms, apart from the first SVG parse, which loads the system fonts once (0.3 s). With 40 copies at once on the Linux test host it failed 37 of 200.
+- Fix: the picture decoders stay timed against 5 s, which they reach only by believing a header. Each SVG raster is checked against the clamp that bounds its work (each side at most 4096, at most `MAX_RENDER_PIXELS`, a buffer of exactly w × h × 4) instead of being timed. After: 0 of 200 under the same load.
+- Fixed: 2026-11-20, PR pending
 
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 

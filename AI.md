@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — B33: the hostile-files test timed a bounded SVG draw (Claude Opus 5.5)
+
+**Asked for.** The maintainer said "start tasks for addressing bugs". This is B33, one of three tests that failed only under the Linux test host's full parallel run.
+
+**What the agent found.** The agent timed each hostile file through each decoder alone, in the test profile and in release. One input is slow: an empty SVG that claims to be 1e30 wide, drawn with a long side of 1e9. It is clamped and drawn at 4096 × 4096, which takes 4.1 s unoptimised and 0.23 s in release. Every other input takes under 1 ms. With 40 copies at once the test failed 37 of 200. So the work is bounded; the test's wall-clock limit was measuring how fast that bounded work runs.
+
+**What the agent did (16 lines added and 4 removed in `crates/media/tests/hostile.rs`; no product code).** The picture decoders are still timed. SVG rasters are now checked against the clamp: each side at most 4096, at most `MAX_RENDER_PIXELS`, and a buffer of exactly w × h × 4. After: 0 of 200 under the same load.
+
+**Limits.** The agent tried a mutation that loosened the clamp in `svg::render_size`, and the test still passed. `plumcraft_svg::render` refuses anything over 16 Mi pixels on its own, so the new check is a second line behind that one. A loosened clamp is caught only if both limits change. Not run on the Mac.
+
 ### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The last slice of N2 under the maintainer's "same arrangement for N2". The colour question was the maintainer's earlier answer "13A" (tokens, not colours beside them).
