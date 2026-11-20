@@ -251,3 +251,28 @@ fn an_edit_reaches_the_feed_without_waiting_for_a_tick() {
     assert!(median < Duration::from_millis(35), "an edit's scene change came {median:?} after its reply (median): {late:?}");
     c.close();
 }
+
+/// N3 slice 3: a native shell following the system's appearance names Paper or Dusk with
+/// `view.theme`; `theme.get` and the scene's computed colours follow, and only the faces whose
+/// colours changed come in the delta.
+#[test]
+fn view_theme_changes_the_scenes_theme() {
+    let mut c = Client::open(&json!({"store_root": store_root("scene-theme")}));
+    let lit = add(&mut c, "text.literal", 0.0);
+    let paper = c.call("theme.get", json!({}));
+    assert_eq!(paper["result"]["name"], "paper", "{paper}");
+    let before = scene(&mut c, json!({}));
+    let g = before["gen"].as_u64().unwrap();
+    c.run("view.theme", json!({"name": "dusk"}));
+    let dusk = c.call("theme.get", json!({}));
+    assert_eq!(dusk["result"]["name"], "dusk", "{dusk}");
+    assert_ne!(dusk["result"]["tokens"]["canvas"], paper["result"]["tokens"]["canvas"]);
+    // the family's tint is computed from the theme, so the face changed
+    let delta = scene(&mut c, json!({"since": g}));
+    let faces = delta["upsert"]["nodes"].as_array().unwrap();
+    assert_eq!(ids(&delta["upsert"]["nodes"]), [lit], "{delta}");
+    assert_ne!(faces[0]["tint"], before["nodes"][0]["tint"]);
+    // and back
+    c.run("view.theme", json!({"name": "paper"}));
+    assert_eq!(c.call("theme.get", json!({}))["result"]["name"], "paper");
+}

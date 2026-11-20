@@ -116,45 +116,85 @@ public final class KitDriver: ConformanceDriver {
 }
 
 /// The suite over a core's control port: a JSON line out, a JSON line back.
+///
+/// Two uses. A headless core (the kit's tests): the suite gives the measurements
+/// (`reports: true`). A running app whose canvas measures its own faces (N3 slice 3): `reports:
+/// false`, so the suite's `geometry` steps are skipped and `settle` waits until the app has
+/// measured every face the scene has (`geometry.locate`'s `measured`); `doc` names the app's
+/// document, and `engines` what the app's core has connected.
 @MainActor
 public final class PortDriver: ConformanceDriver {
     private let conn: LineConnection
     private var next: UInt64 = 0
     /// The core whose port it is (to wait on its feed between tries), if this process has it.
     private let model: DocumentModel?
+    public let reports: Bool
+    /// The document every request names (nil: the core's first).
+    public let doc: UInt64?
+    private let engines: Set<String>
+    /// How long `settle` waits for the app to measure.
+    public var settleLimit: Duration = .seconds(10)
+    /// Settles that ran out of time (the app never measured every face), for the report.
+    public private(set) var settleTimeouts = 0
 
     /// Connect to `127.0.0.1:port` and authenticate with `token`.
-    public init(port: UInt16, token: String, following model: DocumentModel? = nil) async throws {
+    public init(port: UInt16, token: String, following model: DocumentModel? = nil, reports: Bool = true,
+                doc: UInt64? = nil, engines: Set<String> = ["text"]) async throws {
         conn = try await LineConnection(port: port)
         self.model = model
+        self.reports = reports
+        self.doc = doc
+        self.engines = engines
         let auth = try await conn.send(["id": "auth", "method": "auth", "params": ["token": .string(token)]])
         guard auth["ok"] == true else { throw ConformanceError("auth: \(auth)") }
     }
 
-    public var name: String { "the core's control port" }
+    public var name: String { reports ? "the core's control port" : "an app's control port, measuring its own faces" }
 
     public func call(_ method: String, _ params: JSONValue) async -> JSONValue {
         next += 1
+        var req: [String: JSONValue] = ["id": .uint(next), "method": .string(method), "params": params]
+        if let doc { req["doc"] = .uint(doc) }
         do {
-            return try await conn.send(["id": .uint(next), "method": .string(method), "params": params])
+            return try await conn.send(.object(req))
         } catch {
             return ["ok": false, "error": .string("\(error)")]
         }
     }
-
-    public var reports: Bool { true }
 
     public func reportGeometry(_ faces: JSONValue) async throws {
         let r = await call("command.run", ["command": "geometry.set", "params": ["faces": faces]])
         if r["ok"] != true { throw ConformanceError("geometry.set: \(r)") }
     }
 
-    public func settle() async {}
+    /// A headless core: nothing to wait for. An app: until it has measured every face in the
+    /// scene, waiting on that condition (never a fixed time), at most `settleLimit`.
+    public func settle() async {
+        if reports { return }
+        let deadline = ContinuousClock.now + settleLimit
+        while ContinuousClock.now < deadline {
+            if await everyFaceMeasured() { return }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        settleTimeouts += 1
+    }
+
+    func everyFaceMeasured() async -> Bool {
+        let scene = await call("scene.get", [:])
+        guard scene["ok"] == true else { return false }
+        for f in scene["result"]["nodes"].array ?? [] {
+            let r = await call("geometry.locate", ["node": f["id"]])
+            if r["result"]["measured"] != true { return false }
+        }
+        return true
+    }
 
     public func hotMove(at: (Float, Float), slop: Float) -> JSONValue? { nil }
 
-    /// The text engine (the core's default); the port doesn't serve `media.get`.
-    public func has(_ capability: String) -> Bool { capability == "engine:text" }
+    /// The engines the core has; the port doesn't serve `media.get`.
+    public func has(_ capability: String) -> Bool {
+        capability.hasPrefix("engine:") && engines.contains(String(capability.dropFirst(7)))
+    }
 
     /// The core's next feed batch when this process has the core, else 20 ms.
     public func pause() async {

@@ -1,0 +1,63 @@
+# PlumCraft for the Mac (N3 slice 3, docs/research/24-native-shells.md section 18): a document-based
+# AppKit app on the Swift kit (../PlumCraftFFI) and its layer canvas. Generate with
+# `xcodegen generate`; build, run and check with ./run.sh, ./conformance.sh and ./bench.sh.
+# The generated PlumCraftMac.xcodeproj and App/Info.plist are not committed (see .gitignore).
+name: PlumCraftMac
+options:
+  bundleIdPrefix: com.plumcraft
+  deploymentTarget:
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  PlumCraftFFI:
+    path: ../PlumCraftFFI
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+targets:
+  PlumCraftMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: PlumCraft
+        CFBundleDisplayName: PlumCraft
+        CFBundleShortVersionString: "0.7.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        NSPrincipalClass: NSApplication
+        NSHumanReadableCopyright: ""
+        NSSupportsAutomaticTermination: false
+        NSSupportsSuddenTermination: false
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PlumCraft Graph
+            CFBundleTypeRole: Viewer
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+            NSDocumentClass: GraphDocument
+    dependencies:
+      - package: PlumCraftFFI
+        product: PlumCraftKit
+      - package: PlumCraftFFI
+        product: PlumCraftCanvas
+    settings:
+      base:
+        PRODUCT_NAME: PlumCraft
+        PRODUCT_MODULE_NAME: PlumCraftMac
+        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.mac
+        ARCHS: arm64
+        # signed to run here only: ad hoc, no hardened runtime, no notarization
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        DEAD_CODE_STRIPPING: YES

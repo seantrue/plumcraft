@@ -1181,10 +1181,15 @@ impl Shell for Document {
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         Some(&mut self.menus)
     }
-    /// The scene in the default theme, with no run animation and no application editors (this
-    /// shell draws none).
+    /// The scene in the document's theme ([`Document::scene_theme`]), with no run animation and
+    /// no application editors (this shell draws none).
     fn scene(&self) -> Option<crate::scene::Scene> {
-        Some(self.build_scene(&crate::theme::DEFAULT, None, &crate::scene::app_texts(), &[]))
+        Some(self.build_scene(&self.scene_theme(), None, &crate::scene::app_texts(), &[]))
+    }
+    /// `theme.get`: the tokens of the theme the scenes are built in.
+    fn theme_tokens(&self) -> Option<Value> {
+        let t = self.scene_theme();
+        Some(control::theme_reply(t.name, &t))
     }
     fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
         Some(&mut self.scene)
@@ -1195,6 +1200,14 @@ impl Shell for Document {
 }
 
 impl Document {
+    /// The theme this document's scenes are built in when the shell has none of its own (the C
+    /// ABI's core, N3 slice 3): the one `view.theme {name}` last named, so a native shell that
+    /// follows the system's appearance names Paper or Dusk; else the default. A name that is no
+    /// theme is the default. Not kept between runs (the egui shell keeps its own in preferences).
+    pub fn scene_theme(&self) -> crate::theme::Tokens {
+        self.session.views.theme_asked.as_deref().and_then(crate::theme::by_name).unwrap_or(crate::theme::DEFAULT)
+    }
+
     /// The scene of this document now ([`crate::scene::build`]) in `tokens`' colours: the
     /// selection, the group entered and the Watched panel's node are the document's; the run
     /// animation, the application's lines and its editors are what the shell shows.
@@ -1433,6 +1446,23 @@ mod tests {
 
     fn text_target() -> EngineTarget {
         EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() }
+    }
+
+    #[test]
+    fn view_theme_picks_the_scenes_theme_and_theme_get_follows() {
+        let mut d = Document::new(Session::default());
+        let paper = d.theme_tokens().unwrap();
+        assert_eq!(paper["name"], "paper");
+        d.session.views.theme_asked = Some("dusk".into());
+        let dusk = d.theme_tokens().unwrap();
+        assert_eq!(dusk["name"], "dusk");
+        assert_ne!(dusk["tokens"]["canvas"], paper["tokens"]["canvas"], "Dusk's canvas isn't Paper's");
+        assert_eq!(d.scene_theme().name, "dusk");
+        // the old name reads as the theme that replaced it; one that is no theme is the default
+        d.session.views.theme_asked = Some("dark".into());
+        assert_eq!(d.scene_theme().name, "dusk");
+        d.session.views.theme_asked = Some("chartreuse".into());
+        assert_eq!(d.theme_tokens().unwrap()["name"], "paper");
     }
 
     #[test]

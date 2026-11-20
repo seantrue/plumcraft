@@ -106,24 +106,29 @@ public final class CanvasLink {
         return r
     }
 
+    @discardableResult
     public func tap(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) async throws -> GestureReply {
         try await gesture(.tap(at, mods: mods, slop: slop))
     }
 
+    @discardableResult
     public func doubleTap(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) async throws -> GestureReply {
         try await gesture(.doubleTap(at, mods: mods, slop: slop))
     }
 
     /// A secondary click or long press: the reply's `context` and `menu`.
+    @discardableResult
     public func context(_ at: Point, slop: Double? = nil) async throws -> GestureReply {
         try await gesture(.context(at, slop: slop))
     }
 
+    @discardableResult
     public func marquee(_ from: Point, _ to: Point, mods: [ModifierWord] = []) async throws -> GestureReply {
         try await gesture(.marquee(from, to, mods: mods))
     }
 
     /// Begin a drag: the core decides what it is (a move, a wire, a marquee…) and replies.
+    @discardableResult
     public func dragBegin(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) async throws -> GestureReply {
         try await gesture(.dragBegin(at, mods: mods, slop: slop))
     }

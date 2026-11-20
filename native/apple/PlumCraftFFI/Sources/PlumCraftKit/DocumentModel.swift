@@ -119,6 +119,11 @@ public struct SceneChange: Sendable {
     public var removed: Set<UInt64>
     public var selectionChanged: Bool
     public var viewChanged: Bool
+
+    public init(gen: UInt64, full: Bool, changed: Set<UInt64>, removed: Set<UInt64>, selectionChanged: Bool, viewChanged: Bool) {
+        self.gen = gen; self.full = full; self.changed = changed; self.removed = removed
+        self.selectionChanged = selectionChanged; self.viewChanged = viewChanged
+    }
 }
 
 /// The engine as the feed last said.
