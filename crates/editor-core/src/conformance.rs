@@ -101,8 +101,16 @@ impl Half {
     }
 }
 
+/// `reports` is [`Driver::reports`]; `rows` (N4 slice 2: rows' widgets and the header's parts
+/// are measured, so a tap or a drag can aim at them) a driver the suite gives its measurements
+/// to, or one whose shell reports them (the Apple shells; not the egui editor, whose own widgets
+/// take the clicks on its rows).
 fn has(d: &dyn Driver, capability: &str) -> bool {
-    if capability == "reports" { d.reports() } else { d.has(capability) }
+    match capability {
+        "reports" => d.reports(),
+        "rows" => d.reports() || d.has("rows"),
+        _ => d.has(capability),
+    }
 }
 
 /// How one case went.

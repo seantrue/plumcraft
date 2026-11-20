@@ -99,7 +99,7 @@ struct Script {
             if (parts.count < 2 || parts[1] == "on") != v.selectMode { graph.toggleSelectMode() }
         default:
             // the editing gestures' steps, shared with the Mac (N4 slice 1)
-            _ = await CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette).run(parts)
+            _ = await CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette, rows: v.rowEditor, field: v.fieldEditor).run(parts)
         }
     }
 }

@@ -1,0 +1,12 @@
+{
+ "version": 1,
+ "nodes": {
+  "story": {"kind": "text.literal", "values": {"text": "a corgi naps"}, "pos": [0, 0]},
+  "w": {"kind": "text.widgets", "values": {"label": "hello", "tags": "a", "note": "first line\nsecond line"}, "pos": [320, 0]},
+  "shout": {"kind": "text.upper", "pos": [760, 0]}
+ },
+ "wires": [
+  {"from": {"node": "story", "port": "text"}, "to": {"node": "w", "port": "text"}},
+  {"from": {"node": "w", "port": "text"}, "to": {"node": "shout", "port": "text"}}
+ ]
+}

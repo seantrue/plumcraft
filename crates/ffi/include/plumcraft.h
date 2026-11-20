@@ -169,7 +169,8 @@ int32_t plum_geometry_set(plum_core core, uint64_t doc, const plum_face *faces, 
  * and is cancelled with ui.gesture {kind: "drag", phase: "begin" | "end" | "cancel", at}; the
  * core decides at begin what it is, and its reply gives serial, kind and, for a move, the faces
  * moving (nids, for plum_wire_paths). Nothing changes until the end.
- * kind: 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group.
+ * kind: 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group,
+ *       8 a number scrubbed (a drag on a number's row, N4 slice 2: its value now in rect).
  * status: PLUM_OK; PLUM_ERR_CORE; PLUM_ERR_MISSING (no such document, no drag under way, no
  *       scene published); PLUM_ERR_ARG (a point that isn't a number); PLUM_ERR_PANIC. */
 typedef struct {
@@ -177,7 +178,8 @@ typedef struct {
     uint32_t kind;
     uint64_t serial;   /* the drag's number, as its begin replied */
     float dx, dy;      /* the offset from where it began */
-    float rect[4];     /* a marquee's rect (x0, y0, x1, y1); zeros otherwise */
+    float rect[4];     /* a marquee's rect (x0, y0, x1, y1); a scrub's value: a double whose low and high
+                          32 bits are rect[0] and rect[1] bit-cast, rect[2] it as a float; zeros otherwise */
     plum_hit target;   /* a wire's: where it would land (kind 2: a pin, x and y its point), fits */
 } plum_drag;
 

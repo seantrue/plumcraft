@@ -37,8 +37,13 @@ impl Driver for Abi {
         let nid = |id: &str| scene["result"]["nodes"].as_array().into_iter().flatten().find(|f| f["id"] == id).and_then(|f| f["nid"].as_u64());
         let list = faces.as_array().ok_or("faces must be a list")?;
         let pins: Vec<(Vec<f32>, Vec<f32>)> = list.iter().map(|f| (floats(&f["pins"]["in"]), floats(&f["pins"]["out"]))).collect();
+        // rows' widget rects, four floats a row (NaN for a row without one), as a shell sends them
+        let rows: Vec<Vec<f32>> = list
+            .iter()
+            .map(|f| f["rows"].as_array().into_iter().flatten().flat_map(|r| if r.is_null() { vec![f32::NAN; 4] } else { floats(r) }).collect())
+            .collect();
         let mut typed = Vec::new();
-        for (f, (ins, outs)) in list.iter().zip(&pins) {
+        for ((f, (ins, outs)), rs) in list.iter().zip(&pins).zip(&rows) {
             let id = f["node"].as_str().ok_or("a face's node must be an id")?;
             let size = floats(&f["size"]);
             typed.push(PlumFace {
@@ -51,14 +56,22 @@ impl Driver for Abi {
                 n_inputs: ins.len(),
                 outputs: outs.as_ptr(),
                 n_outputs: outs.len(),
-                rows: std::ptr::null(),
-                n_rows: 0,
+                rows: if rs.is_empty() { std::ptr::null() } else { rs.as_ptr() },
+                n_rows: rs.len() / 4,
             });
         }
         // SAFETY: the faces and the pins they point at are live for the call.
         let status = unsafe { plum_geometry_set(self.0.core, 0, typed.as_ptr(), typed.len()) };
         if status != PLUM_OK {
             return Err(format!("plum_geometry_set: {status}"));
+        }
+        // the header's parts after it, as the Apple canvas sends them (the typed call has none)
+        let parts: Vec<Value> = list.iter().filter(|f| f.get("parts").is_some()).map(|f| json!({"node": f["node"], "parts": f["parts"]})).collect();
+        if !parts.is_empty() {
+            let r = self.0.call("command.run", json!({"command": "geometry.parts", "params": {"faces": parts}}));
+            if r["ok"] != true {
+                return Err(format!("geometry.parts: {r}"));
+            }
         }
         // the core has them once a request after them sees them measured (they are applied in order)
         let t0 = Instant::now();
@@ -95,6 +108,11 @@ impl Driver for Abi {
                            "target": {"kind": kinds.get(t.kind as usize).copied().unwrap_or("?"), "nid": t.node, "pin": t.pin, "fits": t.fits, "at": [t.x, t.y]}});
         if d.kind == 3 {
             v["rect"] = json!(d.rect);
+        }
+        if d.kind == 8 {
+            // a scrub's value: an f64 in rect[0] (low bits) and rect[1] (high bits)
+            let bits = u64::from(d.rect[0].to_bits()) | (u64::from(d.rect[1].to_bits()) << 32);
+            v["value"] = json!(f64::from_bits(bits));
         }
         Some(v)
     }

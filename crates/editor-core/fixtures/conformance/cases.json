@@ -471,6 +471,118 @@
         {"gesture": {"kind": "drag", "phase": "cancel"}, "expect": {"/result/cancelled": false}},
         {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$a", "part": "header"}}, "slop": 2}, "expect": {"/result/commands/0/command": "selection.set"}}
       ]
+    },
+    {
+      "name": "a value typed into a row is checked, held to its range, and is one undo step",
+      "about": "N4 slice 2: a tap on a row that can be edited opens the core's field editor (row.edit, the scene's view.edit); row.set parses what the field holds, holds a number to its range with a note, refuses what isn't a number and changes nothing, and is one undo step (Set Value) that undo and redo take back and forth; the same value again is no step; Escape (row.edit open: false) closes it",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.widgets", "pos": [0, 0]}}, "save": {"n": "/result/id"}},
+        {"geometry": [{"node": "$n", "size": [260, 250], "header": 28, "pins": {"in": [43, 65, 87, 109, 131, 153, 175, 197, 219], "out": [43]}, "rows": [null, [120, 56, 240, 74], [120, 78, 240, 96], [120, 100, 240, 118], [120, 122, 240, 140], [120, 144, 240, 162], [120, 166, 240, 184], [120, 188, 240, 206], [120, 210, 240, 228]], "parts": {"menu": [236, 4, 254, 24], "title": [30, 4, 120, 24]}}]},
+        {"call": "ui.inspect", "save": {"undo": "/result/undo"}},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$n", "row": 2}}, "slop": 1}, "only": "rows", "expect": {"/result/commands/0/command": "selection.set", "/result/commands/1/command": "row.edit", "/result/commands/1/ok": true, "/result/commands/1/params": {"node": "$n", "port": "count"}}},
+        {"call": "command.run", "params": {"command": "row.edit", "params": {"node": "$n", "port": "count"}}, "expect": {"/result/open": true, "/result/port": "count", "/result/widget/kind": "number"}},
+        {"call": "scene.get", "expect": {"/result/view/edit/node": "$n", "/result/view/edit/port": "count", "/result/view/edit/row": 2}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "$undo"}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "count", "text": " 7 "}}, "expect": {"/result/value": 7}},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/count": 7}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Set Value"}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "count", "text": "7"}}, "expect": {"/result/unchanged": true}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}, "expect": {"/result/undid": "Set Value"}},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/count": 3}},
+        {"call": "command.run", "params": {"command": "edit.redo", "params": {}}},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/count": 7}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "count", "text": "12"}}, "expect": {"/result/value": 10, "/result/note": "count is at most 10: set to 10"}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "count", "text": "lots"}}, "ok": false},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/count": 10}},
+        {"call": "command.run", "params": {"command": "row.edit", "params": {"step": 1}}, "expect": {"/result/port": "amount"}},
+        {"call": "command.run", "params": {"command": "row.edit", "params": {"step": -1}}, "expect": {"/result/port": "count"}},
+        {"call": "command.run", "params": {"command": "row.edit", "params": {"node": "$n", "port": "text"}}, "ok": false},
+        {"call": "command.run", "params": {"command": "row.edit", "params": {"open": false}}, "expect": {"/result/open": false}},
+        {"call": "scene.get", "expect": {"/result/view/edit": {"$exists": false}}}
+      ]
+    },
+    {
+      "name": "every widget kind is set through its row, and a value that isn't one of its choices is refused",
+      "about": "N4 slice 2: row.set for a text, a whole and a fractional number, a switch, a choice, several choices, several lines and a colour (sent as [r, g, b] and stored in the port's #rrggbb); a choice that isn't one is refused and changes nothing",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.widgets", "pos": [0, 0]}}, "save": {"n": "/result/id"}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "label", "text": "hi"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "count", "text": "4"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "amount", "text": "0.25"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "flag", "value": false}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "mode", "value": "title"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "tags", "text": "a, b"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "note", "text": "one\ntwo"}}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "tint", "value": [1.0, 0.5, 0.0]}}, "expect": {"/result/value": "#ff8000"}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "mode", "value": "sideways"}}, "ok": false},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/label": "hi", "/result/nodes/$n/values/count": 4, "/result/nodes/$n/values/amount": 0.25, "/result/nodes/$n/values/flag": false, "/result/nodes/$n/values/mode": "title", "/result/nodes/$n/values/tags": "a, b", "/result/nodes/$n/values/note": "one\ntwo", "/result/nodes/$n/values/tint": "#ff8000"}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}, "expect": {"/result/undid": "Set Value"}},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/tint": "#3366cc"}}
+      ]
+    },
+    {
+      "name": "a tap flips a switch and a drag on a number scrubs it, each one undo step",
+      "about": "N4 slice 2: the core decides that a tap on a switch's row is row.set to the other state, and that a drag beginning on a number's row is a scrub (kind 8 on the C ABI): its moves carry the value (a screen point at a time, at the zoom the begin gave; amount moves 0.01 a point) and change nothing; its end is one row.set; a cancelled scrub sets nothing",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.widgets", "pos": [0, 0]}}, "save": {"n": "/result/id"}},
+        {"geometry": [{"node": "$n", "size": [260, 250], "header": 28, "pins": {"in": [43, 65, 87, 109, 131, 153, 175, 197, 219], "out": [43]}, "rows": [null, [120, 56, 240, 74], [120, 78, 240, 96], [120, 100, 240, 118], [120, 122, 240, 140], [120, 144, 240, 162], [120, 166, 240, 184], [120, 188, 240, 206], [120, 210, 240, 228]], "parts": {"menu": [236, 4, 254, 24], "title": [30, 4, 120, 24]}}]},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$n", "row": 4}}, "slop": 1}, "only": "rows", "expect": {"/result/commands/1/command": "row.set", "/result/commands/1/params/value": false, "/result/commands/1/ok": true}},
+        {"call": "graph.get", "only": "rows", "expect": {"/result/nodes/$n/values/flag": false}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$n", "row": 3}}, "slop": 1, "zoom": 2}, "only": "rows", "expect": {"/result/drag/kind": "scrub", "/result/drag/value": 0.5, "/result/drag/row/port": "amount"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": {"$locate": {"node": "$n", "row": 3}, "$plus": [10, 0]}}, "only": "rows", "expect": {"/result/update/value": 0.7}},
+        {"hot": {"at": {"$locate": {"node": "$n", "row": 3}, "$plus": [10, 0]}}, "only": "rows", "expect": {"/result/kind": 8, "/result/value": 0.7}},
+        {"call": "graph.get", "only": "rows", "expect": {"/result/nodes/$n/values/amount": 0.5}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"node": "$n", "row": 3}, "$plus": [10, 0]}}, "only": "rows", "expect": {"/result/commands/0/command": "row.set", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "only": "rows", "expect": {"/result/nodes/$n/values/amount": 0.7}},
+        {"call": "ui.inspect", "only": "rows", "expect": {"/result/undo": "Set Value"}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$n", "row": 3}}, "slop": 1}, "only": "rows", "expect": {"/result/drag/kind": "scrub"}},
+        {"gesture": {"kind": "drag", "phase": "cancel"}, "only": "rows", "expect": {"/result/cancelled": true}},
+        {"call": "graph.get", "only": "rows", "expect": {"/result/nodes/$n/values/amount": 0.7}},
+        {"call": "command.run", "params": {"command": "row.set", "params": {"node": "$n", "port": "flag", "value": true}}},
+        {"call": "graph.get", "expect": {"/result/nodes/$n/values/flag": true}}
+      ]
+    },
+    {
+      "name": "the more-button opens the node's menu",
+      "about": "N4 slice 2: a tap on a face's more-button (the part menu the shell measured) runs no command and replies with the node's context and its menu, as a context gesture does",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"n": "/result/id"}},
+        {"geometry": [{"node": "$n", "size": [200, 80], "header": 28, "pins": {"in": [43], "out": [43]}, "rows": [[90, 34, 190, 52]], "parts": {"menu": [176, 4, 194, 24]}}]},
+        {"gesture": {"kind": "tap", "at": {"$locate": {"node": "$n", "part": "menu"}}, "slop": 1}, "only": "rows", "expect": {"/result/commands": {"$len": 0}, "/result/context": {"kind": "node", "node": "$n"}, "/result/menu": {"$exists": true}}},
+        {"call": "scene.get", "expect": {"/result/selection/nodes": {"$len": 0}}}
+      ]
+    },
+    {
+      "name": "a wire running right to left is routed round its faces, and hit there",
+      "about": "N4 slice 2 (the maintainer, N3 exit card 13): a plain wire whose input is left of its output leaves to the right, runs along a channel clear of both faces and comes into its input from the left: nine cubics (28 points) instead of the four of a wire left to right; the hit test follows that shape",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [600, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [0, 30]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"geometry": [{"node": "$a", "size": [200, 100], "pins": {"in": [50], "out": [50]}}, {"node": "$b", "size": [200, 100], "pins": {"in": [50], "out": [50]}}]},
+        {"call": "scene.get", "expect": {"/result/wires": {"$find": {"where": {"toFace": "$b"}, "want": {"/path": {"$len": 28}, "/kind": "plain"}}}}},
+        {"call": "geometry.locate", "params": {"wire": "$b.text"}, "save": {"mid": "/result/at"}},
+        {"call": "geometry.hit", "params": {"at": "$mid", "slop": 3}, "expect": {"/result/kind": "wire"}}
+      ]
+    },
+    {
+      "name": "faces that overlap are shown apart, and the graph keeps its positions",
+      "about": "N4 slice 2 (decision 13): where two measured faces overlap (a face grown after a run, or placed over another), the scene shows the later one out of the way, below or to the right with a gap; the push is the view's: graph.get's positions, the undo step and the dirty state are as they were",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [0, 20]}}, "save": {"b": "/result/id"}},
+        {"call": "ui.inspect", "save": {"undo": "/result/undo", "dirty": "/result/dirty"}},
+        {"geometry": [{"node": "$a", "size": [200, 120], "pins": {"in": [50], "out": [50]}}, {"node": "$b", "size": [200, 100], "pins": {"in": [50], "out": [50]}}]},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "$b"}, "want": {"/pos/0": 0, "/pos/1": {"$min": 44}}}}}},
+        {"call": "graph.get", "expect": {"/result/nodes/$b/pos": [0, 20]}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "$undo", "/result/dirty": "$dirty"}}
+      ]
     }
   ]
 }

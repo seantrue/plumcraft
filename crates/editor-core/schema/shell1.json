@@ -2238,6 +2238,35 @@
       ],
       "type": "object"
     },
+    "RowEdit": {
+      "description": "The row a field editor is open on (`row.edit`; the scene's `view.edit`).",
+      "properties": {
+        "face": {
+          "description": "The face that shows it, and the row's index in that face's `inputs`.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The node whose input it is (a collapsed group's row: the member's).",
+          "type": "string"
+        },
+        "port": {
+          "description": "The input's key (`sigma`, `mode.turn`).",
+          "type": "string"
+        },
+        "row": {
+          "format": "uint",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "node",
+        "port",
+        "face",
+        "row"
+      ],
+      "type": "object"
+    },
     "RunShown": {
       "description": "The node's real run state (section 8.6's first layer).",
       "properties": {
@@ -2567,6 +2596,17 @@
     "View": {
       "description": "What the core asks the shell's view to show (`docs/shell-interface.md` 8.9's view domain, as\nfar as N2 slice 3 builds it): the latest fit.",
       "properties": {
+        "edit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RowEdit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The row a field editor is open on (`row.edit`, N4 slice 2): the shell puts its native\ncontrol over it. Left out while none is."
+        },
         "fit": {
           "anyOf": [
             {

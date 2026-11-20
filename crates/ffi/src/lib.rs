@@ -458,14 +458,17 @@ pub struct PlumDrag {
     /// `PLUM_OK`; `PLUM_ERR_CORE`; `PLUM_ERR_MISSING` (no such document, no drag under way, or no
     /// scene published); `PLUM_ERR_PANIC`; with `kind` 0.
     pub status: i32,
-    /// 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group.
+    /// 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group,
+    /// 8 a number scrubbed (N4 slice 2).
     pub kind: u32,
     /// The drag's number (`ui.gesture`'s `begin` reply says it): a shell checks it is its own.
     pub serial: u64,
     /// The offset from where the drag began (graph units).
     pub dx: f32,
     pub dy: f32,
-    /// A marquee's rect (x0, y0, x1, y1); zeros for the others.
+    /// A marquee's rect (x0, y0, x1, y1); a scrub's value now, an `f64` whose low and high 32
+    /// bits are `rect[0]` and `rect[1]` bit-cast (as `plum_wire_paths` sends a nid), `rect[2]` its
+    /// value as an `f32` for a glance; zeros for the others.
     pub rect: [f32; 4],
     /// A wire's target: where it would land (`kind` 2, a pin, `x, y` its point) and whether it
     /// fits (`fits`), as `plum_wire_target` answers.
@@ -495,7 +498,14 @@ pub extern "C" fn plum_gesture_move(core: u64, doc: u64, x: f32, y: f32, slop: f
             let slop = if slop.is_nan() { 0.0 } else { slop.clamp(0.0, 1.0e4) };
             let at = plumcraft_editor_core::plain::Point::new(plumcraft_editor_core::wire_path::coord(x), plumcraft_editor_core::wire_path::coord(y));
             let u = d.update(&s, at, slop);
-            let rect = u.rect.map_or([0.0; 4], |r| [r.min.x, r.min.y, r.max.x, r.max.y]);
+            let rect = match (u.rect, u.value) {
+                (Some(r), _) => [r.min.x, r.min.y, r.max.x, r.max.y],
+                (None, Some(v)) => {
+                    let bits = v.to_bits();
+                    [f32::from_bits((bits & u64::from(u32::MAX)) as u32), f32::from_bits((bits >> 32) as u32), v as f32, 0.0]
+                }
+                (None, None) => [0.0; 4],
+            };
             PlumDrag { status: PLUM_OK, kind: u.code, serial: u.serial, dx: u.dx, dy: u.dy, rect, target: PlumHit::of(u.target) }
         },
     )

@@ -47,6 +47,9 @@ public final class CanvasDrag {
     /// The original rect of a dragged frame or group, or a bend point (graph units).
     var ghostFrom: CGRect?
     var ghostRound = false
+    /// A scrub's row (graph units) and its widget, for the value shown over it.
+    var scrubRow: CGRect?
+    var scrubWidget: Widget?
     /// A new wire dropped on empty canvas opened the palette: the wire stays drawn until the
     /// palette closes (`releaseWire`).
     public private(set) var holdingWire = false
@@ -74,10 +77,11 @@ public final class CanvasDrag {
         ghostFrom = nil
         let g = graph(v)
         let s = slop()
+        let z = Double(canvas.viewport.zoom)
         let link = canvas.link
         beginTask = Task { [weak self] in
             do {
-                let r = try await link.dragBegin(g, mods: mods, slop: s)
+                let r = try await link.dragBegin(g, mods: mods, slop: s, zoom: z)
                 guard let self else { return r }
                 started(r)
                 return r
@@ -102,6 +106,11 @@ public final class CanvasDrag {
             if let h = r.hit, let f = frameRect(h) { ghostFrom = f }
         case .group?:
             if let h = r.hit, let f = groupRect(h) { ghostFrom = f }
+        case .scrub?:
+            if let row = r.drag?.row, let face = row["face"].string, let k = row["index"].int64, let nid = canvas.nid(of: face) {
+                scrubRow = canvas.rowRect(face: nid, row: Int(k))
+                scrubWidget = canvas.model.faces[nid]?.item.inputs[safe: Int(k)]?.widget
+            }
         case .bend?:
             if let h = r.hit {
                 ghostFrom = CGRect(x: h.at.x - 6, y: h.at.y - 6, width: 12, height: 12)
@@ -157,6 +166,8 @@ public final class CanvasDrag {
             if let r = ghostFrom {
                 canvas.showGhost(CGRect(x: r.minX, y: r.minY, width: max(r.width + CGFloat(d.dx), 0), height: max(r.height + CGFloat(d.dy), 0)))
             }
+        case .scrub:
+            if let v = d.scrubValue { canvas.showScrub(Self.numberText(v, scrubWidget), over: scrubRow) }
         }
     }
 
@@ -183,6 +194,10 @@ public final class CanvasDrag {
             // a new wire dropped on nothing: the palette opens for it, and the wire stays drawn
             // from its pin to the drop until a kind is picked or the palette is dismissed
             let palette = reply?.commands.contains { $0.ok && $0.command == "canvas.palette" } ?? false
+            // a scrub held to its range, or refused: the core's words by the row
+            if let row = scrubRow, let set = reply?.commands.first(where: { $0.command == "row.set" }) {
+                if let e = set.error { canvas.flashNote(e, under: row, error: true) } else if let n = set.result?["note"].string { canvas.flashNote(n, under: row, error: false) }
+            }
             clear(kept: moved, holdWire: k == .wire && palette)
             onEnded?(k, reply)
         }
@@ -210,6 +225,9 @@ public final class CanvasDrag {
         begun = nil
         ghostFrom = nil
         ghostRound = false
+        scrubRow = nil
+        scrubWidget = nil
+        canvas.showScrub(nil, over: nil)
         canvas.showMarquee(nil)
         canvas.showGhost(nil)
         canvas.showDragTarget(nil)
@@ -229,6 +247,13 @@ public final class CanvasDrag {
         canvas.showDragWire(from: nil, to: .zero, fits: 0)
     }
 
+    /// A number as its row shows it: whole for an INT, else the widget's decimals.
+    public static func numberText(_ v: Double, _ w: Widget?) -> String {
+        if w?.int == true { return String(Int64(v.rounded())) }
+        let places = max(0, min(w?.decimals ?? 3, 8))
+        return String(format: "%.\(places)f", v)
+    }
+
     // MARK: Autoscroll
 
     /// How far into the edge band `v` is, as a pan a frame (zero: not in it).
@@ -244,6 +269,8 @@ public final class CanvasDrag {
     }
 
     func autoscroll(_ v: CGPoint) {
+        // a scrub moves a value, not the view
+        if kind == .scrub { return stopScroll() }
         let step = scrollStep(v)
         if step == .zero {
             stopScroll()
@@ -270,4 +297,9 @@ public final class CanvasDrag {
 
     /// Whether autoscroll is under way (tests).
     public var scrolling: Bool { scroller != nil }
+}
+
+extension Array {
+    /// The element at `i`, or nil past either end.
+    subscript(safe i: Int) -> Element? { i >= 0 && i < count ? self[i] : nil }
 }

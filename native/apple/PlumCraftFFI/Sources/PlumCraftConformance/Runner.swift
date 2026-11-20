@@ -83,7 +83,12 @@ public enum Conformance {
     }
 
     static func has(_ d: ConformanceDriver, _ capability: String) -> Bool {
-        capability == "reports" ? d.reports : d.has(capability)
+        switch capability {
+        case "reports": d.reports
+        // rows' widgets and header parts measured (N4 slice 2): reported by the suite, or by the app
+        case "rows": d.reports || d.has("rows")
+        default: d.has(capability)
+        }
     }
 
     /// Run one case on a new graph, or skip it when `d` lacks what it needs.

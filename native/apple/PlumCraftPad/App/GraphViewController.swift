@@ -270,6 +270,15 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             self?.paletteView?.close()
             self?.reportNow()
         }
+        // the field editor's colour picker, as a popover from its row (N4 slice 2)
+        v.fieldEditor.present = { [weak self] vc, rect in
+            guard let self, let v = canvasView else { return }
+            vc.modalPresentationStyle = .popover
+            vc.popoverPresentationController?.sourceView = v
+            vc.popoverPresentationController?.sourceRect = rect
+            present(vc, animated: true)
+        }
+        v.fieldEditor.onShown = { [weak self] in self?.reportNow() }
         v.contextMenuItems = { [weak self, weak model] items in
             guard let self, let model else { return [] }
             StatusFile.shared.set("contextMenu", .array(items.map { .string($0.label) }))
@@ -670,9 +679,31 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                 let c = CGPoint(x: f.pos.x + L.size.width / 2, y: f.pos.y + L.size.height / 2)
                 let outs = (0..<L.outputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: true, pin: $0) }.map(pt)
                 let ins = (0..<L.inputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: false, pin: $0) }.map(pt)
-                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins)]
+                let more = v.canvas.moreRect(face: f.nid).map { pt(CGPoint(x: $0.midX, y: $0.midY)) } ?? .null
+                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more]
             }
             s["points"] = .object(points)
+            // each face's rows' widgets (view points) and values, for UI tests of inline editing
+            var rows: [String: JSONValue] = [:]
+            for f in v.model.faces.items.prefix(32) {
+                var list: [JSONValue] = []
+                for (k, r) in f.inputs.enumerated() {
+                    guard let rr = v.canvas.rowRect(face: f.nid, row: k) else { list.append(.null); continue }
+                    list.append(["key": .string(r.key), "at": pt(CGPoint(x: rr.midX, y: rr.midY)),
+                                 "value": r.widget.map { .string(FaceLayout.widgetText($0)) } ?? .null])
+                }
+                rows[f.id] = .array(list)
+            }
+            s["rows"] = .object(rows)
+            let fe = v.fieldEditor
+            if let o = v.rowEditor.open, let c = fe?.control {
+                s["editor"] = ["open": true, "port": .string(o.edit.port), "kind": .string(o.widget.kind.raw),
+                               "frame": [.double(Double(c.frame.minX)), .double(Double(c.frame.minY)), .double(Double(c.frame.width)), .double(Double(c.frame.height))],
+                               "keyboardTop": fe?.keyboardTopInView.map { .double(Double($0)) } ?? .null,
+                               "error": v.rowEditor.error.map(JSONValue.string) ?? .null]
+            } else {
+                s["editor"] = ["open": false, "error": v.rowEditor.error.map(JSONValue.string) ?? .null]
+            }
             let pal = v.palette
             s["palette"] = pal.isOpen
                 ? ["open": true, "wire": .bool(pal.forWire), "items": .array(pal.items.prefix(40).map { .string($0.label) }),

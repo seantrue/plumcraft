@@ -75,11 +75,12 @@ public struct HotHit: Sendable, Equatable {
 /// Where a drag under way is (`plum_gesture_move`).
 public struct HotDrag: Sendable, Equatable {
     public enum Kind: Sendable, Equatable {
-        case move, wire, marquee, bend, frame, resize, group
+        case move, wire, marquee, bend, frame, resize, group, scrub
         case unknown(UInt32)
 
         init(_ k: UInt32) {
             switch k {
+            case 8: self = .scrub
             case 1: self = .move
             case 2: self = .wire
             case 3: self = .marquee
@@ -115,6 +116,12 @@ public struct HotDrag: Sendable, Equatable {
     }
 
     public var ok: Bool { status == PlumStatus.ok }
+
+    /// A scrub's value now: a double in `rect.0` (low 32 bits) and `rect.1` (high), bit-cast.
+    public var scrubValue: Double? {
+        guard kind == .scrub else { return nil }
+        return Double(bitPattern: UInt64(rect.0.bitPattern) | (UInt64(rect.1.bitPattern) << 32))
+    }
 
     public static func == (a: HotDrag, b: HotDrag) -> Bool {
         a.status == b.status && a.kind == b.kind && a.serial == b.serial && a.dx == b.dx && a.dy == b.dy

@@ -25,6 +25,9 @@ public enum FaceMetrics {
     /// comes (contract 8.3).
     public static let statusSlot: CGFloat = 88
     public static let footerLine: CGFloat = 15
+    /// The node's icon and the more-button (N4 slice 2), square, in the header.
+    public static let icon: CGFloat = 14
+    public static let more: CGFloat = 18
     /// The face's picture reaches this far past its rect on every side, for the pins on its edges
     /// and its border.
     public static let margin: CGFloat = 8
@@ -74,11 +77,32 @@ public struct FaceLayout: Sendable, Equatable {
     public var status: [PlacedText]
     public var engine: PlacedText?
     public var enter: CGRect?
+    /// The node's icon and the more-button (⋮, the node's menu), N4 slice 2.
+    public var icon: CGRect?
+    public var more: CGRect?
+    /// The title's drawn width (its text, cut at `title.max`): the title part is only that.
+    public var titleWidth: CGFloat = 0
 
     public static func == (a: FaceLayout, b: FaceLayout) -> Bool {
         a.size == b.size && a.header == b.header && a.inputPins == b.inputPins && a.outputPins == b.outputPins && a.widgets == b.widgets
             && a.preview == b.preview && a.footer == b.footer && a.title == b.title && a.status == b.status
             && a.badges.map(\.text) == b.badges.map(\.text) && a.badges.map(\.rect) == b.badges.map(\.rect)
+            && a.icon == b.icon && a.more == b.more
+    }
+
+    /// The header's and footer's parts the core hit-tests (`geometry.parts`): the title, the
+    /// chevron, the icon, the more-button, the enter button, the preview, each footer item.
+    public var parts: [String: Rect] {
+        func r(_ c: CGRect) -> Rect { Rect(Double(c.minX), Double(c.minY), Double(c.maxX), Double(c.maxY)) }
+        var out: [String: Rect] = [:]
+        let tw = min(titleWidth, title.max > 0 ? title.max : FaceMetrics.titleMax)
+        out["title"] = r(CGRect(x: title.x - 2, y: 4, width: tw + 4, height: header - 8))
+        if let c = chevron { out["chevron"] = r(CGRect(x: c.x - 7, y: 4, width: 14, height: header - 8)) }
+        if let i = icon { out["icon"] = r(i.insetBy(dx: -2, dy: -2)) }
+        if let m = more { out["menu"] = r(m) }
+        if let e = enter { out["enter"] = r(e.insetBy(dx: -2, dy: -2)) }
+        if let p = preview { out["preview"] = r(p) }
+        return out
     }
 
     /// What `plum_geometry_set` takes for this face.
@@ -114,6 +138,8 @@ extension FaceLayout {
         x += 14
         let spot = CGRect(x: x, y: M.header / 2 - 4, width: 8, height: 8)
         x += 14
+        let icon = CGRect(x: x, y: (M.header - M.icon) / 2, width: M.icon, height: M.icon)
+        x += M.icon + 6
         let titleW = min(TextLine.width(h.title.text, fonts.title), M.titleMax)
         let title = PlacedText(text: h.title.text, x: x, baseline: M.header / 2 + 5, style: .title, max: M.titleMax)
         x += titleW + 8
@@ -128,7 +154,8 @@ extension FaceLayout {
         for w in statusWidths { statusW += w + 6 }
         let engineW = h.engine.map { TextLine.width($0.text, fonts.small) + 8 } ?? 0
         let enterW: CGFloat = h.enter ? 20 : 0
-        let headerW = x + max(statusW, M.statusSlot) + engineW + enterW + 8
+        let moreW: CGFloat = M.more + 2
+        let headerW = x + max(statusW, M.statusSlot) + engineW + enterW + moreW + 8
 
         // rows
         var inW: CGFloat = 0
@@ -231,8 +258,10 @@ extension FaceLayout {
 
         let height = collapsed ? M.header : bottom + 6
 
-        // the header's right side
-        var rx = width - 8
+        // the header's right side: the more-button at the end
+        var rx = width - 6
+        let more = CGRect(x: rx - M.more, y: (M.header - M.more) / 2, width: M.more, height: M.more)
+        rx -= moreW + 2
         var enter: CGRect?
         if h.enter {
             enter = CGRect(x: rx - 16, y: M.header / 2 - 8, width: 16, height: 16)
@@ -253,11 +282,14 @@ extension FaceLayout {
         var t = title
         t.max = max(20, min(M.titleMax, rx - title.x - 8 - badges.reduce(0) { $0 + $1.1.width + 4 }))
 
-        return FaceLayout(size: CGSize(width: width, height: height), header: M.header, collapsed: collapsed,
+        var made = FaceLayout(size: CGSize(width: width, height: height), header: M.header, collapsed: collapsed,
                           inputPins: inputPins, outputPins: outputPins, inputRows: inputRows, outputRows: outputRows,
                           widgets: collapsed ? widgets.map { _ in nil } : widgets, preview: collapsed ? nil : preview,
                           footer: collapsed ? [] : footer, chevron: chevron, spot: spot, title: t,
-                          badges: badges.map { (text: $0.0, rect: $0.1) }, status: status, engine: engine, enter: enter)
+                          badges: badges.map { (text: $0.0, rect: $0.1) }, status: status, engine: engine, enter: enter,
+                          icon: icon, more: more)
+        made.titleWidth = titleW
+        return made
     }
 
     /// The caption an input row shows: its label, or its text for a wired, socket, inherited or
@@ -273,7 +305,13 @@ extension FaceLayout {
     static func widgetSize(_ w: Widget, _ r: InRow, _ fonts: FaceFonts) -> CGSize {
         switch w.kind.word {
         case .number?: return CGSize(width: max(56, TextLine.width(widgetText(w), fonts.mono) + 14), height: 18)
-        case .toggle?: return CGSize(width: 14, height: 14)
+        case .toggle?:
+            #if os(iOS)
+            // a switch on the iPad, a checkbox on the Mac (each platform's convention)
+            return CGSize(width: 26, height: 15)
+            #else
+            return CGSize(width: 14, height: 14)
+            #endif
         case .choice?: return CGSize(width: 120, height: 18)
         case .multichoice?, .text?, .path?: return CGSize(width: 140, height: 18)
         case .multiline?: return CGSize(width: 140, height: 50)

@@ -178,6 +178,33 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "geometry.parts",
+        label: "Report Face Parts",
+        menu: &[],
+        shortcut: None,
+        params: "{faces: [{node: face id, parts: {title?, chevron?, icon?, menu?, enter?, preview?: rect, footer?: [rect]}}]} -> {applied, unknown: [face id]} (the header's and footer's parts of faces already measured, for a shell that measures with the typed plum_geometry_set, which has no field for them; kept until the face's size changes)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "row.edit",
+        label: "Edit Value",
+        menu: &[],
+        shortcut: None,
+        params: "{node?, port?: an input row to edit, open?: bool (default true; false closes the editor), step?: 1 | -1 (Tab, Shift-Tab: the next or previous editable row, from the one open or the one named)} -> {open, node, port, face, row, label, widget} (the field editor's row, the core's state: the scene's view.edit; the shell puts its native control over it. Refused for a row that can't be edited, with why)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "row.set",
+        label: "Set Value",
+        menu: &[],
+        shortcut: None,
+        params: "{node, port, text?: what the field holds | value?: a value (a switch's, a choice's, a colour [r, g, b] in 0..1, a scrub's number)} -> {node, port, value, note?, unchanged?, set?: node.set's reply} (checked by the row's widget: a number parsed, made whole for an INT and held to its range with a note, a choice one of its own and not a disabled one, a colour in the port's format; then one node.set, one undo step, or none when the value is what the port holds. Refused, changing nothing, with why)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "selection.align",
         label: "Align",
         menu: &["Edit"],
@@ -329,6 +356,78 @@ fn palette_param(session: &Session, p: &Value) -> Result<(Value, Option<crate::s
     Ok((reply, Some(state)))
 }
 
+/// `{node, port}` of a row command.
+fn row_param(p: &Value) -> Result<(String, String), String> {
+    let s = |k: &str| p.get(k).and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 512).map(str::to_owned);
+    match (s("node"), s("port")) {
+        (Some(n), Some(k)) => Ok((n, k)),
+        _ => Err("name the row: node (a node id) and port (its input's key)".into()),
+    }
+}
+
+/// `row.edit`: open the field editor on a row, move it (Tab), or close it.
+fn row_edit(d: &mut crate::document::Document, params: &Value) -> Result<Value, String> {
+    check_fields(params, &["node", "port", "open", "step"])?;
+    let open = match params.get("open") {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("open must be a boolean".into()),
+    };
+    let step = match params.get("step") {
+        None | Some(Value::Null) => None,
+        Some(v) => match v.as_i64() {
+            Some(1) => Some(1i64),
+            Some(-1) => Some(-1),
+            _ => return Err("step must be 1 (the next row, Tab) or -1 (the previous, Shift-Tab)".into()),
+        },
+    };
+    if !open {
+        if step.is_some() {
+            return Err("step moves an open editor: leave out open: false".into());
+        }
+        d.editing = None;
+        return Ok(json!({"open": false}));
+    }
+    let named = match (params.get("node"), params.get("port")) {
+        (None, None) => None,
+        _ => Some(row_param(params)?),
+    };
+    let texts = std::collections::HashMap::new();
+    let faces = crate::scene::faces(&d.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]));
+    let target = match step {
+        Some(by) => {
+            let order = crate::inline::tab_order(&faces);
+            if order.is_empty() {
+                return Err("no row shown can be edited".into());
+            }
+            let from = named.clone().or_else(|| d.editing.as_ref().map(|e| (e.node.clone(), e.port.clone())));
+            let at = from.and_then(|(n, p)| order.iter().position(|e| e.node == n && e.port == p));
+            let n = order.len() as i64;
+            let k = match at {
+                Some(k) => (k as i64 + by).rem_euclid(n),
+                None if by > 0 => 0,
+                None => n - 1,
+            };
+            order.get(usize::try_from(k).unwrap_or(0)).cloned().ok_or("no row to go to")?
+        }
+        None => {
+            let (node, port) = named.ok_or("name the row to edit: node and port")?;
+            let (fi, k) = crate::inline::find(&faces, &node, &port).ok_or_else(|| format!("{} has no input {} shown", shown_id(&node), shown_id(&port)))?;
+            let (f, r) = (&faces[fi], &faces[fi].inputs[k]);
+            if !crate::inline::editable(r) {
+                return Err(crate::inline::why_not(r));
+            }
+            crate::inline::RowEdit { node, port, face: f.id.clone(), row: k }
+        }
+    };
+    let (label, widget) = crate::inline::find(&faces, &target.node, &target.port)
+        .and_then(|(fi, k)| faces.get(fi).and_then(|f| f.inputs.get(k)))
+        .map(|r| (r.label.clone(), r.widget.clone()))
+        .unwrap_or_default();
+    d.editing = Some(target.clone());
+    Ok(json!({"open": true, "node": target.node, "port": target.port, "face": target.face, "row": target.row, "label": label, "widget": widget}))
+}
+
 /// Run canvas command `c` (see the module docs): its core part, then the shell's.
 pub fn execute<H: Holder>(h: &mut H, c: &CanvasCommand, params: &Value) -> Result<Value, String> {
     (c.enabled)(h.session()).map_err(|why| format!("{} is not available: {why}", c.id))?;
@@ -393,6 +492,46 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
         "geometry.set" => {
             let reports = crate::geometry::parse_set(params)?;
             Ok(d.apply_geometry(reports))
+        }
+        "geometry.parts" => {
+            let faces = crate::geometry::parse_parts(params)?;
+            let (mut applied, mut unknown) = (0u64, Vec::new());
+            for (face, parts) in faces {
+                match d.geometry.set_parts(&face, parts) {
+                    Some(_) => applied += 1,
+                    None if unknown.len() < 64 => unknown.push(face),
+                    None => {}
+                }
+            }
+            Ok(json!({"applied": applied, "unknown": unknown}))
+        }
+        "row.edit" => row_edit(d, params),
+        "row.set" => {
+            check_fields(params, &["node", "port", "text", "value"])?;
+            let (node, port) = row_param(params)?;
+            let input = crate::inline::Input::parse(params)?;
+            let texts = std::collections::HashMap::new();
+            let face = crate::scene::face_of_node(&d.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]), &NodeId::from(node.as_str()))
+                .ok_or_else(|| format!("no node {}", shown_id(&node)))?;
+            let row = face.inputs.iter().find(|r| r.key == port).ok_or_else(|| format!("{} has no input {} shown", shown_id(&node), shown_id(&port)))?;
+            if !crate::inline::editable(row) {
+                return Err(crate::inline::why_not(row));
+            }
+            let Some(w) = &row.widget else { return Err(crate::inline::why_not(row)) };
+            let label = if row.label.is_empty() { port.clone() } else { row.label.clone() };
+            let parsed = crate::inline::parse(w, &label, &input)?;
+            let mut out = json!({"node": node, "port": port, "value": parsed.value});
+            if let Some(n) = &parsed.note {
+                out["note"] = json!(n);
+            }
+            // what the port holds already: no step
+            if parsed.value == w.value && !(w.blank && !parsed.value.is_null()) {
+                out["unchanged"] = json!(true);
+                return Ok(out);
+            }
+            let r = h.run("node.set", &json!({"node": node, "port": port, "value": parsed.value}))?;
+            out["set"] = r;
+            Ok(out)
         }
         "selection.align" | "selection.distribute" => {
             let (key, at_least, command) = if id == "selection.align" { ("edge", 2, "edit.align") } else { ("axis", 3, "edit.distribute") };

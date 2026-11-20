@@ -56,6 +56,8 @@ pub mod engines;
 pub mod geometry;
 pub mod gesture;
 pub mod headless;
+pub mod icons;
+pub mod inline;
 pub mod install;
 pub mod invoke;
 pub mod link;

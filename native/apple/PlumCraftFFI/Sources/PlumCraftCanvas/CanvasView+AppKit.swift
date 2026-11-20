@@ -44,6 +44,9 @@ public final class CanvasView: NSView, NSMenuItemValidation {
     /// The node palette (the core's state) and its popover.
     public let palette: PaletteModel
     public let palettePopover: PalettePopover
+    /// Editing a value on a face (N4 slice 2): the core's row and the control over it.
+    public let rowEditor: RowEditor
+    public private(set) var fieldEditor: FieldEditorHost!
     /// A gesture ran commands (the host says when one has no UI yet).
     public var onCommands: (([CommandRun]) -> Void)?
     var smartReturn: Viewport?
@@ -68,7 +71,10 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         let c = canvas
         drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 10, zoom: Double(c.viewport.zoom)) }
         palettePopover = PalettePopover(palette: palette)
+        rowEditor = RowEditor(model: model)
         super.init(frame: frame)
+        fieldEditor = FieldEditorHost(canvasView: self, editor: rowEditor)
+        canvas.followers = { [weak self] in self?.fieldEditor.follow() }
         drag.onError = { [weak self] e in self?.onError?(e) }
         drag.onEnded = { [weak self] _, r in if let r { self?.onCommands?(r.commands) } }
         palette.fallbackAt = { [weak self] in
@@ -80,7 +86,10 @@ public final class CanvasView: NSView, NSMenuItemValidation {
             self?.palettePopover.close()
             self?.drag.releaseWire()
         }
-        model.onView = { [weak self] v in self?.palette.follow(v) }
+        model.onView = { [weak self] v in
+            self?.palette.follow(v)
+            self?.rowEditor.follow(v)
+        }
         layer = root
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -335,6 +344,10 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         downPoint = p
         downMods = Self.mods(e.modifierFlags)
         dragging = false
+        // a press on a row: if the core opens an editor for it, it is a person's (a pop-up's menu
+        // may open at once)
+        let h = canvas.link.hit(graph(p), slop: slop)
+        if h.ok, h.nodePart == .row { fieldEditor.noteClick() }
     }
 
     public override func mouseDragged(with e: NSEvent) {
@@ -381,6 +394,11 @@ public final class CanvasView: NSView, NSMenuItemValidation {
                     try await canvas.link.tap(g, mods: mods, slop: s)
                 }
                 onCommands?(r.commands)
+                // the more-button: the node's menu, at the button (N4 slice 2)
+                if let ctx = r.context, ctx != .null, !double {
+                    let items = try await model.contextMenu(ctx)
+                    onContextMenu?(p, items)
+                }
             } catch {
                 onError?("\(error)")
             }
