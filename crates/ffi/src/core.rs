@@ -81,6 +81,9 @@ const MAX_EVENTS: usize = 20_000;
 const TICK: Duration = Duration::from_millis(50);
 /// How long a busy core goes at most without looking whether its menus changed.
 const MENUS_EVERY: Duration = Duration::from_secs(1);
+/// The most often a document's scene is looked at while the core is busy (a display frame): run
+/// progress makes at most one scene change in the feed a frame, and a poll sees one at most.
+const SCENE_EVERY: Duration = Duration::from_millis(16);
 /// The largest buffer `spike.publish` makes.
 const MAX_PUBLISH: u64 = 256 << 20;
 
@@ -262,7 +265,8 @@ struct Outbox {
     /// Media requests finished (`{key, handle, want, status, w?, h?, len?, format?, reason?}`).
     media: Vec<String>,
     /// What changed of a document (`{doc, domain, …}`: its engine connected, it closed, its
-    /// menus changed).
+    /// menus or its scene changed). A document's scene is here once at most: a newer change
+    /// replaces the one not yet polled.
     changed: Vec<String>,
     /// The log has entries past what the shell was told of: the newest's seq, and the worst level
     /// among them (`log.tail` reads them).
@@ -661,6 +665,7 @@ impl Core {
                     control_token_file,
                     log_seen: plumcraft_editor_core::log::last_seq(),
                     menus_at: Instant::now(),
+                    scene_at: Instant::now(),
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -734,6 +739,8 @@ struct Doc {
     generation: u64,
     /// The menu model's generation last told the shell (`changed`, domain `menus`).
     menus_sent: u64,
+    /// The scene's generation last told the shell (`changed`, domain `scene`).
+    scene_sent: u64,
     /// A shell has asked for the menus (`menu.get`), so it hears when they change; one that never
     /// asks costs the core nothing.
     menus_watched: bool,
@@ -763,6 +770,8 @@ struct Worker {
     log_seen: u64,
     /// When the documents' menus were last looked at (`note_menus`).
     menus_at: Instant,
+    /// When the documents' scenes were last looked at (`note_scene`).
+    scene_at: Instant,
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -791,7 +800,7 @@ impl Worker {
         doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
         doc.start_engines(target, Vec::new(), opening);
         let id = doc.id;
-        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, menus_watched: false });
+        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, scene_sent: 0, menus_watched: false });
         id
     }
 
@@ -832,6 +841,15 @@ impl Worker {
                 let ids: Vec<DocId> = self.docs.keys().copied().collect();
                 for id in ids {
                     self.note_menus(id);
+                }
+            }
+            // the scenes at most once a display frame while busy (run progress coalesced here),
+            // and whenever the core is idle
+            if idle || self.scene_at.elapsed() >= SCENE_EVERY {
+                self.scene_at = Instant::now();
+                let ids: Vec<DocId> = self.docs.keys().copied().collect();
+                for id in ids {
+                    self.note_scene(id);
                 }
             }
             let o = lock(&self.shared.outbox);
@@ -886,6 +904,26 @@ impl Worker {
         if generation != d.menus_sent {
             d.menus_sent = generation;
             lock(&self.shared.outbox).changed.push(json!({"doc": id, "domain": "menus", "gen": generation}).to_string());
+        }
+    }
+
+    /// The document's scene, noted once a shell has asked for it (`scene.get`): the feed says
+    /// when it changed (`changed`, domain `scene`), replacing a change of it not yet polled, so a
+    /// shell fetches what changed (`scene.get {since}`) at most once a poll.
+    fn note_scene(&mut self, id: DocId) {
+        use plumcraft_editor_core::control::Shell;
+        let Some(d) = self.docs.get_mut(&id) else { return };
+        if !d.ready || !d.doc.scene.watched {
+            return;
+        }
+        let Some(scene) = d.doc.scene() else { return };
+        let generation = d.doc.scene.publish(scene);
+        if generation != d.scene_sent {
+            d.scene_sent = generation;
+            let mut o = lock(&self.shared.outbox);
+            let mine = format!("{{\"doc\":{id},\"domain\":\"scene\"");
+            o.changed.retain(|c| !c.starts_with(&mine));
+            o.changed.push(json!({"doc": id, "domain": "scene", "gen": generation}).to_string());
         }
     }
 

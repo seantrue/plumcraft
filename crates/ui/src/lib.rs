@@ -1382,6 +1382,27 @@ impl EditorApp {
         }
     }
 
+    /// The run animation, when faces are washed with it (View › Colour Nodes While Running, or
+    /// a replay).
+    fn shown_anim(&self) -> Option<&run_anim::RunAnim> {
+        (!self.doc.session.views.run_colors_off || self.run_anim.is_replay()).then_some(&self.run_anim)
+    }
+
+    /// The scene as this window shows it (`scene.get`): the document's, in this window's theme,
+    /// with its run animation, the application's lines and its editors.
+    pub fn scene_now(&self) -> plumcraft_editor_core::scene::Scene {
+        let tokens = plumcraft_editor_core::theme::Tokens::from(&self.tokens);
+        self.doc.build_scene(&tokens, self.shown_anim(), &self.app.texts, &value_editors::scene_editors())
+    }
+
+    /// The faces the canvas draws this frame, by id ([`plumcraft_editor_core::scene::faces`]).
+    fn scene_faces(&self) -> std::collections::HashMap<String, plumcraft_editor_core::scene::Face> {
+        let tokens = plumcraft_editor_core::theme::Tokens::from(&self.tokens);
+        let editors = value_editors::scene_editors();
+        let inputs = self.doc.scene_inputs(&tokens, self.shown_anim(), &self.app.texts, &editors);
+        plumcraft_editor_core::scene::faces(&inputs).into_iter().map(|f| (f.id.clone(), f)).collect()
+    }
+
     /// The node the Watched panel shows.
     pub fn watched_node(&self) -> Option<plumcraft_graph::NodeId> {
         self.doc.session.run.panel().map(|(w, _)| plumcraft_graph::NodeId(w.node.clone()))
@@ -1444,19 +1465,20 @@ impl EditorApp {
         self.canvas.sync(self.doc.session.generation(), self.doc.session.graph(), self.doc.session.catalog());
         let frame = egui::Frame::new().fill(self.tokens.canvas);
         let source = self.source();
-        let watched = self.watched_node();
+        // what the faces show is the core's scene (N2 slice 2)
+        let faces = self.scene_faces();
         let runs = RunView {
             run: &self.doc.session.run,
             thumbs: &mut self.thumbs,
             source: &source,
             docs: &self.doc.session.docs.apps,
             recent_apps: &self.doc.session.docs.recent_apps,
-            app_text: &self.app.texts,
             anim: (!self.doc.session.views.run_colors_off || self.run_anim.is_replay()).then_some(&self.run_anim),
+            faces: &faces,
         };
         let actions = egui::CentralPanel::default()
             .frame(frame)
-            .show(ui, |ui| self.canvas.show(ui, self.doc.session.graph(), self.doc.session.catalog(), &self.tokens, runs, watched.as_ref()))
+            .show(ui, |ui| self.canvas.show(ui, self.doc.session.graph(), self.doc.session.catalog(), &self.tokens, runs))
             .inner;
         self.run_all(actions);
         self.show_wire_preview(&ctx);

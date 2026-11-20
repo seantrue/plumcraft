@@ -254,7 +254,7 @@ Each lists params, result and errors beyond `bad_params` (unknown fields are an 
 
 **`state.get`** `{domains: ["document", "run", …]}` → `{<domain>: {gen, …}}`: the current state of each domain asked for (7.2). Unknown domains are skipped, not an error.
 
-**`scene.get`** `{since?: gen}` → section 8.12. **`menu.get`** `{context?: {kind, …}}` → section 12. **`theme.get`** `{}` → section 14.
+**`scene.get`** `{since?: gen}` → section 8.12. Built in N2 slice 2 (`plumcraft_editor_core::scene`), served by the one dispatcher on the egui editor's control port, the C ABI and the C ABI's own control port. `since` is a whole number (a scene `gen`); anything else, or another field, is refused with the reason. The first `scene.get` also starts the feed's scene changes for that document (7.1). **`menu.get`** `{context?: {kind, …}}` → section 12. **`theme.get`** `{}` → section 14.
 
 **`geometry.set`** `{faces: [{node, rev, size, pins, rows?, header?}]}` → `{applied, stale}`. What the shell measured (8.11). `applied` counts faces taken; `stale` lists nodes whose `rev` is older than the core's (ignored; the shell measures again). Not journaled, no undo step.
 
@@ -290,6 +290,8 @@ Each lists params, result and errors beyond `bad_params` (unknown fields are an 
 
 Empty arrays MAY be left out. `log` says the ring has lines past what the shell last read and how bad the worst is; the shell reads them with `log.tail`.
 
+**As built (C ABI, N1 and N2 slice 2):** `changed` carries `{doc, domain: "engine", gen, connected, label, ready}`, `{doc, domain: "document", closing: true}`, `{doc, domain: "menus", gen}` once the shell has called `menu.get`, and `{doc, domain: "scene", gen}` once it has called `scene.get`. The core looks at a document's scene when it is idle and at most every 16 ms while busy (a constant, `SCENE_EVERY`, not yet `display.frame_ms`), and a scene change not yet polled is replaced by the newer one, so a poll holds at most one scene change per document however fast a run reports. The egui editor's control port has no feed (it is request and reply); a script there calls `scene.get {since}` when it likes.
+
 ### 7.2 Domains
 
 | Domain | What | Fetch | `ui.inspect` today |
@@ -321,6 +323,22 @@ A domain's JSON is, field for field, what `ui.inspect` reports for it today wher
 - A shell MAY call `state.get` for any domain at any time, whatever the feed said.
 
 ## 8. The scene
+
+**As built (N2 slice 2).** `plumcraft_editor_core::scene` builds the scene from the document (graph, catalogue, run state, the Watched panel's node, selection, group entered, the application's node lines and wire marks) and a theme; `scene::Published` keeps it with a revision per item. Rust types (`Scene`, `Face`, `InRow`, `OutRow`, `Widget`, `Preview`, `Footer`, `Wire`, `Net`, `Frame`, `Group`, `Mark`, `Delta`) are the wire shape, serde-encoded; the shared fixtures (16.2) are the reference. Where the subsections below still show the draft's shape, these differences hold:
+
+- **Colours** are `{token?, color: [r, g, b, a]}` everywhere (`paint`, `fill`, `wire`), the colour premultiplied as the core holds it, the token where it came from one. So a theme change changes every face's revision (question 13 asked for tokens alone where there is one; not done, see 17).
+- **No geometry yet:** no wire `path`, no open group's `rect`, no mark's `at`, no `fit` rect, no `clock`, `grid`, `highlight` (a reveal's highlight is the shell's) or `buttons`. Slice 3 adds them.
+- **The header** is `{open, icon, about: {name, description, family?, path?, id, known}, state: {kind, paint?, hover?}, title: {text, watch}, badges: [{text, paint, hover}], engine: {text, pinned, hover}?, status: [{text, paint, strong, hover?}], enter}`. `title.watch` stands for the draft's tap (`run.watch`) and double tap (`node.parameters`); `enter` for a proxy's pencil (`canvas.focus`); the chevron is `open`.
+- **A face** also has `run: {state, fraction, stale, notRun}` (the real state, 8.6's first layer, `state` one of `queued started progress preview done cached error skipped cancelled`) and `shown` (the animation's, a string). No `about` at the top level (it is the header's), no `highlight`.
+- **An input row** is `{key, node, label, list, ty, pin: {shape, fill, wire, wireable}, source, text?, hover?, dim, from?, named?: {name, paint, hover}, badge?, widget?, inactive?}`: `node` is the member a proxy's row stands for (the draft's `member`); `from` is `inherited`'s "from <bundle>". An output row is `{key, node, label, list, ty, pin, hover}`; a tap watches `{node, port: key}`.
+- **A widget** is `{kind, value, default, blank, clearable, min, max, softMin, softMax, step, decimals, int, choices: [{value, label, disabled?}], pathMode?, colorFormat?, hover?}`.
+- **A preview** is `{kind: "rgba8", handle, w, h, size, hoverSize, items, summary, note?, faded}` or `{kind: "peaks", handle, channels, size, note?, faded}`; `handle` is the value's `DataRef` as JSON (what `media.get` takes). A text excerpt is a footer item, not a preview.
+- **Footer items** are `fields {text, hover, all}`, `convert {lines: [{text, paint, hover?}]}`, `editor {label, hover}`, `progress {fraction, stage?}`, `error {text, full, paint}`, `save {port, sheet}`, `excerpt {text, faded, hover}`, `engineText {text, full}`, `appText {text, full}`, in that order.
+- **A wire** is `{id, nid, rev, from, to, fromFace, fromPin, toFace, toPin, paint, kind: "plain" | "routed" | "net", via, slice?, net?}`: the faces and pin indices it is drawn between (a collapsed group's face stands for its members); `slice` is the label text (`[:-1]`).
+- **A net** is `{id, nid, rev, key, paint, selected, driver: {from, face, pin, at}, uses: [{to, face, pin, at}]}`; `id` is `name` or `name@group`.
+- **A group** is `{id, nid, rev, name, collapsed, parent?, depth, proxy}`; a frame `{id, nid, rev, title, pos, size, paint}`; a mark `{id, nid, rev, label, tone, paint, tooltip?}`, `id` the wire's.
+- **Top level:** `{shell, doc, gen, full, nodes, wires, nets, frames, groups, marks, selection: {nodes, groups, net}, focus: {group, path: [{id, name}]} | null, anim: {on, replay, generation, holdMs, fadeMs, pulseMs}}`.
+- **`nid`** is interned per item kind (a face and a wire may share a number); never reused within a document's life.
 
 ### 8.1 Coordinates
 
@@ -537,6 +555,8 @@ The core computes from them: wire endpoints and paths, hit tests (9.2), Tidy's `
 ### 8.12 Revisions and deltas
 
 `scene.get {since: g}` returns `{gen, full: false, upsert: {nodes, wires, nets, frames, groups, marks}, remove: {nodes: [ids], wires, nets, frames, groups, marks}, anim?}`: items whose `rev > g`, and ids gone since `g`. The core keeps removals for the last 256 generations; older, or no `since`, gets `full: true` with every item. Within an upserted item every field is present (no field-level patches). A shell redraws a face only when its `rev` changed.
+
+As built (N2 slice 2): the delta also carries `shell`, `doc` and `since`, and `selection`, `focus` and `anim` come in every reply, full or not (they are small). `scene.get` rebuilds the scene and compares each item's JSON with what was published (a hash); the generation rises only when something changed, so asking twice with nothing changed gives the same `gen` and an empty delta. A `since` newer than the scene's `gen` also gets `full: true`. `remove` lists every kind, empty or not. Cost at 500 nodes and 800 wires (release, Apple M4 Max, `crates/ffi/tests/measure_scene.rs`): a delta after one node's run state changed is 2 KB and 4.5 ms request to reply, nearly all of it the rebuild and the hashing; the whole scene is 1.1 MB and 25 ms.
 
 ### 8.13 Gestures and the commands they become
 
@@ -877,7 +897,7 @@ egui passes it first (N2), the FFI passes it headless, then each native shell.
 
 ### 16.2 Shared fixtures
 
-In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene-*.json` (a scene for each face, row, widget and footer kind, a delta), `menu.json`, `theme-*.json`, `asks.json` (every kind with params and answers), `geometry.json`, and `hostile/` (malformed of each). Schema: `schema/shell1.json`.
+In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene/full.json` (every row source, widget kind, footer kind and run state, wires plain, routed, sliced and through a net, a frame, a collapsed group) and `scene/delta.json` (one node's run state changed), both built (N2 slice 2; `scene::tests::the_shared_fixtures_are_the_scene_and_decode` checks them and `PLUMCRAFT_WRITE_FIXTURES=1` rewrites them); still to come: `menu.json`, `theme-*.json`, `asks.json` (every kind with params and answers), `geometry.json`, and `hostile/` (malformed of each). Schema: `schema/shell1.json`.
 
 ## 17. Open questions
 
@@ -897,7 +917,7 @@ Each with the answer recommended.
 10. **`view.zoom` on mobile.** egui's zoom factor scales the whole window; iOS and Android scale text themselves. *Recommended:* honour `view.zoom` on desktops only; on mobile Settings hides it and the command is disabled with the reason.
 11. **Two documents and one in-process engine.** Not known whether two sessions may share one in-process engine (plan 4.3). *Recommended:* one engine per document until the N1 audit says otherwise. **Decided otherwise: one in-process engine is shared by the documents from the start.** N1's audit then has to make that safe (both in-process engines report one session id today, `s-<pid>`), not decide whether to allow it.
 12. **Node identity for hot calls.** *Recommended:* an interner per document mapping graph ids to `u64`, never reused, so a stale `nid` after a remove misses rather than hitting another node.
-13. **Colours in the scene.** Tokens by name keep theme changes from rebuilding faces, but some colours are computed (family tints, wire types, run fills). *Recommended:* token names where the colour is a token, `[r, g, b, a]` where computed; a theme change bumps the `scene` generation only for faces whose computed colours change.
+13. **Colours in the scene.** Tokens by name keep theme changes from rebuilding faces, but some colours are computed (family tints, wire types, run fills). *Recommended:* token names where the colour is a token, `[r, g, b, a]` where computed; a theme change bumps the `scene` generation only for faces whose computed colours change. *As built in N2 slice 2, not yet as decided:* every colour carries its `[r, g, b, a]` and, where it has one, its token, so a theme change bumps every face. Dropping the colour where there is a token needs the shells to resolve a few names the theme table lacks (`pin_hidden`, `group`, `group_body`); left for Draft 2.
 14. **Text the core writes.** Status texts ("stale", "12.3 ms", "3 more fields"), menu labels and errors are English and made by the core. *Recommended:* keep them in the core (one wording everywhere) and localise there later; a shell never builds sentences.
 15. **Run colours without per-frame scene changes.** *Recommended:* as section 8.6: the core publishes states and times, the shell animates with the formula given; the core checks `runAnim.strength` against the same formula in `ui.inspect`.
 16. **Command count.** The plan says "the 111 or so commands"; 111 ids are written inline and the settings and named-port commands are built by helpers (`settings_cmds.rs:151-183`, `named_cmds.rs:258`), so there are more. *Recommended:* generate the menu fixture from the registry, never count by hand.

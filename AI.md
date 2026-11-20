@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — N2 slice 2: the scene (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "go for N2"; "same arrangement for N2".
+
+**What the AI did.** `crates/editor-core/src/scene.rs` (2,142 lines, new): the scene model, its revisions and deltas, and `scene.get`; `bundle.rs` and `widget_text.rs` moved from `crates/ui` into the core; `crates/ui` draws node faces from the scene (+524 −641 in existing files). Two fixture files and 10 tests, one over the C ABI; two ignored measurement tests.
+
+**Checked.** By the agent: the suite with CI's command under b3 on the Mac, 1,407 of 1,408 before and 1,417 of 1,418 after (the one failure the known local one); 41 control replies and 124 menu dumps identical; screenshots the same apart from run timings; the maintainer's preferences unchanged by checksum. By the controller: fmt, clippy, both gate scripts, the core and C ABI tests (158) rerun; a run on the Linux host before the merge.
+
+**Defects and shortfalls.** The agent's own new C ABI test failed in its first full run: it read the feed through a client that discards `changed`. The test was rewritten; no core change. The scene's rebuild is too slow for large graphs (36 ms for a one-node change at 2,000 nodes against a 16 ms budget) and its cause is only partly found. Colours do not yet follow the contract's decision (tokens only). The controller did not read the 2,142 lines, and the brief's baseline count was wrong by one.
+
 ### 2026-11-19 — B28: the hash gate counted colour codes (Claude Fable 5.2)
 
 **What the maintainer asked for.** "fix B28,29", and "you run tests for Linux on yellowfin."

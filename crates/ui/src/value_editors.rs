@@ -97,6 +97,14 @@ pub fn facts() -> Vec<(String, String, String)> {
     registry().iter().map(|k| (k.kind.to_owned(), k.label.to_owned(), k.help.to_owned())).collect()
 }
 
+/// Every kind as the core's scene takes them (N2 slice 2): its words and its summary.
+pub fn scene_editors() -> Vec<plumcraft_editor_core::scene::Editor> {
+    registry()
+        .iter()
+        .map(|k| plumcraft_editor_core::scene::Editor { kind: k.kind.to_owned(), label: k.label.to_owned(), help: k.help.to_owned(), summary: Some(k.summary) })
+        .collect()
+}
+
 /// Every kind this application has. PlumCraft itself has none.
 pub fn registry() -> &'static [EditorKind] {
     KINDS.get_or_init(|| {

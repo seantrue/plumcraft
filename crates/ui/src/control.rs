@@ -78,6 +78,12 @@ impl core::Shell for EditorApp {
     fn menu_revision(&mut self) -> Option<&mut plumcraft_editor_core::menu::Revision> {
         Some(&mut self.doc.menus)
     }
+    fn scene(&self) -> Option<plumcraft_editor_core::scene::Scene> {
+        Some(self.scene_now())
+    }
+    fn scene_published(&mut self) -> Option<&mut plumcraft_editor_core::scene::Published> {
+        Some(&mut self.doc.scene)
+    }
     fn view(&self) -> View<'_> {
         View {
             link: self.doc.link.as_ref(),
