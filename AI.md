@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — B30: video frames pass through on ffmpeg before 5.1 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The maintainer said "start tasks for addressing bugs"; this task was B30 (#113), on the Linux test host.
+
+**What the agent did (82 lines added and 4 removed in `crates/array/src/channels/video.rs`, about 30 of them the test; ledgers apart).** The video reader asks `ffmpeg -version` once per ffmpeg program (remembered for the process) and passes `-vsync passthrough` to a version before 5.1, `-fps_mode passthrough` to a newer one; an answer with no version in it gets `-fps_mode`, the spelling of git snapshots, which print none. Before the fix, every other option the reader, ffprobe and the MP4, MOV and GIF writers pass was run by hand on ffmpeg 4.4.2, and each written clip read back: `-fps_mode` was the only one missing. New test `frames_pass_through_with_the_option_this_ffmpeg_has`, with hostile answers (empty, no version, overflowing numbers, replacement characters); with the choice replaced by a constant `-fps_mode` it fails, as does `video_goes_to_frames_and_back` on 4.4.2.
+
+**Defects.** None found in this change.
+
+**Not verified.** Only ffmpeg 4.4.2 was run; the `-fps_mode` path on 5.1 or newer is left to CI's ffmpeg. The full run on the Linux test host had five failures, none in the array crate; one, `plumcraft-media` `blocking_reads_in_place_and_shares_the_cache`, is not among the known ones: it failed 1 of 10 runs alone ("then cached"), in a crate that doesn't depend on the array crate.
+
 ### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The last slice of N2 under the maintainer's "same arrangement for N2". The colour question was the maintainer's earlier answer "13A" (tokens, not colours beside them).

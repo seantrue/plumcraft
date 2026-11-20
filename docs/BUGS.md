@@ -4,14 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B30. Video to frames fails with ffmpeg older than 5.1 (Ubuntu 22.04)
-
-- Reported: 2026-11-20
-- Report: "Bug:" (in answer to: the array engine's video reader passes `-fps_mode passthrough`, which ffmpeg only has from 5.1; Ubuntu 22.04 packages 4.4.2)
-- Context: `video_goes_to_frames_and_back` (`crates/array/tests/channels.rs`) fails on the Linux test host with "video: /usr/bin/ffmpeg failed: Error splitting the argument list: Option not found". The option is passed at `crates/array/src/channels/video.rs:248`. GitHub's runner has a newer ffmpeg, so CI doesn't show it.
-- Cause: `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. Confirmed by the error on ffmpeg 4.4.2; the other options the reader and writer pass were not each checked against 4.4.
-- Issue: #113
-
 ### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
 
 - Reported: 2026-11-20
@@ -42,6 +34,16 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 
 ## Fixed
+
+### B30. Video to frames fails with ffmpeg older than 5.1 (Ubuntu 22.04)
+
+- Reported: 2026-11-20
+- Report: "Bug:" (in answer to: the array engine's video reader passes `-fps_mode passthrough`, which ffmpeg only has from 5.1; Ubuntu 22.04 packages 4.4.2)
+- Context: `video_goes_to_frames_and_back` (`crates/array/tests/channels.rs`) fails on the Linux test host with "video: /usr/bin/ffmpeg failed: Error splitting the argument list: Option not found". The option is passed at `crates/array/src/channels/video.rs:248`. GitHub's runner has a newer ffmpeg, so CI doesn't show it.
+- Issue: #113
+- Cause (2026-11-20, confirmed): `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. It is the only option the video nodes pass that 4.4 lacks: on ffmpeg 4.4.2 the reader with `-vsync` (rgb24 and grayf32le), the ffprobe call, and the MP4 (libx264), MOV (prores_ks, profile 3, yuv422p10le) and GIF (palettegen/paletteuse, `-loop 0`, rgb and gray) writers all ran, and each written clip read back.
+- Fix: the reader asks `ffmpeg -version` once per ffmpeg program and passes `-vsync` for a version before 5.1, else `-fps_mode`; an answer with no version in it (a git snapshot, or anything unparseable) gets `-fps_mode`. Test: `frames_pass_through_with_the_option_this_ffmpeg_has`.
+- Fixed: 2026-11-20, PR #PRNUM
 
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 
