@@ -45,6 +45,20 @@ fn always(_: &Session) -> Result<(), String> {
     Ok(())
 }
 
+/// `run.start`'s own rule (an engine connected, a graph to run), for Run Selected; that something
+/// is selected is checked when it runs, and by the menu model's item ([`run_selected_reason`]).
+fn can_run(s: &Session) -> Result<(), String> {
+    plumcraft_session::find("run.start").map_or(Ok(()), |c| (c.enabled)(s))
+}
+
+/// Why Run Selected can't run now, if it can't: `run.start`'s reason, or nothing selected.
+pub fn run_selected_reason(s: &Session, selected: usize) -> Option<String> {
+    if let Err(why) = can_run(s) {
+        return Some(why);
+    }
+    (selected == 0).then(|| "select nodes to run what they need".to_owned())
+}
+
 const COMMANDS: &[CanvasCommand] = &[
     CanvasCommand {
         id: "selection.set",
@@ -134,6 +148,15 @@ const COMMANDS: &[CanvasCommand] = &[
         shortcut: None,
         params: "{by: [dx, dy] graph units, each within ±10000, drag?: names the key press, as edit.move's} -> edit.move's reply (the selected nodes and collapsed groups moved by it; the arrow keys, 1 unit, 10 with Shift; nudges of the same selection naming the same drag, or none less than a second apart, are one undo step)",
         enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "run.selected",
+        label: "Run Selected",
+        menu: &["Run"],
+        shortcut: None,
+        params: "{} -> run.start's reply (run.start {targets} with the selected nodes and the members of selected collapsed groups: they and what they need upstream run; the Watched panel's watches as run.start's default). Refused when nothing is selected",
+        enabled: can_run,
         shell: false,
     },
     CanvasCommand {
@@ -297,7 +320,9 @@ fn palette_param(session: &Session, p: &Value) -> Result<(Value, Option<crate::s
     if let Some(w) = &wire {
         reply["wire"] = serde_json::to_value(w).unwrap_or(Value::Null);
         if let Some((end, output)) = w.end() {
-            reply["offered"] = json!(crate::palette::fitting(session.graph(), session.catalog(), &end, output).len());
+            let starts = plumcraft_session::engine_cmds::startable_defs(session);
+            let catalog = crate::palette::with_starts(session.catalog(), &starts);
+            reply["offered"] = json!(crate::palette::fitting(session.graph(), &catalog, &end, output).len());
         }
     }
     let state = crate::scene::Palette { at: at_param(p)?, query: query.as_str().map(str::to_owned), wire };
@@ -420,6 +445,16 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             };
             h.doc_mut().palette = None;
             Ok(r)
+        }
+        "run.selected" => {
+            check_fields(params, &[])?;
+            let graph = d.session.graph();
+            let targets = d.selection.with(|s| s.members(graph));
+            if targets.is_empty() {
+                return Err("select nodes to run what they need".into());
+            }
+            let targets: Vec<&str> = targets.iter().map(|n| n.0.as_str()).collect();
+            h.run("run.start", &json!({"targets": targets}))
         }
         "selection.nudge" => {
             check_fields(params, &["by", "drag"])?;

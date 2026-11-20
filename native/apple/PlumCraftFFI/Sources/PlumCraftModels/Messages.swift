@@ -193,6 +193,9 @@ public struct PaletteItem: Codable, Hashable, Sendable, Identifiable {
     public var category: String
     /// With a dropped wire: the port a pick connects.
     public var port: String?
+    /// The engine choosing it starts (its kinds aren't in the catalogue until it is up; the add
+    /// waits for it, N4 slice 1).
+    public var starts: String?
     public var id: String { kind }
 }
 

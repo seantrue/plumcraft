@@ -464,6 +464,11 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
         "Edit" => items.extend(edit_items(facts)),
         "View" => items.extend(view_items(session)),
         "Node" => items.extend(node_items(session, facts)),
+        "Run" => {
+            // Run Selected (a canvas command: it runs the selection) after Run
+            let at = items.iter().position(|i| i.command.as_deref() == Some("run.start")).map_or(items.len(), |k| k + 1);
+            items.insert(at, run_selected_item(session, facts));
+        }
         _ => {}
     }
     let mut m = Item::submenu(&format!("menu:{title}"), title, items);
@@ -554,6 +559,15 @@ fn edit_items(facts: &Facts) -> Vec<Item> {
     }
     items.push(m);
     items
+}
+
+/// Run › Run Selected: enabled by the selection, with the reason when it can't run.
+fn run_selected_item(session: &Session, facts: &Facts) -> Item {
+    let item = Item::new("run.selected", "Run Selected", Some("run.selected"), None).hover("Run the selected nodes and what they need upstream");
+    match crate::canvas_cmds::run_selected_reason(session, facts.selected.len() + facts.selected_groups.len()) {
+        Some(why) => item.disabled(Some(why)),
+        None => item,
+    }
 }
 
 /// View › Animation Speed and Fit.

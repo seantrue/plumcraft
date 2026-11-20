@@ -223,6 +223,8 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         v.onContextMenu = { [weak self] p, items in self?.popContext(items, at: p) }
         v.onCanvasKey = { [weak self] id in self?.canvasKey(id) }
         v.validate = { mi in MenuBar.shared.validateStandard(mi) }
+        v.onCommands = { [weak self] ran in self?.ranByGesture(ran) }
+        v.palettePopover.onShown = { [weak self] _ in self?.reportNow() }
         // the panel
         let panel = WatchedPanel(model: model, pictures: v.canvas.pictures)
         panel.onShown = { [weak self] in self?.report(doc: doc, ready: nil, opened: opened) }
@@ -334,9 +336,11 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     static let cancelID = NSToolbarItem.Identifier("cancel")
     static let engineID = NSToolbarItem.Identifier("engine")
     static let watchedID = NSToolbarItem.Identifier("watched")
+    static let fitID = NSToolbarItem.Identifier("fit")
+    static let addID = NSToolbarItem.Identifier("add")
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.runID, Self.runSelectedID, Self.cancelID, .flexibleSpace, Self.engineID, .space, Self.watchedID]
+        [Self.addID, Self.fitID, .space, Self.runID, Self.runSelectedID, Self.cancelID, .flexibleSpace, Self.engineID, .space, Self.watchedID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
@@ -375,6 +379,16 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             item.view = box
             item.label = "Engines"
             item.visibilityPriority = .low
+        case Self.fitID:
+            item.label = "Fit"
+            item.toolTip = "Fit the view to all nodes (F)"
+            item.image = NSImage(systemSymbolName: "arrow.up.left.and.down.right.magnifyingglass", accessibilityDescription: "Fit")
+            item.action = #selector(fitView(_:))
+        case Self.addID:
+            item.label = "Add Node"
+            item.toolTip = "Add a node from the palette (Tab, or double-click the canvas)"
+            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Node")
+            item.action = #selector(addNode(_:))
         case Self.watchedID:
             item.label = "Watched"
             item.toolTip = "Show or hide the Watched panel (⌥⌘I)"
@@ -399,10 +413,12 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             item.toolTip = it?.enabled == false ? (it?.reason ?? "Can't run now") : "Run the graph (⌘Return)"
             return it?.enabled ?? false
         case Self.runSelectedID:
-            let it = modelItem("run.start")
-            let sel = canvasView?.model.selection.nodes ?? []
-            item.toolTip = sel.isEmpty ? "Select nodes to run what they need" : "Run what the \(sel.count) selected nodes need"
-            return (it?.enabled ?? false) && !sel.isEmpty
+            // the core's command and its reason (N4 slice 1)
+            let it = modelItem("run.selected")
+            item.toolTip = it?.enabled == false ? (it?.reason ?? "Can't run now") : "Run the selected nodes and what they need"
+            return it?.enabled ?? false
+        case Self.fitID, Self.addID:
+            return canvasView != nil
         case Self.cancelID:
             let it = modelItem("run.cancel")
             item.toolTip = it?.enabled == false ? (it?.reason ?? "Nothing is running") : "Cancel the run (⌘.)"
@@ -419,14 +435,27 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         MenuBar.shared.dispatch(it, model: m)
     }
 
-    /// Run what the selection needs: `run.start {targets}` with the core's selection.
+    /// Run Selected: the core's `run.selected` (N4 slice 1: everything is a command).
     @objc func runSelected(_ sender: Any?) {
-        guard let m = canvasView?.model else { return }
-        let sel = m.selection.nodes
-        guard !sel.isEmpty else { return }
-        Task {
-            do { _ = try await m.run("run.start", ["targets": .array(sel.map { .string($0) })]) } catch { banner("Run Selected: \(error)") }
-        }
+        guard let m = canvasView?.model, let it = modelItem("run.selected") else { return }
+        MenuBar.shared.dispatch(it, model: m)
+    }
+
+    /// Fit: the core's `canvas.fit` (the View menu's item, the F key).
+    @objc func fitView(_ sender: Any?) {
+        canvasView?.fitView(sender)
+    }
+
+    /// Add Node: the palette at the view's centre.
+    @objc func addNode(_ sender: Any?) {
+        guard let v = canvasView else { return }
+        v.openPalette(at: CGPoint(x: v.bounds.midX, y: v.bounds.midY))
+    }
+
+    /// What a gesture ran: a refusal (a wire that doesn't fit) or a command with no UI yet is said.
+    func ranByGesture(_ ran: [CommandRun]) {
+        if let bad = ran.first(where: { !$0.ok }), let e = bad.error { return banner(e) }
+        if let s = ShellCommands.notBuilt(ran: ran) { banner(s) }
     }
 
     @objc func cancelRun(_ sender: Any?) {
@@ -525,6 +554,15 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             s["dirty"] = .bool(st.dirty)
             s["washes"] = .int(Int64(v.model.faces.items.filter { $0.shown != nil }.count))
             s["anim"] = .bool(v.model.anim.on)
+            s["redo"] = st.redo.map(JSONValue.string) ?? .null
+            s["nodes"] = .int(Int64(v.model.faces.count))
+            s["wireCount"] = .int(Int64(v.model.wires.count))
+            s["dragging"] = .bool(v.drag.active)
+            let pal = v.palette
+            s["palette"] = pal.isOpen
+                ? ["open": true, "wire": .bool(pal.forWire), "items": .array(pal.items.prefix(40).map { .string($0.label) }),
+                   "shown": .bool(v.palettePopover.isShown), "pending": pal.pendingText.map(JSONValue.string) ?? .null]
+                : ["open": false, "shown": .bool(v.palettePopover.isShown)]
         }
         if let p = watched { s["watched"] = .object(p.describe) }
         Status.shared.window(doc, .object(s))

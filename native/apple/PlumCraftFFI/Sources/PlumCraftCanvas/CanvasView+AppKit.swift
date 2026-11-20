@@ -8,7 +8,12 @@
 //        actualSize); smart zoom (two-finger double tap) fits the node under the pointer, and a
 //        second one goes back.
 //   Select: click, Shift-click (adds), ⌘-click (takes away); a drag the core decides on (a
-//        marquee on empty canvas, a move on a face, a wire from a pin) through ui.gesture's drag.
+//        marquee on empty canvas, a wire, a tag or a frame's body; a move on a face; a wire from
+//        a pin, or a wired input's end picked up; a frame, a group, a bend point) through
+//        ui.gesture's drag, drawn by the kit's CanvasDrag (N4 slice 1), with autoscroll at the
+//        view's edge; Escape cancels it.
+//   Add: a double click on empty canvas, a secondary click there, Tab, or Node › Search… opens
+//        the core's palette at that point (N4 slice 1), shown as a popover (PalettePopover).
 //   Hover: a ring on the pin and a wider wire under the pointer, from the typed hit test.
 
 #if os(macOS)
@@ -33,10 +38,14 @@ public final class CanvasView: NSView, NSMenuItemValidation {
     var lastPoint = CGPoint.zero
     var downPoint: CGPoint?
     var downMods: [ModifierWord] = []
-    var downHit: HotHit?
-    var dragTask: Task<GestureReply?, Never>?
-    var dragKind: DragWord?
     var dragging = false
+    /// The drag under way (the kit's, shared with the iPad).
+    public let drag: CanvasDrag
+    /// The node palette (the core's state) and its popover.
+    public let palette: PaletteModel
+    public let palettePopover: PalettePopover
+    /// A gesture ran commands (the host says when one has no UI yet).
+    public var onCommands: (([CommandRun]) -> Void)?
     var smartReturn: Viewport?
     var endPanTask: Task<Void, Never>?
     var trackingArea: NSTrackingArea?
@@ -55,7 +64,23 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         root.masksToBounds = true
         let scale = NSScreen.main?.backingScaleFactor ?? 2
         canvas = LayerCanvas(model: model, host: root, screenScale: scale)
+        palette = PaletteModel(model: model)
+        let c = canvas
+        drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 10, zoom: Double(c.viewport.zoom)) }
+        palettePopover = PalettePopover(palette: palette)
         super.init(frame: frame)
+        drag.onError = { [weak self] e in self?.onError?(e) }
+        drag.onEnded = { [weak self] _, r in if let r { self?.onCommands?(r.commands) } }
+        palette.fallbackAt = { [weak self] in
+            guard let self else { return Point(0, 0) }
+            return graph(CGPoint(x: bounds.midX, y: bounds.midY))
+        }
+        palette.onOpen = { [weak self] p in self?.showPalette(p) }
+        palette.onClose = { [weak self] in
+            self?.palettePopover.close()
+            self?.drag.releaseWire()
+        }
+        model.onView = { [weak self] v in self?.palette.follow(v) }
         layer = root
         wantsLayer = true
         layerContentsRedrawPolicy = .never
@@ -196,7 +221,9 @@ public final class CanvasView: NSView, NSMenuItemValidation {
             return
         }
         if e.keyCode == 53, dragging {  // Escape cancels a drag
-            cancelDrag()
+            dragging = false
+            downPoint = nil
+            drag.cancel()
             return
         }
         // the canvas's keys (12.3), when no modifier but Shift is held
@@ -223,6 +250,9 @@ public final class CanvasView: NSView, NSMenuItemValidation {
                 Task { [weak self] in
                     do { _ = try await link.nudge(dx: dx, dy: dy, press: press) } catch { self?.onError?("\(error)") }
                 }
+                return
+            case 48 where !e.modifierFlags.contains(.shift):  // Tab: the palette at the pointer
+                openPalette(at: pointerInView())
                 return
             default:
                 if e.charactersIgnoringModifiers?.lowercased() == "f" {
@@ -304,8 +334,6 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         }
         downPoint = p
         downMods = Self.mods(e.modifierFlags)
-        let h = canvas.link.hit(graph(p), slop: slop)
-        downHit = h.ok ? h : nil
         dragging = false
     }
 
@@ -320,9 +348,10 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         if !dragging {
             guard hypot(p.x - d.x, p.y - d.y) > 3 else { return }
             dragging = true
-            beginDrag(at: graph(d))
+            canvas.hover(nil)
+            drag.begin(at: d, mods: downMods)
         }
-        moveDrag(to: p)
+        drag.move(to: p)
     }
 
     public override func mouseUp(with e: NSEvent) {
@@ -332,13 +361,10 @@ public final class CanvasView: NSView, NSMenuItemValidation {
             if spaceHeld { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
             return
         }
-        defer {
-            downPoint = nil
-            downHit = nil
-        }
+        defer { downPoint = nil }
         if dragging {
             dragging = false
-            endDrag(at: graph(p))
+            drag.end(at: p)
             return
         }
         guard downPoint != nil else { return }
@@ -349,11 +375,12 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         Task { [weak self] in
             guard let self else { return }
             do {
-                if double {
+                let r = if double {
                     try await canvas.link.doubleTap(g, mods: mods, slop: s)
                 } else {
                     try await canvas.link.tap(g, mods: mods, slop: s)
                 }
+                onCommands?(r.commands)
             } catch {
                 onError?("\(error)")
             }
@@ -380,85 +407,33 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         NSCursor.arrow.set()
     }
 
-    // MARK: Drags, decided by the core
+    // MARK: The palette
 
-    func beginDrag(at g: Point) {
-        let mods = downMods
-        let s = slop
-        dragKind = nil
-        let link = canvas.link
-        dragTask = Task { [weak self] in
-            do {
-                let r = try await link.dragBegin(g, mods: mods, slop: s)
-                guard let self else { return r }
-                dragKind = r.drag?.kind.word
-                if dragKind == .move, let faces = r.drag?.faces { canvas.beginMove(faces) }
-                if dragging, let p = latest { moveDrag(to: p) }
-                return r
-            } catch {
-                self?.onError?("\(error)")
-                return nil
-            }
-        }
+    /// Where the pointer is in the view (the view's centre when it is outside).
+    func pointerInView() -> CGPoint {
+        guard let w = window else { return CGPoint(x: bounds.midX, y: bounds.midY) }
+        let p = convert(w.mouseLocationOutsideOfEventStream, from: nil)
+        return bounds.contains(p) ? p : CGPoint(x: bounds.midX, y: bounds.midY)
     }
 
-    var latest: CGPoint?
-
-    /// Each pointer move while dragging: the typed move (`plum_gesture_move`), never JSON.
-    func moveDrag(to p: CGPoint) {
-        latest = p
-        guard let kind = dragKind else { return }
-        let g = graph(p)
-        let d = canvas.link.dragMove(g, slop: slop)
-        guard d.ok else { return }
-        switch kind {
-        case .move:
-            canvas.move(dx: CGFloat(d.dx), dy: CGFloat(d.dy))
-        case .marquee:
-            canvas.showMarquee(CGRect(x: CGFloat(d.rect.0), y: CGFloat(d.rect.1), width: CGFloat(d.rect.2 - d.rect.0), height: CGFloat(d.rect.3 - d.rect.1)))
-        case .wire:
-            let from = downHit.map { CGPoint(x: CGFloat($0.x), y: CGFloat($0.y)) }
-            let snap = d.target.kind == .pin ? CGPoint(x: CGFloat(d.target.x), y: CGFloat(d.target.y)) : CGPoint(x: g.x, y: g.y)
-            canvas.showDragWire(from: from, to: snap, fits: d.target.kind == .pin ? d.target.fits : 0)
-        default:
-            break
-        }
-    }
-
-    func endDrag(at g: Point) {
-        let s = slop
-        let begun = dragTask
-        let link = canvas.link
+    /// Open the core's palette at view point `p` (Tab, Node › Search…, the toolbar).
+    public func openPalette(at p: CGPoint? = nil) {
+        let at = graph(p ?? pointerInView())
+        let palette = self.palette
         Task { [weak self] in
-            _ = await begun?.value
-            var moved = false
-            do {
-                let r = try await link.dragEnd(g, slop: s)
-                moved = r.commands.contains { $0.ok && $0.command == "edit.move" }
-            } catch {
-                self?.onError?("\(error)")
-            }
-            self?.clearDrag(kept: moved)
+            do { try await palette.open(at: at) } catch { self?.onError?("\(error)") }
         }
     }
 
-    func cancelDrag() {
-        dragging = false
-        let begun = dragTask
-        let link = canvas.link
-        Task { [weak self] in
-            _ = await begun?.value
-            _ = try? await link.dragCancel()
-            self?.clearDrag()
+    /// The core opened the palette: the popover at its point (the view's centre when it has none
+    /// or the point is out of sight).
+    func showPalette(_ p: Palette) {
+        var v = CGPoint(x: bounds.midX, y: bounds.midY)
+        if let at = p.at {
+            let q = canvas.viewport.toView(CGPoint(x: at.x, y: at.y))
+            if bounds.insetBy(dx: 8, dy: 8).contains(q) { v = q }
         }
-    }
-
-    func clearDrag(kept: Bool = false) {
-        dragKind = nil
-        latest = nil
-        canvas.showMarquee(nil)
-        canvas.showDragWire(from: nil, to: .zero, fits: 0)
-        canvas.endMove(kept: kept)
+        palettePopover.show(at: v, in: self)
     }
 
     // MARK: The standard actions (the Edit menu's, down the responder chain)

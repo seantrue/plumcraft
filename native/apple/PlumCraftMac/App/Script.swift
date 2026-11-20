@@ -19,11 +19,14 @@
 //   end-sheet                 close the window's sheet (Cancel)
 //   theme:dark|light          the app's appearance
 //   quit                      quit
+//   press, moveto, release, release-cancel, palette, type, pick, dismiss: the editing gestures'
+//                             steps (PlumCraftShell's CanvasSteps, shared with the iPad)
 
 import AppKit
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
+import PlumCraftShell
 
 @MainActor
 struct Script {
@@ -99,9 +102,24 @@ struct Script {
         case "toggle-watched":
             window.toggleWatched(nil)
         case "quit":
+            // a scripted launch quits without asking about unsaved changes, as its TERM does (N4
+            // slice 1: an edited graph's review alert waited for nobody and blocked the TERM)
+            if CoreHost.options.scratchState {
+                for d in NSDocumentController.shared.documents { d.updateChangeCount(.changeCleared) }
+            }
             NSApp.terminate(nil)
+        case "windows":
+            // every window of this app on screen, for a script's pictures by number (a popover is
+            // its own window)
+            Status.shared.set("allWindows", .array(Self.allWindows()))
+        case "shot-ready":
+            // a script's picture can be taken now (it waits on the step's `done`)
+            try? await Task.sleep(for: .milliseconds(500))
         default:
-            NSLog("PlumCraft: --then: unknown step %@", step)
+            // the editing gestures' steps, shared with the iPad (N4 slice 1)
+            if await !CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette).run(parts) {
+                NSLog("PlumCraft: --then: unknown step %@", step)
+            }
         }
     }
 
@@ -126,6 +144,18 @@ struct Script {
         note.invalidate()
         close.invalidate()
         Status.shared.set("menuWindows", .array([]))
+    }
+
+    /// This app's windows on screen, front first: number, layer and bounds.
+    static func allWindows() -> [JSONValue] {
+        let pid = ProcessInfo.processInfo.processIdentifier
+        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] else { return [] }
+        return list.compactMap { w in
+            guard (w[kCGWindowOwnerPID as String] as? Int32) == pid, let n = w[kCGWindowNumber as String] as? Int else { return nil }
+            let b = w[kCGWindowBounds as String] as? [String: Double] ?? [:]
+            return ["n": .int(Int64(n)), "layer": .int(Int64(w[kCGWindowLayer as String] as? Int ?? 0)),
+                    "bounds": [.double(b["X"] ?? 0), .double(b["Y"] ?? 0), .double(b["Width"] ?? 0), .double(b["Height"] ?? 0)]]
+        }
     }
 
     /// This app's windows above the normal level (open menus), front first.

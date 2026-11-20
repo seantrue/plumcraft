@@ -95,8 +95,11 @@ struct Script {
                 if parts[1] == "on" { w.traitOverrides.horizontalSizeClass = .compact } else { w.traitOverrides.remove(UITraitHorizontalSizeClass.self) }
             }
             try? await Task.sleep(for: .seconds(1.2))
+        case "select-mode":
+            if (parts.count < 2 || parts[1] == "on") != v.selectMode { graph.toggleSelectMode() }
         default:
-            break
+            // the editing gestures' steps, shared with the Mac (N4 slice 1)
+            _ = await CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette).run(parts)
         }
     }
 }

@@ -113,11 +113,25 @@ pub fn fitting(graph: &Graph, catalog: &SchemaReply, end: &PortRef, from_output:
         .collect()
 }
 
+/// `catalog` with `starts` after its own nodes: the node types an engine not started offers,
+/// which choosing starts (N4 slice 1). Borrowed when there are none.
+pub fn with_starts<'a>(catalog: &'a SchemaReply, starts: &[&NodeDef]) -> std::borrow::Cow<'a, SchemaReply> {
+    if starts.is_empty() {
+        return std::borrow::Cow::Borrowed(catalog);
+    }
+    let mut c = catalog.clone();
+    c.nodes.extend(starts.iter().map(|d| (*d).clone()));
+    std::borrow::Cow::Owned(c)
+}
+
 /// `palette.items {query?, limit?}`'s reply for a palette in `palette` (or none open):
-/// `{items: [{kind, label, category, port?}], total, wire?}`, at most `limit` (default and most
-/// [`MAX_SHOWN`]) in category order, matching every word of `query` (default the palette's own);
-/// with a wire, only the kinds that take it, each with the port a pick connects.
-pub fn items(graph: &Graph, catalog: &SchemaReply, palette: Option<&crate::scene::Palette>, params: &Value) -> Result<Value, String> {
+/// `{items: [{kind, label, category, port?, starts?}], total, wire?}`, at most `limit` (default
+/// and most [`MAX_SHOWN`]) in category order, matching every word of `query` (default the
+/// palette's own); with a wire, only the kinds that take it, each with the port a pick connects.
+/// `starts` are node types the catalogue lacks whose engine isn't started
+/// (`plumcraft_session::engine_cmds::startable_defs`): they are listed among the rest, each with
+/// `starts: <engine>`, since choosing one starts that engine and the add waits for it (N4 slice 1).
+pub fn items(graph: &Graph, catalog: &SchemaReply, starts: &[&NodeDef], palette: Option<&crate::scene::Palette>, params: &Value) -> Result<Value, String> {
     crate::control::check_fields(params, &["query", "limit"])?;
     let query = match params.get("query") {
         None | Some(Value::Null) => palette.and_then(|p| p.query.clone()).unwrap_or_default(),
@@ -128,11 +142,13 @@ pub fn items(graph: &Graph, catalog: &SchemaReply, palette: Option<&crate::scene
         None | Some(Value::Null) => MAX_SHOWN,
         Some(v) => v.as_u64().filter(|n| *n >= 1).map(|n| n.min(MAX_SHOWN as u64) as usize).ok_or("limit must be a whole number, 1 or more")?,
     };
+    let own = catalog.nodes.len();
+    let catalog = with_starts(catalog, starts);
     let mut index = PaletteIndex::default();
-    index.refresh(catalog);
+    index.refresh(&catalog);
     let wire = palette.and_then(|p| p.wire.as_ref());
     let fits: Option<std::collections::BTreeMap<usize, String>> =
-        wire.and_then(|w| w.end()).map(|(end, out)| fitting(graph, catalog, &end, out).into_iter().collect());
+        wire.and_then(|w| w.end()).map(|(end, out)| fitting(graph, &catalog, &end, out).into_iter().collect());
     let (shown, total) = index.filter_in(&query, limit, |i| fits.as_ref().is_none_or(|f| f.contains_key(&i)));
     let items: Vec<Value> = shown
         .iter()
@@ -141,6 +157,11 @@ pub fn items(graph: &Graph, catalog: &SchemaReply, palette: Option<&crate::scene
             let mut v = json!({"kind": def.id, "label": display_name(def), "category": index.category(i)});
             if let Some(port) = fits.as_ref().and_then(|f| f.get(&i)) {
                 v["port"] = json!(port);
+            }
+            if i >= own
+                && let Some(e) = def.engines.first()
+            {
+                v["starts"] = json!(e);
             }
             Some(v)
         })

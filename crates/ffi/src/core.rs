@@ -853,7 +853,8 @@ fn added_kind(h: &Held) -> Option<String> {
         return None;
     }
     let command = params.get("command").and_then(Value::as_str)?;
-    if !matches!(command, "node.add" | "node.addWired") {
+    // `palette.choose` adds one too (N4 slice 1: the palette lists kinds of engines not started)
+    if !matches!(command, "node.add" | "node.addWired" | "palette.choose") {
         return None;
     }
     params.get("params")?.get("kind")?.as_str().map(str::to_owned)
@@ -930,6 +931,7 @@ impl Worker {
         // engine.* commands switch among what this platform can start, and attach
         session.engines.choices = self.launcher.choices();
         session.engines.offered = plumcraft_editor_core::engines::offered(&session.engines.choices);
+        session.engines.offered_defs = plumcraft_editor_core::engines::offered_defs(&session.engines.choices);
         session.engines.auto = self.auto;
         let (target, extras) = self.engines_for(&session, &opening);
         session.engines.current = Some(target.clone());

@@ -100,6 +100,10 @@ pub struct Engines {
     /// that doesn't name its engines still says which it uses ([`engines_used`]; decision 8C at
     /// N3's exit, "start only the engines the graph uses").
     pub offered: Offered,
+    /// The node types behind [`Engines::offered`], each with its engine in `engines` (N4 slice 1:
+    /// the palette lists the kinds an engine not started offers, and choosing one starts it;
+    /// [`startable_defs`]). Empty where the host knows only the kinds, or none.
+    pub offered_defs: Vec<plumcraft_proto::catalogue::NodeDef>,
 }
 
 /// The node kinds each engine offers, by engine id ([`Engines::offered`]).
@@ -382,7 +386,19 @@ pub fn engine_for_kind(s: &Session, kind: &str) -> Option<String> {
     engines_used([(kind, None)], &s.graph().engines, &offered, &here).into_iter().find(|e| offered.contains_key(e) && s.engines.best(e).is_some())
 }
 
-/// Adding a node of a kind only an engine not started offers (N4's palette will offer such kinds;
+/// The node types the catalogue lacks that adding would start an engine for (N4 slice 1: the
+/// palette lists them, saying which engine starts): those of [`Engines::offered_defs`] whose kind
+/// [`engine_for_kind`] would start their own engine for, once each, with picking on. Empty with
+/// picking off, since then such an add is refused.
+pub fn startable_defs(s: &Session) -> Vec<&plumcraft_proto::catalogue::NodeDef> {
+    if !s.engines.auto {
+        return Vec::new();
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    s.engines.offered_defs.iter().filter(|d| engine_for_kind(s, &d.id).is_some_and(|e| d.engines.contains(&e))).filter(|d| seen.insert(d.id.as_str())).collect()
+}
+
+/// Adding a node of a kind only an engine not started offers (N4's palette offers such kinds;
 /// the conformance suite's picture case adds one): with [`Engines::auto`] on, ask for that engine
 /// beside the others, once, as [`start_needed`] does. The engine asked for, or already asked for
 /// and still coming; `None` when there is none to start, or picking is off.

@@ -34,7 +34,7 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
 cd "$here"
 command -v xcodegen >/dev/null && xcodegen generate --quiet
 if [ "$half" = gestures ]; then
-  shots="$root/claude-debug/native-n3/s5-shots"; mkdir -p "$shots"
+  shots="${SHOTS:-$root/claude-debug/native-n3/s5-shots}"; mkdir -p "$shots"
   TEST_RUNNER_PLUMCRAFT_STATUS="$scratch/ui-status.json" TEST_RUNNER_PLUMCRAFT_SHOTS="$shots" \
     timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug -derivedDataPath build \
     -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|TEST (SUCCEEDED|FAILED)'

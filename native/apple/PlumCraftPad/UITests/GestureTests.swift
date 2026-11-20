@@ -1,9 +1,14 @@
-// The iPad's gestures through UIKit's own recognisers (N3 slice 5), driven by XCUITest in the
-// simulator: a tap selects, a tap on empty canvas clears, a long press gives the core's context
-// menu, a pinch zooms, a one-finger drag on empty canvas pans, a double tap on empty canvas fits.
-// What the app did is read from its status file (`--status-file`), whose path the runner gets as
-// PLUMCRAFT_STATUS (TEST_RUNNER_PLUMCRAFT_STATUS for xcodebuild); screenshots go to
-// PLUMCRAFT_SHOTS when it is set. Local runs only (no macOS CI): conformance.sh gestures.
+// The iPad's gestures through UIKit's own recognisers, driven by XCUITest in the simulator (N3
+// slice 5; editing since N4 slice 1): a tap selects, a tap on empty canvas clears, a long press
+// gives the core's context menu, a pinch zooms, a one-finger drag on empty canvas pans; a double
+// tap on empty canvas opens the palette there; a one-finger drag on a face moves it (one undo
+// step) and a two-finger tap undoes it, a three-finger tap redoes it; a drag from an output pin
+// dropped on empty canvas opens the palette filtered to what takes the wire, and a tap on a row
+// adds and connects (one undo step); Select mode makes a one-finger drag a marquee; a two-finger
+// double tap tidies; the toolbar's Fit fits. What the app did is read from its status file
+// (`--status-file`), whose path the runner gets as PLUMCRAFT_STATUS (TEST_RUNNER_PLUMCRAFT_STATUS
+// for xcodebuild); screenshots go to PLUMCRAFT_SHOTS when it is set. Local runs only (no macOS
+// CI): conformance.sh gestures.
 
 import XCTest
 
@@ -70,7 +75,7 @@ final class GestureTests: XCTestCase {
         centre.press(forDuration: 0.8)
         let duplicate = app.buttons["Duplicate"]
         XCTAssertTrue(duplicate.waitForExistence(timeout: 10), "the context menu's Duplicate")
-        shot("s5-ui-context-menu")
+        shot("n4s1-ui-context-menu")
         let items = (status()["contextMenu"] as? [String]) ?? []
         XCTAssertTrue(items.contains("Duplicate"), "\(items)")
         // dismissed without choosing (a tap outside the menu)
@@ -92,24 +97,100 @@ final class GestureTests: XCTestCase {
         }
         XCTAssertEqual((window()["zoom"] as? Double) ?? 0, z1, accuracy: 0.001, "a pan leaves the zoom")
 
-        // a double tap on empty canvas fits everything
-        corner.doubleTap()
-        wait("fitted by the double tap") { (($0["zoom"] as? Double) ?? 9) < z1 * 0.8 }
-        XCTAssertEqual(status()["gesture"] as? String, "doubleTap.fit")
-        shot("s5-ui-after-gestures")
+        // the toolbar's Fit fits everything (a double tap no longer does: the maintainer, N3's exit)
+        app.buttons["Fit"].tap()
+        wait("fitted by the toolbar's Fit") { (($0["zoom"] as? Double) ?? 9) < z1 * 0.8 }
+        shot("n4s1-ui-fitted")
+        try editing(app, canvas)
 
         // every orientation: the canvas keeps what was at its centre at its centre
         for (o, name) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             XCUIDevice.shared.orientation = o
             RunLoop.current.run(until: Date().addingTimeInterval(2))
-            shot("s5-ui-rotating-\(name)")
+            shot("n4s1-ui-rotating-\(name)")
             XCTAssertTrue(app.buttons["Documents"].exists, "the graph is still shown after the rotation")
             wait("laid out \(name)") {
                 let s = ($0["size"] as? [Double]) ?? [0, 0]
                 return o.isLandscape ? s[0] > s[1] : s[1] > s[0]
             }
             RunLoop.current.run(until: Date().addingTimeInterval(1))
-            if o != .portrait { shot("s5-ui-\(name)") }
+            if o != .portrait { shot("n4s1-ui-\(name)") }
         }
+    }
+
+    /// A face's or pin's point in the canvas (from the status file's `points`).
+    func point(_ canvas: XCUIElement, _ id: String, _ what: String, _ k: Int = 0) -> XCUICoordinate? {
+        guard let pts = window()["points"] as? [String: Any], let f = pts[id] as? [String: Any] else { return nil }
+        let p: [Double]? = what == "center" ? f["center"] as? [Double] : (f[what] as? [[Double]]).flatMap { $0.indices.contains(k) ? $0[k] : nil }
+        guard let p, p.count == 2 else { return nil }
+        return canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p[0], dy: p[1]))
+    }
+
+    func pos(_ id: String) -> [Double]? { (window()["positions"] as? [String: Any])?[id] as? [Double] }
+
+    @MainActor
+    func editing(_ app: XCUIApplication, _ canvas: XCUIElement) throws {
+        let corner = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5))
+        // a double tap on empty canvas: the palette there
+        corner.doubleTap()
+        wait("the palette opened by the double tap") { (($0["palette"] as? [String: Any])?["shown"] as? Bool) == true }
+        shot("n4s1-ui-palette-double-tap")
+        // dismissed by a tap outside it: the core's palette closes, nothing added
+        let nodes0 = (window()["nodes"] as? Int) ?? 0
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.95)).tap()
+        wait("the palette dismissed") { (($0["palette"] as? [String: Any])?["open"] as? Bool) == false }
+        XCTAssertEqual((window()["nodes"] as? Int) ?? -1, nodes0)
+
+        // a one-finger drag on a face moves it: one undo step
+        let id = "swap"
+        let before = try XCTUnwrap(pos(id))
+        let c = try XCTUnwrap(point(canvas, id, "center"), "where swap is: \(window()["points"] ?? "none")")
+        c.press(forDuration: 0.05, thenDragTo: c.withOffset(CGVector(dx: 120, dy: 90)))
+        wait("swap moved, one step") { _ in
+            guard let p = self.pos(id) else { return false }
+            return hypot(p[0] - before[0], p[1] - before[1]) > 40 && (self.window()["undo"] as? String) == "Move Node"
+        }
+        let moved = try XCTUnwrap(pos(id))
+        shot("n4s1-ui-after-drag")
+        // a two-finger tap undoes it; a three-finger tap redoes it
+        canvas.tap(withNumberOfTaps: 1, numberOfTouches: 2)
+        wait("undone by the two-finger tap") { _ in self.pos(id).map { abs($0[0] - before[0]) < 0.5 && abs($0[1] - before[1]) < 0.5 } ?? false }
+        XCTAssertEqual(status()["gesture"] as? String, "undo")
+        canvas.tap(withNumberOfTaps: 1, numberOfTouches: 3)
+        wait("redone by the three-finger tap") { _ in self.pos(id).map { abs($0[0] - moved[0]) < 0.5 && abs($0[1] - moved[1]) < 0.5 } ?? false }
+
+        // a wire from an output pin dropped on empty canvas: the palette for what takes it
+        let wires0 = (window()["wireCount"] as? Int) ?? 0
+        let nodes1 = (window()["nodes"] as? Int) ?? 0
+        let out = try XCTUnwrap(point(canvas, "after", "out", 0), "after.s output: \(window()["points"] ?? "none")")
+        out.press(forDuration: 0.05, thenDragTo: out.withOffset(CGVector(dx: 40, dy: 220)))
+        wait("the palette for the dropped wire") {
+            let p = $0["palette"] as? [String: Any]
+            return (p?["wire"] as? Bool) == true && (p?["shown"] as? Bool) == true && !((p?["items"] as? [String]) ?? []).isEmpty
+        }
+        shot("n4s1-ui-palette-dropped-wire")
+        let first = ((window()["palette"] as? [String: Any])?["items"] as? [String])?.first ?? ""
+        let row = app.cells.containing(.staticText, identifier: first).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "the palette's row \(first)")
+        row.tap()
+        wait("added and connected, one step") {
+            ($0["nodes"] as? Int) == nodes1 + 1 && ($0["wireCount"] as? Int) == wires0 + 1 && ($0["undo"] as? String) == "Add and Connect"
+        }
+        shot("n4s1-ui-after-add-and-connect")
+
+        // Select mode: a one-finger drag on empty canvas is a marquee
+        app.buttons["Select"].tap()
+        wait("select mode on") { ($0["selectMode"] as? Bool) == true }
+        let a = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.02))
+        a.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.98)))
+        wait("the marquee selected") { (($0["selection"] as? [String]) ?? []).count >= 2 }
+        app.buttons["Select"].tap()
+        wait("select mode off") { ($0["selectMode"] as? Bool) == false }
+
+        // a two-finger double tap tidies
+        canvas.tap(withNumberOfTaps: 2, numberOfTouches: 2)
+        wait("tidied") { ($0["undo"] as? String) == "Tidy" }
+        XCTAssertEqual(status()["gesture"] as? String, "tidy")
+        shot("n4s1-ui-after-tidy")
     }
 }

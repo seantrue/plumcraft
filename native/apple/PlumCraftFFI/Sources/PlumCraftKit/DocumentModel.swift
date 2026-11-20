@@ -191,6 +191,9 @@ public final class DocumentModel {
     @ObservationIgnored public var onWatched: ((Watched?) -> Void)?
     /// Called when the engine's state changed.
     @ObservationIgnored public var onEngine: ((EngineState) -> Void)?
+    /// Called when the scene's `view` changed (a fit asked, the palette opened or closed), after
+    /// `onChange`: the palette's UI follows it (N4 slice 1).
+    @ObservationIgnored public var onView: ((View) -> Void)?
 
     @ObservationIgnored private var feedTask: Task<Void, Never>?
     @ObservationIgnored private var sceneBusy = false
@@ -353,6 +356,7 @@ public final class DocumentModel {
         let full: Bool = if case .full = reply { true } else { false }
         onChange?(SceneChange(gen: gen, full: full, changed: changed, removed: removed,
                               selectionChanged: before.0 != selection, viewChanged: before.1 != view))
+        if before.1 != view { onView?(view) }
     }
 
     /// A delta on one table, written back only when items came or went: a table observed by a

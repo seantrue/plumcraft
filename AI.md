@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N4 slice 1: the editing gestures and the palette (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The first of six N4 slices: dragging nodes, wiring, the marquee and the node palette in both Swift apps, following the maintainer's N2 and N3 exit decisions. During the slice the maintainer ruled on Run Selected, which an agent had built inside the two apps: "Do it. No exceptions to the rule. Unless I change my mind." (the rule being that everything is a command). The controller had offered leaving it in the apps as an option, which the rule already excluded.
+
+**What the agent did (~1,900 LOC of Swift added and ~160 removed, tests included; ~230 lines of Rust).** One drag driver in the kit for both apps: node, frame, group and bend-point drags through the core's move path as one undo step, wire drags with the core's verdict drawn on the target pin, autoscroll and cancel. A palette model in the kit over the core's palette state, shown as a popover on the Mac and a popover or sheet on the iPad; a wire dropped on empty canvas opens it filtered, and a pick adds and connects in one step. Touch taps for Undo, Redo and Tidy, a Select mode for a touch marquee, and Fit as a toolbar button. In the core, `run.selected` as a proper command, and the palette now lists kinds of engines the document has not started. The whole conformance suite passes against both apps, 24 of 24; the iPad UI test drives the new gestures through real recognisers. 4 new Swift tests, 2 new Rust tests.
+
+**Defects in the agent's work.** An automated run left AppKit's unsaved-changes alert on the maintainer's screen for about 70 seconds, the fourth modal of this kind across the stage; the scripted quit now clears the edited state first. A palette that closed the next palette through a late callback, caught by the screenshot driver.
+
+**Still shell-side, so still against the rule.** The agent's audit found the Watched panel's toggle and its viewers' Fit, 1:1, Monospaced and Show All, the new Select mode, and the iPad's Share. Zoom is the shell's by the contract. These are to be fixed in later slices.
+
+**Not verified.** Nobody has tried the drags with a real mouse, trackpad or finger. The Mac has no UI test: its gestures are covered over the control port and by a driver that shares the drag code, not by real mouse events. The controller looked at two of the 34 pictures.
+
 ### 2026-11-20 — N3's exit decisions and the budget stage (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **The maintainer decided** fifteen questions at N3's exit (recorded in note 24 §18 in their words), among them: "500 nodes is more than ever likely in a single graph", so 2,000 nodes stops being a gate; the canvas and core remedies are "not currently worth the time"; start only the engines a graph uses; "Egui is a functional minimum, not an aesthetic maximum. More native look == better look."; and the Watched side column goes "in favor of just the popout window". The maintainer ran both apps by hand and reported "App looks good, cant edit text values" and that the iPad had been in Low Power Mode during slice 5's measurements.

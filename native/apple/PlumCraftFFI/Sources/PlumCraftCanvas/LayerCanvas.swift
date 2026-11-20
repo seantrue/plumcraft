@@ -117,6 +117,12 @@ public final class LayerCanvas {
     let hoverRing = CAShapeLayer()
     let marquee = CAShapeLayer()
     let dragWire = CAShapeLayer()
+    /// Where a dragged wire would land (N4 slice 1): a ring on the target pin, filled when it fits.
+    let dragTarget = CAShapeLayer()
+    /// A frame's, an open group's or a bend point's outline while it is dragged.
+    let ghost = CAShapeLayer()
+    /// A wire whose end is picked up off its input: hidden while the drag draws it.
+    var pickedWire: UInt64?
     /// Faces moved by a drag under way, at their positions when it began.
     var moving: [UInt64: CGPoint] = [:]
     var movingWires: Set<UInt64> = []
@@ -152,7 +158,7 @@ public final class LayerCanvas {
             l.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
             world.addSublayer(l)
         }
-        for s in [hoverRing, marquee, dragWire] {
+        for s in [hoverRing, marquee, dragWire, dragTarget, ghost] {
             s.anchorPoint = .zero
             s.position = .zero
             s.fillColor = nil
@@ -1036,6 +1042,84 @@ public final class LayerCanvas {
         dragWire.lineWidth = 2.5
         dragWire.lineDashPattern = fits == 2 ? [6, 4] : nil
         dragWire.isHidden = false
+    }
+
+    /// Where a dragged wire would land: `h` a pin (kind pin) with `fits` (1 takes it, 2 through a
+    /// Convert, 0 doesn't), or nil to hide it. A pin that fits is ringed and filled in the accent
+    /// (a Convert's in the warning colour, dashed); one that doesn't is ringed in the error colour
+    /// with a cross, so a drop there says no before it is let go.
+    public func showDragTarget(_ h: HotHit?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let h, h.ok, h.kind == .pin else {
+            dragTarget.isHidden = true
+            return
+        }
+        let r: CGFloat = 9
+        let c = CGPoint(x: CGFloat(h.x), y: CGFloat(h.y))
+        let p = CGMutablePath()
+        p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        switch h.fits {
+        case 1:
+            dragTarget.strokeColor = colors.accent
+            dragTarget.fillColor = colors.accent.copy(alpha: 0.35)
+            dragTarget.lineDashPattern = nil
+        case 2:
+            dragTarget.strokeColor = colors.warning
+            dragTarget.fillColor = colors.warning.copy(alpha: 0.25)
+            dragTarget.lineDashPattern = [3, 2]
+        default:
+            let k = r * 0.55
+            p.move(to: CGPoint(x: c.x - k, y: c.y - k))
+            p.addLine(to: CGPoint(x: c.x + k, y: c.y + k))
+            p.move(to: CGPoint(x: c.x + k, y: c.y - k))
+            p.addLine(to: CGPoint(x: c.x - k, y: c.y + k))
+            dragTarget.strokeColor = colors.error
+            dragTarget.fillColor = nil
+            dragTarget.lineDashPattern = nil
+        }
+        dragTarget.path = p
+        dragTarget.lineWidth = 2.5
+        dragTarget.isHidden = false
+    }
+
+    /// A dragged frame's, group's or bend point's outline (graph units), or nil to hide it.
+    public func showGhost(_ r: CGRect?, round: Bool = false) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let r else {
+            ghost.isHidden = true
+            return
+        }
+        ghost.path = round ? CGPath(ellipseIn: r, transform: nil) : CGPath(roundedRect: r, cornerWidth: 6, cornerHeight: 6, transform: nil)
+        ghost.strokeColor = colors.accent
+        ghost.fillColor = colors.accent.copy(alpha: 0.06)
+        ghost.lineWidth = 1.5 / max(viewport.zoom, 0.05)
+        ghost.lineDashPattern = [5, 3]
+        ghost.isHidden = false
+    }
+
+    /// Hide the wire whose end is picked up (nil: show it again).
+    public func pickUp(wire nid: UInt64?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if let old = pickedWire { wires[old]?.opacity = 1 }
+        pickedWire = nid
+        if let nid { wires[nid]?.opacity = 0.15 }
+    }
+
+    /// The point of the pin a drag's wire is anchored at (`drag.from` of a wire's begin).
+    public func anchorPoint(_ from: JSONValue?) -> CGPoint? {
+        guard let f = from, let node = f["node"].string, let pin = f["pin"].int64 else { return nil }
+        return pinPoint(face: node, output: f["side"].string == "out", pin: Int(pin))
+    }
+
+    /// The wire into `to` (a picked-up wire's).
+    public func wireNid(into to: PortRef) -> UInt64? {
+        model.wires.items.first { $0.to == to }?.nid
     }
 
     var moveOffset: CGPoint?

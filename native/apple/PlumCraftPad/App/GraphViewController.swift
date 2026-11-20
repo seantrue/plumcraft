@@ -46,6 +46,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var runSelectedItem: UIBarButtonItem?
     var cancelItem: UIBarButtonItem?
     var watchedItem: UIBarButtonItem?
+    var selectItem: UIBarButtonItem?
+    var paletteView: PaletteController?
     var opened = ContinuousClock.now
     var readyShown = false
     var appliedStart = false
@@ -144,6 +146,11 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     override var canBecomeFirstResponder: Bool { true }
 
+    /// The system's three-finger editing gestures (a tap's shortcut bar, swipes for undo and redo,
+    /// pinches for copy and paste) are off on the graph: three fingers tapped are Redo here, and
+    /// two Undo (the iPad spike's rule, note 24 section 17). ⌘Z and the Edit menu still undo.
+    override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
+
     /// Run, Run Selected, Cancel; the engines' state; the Watched panel; and the document's menu
     /// on its title (Save, Share).
     func makeBar() {
@@ -152,7 +159,17 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         done.accessibilityLabel = "Documents"
         let fit = UIBarButtonItem(title: "Fit", image: UIImage(systemName: "arrow.up.left.and.down.right.magnifyingglass"),
                                   primaryAction: UIAction { [weak self] _ in self?.canvasView?.fitView() })
-        navigationItem.leftBarButtonItems = [done, fit]
+        fit.accessibilityLabel = "Fit"
+        // Add Node (plan 5.5's + button): the palette at the view's centre
+        let add = UIBarButtonItem(title: "Add Node", image: UIImage(systemName: "plus"),
+                                  primaryAction: UIAction { [weak self] _ in self?.canvasView?.openPalette() })
+        add.accessibilityLabel = "Add Node"
+        // Select mode: a one-finger drag on empty canvas draws a marquee instead of panning
+        let select = UIBarButtonItem(title: "Select", image: UIImage(systemName: "rectangle.dashed"),
+                                     primaryAction: UIAction { [weak self] _ in self?.toggleSelectMode() })
+        select.accessibilityLabel = "Select"
+        selectItem = select
+        navigationItem.leftBarButtonItems = [done, fit, add, select]
         let run = UIBarButtonItem(title: "Run", image: UIImage(systemName: "play.fill"), primaryAction: UIAction { [weak self] _ in self?.runGraph() })
         let sel = UIBarButtonItem(title: "Run Selected", image: UIImage(systemName: "play.square"), primaryAction: UIAction { [weak self] _ in self?.runSelected() })
         let cancel = UIBarButtonItem(title: "Cancel Run", image: UIImage(systemName: "stop.fill"), primaryAction: UIAction { [weak self] _ in self?.cancelRun() })
@@ -234,6 +251,25 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
         v.canvas.onDrawn = { [weak self] _ in self?.drawn() }
         v.onGesture = { g in StatusFile.shared.set("gesture", .string(g)) }
+        v.onCommand = { [weak self] id in self?.invoke(id) }
+        v.onCommands = { [weak self] ran in self?.ranByGesture(ran) }
+        let pc = PaletteController(palette: v.palette)
+        pc.onShown = { [weak self] _ in self?.reportNow() }
+        paletteView = pc
+        v.presentPalette = { [weak self] p, focus in
+            guard let self, let v = canvasView, let pc = paletteView else { return }
+            // a sheet the graph shows (the Watched panel's in compact width) gives way first
+            if let other = presentedViewController, other !== pc {
+                other.dismiss(animated: false) { pc.present(from: self, source: v, at: p, focus: focus) }
+            } else {
+                pc.present(from: self, source: v, at: p, focus: focus)
+            }
+            reportNow()
+        }
+        v.dismissPalette = { [weak self] in
+            self?.paletteView?.close()
+            self?.reportNow()
+        }
         v.contextMenuItems = { [weak self, weak model] items in
             guard let self, let model else { return [] }
             StatusFile.shared.set("contextMenu", .array(items.map { .string($0.label) }))
@@ -362,15 +398,26 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         _ = m
     }
 
-    /// Run what the selection needs: `run.start {targets}` with the core's selection (the registry
-    /// has no "run selected" command; slice 4's decision 4).
+    /// Run Selected: the core's `run.selected` (N4 slice 1: everything is a command), enabled and
+    /// explained by the core's menu item.
     func runSelected() {
-        guard let m = model else { return }
-        let sel = m.selection.nodes
-        guard !sel.isEmpty else { return }
-        Task {
-            do { _ = try await m.run("run.start", ["targets": .array(sel.map { .string($0) })]) } catch { say("Run Selected: \(error)") }
-        }
+        guard let m = model, let it = m.menuBar.item(command: "run.selected") else { return }
+        dispatch(it)
+    }
+
+    /// Select mode on or off (the toolbar's toggle).
+    func toggleSelectMode() {
+        guard let v = canvasView else { return }
+        v.selectMode.toggle()
+        selectItem?.isSelected = v.selectMode
+        StatusFile.shared.set("selectMode", .bool(v.selectMode))
+        reportNow()
+    }
+
+    /// What a gesture ran: a refusal (a wire that doesn't fit) or a command with no UI yet is said.
+    func ranByGesture(_ ran: [CommandRun]) {
+        if let bad = ran.first(where: { !$0.ok }), let e = bad.error { return say(e) }
+        if let s = ShellCommands.notBuilt(ran: ran) { say(s) }
     }
 
     func cancelRun() {
@@ -383,6 +430,10 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         guard let command = it.command, let model else { return }
         if let s = ShellCommands.notBuilt(it) { return say(s) }
         switch command {
+        case "canvas.palette":
+            // Node › Search…: the palette at the view's centre
+            canvasView?.openPalette()
+            return
         case "graph.open", "graph.new":
             // the document browser opens and creates graphs here
             close {}
@@ -406,7 +457,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         let run = m?.menuBar.item(command: "run.start")
         let cancel = m?.menuBar.item(command: "run.cancel")
         runItem?.isEnabled = run?.enabled ?? false
-        runSelectedItem?.isEnabled = (run?.enabled ?? false) && !(m?.selection.nodes.isEmpty ?? true)
+        runSelectedItem?.isEnabled = m?.menuBar.item(command: "run.selected")?.enabled ?? false
         cancelItem?.isEnabled = cancel?.enabled ?? false
         watchedItem?.isEnabled = m != nil
     }
@@ -602,6 +653,31 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             s["dirty"] = .bool(st.dirty)
             s["washes"] = .int(Int64(v.model.faces.items.filter { $0.shown != nil }.count))
             s["anim"] = .bool(v.model.anim.on)
+            s["redo"] = st.redo.map(JSONValue.string) ?? .null
+            s["selectMode"] = .bool(v.selectMode)
+            s["dragging"] = .bool(v.drag.active)
+            s["nodes"] = .int(Int64(v.model.faces.count))
+            s["wireCount"] = .int(Int64(v.model.wires.count))
+            s["positions"] = .object(Dictionary(uniqueKeysWithValues: v.model.faces.items.prefix(64).map {
+                ($0.id, JSONValue.array([.double($0.pos.x), .double($0.pos.y)]))
+            }))
+            // where faces and their pins are in the canvas view (UI tests aim with them)
+            var points: [String: JSONValue] = [:]
+            let vp = v.canvas.viewport
+            func pt(_ g: CGPoint) -> JSONValue { [.double(Double(vp.toView(g).x)), .double(Double(vp.toView(g).y))] }
+            for f in v.model.faces.items.prefix(64) {
+                guard let L = v.canvas.faceLayout(nid: f.nid) else { continue }
+                let c = CGPoint(x: f.pos.x + L.size.width / 2, y: f.pos.y + L.size.height / 2)
+                let outs = (0..<L.outputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: true, pin: $0) }.map(pt)
+                let ins = (0..<L.inputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: false, pin: $0) }.map(pt)
+                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins)]
+            }
+            s["points"] = .object(points)
+            let pal = v.palette
+            s["palette"] = pal.isOpen
+                ? ["open": true, "wire": .bool(pal.forWire), "items": .array(pal.items.prefix(40).map { .string($0.label) }),
+                   "shown": .bool(paletteView?.presentingViewController != nil), "pending": pal.pendingText.map(JSONValue.string) ?? .null]
+                : ["open": false, "shown": .bool(paletteView?.presentingViewController != nil)]
         }
         if let p = watched { s["watched"] = .object(p.describe) }
         StatusFile.shared.window(doc, .object(s))
@@ -617,6 +693,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             out.append(c)
         }
         k("f", [], "Fit", #selector(fitKey(_:)))
+        k("\t", [], "Add Node", #selector(paletteKey(_:)))
         k(UIKeyCommand.inputDelete, [], "Delete", #selector(deleteKey(_:)))
         k("\u{8}", [], "Delete", #selector(deleteKey(_:)))
         k(UIKeyCommand.inputEscape, [], "Cancel or Clear Selection", #selector(escapeKey(_:)))
@@ -629,9 +706,11 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     }
 
     @objc func fitKey(_ c: UIKeyCommand) { canvasView?.fitView() }
+    @objc func paletteKey(_ c: UIKeyCommand) { canvasView?.openPalette(byKey: true) }
     @objc func deleteKey(_ c: UIKeyCommand) { invoke("edit.delete") }
 
     @objc func escapeKey(_ c: UIKeyCommand) {
+        if let v = canvasView, v.drag.active { return v.cancelDrag() }
         let running = model?.menuBar.item(command: "run.cancel")?.enabled ?? false
         invoke(running ? "run.cancel" : "selection.clear")
     }
