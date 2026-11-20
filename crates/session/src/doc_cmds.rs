@@ -682,6 +682,28 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// The app saves `bytes` over its copy at `path`, as a later save does: one the copy's
+    /// modification time tells from the last.
+    ///
+    /// A save is seen by the copy's size or time. Two saves of the same size within one tick of
+    /// the file system's clock (1 ms on the Linux test host) leave both unchanged. Polls 500 ms
+    /// apart in real time never meet that. This test's polls follow a made-up clock and come
+    /// well under a millisecond apart, so its saves would (B34). So this waits for the clock to
+    /// move.
+    fn save(path: &Path, bytes: &[u8]) {
+        let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.modified().ok(), m.len()));
+        let before = stamp(path);
+        let t = Instant::now();
+        loop {
+            std::fs::write(path, bytes).unwrap();
+            if stamp(path) != before {
+                return;
+            }
+            assert!(t.elapsed() < std::time::Duration::from_secs(5), "{}: its modification time never moved", path.display());
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+    }
+
     /// Look at the tracked copies twice, a poll apart: a save is taken back once it holds still.
     fn poll_twice(s: &mut Session, t0: Instant) -> Option<std::result::Result<Value, String>> {
         use crate::doc_edits::{POLL, poll_doc_edits};
@@ -740,7 +762,7 @@ mod tests {
         assert!(s.execute("doc.revert", &json!({"node": "o"})).is_err(), "no edit yet");
 
         // the app saves its copy
-        std::fs::write(&opened.path, b"{\"doc\": 2, \"edited\": true}").unwrap();
+        save(&opened.path, b"{\"doc\": 2, \"edited\": true}");
         let applied = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 2).unwrap().unwrap();
         let edited = Handle::raw(b"{\"doc\": 2, \"edited\": true}");
         assert_eq!(applied["edited"], true, "{applied}");
@@ -777,17 +799,17 @@ mod tests {
         assert!(opened.path.is_file(), "the edited file stays");
 
         // saving again brings it back; saving the original bytes drops it
-        std::fs::write(&opened.path, b"{\"doc\": 3}").unwrap();
+        save(&opened.path, b"{\"doc\": 3}");
         assert_eq!(poll_twice(&mut s, t0 + crate::doc_edits::POLL * 4).unwrap().unwrap()["edited"], true);
         assert!(queued(&mut s).inputs.contains_key("s.doc"));
-        std::fs::write(&opened.path, b"{\"doc\": 1}").unwrap();
+        save(&opened.path, b"{\"doc\": 1}");
         let back = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 6).unwrap().unwrap();
         assert_eq!(back["edited"], false, "{back}");
         assert!(queued(&mut s).inputs.is_empty());
         assert!(s.run.node("s").unwrap().stale_why.iter().any(|w| w.contains("its own value again")));
 
         // a new graph forgets it all
-        std::fs::write(&opened.path, b"{\"doc\": 4}").unwrap();
+        save(&opened.path, b"{\"doc\": 4}");
         poll_twice(&mut s, t0 + crate::doc_edits::POLL * 8).unwrap().unwrap();
         s.execute("graph.new", &json!({})).unwrap();
         assert!(s.run.doc_edits.is_empty() && s.docs.edits.tracked.is_empty());

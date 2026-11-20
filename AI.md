@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — B34: the save test outran the file system's clock (Claude Opus 5.5)
+
+**Asked for.** The maintainer said "start tasks for addressing bugs"; this is B34, one of three tests that failed only under the Linux test host's full parallel run.
+
+**What the agent found.** The test's last two saves are each the same size as the save before them and come under a millisecond after it. On the Linux test host the copy's timestamps tick once a millisecond, so the save often left the copy's (time, size) unchanged, and the session's poll never saw it. An instrumented run showed an unchanged stamp before every failure. Load wasn't the cause: the test failed 91 of 100 runs alone on that host and 123 of 200 with 40 at once. The session drops nothing in real use, since a copy holds still for a 500 ms poll before it is read.
+
+**What the agent did (26 lines added and 4 removed in `crates/session/src/doc_cmds.rs`'s tests; 5 and 1 in `doc_edits.rs`'s module comment).** The test saves through a helper that writes again, a millisecond later, until the copy's stamp moves (for at most 5 s). The module comment states the timestamp limit. After: 0 of 100 alone and 0 of 200 loaded.
+
+**Not done.** A copy on a file system whose clock ticks more slowly than the 500 ms poll (FAT) could still hide a same-size save; the agent left that as a documented limit. Not run on the Mac.
+
 ### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The last slice of N2 under the maintainer's "same arrangement for N2". The colour question was the maintainer's earlier answer "13A" (tokens, not colours beside them).
