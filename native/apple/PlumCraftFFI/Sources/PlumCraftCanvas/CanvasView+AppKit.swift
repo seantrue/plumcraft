@@ -19,7 +19,11 @@ import PlumCraftModels
 import QuartzCore
 
 @MainActor
-public final class CanvasView: NSView {
+public final class CanvasView: NSView, NSMenuItemValidation {
+    public func validateMenuItem(_ mi: NSMenuItem) -> Bool {
+        validate?(mi) ?? true
+    }
+
     public let canvas: LayerCanvas
     public var model: DocumentModel { canvas.model }
     let root = CALayer()
@@ -38,6 +42,13 @@ public final class CanvasView: NSView {
     var trackingArea: NSTrackingArea?
     /// Errors from the core that the user didn't cause directly (a gesture refused), for a log.
     public var onError: ((String) -> Void)?
+    /// A secondary click (or Control-click) got the core's context menu for what it was on: the
+    /// host shows it at the view point and dispatches its items (N3 slice 4).
+    public var onContextMenu: ((CGPoint, [MenuItem]) -> Void)?
+    /// A key the canvas recognises for the core (contract 12.3: Delete, Escape, F, the arrows) was
+    /// pressed: the host runs `command` for the person (the menu model's own dispatch).
+    public var onCanvasKey: ((String) -> Void)?
+    var keyPress: UInt64 = 0
 
     public init(model: DocumentModel, frame: NSRect = NSRect(x: 0, y: 0, width: 1024, height: 768)) {
         root.isGeometryFlipped = true
@@ -188,6 +199,38 @@ public final class CanvasView: NSView {
             cancelDrag()
             return
         }
+        // the canvas's keys (12.3), when no modifier but Shift is held
+        let plain = e.modifierFlags.intersection([.command, .control, .option]).isEmpty
+        if plain {
+            switch e.keyCode {
+            case 51, 117:  // Delete, Forward Delete
+                onCanvasKey?("edit.delete")
+                return
+            case 53:  // Escape: cancels a run in flight, else clears the selection
+                onCanvasKey?("escape")
+                return
+            case 123, 124, 125, 126:  // arrows nudge; Shift ten times as far; a held key is one step
+                if !e.isARepeat { keyPress &+= 1 }
+                let k: Double = e.modifierFlags.contains(.shift) ? 10 : 1
+                let (dx, dy): (Double, Double) = switch e.keyCode {
+                case 123: (-k, 0)
+                case 124: (k, 0)
+                case 125: (0, k)
+                default: (0, -k)
+                }
+                let link = canvas.link
+                let press = keyPress
+                Task { [weak self] in
+                    do { _ = try await link.nudge(dx: dx, dy: dy, press: press) } catch { self?.onError?("\(error)") }
+                }
+                return
+            default:
+                if e.charactersIgnoringModifiers?.lowercased() == "f" {
+                    fitView(nil)
+                    return
+                }
+            }
+        }
         super.keyDown(with: e)
     }
 
@@ -206,6 +249,38 @@ public final class CanvasView: NSView {
         if spaceHeld || panning { return }
         let h = canvas.link.hit(graph(point(e)), slop: slop)
         canvas.hover(h.ok ? h : nil)
+        // a node's error, whole, as the tooltip (the face shows it cut to 180 characters)
+        var tip: String?
+        if h.ok, h.kind == .node || h.kind == .pin, let f = model.faces[h.node]?.item {
+            for case .error(let text, let full, _) in f.footer { tip = full.isEmpty ? text : full }
+        }
+        if toolTip != tip { toolTip = tip }
+    }
+
+    // MARK: Context menus
+
+    public override func rightMouseDown(with e: NSEvent) {
+        window?.makeFirstResponder(self)
+        context(at: point(e))
+    }
+
+    /// The core's menu for what is at `p`: a `context` gesture (it hit-tests and says what it is
+    /// on), then `menu.get {context}`.
+    func context(at p: CGPoint) {
+        let g = graph(p)
+        let s = slop
+        let link = canvas.link
+        let model = self.model
+        Task { [weak self] in
+            do {
+                let r = try await link.context(g, slop: s)
+                guard let ctx = r.context, ctx != .null else { return }
+                let items = try await model.contextMenu(ctx)
+                self?.onContextMenu?(p, items)
+            } catch {
+                self?.onError?("\(error)")
+            }
+        }
     }
 
     public override func mouseExited(with e: NSEvent) {
@@ -215,6 +290,12 @@ public final class CanvasView: NSView {
     public override func mouseDown(with e: NSEvent) {
         window?.makeFirstResponder(self)
         let p = point(e)
+        // Control-click is a secondary click on the Mac
+        if e.modifierFlags.contains(.control) && !spaceHeld {
+            downPoint = nil
+            context(at: p)
+            return
+        }
         lastPoint = p
         if spaceHeld {
             panning = true
@@ -379,6 +460,20 @@ public final class CanvasView: NSView {
         canvas.showDragWire(from: nil, to: .zero, fits: 0)
         canvas.endMove(kept: kept)
     }
+
+    // MARK: The standard actions (the Edit menu's, down the responder chain)
+
+    /// How the host validates the Edit menu's standard items for the canvas: the model's
+    /// enabled state and the core's step names (nil: enabled).
+    public var validate: ((NSMenuItem) -> Bool?)?
+
+    @objc public func undo(_ sender: Any?) { onCanvasKey?("edit.undo") }
+    @objc public func redo(_ sender: Any?) { onCanvasKey?("edit.redo") }
+    @objc public func cut(_ sender: Any?) { onCanvasKey?("edit.cut") }
+    @objc public func copy(_ sender: Any?) { onCanvasKey?("edit.copy") }
+    @objc public func paste(_ sender: Any?) { onCanvasKey?("edit.paste") }
+    @objc public func delete(_ sender: Any?) { onCanvasKey?("edit.delete") }
+    @objc public override func selectAll(_ sender: Any?) { onCanvasKey?("selection.all") }
 
     // MARK: Snapshot
 

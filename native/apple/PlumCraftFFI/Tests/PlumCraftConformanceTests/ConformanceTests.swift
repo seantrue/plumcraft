@@ -26,6 +26,11 @@ func scratch(_ name: String) -> String {
 
 let testEnvironment: Void = {
     setenv("PLUMCRAFT_EDITOR_PREFS", scratch("prefs") + "/prefs.json", 1)
+    // never the maintainer's store, whatever the environment names (N3 slice 4)
+    setenv("COMMONKIT_STORE_ROOT", scratch("store"), 1)
+    setenv("COMMONKIT_MARK_DIR", scratch("marks"), 1)
+    setenv("COMMONKIT_TEST_RUN", scratch("run"), 1)
+    setenv("PLUMCRAFT_CRAFT_ROOT", scratch("craft"), 1)
     setenv("COMMONKIT_HASH", "b3", 0)
     setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
 }()

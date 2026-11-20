@@ -120,12 +120,27 @@ public final class LayerCanvas {
     /// Faces moved by a drag under way, at their positions when it began.
     var moving: [UInt64: CGPoint] = [:]
     var movingWires: Set<UInt64> = []
+    /// Pictures the core lends (the faces' previews; a Watched panel may share it).
+    public let pictures: Pictures
+    /// When the run animation's colours began to fade, for the generation shown (8.6): the core
+    /// keeps `anim.on` while they show and drops it once faded; the shell fades them itself.
+    var fadeBegin: CFTimeInterval?
+    var fadeGen: UInt64?
+    /// Culling (N3 slice 4): face, wire, tag and frame layers outside `culledFor` widened by
+    /// `cullMargin` views are hidden, so the compositor skips them; their pictures and paths are
+    /// kept, so a face coming into view shows at once. Recomputed when the view has moved a
+    /// quarter of itself since the last time.
+    public var culling = true
+    public private(set) var culledFor: CGRect?
+    public private(set) var hiddenCount = 0
+    let cullMargin: CGFloat = 0.5
 
     public init(model: DocumentModel, host: CALayer, screenScale: CGFloat) {
         self.model = model
         self.link = CanvasLink(model: model)
         self.host = host
         self.screenScale = max(screenScale, 1)
+        self.pictures = Pictures(model: model)
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         world.anchorPoint = .zero
@@ -243,6 +258,7 @@ public final class LayerCanvas {
         if c.selectionChanged || c.full { updateSelection() }
         updateWashes(c.changed)
         if c.viewChanged || c.full { honourFit() }
+        cull(force: true)
         pump()
         // nothing to draw (no face changed, or an empty graph): what is shown is already current
         if idle { onDrawn?([]) }
@@ -401,6 +417,8 @@ public final class LayerCanvas {
         placeTags()
         updateSelection()
         updateWashes(touched)
+        for nid in touched { if let e = faces[nid] { updatePreview(e) } }
+        cull(force: true)
         CATransaction.commit()
         let vis = visibleRect
         if firstFrameAt == nil, !faces.isEmpty, faces.values.allSatisfy({ $0.layout != nil && ($0.drawnRev != nil || !$0.rect.intersects(vis)) }) {
@@ -495,6 +513,10 @@ public final class LayerCanvas {
             w.backgroundColor = colors.token(token, RGBA(128, 128, 128, 255))
             w.opacity = amount
             w.removeAnimation(forKey: "pulse")
+            w.removeAnimation(forKey: "fade")
+            if let b = fadeBegin, fadeGen == model.anim.generation, shown != .running, shown != .waiting {
+                fade(w, from: amount, begin: b)
+            }
             if shown == .running {
                 let a = CABasicAnimation(keyPath: "opacity")
                 a.fromValue = 0.28
@@ -506,6 +528,124 @@ public final class LayerCanvas {
             }
             placeFace(e)
         }
+        noteRunFinished()
+    }
+
+    /// The run (or its replay) is over once no face shows waiting or running: hold the colours
+    /// for `holdMs`, then fade them over `fadeMs` (8.6), once per generation. The core drops
+    /// `anim.on` at about the same time, and the washes go then.
+    func noteRunFinished() {
+        let a = model.anim
+        guard a.on else {
+            fadeBegin = nil
+            fadeGen = nil
+            return
+        }
+        if fadeGen != a.generation { fadeBegin = nil }
+        let busy = faces.values.contains { e in
+            guard let w = e.face.shown?.word else { return false }
+            return w == .waiting || w == .running
+        }
+        if busy {
+            fadeBegin = nil
+            fadeGen = nil
+            return
+        }
+        guard fadeBegin == nil else { return }
+        let begin = CACurrentMediaTime() + Double(a.holdMs) / 1000
+        fadeBegin = begin
+        fadeGen = a.generation
+        for e in faces.values {
+            guard let w = e.wash else { continue }
+            fade(w, from: w.opacity, begin: begin)
+        }
+    }
+
+    func fade(_ w: CALayer, from: Float, begin: CFTimeInterval) {
+        let f = CABasicAnimation(keyPath: "opacity")
+        f.fromValue = from
+        f.toValue = 0
+        f.beginTime = begin
+        f.duration = Double(model.anim.fadeMs) / 1000
+        f.fillMode = .forwards
+        f.isRemovedOnCompletion = false
+        w.add(f, forKey: "fade")
+    }
+
+    // MARK: - Previews
+
+    /// A face's rgba8 preview: a sublayer whose contents come from the media service, made on a
+    /// worker (`Pictures`), once per handle. Faded while the scene says so.
+    func updatePreview(_ e: FaceEntry) {
+        guard case .rgba8(let p)? = e.face.preview, let r = e.layout?.preview, let handle = Pictures.handle(of: p.handle) else {
+            e.preview?.removeFromSuperlayer()
+            e.preview = nil
+            e.previewKey = nil
+            return
+        }
+        let pv = e.preview ?? {
+            let l = CALayer()
+            l.anchorPoint = .zero
+            l.contentsGravity = .resizeAspect
+            l.cornerRadius = 3
+            l.masksToBounds = true
+            e.layer.addSublayer(l)
+            e.preview = l
+            return l
+        }()
+        pv.frame = r.offsetBy(dx: FaceMetrics.margin, dy: FaceMetrics.margin)
+        pv.opacity = p.faded ? 0.45 : 1
+        if e.previewKey == handle { return }
+        e.previewKey = handle
+        if let got = pictures.cached(handle) {
+            pv.contents = got.image
+            return
+        }
+        pv.contents = nil
+        let nid = e.nid
+        Task { [weak self] in
+            guard let self, let got = await pictures.load(handle) else { return }
+            // still the face's picture?
+            guard let e = faces[nid], e.previewKey == handle, let l = e.preview else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            l.contents = got.image
+            CATransaction.commit()
+        }
+    }
+
+    // MARK: - Culling
+
+    /// Hide what is far outside the view (N3 slice 4, 15.2's "large graphs need culling"); the
+    /// compositor then skips it. `force`: the scene changed, so look again however little the view
+    /// moved. Every layer stays, with its picture or path: showing it again is one flag.
+    public func cull(force: Bool) {
+        let vis = visibleRect
+        if !force, let last = culledFor, abs(last.midX - vis.midX) < vis.width * 0.25 / 1.4, abs(last.midY - vis.midY) < vis.height * 0.25 / 1.4,
+           abs(last.width - vis.width) < vis.width * 0.25 {
+            return
+        }
+        culledFor = vis
+        let keep = vis.insetBy(dx: -vis.width * cullMargin, dy: -vis.height * cullMargin)
+        var hidden = 0
+        let all = !culling
+        for e in faces.values {
+            let h = !all && !e.rect.insetBy(dx: -FaceMetrics.margin, dy: -FaceMetrics.margin).intersects(keep) && moving[e.nid] == nil
+            if e.layer.isHidden != h { e.layer.isHidden = h }
+            if h { hidden += 1 }
+        }
+        for (nid, l) in wires {
+            let h = !all && !l.frame.intersects(keep) && !movingWires.contains(nid)
+            if l.isHidden != h { l.isHidden = h }
+            if h { hidden += 1 }
+        }
+        for ls in tags.values {
+            for l in ls {
+                let h = !all && !l.frame.intersects(keep)
+                if l.isHidden != h { l.isHidden = h }
+            }
+        }
+        hiddenCount = hidden
     }
 
     // MARK: - Wires
@@ -690,6 +830,7 @@ public final class LayerCanvas {
         }
         let v = viewport
         world.setAffineTransform(CGAffineTransform(a: v.zoom, b: 0, c: 0, d: v.zoom, tx: v.pan.x, ty: v.pan.y))
+        cull(force: false)
         CATransaction.commit()
         onViewport?(v)
     }
@@ -971,6 +1112,8 @@ public final class LayerCanvas {
 
     public func faceLayout(nid: UInt64) -> FaceLayout? { faces[nid]?.layout }
     public func faceLayer(nid: UInt64) -> CALayer? { faces[nid]?.layer }
+    /// Whether the face shows the run's wash now.
+    public func washed(nid: UInt64) -> Bool { faces[nid]?.wash != nil }
     public func wireLayer(nid: UInt64) -> CAShapeLayer? { wires[nid] }
     public var faceCount: Int { faces.count }
     public var wireLayerCount: Int { wires.count }

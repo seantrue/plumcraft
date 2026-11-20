@@ -131,6 +131,10 @@ public struct EngineState: Sendable, Equatable {
     public var connected = false
     public var ready = false
     public var label = ""
+
+    public init(connected: Bool = false, ready: Bool = false, label: String = "") {
+        self.connected = connected; self.ready = ready; self.label = label
+    }
 }
 
 @MainActor
@@ -162,6 +166,8 @@ public final class DocumentModel {
     public private(set) var asks: [Ask] = []
     public private(set) var watched: Watched?
     public private(set) var engine = EngineState()
+    /// Title, path, dirty state, undo and redo steps, as the feed last said (N3 slice 4).
+    public private(set) var state = DocumentState()
     public private(set) var closing = false
     /// The last error a fetch met (a request refused, a reply that didn't decode); nil after a
     /// fetch that went well. Never thrown at the views.
@@ -175,6 +181,16 @@ public final class DocumentModel {
     @ObservationIgnored public var onChange: ((SceneChange) -> Void)?
     /// Called with every feed batch's engine events (envelopes), for a log or a status line.
     @ObservationIgnored public var onEvents: (([JSONValue]) -> Void)?
+    /// Called when the document's state changes (title, dirty, undo and redo, last error).
+    @ObservationIgnored public var onState: ((DocumentState) -> Void)?
+    /// Called when the menu bar changed (`menu.get` answered with a new `gen`).
+    @ObservationIgnored public var onMenus: (([MenuItem]) -> Void)?
+    /// Called when asks for this document arrive or end (the pending list after the change).
+    @ObservationIgnored public var onAsks: (([Ask]) -> Void)?
+    /// Called when the watched value changed.
+    @ObservationIgnored public var onWatched: ((Watched?) -> Void)?
+    /// Called when the engine's state changed.
+    @ObservationIgnored public var onEngine: ((EngineState) -> Void)?
 
     @ObservationIgnored private var feedTask: Task<Void, Never>?
     @ObservationIgnored private var sceneBusy = false
@@ -230,13 +246,22 @@ public final class DocumentModel {
             case .scene?: refreshScene()
             case .menus?: if c.gen != menuGen { refreshMenus() }
             case .engine?:
-                engine = EngineState(connected: c.connected ?? engine.connected, ready: c.ready ?? engine.ready, label: c.label ?? engine.label)
+                let e = EngineState(connected: c.connected ?? engine.connected, ready: c.ready ?? engine.ready, label: c.label ?? engine.label)
+                if e != engine {
+                    engine = e
+                    onEngine?(e)
+                }
             case .document?:
                 if c.closing == true { closing = true }
+                if let st = DocumentState(c), st.gen >= state.gen, st != state {
+                    state = st
+                    onState?(st)
+                }
             case nil:
                 break  // a domain this kit doesn't know: skipped
             }
         }
+        let before = asks
         for a in batch.asks where mine(a.doc) && !asks.contains(where: { $0.ask == a.ask }) {
             asks.append(a)
         }
@@ -244,6 +269,7 @@ public final class DocumentModel {
             let ended = Set(batch.asksEnded.map(\.ask))
             asks.removeAll { ended.contains($0.ask) }
         }
+        if asks != before { onAsks?(asks) }
         for m in batch.media { media[m.key] = m }
         if !batch.events.isEmpty { onEvents?(batch.events) }
         pulse()
@@ -361,7 +387,10 @@ public final class DocumentModel {
         Task {
             do {
                 let i = try await core.request(Inspect.self, "ui.inspect", [:], doc: requestDoc)
-                if i.watched != watched { watched = i.watched }
+                if i.watched != watched {
+                    watched = i.watched
+                    onWatched?(watched)
+                }
             } catch {
                 lastError = "\(error)"
             }
@@ -396,8 +425,10 @@ public final class DocumentModel {
         Task {
             do {
                 let m = try await core.request(MenuReply.self, "menu.get", [:], doc: requestDoc)
+                let changed = m.gen != menuGen || m.menus != menuBar
                 menuBar = m.menus
                 menuGen = m.gen
+                if changed { onMenus?(m.menus) }
             } catch {
                 lastError = "\(error)"
             }
@@ -412,11 +443,13 @@ public final class DocumentModel {
     }
 
     /// Activate a menu item: `command.run` with its params, else `ui.invoke` (which may ask).
+    /// `person`: the person at the shell chose it (a menu, a toolbar button), so what it asks is
+    /// the shell's to show (`ui.invoke {by: "person"}`); otherwise a script's.
     @discardableResult
-    public func activate(_ item: MenuItem) async throws -> JSONValue {
+    public func activate(_ item: MenuItem, person: Bool = false) async throws -> JSONValue {
         guard let command = item.command else { throw PlumError(.refused(core: nil), "\(item.id) is the shell's to do") }
         if let params = item.params { return try await run(command, params) }
-        return try await invoke(command)
+        return try await invoke(command, person: person)
     }
 
     // MARK: Asks
@@ -445,8 +478,10 @@ public final class DocumentModel {
 
     /// `ui.invoke {command}`: the command as a menu would run it (it may raise asks).
     @discardableResult
-    public func invoke(_ command: String) async throws -> JSONValue {
-        let r = try await core.request("ui.invoke", ["command": .string(command)], doc: requestDoc)
+    public func invoke(_ command: String, person: Bool = false) async throws -> JSONValue {
+        var p: [String: JSONValue] = ["command": .string(command)]
+        if person { p["by"] = "person" }
+        let r = try await core.request("ui.invoke", .object(p), doc: requestDoc)
         afterOwnRequest()
         return r
     }

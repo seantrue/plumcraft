@@ -130,6 +130,8 @@ These are plan section 3's rules, made normative.
 
 Unknown fields are ignored. A path outside `dirs` is never written by the core except where a file ask returned it.
 
+**As built (N3 slice 4): `engines.also`.** The C ABI's config takes `engines.also: [engine id]` (at most 8): engines started beside `engines.default` in every document, each hosted its default way and checked against `platform` as the first is, behind the document's coordinator, so the document has one catalogue of both (what `engine.add` gives). An unknown id or a hosting the platform refuses is the config's error; the first engine, or one named twice, is started once. The Mac app opens every document on `text` with `array` beside it (both compiled in), so a graph can mix them and no conformance case lacks an engine.
+
 ### 4.2 Platform capabilities
 
 | Capability | When false |
@@ -352,6 +354,8 @@ Empty arrays MAY be left out. `log` says the ring has lines past what the shell 
 
 **As built (C ABI, N1 and N2 slice 2):** `changed` carries `{doc, domain: "engine", gen, connected, label, ready}`, `{doc, domain: "document", closing: true}`, `{doc, domain: "menus", gen}` once the shell has called `menu.get`, and `{doc, domain: "scene", gen}` once it has called `scene.get`. The core looks at a document's scene when it is idle and at most every 16 ms while busy (a constant, `SCENE_EVERY`, not yet `display.frame_ms`), and a scene change not yet polled is replaced by the newer one, so a poll holds at most one scene change per document however fast a run reports. Since N2 slice 3 a look put off because the last was under 16 ms ago is taken when the 16 ms are up, not at the next 50 ms tick, so an edit or a geometry report reaches the feed and the hot calls' snapshot within 16 ms of the core going quiet. The egui editor's control port has no feed (it is request and reply); a script there calls `scene.get {since}` when it likes. **Since N3 slice 2** a `scene.get` answered in a turn in which the core took no look of its own counts as published for that turn only: before, the next look (after an edit in a later turn) took the edit's scene for the one already published, saw nothing new, and the edit reached the feed only at the next idle look, a tick (50 ms) and a build later. A shell that fetches `scene.get {since}` on every scene change, as the Swift kit's document model does, met it on every edit: an edit's change came 67 to 80 ms after its reply at 500 nodes, and comes within the 16 ms throttle and a build since (`crates/ffi/tests/scene.rs`, `an_edit_reaches_the_feed_without_waiting_for_a_tick`).
 
+**Since N3 slice 4, the `document` domain carries the document's state** (7.2): once a document's engine is there, and whenever one of them changes, `changed` has `{doc, domain: "document", gen, title, document, path, dirty, undo, redo, lastError}` (`undo` and `redo` the step names, "Add Node", or null), a newer one not yet polled replacing the older (`closing` changes stay as they were, with no `gen`). So a native shell keeps its window's title, its edited dot and its Edit menu's step names without asking (`crates/ffi/tests/run_watch.rs`). `dirty` is the session's: an undo back to where the file was saved leaves it dirty.
+
 ### 7.2 Domains
 
 | Domain | What | Fetch | `ui.inspect` today |
@@ -531,6 +535,8 @@ The fill while a run or its replay shows (`canvas.rs:1115-1136`), which the shel
 | `skipped` | `state_skipped` | 0.60 |
 
 The amount is multiplied by **strength**: 1 while the run or replay goes on and for `HOLD` (1000 ms) after, falling linearly to 0 over `FADE` (600 ms) (`run_anim.rs:19-21`, `:225`). `anim` in the scene: `{on, replay, generation, endedAt: <clock ms> | null, holdMs: 1000, fadeMs: 600, pulseMs: 1200}`; each face's `shown: {state, since}`. With View › Colour Nodes While Running off and no replay, `on` is false and no fill applies. `mix` is per channel, alpha from the body (`theme.rs:380`). The thumbnail is faded (`faded` token tint) while stale, from an older run, or ahead of the replay (`canvas.rs:1140`).
+
+**As built (N3 slice 4), over the C ABI.** The run animation is the core's document's (`Document::run_anim`, brought up to date every turn by `Document::pump_run_anim`; the egui shell draws from the same one). A scene the C ABI serves carries it while it shows: `anim.on` is true from the run's start (or a replay's, View › Animate Last Run) until the colours have faded (`HOLD` then `FADE` after every node is shown finished), and each face's `shown` is the state as shown (a string); after that `anim.on` is false and no face has `shown`, so a scene at rest carries no animation. With View › Colour Nodes While Running off (and no replay) it is never on. The scene's `anim` is `{on, replay, generation, hold_ms, fade_ms, pulse_ms}`, as the scene types serialise it; `endedAt` is not sent: a shell starts its hold and fade when no face is shown `waiting` or `running`, which is when the core's own clock starts them, and the core drops `on` at about the time the shell's fade ends. A replay's states change with time, not events: the core's idle look (at most every 50 ms) publishes them. Before, the C ABI's scenes had no animation (`on` false always).
 
 ### 8.7 Previews and footers
 
@@ -825,6 +831,7 @@ What `EditorApp::invoke` fills in (`lib.rs:961-1072`) becomes the core's invoke 
 - An item: `command`, `params?` (an item that runs a command with fixed parameters), `label`, `shortcut?`, `enabled`, `reason?` (the disabled item's tooltip), `checked?` (today `run.auto` and `view.runColors`, `lib.rs:2242`), `hover?`, `form?: true` (it asks first: the shell adds `…` per platform style).
 - Items that are not plain registry entries come from the core too (12.3): the Engine menu's choices, Node › Add by category and by engine, Animation Speed, the Edit menu's canvas items (commands since N2 slice 1, Align › and Distribute › excepted), View › Fit, Node › Search…
 - Activating an item is `ui.invoke {command}` (or `command.run {command, params}` when it has `params`), never a shell-side interpretation.
+- **As built (N3 slice 4): `ui.invoke {command, by: "person"}`.** Over the C ABI a shell's own request may say who it invokes for: `by: "person"` (its menu bar, a context menu, a toolbar button) raises what the command asks as the person's (`by: "person"` in the ask), for the shell to show natively; `by: "script"` or no `by` is a script's, as before, which a shell leaves for the script to answer. Only `plum_request` takes the field: the dispatcher every control channel uses refuses it as an unknown field, so a script can't make a shell put a panel on the screen.
 
 ### 12.2 Shortcuts
 
@@ -838,6 +845,8 @@ Today's notation is egui's: `Cmd+Shift+Z` (`CommandSpec::shortcut`, `commands.rs
 | `Alt`, `Opt` | `alt` | ⌥ | ⌥ | Alt |
 
 `key` is egui's key name: letters, digits, `Enter`, `Period`, `Comma`, `Escape`, `Tab`, `Space`, `Delete`, `Backspace`, arrows. The registry's shortcuts today: `edit.undo` Cmd+Z, `edit.redo` Cmd+Shift+Z, `graph.new` Cmd+N, `graph.open` Cmd+O, `graph.save` Cmd+S, `graph.saveAs` Cmd+Shift+S, `app.quit` Cmd+Q, `app.settings` Cmd+Comma, `node.duplicate` Cmd+D, `group.create` Cmd+G, `group.ungroup` Cmd+Shift+G, `graph.tidy` Cmd+Shift+L, `run.start` Cmd+Enter, `run.cancel` Cmd+Period. Rules kept from today: the most specific shortcut matches first (`lib.rs:1559`); a disabled command still consumes its keys; `edit.*` shortcuts are left to a focused text field; a shortcut fired in a text field runs after the field commits (`lib.rs:1575`).
+
+**As built on the Mac (N3 slice 4).** The Mac app builds its menu bar from `menu.get` and the feed's `menus` changes, and maps a shortcut to a key equivalent only when it has a modifier besides Shift: a plain key (Backspace for Delete, F for Fit, Escape) would take typing from a text field, so the canvas recognises those itself (12.3). Items with a role are the system's standard actions (NSDocument's New, Open, Save, Save As; Undo, Redo, Cut, Copy, Paste, Delete, Select All down the responder chain, so an editing text field takes them), About, Settings… and Quit go in the application menu, and Undo and Redo show the step names from the `document` domain (7.1).
 
 ### 12.3 What was not a command, and is since N2 slice 1
 

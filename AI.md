@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N3 slice 4: menus, asks, run and watch in the Mac app (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The fourth of five N3 slices: the real menu bar from the core's menu model, the asks, engines and running, a Watched panel with viewers for pictures, plain text and scalars, culling, and the read-only conformance half with no engine-dependent skips.
+
+**What the agent did (~2,300 LOC of Swift added, tests included; ~380 lines of Rust).** The menu bar and context menus built from the core's model and kept current by the feed, with Undo and Redo carrying the core's step names. Native answers to the asks as sheets (file panels, prompts, text and form, pasteboard, open in another app), with `share` refused. Saving through NSDocument with the core's dirty state driving the edited dot. Both built-in engines per document, engine state and Run in the toolbar, the run wash with its pulse, hold and fade. A Watched panel with three viewers, picture previews on faces, and culling of off-screen layers. In Rust, the document now owns the run animation (egui uses it too), the feed's `document` change carries title, path, dirty, undo and redo, and a shell can say an invoke comes from the person at it. Conformance against the running app: both halves 12 of 12, no skips. 11 new Swift tests, 4 new Rust tests.
+
+**Defects in the agent's work.** AppKit took the words of two launch options for files to open and put a modal alert on the maintainer's screen, in one conformance run and two probes; script-opened menus sat open for up to 20 s; three Instruments copies were left stopped for up to seven minutes. All were caught by the agent watching its own launches and fixed. The agent also found that earlier slices' `swift test` runs most likely used the maintainer's real commonkit store, because the login shell exports its path and the tests did not override it; every Swift test target now forces scratch, and the app refuses a scripted launch that names the real store.
+
+**Not shown.** Culling did not reduce hitches at 2,000 nodes in the measurements, which were too noisy to read on a loaded machine. A one-node change at 2,000 nodes takes about 35 ms against a 16 ms budget. The second engine adds about half a second to launch.
+
+**Not verified.** Nobody has used the app by hand: the menu bar with the app frontmost, a real right click, saving through the save panel, Revert, the Open panel, pinch in the picture viewer. The controller looked at three of the 22 screenshots; in them faces that grow after a run overlap their neighbours.
+
+**Unexplained.** 91 array files appeared in the maintainer's store under the research software's keyspaces at 12:04 to 12:08 during the slice. The agent says its launches all pointed at scratch and that PlumCraft's engines write other keyspaces; neither the agent nor the controller found what wrote them.
+
 ### 2026-11-20 — N3 slice 3: the layer canvas and the Mac app (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The third of five N3 slices: a canvas drawing the real scene and a Mac app that opens, shows, pans, zooms and selects. The maintainer also said "Yes, thin snapshots as needed" and "Delete the traces, exclude the build folders" (the N0 Instruments recordings, 19 GB).
