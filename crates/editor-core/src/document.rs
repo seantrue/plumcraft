@@ -248,6 +248,13 @@ pub struct Document {
     pub focus: Option<plumcraft_graph::GroupId>,
     /// The scene last published, with its revisions (`scene.get`, [`crate::scene`]).
     pub scene: crate::scene::Published,
+    /// What the shell measured of the faces (`geometry.set`, [`crate::geometry`]; N2 slice 3).
+    pub geometry: crate::geometry::Measured,
+    /// The latest fit the core asked the shell's view for (`canvas.fit`): the scene's `view`.
+    pub fit: Option<crate::scene::Fit>,
+    /// What the hot calls read ([`crate::geometry::Snapshot`]), made again after a publish when
+    /// what it is made from changed ([`Document::publish_scene`]).
+    pub snapshot: std::sync::Arc<crate::geometry::Snapshot>,
 }
 
 impl std::fmt::Debug for Document {
@@ -308,6 +315,9 @@ impl Document {
             selection: crate::selection::SelectionCell::default(),
             focus: None,
             scene: crate::scene::Published::default(),
+            geometry: crate::geometry::Measured::default(),
+            fit: None,
+            snapshot: std::sync::Arc::default(),
         }
     }
 
@@ -744,6 +754,8 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.selection.update(crate::selection::Selection::clear);
         d.selection.update(|s| s.net = None);
         d.focus = None;
+        // a new graph's faces are measured afresh
+        d.geometry.clear();
     } else {
         d.forget_gone();
     }
@@ -1081,6 +1093,16 @@ impl Host for Document {
     fn group_to_ungroup(&self) -> Option<plumcraft_graph::GroupId> {
         Document::group_to_ungroup(self)
     }
+    fn sizes(&self, nodes: &[String], groups: &[plumcraft_graph::GroupId]) -> std::collections::BTreeMap<String, [f32; 2]> {
+        let nodes: Vec<plumcraft_graph::NodeId> = nodes.iter().map(|n| plumcraft_graph::NodeId::from(n.as_str())).collect();
+        self.geometry.sizes_for(&nodes, groups)
+    }
+    /// Tidy's measurements, from what the shell reported (`geometry.set`).
+    fn measured(&self) -> (serde_json::Map<String, Value>, serde_json::Map<String, Value>) {
+        let texts = std::collections::HashMap::new();
+        let faces = crate::scene::faces(&self.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]));
+        self.geometry.for_tidy(&faces)
+    }
     fn close(&mut self) {
         self.close_asked = true;
     }
@@ -1147,6 +1169,9 @@ impl Shell for Document {
     fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
         Some(&mut self.scene)
     }
+    fn document_mut(&mut self) -> Option<&mut Document> {
+        Some(self)
+    }
 }
 
 impl Document {
@@ -1185,7 +1210,92 @@ impl Document {
             now: std::time::Instant::now(),
             app_text,
             editors,
+            view: crate::scene::View { fit: self.fit.clone() },
+            geometry: Some(&self.geometry),
         }
+    }
+}
+
+impl Document {
+    /// Publish `scene` (a build of this document's), and make the hot calls' snapshot again if
+    /// what it is made from changed. Every publish goes through here (`scene.get`, the C ABI's
+    /// feed, the `geometry.*` queries). Faces gone from the scene are forgotten by the geometry.
+    pub fn publish_scene(&mut self, scene: crate::scene::Scene) -> u64 {
+        let generation = self.scene.publish(scene);
+        if self.geometry.len() > self.scene.face_count() {
+            let scene = &self.scene;
+            self.geometry.retain(|id| scene.face(id).is_some());
+        }
+        let key = self.snapshot_key();
+        if self.snapshot.key != key || self.snapshot.doc != self.id || (self.snapshot.generation == 0 && generation > 0) {
+            self.snapshot = std::sync::Arc::new(self.scene.snapshot(key, self.session.graph(), self.session.catalog(), &self.geometry));
+        }
+        generation
+    }
+
+    /// What the snapshot is made from: the session's generation (every command, a new
+    /// catalogue), the graph's revision, the geometry's generation, the group entered.
+    fn snapshot_key(&self) -> (u64, u64, u64, Option<String>) {
+        (self.session.generation(), self.session.graph().revision(), self.geometry.generation(), self.focus.as_ref().map(|g| g.0.clone()))
+    }
+
+    /// Keep what the shell measured (`geometry.set`): `{applied, stale, unknown}`. A face the
+    /// graph doesn't have is skipped (`unknown`); one measured at an older revision than the
+    /// scene's is kept all the same (an older measurement beats the default) and listed
+    /// (`stale`), so the shell measures it again.
+    pub fn apply_geometry(&mut self, reports: Vec<crate::geometry::Report>) -> Value {
+        let (mut applied, mut stale, mut unknown) = (0u64, Vec::new(), Vec::new());
+        let graph = self.session.graph();
+        let known = |id: &str| match id.strip_prefix("group:") {
+            Some(g) => graph.group(&plumcraft_graph::GroupId::from(g)).is_some(),
+            None => graph.nodes.contains_key(&plumcraft_graph::NodeId::from(id)),
+        };
+        let mut keep = Vec::with_capacity(reports.len());
+        for r in reports {
+            if !known(&r.face) {
+                if unknown.len() < 64 {
+                    unknown.push(r.face);
+                }
+                continue;
+            }
+            if let (Some(rev), Some(now)) = (r.rev, self.scene.face_rev(&r.face))
+                && rev < now
+            {
+                stale.push(r.face.clone());
+            }
+            keep.push(r);
+        }
+        for r in keep {
+            self.geometry.set(&r.face, r.geometry);
+            applied += 1;
+        }
+        // a shell that measures draws the scene: the feed says when it changes
+        self.scene.watched = true;
+        json!({"applied": applied, "stale": stale, "unknown": unknown})
+    }
+
+    /// The rect a fit shows now ([`crate::geometry::fit_rect`]): every face shown at the size the
+    /// core has for it, and the frames outside an entered group.
+    pub fn fit_rect(&self) -> Option<[f64; 4]> {
+        let texts = std::collections::HashMap::new();
+        let faces = crate::scene::faces(&self.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]));
+        let rects = faces.iter().map(|f| crate::geometry::face_rect(f.pos, self.geometry.get(&f.id)));
+        let graph = self.session.graph();
+        let frames = graph
+            .frames
+            .values()
+            .filter(|_| self.focus.is_none())
+            .map(|f| crate::geometry::face_rect(f.pos, Some(&crate::geometry::FaceGeometry { size: f.size, ..Default::default() })));
+        crate::geometry::fit_rect(rects, frames)
+    }
+
+    /// Ask the shell's view for a fit (`canvas.fit`): `{fit: true, seq, rect}` (rect null when
+    /// there is nothing to fit, and then nothing is asked).
+    pub fn ask_fit(&mut self) -> Value {
+        let Some(rect) = self.fit_rect() else { return json!({"fit": true, "seq": self.fit.as_ref().map_or(0, |f| f.seq), "rect": null}) };
+        let seq = self.fit.as_ref().map_or(0, |f| f.seq).wrapping_add(1);
+        self.fit = Some(crate::scene::Fit { seq, rect });
+        json!({"fit": true, "seq": seq, "rect": rect})
     }
 }
 

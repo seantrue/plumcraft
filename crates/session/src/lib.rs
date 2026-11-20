@@ -66,6 +66,11 @@ pub fn node_title(graph: &Graph, catalog: &SchemaReply, id: &NodeId) -> String {
     graph.node_title(id, |kind| display_name(catalog, kind)).unwrap_or_else(|| id.to_string())
 }
 
+/// Every node's title, as [`node_title`] gives each, in one pass ([`Graph::node_titles`]).
+pub fn node_titles(graph: &Graph, catalog: &SchemaReply) -> std::collections::BTreeMap<plumcraft_graph::NodeId, String> {
+    graph.node_titles(|kind| display_name(catalog, kind))
+}
+
 /// A node type's display name, or its id when the catalog has none: the stem of new nodes'
 /// titles.
 pub fn display_name(catalog: &SchemaReply, kind: &str) -> String {

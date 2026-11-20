@@ -100,6 +100,69 @@ int32_t plum_release(uint64_t token);
 /* How many blobs are lent and not released. */
 uint64_t plum_leases(void);
 
+/* ---------- hot calls: typed, synchronous, no JSON (docs/shell-interface.md section 9) ----------
+ * They read the document's latest snapshot (its published scene with the geometry the core
+ * has) without waiting for the core thread, from any thread; they may be one publish behind a
+ * request just sent. A document is named by its number (0: the first open). Coordinates and
+ * distances are graph units (the shell divides its screen slop by its zoom). Faces, wires,
+ * nets, frames and groups are named by the scene's nid (interned per kind). The same queries
+ * are JSON methods too: geometry.hit, geometry.wireTarget, geometry.wirePaths, and the command
+ * geometry.set. */
+
+/* What is at a point, or where a dragged wire may land.
+ * kind: 0 none, 1 node (part: 1 body, 2 header, 3 title, 4 chevron, 5 icon, 6 menu, 7 enter,
+ *       8 row (index), 9 preview, 10 footer item (index)), 2 pin (part: 1 input, 2 output;
+ *       node, pin), 3 wire (wire), 4 bend point (wire, index), 5 net tag (part: 1 driver,
+ *       item the net; 2 use, wire), 6 frame (part: 1 body, 2 tab, 3 handle; item), 7 open
+ *       group (part 1 band; item).
+ * status: PLUM_OK; PLUM_ERR_CORE; PLUM_ERR_MISSING (no such document, or no scene published
+ *       for it yet: scene.get or plum_geometry_set first); PLUM_ERR_ARG; PLUM_ERR_PANIC. */
+typedef struct {
+    int32_t status;
+    uint32_t kind;
+    uint32_t part;
+    int32_t index;   /* a row, footer item or bend point; -1 none */
+    uint64_t item;   /* the nid of what was hit (face, wire, net, frame or group, by kind) */
+    uint64_t node;   /* the face (kinds 1 and 2; a tag's face) */
+    uint64_t wire;   /* the wire (kinds 3 and 4; a use's tag) */
+    uint32_t pin;    /* the pin's index on its side (kind 2) */
+    uint32_t fits;   /* plum_wire_target: 0 doesn't fit, 1 wire.connect takes it, 2 only through a Convert */
+    float x, y;      /* the pin's point (kind 2: where a wire snaps), else the point asked */
+} plum_hit;
+
+/* One face's measurements for plum_geometry_set (graph units, at zoom 1). */
+typedef struct {
+    uint64_t face;          /* the face's nid */
+    uint64_t rev;           /* the face's rev measured; 0: not said */
+    float w, h;
+    float header;           /* the header's height; NaN or below 0: not said */
+    const float *inputs;    /* each input pin's height from the top, row order (NaN: not measured) */
+    size_t n_inputs;
+    const float *outputs;
+    size_t n_outputs;
+    const float *rows;      /* 4 floats an input row: its widget rect (x0, y0, x1, y1), NaN x0: none */
+    size_t n_rows;          /* rows, not floats */
+} plum_face;
+
+/* What is at (x, y) within slop: a pin first, then a face and its part (the last drawn on top),
+ * a bend point, a net tag, a frame's tab or handle, a wire, an open group's band, a frame. */
+plum_hit plum_hit_test(plum_core core, uint64_t doc, float x, float y, float slop);
+/* Where a wire dragged from pin `pin` of face `face` (side 1 an input, 2 an output) may land at
+ * (x, y): the nearest pin on the other side within slop that fits, else the nearest that
+ * doesn't (fits 0), else kind 0. PLUM_ERR_ARG for another side. */
+plum_hit plum_wire_target(plum_core core, uint64_t doc, uint64_t face, uint32_t side, uint32_t pin, float x, float y, float slop);
+/* The paths of every wire with an end on one of the n faces (nids), as if they were moved by
+ * (dx, dy): per wire its nid's low 32 bits and its point count (each a uint32_t bit-cast into a
+ * float), then the points as x, y (a cubic chain: the start, then three points a segment).
+ * Returns the floats needed; nothing is written when that is more than cap or out is NULL.
+ * 0 for a core or document that isn't there. */
+size_t plum_wire_paths(plum_core core, uint64_t doc, const uint64_t *faces, size_t n, float dx, float dy, float *out, size_t cap);
+/* What the shell measured of n faces: geometry.set, typed. Copied before it returns, applied on
+ * the core's thread; a nid the scene doesn't have is skipped. PLUM_OK, PLUM_ERR_CORE, or
+ * PLUM_ERR_ARG (NULL faces with n > 0, more than 100000 faces, more than 4096 pins or rows a
+ * face, a misaligned pointer). */
+int32_t plum_geometry_set(plum_core core, uint64_t doc, const plum_face *faces, size_t n);
+
 #ifdef __cplusplus
 }
 #endif

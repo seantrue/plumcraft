@@ -188,6 +188,28 @@ pub trait Shell: Host {
     fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
         None
     }
+    /// The document this shell shows, when it has one (the scene's geometry, the hot calls'
+    /// snapshot: N2 slice 3).
+    fn document_mut(&mut self) -> Option<&mut crate::document::Document> {
+        None
+    }
+}
+
+/// Publish the scene as it is now, and the hot calls' snapshot with it: the document's
+/// [`crate::document::Document::publish_scene`] where the shell has a document, else its own
+/// published scene. None: this shell publishes none.
+fn publish<S: Shell>(s: &mut S) -> Option<u64> {
+    let scene = s.scene()?;
+    if let Some(d) = s.document_mut() {
+        return Some(d.publish_scene(scene));
+    }
+    s.scene_published().map(|p| p.publish(scene))
+}
+
+/// The snapshot the `geometry.*` queries read, made from the scene published now.
+fn snapshot<S: Shell>(s: &mut S, method: &str) -> Result<std::sync::Arc<crate::geometry::Snapshot>, Value> {
+    publish(s).ok_or_else(|| err(not_here(method)))?;
+    s.document_mut().map(|d| std::sync::Arc::clone(&d.snapshot)).ok_or_else(|| err(not_here(method)))
 }
 
 /// A method this shell has nothing to answer with.
@@ -458,14 +480,51 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 Ok(s) => s,
                 Err(e) => return err(e),
             };
-            let Some(scene) = s.scene() else { return err(not_here("scene.get")) };
+            if publish(s).is_none() {
+                return err(not_here("scene.get"));
+            }
             match s.scene_published() {
                 Some(p) => {
-                    p.publish(scene);
                     p.watched = true;
                     ok(p.get(since))
                 }
                 None => err(not_here("scene.get")),
+            }
+        }
+        // the geometry's queries (N2 slice 3), what the C ABI's hot calls answer typed: what is
+        // under a point, where a dragged wire may land, the paths of wires on faces being moved
+        "geometry.hit" => {
+            let (x, y, slop) = match crate::geometry::parse_point(params, &[]) {
+                Ok(p) => p,
+                Err(e) => return err(e),
+            };
+            match snapshot(s, method) {
+                Ok(snap) => ok(snap.hit_json(&snap.hit(x, y, slop))),
+                Err(e) => e,
+            }
+        }
+        "geometry.wireTarget" => {
+            let (x, y, slop) = match crate::geometry::parse_point(params, &["from"]) {
+                Ok(p) => p,
+                Err(e) => return err(e),
+            };
+            let snap = match snapshot(s, method) {
+                Ok(snap) => snap,
+                Err(e) => return e,
+            };
+            match crate::geometry::parse_from(&snap, params) {
+                Ok((face, output, pin)) => ok(snap.hit_json(&snap.wire_target(face, output, pin, x, y, slop))),
+                Err(e) => err(e),
+            }
+        }
+        "geometry.wirePaths" => {
+            let snap = match snapshot(s, method) {
+                Ok(snap) => snap,
+                Err(e) => return e,
+            };
+            match crate::geometry::parse_paths(&snap, params) {
+                Ok((faces, dx, dy)) => ok(snap.wire_paths_json(&faces, dx, dy)),
+                Err(e) => err(e),
             }
         }
         // the log (N1 slice 8): read it, or add the shell's own entry

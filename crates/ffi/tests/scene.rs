@@ -141,7 +141,9 @@ fn a_shell_reads_the_scene_and_then_only_what_changed() {
     assert!(d["gen"].as_u64().unwrap() >= g2);
     assert_eq!(ids(&d["upsert"]["nodes"]), std::slice::from_ref(&lit), "{d}");
     assert_eq!(d["upsert"]["nodes"][0]["pos"], json!([0.0, 120.0]));
-    assert!(d["upsert"]["wires"].as_array().unwrap().is_empty());
+    // its wire's path moved with it (N2 slice 3: wires carry their paths), and only that wire
+    assert_eq!(ids(&d["upsert"]["wires"]), [format!("{up}.text")], "{d}");
+    assert_eq!(d["upsert"]["wires"][0]["path"][0][1].as_f64().map(|y| y > 120.0), Some(true), "{d}");
     assert!(d["remove"]["nodes"].as_array().unwrap().is_empty());
 
     // a run: its progress comes as scene changes, at most one a poll

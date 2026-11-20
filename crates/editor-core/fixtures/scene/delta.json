@@ -104,7 +104,7 @@
         "inputs": [],
         "kind": "t.src",
         "menu": "node",
-        "nid": 16,
+        "nid": 18,
         "outputs": [
           {
             "hover": "Type: x.t.pic",
@@ -228,5 +228,16 @@
       }
     ],
     "wires": []
+  },
+  "view": {
+    "fit": {
+      "rect": [
+        -352.0,
+        -72.0,
+        1452.0,
+        2192.0
+      ],
+      "seq": 1
+    }
   }
 }

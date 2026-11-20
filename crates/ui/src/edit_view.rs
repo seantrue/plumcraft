@@ -33,8 +33,6 @@
 //! `edit.cut`, one undo step. Align, Distribute and Frame Selection take selected collapsed groups as the one
 //! node they are on the canvas.
 
-use std::collections::BTreeMap;
-
 use egui::{Pos2, Rect};
 use egui_snarl::{NodeId as SnarlId, Snarl};
 use plumcraft_editor_core::selection::{Mode, Selection, SelectionCell};
@@ -365,16 +363,6 @@ impl Canvas {
         }
     }
 
-    /// The selection's sizes (graph units), by node id and a collapsed group's id: what Align,
-    /// Distribute and Frame Selection measure.
-    pub fn selection_sizes(&self) -> BTreeMap<String, [f32; 2]> {
-        let size_of = |(sid, r): (SnarlId, Rect)| {
-            let n = self.snarl.get_node(sid).filter(|n| self.picked.contains(n))?;
-            Some((n.proxy.as_ref().map_or_else(|| n.id.0.clone(), |p| p.group.0.clone()), [r.width(), r.height()]))
-        };
-        self.snarl_rects().into_iter().filter_map(size_of).collect()
-    }
-
     /// Every node the canvas shows (members of an entered group only; a collapsed group counts
     /// as its proxy), at once (tests; the Edit menu's Select All is `selection.all`).
     pub fn select_all(&mut self) {
@@ -472,42 +460,14 @@ impl EditorApp {
             EditOp::Paste => self.invoke("edit.paste"),
             EditOp::SelectAll => self.invoke("selection.all"),
             EditOp::Delete => self.invoke("edit.delete"),
+            // the core's (N2 slice 3): the selection, at the sizes this canvas reported
             EditOp::Align(edge) => {
-                let p = json!({"edge": edge});
-                self.arrange("edit.align", p);
+                self.run("selection.align", &json!({"edge": edge}));
             }
             EditOp::Distribute(axis) => {
-                let p = json!({"axis": axis});
-                self.arrange("edit.distribute", p);
+                self.run("selection.distribute", &json!({"axis": axis}));
             }
             EditOp::Frame => self.invoke("frame.add"),
-        }
-    }
-
-    /// The selection as what arranging takes: its nodes, its collapsed groups (as the one node
-    /// each is on the canvas, not their members) and the sizes they were drawn at.
-    fn selection_params(&self, mut p: Value) -> Value {
-        let g = self.doc.session.graph();
-        let sel = self.doc.selection.get();
-        let nodes: Vec<NodeId> = sel.nodes.into_iter().filter(|n| g.nodes.contains_key(n)).collect();
-        p["nodes"] = json!(nodes);
-        p["groups"] = json!(sel.groups);
-        p["sizes"] = json!(self.canvas.selection_sizes());
-        p
-    }
-
-    fn arrange(&mut self, id: &str, params: Value) {
-        let p = self.selection_params(params);
-        self.run(id, &p);
-    }
-
-    /// Edit › Frame Selection (`frame.add` invoked: the core asks this window, which knows the
-    /// sizes).
-    pub(crate) fn frame_selection(&mut self) {
-        if self.doc.selection.with(Selection::is_empty) {
-            self.doc.last_error = Some("select nodes to frame first".into());
-        } else {
-            self.arrange("frame.add", json!({}));
         }
     }
 
@@ -515,7 +475,11 @@ impl EditorApp {
     /// part (`plumcraft_editor_core::canvas_cmds`): fit, the palette, reveal.
     pub(crate) fn canvas_command(&mut self, id: &str, v: &Value) {
         match id {
-            "canvas.fit" => self.canvas.request_fit(),
+            // the core worked the rect out from what this canvas measured (N2 slice 3)
+            "canvas.fit" => match v["rect"].as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect::<Vec<f32>>()) {
+                Some(r) if r.len() == 4 => self.canvas.fit_to([r[0], r[1], r[2], r[3]]),
+                _ => self.canvas.request_fit(),
+            },
             "canvas.palette" => {
                 if v["open"] == false {
                     self.canvas.palette = None;

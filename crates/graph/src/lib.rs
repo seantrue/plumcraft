@@ -586,6 +586,39 @@ impl Graph {
         })
     }
 
+    /// Every node's title, as [`Graph::node_title`] gives it, in one pass: `display` once a
+    /// node type, the shared names counted once. What draws every node (the scene) uses this:
+    /// `node_title` looks at every other node, so a title each was quadratic in the graph.
+    pub fn node_titles(&self, display: impl Fn(&str) -> String) -> BTreeMap<NodeId, String> {
+        let mut stems: BTreeMap<&str, String> = BTreeMap::new();
+        for n in self.nodes.values() {
+            if !stems.contains_key(n.kind.as_str()) {
+                stems.insert(n.kind.as_str(), display(&n.kind));
+            }
+        }
+        // how many untitled nodes go by each type name
+        let mut count: BTreeMap<&str, usize> = BTreeMap::new();
+        for n in self.nodes.values().filter(|n| n.title.is_none()) {
+            if let Some(stem) = stems.get(n.kind.as_str()) {
+                *count.entry(stem.as_str()).or_default() += 1;
+            }
+        }
+        self.nodes
+            .iter()
+            .map(|(id, n)| {
+                let title = match (&n.title, stems.get(n.kind.as_str())) {
+                    (Some(t), _) => t.clone(),
+                    (None, Some(stem)) => match n.serial {
+                        Some(k) if count.get(stem.as_str()).copied().unwrap_or(0) > 1 => format!("{stem} {k}"),
+                        _ => stem.clone(),
+                    },
+                    (None, None) => n.kind.clone(),
+                };
+                (id.clone(), title)
+            })
+            .collect()
+    }
+
     /// Add a copy of `node` (from another graph, say: a paste) under a fresh id. Its wires are
     /// not copied and nothing is inherited until it is wired.
     pub fn insert_node(&mut self, mut node: Node) -> NodeId {
@@ -869,6 +902,52 @@ impl Graph {
     pub fn output_is_list(&self, catalog: &SchemaReply, at: &PortRef) -> bool {
         let Ok(def) = def_of(catalog, self, &at.node) else { return false };
         def.output(&at.port).is_some_and(|p| p.list) || self.is_mapped(catalog, &at.node, &mut BTreeMap::new())
+    }
+
+    /// Every node run once per item of a list (what [`Graph::output_is_list`] asks of one node),
+    /// worked out in one pass, upstream first, each node's wires looked at once: asking it of
+    /// every node one at a time looks at every wire for each. Nodes on a (corrupt) cycle aren't
+    /// mapped.
+    pub fn mapped_nodes(&self, catalog: &SchemaReply) -> BTreeSet<NodeId> {
+        let mut into: BTreeMap<&NodeId, Vec<&Wire>> = BTreeMap::new();
+        let mut after: BTreeMap<&NodeId, Vec<&NodeId>> = BTreeMap::new();
+        let mut waiting: BTreeMap<&NodeId, usize> = self.nodes.keys().map(|k| (k, 0)).collect();
+        for w in &self.wires {
+            if !self.nodes.contains_key(&w.from.node) || !self.nodes.contains_key(&w.to.node) {
+                continue;
+            }
+            into.entry(&w.to.node).or_default().push(w);
+            after.entry(&w.from.node).or_default().push(&w.to.node);
+            *waiting.entry(&w.to.node).or_default() += 1;
+        }
+        let mut ready: Vec<&NodeId> = waiting.iter().filter(|(_, n)| **n == 0).map(|(k, _)| *k).collect();
+        let mut mapped = BTreeSet::new();
+        while let Some(id) = ready.pop() {
+            if let (Some(node), Ok(def)) = (self.nodes.get(id), def_of(catalog, self, id))
+                && !def.flags.input_list
+                && into.get(id).into_iter().flatten().any(|w| {
+                    let single = resolve_input(def, node, id, &w.to.port).is_ok_and(|r| !r.port.list);
+                    let indexed = matches!(w.parsed_slice(), Some(Ok(s)) if s.is_index());
+                    single
+                        && !indexed
+                        && match def_of(catalog, self, &w.from.node) {
+                            Ok(src) => src.output(&w.from.port).is_some_and(|p| p.list) || mapped.contains(&w.from.node),
+                            Err(_) => false,
+                        }
+                })
+            {
+                mapped.insert(id.clone());
+            }
+            for next in after.get(id).into_iter().flatten() {
+                if let Some(n) = waiting.get_mut(*next) {
+                    *n = n.saturating_sub(1);
+                    if *n == 0 {
+                        ready.push(next);
+                    }
+                }
+            }
+        }
+        mapped
     }
 
     /// Is `id` run once per item of a list? Memoized over the (acyclic) upstream graph.
@@ -1393,6 +1472,16 @@ mod tests {
         g.connect(&c, p(&sp, "parts"), p(&u, "text")).unwrap();
         assert!(g.output_is_list(&c, &p(&u, "text")), "upper is mapped over the parts");
         g.connect(&c, p(&u, "text"), p(&j, "parts")).expect("a mapped node's output is a list");
+        // mapped twice over (upper of upper), and an index that stops it
+        let (u2, u3) = (add(&mut g, &c, "text.upper"), add(&mut g, &c, "text.upper"));
+        g.connect(&c, p(&u, "text"), p(&u2, "text")).unwrap();
+        g.connect(&c, p(&sp, "parts"), p(&u3, "text")).unwrap();
+        g.set_slice(&c, &p(&u3, "text"), Some("0")).unwrap();
+        let all = g.mapped_nodes(&c);
+        for id in g.nodes.keys() {
+            assert_eq!(all.contains(id), g.output_is_list(&c, &p(id, "text")) && id != &sp, "{id}: the bulk answer is each node's");
+        }
+        assert!(all.contains(&u) && all.contains(&u2) && !all.contains(&u3) && !all.contains(&a));
     }
 
     #[test]
@@ -1498,5 +1587,24 @@ mod tests {
         assert_eq!(g.node_title(&b, display).unwrap(), "upper 2");
         g.remove_node(&b).unwrap();
         assert_eq!(g.node_title(&a, display).unwrap(), "upper", "a serial shows only when another shares the name");
+    }
+
+    #[test]
+    fn every_title_at_once_is_each_title() {
+        let c = catalog();
+        let mut g = Graph::new();
+        let ids: Vec<NodeId> =
+            ["text.upper", "text.upper", "text.literal", "text.words", "text.upper", "text.words"].iter().map(|k| add(&mut g, &c, k)).collect();
+        // two types sharing a display name, a node titled by hand, one serial missing
+        let display = |k: &str| if k == "text.words" { "upper".to_owned() } else { k.trim_start_matches("text.").to_owned() };
+        g.assign_serials(&BTreeSet::new(), display);
+        g.nodes.get_mut(&ids[1]).unwrap().title = Some("mine".into());
+        g.nodes.get_mut(&ids[4]).unwrap().serial = None;
+        let all = g.node_titles(display);
+        assert_eq!(all.len(), g.nodes.len());
+        for id in g.nodes.keys() {
+            assert_eq!(all.get(id), g.node_title(id, display).as_ref(), "{id}");
+        }
+        assert_eq!(all[&ids[2]], "literal", "alone in its name: no serial");
     }
 }

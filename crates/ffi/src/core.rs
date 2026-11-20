@@ -59,6 +59,7 @@ use plumcraft_editor_core::asks::By;
 use plumcraft_editor_core::control::{self, Shell};
 use plumcraft_editor_core::document::{self, DocId, Document, Opening, SharedEngines, shared_starter};
 use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, Launcher, Mode};
+use plumcraft_editor_core::geometry::{FaceGeometry, Report, Snapshot};
 use plumcraft_editor_core::invoke;
 use plumcraft_editor_core::link;
 use plumcraft_editor_core::switchboard;
@@ -303,6 +304,18 @@ pub struct Shared {
     /// A delay added to every read through the engine (`spike.slowResolve`, ms): a slow engine
     /// for the tests and measurements.
     slow_resolve: AtomicU64,
+    /// Each document's hot-call snapshot (N2 slice 3), swapped in by the core thread after a
+    /// publish made a new one; the hot calls take the `Arc` under this lock and read it with the
+    /// lock let go, so the core thread never waits for a reader (section 9.4).
+    snapshots: Mutex<BTreeMap<DocId, Arc<Snapshot>>>,
+}
+
+impl Shared {
+    /// Document `doc`'s snapshot (0: the first document's), none before its scene is published.
+    pub fn snapshot(&self, doc: u64) -> Option<Arc<Snapshot>> {
+        let s = lock(&self.snapshots);
+        if doc == 0 { s.values().next().cloned() } else { s.get(&doc).cloned() }
+    }
 }
 
 /// What `plum_blob` lends: a store blob's bytes, or a picture or numbers the media service made.
@@ -561,6 +574,12 @@ enum Msg {
     Control,
     /// The media service finished something.
     Media,
+    /// What the shell measured, typed (`plum_geometry_set`): faces by nid, with the revision
+    /// measured (none: not said) (N2 slice 3).
+    Geometry {
+        doc: u64,
+        faces: Vec<(u64, Option<u64>, FaceGeometry)>,
+    },
     Stop,
 }
 
@@ -608,6 +627,7 @@ impl Core {
             lent: Mutex::default(),
             media: MediaService::new(config.media.clone()),
             slow_resolve: AtomicU64::new(0),
+            snapshots: Mutex::default(),
         });
         // values are read through the documents' engine connections (following switches), or
         // from the store by handle; only ever on the media service's workers
@@ -679,6 +699,12 @@ impl Core {
     pub fn request(&self, body: Vec<u8>) -> Option<u64> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
         self.tx.send(Msg::Request { id, body }).ok().map(|()| id)
+    }
+
+    /// Queue what the shell measured (`plum_geometry_set`) for document `doc` (0: the first).
+    /// False once the core has stopped.
+    pub fn geometry(&self, doc: u64, faces: Vec<(u64, Option<u64>, FaceGeometry)>) -> bool {
+        self.tx.send(Msg::Geometry { doc, faces }).is_ok()
     }
 
     /// Stop the core thread and wait for it, unless this is the core thread itself (a shell that
@@ -816,8 +842,13 @@ impl Worker {
     }
 
     fn run(mut self, rx: &Receiver<Msg>) {
+        // a look at the scenes was put off (a message came less than SCENE_EVERY after the
+        // last): wake for it when SCENE_EVERY is up, not at the next tick (N2 slice 3: an edit or
+        // a geometry report reached the feed and the hot calls up to a tick, 50 ms, late)
+        let mut scene_owed = false;
         loop {
-            let msg = match rx.recv_timeout(TICK) {
+            let wait = if scene_owed { SCENE_EVERY.saturating_sub(self.scene_at.elapsed()).max(Duration::from_millis(1)).min(TICK) } else { TICK };
+            let msg = match rx.recv_timeout(wait) {
                 Ok(m) => Some(m),
                 Err(RecvTimeoutError::Timeout) => None,
                 Err(RecvTimeoutError::Disconnected) => break,
@@ -828,6 +859,7 @@ impl Worker {
                 Some(Msg::Stop) => break,
                 Some(Msg::Request { id, body }) => self.request(id, &body),
                 Some(Msg::Media) => self.shared.push_media(),
+                Some(Msg::Geometry { doc, faces }) => self.geometry(doc, faces),
                 Some(Msg::Drain | Msg::Control) | None => {}
             }
             self.control_requests();
@@ -847,11 +879,15 @@ impl Worker {
             // and whenever the core is idle
             if idle || self.scene_at.elapsed() >= SCENE_EVERY {
                 self.scene_at = Instant::now();
+                scene_owed = false;
                 let ids: Vec<DocId> = self.docs.keys().copied().collect();
                 for id in ids {
                     self.note_scene(id);
                 }
+            } else {
+                scene_owed = true;
             }
+            self.share_snapshots();
             let o = lock(&self.shared.outbox);
             let any = !o.replies.is_empty()
                 || !o.events.is_empty()
@@ -916,14 +952,50 @@ impl Worker {
         if !d.ready || !d.doc.scene.watched {
             return;
         }
-        let Some(scene) = d.doc.scene() else { return };
-        let generation = d.doc.scene.publish(scene);
+        // a request this turn published it (`scene.get`): not built twice a turn (N2 slice 3:
+        // a 2,000-node scene took longer than SCENE_EVERY to build, so every `scene.get` was
+        // built again here before its reply went out, doubling it); anything that changed since
+        // is seen at the next look
+        let generation = if d.doc.scene.take_fresh() {
+            d.doc.scene.generation()
+        } else {
+            let Some(scene) = d.doc.scene() else { return };
+            let g = d.doc.publish_scene(scene);
+            d.doc.scene.take_fresh();
+            g
+        };
         if generation != d.scene_sent {
             d.scene_sent = generation;
             let mut o = lock(&self.shared.outbox);
             let mine = format!("{{\"doc\":{id},\"domain\":\"scene\"");
             o.changed.retain(|c| !c.starts_with(&mine));
             o.changed.push(json!({"doc": id, "domain": "scene", "gen": generation}).to_string());
+        }
+    }
+
+    /// What the shell measured, typed (`plum_geometry_set`): faces named by nid, as the published
+    /// scene numbers them (a nid it doesn't know is skipped), kept as `geometry.set` keeps them.
+    fn geometry(&mut self, doc: u64, faces: Vec<(u64, Option<u64>, FaceGeometry)>) {
+        let id = if doc == 0 { self.docs.keys().next().copied() } else { Some(doc) };
+        let Some(d) = id.and_then(|id| self.docs.get_mut(&id)) else { return };
+        let reports: Vec<Report> = {
+            let ids = d.doc.scene.face_ids();
+            faces.into_iter().filter_map(|(nid, rev, geometry)| ids.get(&nid).map(|face| Report { face: (*face).to_owned(), rev, geometry })).collect()
+        };
+        d.doc.apply_geometry(reports);
+    }
+
+    /// Hand the hot calls each document's snapshot when a publish made a new one.
+    fn share_snapshots(&self) {
+        let mut shared = lock(&self.shared.snapshots);
+        shared.retain(|id, _| self.docs.contains_key(id));
+        for (id, d) in &self.docs {
+            if d.doc.snapshot.generation == 0 {
+                continue;
+            }
+            if shared.get(id).is_none_or(|s| !Arc::ptr_eq(s, &d.doc.snapshot)) {
+                shared.insert(*id, Arc::clone(&d.doc.snapshot));
+            }
         }
     }
 

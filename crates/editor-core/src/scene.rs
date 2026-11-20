@@ -17,7 +17,6 @@
 //! faces' words, colours and rows from [`build`]'s faces (`plumcraft-ui`'s `canvas.rs`).
 
 use std::collections::{BTreeMap, HashMap, VecDeque};
-use std::hash::Hasher;
 use std::time::Instant;
 
 use plumcraft_graph::{Graph, GroupId, NetKey, NodeId, NodeView, PortRef};
@@ -98,6 +97,28 @@ pub struct Scene {
     pub selection: Picked,
     pub focus: Option<Focus>,
     pub anim: Anim,
+    /// What the core asks the shell's view to show (N2 slice 3).
+    #[serde(default)]
+    pub view: View,
+}
+
+/// What the core asks the shell's view to show (`docs/shell-interface.md` 8.9's view domain, as
+/// far as N2 slice 3 builds it): the latest fit.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct View {
+    /// The latest fit asked for (`canvas.fit`), or none since the document opened.
+    pub fit: Option<Fit>,
+}
+
+/// A fit the core asks for: the shell fits `rect` (graph units) into its view, zoom at most 1
+/// (and at least 0.2), and animates there. `seq` rises with every request, so a shell fits once
+/// a request however often the scene comes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Fit {
+    pub seq: u64,
+    /// `[x0, y0, x1, y1]`: every face shown, and the frames outside an entered group, with a
+    /// margin of 32.
+    pub rect: [f64; 4],
 }
 
 /// The selection, as the scene carries it.
@@ -470,6 +491,10 @@ pub struct Wire {
     /// A slice's label (`[:-1]`).
     pub slice: Option<String>,
     pub net: Option<NetKey>,
+    /// Its path as a cubic chain, graph units: the start, then two control points and the end a
+    /// segment ([`crate::wire_path`]); every shell draws this curve and the core hit-tests it.
+    /// Empty for a wire drawn through a net (its tags are drawn). N2 slice 3.
+    pub path: Vec<[f64; 2]>,
 }
 
 /// A net drawn through labels: its driving tag at the output, a receiving tag at each input.
@@ -527,6 +552,10 @@ pub struct Group {
     pub depth: usize,
     /// Its proxy face is drawn (the outermost collapsed group, visible).
     pub proxy: bool,
+    /// An open group's frame, `[x0, y0, x1, y1]`, the header band its top
+    /// [`crate::geometry::GROUP_HEADER`] ([`crate::geometry::open_group_rects`]); none when
+    /// collapsed, entered, or none of its faces is shown. N2 slice 3.
+    pub rect: Option<[f64; 4]>,
 }
 
 /// An application's mark on a wire (`Hooks::wire_marks`).
@@ -541,6 +570,8 @@ pub struct Mark {
     pub tone: String,
     pub paint: Paint,
     pub tooltip: Option<String>,
+    /// Where it is drawn: its wire's middle (none when its wire isn't drawn). N2 slice 3.
+    pub at: Option<[f64; 2]>,
 }
 
 /// An application's value editor, as the scene needs it (`plumcraft-ui`'s `value_editors`).
@@ -570,6 +601,10 @@ pub struct Inputs<'a> {
     /// The application's line on each node, by node id.
     pub app_text: &'a HashMap<String, String>,
     pub editors: &'a [Editor],
+    /// The view requests the document holds.
+    pub view: View,
+    /// What the shell measured (N2 slice 3); none: every face its default size.
+    pub geometry: Option<&'a crate::geometry::Measured>,
 }
 
 /// The application's line on each node (`Hooks::node_overlays`), by node id.
@@ -650,6 +685,13 @@ struct Ctx<'a> {
     /// The wire into each input (the first, as [`Graph::wire_into`] finds it), indexed once a
     /// build: looking each row's up in the graph's list made a build O(rows × wires).
     into: HashMap<&'a PortRef, &'a plumcraft_graph::Wire>,
+    /// Every node's title, worked out once a build (N2 slice 3): a title each, by
+    /// [`plumcraft_session::node_title`], looks at every other node, which made a build
+    /// quadratic and was most of its cost at 2,000 nodes.
+    titles: std::collections::BTreeMap<NodeId, String>,
+    /// The catalogue's node types by id, indexed once a build (`SchemaReply::node` searches the
+    /// list, and a build asks for each node and each wired row).
+    defs: HashMap<&'a str, &'a NodeDef>,
 }
 
 impl<'a> Ctx<'a> {
@@ -658,11 +700,33 @@ impl<'a> Ctx<'a> {
         for w in &i.graph.wires {
             into.entry(&w.to).or_insert(w);
         }
-        Ctx { i, vis: Visibility::new(i.graph, i.focus), tints: std::cell::RefCell::new(HashMap::new()), into }
+        let mut defs = HashMap::with_capacity(i.catalog.nodes.len());
+        for d in &i.catalog.nodes {
+            // the first of an id, as `SchemaReply::node` finds it
+            defs.entry(d.id.as_str()).or_insert(d);
+        }
+        Ctx {
+            i,
+            vis: Visibility::new(i.graph, i.focus),
+            tints: std::cell::RefCell::new(HashMap::new()),
+            into,
+            titles: plumcraft_session::node_titles(i.graph, i.catalog),
+            defs,
+        }
     }
 
     fn wire_into(&self, at: &PortRef) -> Option<&'a plumcraft_graph::Wire> {
         self.into.get(at).copied()
+    }
+
+    /// What the shell measured of face `id`.
+    fn measured(&self, id: &str) -> Option<&'a crate::geometry::FaceGeometry> {
+        self.i.geometry.and_then(|g| g.get(id))
+    }
+
+    /// A node type, as `SchemaReply::node` finds it (Convert included).
+    fn def(&self, kind: &str) -> Option<&'a NodeDef> {
+        self.defs.get(kind).copied().or_else(|| self.i.catalog.node(kind))
     }
 }
 
@@ -700,7 +764,7 @@ impl Ctx<'_> {
     }
 
     fn title(&self, id: &NodeId) -> String {
-        plumcraft_session::node_title(self.i.graph, self.i.catalog, id)
+        self.titles.get(id).cloned().unwrap_or_else(|| id.to_string())
     }
 
     /// The face as the run animation shows it now; a proxy shows its members' busiest
@@ -750,7 +814,16 @@ pub fn build(i: &Inputs<'_>) -> Scene {
     let cx = Ctx::new(i);
     let graph = i.graph;
     let nodes = faces_in(&cx);
-    let (wires, nets) = wires_and_nets(&cx, &nodes);
+    let rects: HashMap<&str, crate::plain::Rect> = nodes.iter().map(|f| (f.id.as_str(), crate::geometry::face_rect(f.pos, cx.measured(&f.id)))).collect();
+    let (wires, nets) = wires_and_nets(&cx, &nodes, &rects);
+    let open = crate::geometry::open_group_rects(graph, i.focus, &rects);
+    let middles: HashMap<&str, [f64; 2]> = wires
+        .iter()
+        .filter_map(|w| {
+            let chain: Vec<crate::plain::Point> = w.path.iter().map(|p| crate::plain::Point::new(p[0] as f32, p[1] as f32)).collect();
+            crate::wire_path::chain_middle(&chain).map(|m| (w.id.as_str(), [crate::geometry::round(m.x), crate::geometry::round(m.y)]))
+        })
+        .collect();
     let frames = graph
         .frames
         .iter()
@@ -776,6 +849,7 @@ pub fn build(i: &Inputs<'_>) -> Scene {
             parent: g.parent.as_ref().map(ToString::to_string),
             depth: depth_of(graph, id),
             proxy: cx.vis.proxies.contains(id),
+            rect: open.get(id).map(|r| crate::geometry::rect_json(*r)),
         })
         .collect();
     let marks = plumcraft_session::commands::wire_marks(graph)
@@ -786,7 +860,9 @@ pub fn build(i: &Inputs<'_>) -> Scene {
                 plumcraft_session::commands::Tone::Warn => ("warn", "warning"),
                 plumcraft_session::commands::Tone::Error => ("error", "error"),
             };
-            Mark { id: format!("{}.{}", to.node, to.port), nid: 0, rev: 0, label: m.label, tone: tone.into(), paint: cx.tok(token), tooltip: m.tooltip }
+            let id = format!("{}.{}", to.node, to.port);
+            let at = middles.get(id.as_str()).copied();
+            Mark { id, nid: 0, rev: 0, label: m.label, tone: tone.into(), paint: cx.tok(token), tooltip: m.tooltip, at }
         })
         .collect();
     let s = &i.selection;
@@ -814,7 +890,7 @@ pub fn build(i: &Inputs<'_>) -> Scene {
         fade_ms: crate::run_anim::FADE.as_millis() as u64,
         pulse_ms: 1200,
     };
-    Scene { shell: SHELL, doc: i.doc, generation: 0, full: true, nodes, wires, nets, frames, groups, marks, selection, focus, anim }
+    Scene { shell: SHELL, doc: i.doc, generation: 0, full: true, nodes, wires, nets, frames, groups, marks, selection, focus, anim, view: i.view.clone() }
 }
 
 fn depth_of(graph: &Graph, gid: &GroupId) -> usize {
@@ -832,7 +908,7 @@ fn depth_of(graph: &Graph, gid: &GroupId) -> usize {
 
 fn node_face(cx: &Ctx<'_>, id: &NodeId, node: &plumcraft_graph::Node) -> Face {
     let i = cx.i;
-    let def = i.catalog.node(&node.kind);
+    let def = cx.def(&node.kind);
     let (rows, tucked) = def.map(|d| rows::shown_rows_with(d, id, i.graph, &|p| cx.wire_into(p).is_some())).unwrap_or_default();
     let run = i.run.node(&id.0);
     let tint = cx.family_tint(def.map_or("", |d| d.family.as_str()));
@@ -1073,7 +1149,7 @@ fn in_row(cx: &Ctx<'_>, node_id: &NodeId, row: &InputRow) -> InRow {
     let label = if port.list { format!("{} [ ]", row.label) } else { row.label.clone() };
     let wire = cx.wire_into(&at);
     let graph_node = i.graph.node(node_id);
-    let def = graph_node.and_then(|n| i.catalog.node(&n.kind));
+    let def = graph_node.and_then(|n| cx.def(&n.kind));
     let current = graph_node.zip(def).map_or_else(|| port.default.clone(), |(n, d)| plumcraft_graph::ports::current_value(d, n, &row.key, port));
     let prov = bundle::provenance(i.run, node_id, &row.key);
     let source = bundle::source(i.graph, i.catalog, &at, port, prov);
@@ -1314,8 +1390,9 @@ fn preview(cx: &Ctx<'_>, id: &NodeId, n: &NodeRun) -> Option<Preview> {
     }
 }
 
-/// The wires as drawn between faces, and the nets drawn through labels.
-fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face]) -> (Vec<Wire>, Vec<Net>) {
+/// The wires as drawn between faces (each with its path between its pins, `rects` the faces'),
+/// and the nets drawn through labels.
+fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face], rects: &HashMap<&str, crate::plain::Rect>) -> (Vec<Wire>, Vec<Net>) {
     let i = cx.i;
     let graph = i.graph;
     let by_id: HashMap<&str, &Face> = faces.iter().map(|f| (f.id.as_str(), f)).collect();
@@ -1335,7 +1412,7 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face]) -> (Vec<Wire>, Vec<Net>) {
         let Some(to_pin) = tf.inputs.iter().position(|r| r.node == w.to.node.0 && r.key == w.to.port) else { continue };
         let paint = graph
             .node(&w.from.node)
-            .and_then(|n| i.catalog.node(&n.kind))
+            .and_then(|n| cx.def(&n.kind))
             .and_then(|d| d.output(&w.from.port))
             .and_then(|p| cx.type_color(&p.ty))
             .map_or_else(|| cx.tok("wire"), Paint::of);
@@ -1371,6 +1448,14 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face]) -> (Vec<Wire>, Vec<Net>) {
                 }),
             }
         }
+        let path = match (rects.get(from_face.as_str()), rects.get(to_face.as_str())) {
+            (Some(a), Some(b)) => {
+                let from = crate::geometry::pin_point(*a, cx.measured(&from_face), true, from_pin);
+                let to = crate::geometry::pin_point(*b, cx.measured(&to_face), false, to_pin);
+                crate::geometry::chain_json(&crate::geometry::wire_chain(kind, from, to, &w.via))
+            }
+            _ => Vec::new(),
+        };
         wires.push(Wire {
             id: format!("{}.{}", w.to.node, w.to.port),
             nid: 0,
@@ -1386,6 +1471,7 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face]) -> (Vec<Wire>, Vec<Net>) {
             via: w.via.clone(),
             slice: w.slice.as_ref().map(|s| format!("[{s}]")),
             net,
+            path,
         });
     }
     (wires, nets)
@@ -1430,54 +1516,109 @@ item!(Face, Wire, Net, Frame, Group, Mark);
 
 const KINDS: [&str; 6] = ["nodes", "wires", "nets", "frames", "groups", "marks"];
 
-struct Entry {
-    hash: u64,
+/// One published item: as built (stamped with its nid and revision 0, to compare the next build
+/// with), its revision, and its JSON (what `scene.get` sends).
+struct Entry<T> {
+    item: T,
     rev: u64,
+    /// The publish that last saw it ([`Published::round`]: to find what is gone, and repeats).
+    seen: u64,
     value: Value,
+}
+
+/// The parts of the scene that come with every reply.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+struct Top {
+    selection: Picked,
+    focus: Option<Focus>,
+    anim: Anim,
+    view: View,
 }
 
 /// The last scene published, with a revision per item (section 8.12).
 #[derive(Default)]
 pub struct Published {
     generation: u64,
-    nids: HashMap<(usize, String), u64>,
+    /// Interned ids, a table a kind.
+    nids: [HashMap<String, u64>; 6],
     next_nid: u64,
-    items: [BTreeMap<String, Entry>; 6],
+    /// Publishes so far, changed or not.
+    round: u64,
+    nodes: BTreeMap<String, Entry<Face>>,
+    wires: BTreeMap<String, Entry<Wire>>,
+    nets: BTreeMap<String, Entry<Net>>,
+    frames: BTreeMap<String, Entry<Frame>>,
+    groups: BTreeMap<String, Entry<Group>>,
+    marks: BTreeMap<String, Entry<Mark>>,
     /// Ids removed, with the generation that removed them (the last [`KEEP_GENERATIONS`]).
     removed: VecDeque<(u64, usize, String)>,
     /// The oldest generation a delta can start from.
     floor: u64,
-    top_hash: u64,
-    top: Value,
+    top: Option<Top>,
+    top_value: Value,
     doc: u64,
     /// A shell asked for the scene, so the feed says when it changes.
     pub watched: bool,
+    /// Published since [`Published::take_fresh`] last looked.
+    fresh: bool,
 }
 
 impl std::fmt::Debug for Published {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Published(gen {}, {} faces)", self.generation, self.items[0].len())
+        write!(f, "Published(gen {}, {} faces)", self.generation, self.nodes.len())
     }
 }
 
-/// Hashes what is written to it (an item's JSON, without building the text).
-struct HashWriter(std::collections::hash_map::DefaultHasher);
-
-impl std::io::Write for HashWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.write(buf);
-        Ok(buf.len())
+/// Note one kind's items (`kind` its index in [`KINDS`]); `next` is the generation they change
+/// at, `round` the publish's number. Any change? An item is compared with what was published as built (N2 slice 3: comparing
+/// the typed items replaced hashing each one's JSON, which was most of a publish's cost).
+fn note<T: Item + PartialEq>(
+    nids: &mut HashMap<String, u64>,
+    next_nid: &mut u64,
+    map: &mut BTreeMap<String, Entry<T>>,
+    removed: &mut VecDeque<(u64, usize, String)>,
+    kind: usize,
+    items: Vec<T>,
+    (next, round): (u64, u64),
+) -> bool {
+    let mut changed = false;
+    for mut item in items {
+        let nid = match nids.get(item.key()) {
+            Some(n) => *n,
+            None => {
+                *next_nid = next_nid.saturating_add(1);
+                nids.insert(item.key().to_owned(), *next_nid);
+                *next_nid
+            }
+        };
+        item.stamp(nid, 0);
+        match map.get_mut(item.key()) {
+            // a repeated id: the first wins
+            Some(e) if e.seen == round => continue,
+            Some(e) if e.item == item => {
+                e.seen = round;
+                continue;
+            }
+            _ => {}
+        }
+        item.stamp(nid, next);
+        let value = serde_json::to_value(&item).unwrap_or(Value::Null);
+        item.stamp(nid, 0);
+        map.insert(item.key().to_owned(), Entry { item, rev: next, seen: round, value });
+        changed = true;
     }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
+    let gone: Vec<String> = map.iter().filter(|(_, e)| e.seen != round).map(|(k, _)| k.clone()).collect();
+    for id in gone {
+        map.remove(&id);
+        removed.push_back((next, kind, id));
+        changed = true;
     }
+    changed
 }
 
-fn hash_of<T: Serialize>(t: &T) -> u64 {
-    let mut w = HashWriter(std::collections::hash_map::DefaultHasher::new());
-    // (serialising a scene's own types can't fail: no maps with non-string keys)
-    let _ = serde_json::to_writer(&mut w, t);
-    w.0.finish()
+/// One kind's items as JSON: every one, or those changed after `since`.
+fn values<T>(map: &BTreeMap<String, Entry<T>>, since: Option<u64>) -> Value {
+    Value::Array(map.values().filter(|e| since.is_none_or(|s| e.rev > s)).map(|e| e.value.clone()).collect())
 }
 
 impl Published {
@@ -1486,24 +1627,33 @@ impl Published {
         self.generation
     }
 
+    /// Was the scene published since this was last asked (and forget that it was)? The C ABI's
+    /// core rebuilds no scene a request has just published (`scene.get`) in the same turn.
+    pub fn take_fresh(&mut self) -> bool {
+        std::mem::take(&mut self.fresh)
+    }
+
     /// Note `scene` as the current one: items whose content changed get the new generation as
     /// their revision; the generation rises only when something changed. Returns it.
     pub fn publish(&mut self, scene: Scene) -> u64 {
-        let Scene { doc, nodes, wires, nets, frames, groups, marks, selection, focus, anim, .. } = scene;
+        let Scene { doc, nodes, wires, nets, frames, groups, marks, selection, focus, anim, view, .. } = scene;
         self.doc = doc;
+        self.fresh = true;
         let next = self.generation.saturating_add(1);
-        let mut changed = false;
-        changed |= self.note(0, nodes, next);
-        changed |= self.note(1, wires, next);
-        changed |= self.note(2, nets, next);
-        changed |= self.note(3, frames, next);
-        changed |= self.note(4, groups, next);
-        changed |= self.note(5, marks, next);
-        let top = json!({"selection": selection, "focus": focus, "anim": anim});
-        let top_hash = hash_of(&top);
-        if top_hash != self.top_hash || self.generation == 0 {
-            self.top_hash = top_hash;
-            self.top = top;
+        self.round = self.round.wrapping_add(1);
+        let at = (next, self.round);
+        let [n0, n1, n2, n3, n4, n5] = &mut self.nids;
+        let (nn, rm) = (&mut self.next_nid, &mut self.removed);
+        let mut changed = note(n0, nn, &mut self.nodes, rm, 0, nodes, at);
+        changed |= note(n1, nn, &mut self.wires, rm, 1, wires, at);
+        changed |= note(n2, nn, &mut self.nets, rm, 2, nets, at);
+        changed |= note(n3, nn, &mut self.frames, rm, 3, frames, at);
+        changed |= note(n4, nn, &mut self.groups, rm, 4, groups, at);
+        changed |= note(n5, nn, &mut self.marks, rm, 5, marks, at);
+        let top = Top { selection, focus, anim, view };
+        if self.top.as_ref() != Some(&top) {
+            self.top_value = serde_json::to_value(&top).unwrap_or(Value::Null);
+            self.top = Some(top);
             changed = true;
         }
         if changed {
@@ -1515,42 +1665,26 @@ impl Published {
         self.generation
     }
 
-    /// Note one kind's items; `next` is the generation they change at. Any change?
-    fn note<T: Item>(&mut self, kind: usize, items: Vec<T>, next: u64) -> bool {
-        let mut changed = false;
-        let mut seen = std::collections::HashSet::with_capacity(items.len());
-        for mut item in items {
-            let id = item.key().to_owned();
-            if !seen.insert(id.clone()) {
-                continue;
-            }
-            let nid = match self.nids.get(&(kind, id.clone())) {
-                Some(n) => *n,
-                None => {
-                    self.next_nid = self.next_nid.saturating_add(1);
-                    self.nids.insert((kind, id.clone()), self.next_nid);
-                    self.next_nid
-                }
-            };
-            item.stamp(nid, 0);
-            let hash = hash_of(&item);
-            let Some(map) = self.items.get_mut(kind) else { continue };
-            if map.get(&id).is_some_and(|e| e.hash == hash) {
-                continue;
-            }
-            item.stamp(nid, next);
-            let value = serde_json::to_value(&item).unwrap_or(Value::Null);
-            map.insert(id, Entry { hash, rev: next, value });
-            changed = true;
+    fn kind_values(&self, k: usize, since: Option<u64>) -> Value {
+        match k {
+            0 => values(&self.nodes, since),
+            1 => values(&self.wires, since),
+            2 => values(&self.nets, since),
+            3 => values(&self.frames, since),
+            4 => values(&self.groups, since),
+            _ => values(&self.marks, since),
         }
-        let Some(map) = self.items.get_mut(kind) else { return changed };
-        let gone: Vec<String> = map.keys().filter(|k| !seen.contains(*k)).cloned().collect();
-        for id in gone {
-            map.remove(&id);
-            self.removed.push_back((next, kind, id));
-            changed = true;
+    }
+
+    fn has(&self, k: usize, id: &str) -> bool {
+        match k {
+            0 => self.nodes.contains_key(id),
+            1 => self.wires.contains_key(id),
+            2 => self.nets.contains_key(id),
+            3 => self.frames.contains_key(id),
+            4 => self.groups.contains_key(id),
+            _ => self.marks.contains_key(id),
         }
-        changed
     }
 
     /// `scene.get {since}`: everything (`full: true`) with no `since`, a `since` older than the
@@ -1562,13 +1696,12 @@ impl Published {
             Some(s) => s < self.floor || s > self.generation || self.generation == 0,
         };
         let mut out = json!({"shell": SHELL, "doc": self.doc, "gen": self.generation, "full": full});
-        if let (Value::Object(o), Value::Object(top)) = (&mut out, &self.top) {
+        if let (Value::Object(o), Value::Object(top)) = (&mut out, &self.top_value) {
             o.extend(top.clone());
         }
         if full {
             for (k, name) in KINDS.iter().enumerate() {
-                let list: Vec<Value> = self.items.get(k).map(|m| m.values().map(|e| e.value.clone()).collect()).unwrap_or_default();
-                out[*name] = Value::Array(list);
+                out[*name] = self.kind_values(k, None);
             }
             return out;
         }
@@ -1577,11 +1710,9 @@ impl Published {
         let mut upsert = serde_json::Map::new();
         let mut remove = serde_json::Map::new();
         for (k, name) in KINDS.iter().enumerate() {
-            let Some(map) = self.items.get(k) else { continue };
-            let list: Vec<Value> = map.values().filter(|e| e.rev > since).map(|e| e.value.clone()).collect();
-            upsert.insert((*name).to_owned(), Value::Array(list));
+            upsert.insert((*name).to_owned(), self.kind_values(k, Some(since)));
             let mut gone: Vec<&str> =
-                self.removed.iter().filter(|(g, kind, id)| *g > since && *kind == k && !map.contains_key(id)).map(|(_, _, id)| id.as_str()).collect();
+                self.removed.iter().filter(|(g, kind, id)| *g > since && *kind == k && !self.has(k, id)).map(|(_, _, id)| id.as_str()).collect();
             gone.sort_unstable();
             gone.dedup();
             remove.insert((*name).to_owned(), json!(gone));
@@ -1593,7 +1724,45 @@ impl Published {
 
     /// The faces published, by id (what a shell redraws from).
     pub fn face(&self, id: &str) -> Option<&Value> {
-        self.items.first()?.get(id).map(|e| &e.value)
+        self.nodes.get(id).map(|e| &e.value)
+    }
+
+    /// How many faces are published.
+    pub fn face_count(&self) -> usize {
+        self.nodes.len()
+    }
+
+    /// The revision face `id` was published at.
+    pub fn face_rev(&self, id: &str) -> Option<u64> {
+        self.nodes.get(id).map(|e| e.rev)
+    }
+
+    /// The published faces' ids by nid (a typed `geometry.set` names faces by nid).
+    pub fn face_ids(&self) -> HashMap<u64, &str> {
+        self.nodes.values().map(|e| (e.item.nid, e.item.id.as_str())).collect()
+    }
+
+    /// The hot calls' snapshot of what is published, with the geometry the core has (N2 slice 3).
+    pub fn snapshot(
+        &self,
+        key: (u64, u64, u64, Option<String>),
+        graph: &Graph,
+        catalog: &SchemaReply,
+        measured: &crate::geometry::Measured,
+    ) -> crate::geometry::Snapshot {
+        crate::geometry::Snapshot::build(crate::geometry::SnapshotInputs {
+            doc: self.doc,
+            generation: self.generation,
+            key,
+            faces: self.nodes.values().map(|e| &e.item).collect(),
+            wires: self.wires.values().map(|e| &e.item).collect(),
+            nets: self.nets.values().map(|e| &e.item).collect(),
+            frames: self.frames.values().map(|e| &e.item).collect(),
+            groups: self.groups.values().map(|e| &e.item).collect(),
+            measured,
+            graph,
+            catalog,
+        })
     }
 }
 
@@ -1612,6 +1781,8 @@ pub struct Delta {
     pub selection: Picked,
     pub focus: Option<Focus>,
     pub anim: Anim,
+    #[serde(default)]
+    pub view: View,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -1724,6 +1895,8 @@ mod tests {
             now: Instant::now(),
             app_text: texts,
             editors: &EDITORS,
+            view: View::default(),
+            geometry: None,
         }
     }
 
@@ -2011,13 +2184,35 @@ mod tests {
     fn the_shared_fixtures_are_the_scene_and_decode() {
         let mut s = rich_session();
         let first = s.graph().nodes.keys().next().unwrap().0.clone();
-        let t: HashMap<String, String> = [(first, "the application's line".to_owned())].into();
+        let t: HashMap<String, String> = [(first.clone(), "the application's line".to_owned())].into();
+        // an open group of two (its frame), the first node and the source measured (wires from
+        // their pins), and a fit asked for (N2 slice 3)
+        let (o1, o2) = (add(&mut s, "t.src", [900.0, 400.0]), add(&mut s, "t.sink", [1200.0, 400.0]));
+        s.execute("wire.connect", &json!({"from": {"node": o1, "port": "text"}, "to": {"node": o2, "port": "text"}})).unwrap();
+        s.execute("group.create", &json!({"nodes": [o1, o2], "name": "open pair"})).unwrap();
+        let mut m = crate::geometry::Measured::default();
+        m.set(
+            &first,
+            crate::geometry::FaceGeometry::sized(
+                [240.0, 420.0],
+                &[40.0, 62.0, 84.0, 106.0, 128.0, 150.0, 172.0, 194.0, 216.0, 238.0, 260.0, 282.0, 304.0, 326.0, 348.0],
+                &[40.0, 62.0],
+            ),
+        );
+        m.set(&o1.0, crate::geometry::FaceGeometry::sized([180.0, 90.0], &[], &[36.0, 58.0, 80.0]));
+        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }) };
+        let with = |i: Inputs<'_>| -> Scene {
+            let mut i = i;
+            i.geometry = Some(&m);
+            i.view = view.clone();
+            build(&i)
+        };
         let mut p = Published::default();
-        let g1 = p.publish(build(&inputs(&s, Selection::default(), None, &t)));
+        let g1 = p.publish(with(inputs(&s, Selection::default(), None, &t)));
         let full = p.get(None);
         let queued = s.run.nodes.iter().find(|(_, r)| r.state == Some(NodeState::Queued)).map(|(k, _)| k.clone()).unwrap();
         s.run.nodes.insert(queued, NodeRun { state: Some(NodeState::Progress), fraction: Some(0.5), generation: 1, ..NodeRun::default() });
-        p.publish(build(&inputs(&s, Selection::default(), None, &t)));
+        p.publish(with(inputs(&s, Selection::default(), None, &t)));
         let delta = p.get(Some(g1));
         let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("scene");
         let files = [("full.json", &full), ("delta.json", &delta)];
@@ -2030,7 +2225,24 @@ mod tests {
         for (name, v) in files {
             let text = std::fs::read_to_string(dir.join(name)).unwrap_or_else(|e| panic!("{name}: {e} (PLUMCRAFT_WRITE_FIXTURES=1 writes it)"));
             let stored: Value = serde_json::from_str(&text).unwrap();
-            assert_eq!(&stored, v, "{name} is not the scene built now (PLUMCRAFT_WRITE_FIXTURES=1 rewrites it)");
+            fn first_difference(a: &Value, b: &Value, at: &str) -> Option<String> {
+                match (a, b) {
+                    (Value::Object(x), Value::Object(y)) => x
+                        .keys()
+                        .chain(y.keys())
+                        .find_map(|k| first_difference(x.get(k).unwrap_or(&Value::Null), y.get(k).unwrap_or(&Value::Null), &format!("{at}.{k}"))),
+                    (Value::Array(x), Value::Array(y)) if x.len() == y.len() => {
+                        x.iter().zip(y).enumerate().find_map(|(i, (p, q))| first_difference(p, q, &format!("{at}[{i}]")))
+                    }
+                    _ if a == b => None,
+                    _ => Some(format!("{at}: {a} against {b}")),
+                }
+            }
+            assert!(
+                first_difference(&stored, v, "").is_none(),
+                "{name} is not the scene built now (PLUMCRAFT_WRITE_FIXTURES=1 rewrites it): {}",
+                first_difference(&stored, v, "").unwrap_or_default()
+            );
         }
         // the full scene decodes, and covers every kind a shell must draw
         let sc: Scene = serde_json::from_str(&std::fs::read_to_string(dir.join("full.json")).unwrap()).unwrap();
@@ -2049,6 +2261,12 @@ mod tests {
         assert_eq!(footers.into_iter().collect::<Vec<_>>(), ["appText", "convert", "editor", "engineText", "error", "excerpt", "fields", "progress", "save"]);
         assert!(sc.nodes.iter().flat_map(|f| &f.inputs).any(|r| r.badge.is_some()), "a wire over a bundled value");
         assert!(sc.nodes.iter().any(|f| matches!(f.preview, Some(Preview::Rgba8 { .. }))));
+        // N2 slice 3's geometry: every drawn wire has its path, the open group its frame, a fit
+        let drawn = sc.wires.iter().filter(|w| w.kind != "net");
+        assert!(drawn.clone().count() > 0 && drawn.clone().all(|w| w.path.len() >= 4 && (w.path.len() - 1) % 3 == 0));
+        assert!(sc.wires.iter().filter(|w| w.kind == "net").all(|w| w.path.is_empty()));
+        assert!(sc.groups.iter().any(|g| !g.collapsed && g.rect.is_some()) && sc.groups.iter().any(|g| g.collapsed && g.rect.is_none()));
+        assert_eq!(sc.view.fit.as_ref().map(|f| f.seq), Some(1));
         let d: Delta = serde_json::from_str(&std::fs::read_to_string(dir.join("delta.json")).unwrap()).unwrap();
         assert_eq!((d.full, d.since, d.upsert.nodes.len()), (false, g1, 1));
         assert_eq!(d.upsert.nodes[0].run.state.as_deref(), Some("progress"));
@@ -2138,5 +2356,169 @@ mod tests {
                    "full_get_to_bytes_ms": median(full_ms), "full_bytes": full_bytes,
                    "one_state_rebuild_and_publish_ms": median(inc_ms), "delta_get_to_bytes_ms": median(delta_ms), "delta_bytes": delta_bytes})
         );
+    }
+
+    /// The graph the C ABI's `spike.scene` makes (text nodes; Join takes two wires, Upper case
+    /// one, each wired from an earlier node), so the core's costs can be split at the sizes the
+    /// C ABI measures.
+    pub(super) fn spike_session(n: usize, want: usize) -> Session {
+        let mut s = Session::new(plumcraft_text::engine().schema());
+        let cat = s.catalog().clone();
+        let (lit, join, upper) = (cat.node("text.literal").unwrap().clone(), cat.node("text.join").unwrap().clone(), cat.node("text.upper").unwrap().clone());
+        let joins = want.min(2 * (n - 1)).saturating_sub(n - 1).min(n - 1);
+        s.edit("Scene", move |g, cat| {
+            *g = Graph::new();
+            let mut ids: Vec<NodeId> = Vec::with_capacity(n);
+            let mut wires = 0;
+            for i in 0..n {
+                let pos = [(i % 25) as f32 * 260.0, (i / 25) as f32 * 160.0];
+                let kind = if i == 0 {
+                    &lit
+                } else if i <= joins {
+                    &join
+                } else {
+                    &upper
+                };
+                let id = g.add_node(kind, pos);
+                if i > 0 {
+                    let ports: &[&str] = if i <= joins { &["a", "b"] } else { &["text"] };
+                    for (k, port) in ports.iter().enumerate() {
+                        if wires >= want {
+                            break;
+                        }
+                        let from = ids[(i * 7 + k * 13) % i].clone();
+                        g.connect(cat, PortRef::new(from, "text"), PortRef::new(id.clone(), *port))?;
+                        wires += 1;
+                    }
+                }
+                ids.push(id);
+            }
+            Ok(())
+        })
+        .unwrap();
+        s
+    }
+
+    /// N2 slice 3's split of the scene's cost at 500 and 2,000 nodes (the C ABI's graphs, every
+    /// node done): the build, its parts, the first publish, and after one node's run state
+    /// changes the rebuild and publish, and the delta to bytes. Ignored; run in release:
+    /// `cargo test --release -p plumcraft-editor-core measure_scene_sizes -- --ignored --nocapture`.
+    #[test]
+    #[ignore = "measurement"]
+    fn measure_scene_sizes() {
+        // for a profiler: rebuild and publish the 2,000-node scene for this many seconds first
+        if let Some(secs) = std::env::var("PLUMCRAFT_MEASURE_LOOP_SECS").ok().and_then(|s| s.parse::<u64>().ok()) {
+            let s = spike_session(2000, 3200);
+            let t = HashMap::new();
+            let mut p = Published::default();
+            let t0 = Instant::now();
+            let mut k = 0u64;
+            while t0.elapsed().as_secs() < secs {
+                let mut sel = Selection::default();
+                if k.is_multiple_of(2) {
+                    sel.nodes.push(s.graph().nodes.keys().next().unwrap().clone());
+                }
+                p.publish(build(&inputs(&s, sel, None, &t)));
+                k += 1;
+            }
+            println!("LOOPED {k}");
+        }
+        for (n, w) in [(500usize, 800usize), (2000, 3200)] {
+            let mut s = spike_session(n, w);
+            let ids: Vec<String> = s.graph().nodes.keys().map(|k| k.0.clone()).collect();
+            let done = || NodeRun { state: Some(NodeState::Done), ms: Some(1.5), completed: true, generation: 1, ..NodeRun::default() };
+            for id in &ids {
+                s.run.nodes.insert(id.clone(), done());
+            }
+            let t = HashMap::new();
+            let ms = |t0: Instant| t0.elapsed().as_secs_f64() * 1e3;
+            let median = |mut v: Vec<f64>| {
+                v.sort_by(f64::total_cmp);
+                v[v.len() / 2]
+            };
+            let (mut build_ms, mut faces_ms, mut titles_ms, mut publish_ms, mut inc_ms, mut delta_ms, mut full_ms) =
+                (vec![], vec![], vec![], vec![], vec![], vec![], vec![]);
+            let (mut delta_bytes, mut full_bytes) = (0, 0);
+            for round in 0..15 {
+                let mut p = Published::default();
+                let t0 = Instant::now();
+                let sc = build(&inputs(&s, Selection::default(), None, &t));
+                build_ms.push(ms(t0));
+                assert_eq!((sc.nodes.len(), sc.wires.len()), (n, w));
+                let t0 = Instant::now();
+                let _ = faces(&inputs(&s, Selection::default(), None, &t));
+                faces_ms.push(ms(t0));
+                let t0 = Instant::now();
+                for id in s.graph().nodes.keys() {
+                    std::hint::black_box(plumcraft_session::node_title(s.graph(), s.catalog(), id));
+                }
+                titles_ms.push(ms(t0));
+                let t0 = Instant::now();
+                let g1 = p.publish(sc);
+                publish_ms.push(ms(t0));
+                let t0 = Instant::now();
+                full_bytes = serde_json::to_vec(&p.get(None)).unwrap().len();
+                full_ms.push(ms(t0));
+                let id = &ids[round * 7 % ids.len()];
+                s.run.nodes.insert(id.clone(), NodeRun { state: Some(NodeState::Progress), fraction: Some(0.5), generation: 2, ..NodeRun::default() });
+                let t0 = Instant::now();
+                let g2 = p.publish(build(&inputs(&s, Selection::default(), None, &t)));
+                inc_ms.push(ms(t0));
+                let t0 = Instant::now();
+                delta_bytes = serde_json::to_vec(&p.get(Some(g1))).unwrap().len();
+                delta_ms.push(ms(t0));
+                assert_eq!(g2, g1 + 1);
+                s.run.nodes.insert(id.clone(), done());
+            }
+            // the hot calls' snapshot, and the calls themselves (every face measured)
+            let mut m = crate::geometry::Measured::default();
+            for f in faces(&inputs(&s, Selection::default(), None, &t)) {
+                let ins: Vec<f32> = (0..f.inputs.len()).map(|k| 40.0 + 22.0 * k as f32).collect();
+                let outs: Vec<f32> = (0..f.outputs.len()).map(|k| 40.0 + 22.0 * k as f32).collect();
+                m.set(&f.id, crate::geometry::FaceGeometry::sized([200.0, 120.0], &ins, &outs));
+            }
+            let mut p = Published::default();
+            let mut i = inputs(&s, Selection::default(), None, &t);
+            i.geometry = Some(&m);
+            let t0 = Instant::now();
+            p.publish(build(&i));
+            let measured_publish_ms = ms(t0);
+            let (mut snap_ms, mut hit_us, mut target_us, mut paths_us) = (vec![], vec![], vec![], vec![]);
+            let mut snap = crate::geometry::Snapshot::default();
+            for _ in 0..5 {
+                let t0 = Instant::now();
+                snap = p.snapshot((0, 0, 0, None), s.graph(), s.catalog(), &m);
+                snap_ms.push(ms(t0));
+            }
+            let nids: Vec<u64> = s.graph().nodes.keys().filter_map(|k| snap.face_nid(&k.0)).collect();
+            let mut out = Vec::new();
+            for k in 0..200usize {
+                let (x, y) = ((k % 25) as f32 * 260.0 + 100.0, (k / 25) as f32 * 160.0 + 61.0);
+                let t0 = Instant::now();
+                std::hint::black_box(snap.hit(x, y, 12.0));
+                hit_us.push(t0.elapsed().as_secs_f64() * 1e6);
+                let t0 = Instant::now();
+                std::hint::black_box(snap.wire_target(nids[k % nids.len()], true, 0, x, y, 24.0));
+                target_us.push(t0.elapsed().as_secs_f64() * 1e6);
+                out.clear();
+                // a selection of 20 faces dragged
+                let picked: Vec<u64> = (0..20).map(|j| nids[(k * 20 + j) % nids.len()]).collect();
+                let t0 = Instant::now();
+                snap.wire_paths(&picked, 3.0, 4.0, &mut out);
+                paths_us.push(t0.elapsed().as_secs_f64() * 1e6);
+            }
+            println!(
+                "MEASURE {}",
+                json!({"name": format!("scene.core.hot.{n}"), "measured_first_publish_ms": measured_publish_ms, "snapshot_build_ms": median(snap_ms),
+                       "hit_us": median(hit_us), "wire_target_us": median(target_us), "wire_paths_20_faces_us": median(paths_us), "wire_paths_floats": out.len()})
+            );
+            println!(
+                "MEASURE {}",
+                json!({"name": format!("scene.core.spike.{n}"), "build_ms": median(build_ms), "faces_only_ms": median(faces_ms),
+                       "titles_of_every_node_ms": median(titles_ms), "first_publish_ms": median(publish_ms),
+                       "full_get_to_bytes_ms": median(full_ms), "full_bytes": full_bytes,
+                       "one_state_rebuild_and_publish_ms": median(inc_ms), "delta_get_to_bytes_ms": median(delta_ms), "delta_bytes": delta_bytes})
+            );
+        }
     }
 }

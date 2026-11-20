@@ -228,6 +228,30 @@ fn paint(p: &Paint) -> egui::Color32 {
     p.color().to_egui()
 }
 
+/// The scene's structure of `graph` for the snarl ([`Canvas::sync`]): faces, wires and nets as
+/// the core builds them, with the group entered; nothing of the run, the theme or the geometry
+/// (the canvas draws those from the frame's faces).
+pub fn structure(graph: &Graph, catalog: &SchemaReply, focus: Option<&GroupId>) -> plumcraft_editor_core::scene::Scene {
+    let run = plumcraft_session::run::RunState::default();
+    let texts = HashMap::new();
+    plumcraft_editor_core::scene::build(&plumcraft_editor_core::scene::Inputs {
+        doc: 0,
+        graph,
+        catalog,
+        run: &run,
+        selection: plumcraft_editor_core::selection::Selection::default(),
+        focus,
+        watched: None,
+        tokens: &plumcraft_editor_core::theme::DEFAULT,
+        anim: None,
+        now: std::time::Instant::now(),
+        app_text: &texts,
+        editors: &[],
+        view: plumcraft_editor_core::scene::View::default(),
+        geometry: None,
+    })
+}
+
 /// The transform that shows every rect in `nodes` inside `view`.
 pub fn fit_transform(nodes: &[Rect], view: Rect) -> Option<TSTransform> {
     let bb = nodes.iter().fold(Rect::NOTHING, |bb, r| bb.union(*r));
@@ -240,7 +264,11 @@ pub fn fit_transform(nodes: &[Rect], view: Rect) -> Option<TSTransform> {
 }
 
 impl Canvas {
-    /// Rebuild the snarl from `graph` if the session moved on since the last sync.
+    /// Rebuild the snarl if the session moved on since the last sync, from the core's scene of
+    /// `graph` ([`structure`]): which faces, in what order and view, and which wires between
+    /// which pins, drawn by snarl, routed through bend points or through a net's tags (N2 slice
+    /// 3). Each face's rows are still the catalogue's ([`input_rows`]): the widgets edit through
+    /// the catalogue's port, which the scene doesn't carry.
     pub fn sync(&mut self, generation: u64, graph: &Graph, catalog: &SchemaReply) {
         if self.synced == Some(generation) {
             return;
@@ -249,59 +277,67 @@ impl Canvas {
         if self.focus.as_ref().is_some_and(|f| graph.group(f).is_none()) {
             self.focus = None;
         }
-        // Collapsed groups show as one proxy node; an entered group shows only its members.
-        let vis = crate::groups_view::Visibility::new(graph, self.focus.as_ref());
+        let scene = structure(graph, catalog, self.focus.as_ref());
         let mut snarl = Snarl::new();
-        let mut ids: BTreeMap<&NodeId, SnarlId> = BTreeMap::new();
-        for (id, node) in &graph.nodes {
-            if !vis.shows(id) {
-                continue;
-            }
-            let def = catalog.node(&node.kind);
-            let mut inputs = def.map(|d| input_rows(d, id, graph)).unwrap_or_default();
-            let outputs = def.map_or(0, |d| d.outputs.len());
-            let tucked = def.map(|d| plumcraft_graph::ports::tucked(d, node, |p| graph.wire_into(&PortRef::new(id.clone(), p)).is_some())).unwrap_or_default();
-            if !node.all_fields {
-                inputs.retain(|r| !(r.kind == RowKind::Plain && tucked.contains(&r.key)));
-            }
-            let value = CanvasNode { id: id.clone(), kind: node.kind.clone(), inputs, outputs, tucked: tucked.len(), all_fields: node.all_fields, proxy: None };
-            let pos = Pos2::new(node.pos[0], node.pos[1]);
+        let mut ids: HashMap<&str, SnarlId> = HashMap::new();
+        for face in &scene.nodes {
+            let pos = Pos2::new(face.pos[0], face.pos[1]);
+            let value = match &face.proxy {
+                // a collapsed group: one node standing for its members
+                Some(p) => match crate::groups_view::proxy_node(graph, catalog, &GroupId::from(p.group.as_str())) {
+                    Some((_, node)) => node,
+                    None => continue,
+                },
+                None => {
+                    let id = NodeId::from(face.id.as_str());
+                    let Some(node) = graph.node(&id) else { continue };
+                    let def = catalog.node(&node.kind);
+                    let mut inputs = def.map(|d| input_rows(d, &id, graph)).unwrap_or_default();
+                    let outputs = def.map_or(0, |d| d.outputs.len());
+                    let tucked =
+                        def.map(|d| plumcraft_graph::ports::tucked(d, node, |p| graph.wire_into(&PortRef::new(id.clone(), p)).is_some())).unwrap_or_default();
+                    if !node.all_fields {
+                        inputs.retain(|r| !(r.kind == RowKind::Plain && tucked.contains(&r.key)));
+                    }
+                    CanvasNode { id, kind: node.kind.clone(), inputs, outputs, tucked: tucked.len(), all_fields: node.all_fields, proxy: None }
+                }
+            };
             // collapsed nodes stay so across rebuilds (the view is saved in the graph)
-            let sid = if node.view == NodeView::Collapsed { snarl.insert_node_collapsed(pos, value) } else { snarl.insert_node(pos, value) };
-            ids.insert(id, sid);
+            let sid = if face.view == "collapsed" { snarl.insert_node_collapsed(pos, value) } else { snarl.insert_node(pos, value) };
+            ids.insert(face.id.as_str(), sid);
         }
-        let mut proxies = BTreeMap::new();
-        for gid in &vis.proxies {
-            if let Some((pos, node)) = crate::groups_view::proxy_node(graph, catalog, gid) {
-                proxies.insert(gid.clone(), snarl.insert_node(pos, node));
-            }
-        }
-        // A wire with bend points isn't snarl's: the canvas draws it (crate::wire_route); nor is
-        // one drawn through a net label (crate::net_view).
+        // the scene's wires, between faces' pins by index; a wire with bend points isn't
+        // snarl's: the canvas draws it (crate::wire_route); nor is one drawn through a net's
+        // tags (crate::net_view)
+        let uses: HashMap<&PortRef, [i32; 2]> = scene.nets.iter().flat_map(|n| n.uses.iter().map(|u| (&u.to, u.at))).collect();
         let mut routed = Vec::new();
         let mut labelled = Vec::new();
-        for w in &graph.wires {
-            let Some((from, to)) = crate::groups_view::wire_ends(&snarl, catalog, graph, &vis, &ids, &proxies, w) else { continue };
-            let wire_default = self.wire_default;
-            let color = || crate::wire_route::wire_color(graph, catalog, &w.from, wire_default);
-            // a label means nothing outside its group: an end in a collapsed group is a wire
-            let shown = vis.proxy_of(&w.from.node).is_none() && vis.proxy_of(&w.to.node).is_none();
-            if let Some(net) = graph.net_of_wire(w).filter(|_| shown) {
-                let at = w.label_at.unwrap_or_else(crate::net_view::default_use_at);
-                labelled.push(crate::net_view::Labelled {
+        for w in &scene.wires {
+            let (Some(&a), Some(&b)) = (ids.get(w.from_face.as_str()), ids.get(w.to_face.as_str())) else { continue };
+            let pins = |sid: SnarlId| snarl.get_node(sid).map(|n| (n.outputs, n.inputs.len()));
+            let (Some((outs, _)), Some((_, ins))) = (pins(a), pins(b)) else { continue };
+            if w.from_pin >= outs || w.to_pin >= ins {
+                continue;
+            }
+            let (from, to) = (OutPinId { node: a, output: w.from_pin }, InPinId { node: b, input: w.to_pin });
+            let color = crate::wire_route::wire_color(graph, catalog, &w.from, self.wire_default);
+            match (w.kind.as_str(), &w.net) {
+                ("net", Some(net)) => labelled.push(crate::net_view::Labelled {
                     out: from,
                     inp: to,
                     from: w.from.clone(),
                     to: w.to.clone(),
-                    net,
-                    at,
-                    slice: w.slice.clone(),
-                    color: color(),
-                });
-            } else if w.via.is_empty() {
-                snarl.connect(from, to);
-            } else {
-                routed.push(crate::wire_route::Routed { out: from, inp: to, from: w.from.clone(), to: w.to.clone(), via: w.via.clone(), color: color() });
+                    net: net.clone(),
+                    at: uses.get(&w.to).copied().unwrap_or_else(crate::net_view::default_use_at),
+                    slice: graph.wire_into(&w.to).and_then(|x| x.slice.clone()),
+                    color,
+                }),
+                ("routed", _) => {
+                    routed.push(crate::wire_route::Routed { out: from, inp: to, from: w.from.clone(), to: w.to.clone(), via: w.via.clone(), color })
+                }
+                _ => {
+                    snarl.connect(from, to);
+                }
             }
         }
         self.nets.rebuild(graph, labelled);
@@ -353,6 +389,35 @@ impl Canvas {
     /// [`crate::groups_view::proxy_node_id`].
     pub fn node_rects_by_id(&self) -> Vec<(NodeId, Rect)> {
         self.node_rects.iter().filter_map(|(sid, r)| Some((self.snarl.get_node(*sid)?.id.clone(), *r))).collect()
+    }
+
+    /// What the canvas measured last frame, as the core keeps it (`geometry.set`, N2 slice 3):
+    /// each drawn face's size (a node's, a collapsed group's by `group:<id>`) and its pins'
+    /// heights from its top, in row order (the scene's).
+    pub fn measured_faces(&self) -> Vec<(String, plumcraft_editor_core::geometry::FaceGeometry)> {
+        let pins = self.pins.borrow();
+        let mut out = Vec::with_capacity(self.node_rects.len());
+        for (sid, r) in &self.node_rects {
+            let Some(n) = self.snarl.get_node(*sid) else { continue };
+            let y = |key: PinKey| pins.get(&key).map(|p| p.y - r.min.y);
+            let inputs = (0..n.inputs.len()).map(|input| y(PinKey::In(egui_snarl::InPinId { node: *sid, input }))).collect();
+            let outputs = (0..n.outputs).map(|output| y(PinKey::Out(egui_snarl::OutPinId { node: *sid, output }))).collect();
+            let g = plumcraft_editor_core::geometry::FaceGeometry { size: [r.width(), r.height()], inputs, outputs, ..Default::default() };
+            out.push((n.id.0.clone(), g));
+        }
+        out
+    }
+
+    /// Fit the view to `rect` (graph units) next frame: the core's fit (`canvas.fit`'s rect, N2
+    /// slice 3), the margin in it already. A face not measured yet makes it the canvas's own
+    /// fit, which waits for every size.
+    pub fn fit_to(&mut self, rect: [f32; 4]) {
+        let r = Rect::from_min_max(egui::pos2(rect[0], rect[1]), egui::pos2(rect[2], rect[3]));
+        let measured = self.snarl.nodes_ids_data().all(|(sid, _)| self.node_rects.contains_key(&sid));
+        match fit_transform(&[r.shrink(32.0)], self.rect).filter(|_| measured) {
+            Some(t) => self.set_transform = Some(t),
+            None => self.request_fit(),
+        }
     }
 
     /// What Tidy needs measured (`graph.tidy`'s `sizes` and `pins`): each drawn node's size, and

@@ -105,9 +105,9 @@ const COMMANDS: &[CanvasCommand] = &[
         label: "Fit",
         menu: &["View"],
         shortcut: Some("F"),
-        params: "{} -> {fit: true} (the shell fits its view to every node, and the frames outside an entered group)",
+        params: "{} -> {fit: true, seq, rect: [x0, y0, x1, y1] | null} (the core works out the rect, every face shown and the frames outside an entered group with a margin, from the geometry it has; the scene's view.fit asks the shell's view to show it)",
         enabled: always,
-        shell: true,
+        shell: false,
     },
     CanvasCommand {
         id: "canvas.palette",
@@ -126,6 +126,33 @@ const COMMANDS: &[CanvasCommand] = &[
         params: "{node: node id} -> {node} (the shell centres its view on the node and highlights it for a moment)",
         enabled: always,
         shell: true,
+    },
+    CanvasCommand {
+        id: "geometry.set",
+        label: "Report Geometry",
+        menu: &[],
+        shortcut: None,
+        params: "{faces: [{node: face id, rev?, size: [w, h], pins?: {in?: [y | null], out?: [y | null]}, header?, rows?: [[x0, y0, x1, y1] | null], parts?: {title?, chevron?, icon?, menu?, enter?, preview?: rect, footer?: [rect]}}]} -> {applied, stale: [face id], unknown: [face id]} (what the shell measured, graph units at zoom 1, pins and rows in row order; the core owns positions)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "selection.align",
+        label: "Align",
+        menu: &["Edit"],
+        shortcut: None,
+        params: "{edge: left|right|top|bottom|centerX|centerY} -> edit.align's reply (the selected nodes and collapsed groups, two or more, at the sizes the shell measured; one undo step)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "selection.distribute",
+        label: "Distribute",
+        menu: &["Edit"],
+        shortcut: None,
+        params: "{axis: horizontal|vertical} -> edit.distribute's reply (the selected nodes and collapsed groups, three or more, at the sizes the shell measured; one undo step)",
+        enabled: always,
+        shell: false,
     },
 ];
 
@@ -265,7 +292,28 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
         }
         "canvas.fit" => {
             check_fields(params, &[])?;
-            Ok(json!({"fit": true}))
+            Ok(d.ask_fit())
+        }
+        "geometry.set" => {
+            let reports = crate::geometry::parse_set(params)?;
+            Ok(d.apply_geometry(reports))
+        }
+        "selection.align" | "selection.distribute" => {
+            let (key, at_least, command) = if id == "selection.align" { ("edge", 2, "edit.align") } else { ("axis", 3, "edit.distribute") };
+            check_fields(params, &[key])?;
+            let how = params.get(key).and_then(Value::as_str).ok_or_else(|| format!("{key} must be a string"))?.to_owned();
+            let graph = d.session.graph();
+            let sel = d.selection.get();
+            let nodes: Vec<NodeId> = sel.nodes.into_iter().filter(|n| graph.nodes.contains_key(n)).collect();
+            let groups = sel.groups;
+            if nodes.len() + groups.len() < at_least {
+                let what = if id == "selection.align" { "align" } else { "distribute" };
+                return Err(format!("select at least {at_least} nodes to {what}"));
+            }
+            let sizes = d.geometry.sizes_for(&nodes, &groups);
+            let mut p = json!({"nodes": nodes, "groups": groups, "sizes": sizes});
+            p[key] = json!(how);
+            h.run(command, &p)
         }
         "canvas.palette" => palette_param(params),
         "canvas.reveal" => {

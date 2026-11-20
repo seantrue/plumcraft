@@ -1,8 +1,8 @@
 //! The selection through the C ABI (N2 slice 1, `docs/shell-interface.md` 8.13 and 12.3): it is
 //! the document's, set and read with the canvas's commands like any other command; `ui.inspect`
 //! shows the selected nodes; Select All, Delete, the group entered and the net follow it; the
-//! menus follow it; the view's commands (fit, the palette, reveal) are refused, since this core
-//! draws no canvas; and hostile params are refused without changing it.
+//! menus follow it; the palette and reveal are refused, since this core draws no canvas (a fit is
+//! the core's since N2 slice 3); and hostile params are refused without changing it.
 
 mod common;
 
@@ -87,8 +87,12 @@ fn a_shell_selects_and_reads_the_selection_back() {
     let r = c.call("command.run", json!({"command": "canvas.focus", "params": {"group": "g999"}}));
     assert_eq!(r["ok"], false, "{r}");
 
-    // what only a canvas does is refused here, as ui.set is
-    for (id, p) in [("canvas.fit", json!({})), ("canvas.palette", json!({"open": true})), ("canvas.reveal", json!({"node": a}))] {
+    // a fit is the core's since N2 slice 3: the rect, from the geometry the core has, asked of
+    // the view through the scene; what only a canvas does is refused here, as ui.set is
+    let fit = c.run("canvas.fit", json!({}));
+    assert_eq!((fit["fit"].clone(), fit["seq"].clone()), (json!(true), json!(1)), "{fit}");
+    assert_eq!(fit["rect"].as_array().map(Vec::len), Some(4), "{fit}");
+    for (id, p) in [("canvas.palette", json!({"open": true})), ("canvas.reveal", json!({"node": a}))] {
         let r = c.call("command.run", json!({"command": id, "params": p}));
         assert_eq!(r["error"], json!(format!("{id} isn't available from this shell")), "{r}");
     }

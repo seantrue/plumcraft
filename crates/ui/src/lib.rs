@@ -1403,6 +1403,15 @@ impl EditorApp {
         plumcraft_editor_core::scene::faces(&inputs).into_iter().map(|f| (f.id.clone(), f)).collect()
     }
 
+    /// Tell the core what the canvas measured (`geometry.set`'s, in process): only what changed
+    /// is kept again, so a frame that changed nothing changes nothing. A script's `geometry.set`
+    /// is put right the next frame.
+    pub fn report_geometry(&mut self) {
+        for (id, g) in self.canvas.measured_faces() {
+            self.doc.geometry.set(&id, g);
+        }
+    }
+
     /// The node the Watched panel shows.
     pub fn watched_node(&self) -> Option<plumcraft_graph::NodeId> {
         self.doc.session.run.panel().map(|(w, _)| plumcraft_graph::NodeId(w.node.clone()))
@@ -1480,6 +1489,9 @@ impl EditorApp {
             .frame(frame)
             .show(ui, |ui| self.canvas.show(ui, self.doc.session.graph(), self.doc.session.catalog(), &self.tokens, runs))
             .inner;
+        // what the canvas measured is the core's to keep (N2 slice 3): Align, Distribute, Frame
+        // Selection, Tidy, the fit, the scene's wire paths and the hit tests use it
+        self.report_geometry();
         self.run_all(actions);
         self.show_wire_preview(&ctx);
         // After the canvas: where there is one window (kittests, offscreen pictures) the
