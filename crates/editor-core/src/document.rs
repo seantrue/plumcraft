@@ -241,6 +241,11 @@ pub struct Document {
     pub caps: crate::engines::Capabilities,
     /// The menu bar's generation (`menu.get`'s `gen`), up when what it holds changed.
     pub menus: crate::menu::Revision,
+    /// What is selected on the canvas ([`crate::selection`]); changed only by the canvas
+    /// commands ([`crate::canvas_cmds`]) and dropped as the graph loses what it named.
+    pub selection: crate::selection::SelectionCell,
+    /// The group entered (`canvas.focus`): only its members are shown and selectable.
+    pub focus: Option<plumcraft_graph::GroupId>,
 }
 
 impl std::fmt::Debug for Document {
@@ -298,6 +303,8 @@ impl Document {
             closed: false,
             caps: crate::engines::Capabilities::DESKTOP,
             menus: crate::menu::Revision::default(),
+            selection: crate::selection::SelectionCell::default(),
+            focus: None,
         }
     }
 
@@ -514,6 +521,29 @@ impl Document {
     }
 
     /// Is command `id` enabled now?
+    /// Forget the selected nodes, groups and net, and the group entered, that the graph no
+    /// longer has (after every command; an undo can take them away too).
+    pub fn forget_gone(&mut self) {
+        let g = self.session.graph();
+        self.selection.update(|s| s.retain_existing(g));
+        if self.focus.as_ref().is_some_and(|f| g.group(f).is_none()) {
+            self.focus = None;
+        }
+    }
+
+    /// What Ungroup acts on: the first selected collapsed group, else the innermost group of the
+    /// first selected node in one, else the group entered.
+    pub fn group_to_ungroup(&self) -> Option<plumcraft_graph::GroupId> {
+        let g = self.session.graph();
+        let sel = self.selection.get();
+        sel.groups
+            .iter()
+            .find(|id| g.group(id).is_some())
+            .cloned()
+            .or_else(|| sel.nodes.iter().find_map(|n| g.group_of(n).cloned()))
+            .or_else(|| self.focus.clone().filter(|f| g.group(f).is_some()))
+    }
+
     pub fn enabled(&self, id: &str) -> bool {
         plumcraft_session::find(id).is_some_and(|c| (c.enabled)(&self.session).is_ok())
     }
@@ -646,6 +676,11 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         st.held.push((id.to_owned(), params.clone()));
         return Ok(json!({"held": true, "until": "the engine has connected"}));
     }
+    // the canvas's own commands (the selection, the group entered, fit, the palette): the core's
+    // and the shell's, not the session's
+    if let Some(c) = crate::canvas_cmds::find(id) {
+        return crate::canvas_cmds::execute(h, c, params);
+    }
     let result = plumcraft_session::commands::with_doc(doc_id, || h.doc_mut().session.execute(id, params));
     // reading the messages in full leaves them (and the offer) as they are
     let keeps = id == "view.messages";
@@ -699,6 +734,15 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         if let Some(from) = v.get("openedFrom").and_then(Value::as_str) {
             d.document = std::path::Path::new(from).file_name().map_or_else(|| from.to_owned(), |n| n.to_string_lossy().into_owned());
         }
+    }
+    // nothing of the old graph stays selected or entered; and what the graph lost goes
+    let d = h.doc_mut();
+    if id == "graph.new" || id == "graph.open" {
+        d.selection.update(crate::selection::Selection::clear);
+        d.selection.update(|s| s.net = None);
+        d.focus = None;
+    } else {
+        d.forget_gone();
     }
     h.after_command(id, &v);
     if id == "run.watch" {
@@ -1027,6 +1071,13 @@ impl Host for Document {
     fn prefs(&mut self) -> Option<&mut prefs::Store> {
         Some(&mut self.folders)
     }
+    fn selection(&self) -> (Vec<String>, Vec<plumcraft_graph::GroupId>) {
+        let s = self.selection.get();
+        (s.nodes.into_iter().map(|n| n.0).collect(), s.groups)
+    }
+    fn group_to_ungroup(&self) -> Option<plumcraft_graph::GroupId> {
+        Document::group_to_ungroup(self)
+    }
     fn close(&mut self) {
         self.close_asked = true;
     }
@@ -1079,7 +1130,8 @@ impl Shell for Document {
         self.engine_asked
     }
     fn menu_facts(&self) -> crate::menu::Facts {
-        crate::menu::Facts { live: self.link.is_some(), caps: self.caps, ..crate::menu::Facts::default() }
+        let s = self.selection.get();
+        crate::menu::Facts { selected: s.nodes, selected_groups: s.groups, live: self.link.is_some(), caps: self.caps, ..crate::menu::Facts::default() }
     }
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         Some(&mut self.menus)
@@ -1110,6 +1162,10 @@ impl Holder for Document {
     }
     fn doc_mut(&mut self) -> &mut Document {
         self
+    }
+    /// No canvas is drawn here: fit, the palette and reveal are refused, as `ui.set` is.
+    fn shell_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
+        if crate::canvas_cmds::is_shells(id) { Err(control::not_here(id)) } else { Ok(v) }
     }
     fn note_engine_asked(&mut self, asked: bool) {
         self.engine_asked = asked;

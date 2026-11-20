@@ -37,6 +37,15 @@ fn fixed_text(sc: &Shortcut) -> String {
     format!("{mods}{key}")
 }
 
+/// An item the shell did itself before N2 slice 1, or one of the canvas's commands: the Edit
+/// menu's canvas items, Fit, Search…, and what is still the shell's (no command).
+fn canvas_item(item: &Item) -> bool {
+    match item.command.as_deref() {
+        None => true,
+        Some(c) => plumcraft_editor_core::canvas_cmds::find(c).is_some() || ["edit.cut", "edit.copy", "edit.paste", "frame.add"].contains(&c),
+    }
+}
+
 /// How to draw: the theme (for dim lines), whether this is a menu of the menu bar (where the
 /// shell's own items show their keys), and whether a click closes the menu.
 #[derive(Clone, Copy)]
@@ -127,14 +136,15 @@ fn draw_one(ui: &mut egui::Ui, item: &Item, style: Style<'_>) -> Option<Item> {
             };
             let mut button = egui::Button::new(text);
             match (&item.command, &item.params, &item.shortcut) {
+                // the canvas's items in a menu of the bar show their keys as they always have, or
+                // none (they were the shell's own until N2 slice 1)
+                (_, _, sc) if style.bar && canvas_item(item) => button = button.shortcut_text(sc.as_ref().map(fixed_text).unwrap_or_default()),
                 // a registry command's keys, as the platform writes them
                 (Some(_), None, Some(sc)) => {
                     if let Some(sc) = to_egui(sc) {
                         button = button.shortcut_text(ui.ctx().format_shortcut(&sc));
                     }
                 }
-                // the shell's own items in a menu of the bar show their keys, or none
-                (None, _, sc) if style.bar => button = button.shortcut_text(sc.as_ref().map(fixed_text).unwrap_or_default()),
                 _ => {}
             }
             ui.add_enabled(item.enabled, button)
@@ -167,8 +177,12 @@ fn scrolling(ui: &mut egui::Ui, salt: &str, add: impl FnOnce(&mut egui::Ui)) {
 /// A clicked item's command as the registry's own id (a [`crate::canvas::Action`]'s), with its
 /// params (`{}` without).
 pub fn action(item: &Item) -> Option<crate::canvas::Action> {
-    let spec = plumcraft_session::find(item.command.as_deref()?)?;
-    Some((spec.id, item.params.clone().unwrap_or_else(|| serde_json::json!({}))))
+    let command = item.command.as_deref()?;
+    let id = match plumcraft_session::find(command) {
+        Some(spec) => spec.id,
+        None => plumcraft_editor_core::canvas_cmds::find(command)?.id,
+    };
+    Some((id, item.params.clone().unwrap_or_else(|| serde_json::json!({}))))
 }
 
 /// Open the window an item names that the shell does itself (a text field can't live in a

@@ -504,7 +504,7 @@ A **frame** (`crates/ui/src/frame_view.rs`): `{id, nid, rev, title, pos, size, c
 
 An **open group's frame**: `{id, name, rect, depth, menu: "group"}`, computed by the core from its members' and nested proxies' measured rects (so it needs geometry), deeper groups first (`groups_view.rs:771`). Its band has a collapse chevron (`group.collapse {collapsed: true}`), the group icon, the name (double-tap renames), enter (`canvas.focus`) and a menu; dragging the band is `group.move`.
 
-**Focus** (the group entered): `view.focus: {group, path: [{id, name}]}` for the breadcrumb ("Graph › outer › inner", each a `canvas.focus`; Leave is `canvas.focus {group: null}`). While focused only the group's members are in `nodes`.
+**Focus** (the group entered, `canvas.focus`; the document's since N2 slice 1, `Document::focus`): `view.focus: {group, path: [{id, name}]}` for the breadcrumb ("Graph › outer › inner", each a `canvas.focus`; Leave is `canvas.focus {group: null}`). While focused only the group's members are in `nodes`.
 
 **The view domain**: `{target: {zoom, pan, seq} | null, fit: {seq, rect} | null, reveal: {node, seq} | null, palette: {open, query, selected, at, results} | null}`. The core asks for a transform (after `graph.new`, `graph.open`, `graph.tidy`, `ui.set`, View › Fit, a reveal); the shell animates there and reports back with `ui.viewport`. `fit.rect` is every face's rect (and frames' outside a focused group) expanded by 32, zoom clamped to 0.2..1 (`canvas::fit_transform`, `canvas.rs:318`); the shell fits it to its own rect.
 
@@ -544,8 +544,9 @@ What a recognised gesture means is the core's; `ui.gesture` drives the same tabl
 
 | Gesture on | Command (today's source) |
 |---|---|
-| Tap a node | `selection.set {nodes: [id]}`; with Shift `mode: add`, with ⌘ `remove`; tap on empty canvas clears (`edit_view.rs:160-169`) |
-| Marquee | `selection.set {nodes, groups, mode: add}` (Shift-drag on macOS; Select mode on iPad) |
+| Tap a node | `selection.set {nodes: [id]}` (a collapsed group's node: `{groups: [g]}`); with Shift `mode: add`, with ⌘ `remove`; tap on empty canvas `selection.clear` (built in N2 slice 1: the egui shell sends these, `edit_view.rs` `click_command`) |
+| Marquee | `selection.set {nodes, groups, mode: add}` (Shift-drag on macOS; Select mode on iPad). The egui shell still lets egui-snarl draw and hit-test the marquee and sends what snarl's own selection gained since the last frame |
+| Tap a net tag | `net.select {name, group?}`, or `net.select {}` when it was selected; Esc and a tap on empty canvas `net.select {}` |
 | Drag a node or proxy | On drop: `node.move {id, pos}` or `group.move {group, pos}`, the whole selection when the dragged node is in it, members of selected groups carried once (`edit_view.rs:247-305`) |
 | Drag from a pin to a pin | `wire.connect {from, to}`; refused with a Convert offer (`wire.convert`, `lib.rs:843`) |
 | Drag a wire's end off an input (⌘-drag today) | `wire.reroute {to, newTo}`, or `wire.disconnect {to}` on empty canvas (`edit_view.rs:181`) |
@@ -553,7 +554,7 @@ What a recognised gesture means is the core's; `ui.gesture` drives the same tabl
 | Double-tap a node | `node.parameters {node}` (`canvas.rs:685`) |
 | Double-tap a wire | `view.popout {node, port}` (`canvas.rs:769`) |
 | Double-tap a bend point | `wire.route {to, via}` without it |
-| Context on empty canvas | The palette (`canvas.palette {open, at}`); Tab or Space too (`canvas.rs:585`) |
+| Context on empty canvas | The palette (`canvas.palette {open, at}`, `at` in graph coordinates); Tab or Space too (`canvas.rs:585`) |
 | Drop a wire on empty canvas (touch) | The palette, filtered to kinds that take the wire, then `node.add` and `wire.connect` as one step (new; open question 8) |
 
 ## 9. Hot calls
@@ -704,7 +705,7 @@ What `EditorApp::invoke` fills in (`lib.rs:961-1072`) becomes the core's invoke 
 
 - Built from the registry (`command_specs`, `commands.rs:273`): top-level menus in the order File, Edit, View, Node, Run, then any a command names (Group, Engine, Help today), each command at its `menu` path, submenus for longer paths (`lib.rs:2251-2290`), in registry order.
 - An item: `command`, `params?` (an item that runs a command with fixed parameters), `label`, `shortcut?`, `enabled`, `reason?` (the disabled item's tooltip), `checked?` (today `run.auto` and `view.runColors`, `lib.rs:2242`), `hover?`, `form?: true` (it asks first: the shell adds `…` per platform style).
-- Items that are not plain registry entries today come from the core too (12.3): the Engine menu's choices, Node › Add by category and by engine, Animation Speed, the Edit menu's canvas items.
+- Items that are not plain registry entries come from the core too (12.3): the Engine menu's choices, Node › Add by category and by engine, Animation Speed, the Edit menu's canvas items (commands since N2 slice 1, Align › and Distribute › excepted), View › Fit, Node › Search…
 - Activating an item is `ui.invoke {command}` (or `command.run {command, params}` when it has `params`), never a shell-side interpretation.
 
 ### 12.2 Shortcuts
@@ -720,23 +721,27 @@ Today's notation is egui's: `Cmd+Shift+Z` (`CommandSpec::shortcut`, `commands.rs
 
 `key` is egui's key name: letters, digits, `Enter`, `Period`, `Comma`, `Escape`, `Tab`, `Space`, `Delete`, `Backspace`, arrows. The registry's shortcuts today: `edit.undo` Cmd+Z, `edit.redo` Cmd+Shift+Z, `graph.new` Cmd+N, `graph.open` Cmd+O, `graph.save` Cmd+S, `graph.saveAs` Cmd+Shift+S, `app.quit` Cmd+Q, `app.settings` Cmd+Comma, `node.duplicate` Cmd+D, `group.create` Cmd+G, `group.ungroup` Cmd+Shift+G, `graph.tidy` Cmd+Shift+L, `run.start` Cmd+Enter, `run.cancel` Cmd+Period. Rules kept from today: the most specific shortcut matches first (`lib.rs:1559`); a disabled command still consumes its keys; `edit.*` shortcuts are left to a focused text field; a shortcut fired in a text field runs after the field commits (`lib.rs:1575`).
 
-### 12.3 What is not a command today
+### 12.3 What was not a command, and is since N2 slice 1
 
-Rule 3 is not met in these places today; each gets a core command (not journaled unless it edits the graph). Adding them to `command.list` changes its output, which N1's gate forbids, so they appear in the menu model at once and in `command.list` from N2 under the capability `commands.canvas` (open question 2).
+Rule 3 was not met in these places; each is now a core command (`crates/editor-core/src/canvas_cmds.rs`), not journaled (Delete's `node.remove` is), listed by `command.list` after the registry's (open question 2, answered A; the capability `commands.canvas` can't be listed yet, since nothing serves `core.hello`'s `caps`), and named by the menu model. The selection (`{nodes, groups, net}`, `crates/editor-core/src/selection.rs`) and the group entered (`Document::focus`) are the document's. Fit, the palette and reveal are the view's: the core checks them and hands them to the shell through `Holder::shell_command`, the hook a shell-side command already took; a shell with no canvas (the C ABI's core today) answers "isn't available from this shell". `docs/control-protocol.md` lists each command's params and reply.
 
-| Today | Where | Command proposed |
-|---|---|---|
-| Click, Shift-, ⌘-click, marquee | `edit_view.rs:140` | `selection.set {nodes?, groups?, mode: replace \| add \| remove}`, `selection.clear` |
-| Edit › Select All, ⌘A | `edit_view.rs:339`, `:576` | `selection.all` |
-| Edit › Cut, Copy, Paste, Delete, ⌘X/C/V, Delete, Backspace | `edit_view.rs:389-596` | The existing `edit.cut`, `edit.copy`, `edit.paste`, `node.remove`, given menu places and shortcuts; invoke fills the selection and raises `clipboard.*` |
-| Edit › Frame Selection, Align ›, Distribute › | `edit_view.rs:417-440` | `frame.add`, `edit.align {edge}`, `edit.distribute {axis}` given menu places; invoke fills the selection and sizes |
-| View › Fit, F | `lib.rs:1629`, `canvas.rs:586` | `canvas.fit` (as `ui.set {fit: true}`) |
-| Node › Search…, Tab, Space, right-click on canvas | `lib.rs:1644`, `canvas.rs:585`, `:873` | `canvas.palette {open, at?, query?}` (as `ui.set {palette}`) |
-| Node › Add › (by category, by engine) | `palette::node_menus`, `lib.rs:1636` | `node.add {kind, pos}` items in the menu model, `pos` the canvas centre |
-| Enter group, Leave, breadcrumb | `groups_view.rs:747-770` | `canvas.focus {group \| null}` (as `ui.set {focus}`) |
-| Reveal a node (Parameters window's jump) | `canvas.rs:423` | `canvas.reveal {node}` |
-| Esc cancels a run | `edit_view.rs:577` | `run.cancel` bound to Escape when a run is in flight |
-| Select Net, Go to Driver, next use | `net_view.rs:474-490` | `net.select {key \| null}`, `canvas.reveal` |
+| Before | Where it was | Command now | Where it runs |
+|---|---|---|---|
+| Click, Shift-, ⌘-click, marquee | `edit_view.rs:140` | `selection.set {nodes?, groups?, mode: replace \| add \| remove \| toggle}`; a click on empty canvas `selection.clear` (the net stays) | core |
+| Edit › Select All, ⌘A | `edit_view.rs:339`, `:576` | `selection.all` | core (what is shown: `selection::Visibility`, moved from `groups_view.rs`) |
+| Edit › Cut, Copy, Paste, ⌘X/C/V | `edit_view.rs:389-596` | `edit.cut`, `edit.copy`, `edit.paste` with menu places and shortcuts; `ui.invoke` fills in the selection (with selected collapsed groups' members) and raises `clipboard.set` or `clipboard.get` | core (`invoke`) |
+| Edit › Delete, Delete, Backspace | `edit_view.rs:466` | `edit.delete`, not `node.remove` itself: it takes the members of selected collapsed groups, which the Node menu's Remove doesn't, and clears the selection | core |
+| Edit › Frame Selection | `edit_view.rs:501` | `frame.add`, invoked: the shell fills in the sizes it measured (`Host::frame_selection`) | core asks, shell measures |
+| Edit › Align ›, Distribute › | `edit_view.rs:473-480` | Still shell items (no `command` in the menu model): they need the sizes the shell measured, and an item with `params` is activated with `command.run`, which can't fill in the selection. Slice 3's geometry lets the core fill both | shell |
+| View › Fit, F | `lib.rs:1629`, `canvas.rs:586` | `canvas.fit` (`ui.set {fit: true}` runs it) | shell |
+| Node › Search…, Tab, Space, right-click on canvas | `lib.rs:1644`, `canvas.rs:585`, `:873` | `canvas.palette {open?, at?, query?}`, `at` in graph coordinates (`ui.set {palette}` runs it) | shell (open question 4 makes the palette core state later) |
+| Node › Add › (by category, by engine) | `palette::node_menus` | `node.add {kind, pos}` items in the menu model (since N1 slice 8) | core |
+| Enter group, Leave, breadcrumb | `groups_view.rs:747-770` | `canvas.focus {group \| null}` (`ui.set {focus}` runs it) | core state; the shell rebuilds and fits |
+| Reveal a node, a net tag's double-click | `canvas.rs:423`, `net_view.rs:324` | `canvas.reveal {node}` | shell |
+| Esc cancels a run | `edit_view.rs:577` | `run.cancel` (already a command), bound to Escape by the shell while a run is in flight | core |
+| Select Net, Go to Driver, next use | `net_view.rs:474-490` | `net.select {name?, group?}` (a tag's click toggles it, Esc and an empty click clear it); Go to Driver and Next Use stay shell items that resolve to `canvas.reveal` (next use cycles per tag, shell state) | core; reveal shell |
+
+The keys (⌘A, Delete, Backspace, Escape, F, Tab, Space, ⌘X/C/V) are recognised by the shell and dispatched as these commands; they are not in `shortcut_table()` (12.2), which stays the registry's, because a shell's text fields and popups decide when the canvas has the keyboard. The menu model shows them on its items.
 
 ### 12.4 Context menus
 

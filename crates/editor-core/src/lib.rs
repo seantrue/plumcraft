@@ -29,6 +29,9 @@
 //!   (slice 8); [`rows`]: a node's input rows and a collapsed group's outputs, which it lists;
 //! - [`log`]: one log for the core and every shell: a bounded ring, levels, an optional file
 //!   (slice 8);
+//! - [`selection`], [`canvas_cmds`]: the canvas's selection and the group entered as document
+//!   state, and the canvas's commands (select, Select All, Delete, enter a group, fit, the
+//!   palette, reveal) (N2 slice 1);
 //! - [`palette`]: the node palette's search index;
 //! - [`probe`], [`diff`], [`dtype`], [`raster`]: exact readings and differences of arrays;
 //! - [`values`]: a document's values as pictures, through the media service
@@ -42,6 +45,7 @@
 
 pub mod appearance;
 pub mod asks;
+pub mod canvas_cmds;
 pub mod control;
 pub mod diff;
 pub mod document;
@@ -61,6 +65,7 @@ pub mod raster;
 pub mod rows;
 pub mod run_anim;
 pub mod run_text;
+pub mod selection;
 pub mod switchboard;
 pub mod theme;
 pub mod values;

@@ -169,12 +169,13 @@ pub struct Canvas {
     pub highlight: Option<(NodeId, f64)>,
     /// A node to centre on next frame.
     reveal: Option<NodeId>,
-    /// The selection, by graph id ([`crate::edit_view`]).
+    /// The document's selection, which the canvas draws ([`crate::edit_view`]).
     pub picked: crate::edit_view::Picked,
     /// The wires the snarl was built with, as graph ports, to see what a ⌘-drag took out
     /// ([`Canvas::reconcile_wires`]).
     pub(crate) built_wires: Vec<(PortRef, PortRef)>,
-    /// The group entered (only its nodes are shown), see [`crate::groups_view`].
+    /// The group entered (only its nodes are shown), see [`crate::groups_view`]: the document's
+    /// (`canvas.focus`), as this canvas shows it (`EditorApp::follow_core`).
     pub focus: Option<GroupId>,
     /// Open groups' frames (graph coordinates), from the last frame: painted under the nodes.
     pub(crate) group_frames: Vec<crate::groups_view::GroupFrame>,
@@ -354,7 +355,7 @@ impl Canvas {
         self.reveal = Some(node.clone());
     }
 
-    /// The selected nodes, by graph id (PlumCraft keeps the selection itself:
+    /// The selected nodes, by graph id (the document's selection:
     /// [`crate::edit_view::Picked`]).
     pub fn selection(&self) -> Vec<NodeId> {
         self.picked.nodes().to_vec()
@@ -398,6 +399,12 @@ impl Canvas {
         }
         let pins = pins.into_iter().map(|(id, (i, o))| (id, json!({"inputs": i, "outputs": o}))).collect();
         (sizes, pins)
+    }
+
+    /// `canvas.palette` opening at a screen position (its `at` in graph coordinates).
+    pub(crate) fn palette_at(&self, screen: Pos2) -> Action {
+        let g = self.to_global.inverse() * screen;
+        ("canvas.palette", json!({"open": true, "at": [g.x, g.y]}))
     }
 
     /// Open the palette at a screen position.
@@ -509,6 +516,9 @@ impl Canvas {
         // before we see it, so "nothing focused" isn't the test).
         let nothing_focused = !ctx.text_edit_focused();
         let pointer = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.rect.contains(*p));
+        // Tab or Space opens the palette at the pointer, F fits: the commands they stand for,
+        // run after the canvas has drawn
+        let mut keyed: Vec<Action> = Vec::new();
         if self.palette.is_none() && nothing_focused {
             let (open, fit) = ctx.input_mut(|i| {
                 (
@@ -517,10 +527,13 @@ impl Canvas {
                 )
             });
             if open {
-                self.open_palette(pointer.unwrap_or_else(|| self.rect.center()));
+                keyed.push(self.palette_at(pointer.unwrap_or_else(|| self.rect.center())));
             }
             if fit {
-                self.request_fit();
+                keyed.push(("canvas.fit", json!({})));
+            }
+            if !keyed.is_empty() {
+                ctx.request_repaint();
             }
         }
 
@@ -608,7 +621,8 @@ impl Canvas {
         if let Some(edit) = viewer.name_request.take() {
             self.nets.edit = Some(edit);
         }
-        let mut actions = viewer.actions;
+        let mut actions = keyed;
+        actions.extend(viewer.actions);
         // A double-click on a node (its frame or header, not a field or button in it, which take
         // the click themselves) opens its parameters window. egui reports a click within 0.6 s of
         // the one before last as a triple click and no double, so that counts too.
@@ -642,9 +656,9 @@ impl Canvas {
         actions.extend(self.group_overlay(&ctx, graph, tokens));
         // Frames' tabs and resize handles (crate::frame_view).
         actions.extend(self.frame_overlay(&ctx, graph, tokens));
-        self.apply_requests(canvas_requests);
-        // The selection (clicks, snarl's marquee) and its outline (crate::edit_view).
-        self.update_selection(&ctx, graph);
+        actions.extend(canvas_requests.into_iter().map(crate::groups_view::CanvasRequest::command));
+        // The selection (clicks, snarl's marquee, as commands) and its outline (crate::edit_view).
+        actions.extend(self.selection_gestures(&ctx));
         self.paint_selection(&ctx, tokens);
 
         // A right-click on a wire: a menu with Watch and Disconnect. egui-snarl reports one
@@ -787,7 +801,8 @@ impl Canvas {
             && !self.over_node(p)
             && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background)
         {
-            self.open_palette(p);
+            actions.push(self.palette_at(p));
+            ctx.request_repaint();
         }
         if let Some(state) = &mut self.palette {
             match palette::show(&ctx, state, &self.palette_index, catalog) {

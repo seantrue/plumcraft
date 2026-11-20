@@ -218,7 +218,6 @@ impl EditorApp {
             "editors": self.value_editors.inspect(),
             "wirePreview": self.wires.inspect(),
             "copied": self.copied.is_some(),
-            "selection": self.canvas.selection(),
             "canvas": {"zoom": t.scaling, "pan": [t.translation.x, t.translation.y],
                        "rect": if r.is_finite() { json!([r.min.x, r.min.y, r.max.x, r.max.y]) } else { Value::Null },
                        "editing": self.canvas.edits.is_editing()},
@@ -251,8 +250,9 @@ impl EditorApp {
     /// leave it).
     fn apply_ui_set(&mut self, params: &Value) -> Result<(), String> {
         check_fields(params, &["zoom", "pan", "fit", "palette", "focus"])?;
+        // entering a group, fitting and the palette are the canvas's commands (N2 slice 1)
         if let Some(f) = params.get("focus") {
-            crate::groups_view::set_focus(&mut self.canvas, self.doc.session.graph(), f)?;
+            self.try_run("canvas.focus", &json!({"group": f}))?;
         }
         let mut t = self.canvas.to_global;
         let zoom = params.get("zoom").map(|z| z.as_f64().filter(|z| z.is_finite() && (0.05..=8.0).contains(z)).ok_or("zoom must be a number in 0.05..8"));
@@ -277,24 +277,16 @@ impl EditorApp {
         if let Some(fit) = params.get("fit")
             && fit.as_bool().ok_or("fit must be a boolean")?
         {
-            self.canvas.request_fit();
+            self.try_run("canvas.fit", &json!({}))?;
         }
         if let Some(p) = params.get("palette") {
-            let center = if self.canvas.rect.is_finite() { self.canvas.rect.center() } else { egui::Pos2::ZERO };
-            match p {
-                Value::Bool(false) | Value::Null => self.canvas.palette = None,
-                Value::Bool(true) => self.canvas.open_palette(center),
-                Value::String(q) => {
-                    if self.canvas.palette.is_none() {
-                        self.canvas.open_palette(center);
-                    }
-                    if let Some(state) = &mut self.canvas.palette {
-                        state.query = q.chars().take(256).collect();
-                        state.selected = 0;
-                    }
-                }
+            let p = match p {
+                Value::Bool(false) | Value::Null => json!({"open": false}),
+                Value::Bool(true) => json!({"open": true}),
+                Value::String(q) => json!({"open": true, "query": q}),
                 _ => return Err("palette must be a boolean or a search string".into()),
-            }
+            };
+            self.try_run("canvas.palette", &p)?;
         }
         Ok(())
     }

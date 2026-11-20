@@ -221,8 +221,6 @@ pub trait Host {
     fn measured(&self) -> (Map<String, Value>, Map<String, Value>) {
         (Map::new(), Map::new())
     }
-    /// Make what a command returned the selection.
-    fn select_result(&mut self, _result: &Value) {}
     /// Fit the view to the graph.
     fn fit(&mut self) {}
     /// Edit › Frame Selection (the canvas knows the sizes).
@@ -397,6 +395,33 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
             ask_workflow(h, by, Then::Insert { command: id.to_owned(), pos });
         }
         "frame.add" => h.frame_selection(),
+        // Edit › Cut and Copy: the selection (with the members of selected collapsed groups) as
+        // workflow JSON on the clipboard; a cut's nodes go, and the selection with them
+        "edit.cut" | "edit.copy" => {
+            let members = crate::selection::Selection { nodes: nodes.iter().map(|n| plumcraft_graph::NodeId::from(n.as_str())).collect(), groups, net: None }
+                .members(h.session().graph());
+            let what = if id == "edit.cut" { "cut" } else { "copy" };
+            if members.is_empty() {
+                h.say(format!("select nodes to {what} first"));
+                return;
+            }
+            let Ok(r) = h.run(id, &json!({"nodes": members})) else { return };
+            let Some(text) = r.get("text").and_then(Value::as_str) else { return };
+            copy(h, text, "workflow", by);
+            if id == "edit.cut" {
+                let _ = h.run("selection.clear", &Value::Null);
+            }
+        }
+        // Edit › Paste: the shell reads the clipboard, then it is pasted
+        "edit.paste" => {
+            ask_paste(h, by);
+        }
+        // Edit › Delete: what isn't selected can't be deleted, which the status bar says
+        "edit.delete" => {
+            if let Err(e) = h.run(id, &Value::Null) {
+                h.say(e);
+            }
+        }
         "graph.tidy" => {
             // the selection when there is one to arrange, else everything; with the sizes and
             // pins the canvas measured last frame
@@ -413,7 +438,7 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
                 && id == "node.duplicate"
             {
                 // the copies become the selection
-                h.select_result(&r);
+                select_made(h, &r);
             }
         }
         // an application's command gets what is selected, and may answer with a word for the
@@ -624,7 +649,7 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                     params["pos"] = json!(pos);
                 }
                 if let Ok(r) = h.run(&command, &params) {
-                    h.select_result(&r);
+                    select_made(h, &r);
                     if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
                         h.say(format!("inserted; {} wire(s) no longer fit and were left out", dropped.len()));
                     }
@@ -690,6 +715,13 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
     }
 }
 
+/// Select what a command made (`selection.set`): the nodes it returned, or the collapsed group.
+pub fn select_made(h: &mut impl Host, result: &Value) {
+    if let Some(p) = crate::selection::made(result, h.session().graph()) {
+        let _ = h.run("selection.set", &p);
+    }
+}
+
 /// Paste workflow JSON where the shell says (the pointer), selecting the result.
 pub fn paste(h: &mut impl Host, text: &str) {
     let mut params = json!({"text": text});
@@ -697,7 +729,7 @@ pub fn paste(h: &mut impl Host, text: &str) {
         params["pos"] = json!(p);
     }
     if let Ok(r) = h.run("edit.paste", &params) {
-        h.select_result(&r);
+        select_made(h, &r);
         if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
             h.say(format!("pasted; {} wire(s) no longer fit and were left out", dropped.len()));
         }

@@ -454,6 +454,8 @@ impl EditorApp {
         }
         // the session's app starts are asked for, and this window starts them (asks_view)
         let mut doc = Document::with_media(session, plumcraft_media::MediaService::new(media_config()), true);
+        // the canvas draws the document's selection (N2 slice 1)
+        canvas.picked = edit_view::Picked::on(doc.selection.clone());
         // an engine compiled in connects in place (slice 3's exception: two kittests pick one
         // from the menu and look three frames later)
         doc.start_in_place = true;
@@ -718,13 +720,23 @@ impl EditorApp {
     /// What Ungroup acts on: the first selected collapsed group, else the innermost group of the
     /// first selected node in one, else the group entered.
     pub fn group_to_ungroup(&self) -> Option<plumcraft_graph::GroupId> {
-        let g = self.doc.session.graph();
-        self.canvas
-            .selected_groups()
-            .into_iter()
-            .find(|id| g.group(id).is_some())
-            .or_else(|| self.canvas.selection().iter().find_map(|n| g.group_of(n).cloned()))
-            .or_else(|| self.canvas.focus.clone().filter(|f| g.group(f).is_some()))
+        self.doc.group_to_ungroup()
+    }
+
+    /// Show what the document holds of the canvas: the group entered (entering or leaving
+    /// rebuilds and fits, [`Canvas::enter_group`]) and the net selected. After every command and
+    /// at the start of every frame; the selection itself the canvas reads in place.
+    pub fn follow_core(&mut self) {
+        if self.canvas.focus != self.doc.focus {
+            match self.doc.focus.clone() {
+                Some(g) => self.canvas.enter_group(g),
+                None => self.canvas.leave_group(),
+            }
+        }
+        let net = self.doc.selection.with(|s| s.net.clone());
+        if self.canvas.nets.selected != net {
+            self.canvas.nets.selected = net;
+        }
     }
 
     /// Quit: close the window, asking first over unsaved changes.
@@ -1099,9 +1111,10 @@ impl EditorApp {
     /// engine link, the platform, the application's value editors.
     pub fn menu_facts(&self) -> menu_view::Facts {
         let center = self.canvas.to_global.inverse() * self.canvas.rect.center();
+        let sel = self.doc.selection.get();
         menu_view::Facts {
-            selected: self.canvas.picked.nodes().to_vec(),
-            selected_groups: self.canvas.picked.groups().to_vec(),
+            selected: sel.nodes,
+            selected_groups: sel.groups,
             center: Some([center.x, center.y]),
             live: self.doc.link.is_some(),
             caps: self.doc.caps,
@@ -1131,16 +1144,13 @@ impl EditorApp {
             // a registry command as its menu item: asks first what it needs
             (Some(id), None) => self.invoke(id),
             (Some(_), Some(_)) => self.run_all(menu_view::action(&item).into_iter().collect()),
-            (None, _) => match item.id.as_str() {
-                "canvas.fit" => self.canvas.request_fit(),
-                "canvas.palette" => self.canvas.open_palette(self.canvas.rect.center()),
-                _ => {
-                    if let Some(op) = edit_view::EditOp::from_item(&item) {
-                        let ctx = ui.ctx().clone();
-                        self.edit_op(&ctx, op);
-                    }
+            // Align ›, Distribute ›: the shell's, with the sizes it measured
+            (None, _) => {
+                if let Some(op) = edit_view::EditOp::from_item(&item) {
+                    let ctx = ui.ctx().clone();
+                    self.edit_op(&ctx, op);
                 }
-            },
+            }
         }
     }
 
@@ -1430,6 +1440,7 @@ impl EditorApp {
         self.banner(ui);
         egui::Panel::bottom("plumcraft-status").show(ui, |ui| self.status_bar(ui));
         self.watched_panel(ui);
+        self.follow_core();
         self.canvas.sync(self.doc.session.generation(), self.doc.session.graph(), self.doc.session.catalog());
         let frame = egui::Frame::new().fill(self.tokens.canvas);
         let source = self.source();
