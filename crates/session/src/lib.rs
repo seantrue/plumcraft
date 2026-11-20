@@ -177,7 +177,8 @@ pub struct About {
 /// What a graph needs that no connected engine has.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MissingEngines {
-    /// The engines the file names that aren't connected. Empty when it names none.
+    /// The engines the file names that aren't connected, and those the host knows offer the
+    /// missing kinds ([`Engines::offered`]). Empty when neither says.
     pub engines: Vec<String>,
     /// The node types nothing here offers.
     pub kinds: Vec<String>,
@@ -458,7 +459,9 @@ impl Session {
 
     /// What this graph needs that no connected engine has, naming the engines when the file does
     /// (a node's `engine`, the workflow's `engines`, spec 8.2; a recipe saved across engines holds
-    /// them, spec 15). `None` when every node's kind is offered.
+    /// them, spec 15) or when the host knows which engine offers a kind without starting it
+    /// ([`Engines::offered`], [`engine_cmds::engines_used`]). `None` when every node's kind is
+    /// offered.
     pub fn missing_engines(&self) -> Option<MissingEngines> {
         let unknown = self.graph.nodes.values().filter(|n| self.catalog.node(&n.kind).is_none());
         let (mut kinds, mut pinned) = (BTreeSet::new(), BTreeSet::new());
@@ -481,6 +484,17 @@ impl Session {
         for e in named {
             if !here.contains(e.as_str()) && !engines.contains(e) {
                 engines.push(e.clone());
+            }
+        }
+        // and the engines the host knows offer the kinds that are missing, though the file doesn't
+        // name them (decision 8C: start only the engines the graph uses)
+        let unknown = self.graph.nodes.values().filter(|n| self.catalog.node(&n.kind).is_none());
+        let prefer: Vec<&str> = self.engines.engine_ids();
+        let offered_here: engine_cmds::Offered =
+            self.engines.offered.iter().filter(|(e, _)| !here.contains(e.as_str())).map(|(e, k)| (e.clone(), k.clone())).collect();
+        for e in engine_cmds::engines_used(unknown.map(|n| (n.kind.as_str(), n.engine.as_deref())), &self.graph.engines, &offered_here, &prefer) {
+            if !here.contains(e.as_str()) && !engines.contains(&e) {
+                engines.push(e);
             }
         }
         let kinds: Vec<String> = kinds.into_iter().collect();

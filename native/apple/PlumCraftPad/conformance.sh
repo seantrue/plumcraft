@@ -49,9 +49,11 @@ data="$(xcrun simctl get_app_container "$sim" "$bundle" data)"
 t="$data/tmp/conformance"; rm -rf "$t"; mkdir -p "$t"
 echo '{"version": 1, "nodes": {}, "wires": []}' > "$t/empty.json"
 status="$t/status.json"
-# every case on one app, on the text engine with the array engine beside it, as it opens every graph
+# every case on one app, as it opens every graph: the empty graph starts on the text engine alone,
+# and the picture case's first array node starts the array engine (decision 8C: engines start as
+# the graph comes to use them), so no case is skipped for want of an engine
 xcrun simctl launch --terminate-running-process "$sim" "$bundle" --status-file "$status" --control-token-file "$t/token" \
-  --scratch-state --hide-watched --engine text --engines-also array --open "$t/empty.json" >/dev/null
+  --scratch-state --hide-watched --engine text --open "$t/empty.json" >/dev/null
 # wait (at most 60 s) for the port and the graph's canvas
 doc=""
 for _ in $(seq 600); do

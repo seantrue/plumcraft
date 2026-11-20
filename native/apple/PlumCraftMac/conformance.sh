@@ -28,16 +28,19 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
 
 cd "$here"
 command -v xcodegen >/dev/null && xcodegen generate --quiet
+# DERIVED: another build folder (a copy of the app running from build/ is left alone)
+derived="${DERIVED:-build}"
 timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
-  -derivedDataPath build -destination 'platform=macOS,arch=arm64' build -quiet
+  -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet
 (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q)
 runner="$kit/.build/release/plumcraft-conformance"
-app="$here/build/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
+case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
+app="$derived/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
 
 run_on() {
 status="$scratch/status-$1.json"; rm -f "$status"
 "$app" --status-file "$status" --store-root "$scratch/store" --control-token-file "$scratch/token" \
-  --no-open-panel --scratch-state --hide-watched --engine "$1" --engines-also "$2" "$scratch/empty.json" >"$scratch/app.log" 2>&1 &
+  --no-open-panel --scratch-state --hide-watched --engine "$1" "$scratch/empty.json" >"$scratch/app.log" 2>&1 &
 pid=$!
 quit() {
   kill -TERM "$pid" 2>/dev/null || return 0
@@ -59,7 +62,7 @@ print(w[0]['doc'] if s.get('port') and w and w[0].get('ready') else '')" 2>/dev/
 done
 [ -n "$doc" ] || { echo "the app never got ready"; quit; return 1; }
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
-echo "the app on the $1 engine with $2 beside it: pid $pid, control port $port, document $doc"
+echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
 timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
@@ -71,7 +74,8 @@ return $code
 
 echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.json"
 failed=0
-# every case on one app, as it opens every document: the text and array engines, both compiled in
-# (N3 slice 4: no case is skipped for want of an engine)
+# every case on one app, as it opens every document: the empty graph on the text engine alone, and
+# the picture case's first array node starts the array engine (decision 8C: engines start as the
+# graph comes to use them), so no case is skipped for want of an engine
 run_on text array || failed=1
 exit $failed

@@ -12,9 +12,12 @@ mkdir -p "$out"
 what="${1:-run}"; n="${2:-500}"; m="${3:-800}"; secs="${PHASE_SECONDS:-4}"
 cd "$here"
 command -v xcodegen >/dev/null && xcodegen generate --quiet
+# DERIVED: another build folder (a copy of the app running from build/ is left alone)
+derived="${DERIVED:-build}"
+case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
 timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
-  -derivedDataPath build -destination 'platform=macOS,arch=arm64' build -quiet 2>&1 | grep -v 'DVTProvisioning\|IDERunDestination' || true
-app="$here/build/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
+  -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet 2>&1 | grep -v 'DVTProvisioning\|IDERunDestination' || true
+app="$derived/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-mac-bench.XXXXXX")"
 # a copy left running (a time limit, ^C) is quit by the PID it wrote
 cleanup() {
@@ -37,7 +40,11 @@ args=(--bench "$out/$p-bench-$n.json" --nodes "$n" --wires "$m" --phase-seconds 
 args+=(${EXTRA:-})
 case "$what" in
 run)
-  timeout 300 "$app" "${args[@]}" | grep -v '^BENCH ' || true
+  # WRAP: a command to run the app under, to see how the run moves when the system demotes it
+  # (say `taskpolicy -c utility`); none by default
+  # shellcheck disable=SC2206
+  wrap=(${WRAP:-})
+  timeout 300 ${wrap[@]+"${wrap[@]}"} "$app" "${args[@]}" | grep -v '^BENCH ' || true
   echo "wrote $out/$p-bench-$n.json" ;;
 trace)
   t="$scratch/trace-$n.trace"; marker="$scratch/marker"; touch "$marker"
@@ -47,16 +54,28 @@ trace)
     --time-limit 90s --output "$t" --launch -- "$app" "${args[@]}" | grep -v '^BENCH ' || true
   # xctrace may leave a copy behind, stopped before it ran a line (so it wrote no pid): any process
   # named PlumCraft (by exact name, never by command text) that wasn't there before the trace and
-  # runs this build's binary is ours
+  # runs this build's binary is ours. So is one stopped (state T) that runs another build of this
+  # checkout: the system can resolve the tracer's extra launch to the newest PlumCraft.app it knows
+  # (the budget stage found two left by a clean build's bundle). A copy someone starts meanwhile
+  # runs, so it isn't stopped.
   for pid in $(pgrep -x PlumCraft || true); do
     case " $before " in *" $pid "*) continue ;; esac
-    if [ "$(ps -o comm= -p "$pid" 2>/dev/null)" = "$app" ]; then kill -9 "$pid" 2>/dev/null && echo "cleared a copy the tracer left ($pid)"; fi
+    comm="$(ps -o comm= -p "$pid" 2>/dev/null)"; state="$(ps -o stat= -p "$pid" 2>/dev/null)"
+    case "$comm" in
+      "$app") ;;
+      "$root"/*/PlumCraft.app/Contents/MacOS/PlumCraft) case "$state" in T*) ;; *) continue ;; esac ;;
+      *) continue ;;
+    esac
+    kill -9 "$pid" 2>/dev/null && echo "cleared a copy the tracer left ($pid)"
   done
   # a stalled save leaves its raw kernel trace in $TMPDIR: remove this run's
   find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'instruments*.ktrace' -newer "$marker" -delete 2>/dev/null || true
   for s in os-signpost hitches; do
     xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" > "$scratch/$s.xml" || true
   done
-  python3 "$out/s3-hitches.py" PlumCraft "$scratch/os-signpost.xml" "$scratch/hitches.xml" | tee "$out/$p-trace-$n-hitches.md" ;;
+  # the exports are kept beside the table (a trace with no phases says why), read by s6-hitches.py,
+  # which reads every table of an export (s3-hitches.py read only the fullest)
+  for s in os-signpost hitches; do cp "$scratch/$s.xml" "$out/$p-trace-$n-$s.xml" 2>/dev/null || true; done
+  python3 "$out/s6-hitches.py" PlumCraft "$scratch/os-signpost.xml" "$scratch/hitches.xml" | tee "$out/$p-trace-$n-hitches.md" ;;
 *) echo "usage: $0 run|trace [nodes wires]"; exit 2 ;;
 esac

@@ -109,6 +109,13 @@ pub struct Config {
     /// hosted its own default way: one catalogue for both, as `engine.add` gives (the Mac app
     /// opens every document on the text and array engines, both compiled in).
     pub also: Vec<String>,
+    /// Start only the engines a document's graph uses (`engines.auto`, default true; decision 8C at
+    /// N3's exit): a document opens on the engines its file uses (`engines.default` for one that
+    /// uses none, or that can't be read before it opens), and picks engines automatically
+    /// (`engine.auto`) from then on, so a graph that comes to use another engine (inserted, or a
+    /// node of its kind added) starts it. False: every document starts on `engines.default` and
+    /// `engines.also` only, as before.
+    pub auto: bool,
     /// What the platform has (`platform`, 4.2). What the config doesn't say it has, it hasn't:
     /// without `platform`, only engines compiled in and engines already running elsewhere.
     pub platform: Capabilities,
@@ -141,6 +148,7 @@ impl Default for Config {
             engine: None,
             mode: None,
             also: Vec::new(),
+            auto: true,
             platform: Capabilities::NONE,
             control: None,
             media: media_config(None).unwrap_or_default(),
@@ -165,6 +173,11 @@ impl Config {
             engine: named("default", "engine"),
             mode: named("mode", "mode"),
             also: also(engines.and_then(|e| e.get("also")))?,
+            auto: match engines.and_then(|e| e.get("auto")) {
+                None | Some(Value::Null) => true,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err("config: engines.auto must be true or false".into()),
+            },
             platform: Capabilities::declared(o.get("platform")),
             control: control_config(o.get("control"))?,
             media: media_config(o.get("media"))?,
@@ -653,6 +666,7 @@ impl Core {
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
         let (kind, mode) = config.engine_and_mode()?;
         let also = config.also_targets(kind)?;
+        let auto = config.auto;
         if let Some(level) = config.log_level {
             plumcraft_editor_core::log::set_level(level);
         }
@@ -733,6 +747,7 @@ impl Core {
                     kind,
                     mode,
                     also,
+                    auto,
                     launcher,
                     engines: SharedEngines::default(),
                     waker,
@@ -778,6 +793,19 @@ impl Core {
     }
 }
 
+/// The workflow at `path`, read before its document opens to see which engines it uses: `None`
+/// for one that isn't a workflow read whole (a bundle, an application's own file, one too big or
+/// unreadable), which then opens on the config's engine and starts what it needs once open.
+fn peek_workflow(path: &std::path::Path) -> Option<Graph> {
+    /// Larger than any workflow; `graph.open` reads it again in full.
+    const MOST: u64 = 64 << 20;
+    if std::fs::metadata(path).ok()?.len() > MOST {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    Graph::from_json(&text).ok()
+}
+
 /// The engine's demo graph (an empty one for an engine without).
 fn demo_graph(kind: EngineKind) -> Result<Graph, String> {
     let demo = kind.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.to_owned());
@@ -811,12 +839,35 @@ enum Held {
 /// The most requests held for one document while its engine connects.
 const MAX_HELD: usize = 256;
 
+/// The longest a request adding a node waits for the engine that offers its kind to connect
+/// (decision 8C: engines start as the graph comes to use them).
+const ENGINE_WAIT: Duration = Duration::from_secs(30);
+
+/// The node kind a request adds (`node.add`, `node.addWired` through `command.run`), if any.
+fn added_kind(h: &Held) -> Option<String> {
+    let (method, params) = match h {
+        Held::Request { method, params, .. } => (method.as_str(), params),
+        Held::Control(req) => (req.method.as_str(), &req.params),
+    };
+    if !matches!(method, "command.run" | "engine.execute") {
+        return None;
+    }
+    let command = params.get("command").and_then(Value::as_str)?;
+    if !matches!(command, "node.add" | "node.addWired") {
+        return None;
+    }
+    params.get("params")?.get("kind")?.as_str().map(str::to_owned)
+}
+
 /// A document of this core, and what waits for its engine.
 struct Doc {
     doc: Document,
     /// Its first engine has connected (or failed to), and what it opens with is open.
     ready: bool,
     held: Vec<Held>,
+    /// A request adding a node of this kind waits (until this instant at most) for the engine
+    /// that offers it, which it asked for; the requests after it wait in `held` behind it.
+    waiting: Option<(String, Instant)>,
     /// The `engine` domain's generation, for the feed's `changed`.
     generation: u64,
     /// The menu model's generation last told the shell (`changed`, domain `menus`).
@@ -842,6 +893,8 @@ struct Worker {
     mode: Mode,
     /// The engines started beside it in every document (`engines.also`).
     also: Vec<plumcraft_session::EngineTarget>,
+    /// Start only the engines a document's graph uses (`engines.auto`).
+    auto: bool,
     /// Starts the engines (on each document's worker).
     launcher: Launcher,
     /// The engines compiled in, one of each for every document (decision 11B).
@@ -876,7 +929,9 @@ impl Worker {
         let mut session = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
         // engine.* commands switch among what this platform can start, and attach
         session.engines.choices = self.launcher.choices();
-        let target = plumcraft_session::EngineTarget::Choice { engine: self.kind.id(), mode: self.mode.id().to_owned() };
+        session.engines.offered = plumcraft_editor_core::engines::offered(&session.engines.choices);
+        session.engines.auto = self.auto;
+        let (target, extras) = self.engines_for(&session, &opening);
         session.engines.current = Some(target.clone());
         session.engines.can_attach = true;
         let mut doc = Document::with_media(session, self.shared.media.clone(), false);
@@ -886,15 +941,78 @@ impl Worker {
         doc.starter = Some(shared_starter(self.engines.clone(), move |e: &str, m: &str, w: Option<link::Waker>| launcher.connect_ids(e, m, w)));
         let shared = Arc::clone(&self.shared);
         doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
-        doc.start_engines(target, self.also.clone(), opening);
+        doc.start_engines(target, extras, opening);
         let id = doc.id;
         lock(&self.shared.drags).insert(id, doc.drag.clone());
         lock(&self.shared.snapshots).insert(id, doc.snapshot_out.clone());
         self.docs.insert(
             id,
-            Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, scene_sent: 0, menus_watched: false, told: Value::Null, told_gen: 0 },
+            Doc {
+                doc,
+                ready: false,
+                held: Vec::new(),
+                waiting: None,
+                generation: 0,
+                menus_sent: 0,
+                scene_sent: 0,
+                menus_watched: false,
+                told: Value::Null,
+                told_gen: 0,
+            },
         );
         id
+    }
+
+    /// The engines a new document starts on, the first and those beside it. With `engines.auto`
+    /// (decision 8C at N3's exit), the engines its graph uses ([`plumcraft_session::engine_cmds::graph_engines`]
+    /// over the file, read here before it opens, or the demo), those this platform can start,
+    /// the config's own engine first when it is one; the config's engine alone for a graph that
+    /// uses none, or a file that isn't a workflow read whole (a bundle, an application's file:
+    /// picking engines automatically starts what it needs once it has opened). Then
+    /// `engines.also`, always.
+    fn engines_for(&self, session: &Session, opening: &Opening) -> (plumcraft_session::EngineTarget, Vec<plumcraft_session::EngineTarget>) {
+        use plumcraft_session::EngineTarget;
+        let first = EngineTarget::Choice { engine: self.kind.id(), mode: self.mode.id().to_owned() };
+        let mut extras: Vec<EngineTarget> = Vec::new();
+        let mut used: Vec<String> = Vec::new();
+        if self.auto {
+            let graph = match opening {
+                Opening::Nothing => None,
+                Opening::Graph(g) | Opening::Edit(_, g) => Some(g.clone()),
+                Opening::Path(p) => peek_workflow(p),
+            };
+            let own = self.kind.id();
+            used = graph
+                .map(|g| plumcraft_session::engine_cmds::graph_engines(&g, &session.engines.offered, &[own.as_str()]))
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|e| *e == own || session.engines.best(e).is_some())
+                .collect();
+        }
+        // the config's own engine, hosted as the config says, unless the graph uses others only
+        let first = match used.first() {
+            Some(e) if !used.contains(&self.kind.id()) => {
+                let mode = session.engines.best(e).map_or_else(|| Mode::InProc.id().to_owned(), |c| c.mode.clone());
+                EngineTarget::Choice { engine: e.clone(), mode }
+            }
+            _ => first,
+        };
+        let first_id = match &first {
+            EngineTarget::Choice { engine, .. } => engine.clone(),
+            EngineTarget::Attach { .. } => String::new(),
+        };
+        for e in used.iter().filter(|e| **e != first_id) {
+            if let Some(c) = session.engines.best(e) {
+                extras.push(EngineTarget::Choice { engine: e.clone(), mode: c.mode.clone() });
+            }
+        }
+        for t in &self.also {
+            let dup = matches!(t, EngineTarget::Choice { engine, .. } if *engine == first_id || extras.iter().any(|x| matches!(x, EngineTarget::Choice { engine: x, .. } if x == engine)));
+            if !dup {
+                extras.push(t.clone());
+            }
+        }
+        (first, extras)
     }
 
     /// The document a request names (`doc`), or the first one open when it names none.
@@ -1107,13 +1225,16 @@ impl Worker {
             }
             if t.ready && !d.ready {
                 d.ready = true;
-                for h in std::mem::take(&mut d.held) {
-                    self.replay(id, h);
-                }
-                // what the held requests queued, sent now
-                if let Some(d) = self.docs.get_mut(&id) {
-                    let _ = document::turn(&mut d.doc);
-                }
+                self.release(id);
+            }
+            // a request waiting for the engine of the node it adds: on once it has connected
+            // (or failed to), or after ENGINE_WAIT
+            if let Some(d) = self.docs.get_mut(&id)
+                && let Some((kind, until)) = &d.waiting
+                && (d.doc.session.catalog().node(kind).is_some() || !d.doc.engine_busy() || Instant::now() >= *until)
+            {
+                d.waiting = None;
+                self.release(id);
             }
             if let Some(d) = self.docs.get_mut(&id) {
                 control::tick(&mut d.doc);
@@ -1213,17 +1334,64 @@ impl Worker {
         }
     }
 
-    /// Run `h` for document `id`, or hold it while its engine connects.
+    /// Run `h` for document `id`, or hold it while its engine connects, or while an engine a
+    /// request before it is waiting for connects.
     fn hold_or(&mut self, id: DocId, h: Held) {
         let Some(d) = self.docs.get_mut(&id) else { return self.refuse(h, "the document closed") };
-        if !d.ready {
+        if !d.ready || d.waiting.is_some() || !d.held.is_empty() {
             if d.held.len() >= MAX_HELD {
                 return self.refuse(h, "busy: the document's engine is still connecting");
             }
             d.held.push(h);
             return;
         }
+        if self.waits_for_engine(id, &h) {
+            if let Some(d) = self.docs.get_mut(&id) {
+                d.held.push(h);
+            }
+            return;
+        }
         self.replay(id, h);
+    }
+
+    /// Does `h` add a node of a kind that only an engine not connected offers, one this platform
+    /// can start? Then, picking engines automatically, that engine is asked for (decision 8C: a
+    /// graph that comes to use another engine starts it; N4's palette will add such kinds) and
+    /// `h` waits for it: true. A kind nothing here offers runs at once, and is refused.
+    fn waits_for_engine(&mut self, id: DocId, h: &Held) -> bool {
+        let Some(kind) = added_kind(h) else { return false };
+        let Some(d) = self.docs.get_mut(&id) else { return false };
+        if plumcraft_session::engine_cmds::engine_for_kind(&d.doc.session, &kind).is_none() {
+            return false;
+        }
+        let asked = plumcraft_session::engine_cmds::start_for_kind(&mut d.doc.session, &kind).is_some();
+        if !asked && !d.doc.engine_busy() {
+            return false;
+        }
+        d.waiting = Some((kind, Instant::now() + ENGINE_WAIT));
+        true
+    }
+
+    /// Run what document `id` holds, in order, while nothing makes it wait; then a turn, so what
+    /// they queued is sent.
+    fn release(&mut self, id: DocId) {
+        loop {
+            let Some(d) = self.docs.get_mut(&id) else { return };
+            if !d.ready || d.waiting.is_some() || d.held.is_empty() {
+                break;
+            }
+            let h = d.held.remove(0);
+            if self.waits_for_engine(id, &h) {
+                if let Some(d) = self.docs.get_mut(&id) {
+                    d.held.insert(0, h);
+                }
+                break;
+            }
+            self.replay(id, h);
+        }
+        if let Some(d) = self.docs.get_mut(&id) {
+            let _ = document::turn(&mut d.doc);
+        }
     }
 
     /// A request for a ready document.

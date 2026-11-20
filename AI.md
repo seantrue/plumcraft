@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N3's exit decisions and the budget stage (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**The maintainer decided** fifteen questions at N3's exit (recorded in note 24 §18 in their words), among them: "500 nodes is more than ever likely in a single graph", so 2,000 nodes stops being a gate; the canvas and core remedies are "not currently worth the time"; start only the engines a graph uses; "Egui is a functional minimum, not an aesthetic maximum. More native look == better look."; and the Watched side column goes "in favor of just the popout window". The maintainer ran both apps by hand and reported "App looks good, cant edit text values" and that the iPad had been in Low Power Mode during slice 5's measurements.
+
+**What the agent did (~536 lines of Rust and ~69 of Swift added, tests included).** The core now works out which engines a graph uses, extending the egui editor's own automatic rule, and a document opened over the C ABI starts only those; adding a node of an unstarted engine's kind starts that engine and holds the request until it connects. 5 new Rust tests and 1 Swift test. It showed that slice 5's 130 ms reading on the Mac was not a regression: it appears when the window is hidden or the screen is locked, and the bench now records that. It fixed the hitch reader, which had dropped rows from some Instruments exports.
+
+**Budgets on the Mac at the revised sizes.** Launch and a one-node change through the kit are met at 100 and 500 nodes. Frames are met at 100. At 500 nodes panning misses the frame budget by roughly 25 times while the N0 spike beside it stays near budget; the cause was not looked into, as decided. The machine was in use during the runs, so the size of the miss is rough.
+
+**Not done.** Nothing was measured on the iPad: it had become unavailable to the Mac. A one-command script is left for it. 120 Hz is still unmeasured.
+
+**Defects.** The agent left two stopped tracer copies and caught them in its final listing. Earlier slices had left four stopped copies of the N0 Mac spike running since the morning, missed because the checks looked for a different process name; the controller quit them. The controller's check after slice 5 missed them too.
+
 ### 2026-11-20 — N3 slice 5: the iPad app and the device budgets (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The last N3 slice: an iPad app that opens, shows, pans, zooms, runs and watches, the read-only conformance half against it, and N3's budgets measured on a device. The maintainer said the iPad was connected and unlocked, and after trying the app: "App looks good, cant edit text values" (editing is stage N4).

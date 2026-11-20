@@ -12,8 +12,11 @@
 //   --select ID,ID                after the first frame, select these nodes
 //   --no-open-panel               don't show File › Open when launched with nothing to open
 //   --engine text|array           the engine the core starts on (default text)
-//   --engines-also array,…        engines started beside it in every document (default array:
-//                                 both are compiled in; "none" for none)
+//   --engines-also array,…        engines started beside it in every document, whatever the graph
+//                                 uses (default none: each document starts only the engines its
+//                                 graph uses, decision 8C)
+//   --engines-pick on|off         pick a document's engines by its graph (default on; off: --engine
+//                                 and --engines-also in every document, for comparisons)
 //   --then STEP;STEP              what the first window does once ready (Script.swift)
 //   --dump-menus F                write the built menu bar, as text, to F whenever it changes
 //   --hide-watched                start with the Watched panel collapsed
@@ -40,7 +43,8 @@ struct Options {
     var select: [String] = []
     var openPanel = true
     var engine = "text"
-    var also = ["array"]
+    var also: [String] = []
+    var pick = true
     var then: [String] = []
     var dumpMenus: String?
     var hideWatched = false
@@ -67,6 +71,7 @@ struct Options {
             case "--select": o.select = (next() ?? "").split(separator: ",").map(String.init)
             case "--no-open-panel": o.openPanel = false
             case "--scratch-state": o.scratchState = true
+            case "--engines-pick": o.pick = next() != "off"
             case "--engines-also":
                 let v = next() ?? ""
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
@@ -129,6 +134,7 @@ enum CoreHost {
         config.frameMs = 8.3
         config.engine = options.engine
         config.also = options.also
+        config.pickEngines = options.pick
         config.controlTokenFile = options.controlTokenFile
         do {
             let (c, r) = try ShellCore.open(config)

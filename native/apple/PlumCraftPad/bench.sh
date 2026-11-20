@@ -12,6 +12,8 @@
 #                                  copy its JSON back, and make sure it has quit
 #   ./bench.sh trace-device [N M]  the same under Instruments' Animation Hitches on the device, hitches
 #                                  binned by phase
+#   ./bench.sh trace-spike-device [N M]  the N0 spike (already installed) under the same trace: the
+#                                  control
 #
 # Results: claude-debug/native-n3/PREFIX-pad-<where>-N.json (PREFIX default s5). Nothing here asks
 # Apple for a certificate or profile: a build that can't be signed with what is installed stops.
@@ -32,8 +34,11 @@ cleanup() {
           python3 -c "
 import json
 for q in json.load(open('$scratch/ps.json'))['result']['runningProcesses']:
-    if q.get('executable','').endswith('/PlumCraftPad.app/PlumCraftPad'): print(q['processIdentifier'])" 2>/dev/null | head -1 || true)
-    [ -n "$pid" ] && xcrun devicectl device process terminate --device "$dev" --pid "$pid" >/dev/null 2>&1 && echo "quit the app on the device ($pid)"
+    e = q.get('executable','')
+    if e.endswith('/PlumCraftPad.app/PlumCraftPad') or e.endswith('/CanvasSpikePad.app/CanvasSpikePad'): print(q['processIdentifier'])" 2>/dev/null || true)
+    for q in $pid; do
+      xcrun devicectl device process terminate --device "$dev" --pid "$q" >/dev/null 2>&1 && echo "quit a bench app on the device ($q)"
+    done
   fi
   rm -rf "$scratch"
 }
@@ -42,6 +47,22 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
   COMMONKIT_STORE_ROOT="$scratch/store" COMMONKIT_MARK_DIR="$scratch/marks" COMMONKIT_TEST_RUN="$scratch/run" \
   PLUMCRAFT_CRAFT_ROOT="$scratch/craft"
 args=(--bench "bench-$n.json" --nodes "$n" --wires "$m" --phase-seconds "$secs" --scratch-state)
+# A recording on the device of app BUNDLE (process name PROC) launched with the rest, its hitches
+# binned by phase into NAME-hitches.md. xctrace's own output goes to NAME-xctrace.log and the two
+# exported tables beside it (NAME-os-signpost.xml, NAME-hitches.xml): slice 5 threw them away, so a
+# trace with no phases, or one that didn't save, said nothing of why. The recording stops when the
+# app exits (each bench exits once done), or at 120 s.
+trace_device() {
+  local b="$1" proc="$2" name="$3"; shift 3
+  local t="$scratch/$name.trace"
+  timeout 400 xcrun xctrace record --device "$dev" --template 'Animation Hitches' --instrument 'Points of Interest' \
+    --time-limit 120s --output "$t" --launch -- "$b" "$@" > "$out/$name-xctrace.log" 2>&1 || echo "xctrace record: exit $?" >> "$out/$name-xctrace.log"
+  for s in os-signpost hitches; do
+    timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" \
+      > "$out/$name-$s.xml" 2>> "$out/$name-xctrace.log" || echo "xctrace export $s: exit $?" >> "$out/$name-xctrace.log"
+  done
+  python3 "$out/s6-hitches.py" "$proc" "$out/$name-os-signpost.xml" "$out/$name-hitches.xml" | tee "$out/$name-hitches.md"
+}
 cd "$here"
 command -v xcodegen >/dev/null && xcodegen generate --quiet
 case "$what" in
@@ -70,13 +91,14 @@ device|trace-device)
       --source "Documents/bench-$n.json" --destination "$out/$p-pad-device-$n.json" >/dev/null
     echo "wrote $out/$p-pad-device-$n.json"
   else
-    t="$scratch/trace.trace"
-    timeout 300 xcrun xctrace record --device "$dev" --template 'Animation Hitches' --instrument 'Points of Interest' \
-      --time-limit 90s --output "$t" --launch -- "$bundle" "${args[@]}" >/dev/null 2>&1 || true
-    for s in os-signpost hitches; do
-      xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" > "$scratch/$s.xml" || true
-    done
-    python3 "$out/s5-hitches.py" PlumCraft "$scratch/os-signpost.xml" "$scratch/hitches.xml" | tee "$out/$p-pad-device-trace-$n-hitches.md"
+    trace_device "$bundle" PlumCraft "$p-pad-device-trace-$n" "${args[@]}"
   fi ;;
-*) echo "usage: $0 sim|device|trace-device [nodes wires]"; exit 2 ;;
+trace-spike-device)
+  # the N0 spike (com.plumcraft.spike.canvas, installed at N0 and left as it is) under the same
+  # trace: the control beside the app's, on the same device in the same minutes
+  dev="${DEVICE:-$(xcrun devicectl list devices 2>/dev/null | grep -E 'iPad.*physical' | grep -E 'available|connected' | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}')}"
+  [ -n "$dev" ] || { echo "no iPad connected"; exit 2; }
+  trace_device com.plumcraft.spike.canvas CanvasSpike "$p-spike-device-trace-$n" --bench "bench-$n.json" --nodes "$n" --wires "$m" \
+    --phase-seconds "$secs" --modes perWire ;;
+*) echo "usage: $0 sim|device|trace-device|trace-spike-device [nodes wires]"; exit 2 ;;
 esac

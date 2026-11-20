@@ -1,5 +1,6 @@
 // PlumCraft for the iPad: a document-based UIKit app. One core per process (the Swift kit's
-// PlumCore, in-process through the C ABI, both built-in engines in it), one core document per open
+// PlumCore, in-process through the C ABI, both built-in engines in it, each document starting the
+// ones its graph uses), one core document per open
 // graph, each scene a document browser that presents its graph on the layer canvas (decision 8:
 // several scenes, Split View and Stage Manager).
 //
@@ -13,7 +14,10 @@
 //                               first launch (scripts)
 //   --appearance light|dark     the app's appearance, whatever the system's
 //   --engine text|array         the engine the core starts on (default text)
-//   --engines-also array,…      engines started beside it in every document (default array; "none")
+//   --engines-also array,…      engines started beside it in every document, whatever the graph uses
+//                               (default none: each document starts only the engines its graph uses)
+//   --engines-pick on|off       pick a document's engines by its graph (default on; off: --engine and
+//                               --engines-also in every document, for comparisons)
 //   --hide-watched              start with the Watched panel hidden
 //   --then STEP;STEP            what the first graph does once ready (Script.swift)
 //   --bench OUT --nodes N --wires M [--phase-seconds S]   the budget run (Bench.swift); OUT is
@@ -39,7 +43,8 @@ struct Options {
     var scratchState = false
     var appearance: String?
     var engine = "text"
-    var also = ["array"]
+    var also: [String] = []
+    var pick = true
     var hideWatched = false
     var then: [String] = []
     var bench: BenchOptions?
@@ -62,6 +67,7 @@ struct Options {
             case "--scratch-state": o.scratchState = true
             case "--appearance": o.appearance = next()
             case "--engine": o.engine = next() ?? "text"
+            case "--engines-pick": o.pick = next() != "off"
             case "--engines-also":
                 let v = next() ?? ""
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
@@ -145,6 +151,7 @@ enum CoreHost {
         config.frameMs = 1000.0 / 120
         config.engine = options.engine
         config.also = options.also
+        config.pickEngines = options.pick
         config.controlTokenFile = options.controlTokenFile
         do {
             let (c, r) = try ShellCore.open(config)

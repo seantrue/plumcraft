@@ -38,7 +38,13 @@ final class BenchWindow: NSObject {
             w.contentView = v
             return v
         }
-        finish(r)
+        // whether the run can be trusted: a bench behind another app's window, or in an app the
+        // system didn't let come forward, is throttled (its frames and its threads' priority)
+        var out = r
+        out["app_active"] = .bool(NSApp.isActive)
+        out["window_visible"] = .bool(w.occlusionState.contains(.visible))
+        try? JSONValue.object(out).serialized().write(to: URL(fileURLWithPath: options.out))
+        finish(out)
     }
 
     func finish(_ r: [String: JSONValue]) {

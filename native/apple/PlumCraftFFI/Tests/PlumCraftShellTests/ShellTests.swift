@@ -43,6 +43,10 @@ let testEnvironment: Void = {
         #expect(j["engines"]["default"].string == "text")
         // the first engine isn't named again beside itself
         #expect(j["engines"]["also"].array?.compactMap(\.string) == ["array"])
+        // engines picked by the graph unless the app says otherwise (decision 8C)
+        #expect(j["engines"]["auto"].bool == true)
+        c.pickEngines = false
+        #expect(c.json["engines"]["auto"].bool == false)
         // no control port unless a token file is named
         #expect(j["control"] == .null)
         c.controlTokenFile = "/t"
@@ -64,6 +68,39 @@ let testEnvironment: Void = {
         // the app opens its own, on both engines
         let r = try await core.request("document.open")
         #expect(r["doc"].uint64 != nil)
+    }
+
+    /// Decision 8C at N3's exit: as the apps open a core (no `also`), a document starts only the
+    /// engines its graph uses, and a node of another engine's kind added later starts that one.
+    @Test func aDocumentStartsOnlyTheEnginesItsGraphUses() async throws {
+        _ = testEnvironment
+        var c = ShellConfig(appID: "com.plumcraft.test", appName: "PlumCraft", version: "0", storeRoot: scratch("store-pick"))
+        c.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false]
+        let (core, ready) = try ShellCore.open(c)
+        defer { core.close() }
+        _ = await ready.value
+        let dir = scratch("pick")
+        func file(_ name: String, _ kinds: [String]) throws -> String {
+            var nodes: [String: JSONValue] = [:]
+            for (i, k) in kinds.enumerated() { nodes["n\(i)"] = ["kind": .string(k), "pos": [.double(Double(i) * 300), 0]] }
+            let path = dir + "/" + name
+            try JSONValue.object(["version": 1, "nodes": .object(nodes), "wires": []]).serialized().write(to: URL(fileURLWithPath: path))
+            return path
+        }
+        func engines(_ doc: UInt64) async throws -> [String] {
+            let l = try await core.request("command.run", ["command": "engine.list", "params": [:]], doc: doc)
+            return [l["current"]["engine"].string ?? ""] + (l["added"].array ?? []).compactMap { $0["engine"].string }
+        }
+        let text = try await core.request("document.open", ["path": .string(try file("text.json", ["text.literal", "text.upper"]))])
+        let textDoc = try #require(text["doc"].uint64)
+        #expect(try await engines(textDoc) == ["text"])
+        let both = try await core.request("document.open", ["path": .string(try file("both.json", ["text.literal", "array.mandelbrot"]))])
+        let bothDoc = try #require(both["doc"].uint64)
+        #expect(try await engines(bothDoc) == ["text", "array"])
+        // the text graph comes to use the array engine: it starts, and the add waits for it
+        let m = try await core.request("command.run", ["command": "node.add", "params": ["kind": "array.mandelbrot"]], doc: textDoc)
+        #expect(m["id"].string != nil)
+        #expect(try await engines(textDoc) == ["text", "array"])
     }
 }
 

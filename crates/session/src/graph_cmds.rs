@@ -43,6 +43,7 @@ pub(crate) fn wire_json(w: &Wire) -> Value {
 fn node_add(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = str_param(p, "kind")?;
     let pos = pos_param(p, "pos")?.unwrap_or([0.0, 0.0]);
+    not_started(s, kind)?;
     let order: Vec<String> = s.engines.engine_ids().into_iter().map(str::to_owned).collect();
     let id = s.edit("Add Node", |g, catalog| {
         let def = catalog.node(kind).ok_or_else(|| GraphError::UnknownKind(kind.to_owned()))?;
@@ -59,6 +60,19 @@ fn node_add(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(id)
     })?;
     Ok(json!({"id": id}))
+}
+
+/// A kind the catalogue lacks that an engine the host can start offers (decision 8C: engines
+/// start as the graph comes to use them): refused, naming the engine, which is asked for when
+/// engines are picked automatically ([`engine_cmds::start_for_kind`]), so the same add succeeds
+/// once it has connected. A kind nothing offers is left to the edit's own refusal.
+fn not_started(s: &mut Session, kind: &str) -> Result<()> {
+    let Some(engine) = crate::engine_cmds::engine_for_kind(s, kind) else { return Ok(()) };
+    let how = match crate::engine_cmds::start_for_kind(s, kind) {
+        Some(_) => "it is starting: add the node again once it has connected",
+        None => "the Engine menu starts it",
+    };
+    Err(SessionError::Params(format!("{kind} is the {engine} engine's, which isn't connected; {how}")))
 }
 
 /// `{nodes: [ids]}`, or the older single `{id}`.
@@ -131,6 +145,7 @@ fn wired_end(p: &Value) -> Result<(PortRef, bool)> {
 fn node_add_wired(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = str_param(p, "kind")?.to_owned();
     let pos = pos_param(p, "pos")?.unwrap_or([0.0, 0.0]);
+    not_started(s, &kind)?;
     let (end, from_output) = wired_end(p)?;
     let port = opt_str_param(p, "port")?.map(str::to_owned);
     let order: Vec<String> = s.engines.engine_ids().into_iter().map(str::to_owned).collect();

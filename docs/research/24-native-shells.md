@@ -486,3 +486,38 @@ The maintainer, 2026-11-20, at N2's exit (section 17): N3 goes ahead under N2's 
 5. The core's scene caching and early wake (the report's proposals 1 and 2).
 6. Run Selected as a core command; `share_targets` declared; `max_picture_px` 2048 on the iPad; both engines in every document (about 270 ms at launch waiting for the array engine).
 7. The look-and-behaviour choices slices 3, 4 and 5 made and listed in their reports (the own transform and rubber band, smart zoom, drags in a read-only app, the face's look, Undo from the model, the toolbar engine item, banners for unbuilt items, plain keys off the menu, the wash over text, the panel's rendition and width, the first-launch sample, the compact sheet's detents).
+
+### Decisions at N3's exit (the maintainer, 2026-11-20)
+
+Asked as fifteen cards; the maintainer's answers and notes, in their words. Card 9 (Run Selected as a core command) was not answered and stays open.
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Stage N4 | Fix the budgets first as a short stage, then N4, same arrangement. "500 nodes is more than ever likely in a single graph." |
+| 2 | Double tap on empty canvas (touch) | The palette at that point, as decided at N2; Fit moves to a button and the menu. "Fit could go to 3-finger pinch?" |
+| 3 | Double tap on a node (touch) | The core's rule ("open what it is on"), the same in every shell. |
+| 4 | Saving on the iPad | Build autosave in the core and use it on the iPad; the Mac keeps explicit Save. |
+| 5 | Driving the app on a real device | Debug builds may listen on the network, so the suite runs on the device. |
+| 6 | The iPad canvas and the frame budget | Leave it. "Remember the possible solutions, not currently worth the time." |
+| 7 | The core's work per edit at 2,000 nodes | Leave it; 2,000 nodes is beyond what is needed. |
+| 8 | Engines per document | Start only the engines the graph uses. |
+| 9 | Run Selected | Not answered. |
+| 10 | Group's shortcut on the Mac | Keep the core's shortcuts. |
+| 11 | Menu items with no UI yet | Keep the banner until each is built. |
+| 12 | The node's look in the Swift apps | Keep this look; icons and the more-button in N4. "Egui is a functional minimum, not an aesthetic maximum. More native look == better look." |
+| 13 | Nodes that grow after a run | Fix in N4. "Lay out engine could also add bend points on wires going right to left so as to clear the corners of the sending and receiving nodes." |
+| 14 | The Watched panel | Something else: "Eliminate the side column in favor of just the popout window." |
+| 15 | Undo back to the saved state | Leave it. |
+
+The maintainer also reported, after using the iPad app: "App looks good, cant edit text values" (editing a value on a node's face is N4), and that the iPad was in Low Power Mode during the device measurements, which explains the 60 Hz display and means the hitch trace overstates the miss.
+
+**What follows.** The budget stage is short: with 500 nodes the largest graph to plan for, the 2,000-node rows stop being a gate; the remembered remedies for the iPad canvas (smaller face bitmaps when zoomed out, a simpler zoomed-out face, fewer layers, rasterised groups) and for the core (build the scene once per change, wake the shell before the turn's scene work) are recorded here and not built. Left to do before N4: start only the engines a graph uses; read the device's frames again with Low Power Mode off; read the Mac again on a quiet machine, including the 130 ms reading. On card 2's note: a three-finger pinch on iPadOS is the system's copy gesture, so Fit needs another home.
+
+
+### After the budget stage (2026-11-20, branch `native/n3-budgets`)
+
+**Engines by graph (decision 8C), built in the core.** A C ABI document opens on the engines its file uses, read before it opens: pins, the workflow's `engines`, and for engines compiled in their own catalogues (read once per process without starting them, `Engines::offered`), so a graph that names no engine still says which it uses; one that uses none opens on `engines.default`. Picking stays on afterwards (the egui editor's `engine.auto`, whose `missing_engines` now also names a known engine for a missing kind), and a `node.add` of a kind only an engine not started offers starts it and waits for it (N4's palette path). Config `engines.auto` (default true; false is the old way); both apps drop `engines.also`. With picking on, the Engine menu lists engines rather than hostings, as egui's does. A text graph no longer waits for the array engine: launch at 500 nodes 0.28 s (0.78 s with both in slice 4), at 2,000 0.88 s (1.17 s with both, same day). Conformance on both apps 12 of 12 on each half, no skips, the picture case starting the array engine by the rule. Contract: `docs/shell-interface.md` 4.1.
+
+**The 130 ms reading was the system, not the code.** The same build and config read a 2,000-node one-node change at 21 to 23 ms (kit) with the window on screen, faster than slice 4's 35, and 115 to 162 ms with the window not visible (the screen locked, or covered) or the process at background QoS. 500 nodes did not regress (5.4 to 5.6 ms). The bench now records whether its window was visible.
+
+**The gate at 100 and 500 nodes.** Mac: the read half met; launch met (0.17 s, 0.29 s); a command to its change on screen met through the kit (2.6 and 5.6 ms p50), not through the feed alone (18 to 19 ms, the scene throttle); frames met at 100 nodes for pan, pan at fit and drag (4.2, 0, 4.2 ms of hitches a second; zoom 19.5, with the N0 spike control worse at 24 to 32), **missed at 500** (medians of four runs: pan 132, pan at fit 161, zoom 79, drag 51; the spike beside them 0 to 21), on a machine first loaded (load to 17) and then in the maintainer's use: a fast pan shows about one frame in seven a frame late. No remedy built, as decided. iPad: **not measured** this stage (the device was unavailable from 15:21); slice 5's 500-node launch and kit edit stand; frames and 120 Hz unmeasured; `claude-debug/native-n3/s6-ipad.sh` takes them in one command. Found on the way: the hitch reader dropped every phase when an export puts a table's schema and rows in separate nodes, the cause of slice 5's device trace with no phases; fixed in the reader the bench scripts use, and the device scripts now keep xctrace's output and exports. Report: `claude-debug/native-n3-budgets.md`.
