@@ -4,14 +4,38 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B36. A short clip's spectrogram is computed on the editor's thread
+
+- Reported: 2026-11-20
+- Report: "record bugs" (found while fixing B32)
+- Context: `AudioView::sync` computes the spectrogram in place for clips under `SPEC_SYNC_SAMPLES`. A frame that shows a watched audio value took about 80 ms alone and 74 to 319 ms under load on the Linux test host (median 122 ms). It is not a wait for an engine, so B32's test no longer flags it.
+- Issue: none
+
+### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
+- Issue: none
+
+### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-text::conformance mode2_process`, `crates/text/tests/conformance.rs:390`, "off really runs the slow node". Failed once in a full parallel run while three other builds were running on the host. Not looked into.
+- Issue: none
+
+## Fixed
+
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
 
 - Reported: 2026-11-20
 - Report: "record the others"
 - Context: `plumcraft-session` `doc_cmds::tests`: a poll returned `None` where the test expected the run's result. Failed in the baseline run of the dev branch at `b4a561b`; passes alone.
 - Issue: none
-
-## Fixed
+- Cause (2026-11-20, confirmed): the test's saves came too close together for the file system's clock. Its last two saves (`{"doc": 1}` and then `{"doc": 4}`) are the same size as the save before each, and come 0.4 to 0.8 ms after it. The copy's clock on the Linux test host ticks once a millisecond. So often neither the size nor the modification time changed, and `poll_doc_edits` never saw the save. That is lines 784 and 791. An instrumented run printed an unchanged stamp before every failure. It is not load: on that host the test failed 91 of 100 runs alone, one at a time, and 123 of 200 with 40 copies at once. It passes on the Mac. That APFS's finer timestamps are the reason is inferred; it was not re-run there. Like B13, this is a test that met a clock. The session drops nothing in real use: a copy holds still for one 500 ms poll before it is read, so a later save lands at least 500 ms after the change the session last saw. Only a file system whose clock ticks more slowly than that (FAT, 2 s) could hide one. The test's polls run on a made-up clock, well under a millisecond apart.
+- Fix: the test saves through a helper that writes the copy and, while its size and time are unchanged, waits a millisecond and writes it again, for at most 5 s. `doc_edits.rs` now states the limit. After: 0 of 100 alone and 0 of 200 with 40 copies at once.
+- Fixed: 2026-11-20, PR #120
 
 ### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
 

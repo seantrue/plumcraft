@@ -9,7 +9,11 @@
 //!   node's output on every input wired from it (`RunRequest.inputs`, spec 7.6 rule 10;
 //!   [`crate::RunState::doc_edits`]). Those nodes and everything downstream go stale, saying
 //!   why, and the graph runs. The node keeps its own value: the edit is the app's, not the
-//!   node's. Saving the original bytes back drops the edit.
+//!   node's. Saving the original bytes back drops the edit. A save the same size as the
+//!   copy and within one tick of the file system's clock of its last change isn't seen. The
+//!   copy holds still for a poll before it is read, so for a later save to be missed the tick
+//!   must be longer than [`POLL`]. The disks copies live on tick in nanoseconds to
+//!   milliseconds; FAT's 2 s would not.
 //! - **Reopening** a document with an edit opens the edited copy again, not a fresh one.
 //! - **`doc.revert`** drops an edit (the file stays) and runs again.
 //! - Edits last while the graph is open: they aren't saved with the workflow.
