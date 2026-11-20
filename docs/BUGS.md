@@ -12,14 +12,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. Confirmed by the error on ffmpeg 4.4.2; the other options the reader and writer pass were not each checked against 4.4.
 - Issue: #113
 
-### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
-
-- Reported: 2026-11-20
-- Report: "record the others" (the four tests that fail only under the Linux host's full parallel run)
-- Context: `plumcraft-media` `service::tests`. Failed once in the full run for N2 slice 2 (`85695df`) at `crates/media/src/service.rs:909`, "the shell was woken": the picture had arrived and the wake count was still zero. Passed 30 of 30 when run alone on the same host. The test is from N1 slice 6.
-- Open question: is the test reading the wake counter too early, or does the service deliver a result before it wakes the shell (a real ordering fault)? Not yet looked into.
-- Issue: none
-
 ### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
 
 - Reported: 2026-11-20
@@ -42,6 +34,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: none
 
 ## Fixed
+
+### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record the others" (the four tests that fail only under the Linux host's full parallel run)
+- Context: `plumcraft-media` `service::tests`. Failed once in the full run for N2 slice 2 (`85695df`) at `crates/media/src/service.rs:909`, "the shell was woken": the picture had arrived and the wake count was still zero. Passed 30 of 30 when run alone on the same host. The test is from N1 slice 6.
+- Cause (2026-11-20, confirmed): the test read the wake counter too early. A worker keeps its result under the service's lock, lets the lock go, then calls the wake; the test asks without waiting for the wake, so a worker descheduled between the two lets it see the picture with the count still zero. That order (kept, then woken) is the right one: whoever a wake sends to ask again finds the result. Reproduced 112 times in 1,200 (60 copies at once, 20 rounds, with 40 busy loops alongside). Reading the path also found a real lost wake: when `MediaService::blocking` (`doc.open`, `value.open`) settled a request a worker was already making, the worker found it settled and neither kept its result nor woke, so a shell that had been told "pending" never heard; and a queued request settled that way was made a second time when a worker reached it.
+- Fix: the test waits for the wake (10 s limit) and says what order is guaranteed; `blocking` wakes when it settles a request a worker had, after keeping it; a worker skips a queued request already settled. Three new tests: a wake always finds its result (200 rounds, the wake itself asks), and two for the in-place cases, which fail without the fix. After: 0 in 1,200 on the same load.
+- Issue: none
 
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 
