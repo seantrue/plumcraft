@@ -35,6 +35,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B35. A blocking read's result could turn pending again (`blocking_reads_in_place_and_shares_the_cache` failed now and then)
+
+- Reported: 2026-11-20
+- Report: found by the B30 fix's full run on the Linux test host (failed at `crates/media/src/service.rs:1055`, "then cached"); 1 in 10 when run alone there.
+- Cause (2026-11-20, confirmed): `MediaService::blocking` first calls `get`, which queues the request for a worker, then makes the value itself and keeps it as done, with the key still in the queue. A worker that reached the key after that set the done entry back to working and made it again, so a `get` meanwhile answered pending. Nothing else turns a done entry back. Not B31's cause (B31's test read too early); found while reading the same path. Reproduced 1 in 1,200 under load (0 in 300 alone); 0 in 1,200 after.
+- Fix: a worker skips a queued request that is no longer queued (`run_one`). `a_queued_request_settled_in_place_is_not_made_again` fails without it (3 reads, want 2).
+- Fixed: 2026-11-20, PR #117
+- Issue: none
+
 ### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
 
 - Reported: 2026-11-20
