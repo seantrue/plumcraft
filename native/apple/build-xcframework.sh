@@ -8,7 +8,9 @@
 #
 # Least disk: release without debug info, into the workspace's own target/ (one directory per
 # target triple, which cargo makes anyway), no other target directory. The static library holds
-# the session and the text engine; the xcframework's headers are crates/ffi/include.
+# the session and both in-process engines (text and array; the Swift kit's tests open a core on
+# each); the xcframework's headers are crates/ffi/include. The Swift kit that uses it is the
+# package beside this script (native/apple/PlumCraftFFI: swift build && swift test).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
