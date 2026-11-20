@@ -33,9 +33,11 @@
 //! same bytes forever (`docs/interface.md` 4.4), so results outlive engine switches; values
 //! without a handle (a path locator) don't.
 //!
-//! **Waking.** The [`Wake`] is called, from a worker, each time a result lands. It carries no
+//! **Waking.** The [`Wake`] is called, from a worker, each time a result lands (or from the
+//! caller of [`MediaService::blocking`] when that settles a request a worker had). It carries no
 //! data; the shell hops to its own thread and asks again (the `Link` design: no data crosses on
-//! a foreign thread).
+//! a foreign thread). The result is kept before the wake is called, so an ask made on a wake
+//! always finds it; an ask made without waiting for the wake may find it before the wake comes.
 //!
 //! **Stopping.** Dropping the last clone of the service stops its workers: each ends after the
 //! job it is in. Nothing joins a thread that might not end (a hung engine call ends when the
@@ -586,6 +588,10 @@ impl MediaService {
     /// `want` of `r`, made on this thread if it isn't here yet: for callers that may wait (a
     /// command whose reply carries what it read, a script). The result is cached as a worker's
     /// would be.
+    ///
+    /// If the request was waiting for a worker (queued, or being made), the shell is woken once
+    /// the result is kept, as a worker would have woken it: the worker that finds it settled
+    /// neither keeps its own result nor wakes (B31).
     pub fn blocking(&self, r: &DataRef, want: Want) -> Fetch<Made> {
         match self.get(r, want) {
             Fetch::Pending => {}
@@ -597,9 +603,18 @@ impl MediaService {
         };
         let Some(resolver) = resolver else { return Fetch::Missing };
         let fetch = settle(make(r, want, Some(&resolver), have));
+        let key = (key_of(r), want);
         let mut st = lock(&self.inner().st);
         st.stats.resolves += 1;
-        store(&mut st, (key_of(r), want), r, &fetch, true);
+        let awaited = st.entries.get(&key).is_some_and(|e| matches!(e.state, State::Queued | State::Working));
+        store(&mut st, key, r, &fetch, true);
+        let wake = if awaited { st.wake.clone() } else { None };
+        drop(st);
+        self.inner().cv.notify_all();
+        // kept first, then the wake: whoever it wakes finds the result
+        if let Some(w) = wake {
+            w();
+        }
         fetch
     }
 
@@ -820,6 +835,11 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
         let have = if key.1.reads_full() { shared_bytes(&st, &key.0) } else { None };
         let resolver = st.resolver.clone();
         let Some(e) = st.entries.get_mut(&key) else { continue };
+        // settled in place since it was queued (`blocking`), or a second queuing of a request
+        // already being made: nothing to do, and a settled result is not made again
+        if !matches!(e.state, State::Queued) {
+            continue;
+        }
         // nobody wants it any more, or it was asked under an engine link since replaced
         if e.epoch != now_epoch || frame.saturating_sub(e.wanted) > keep {
             st.entries.remove(&key);
@@ -842,6 +862,8 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
     let wake = st.wake.clone();
     drop(st);
     inner.cv.notify_all();
+    // the result is kept (above, under the lock) before the wake: whoever the wake sends to ask
+    // again finds it. An asker that doesn't wait for the wake may find it first.
     if current && let Some(w) = wake {
         w();
     }
@@ -906,8 +928,115 @@ mod tests {
         let p = until_ready(&m, &r, Want::Rendition).picture().ready().unwrap();
         assert_eq!((p.w, p.h, p.pixels.len()), (3, 2, 24));
         assert_eq!(calls.load(Ordering::Relaxed), 1, "read once");
-        assert!(wakes.load(Ordering::Relaxed) >= 1, "the shell was woken");
+        // The worker keeps the result, then wakes: `until_ready` asks without waiting for the
+        // wake, so it can find the picture before the wake has been called (B31). Wait for it.
+        assert!(until(Duration::from_secs(10), || wakes.load(Ordering::Relaxed) >= 1), "the shell was woken");
         assert_eq!(m.stats().threads, 1);
+    }
+
+    /// Whether `ok` holds within `limit`, checked every millisecond.
+    fn until(limit: Duration, ok: impl Fn() -> bool) -> bool {
+        let start = Instant::now();
+        while !ok() {
+            if start.elapsed() > limit {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
+    /// A resolver that holds its first call until `open` is set, and answers the rest at once.
+    fn gated(open: &Arc<std::sync::atomic::AtomicBool>, calls: &Arc<AtomicU64>) -> Resolve {
+        let (open, calls) = (Arc::clone(open), Arc::clone(calls));
+        Arc::new(move |r: &DataRef| {
+            if calls.fetch_add(1, Ordering::SeqCst) == 0 {
+                let start = Instant::now();
+                while !open.load(Ordering::SeqCst) && start.elapsed() < Duration::from_secs(10) {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+            }
+            picture_blob(r)
+        })
+    }
+
+    #[test]
+    fn a_wake_always_finds_its_result() {
+        // B31: the result is kept before the wake, so the ask a wake sends always finds it
+        let m = MediaService::new(Config::default());
+        m.set_resolver(Some(Arc::new(picture_blob)));
+        let current: Arc<Mutex<Option<DataRef>>> = Arc::default();
+        let service: Arc<Mutex<Option<MediaService>>> = Arc::new(Mutex::new(Some(m.clone())));
+        let (wakes, empty) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
+        let (c, s, w, e) = (Arc::clone(&current), Arc::clone(&service), Arc::clone(&wakes), Arc::clone(&empty));
+        m.set_wake(Some(Arc::new(move || {
+            let r = lock(&c).clone();
+            let s = lock(&s).clone();
+            if let (Some(r), Some(s)) = (r, s)
+                && s.get(&r, Want::Rendition).is_pending()
+            {
+                e.fetch_add(1, Ordering::SeqCst);
+            }
+            w.fetch_add(1, Ordering::SeqCst);
+        })));
+        for round in 0..200 {
+            let r = rgba_ref(&format!("w{round}"), 2, 2);
+            *lock(&current) = Some(r.clone());
+            let before = wakes.load(Ordering::SeqCst);
+            assert!(m.get(&r, Want::Rendition).is_pending());
+            assert!(until(Duration::from_secs(10), || wakes.load(Ordering::SeqCst) > before), "round {round}: woken");
+        }
+        assert_eq!(empty.load(Ordering::SeqCst), 0, "a wake found its result still pending");
+        // the wake holds a clone of the service: let it go, so the workers stop
+        *lock(&service) = None;
+    }
+
+    #[test]
+    fn a_request_settled_in_place_while_a_worker_makes_it_still_wakes_the_shell() {
+        // B31: the shell asks (pending, a worker starts it), then a command reads the same value
+        // in place. The worker finds it settled and keeps nothing, so the in-place read wakes.
+        let m = MediaService::new(Config::default());
+        let (open, calls) = (Arc::new(std::sync::atomic::AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
+        m.set_resolver(Some(gated(&open, &calls)));
+        let wakes = Arc::new(AtomicU64::new(0));
+        let w = Arc::clone(&wakes);
+        m.set_wake(Some(Arc::new(move || {
+            w.fetch_add(1, Ordering::SeqCst);
+        })));
+        let r = rgba_ref("b", 2, 2);
+        assert!(m.get(&r, Want::Bytes).is_pending());
+        assert!(until(Duration::from_secs(10), || calls.load(Ordering::SeqCst) == 1), "the worker is inside the engine call");
+        assert!(m.blocking(&r, Want::Bytes).bytes().ready().is_some(), "read in place");
+        open.store(true, Ordering::SeqCst);
+        assert!(m.wait_idle(Duration::from_secs(10)));
+        assert!(wakes.load(Ordering::SeqCst) >= 1, "the shell's pending ask was answered with a wake");
+        assert!(m.get(&r, Want::Bytes).bytes().ready().is_some());
+    }
+
+    #[test]
+    fn a_queued_request_settled_in_place_is_not_made_again() {
+        // one worker, held by a first request; a second waits in the queue, is read in place,
+        // and the worker that reaches it later leaves it as it is. A rendition, which shares no
+        // bytes: made again, it would be read again, and asked for meanwhile, it would be pending
+        // (the intermittent "then cached" in `blocking_reads_in_place_and_shares_the_cache`)
+        let m = MediaService::new(Config { workers: 1, ..Config::default() });
+        let (open, calls) = (Arc::new(std::sync::atomic::AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
+        m.set_resolver(Some(gated(&open, &calls)));
+        let wakes = Arc::new(AtomicU64::new(0));
+        let w = Arc::clone(&wakes);
+        m.set_wake(Some(Arc::new(move || {
+            w.fetch_add(1, Ordering::SeqCst);
+        })));
+        let (a, b) = (rgba_ref("held", 2, 2), rgba_ref("queued", 2, 2));
+        assert!(m.get(&a, Want::Bytes).is_pending());
+        assert!(until(Duration::from_secs(10), || calls.load(Ordering::SeqCst) == 1), "the worker holds the first");
+        assert!(m.get(&b, Want::Rendition).is_pending(), "queued behind it");
+        assert!(m.blocking(&b, Want::Rendition).picture().ready().is_some(), "read in place");
+        assert_eq!(wakes.load(Ordering::SeqCst), 1, "its asker is woken");
+        open.store(true, Ordering::SeqCst);
+        assert!(m.wait_idle(Duration::from_secs(10)));
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "each read once");
+        assert!(m.get(&b, Want::Rendition).picture().ready().is_some(), "and kept, never pending again");
     }
 
     #[test]
