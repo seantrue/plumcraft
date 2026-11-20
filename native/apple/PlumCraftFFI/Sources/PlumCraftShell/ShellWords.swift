@@ -24,9 +24,18 @@ public enum ShellCommands {
     public static let unbuilt: [String: String] = [
         "app.settings": "Settings", "app.about": "PlumCraft's own About window", "node.parameters": "the parameters sheet",
         "node.editor": "value editors", "view.popout": "pop-out viewers", "view.messages": "the Messages window",
-        "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window", "canvas.palette": "the node palette",
+        "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window",
         "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",
     ]
+
+    /// What to say when a gesture ran commands whose UI isn't built here (a double tap on a face
+    /// runs `node.parameters`, on a wire `view.popout`): the first such, or nil.
+    public static func notBuilt(ran: [CommandRun]) -> String? {
+        for c in ran where c.ok {
+            if let what = unbuilt[c.command] { return "That opens \(what), which isn't available yet in this app." }
+        }
+        return nil
+    }
 
     /// What to say when `item`'s command isn't built here; nil when it is.
     public static func notBuilt(_ item: MenuItem) -> String? {

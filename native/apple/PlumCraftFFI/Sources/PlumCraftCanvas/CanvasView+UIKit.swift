@@ -1,20 +1,33 @@
-// The iPad's host for the layer canvas (N3 slice 5): the canvas itself is the Mac's; only
-// recognition differs (plan 5.5's iPadOS column). What it recognises in this slice, read and run:
+// The iPad's host for the layer canvas (N3 slice 5; editing in N4 slice 1): the canvas itself is
+// the Mac's; only recognition differs (plan 5.5's iPadOS column). What it recognises:
 //
-//   pan        one finger on empty canvas, two fingers anywhere, with momentum when the fingers
-//              lift and the rubber band past the content; a trackpad's or mouse's scroll
+//   pan        one finger on empty canvas (and on a wire, a tag or a frame's body), two fingers
+//              anywhere, with momentum when the fingers lift and the rubber band past the
+//              content; a trackpad's or mouse's scroll
 //   zoom       pinch about the fingers (a trackpad's pinch too)
+//   drag       one finger on a face moves it (the selection with it when it is selected), on a
+//              pin draws a wire (a wired input's picks its end up), on a frame's tab or handle, a
+//              group's band or a bend point moves or sizes it: `ui.gesture` drags, decided by the
+//              core and drawn by the kit's CanvasDrag, with autoscroll at the edge; a second
+//              finger, Escape or the system cancels it and the document stays as it was
+//   marquee    a drag on empty canvas with the Pencil, with a pointer, or in Select mode (the
+//              app's toolbar toggle, `selectMode`); one finger otherwise pans (N4 slice 1)
 //   tap        `ui.gesture` tap with the keyboard's modifiers: the core selects, or watches a pin
-//   double tap on a face fits it, and a second goes back; on empty canvas fits everything (the
-//              iPad spike's rule; decision 6 gives empty canvas's double tap to the palette, which
-//              is N4's, so this is left for the maintainer, note 24 section 18)
-//   long press, secondary click   the core's context menu (`ui.gesture` context, `menu.get`), as a
-//              UIContextMenuInteraction whose items the app makes (`contextMenuItems`)
+//   double tap `ui.gesture` doubleTap: on empty canvas the core opens the palette there, on a
+//              face it does what the core says ("open what it is on"); Fit is the toolbar's, F
+//              and View › Fit (the maintainer, N3's exit, cards 2 and 3)
+//   long press, secondary click   on a face, pin, wire, tag, frame or group, the core's context
+//              menu (`ui.gesture` context, `menu.get`) as a UIContextMenuInteraction whose items
+//              the app makes (`contextMenuItems`); on empty canvas, the palette there
+//   two-finger tap Undo; three-finger tap Redo; two-finger double tap Tidy (the iPad spike's
+//              rule, note 24 section 17); the app turns the system's three-finger editing
+//              gestures off for the graph's view (`editingInteractionConfiguration = .none`)
 //   hover      a pointer or Pencil hovering rings the pin or widens the wire under it
 //
-// Editing gestures (a drag on a face moves it, a drag from a pin draws a wire, a marquee) are N4's:
-// a one-finger pan that starts on a face or a pin does not begin, so N4 can give it to `ui.gesture`
-// drags without taking anything away from panning.
+// A press is held back until it is clearly a tap, a drag or a long press: UIKit's recognisers
+// decide (a pan begins past its slop, a tap fails on movement, the context menu waits 0.5 s).
+// A mouse or trackpad (an indirect pointer) works as on the Mac: a drag on empty canvas is a
+// marquee, its scroll pans, and its hit target is a pointer's.
 
 #if os(iOS)
 import PlumCraft
@@ -40,18 +53,62 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     let pinch = UIPinchGestureRecognizer()
     let tap = UITapGestureRecognizer()
     let doubleTap = UITapGestureRecognizer()
+    /// One finger, a Pencil or a pointer on what the core drags (or anywhere, for a marquee).
+    let dragPan = UIPanGestureRecognizer()
+    let twoTap = UITapGestureRecognizer()
+    let twoDoubleTap = UITapGestureRecognizer()
+    let threeTap = UITapGestureRecognizer()
     var lastPan = CGPoint.zero
     var momentum: CADisplayLink?
     var velocity = CGPoint.zero
     var lastFrame: CFTimeInterval = 0
-    var smartReturn: Viewport?
     var contextAt: CGPoint?
     var contextTask: Task<[MenuItem], Never>?
+    /// The type of the touch that began the press under way (a finger, a Pencil, a pointer).
+    var pressType: UITouch.TouchType = .direct
+    /// Select mode (the app's toolbar toggle): a one-finger drag on empty canvas is a marquee.
+    public var selectMode = false
+    /// The drag under way (the kit's, shared with the Mac).
+    public let drag: CanvasDrag
+    /// The node palette (the core's state); the app presents it (`presentPalette`).
+    public let palette: PaletteModel
+    /// The palette opened: the host presents it at the view point given (`byKey`: Tab opened it,
+    /// so its field takes the keyboard).
+    public var presentPalette: ((CGPoint, Bool) -> Void)?
+    /// The palette closed in the core: the host dismisses what it presented.
+    public var dismissPalette: (() -> Void)?
+    var paletteByKey = false
+    /// Undo, Redo and Tidy from the touch taps: the host runs the command for the person.
+    public var onCommand: ((String) -> Void)?
+    /// A gesture ran commands (the host says when one has no UI yet).
+    public var onCommands: (([CommandRun]) -> Void)?
+    let snapFeedback = UISelectionFeedbackGenerator()
 
     public init(model: DocumentModel, frame: CGRect = CGRect(x: 0, y: 0, width: 1024, height: 768)) {
         let host = CALayer()
         canvas = LayerCanvas(model: model, host: host, screenScale: UITraitCollection.current.displayScale)
+        palette = PaletteModel(model: model)
+        let c = canvas
+        // a finger's target size (44 points across, plan 5.5); a pointer's while one is pressing
+        drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 22, zoom: Double(c.viewport.zoom)) }
         super.init(frame: frame)
+        drag.onError = { [weak self] e in self?.onError?(e) }
+        drag.onBegan = { [weak self] k in self?.onGesture?("drag.begin.\(k?.rawValue ?? "none")") }
+        drag.onEnded = { [weak self] k, r in
+            self?.onGesture?(r == nil ? "drag.cancel" : "drag.end.\(k?.rawValue ?? "none")")
+            if let r { self?.onCommands?(r.commands) }
+        }
+        drag.onSnap = { [weak self] in self?.snapFeedback.selectionChanged() }
+        palette.fallbackAt = { [weak self] in
+            guard let self else { return Point(0, 0) }
+            return graph(CGPoint(x: bounds.midX, y: bounds.midY))
+        }
+        palette.onOpen = { [weak self] p in self?.showPalette(p) }
+        palette.onClose = { [weak self] in
+            self?.dismissPalette?()
+            self?.drag.releaseWire()
+        }
+        model.onView = { [weak self] v in self?.palette.follow(v) }
         layer.addSublayer(host)
         host.frame = bounds
         host.masksToBounds = true
@@ -72,7 +129,21 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         doubleTap.numberOfTapsRequired = 2
         doubleTap.addTarget(self, action: #selector(onDoubleTap(_:)))
         tap.require(toFail: doubleTap)
-        for g in [onePan, twoPan, scrollPan, pinch, tap, doubleTap] as [UIGestureRecognizer] {
+        // a drag the core decides on: one finger, a Pencil or a pointer (gestureRecognizerShouldBegin)
+        dragPan.maximumNumberOfTouches = 1
+        dragPan.addTarget(self, action: #selector(onDrag(_:)))
+        // the touch taps of the iPad spike: two fingers Undo, three Redo, two twice Tidy
+        twoTap.numberOfTouchesRequired = 2
+        twoTap.addTarget(self, action: #selector(onTwoTap(_:)))
+        twoDoubleTap.numberOfTouchesRequired = 2
+        twoDoubleTap.numberOfTapsRequired = 2
+        twoDoubleTap.addTarget(self, action: #selector(onTwoDoubleTap(_:)))
+        twoTap.require(toFail: twoDoubleTap)
+        threeTap.numberOfTouchesRequired = 3
+        threeTap.addTarget(self, action: #selector(onThreeTap(_:)))
+        for t in [twoTap, twoDoubleTap, threeTap] { t.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)] }
+        onePan.allowedTouchTypes = [NSNumber(value: UITouch.TouchType.direct.rawValue)]
+        for g in [onePan, twoPan, scrollPan, pinch, tap, doubleTap, dragPan, twoTap, twoDoubleTap, threeTap] as [UIGestureRecognizer] {
             g.delegate = self
             addGestureRecognizer(g)
         }
@@ -160,20 +231,78 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         return pair.contains(ObjectIdentifier(g)) && pair.contains(ObjectIdentifier(o))
     }
 
+    public func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        if g === dragPan || g === onePan { pressType = touch.type }
+        return true
+    }
+
+    /// Whether the core drags what is at `h` (a face, a pin, a bend point, a frame's tab or
+    /// handle, an open group's band); anything else a drag would marquee.
+    static func dragsItem(_ h: HotHit) -> Bool {
+        guard h.ok else { return false }
+        switch h.kind {
+        case .node, .pin, .bend, .group: return true
+        case .frame: return h.part != 1
+        default: return false
+        }
+    }
+
+    /// A drag on empty canvas (a wire, a tag, a frame's body) is a marquee rather than a pan.
+    var marqueeing: Bool { selectMode || pressType == .pencil || pressType == .indirectPointer }
+
     public override func gestureRecognizerShouldBegin(_ g: UIGestureRecognizer) -> Bool {
-        if g === onePan {
-            // one finger pans only on empty canvas (and over a wire, frame or tag): a face or a
-            // pin is N4's drag
-            let h = hit(at: g.location(in: self))
-            if h.ok, h.kind == .node || h.kind == .pin || h.kind == .group { return false }
+        if g === onePan || g === dragPan {
+            // where the press went down, not where the pan was recognised
+            let p0 = downPoint(g as? UIPanGestureRecognizer)
+            let item = Self.dragsItem(hit(at: p0, pointer: pressType == .indirectPointer))
+            if g === onePan { return !item && !marqueeing }
+            return item || marqueeing
         }
         return true
     }
 
+    func downPoint(_ g: UIPanGestureRecognizer?) -> CGPoint {
+        guard let g else { return .zero }
+        let p = g.location(in: self)
+        let t = g.translation(in: self)
+        return CGPoint(x: p.x - t.x, y: p.y - t.y)
+    }
+
     public override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // a finger down stops the momentum
+        // a finger down stops the momentum; a second finger cancels a drag under way
         stopMomentum()
+        if drag.active, (event?.allTouches?.count ?? 0) > 1 { cancelDrag() }
         super.touchesBegan(touches, with: event)
+    }
+
+    // MARK: Drags, decided by the core
+
+    @objc func onDrag(_ g: UIPanGestureRecognizer) {
+        let p = g.location(in: self)
+        switch g.state {
+        case .began:
+            stopMomentum()
+            canvas.hover(nil)
+            snapFeedback.prepare()
+            drag.slop = { [weak self] in self?.slop(pointer: self?.pressType == .indirectPointer) ?? 22 }
+            drag.begin(at: downPoint(g), mods: Self.mods(g.modifierFlags))
+            drag.move(to: p)
+        case .changed:
+            drag.move(to: p)
+        case .ended:
+            drag.end(at: p)
+        default:
+            drag.cancel()
+        }
+    }
+
+    /// Escape, a second finger: the drag under way goes, and the document is as it was.
+    public func cancelDrag() {
+        guard drag.active else { return }
+        drag.cancel()
+        // the recogniser stops tracking this press
+        dragPan.isEnabled = false
+        dragPan.isEnabled = true
     }
 
     @objc func onPan(_ g: UIPanGestureRecognizer) {
@@ -263,32 +392,81 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         let link = canvas.link
         onGesture?("tap")
         Task { [weak self] in
-            do { try await link.tap(at, mods: mods, slop: s) } catch { self?.onError?("\(error)") }
+            do {
+                let r = try await link.tap(at, mods: mods, slop: s)
+                self?.onCommands?(r.commands)
+            } catch { self?.onError?("\(error)") }
         }
     }
 
+    /// The core's double tap: the palette on empty canvas, "open what it is on" on a face.
     @objc func onDoubleTap(_ g: UITapGestureRecognizer) {
-        if let back = smartReturn {
-            smartReturn = nil
-            canvas.setViewport(back, animated: true)
-            onGesture?("doubleTap.back")
-            return
-        }
-        let h = hit(at: g.location(in: self))
-        smartReturn = canvas.viewport
-        if h.ok, h.kind == .node || h.kind == .pin {
-            canvas.fitFace(h.node)
-            onGesture?("doubleTap.fitFace")
-        } else {
-            canvas.requestFit()
-            onGesture?("doubleTap.fit")
+        let at = graph(g.location(in: self))
+        let s = slop(pointer: false)
+        let mods = Self.mods(g.modifierFlags)
+        let link = canvas.link
+        onGesture?("doubleTap")
+        Task { [weak self] in
+            do {
+                let r = try await link.doubleTap(at, mods: mods, slop: s)
+                self?.onCommands?(r.commands)
+            } catch { self?.onError?("\(error)") }
         }
     }
 
-    /// Fit everything (View › Fit, the F key).
+    @objc func onTwoTap(_ g: UITapGestureRecognizer) {
+        onGesture?("undo")
+        command("edit.undo")
+    }
+
+    @objc func onThreeTap(_ g: UITapGestureRecognizer) {
+        onGesture?("redo")
+        command("edit.redo")
+    }
+
+    @objc func onTwoDoubleTap(_ g: UITapGestureRecognizer) {
+        onGesture?("tidy")
+        command("graph.tidy")
+    }
+
+    /// Run `id` for the person: the host's (it shows refusals), else straight to the core.
+    func command(_ id: String) {
+        if let onCommand { return onCommand(id) }
+        let model = self.model
+        Task { [weak self] in
+            do { _ = try await model.invoke(id, person: true) } catch { self?.onError?("\(error)") }
+        }
+    }
+
+    /// Fit everything (the toolbar's Fit, View › Fit, the F key).
     public func fitView() {
-        smartReturn = nil
         canvas.requestFit()
+    }
+
+    // MARK: The palette
+
+    /// Open the core's palette at view point `p` (the view's centre when nil): Tab, Node ›
+    /// Search…, the toolbar's Add.
+    public func openPalette(at p: CGPoint? = nil, byKey: Bool = false) {
+        let at = graph(p ?? CGPoint(x: bounds.midX, y: bounds.midY))
+        paletteByKey = byKey
+        let palette = self.palette
+        Task { [weak self] in
+            do { try await palette.open(at: at) } catch { self?.onError?("\(error)") }
+        }
+    }
+
+    /// The core opened the palette: the host presents it at its point (the view's centre when it
+    /// has none or the point is out of sight).
+    func showPalette(_ p: Palette) {
+        var v = CGPoint(x: bounds.midX, y: bounds.midY)
+        if let at = p.at {
+            let q = canvas.viewport.toView(CGPoint(x: at.x, y: at.y))
+            if bounds.insetBy(dx: 8, dy: 8).contains(q) { v = q }
+        }
+        onGesture?(p.wire != nil ? "palette.wire" : "palette.open")
+        presentPalette?(v, paletteByKey)
+        paletteByKey = false
     }
 
     // MARK: Hover (a pointer or a hovering Pencil)
@@ -323,8 +501,19 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     }
 
     public func contextMenuInteraction(_ interaction: UIContextMenuInteraction, configurationForMenuAtLocation location: CGPoint) -> UIContextMenuConfiguration? {
-        guard let make = contextMenuItems else { return nil }
+        guard let make = contextMenuItems, !drag.active else { return nil }
         stopMomentum()
+        if !hit(at: location).ok || hit(at: location).kind == .none {
+            // empty canvas: no menu, the palette there (the core's context on nothing)
+            let g = graph(location)
+            let s = slop(pointer: false)
+            let link = canvas.link
+            onGesture?("context.palette")
+            Task { [weak self] in
+                do { _ = try await link.context(g, slop: s) } catch { self?.onError?("\(error)") }
+            }
+            return nil
+        }
         contextAt = location
         // asked at once; the menu's items come when the core answers
         let task = Task { await self.contextItems(at: location) }

@@ -536,19 +536,30 @@ pub fn choices_for(caps: &Capabilities) -> Vec<EngineChoice> {
     offers(caps).into_iter().filter(|o| o.why_not.is_none()).map(|o| o.choice).collect()
 }
 
-/// The node kinds of the engines compiled in (text, array and the application's packs), read
+/// The node types of the engines compiled in (text, array and the application's packs), read
 /// from each engine's own catalogue once per process: building one only lists its nodes, nothing
 /// starts. A craft, a manifest's engine or the audio engine is a process to start first, so it
-/// isn't known this way (a file names it instead, spec 8.2).
-fn compiled_kinds() -> &'static plumcraft_session::engine_cmds::Offered {
-    static KINDS: std::sync::OnceLock<plumcraft_session::engine_cmds::Offered> = std::sync::OnceLock::new();
-    KINDS.get_or_init(|| {
+/// isn't known this way (a file names it instead, spec 8.2). Each type names its engine in
+/// `engines`.
+fn compiled_defs() -> &'static [(String, Vec<plumcraft_proto::catalogue::NodeDef>)] {
+    static DEFS: std::sync::OnceLock<Vec<(String, Vec<plumcraft_proto::catalogue::NodeDef>)>> = std::sync::OnceLock::new();
+    DEFS.get_or_init(|| {
         let packs = PACKS.get().map_or(0, Vec::len);
         let kinds = (0..packs).filter_map(|i| u16::try_from(i).ok()).map(EngineKind::Pack).chain([EngineKind::Text, EngineKind::Array]);
         kinds
             .filter_map(|k| {
                 let e = k.engine().ok()?;
-                Some((k.id(), e.schema().nodes.into_iter().map(|n| n.id).collect()))
+                let id = k.id();
+                let defs = e
+                    .schema()
+                    .nodes
+                    .into_iter()
+                    .map(|mut n| {
+                        n.engines = vec![id.clone()];
+                        n
+                    })
+                    .collect();
+                Some((id, defs))
             })
             .collect()
     })
@@ -558,7 +569,18 @@ fn compiled_kinds() -> &'static plumcraft_session::engine_cmds::Offered {
 /// of each compiled-in engine among them (decision 8C at N3's exit: start only the engines the
 /// graph uses, though its file doesn't name them).
 pub fn offered(choices: &[EngineChoice]) -> plumcraft_session::engine_cmds::Offered {
-    compiled_kinds().iter().filter(|(e, _)| choices.iter().any(|c| &c.engine == *e)).map(|(e, k)| (e.clone(), k.clone())).collect()
+    compiled_defs()
+        .iter()
+        .filter(|(e, _)| choices.iter().any(|c| &c.engine == e))
+        .map(|(e, defs)| (e.clone(), defs.iter().map(|d| d.id.clone()).collect()))
+        .collect()
+}
+
+/// What [`plumcraft_session::Engines::offered_defs`] holds for a host offering `choices`: the
+/// node types behind [`offered`], each naming its engine, so the palette can list a kind whose
+/// engine isn't started and say that choosing it starts that engine (N4 slice 1).
+pub fn offered_defs(choices: &[EngineChoice]) -> Vec<plumcraft_proto::catalogue::NodeDef> {
+    compiled_defs().iter().filter(|(e, _)| choices.iter().any(|c| &c.engine == e)).flat_map(|(_, defs)| defs.iter().cloned()).collect()
 }
 
 /// The `<target>/<profile>` folder a test program was built under, where cargo puts the

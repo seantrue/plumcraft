@@ -240,7 +240,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if o.paths.isEmpty && o.openPanel && NSDocumentController.shared.documents.isEmpty {
             NSDocumentController.shared.openDocument(nil)
         }
-        NSApp.activate()
+        // a scripted launch (conformance, screenshots) stays in the background: it never takes
+        // the keyboard from the person at the Mac (N4 slice 1)
+        if !o.scratchState { NSApp.activate() }
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }

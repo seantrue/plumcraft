@@ -93,6 +93,41 @@ fn adding_a_node_of_another_engines_kind_starts_that_engine_and_waits_for_it() {
 }
 
 #[test]
+fn the_palette_lists_an_engine_not_started_and_choosing_from_it_starts_that_engine() {
+    let root = store_root("eu-palette");
+    let mut c = Client::open(&json!({"store_root": root, "engines": {"default": "text", "mode": "inproc"}}));
+    let d = open(&mut c, None);
+    run_doc(&mut c, d, "node.add", json!({"kind": "text.literal", "pos": [0, 0]}));
+    run_doc(&mut c, d, "canvas.palette", json!({"open": true, "at": [300, 0]}));
+    // the array engine's kinds are listed, each saying it starts that engine; the text engine's
+    // say nothing of the kind
+    let all = call_doc(&mut c, d, "palette.items", json!({"query": "mandelbrot"}));
+    let item = all["result"]["items"].as_array().and_then(|a| a.iter().find(|i| i["kind"] == "array.mandelbrot")).cloned();
+    assert_eq!(item.as_ref().map(|i| i["starts"].clone()), Some(json!("array")), "{all}");
+    let text = call_doc(&mut c, d, "palette.items", json!({"query": "literal"}));
+    let lit = text["result"]["items"].as_array().and_then(|a| a.iter().find(|i| i["kind"] == "text.literal")).cloned();
+    assert!(lit.is_some_and(|i| i.get("starts").is_none()), "{text}");
+    // choosing one starts the engine, waits for it, and adds the node as one step
+    let m = run_doc(&mut c, d, "palette.choose", json!({"kind": "array.mandelbrot"}));
+    assert!(m["id"].as_str().is_some(), "{m}");
+    assert_eq!(engines(&mut c, d), ("text".to_owned(), vec!["array".to_owned()]));
+    let info = run_doc(&mut c, d, "graph.info", json!({}));
+    assert_eq!(info["nodes"].as_u64(), Some(2), "{info}");
+    // and now its kinds are the catalogue's: nothing says it starts
+    run_doc(&mut c, d, "canvas.palette", json!({"open": true, "at": [600, 0]}));
+    let again = call_doc(&mut c, d, "palette.items", json!({"query": "mandelbrot"}));
+    assert!(again["result"]["items"].as_array().is_some_and(|a| a.iter().all(|i| i.get("starts").is_none())), "{again}");
+    c.close();
+    // picking engines off: nothing is listed that would be refused
+    let mut c = Client::open(&json!({"store_root": store_root("eu-palette-off"), "engines": {"default": "text", "mode": "inproc", "auto": false}}));
+    let d = open(&mut c, None);
+    run_doc(&mut c, d, "canvas.palette", json!({"open": true, "at": [0, 0]}));
+    let off = call_doc(&mut c, d, "palette.items", json!({"query": "mandelbrot"}));
+    assert_eq!(off["result"]["total"], 0, "{off}");
+    c.close();
+}
+
+#[test]
 fn engines_auto_off_keeps_the_configs_engines_in_every_document() {
     let root = store_root("eu-off");
     let mut c = Client::open(&json!({"store_root": root, "engines": {"default": "text", "mode": "inproc", "auto": false}}));

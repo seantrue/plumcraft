@@ -613,7 +613,13 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         "ui.gesture" => gesture(s, params),
         // what the node palette offers (N3 slice 1): for a dropped wire, only kinds that take it
         "palette.items" => match s.document_mut() {
-            Some(d) => match crate::palette::items(d.session.graph(), d.session.catalog(), d.palette.as_ref(), params) {
+            Some(d) => match crate::palette::items(
+                d.session.graph(),
+                d.session.catalog(),
+                &plumcraft_session::engine_cmds::startable_defs(&d.session),
+                d.palette.as_ref(),
+                params,
+            ) {
                 Ok(v) => ok(v),
                 Err(e) => err(e),
             },

@@ -931,7 +931,31 @@ Open question 4 (decided A) made the palette core state; question 8 (decided 8A,
 - **`palette.items {query?, limit?}`** (a method, not a command) → `{items: [{kind, label, category, port?}], total, query, wire?}`: what the open palette offers, in category order, matching every word of `query` (default the palette's own), at most `limit` (default and most 150); with a wire only the kinds with a port that takes it, each with that `port`. The fit is `wire.connect`'s (types, list-ness, wireability), checked for a node that doesn't exist yet: the first input (from an output) or output (into an input) in the kind's definition that would connect. Core's Convert node is not offered for a dropped wire, and a wire from or into a Convert offers nothing (its rules are its own).
 - **`palette.choose {kind, port?, at?}`** (a canvas command) adds a node of `kind` where the palette opened (or at `at`), and when the palette has a wire connects it, as **one undo step** through `node.addWired` ("Add and Connect"); without a wire it is `node.add` ("Add Node"). The palette closes. A kind that doesn't take the wire is refused with the reason, and the palette stays.
 - **`node.addWired {kind, pos?, from | to, port?}`** (a session command, journaled): the node and the wire in one step; `port` defaults to the first that fits. Contract question 8 named it.
+- **Kinds whose engine isn't started (N4 slice 1).** With engines picked automatically (4.1, decision 8C), `palette.items` also lists the kinds of engines the core knows without starting them (the engines compiled in) whose engine this document hasn't started, each with `starts: <engine>`, among the rest in category order and filtered for a dropped wire alike. `palette.choose` of one is held as `node.add`'s is: the engine is asked for and the request (and every request after it for that document) waits until it is up, then adds; the reply comes then. A shell shows the pick as pending ("Starting the array engine…") and keeps the palette open until the reply, rather than closing it at once. With picking off nothing is listed that would be refused.
 - **Who sends what.** `ui.gesture`'s drag of a new wire ending on nothing runs `canvas.palette` with the wire (8.13), on every shell. A shell draws the palette from `view.palette` and `palette.items`, and sends `palette.choose` for a pick and `canvas.palette {open: false}` for Escape or a click away. The egui shell does all of it, and originates the drop from egui-snarl's `has_dropped_wire_menu` (8.13).
+
+### 12.8 Run Selected (N4 slice 1)
+
+`run.selected {}` is a canvas command (golden rule 4; the maintainer: "Do it. No exceptions to the rule."): `run.start {targets}` with the selected nodes and the members of selected collapsed groups. It is Run › Run Selected in the menu model, after Run, disabled with the reason ("select nodes to run what they need", or `run.start`'s); `command.list` lists it with `run.start`'s rule. Before, the Swift apps sent `run.start {targets}` themselves.
+
+### 12.9 The Apple shells' editing gestures (N4 slice 1)
+
+What each Apple shell recognises and sends; the meaning is 8.13's, the core's.
+
+| Meaning | macOS | iPadOS |
+|---|---|---|
+| Move faces, a frame, a group, a bend point | Drag | One-finger drag on it (a pointer's or Pencil's too) |
+| Wire, pick up a wire's end | Drag from a pin | One-finger drag from a pin, 22-point slop (44 across); a haptic when the target pin fits |
+| Marquee (plain replaces, Shift adds, ⌘ takes away) | Drag on empty canvas, a wire, a tag or a frame's body | The same with the Pencil or a pointer, or with one finger in Select mode (a toolbar toggle); otherwise one finger there pans |
+| Cancel a drag | Escape | Escape, a second finger, the system |
+| Autoscroll | Within 36 points of the view's edge while dragging | The same |
+| Palette | Double click or secondary click on empty canvas, Tab, Node › Search…, the toolbar's Add Node | Double tap or long press on empty canvas, Tab, Node › Search…, the toolbar's + |
+| Context menu | Secondary click, Control-click | Long press, secondary click |
+| Undo, Redo | ⌘Z, ⇧⌘Z | Two-finger tap, three-finger tap; ⌘Z, ⇧⌘Z (the system's three-finger editing gestures are off on the graph) |
+| Tidy | ⇧⌘L | Two-finger double tap; ⇧⌘L |
+| Fit | The toolbar's Fit, F, View › Fit; smart zoom fits one node | The toolbar's Fit, F, View › Fit |
+
+The drag itself is the kit's `CanvasDrag` (`PlumCraftCanvas`) on both: `ui.gesture` drag `begin`, `plum_gesture_move` each frame (faces moved and their wires re-pathed from `plum_wire_paths`; a wire's target ringed when it fits, dashed through a Convert, crossed when it doesn't), `end` or `cancel`. A new wire dropped on nothing stays drawn while the palette it opened is open. The palette is the kit's `PaletteModel` over `view.palette`, `palette.items`, `palette.choose` and `canvas.palette {open: false}`, drawn as an NSPopover on the Mac and a popover (a sheet with detents in compact width) on the iPad.
 
 ## 13. Viewers
 

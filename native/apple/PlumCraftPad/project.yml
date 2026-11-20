@@ -54,6 +54,9 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: false
+        # a mouse's or trackpad's clicks arrive as indirect pointer touches, so the canvas tells
+        # them from a finger (N4 slice 1: a pointer drag on empty canvas is a marquee, as on the Mac)
+        UIApplicationSupportsIndirectInputEvents: true
         # the scene's restoration activity (the graph shown and its view)
         NSUserActivityTypes:
           - com.plumcraft.pad.graph

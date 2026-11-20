@@ -322,6 +322,11 @@ final class MenuBar: NSObject, NSMenuItemValidation {
             NSApp.terminate(nil)
             return
         }
+        if command == "canvas.palette", it.params == nil, let v = window?.canvasView {
+            // Node › Search…: the palette at the pointer (the view's centre when it is elsewhere)
+            v.openPalette()
+            return
+        }
         if command == "graph.new" {
             NSDocumentController.shared.newDocument(nil)
             return
