@@ -62,14 +62,16 @@ impl Host for EditorApp {
         let center = self.canvas.to_global.inverse() * self.canvas.rect.center();
         self.canvas.rect.is_finite().then_some([center.x, center.y])
     }
+    /// Tidy's measurements: what the canvas reported to the core (N2 slice 3).
     fn measured(&self) -> (Map<String, Value>, Map<String, Value>) {
-        self.canvas.measured_for_tidy(self.doc.session.catalog())
+        Host::measured(&self.doc)
     }
     fn fit(&mut self) {
         self.canvas.request_fit();
     }
-    fn frame_selection(&mut self) {
-        EditorApp::frame_selection(self);
+    /// The sizes the core has, as the canvas reported them (Frame Selection is the core's).
+    fn sizes(&self, nodes: &[String], groups: &[plumcraft_graph::GroupId]) -> std::collections::BTreeMap<String, [f32; 2]> {
+        Host::sizes(&self.doc, nodes, groups)
     }
     fn paste_pos(&self) -> Option<[f32; 2]> {
         self.paste_pos

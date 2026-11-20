@@ -286,3 +286,221 @@ pub extern "C" fn plum_release(token: u64) -> i32 {
 pub extern "C" fn plum_leases() -> u64 {
     guard(|| 0, || lock(&LEASES).len() as u64)
 }
+
+// ---------- hot calls (N2 slice 3; docs/shell-interface.md section 9) ----------
+
+/// What a hot call found (`plum_hit`): what is at a point (`plum_hit_test`), or where a dragged
+/// wire may land (`plum_wire_target`). The kinds and parts are
+/// `plumcraft_editor_core::geometry::{kind, part}`'s; `docs/shell-interface.md` 9.2 lists them.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct PlumHit {
+    /// `PLUM_OK`; `PLUM_ERR_CORE`, `PLUM_ERR_MISSING` (no such document, or no scene published
+    /// for it yet), `PLUM_ERR_ARG`, `PLUM_ERR_PANIC`, with `kind` 0.
+    pub status: i32,
+    /// 0 none, 1 node, 2 pin, 3 wire, 4 bend point, 5 net tag, 6 frame, 7 group.
+    pub kind: u32,
+    pub part: u32,
+    /// A row, footer item or bend point; -1 for none.
+    pub index: i32,
+    /// The nid of what was hit (a face, wire, net, frame or group, by `kind`).
+    pub item: u64,
+    /// The face (kinds 1 and 2, a tag's).
+    pub node: u64,
+    /// The wire (kinds 3 and 4, a use's tag).
+    pub wire: u64,
+    /// The pin's index on its side (kind 2).
+    pub pin: u32,
+    /// `plum_wire_target`: 0 doesn't fit, 1 `wire.connect` takes it, 2 only through a Convert.
+    pub fits: u32,
+    /// The pin's point (kind 2), else the point asked (graph units).
+    pub x: f32,
+    pub y: f32,
+}
+
+impl PlumHit {
+    fn err(status: i32) -> PlumHit {
+        PlumHit { status, kind: 0, part: 0, index: -1, item: 0, node: 0, wire: 0, pin: 0, fits: 0, x: 0.0, y: 0.0 }
+    }
+
+    fn of(h: plumcraft_editor_core::geometry::Hit) -> PlumHit {
+        PlumHit {
+            status: PLUM_OK,
+            kind: h.kind,
+            part: h.part,
+            index: h.index,
+            item: h.item,
+            node: h.node,
+            wire: h.wire,
+            pin: h.pin,
+            fits: h.fits,
+            x: h.x,
+            y: h.y,
+        }
+    }
+}
+
+/// One face's measurements for `plum_geometry_set` (graph units, at zoom 1).
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct PlumFace {
+    /// The face's nid (the scene's).
+    pub face: u64,
+    /// The face's `rev` the shell measured; 0: not said.
+    pub rev: u64,
+    pub w: f32,
+    pub h: f32,
+    /// The header's height; NaN or below 0: not said.
+    pub header: f32,
+    /// Each input pin's height from the face's top, in row order (NaN: not measured).
+    pub inputs: *const f32,
+    pub n_inputs: usize,
+    pub outputs: *const f32,
+    pub n_outputs: usize,
+    /// Each input row's widget rect, four floats a row (x0, y0, x1, y1, face coordinates; a NaN
+    /// x0: no widget). `n_rows` counts rows, not floats.
+    pub rows: *const f32,
+    pub n_rows: usize,
+}
+
+/// The caller's floats, borrowed for this call; empty for a null pointer or a zero count.
+///
+/// # Safety
+///
+/// Unless `ptr` is null, `ptr..ptr+n` floats must be readable and unchanged for the call.
+unsafe fn floats<'a>(ptr: *const f32, n: usize) -> Option<&'a [f32]> {
+    if ptr.is_null() || n == 0 {
+        return Some(&[]);
+    }
+    if n > plumcraft_editor_core::geometry::MAX_PINS * 4 || !ptr.is_aligned() {
+        return None;
+    }
+    // SAFETY: not null, aligned and a bounded count (checked above); readable and unchanged for
+    // this call is the caller's promise.
+    Some(unsafe { std::slice::from_raw_parts(ptr, n) })
+}
+
+fn hot(core: u64, doc: u64, f: impl FnOnce(&plumcraft_editor_core::geometry::Snapshot) -> PlumHit) -> PlumHit {
+    let Some(c) = self::core(core) else { return PlumHit::err(PLUM_ERR_CORE) };
+    match c.shared.snapshot(doc) {
+        Some(s) => f(&s),
+        None => PlumHit::err(PLUM_ERR_MISSING),
+    }
+}
+
+/// What is at `(x, y)` (graph units) in document `doc` (0: the first), within `slop` graph units
+/// (the shell's target size over its zoom): a pin first, then a face and its part, a bend point,
+/// a net tag, a frame's tab or handle, a wire, an open group's band, a frame's body. Reads the
+/// latest snapshot without waiting for the core; it may be a publish behind a request just sent.
+#[unsafe(no_mangle)]
+pub extern "C" fn plum_hit_test(core: u64, doc: u64, x: f32, y: f32, slop: f32) -> PlumHit {
+    guard(|| PlumHit::err(PLUM_ERR_PANIC), || hot(core, doc, |s| PlumHit::of(s.hit(x, y, slop))))
+}
+
+/// Where a wire dragged from pin `pin` of face `face` (`side` 1 an input, 2 an output) may land
+/// at `(x, y)`: the nearest pin on the other side within `slop` that fits (`fits` 1, or 2 only
+/// through a Convert), else the nearest that doesn't (`fits` 0), else `kind` 0. `PLUM_ERR_ARG`
+/// for another side.
+#[unsafe(no_mangle)]
+pub extern "C" fn plum_wire_target(core: u64, doc: u64, face: u64, side: u32, pin: u32, x: f32, y: f32, slop: f32) -> PlumHit {
+    guard(
+        || PlumHit::err(PLUM_ERR_PANIC),
+        || {
+            let output = match side {
+                1 => false,
+                2 => true,
+                _ => return PlumHit::err(PLUM_ERR_ARG),
+            };
+            hot(core, doc, |s| PlumHit::of(s.wire_target(face, output, pin, x, y, slop)))
+        },
+    )
+}
+
+/// The paths of every wire with an end on one of the `n` faces at `faces` (nids), as if those
+/// faces were moved by `(dx, dy)` graph units: per wire its nid's low 32 bits and its point count
+/// (each a `uint32_t` bit-cast into a float), then that many points as `x, y`, a cubic chain
+/// (the start, then three points a segment). Returns the floats needed; when that is more than
+/// `cap` (or `out` is null) nothing is written. 0 for a core or document that isn't there.
+///
+/// # Safety
+///
+/// `faces..faces+n` readable for the call unless null; `out..out+cap` writable unless null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plum_wire_paths(core: u64, doc: u64, faces: *const u64, n: usize, dx: f32, dy: f32, out: *mut f32, cap: usize) -> usize {
+    guard(
+        || 0,
+        || {
+            let ids: &[u64] = if faces.is_null() || n == 0 || n > plumcraft_editor_core::geometry::MAX_FACES || !faces.is_aligned() {
+                &[]
+            } else {
+                // SAFETY: not null, aligned and a bounded count (checked above); readable and
+                // unchanged for this call is the caller's promise.
+                unsafe { std::slice::from_raw_parts(faces, n) }
+            };
+            let Some(s) = self::core(core).and_then(|c| c.shared.snapshot(doc)) else { return 0 };
+            let mut v = Vec::new();
+            s.wire_paths(ids, dx, dy, &mut v);
+            if !out.is_null() && v.len() <= cap && out.is_aligned() {
+                // SAFETY: `out..out+cap` is writable (the caller's promise), aligned (checked),
+                // and `v.len() <= cap` floats are written; `v` is ours, so the two don't overlap.
+                unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
+            }
+            v.len()
+        },
+    )
+}
+
+/// What the shell measured of `n` faces at `faces`, for document `doc` (0: the first): what
+/// `geometry.set` takes, typed. Copied before this returns, kept on the core's thread (the next
+/// snapshot has it); faces by a nid the scene doesn't have are skipped. `PLUM_OK`,
+/// `PLUM_ERR_CORE`, or `PLUM_ERR_ARG` (a null `faces` with `n` above 0, more than
+/// 100,000 faces, a list of pins or rows past 4,096, a misaligned pointer).
+///
+/// # Safety
+///
+/// `faces..faces+n` readable for the call, and every pointer in each face readable for its
+/// count, unless null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plum_geometry_set(core: u64, doc: u64, faces: *const PlumFace, n: usize) -> i32 {
+    use plumcraft_editor_core::geometry::{FaceGeometry, MAX_FACES, MAX_PINS, MAX_SIZE};
+    use plumcraft_editor_core::wire_path::coord;
+    guard(
+        || PLUM_ERR_PANIC,
+        || {
+            let Some(c) = self::core(core) else { return PLUM_ERR_CORE };
+            if n == 0 {
+                return PLUM_OK;
+            }
+            if faces.is_null() || n > MAX_FACES || !faces.is_aligned() {
+                return PLUM_ERR_ARG;
+            }
+            // SAFETY: not null, aligned and a bounded count (checked above); readable for the
+            // call is the caller's promise.
+            let list = unsafe { std::slice::from_raw_parts(faces, n) };
+            let mut out = Vec::with_capacity(n);
+            for f in list {
+                if f.n_inputs > MAX_PINS || f.n_outputs > MAX_PINS || f.n_rows > MAX_PINS {
+                    return PLUM_ERR_ARG;
+                }
+                // SAFETY: the face's inputs pointer and count, the caller's promise; bounded above.
+                let inputs = unsafe { floats(f.inputs, f.n_inputs) };
+                // SAFETY: the face's outputs pointer and count, as for the inputs.
+                let outputs = unsafe { floats(f.outputs, f.n_outputs) };
+                // SAFETY: the face's rows pointer, four floats a row, as for the inputs.
+                let rows = unsafe { floats(f.rows, f.n_rows.saturating_mul(4)) };
+                let (Some(i), Some(o), Some(r)) = (inputs, outputs, rows) else { return PLUM_ERR_ARG };
+                let pin = |y: &f32| y.is_finite().then(|| coord(*y));
+                let geometry = FaceGeometry {
+                    size: [f.w, f.h].map(|v| if v.is_nan() { 0.0 } else { v.clamp(0.0, MAX_SIZE) }),
+                    header: (f.header.is_finite() && f.header >= 0.0).then(|| f.header.min(MAX_SIZE)),
+                    inputs: i.iter().map(pin).collect(),
+                    outputs: o.iter().map(pin).collect(),
+                    rows: r.as_chunks::<4>().0.iter().map(|q| q.iter().all(|v| v.is_finite()).then(|| q.map(coord))).collect(),
+                    parts: Vec::new(),
+                };
+                out.push((f.face, (f.rev > 0).then_some(f.rev), geometry));
+            }
+            if c.geometry(doc, out) { PLUM_OK } else { PLUM_ERR_CORE }
+        },
+    )
+}

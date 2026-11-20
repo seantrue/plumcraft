@@ -32,12 +32,12 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 
 use egui::{Pos2, Rect, Vec2};
-use egui_snarl::{InPinId, NodeId as SnarlId, OutPinId, Snarl};
-use plumcraft_graph::{Graph, GroupId, NodeId, PortRef, Promoted, Wire};
+use egui_snarl::{InPinId, OutPinId, Snarl};
+use plumcraft_graph::{Graph, GroupId, NodeId, PortRef, Promoted};
 use plumcraft_proto::catalogue::{SchemaReply, scalars};
 use serde_json::json;
 
-use crate::canvas::{Action, Canvas, CanvasNode, InputRow};
+use crate::canvas::{Action, Canvas, CanvasNode};
 use crate::theme::Tokens;
 
 /// An output of a proxy: which member output it stands for (the core's).
@@ -51,16 +51,6 @@ pub struct Proxy {
     /// The member node of each input row (the row's `key` is the member's port).
     pub rows: Vec<NodeId>,
     pub outputs: Vec<ProxyOut>,
-}
-
-impl Proxy {
-    fn input_index(&self, inputs: &[InputRow], to: &PortRef) -> Option<usize> {
-        self.rows.iter().zip(inputs).position(|(n, r)| n == &to.node && r.key == to.port)
-    }
-
-    fn output_index(&self, from: &PortRef) -> Option<usize> {
-        self.outputs.iter().position(|o| &o.port == from)
-    }
 }
 
 /// The graph id a proxy node goes by (the core's).
@@ -108,44 +98,6 @@ pub fn proxy_node(graph: &Graph, catalog: &SchemaReply, gid: &GroupId) -> Option
     let node =
         CanvasNode { tucked: 0, all_fields: false, id: proxy_node_id(gid), kind: String::new(), outputs: proxy.outputs.len(), inputs, proxy: Some(proxy) };
     Some((Pos2::new(grp.pos[0], grp.pos[1]), node))
-}
-
-/// The snarl pins of graph wire `w`, given where nodes and proxies landed. `None` for a wire
-/// that isn't drawn (an end outside an entered group, or both ends behind the same proxy).
-pub fn wire_ends(
-    snarl: &Snarl<CanvasNode>,
-    catalog: &SchemaReply,
-    graph: &Graph,
-    vis: &Visibility,
-    ids: &BTreeMap<&NodeId, SnarlId>,
-    proxies: &BTreeMap<GroupId, SnarlId>,
-    w: &Wire,
-) -> Option<(OutPinId, InPinId)> {
-    if vis.is_outside(&w.from.node) || vis.is_outside(&w.to.node) {
-        return None;
-    }
-    let from = match vis.proxy_of(&w.from.node) {
-        Some(g) => {
-            let sid = *proxies.get(g)?;
-            OutPinId { node: sid, output: snarl.get_node(sid)?.proxy.as_ref()?.output_index(&w.from)? }
-        }
-        None => {
-            let def = catalog.node(&graph.node(&w.from.node)?.kind)?;
-            OutPinId { node: *ids.get(&w.from.node)?, output: def.outputs.iter().position(|p| p.name == w.from.port)? }
-        }
-    };
-    let to = match vis.proxy_of(&w.to.node) {
-        Some(g) => {
-            let sid = *proxies.get(g)?;
-            let n = snarl.get_node(sid)?;
-            InPinId { node: sid, input: n.proxy.as_ref()?.input_index(&n.inputs, &w.to)? }
-        }
-        None => {
-            let sid = *ids.get(&w.to.node)?;
-            InPinId { node: sid, input: snarl.get_node(sid)?.inputs.iter().position(|r| r.key == w.to.port)? }
-        }
-    };
-    (from.node != to.node).then_some((from, to))
 }
 
 /// What a node menu asks of the canvas itself (not the session).

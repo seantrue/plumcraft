@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N2 slice 3: geometry in the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** Slice 3 of N2 under the maintainer's "same arrangement for N2". The maintainer also said "Update the craft apps" on the Linux test host, asked "what is the ffmpeg issue?", and answered "File b30; record the others".
+
+**What the agent did (~3,540 LOC of Rust added, ~265 removed, tests included; fixtures and docs apart).** New `crates/editor-core/src/geometry.rs` (1,585 lines): `geometry.set`, hit testing, the wire target, and a snapshot for per-frame calls. Wire paths are published in the scene as chains of four cubics fitted to egui-snarl's curve. The C ABI gains `plum_hit_test`, `plum_wire_target`, `plum_wire_paths` and `plum_geometry_set`. egui reports its measurements, builds its snarl structure from the scene and fits to the core's rect; Align and Distribute became commands. 16 new tests.
+
+**The rebuild cost.** Slice 2 left a one-node change at 2,000 nodes costing 36 ms. The agent profiled it and found three causes in slice 2's own AI-written code: node titles were looked up quadratically, publishing hashed every item's JSON, and past 16 ms the C ABI built each `scene.get` twice. After the fix the same change takes 6.2 to 6.8 ms (one machine, mostly single runs).
+
+**Defects in the agent's work, caught by its own tests or the gate.** Two tests read ids from an unpublished build; f32 fixture values didn't read back exactly; a measurement's wait passed before the geometry had landed (fixing it exposed a 50 ms delivery delay, also fixed); new commands inserted mid-list shifted an existing row, caught by the recorded-reply diff; clippy caught a vacuous assertion.
+
+**Not done.** The snarl selection bridge stays; egui still draws plain wires with snarl and hit-tests clicks itself; rows still come from the catalogue. No Swift or Kotlin caller has used the new exports.
+
+**The controller (Fable).** Read the new C ABI code for the `unsafe` and unwind rules. Found that the Linux host's 16 craft failures came from apps installed there on 1 November and ran the maintainer's updater. Traced the video test's failure to `-fps_mode`, which ffmpeg has only from 5.1 (B30, #113). Recorded four tests that fail only under that host's full parallel run as B31 to B34 without investigating their causes.
+
 ### 2026-11-19 — N2 slice 2: the scene (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "go for N2"; "same arrangement for N2".

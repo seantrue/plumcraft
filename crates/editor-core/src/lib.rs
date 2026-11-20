@@ -52,6 +52,7 @@ pub mod diff;
 pub mod document;
 pub mod dtype;
 pub mod engines;
+pub mod geometry;
 pub mod headless;
 pub mod install;
 pub mod invoke;

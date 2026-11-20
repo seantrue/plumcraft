@@ -189,6 +189,25 @@ plum_bytes plum_blob(plum_core *, const char *handle);
 void       plum_release(plum_core *, uint64_t token);
 ```
 
+**As built (N2 slice 3), the hot calls** (`crates/ffi/include/plumcraft.h` is the reference):
+
+```c
+typedef struct { int32_t status; uint32_t kind, part; int32_t index; uint64_t item, node, wire; uint32_t pin, fits; float x, y; } plum_hit;
+typedef struct { uint64_t face, rev; float w, h, header; const float *inputs; size_t n_inputs; const float *outputs; size_t n_outputs;
+                 const float *rows; size_t n_rows; } plum_face;
+plum_hit plum_hit_test(plum_core, uint64_t doc, float x, float y, float slop);
+plum_hit plum_wire_target(plum_core, uint64_t doc, uint64_t face, uint32_t side, uint32_t pin, float x, float y, float slop);
+size_t   plum_wire_paths(plum_core, uint64_t doc, const uint64_t *faces, size_t n, float dx, float dy, float *out, size_t cap);
+int32_t  plum_geometry_set(plum_core, uint64_t doc, const plum_face *faces, size_t n);
+```
+
+- A core is a number (`plum_core`), as N0 built it; `doc` 0 is the first document open.
+- **`plum_hit` gains `status`** (`PLUM_OK`, `PLUM_ERR_CORE`, `PLUM_ERR_MISSING` for no such document or no scene published for it yet, `PLUM_ERR_ARG`, `PLUM_ERR_PANIC`), **`item`** (the nid of whatever was hit, by `kind`) and **`x, y`** (a pin's point, where a dragged wire snaps). `pin` is the pin's index on its side, `part` 1 input or 2 output (9.2).
+- **`plum_wire_target` names the pin as (face nid, side, index)**, side 1 an input and 2 an output, not one `from_pin` number: a pin has no nid of its own, and a wire's ends are already face and index (`fromFace`, `fromPin`).
+- **`plum_geometry_set`** is `geometry.set` typed: copied before it returns, applied on the core's thread, faces by nid; no `parts` (the JSON form has them).
+- The JSON forms are `geometry.hit`, `geometry.wireTarget`, `geometry.wirePaths` (methods) and `geometry.set` (a command), on the control port too (`docs/control-protocol.md`).
+- JNI has no hot calls yet (N5).
+
 - `wake` is called from any thread, with no payload, at most once per change batch; the shell hops to its main thread, coalesces, and calls `plum_poll`. No data crosses on a foreign thread (the Swift 6 isolation trap, plan 2.3).
 - Every entry catches unwinds and returns an empty value (`len 0`, `kind 0`, `status` set) on a panic, logging it.
 - JNI: JSON goes as `byte[]`, never `String` (modified UTF-8, plan 2.3).
@@ -204,7 +223,8 @@ The control channel moves into the core (plan section 9), so every shell has it.
 | `ui.screenshot` | No (the shell is the one asked) | Yes: the core raises the `screenshot` ask to the shell (11.2) |
 | `ui.gesture` | No (a shell sends commands) | Yes (6.3) |
 | `ask.answer` | Yes | Yes: a script may answer any pending ask; the first answer wins |
-| `geometry.set`, `ui.viewport`, `ui.report` | Yes | No: a script cannot claim to have measured a face |
+| `geometry.set`, `ui.viewport`, `ui.report` | Yes | `geometry.set`: yes since N2 slice 3, a command like any other (the egui shell reports its own measurements every frame, so a script's lasts until the next frame there); `ui.viewport`, `ui.report`: no, a script cannot claim to have a view |
+| `geometry.hit`, `geometry.wireTarget`, `geometry.wirePaths` | Yes (typed as hot calls) | Yes (N2 slice 3) |
 | `document.*`, `lifecycle.*`, `state.get`, `scene.get`, `menu.get`, `log.tail` | Yes | Yes (read-only ones; `lifecycle.*` refused) |
 | Hot calls (section 9) | Yes (typed) | No |
 
@@ -256,7 +276,7 @@ Each lists params, result and errors beyond `bad_params` (unknown fields are an 
 
 **`scene.get`** `{since?: gen}` → section 8.12. Built in N2 slice 2 (`plumcraft_editor_core::scene`), served by the one dispatcher on the egui editor's control port, the C ABI and the C ABI's own control port. `since` is a whole number (a scene `gen`); anything else, or another field, is refused with the reason. The first `scene.get` also starts the feed's scene changes for that document (7.1). **`menu.get`** `{context?: {kind, …}}` → section 12. **`theme.get`** `{}` → section 14.
 
-**`geometry.set`** `{faces: [{node, rev, size, pins, rows?, header?}]}` → `{applied, stale}`. What the shell measured (8.11). `applied` counts faces taken; `stale` lists nodes whose `rev` is older than the core's (ignored; the shell measures again). Not journaled, no undo step.
+**`geometry.set`** `{faces: [{node, rev, size, pins, rows?, header?}]}` → `{applied, stale}`. What the shell measured (8.11). `applied` counts faces taken; `stale` lists nodes whose `rev` is older than the core's (ignored; the shell measures again). Not journaled, no undo step. **As built (N2 slice 3):** a canvas command (`command.list`, `command.run`); `rev` optional; `pins` is `{in?: [y | null], out?: [y | null]}` in row order; also `parts`; the reply adds `unknown` (faces the graph doesn't have, skipped); **a stale face is kept all the same**, since an older measurement beats the default and a face measured during a stream of run changes would otherwise never land, and listed so the shell measures again. **`geometry.hit`**, **`geometry.wireTarget`**, **`geometry.wirePaths`**: section 9's hot calls as JSON (`docs/control-protocol.md`).
 
 **`ui.viewport`** `{zoom, pan: [x, y], rect: [x0, y0, x1, y1], settled}` → `{}`. The canvas transform (`screen = graph · zoom + pan`, as `ui.set` defines it) and its rect in window points, reported when a gesture ends and at most four times a second during one (plan 5.3). `settled: true` at a gesture's end. `ui.inspect`'s `canvas` reads it.
 
@@ -290,7 +310,7 @@ Each lists params, result and errors beyond `bad_params` (unknown fields are an 
 
 Empty arrays MAY be left out. `log` says the ring has lines past what the shell last read and how bad the worst is; the shell reads them with `log.tail`.
 
-**As built (C ABI, N1 and N2 slice 2):** `changed` carries `{doc, domain: "engine", gen, connected, label, ready}`, `{doc, domain: "document", closing: true}`, `{doc, domain: "menus", gen}` once the shell has called `menu.get`, and `{doc, domain: "scene", gen}` once it has called `scene.get`. The core looks at a document's scene when it is idle and at most every 16 ms while busy (a constant, `SCENE_EVERY`, not yet `display.frame_ms`), and a scene change not yet polled is replaced by the newer one, so a poll holds at most one scene change per document however fast a run reports. The egui editor's control port has no feed (it is request and reply); a script there calls `scene.get {since}` when it likes.
+**As built (C ABI, N1 and N2 slice 2):** `changed` carries `{doc, domain: "engine", gen, connected, label, ready}`, `{doc, domain: "document", closing: true}`, `{doc, domain: "menus", gen}` once the shell has called `menu.get`, and `{doc, domain: "scene", gen}` once it has called `scene.get`. The core looks at a document's scene when it is idle and at most every 16 ms while busy (a constant, `SCENE_EVERY`, not yet `display.frame_ms`), and a scene change not yet polled is replaced by the newer one, so a poll holds at most one scene change per document however fast a run reports. Since N2 slice 3 a look put off because the last was under 16 ms ago is taken when the 16 ms are up, not at the next 50 ms tick, so an edit or a geometry report reaches the feed and the hot calls' snapshot within 16 ms of the core going quiet. The egui editor's control port has no feed (it is request and reply); a script there calls `scene.get {since}` when it likes.
 
 ### 7.2 Domains
 
@@ -327,17 +347,18 @@ A domain's JSON is, field for field, what `ui.inspect` reports for it today wher
 **As built (N2 slice 2).** `plumcraft_editor_core::scene` builds the scene from the document (graph, catalogue, run state, the Watched panel's node, selection, group entered, the application's node lines and wire marks) and a theme; `scene::Published` keeps it with a revision per item. Rust types (`Scene`, `Face`, `InRow`, `OutRow`, `Widget`, `Preview`, `Footer`, `Wire`, `Net`, `Frame`, `Group`, `Mark`, `Delta`) are the wire shape, serde-encoded; the shared fixtures (16.2) are the reference. Where the subsections below still show the draft's shape, these differences hold:
 
 - **Colours** are `{token?, color: [r, g, b, a]}` everywhere (`paint`, `fill`, `wire`), the colour premultiplied as the core holds it, the token where it came from one. So a theme change changes every face's revision (question 13 asked for tokens alone where there is one; not done, see 17).
-- **No geometry yet:** no wire `path`, no open group's `rect`, no mark's `at`, no `fit` rect, no `clock`, `grid`, `highlight` (a reveal's highlight is the shell's) or `buttons`. Slice 3 adds them.
+- **Geometry (N2 slice 3):** a wire has `path` (8.8: a cubic chain between its pins; empty for a wire drawn through a net), an open group `rect` (`[x0, y0, x1, y1]`, its band the top 28), a mark `at` (its wire's middle), and the top level `view: {fit: {seq, rect} | null}` (8.9). They follow the sizes the shell reported (8.11), else a 220 × 160 face with its pins estimated (header 28, rows 22). Geometry is rounded to a thousandth of a graph unit and sent as `f64`, so its JSON reads back exactly. A face has no size in the scene: the shell measured it. Still none: `clock`, `grid`, `highlight` (a reveal's highlight is the shell's), `buttons`.
 - **The header** is `{open, icon, about: {name, description, family?, path?, id, known}, state: {kind, paint?, hover?}, title: {text, watch}, badges: [{text, paint, hover}], engine: {text, pinned, hover}?, status: [{text, paint, strong, hover?}], enter}`. `title.watch` stands for the draft's tap (`run.watch`) and double tap (`node.parameters`); `enter` for a proxy's pencil (`canvas.focus`); the chevron is `open`.
 - **A face** also has `run: {state, fraction, stale, notRun}` (the real state, 8.6's first layer, `state` one of `queued started progress preview done cached error skipped cancelled`) and `shown` (the animation's, a string). No `about` at the top level (it is the header's), no `highlight`.
 - **An input row** is `{key, node, label, list, ty, pin: {shape, fill, wire, wireable}, source, text?, hover?, dim, from?, named?: {name, paint, hover}, badge?, widget?, inactive?}`: `node` is the member a proxy's row stands for (the draft's `member`); `from` is `inherited`'s "from <bundle>". An output row is `{key, node, label, list, ty, pin, hover}`; a tap watches `{node, port: key}`.
 - **A widget** is `{kind, value, default, blank, clearable, min, max, softMin, softMax, step, decimals, int, choices: [{value, label, disabled?}], pathMode?, colorFormat?, hover?}`.
 - **A preview** is `{kind: "rgba8", handle, w, h, size, hoverSize, items, summary, note?, faded}` or `{kind: "peaks", handle, channels, size, note?, faded}`; `handle` is the value's `DataRef` as JSON (what `media.get` takes). A text excerpt is a footer item, not a preview.
 - **Footer items** are `fields {text, hover, all}`, `convert {lines: [{text, paint, hover?}]}`, `editor {label, hover}`, `progress {fraction, stage?}`, `error {text, full, paint}`, `save {port, sheet}`, `excerpt {text, faded, hover}`, `engineText {text, full}`, `appText {text, full}`, in that order.
-- **A wire** is `{id, nid, rev, from, to, fromFace, fromPin, toFace, toPin, paint, kind: "plain" | "routed" | "net", via, slice?, net?}`: the faces and pin indices it is drawn between (a collapsed group's face stands for its members); `slice` is the label text (`[:-1]`).
+- **A wire** is `{id, nid, rev, from, to, fromFace, fromPin, toFace, toPin, paint, kind: "plain" | "routed" | "net", via, slice?, net?, path}`: the faces and pin indices it is drawn between (a collapsed group's face stands for its members); `slice` is the label text (`[:-1]`).
 - **A net** is `{id, nid, rev, key, paint, selected, driver: {from, face, pin, at}, uses: [{to, face, pin, at}]}`; `id` is `name` or `name@group`.
-- **A group** is `{id, nid, rev, name, collapsed, parent?, depth, proxy}`; a frame `{id, nid, rev, title, pos, size, paint}`; a mark `{id, nid, rev, label, tone, paint, tooltip?}`, `id` the wire's.
-- **Top level:** `{shell, doc, gen, full, nodes, wires, nets, frames, groups, marks, selection: {nodes, groups, net}, focus: {group, path: [{id, name}]} | null, anim: {on, replay, generation, holdMs, fadeMs, pulseMs}}`.
+- **A group** is `{id, nid, rev, name, collapsed, parent?, depth, proxy, rect?}`; a frame `{id, nid, rev, title, pos, size, paint}`; a mark `{id, nid, rev, label, tone, paint, tooltip?, at?}`, `id` the wire's.
+- **Top level:** `{shell, doc, gen, full, nodes, wires, nets, frames, groups, marks, selection: {nodes, groups, net}, focus: {group, path: [{id, name}]} | null, anim: {on, replay, generation, holdMs, fadeMs, pulseMs}, view: {fit: {seq, rect} | null}}`; `view` comes in every reply, as `selection`, `focus` and `anim` do.
+- **Order is drawing order:** faces, wires and the rest come sorted by id (the published scene's order), and the hit test takes the last face as the one on top (9.2).
 - **`nid`** is interned per item kind (a face and a wire may share a number); never reused within a document's life.
 
 ### 8.1 Coordinates
@@ -507,7 +528,7 @@ A wire is keyed by its input (one wire per input), as `WireMark`s are (`commands
  "path": [[x, y], …], "via": [[120, 40]], "slice": {"text": "[:-1]", "at": [x, y]} , "net": null, "hidden": false}
 ```
 
-- `path` is a cubic Bézier chain: the start point, then three points per segment. Today a plain wire is egui-snarl's degree-5 Bézier through six control points (`run_view::wire_points`, `crates/ui/src/run_view.rs:286`) and a routed wire a Catmull-Rom spline through its `via` points, drawn as cubics, horizontal at both pins (`wire_route.rs:8`). Native toolkits draw cubics, so the core converts (open question 7). The core hit-tests the same curve it sends.
+- `path` is a cubic Bézier chain: the start point, then three points per segment. Today a plain wire is egui-snarl's degree-5 Bézier through six control points (`run_view::wire_points`, `crates/ui/src/run_view.rs:286`) and a routed wire a Catmull-Rom spline through its `via` points, drawn as cubics, horizontal at both pins (`wire_route.rs:8`). Native toolkits draw cubics, so the core converts (open question 7). The core hit-tests the same curve it sends. **As built (N2 slice 3), four cubics, not two:** egui-snarl's degree-5 curve (ported to the core in full, `wire_path::snarl_quintic`, its frame `min(32.4, length / 6)`) split evenly in four and each piece replaced by the cubic with its ends and end tangents. Two pieces strayed up to 2.2 graph units from the quintic on steep wires; four stay under 0.35 at usual lengths and 0.72 on a 5,000-unit wire (`claude-debug/native-n2/s3-fit-check.py`). A plain wire's path is 13 points, a routed one's 3 a segment (exact: the Catmull-Rom curve is cubic already).
 - `via`: bend points; a shell draws a handle on each (radius 5, `wire_route.rs:32`) for drag (`wire.route`), double-tap to remove one, and the menu's Add Bend Point and Straighten.
 - `color`: the wire type's colour, else the `wire` token (`wire_route::wire_color`).
 - `net`: the net's key when the wire is drawn through a net label; then `hidden: true` and the net carries its tags.
@@ -524,7 +545,7 @@ An **open group's frame**: `{id, name, rect, depth, menu: "group"}`, computed by
 
 **Focus** (the group entered, `canvas.focus`; the document's since N2 slice 1, `Document::focus`): `view.focus: {group, path: [{id, name}]}` for the breadcrumb ("Graph › outer › inner", each a `canvas.focus`; Leave is `canvas.focus {group: null}`). While focused only the group's members are in `nodes`.
 
-**The view domain**: `{target: {zoom, pan, seq} | null, fit: {seq, rect} | null, reveal: {node, seq} | null, palette: {open, query, selected, at, results} | null}`. The core asks for a transform (after `graph.new`, `graph.open`, `graph.tidy`, `ui.set`, View › Fit, a reveal); the shell animates there and reports back with `ui.viewport`. `fit.rect` is every face's rect (and frames' outside a focused group) expanded by 32, zoom clamped to 0.2..1 (`canvas::fit_transform`, `canvas.rs:318`); the shell fits it to its own rect.
+**The view domain**: `{target: {zoom, pan, seq} | null, fit: {seq, rect} | null, reveal: {node, seq} | null, palette: {open, query, selected, at, results} | null}`. The core asks for a transform (after `graph.new`, `graph.open`, `graph.tidy`, `ui.set`, View › Fit, a reveal); the shell animates there and reports back with `ui.viewport`. `fit.rect` is every face's rect (and frames' outside a focused group) expanded by 32, zoom clamped to 0.2..1 (`canvas::fit_transform`, `canvas.rs:318`); the shell fits it to its own rect. **As built (N2 slice 3):** only `fit`, as the scene's top-level `view: {fit: {seq, rect}}`, set by `canvas.fit` (whose reply carries it too), computed from the core's geometry; `seq` rises with each request, so a shell fits once a request. `graph.new` and `graph.open` don't ask for one yet (their faces aren't measured until drawn): the egui shell fits those itself, waiting for its sizes, as before.
 
 ### 8.10 What hover does today, and what replaces it
 
@@ -552,11 +573,26 @@ The shell lays each face out from its rows at zoom 1, in graph units, and report
 
 The core computes from them: wire endpoints and paths, hit tests (9.2), Tidy's `sizes` and `pins` (today `Canvas::measured_for_tidy`, `canvas.rs:446`), Align, Distribute and Frame Selection's `sizes` (`edit_view.rs:329`), open groups' frames, the fit rect, and `ui.inspect`. Until a face is measured the core assumes 220 × 160 (`canvas.rs:602`) and `graph.tidy` estimates as `command.run` does today.
 
+**As built (N2 slice 3, `crates/editor-core/src/geometry.rs`):**
+
+```json
+{"faces": [{"node": "n2", "rev": 405, "size": [214, 162], "header": 28.0,
+            "pins": {"in": [41.5, 63.0, null], "out": [118.0]},
+            "rows": [[96, 32, 210, 52], null, null],
+            "parts": {"title": [24, 4, 150, 24], "menu": [190, 4, 210, 24], "footer": [[8, 140, 206, 158]]}}]}
+```
+
+- **Pins and rows are lists in row order**, the order of the face's `inputs` and `outputs` (what a wire's `fromPin` and `toPin` index), not maps by key: a collapsed group's rows can share a key (two members' `text`). `null` for one not measured (estimated).
+- `parts` names the header's parts (`title`, `chevron`, `icon`, `menu`, `enter`, `preview`) and the footer's items, for the hit test's parts (9.2); unknown names are refused.
+- The core keeps one entry a face (`Measured`), forgets faces gone from the scene and everything on `graph.new` and `graph.open`, and rebuilds the scene's paths and the hot calls' snapshot when it changes.
+- What uses it: the scene's wire paths, open groups' rects and marks' places; `canvas.fit`; `selection.align`, `selection.distribute` and Frame Selection (`ui.invoke frame.add`), which pass the measured faces' sizes (an unmeasured one is left to the session's estimate); Tidy's measurements on a shell that reports (the egui shell's and the C ABI core's `Host::measured`); the hot calls.
+- **The egui shell reports every frame**, in process (no command): each drawn face's size and pins as the canvas laid them out. It doesn't report headers, rows or parts yet.
+
 ### 8.12 Revisions and deltas
 
 `scene.get {since: g}` returns `{gen, full: false, upsert: {nodes, wires, nets, frames, groups, marks}, remove: {nodes: [ids], wires, nets, frames, groups, marks}, anim?}`: items whose `rev > g`, and ids gone since `g`. The core keeps removals for the last 256 generations; older, or no `since`, gets `full: true` with every item. Within an upserted item every field is present (no field-level patches). A shell redraws a face only when its `rev` changed.
 
-As built (N2 slice 2): the delta also carries `shell`, `doc` and `since`, and `selection`, `focus` and `anim` come in every reply, full or not (they are small). `scene.get` rebuilds the scene and compares each item's JSON with what was published (a hash); the generation rises only when something changed, so asking twice with nothing changed gives the same `gen` and an empty delta. A `since` newer than the scene's `gen` also gets `full: true`. `remove` lists every kind, empty or not. Cost at 500 nodes and 800 wires (release, Apple M4 Max, `crates/ffi/tests/measure_scene.rs`): a delta after one node's run state changed is 2 KB and 4.5 ms request to reply, nearly all of it the rebuild and the hashing; the whole scene is 1.1 MB and 25 ms.
+As built (N2 slice 2): the delta also carries `shell`, `doc` and `since`, and `selection`, `focus` and `anim` come in every reply, full or not (they are small). `scene.get` rebuilds the scene and compares each item's JSON with what was published (a hash); the generation rises only when something changed, so asking twice with nothing changed gives the same `gen` and an empty delta. A `since` newer than the scene's `gen` also gets `full: true`. `remove` lists every kind, empty or not. Cost at 500 nodes and 800 wires (release, Apple M4 Max, `crates/ffi/tests/measure_scene.rs`): a delta after one node's run state changed is 2 KB and 4.5 ms request to reply, nearly all of it the rebuild and the hashing; the whole scene is 1.1 MB and 25 ms. **Since N2 slice 3** each item is compared with what was published as built (its typed value) rather than by hashing its JSON, every node's title is worked out once a build (it was a scan of every node for each), and the C ABI no longer builds a scene twice in a turn: a one-node delta is 2.4 ms at 500 nodes and 6.3 ms at 2,000 (36 ms before), wire paths included; the whole scene is 1.3 MB in 18 ms at 500 and 5.2 MB in 76 ms at 2,000.
 
 ### 8.13 Gestures and the commands they become
 
@@ -605,6 +641,14 @@ What a recognised gesture means is the core's; `ui.gesture` drives the same tabl
 ### 9.4 Threading
 
 Hot calls read the latest published snapshot (scene positions, geometry, pin table, compatibility) through an atomically swapped `Arc`, from any thread, without locks. They may be one generation behind a command just sent; their results never refer to items the snapshot lacks. They never mutate.
+
+### 9.5 As built (N2 slice 3)
+
+- **The snapshot** (`geometry::Snapshot`) is made on the document's thread after a publish, from the published faces, wires, nets, frames and open groups (with their nids) and the geometry: faces' rects, pins with their types, list-ness and the graph node they stand for, wires' chains and bounds, tags, frames' tabs and handles, groups' bands, and a table of which output type fits which input type (1, or 2 through a Convert, by `SchemaReply::accepts` and `convert_paths_where`). It is made again only when the session's generation, the graph's revision, the geometry or the group entered changed, so a run's progress doesn't rebuild it. The C ABI keeps each document's behind a mutex held only to clone or swap the `Arc` (not lock-free, but a reader never waits for work); the JSON forms publish first and read the document's own.
+- **9.1, as built:** a wire drawn through a net has no path and is left out; nids are cut to their low 32 bits; bend points stay where they are when both ends move.
+- **9.2, as built:** one `slop` for pins, wires and tags (the shell picks its target size); a bend point takes `max(slop, 5)`; a pin must be wireable (a hidden pin isn't hit); the topmost face is the last in the scene's order; a face's part is a named part it reported, else a row's rect, else header (above `header`, default 28) or body; tags, frames' tabs (180 × 22 at most, above the top edge) and open groups' bands are estimated by the core (their text is the shell's to measure, and `geometry.set` doesn't carry them yet), only the band is a group's part (its buttons are the shell's controls); a point that isn't a number hits nothing.
+- **9.3, as built:** among the pins in reach, one that fits beats a nearer one that doesn't; from an input the targets are outputs. `fits` is 0 for a pin that can't be wired (hidden, or a named port), the same node, a cycle (the snapshot keeps what each node feeds), or a single value into a list input; a wire to or from a Convert node shows as fitting (its own rules are `wire.connect`'s, at the drop); else the type table.
+- **Measured, release, Apple M4 Max** (`crates/ffi/tests/measure_scene.rs`, `hot_calls_cost`; medians of 400): at 500 nodes and 800 wires, `plum_hit_test` 0.5 µs, `plum_wire_target` 0.33 µs, `plum_wire_paths` for 20 faces 5.9 µs; at 2,000 and 3,200, 1.6, 1.4 and 5.3 µs. A `plum_geometry_set` of every face reached the snapshot in 5.7 ms (500) and 14 ms (2,000).
 
 ## 10. Bytes
 
@@ -751,9 +795,9 @@ Rule 3 was not met in these places; each is now a core command (`crates/editor-c
 | Edit › Select All, ⌘A | `edit_view.rs:339`, `:576` | `selection.all` | core (what is shown: `selection::Visibility`, moved from `groups_view.rs`) |
 | Edit › Cut, Copy, Paste, ⌘X/C/V | `edit_view.rs:389-596` | `edit.cut`, `edit.copy`, `edit.paste` with menu places and shortcuts; `ui.invoke` fills in the selection (with selected collapsed groups' members) and raises `clipboard.set` or `clipboard.get` | core (`invoke`) |
 | Edit › Delete, Delete, Backspace | `edit_view.rs:466` | `edit.delete`, not `node.remove` itself: it takes the members of selected collapsed groups, which the Node menu's Remove doesn't, and clears the selection | core |
-| Edit › Frame Selection | `edit_view.rs:501` | `frame.add`, invoked: the shell fills in the sizes it measured (`Host::frame_selection`) | core asks, shell measures |
-| Edit › Align ›, Distribute › | `edit_view.rs:473-480` | Still shell items (no `command` in the menu model): they need the sizes the shell measured, and an item with `params` is activated with `command.run`, which can't fill in the selection. Slice 3's geometry lets the core fill both | shell |
-| View › Fit, F | `lib.rs:1629`, `canvas.rs:586` | `canvas.fit` (`ui.set {fit: true}` runs it) | shell |
+| Edit › Frame Selection | `edit_view.rs:501` | `frame.add`, invoked: since N2 slice 3 the core fills in the selection and the sizes it was told (`Host::frame_selection`'s default, `Host::sizes`) | core |
+| Edit › Align ›, Distribute › | `edit_view.rs:473-480` | Since N2 slice 3, `selection.align {edge}` and `selection.distribute {axis}`: the selection at the sizes the shell reported, run as `edit.align` and `edit.distribute`; the menu model's items carry them | core |
+| View › Fit, F | `lib.rs:1629`, `canvas.rs:586` | `canvas.fit` (`ui.set {fit: true}` runs it); since N2 slice 3 the core works out the rect (8.9) and the shell fits its view to it | core rect, shell view |
 | Node › Search…, Tab, Space, right-click on canvas | `lib.rs:1644`, `canvas.rs:585`, `:873` | `canvas.palette {open?, at?, query?}`, `at` in graph coordinates (`ui.set {palette}` runs it) | shell (open question 4 makes the palette core state later) |
 | Node › Add › (by category, by engine) | `palette::node_menus` | `node.add {kind, pos}` items in the menu model (since N1 slice 8) | core |
 | Enter group, Leave, breadcrumb | `groups_view.rs:747-770` | `canvas.focus {group \| null}` (`ui.set {focus}` runs it) | core state; the shell rebuilds and fits |
@@ -897,7 +941,7 @@ egui passes it first (N2), the FFI passes it headless, then each native shell.
 
 ### 16.2 Shared fixtures
 
-In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene/full.json` (every row source, widget kind, footer kind and run state, wires plain, routed, sliced and through a net, a frame, a collapsed group) and `scene/delta.json` (one node's run state changed), both built (N2 slice 2; `scene::tests::the_shared_fixtures_are_the_scene_and_decode` checks them and `PLUMCRAFT_WRITE_FIXTURES=1` rewrites them); still to come: `menu.json`, `theme-*.json`, `asks.json` (every kind with params and answers), `geometry.json`, and `hostile/` (malformed of each). Schema: `schema/shell1.json`.
+In `crates/editor-core/fixtures/`, decoded by Rust, Swift and Kotlin tests as `crates/proto/fixtures/` are today: `scene/full.json` (every row source, widget kind, footer kind and run state, wires plain, routed, sliced and through a net, a frame, a collapsed group) and `scene/delta.json` (one node's run state changed), both built (N2 slice 2; `scene::tests::the_shared_fixtures_are_the_scene_and_decode` checks them and `PLUMCRAFT_WRITE_FIXTURES=1` rewrites them; since N2 slice 3 with two faces measured, an open group with its frame, every drawn wire's path and a fit asked for); still to come: `menu.json`, `theme-*.json`, `asks.json` (every kind with params and answers), `geometry.json`, and `hostile/` (malformed of each). Schema: `schema/shell1.json`.
 
 ## 17. Open questions
 
@@ -911,7 +955,7 @@ Each with the answer recommended.
 4. **Transient shell state in `ui.inspect`.** `canvas.editing`, `popups.anyPopup`, the rename window and the palette are UI state today. *Recommended:* the palette becomes core state (its index and search are logic, plan 4.1); rename is a `text` ask; `editing` and `anyPopup` come from `ui.report`.
 5. **Viewer-local state.** Grid format, table sort, text wrap and find, PDF page and array log scale are egui-local and not commands (13.2). *Recommended:* make each a command so scripts and every shell share them; keep only per-frame state (mesh camera during a drag, pan) shell-local.
 6. **Audio on mobile.** *Recommended:* the core keeps cpal (it supports CoreAudio on iOS and AAudio on Android); the shell owns the audio session category, interruptions and focus, and tells the core to stop on an interruption.
-7. **Wire shape.** egui-snarl's wires are degree-5 Béziers; native toolkits draw cubics. *Recommended:* the core sends a cubic chain fitted to today's curve (two cubics per wire), and hit-tests that chain, so drawn and hit agree everywhere; egui draws the same chain from N2.
+7. **Wire shape.** egui-snarl's wires are degree-5 Béziers; native toolkits draw cubics. *Recommended:* the core sends a cubic chain fitted to today's curve (two cubics per wire), and hit-tests that chain, so drawn and hit agree everywhere; egui draws the same chain from N2. *As built in N2 slice 3:* four cubics (8.8), since two strayed up to 2.2 graph units; egui-snarl still draws its own plain wires, up to 0.72 units off the chain.
 8. **Drop a wire on empty canvas.** It is not an egui behaviour today (egui-snarl drops it). *Recommended:* add it for every shell (plan 5.5 lists it for touch): the palette filtered to kinds that take the wire, one undo step for add and connect (a new command, `node.addWired`).
 9. **Premultiplied alpha.** Today's pictures are straight alpha; Core Graphics draws premultiplied bitmap contexts and Android's `Bitmap` is premultiplied. *Recommended:* keep straight alpha in the contract (one format, what engines send); the Apple shell makes `CGImage`s with `alphaLast` (no copy) and the Android shell premultiplies in its one copy.
 10. **`view.zoom` on mobile.** egui's zoom factor scales the whole window; iOS and Android scale text themselves. *Recommended:* honour `view.zoom` on desktops only; on mobile Settings hides it and the command is disabled with the reason.

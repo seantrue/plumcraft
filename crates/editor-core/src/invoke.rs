@@ -223,9 +223,22 @@ pub trait Host {
     }
     /// Fit the view to the graph.
     fn fit(&mut self) {}
-    /// Edit › Frame Selection (the canvas knows the sizes).
+    /// The sizes the core has for these nodes and collapsed groups (what the shell measured,
+    /// `geometry.set`): Align, Distribute and Frame Selection's `sizes`. None: the session
+    /// estimates each, as it does for a script.
+    fn sizes(&self, _nodes: &[String], _groups: &[plumcraft_graph::GroupId]) -> std::collections::BTreeMap<String, [f32; 2]> {
+        std::collections::BTreeMap::new()
+    }
+    /// Edit › Frame Selection: a frame around the selection, at the sizes the core has
+    /// ([`Host::sizes`]; N2 slice 3, where it was the shell's).
     fn frame_selection(&mut self) {
-        self.say("select nodes to frame first".into());
+        let (nodes, groups) = self.selection();
+        if nodes.is_empty() && groups.is_empty() {
+            self.say("select nodes to frame first".into());
+            return;
+        }
+        let sizes = self.sizes(&nodes, &groups);
+        let _ = self.run("frame.add", &json!({"nodes": nodes, "groups": groups, "sizes": sizes}));
     }
     /// Where a paste lands (the pointer, over the canvas).
     fn paste_pos(&self) -> Option<[f32; 2]> {

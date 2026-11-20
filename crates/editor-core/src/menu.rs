@@ -537,7 +537,8 @@ fn edit_items(facts: &Facts) -> Vec<Item> {
         item("frame.add", "Frame Selection", None, has, None),
         Item::separator(),
     ];
-    let align = ALIGN_EDGES.iter().map(|(label, edge)| Item::local("edit.align", *label, Some(json!({"edge": edge})))).collect();
+    // Align and Distribute: the core's since N2 slice 3, at the sizes the shell measured
+    let align = ALIGN_EDGES.iter().map(|(label, edge)| Item::new("edit.align", *label, Some("selection.align"), Some(json!({"edge": edge})))).collect();
     let mut m = Item::submenu("edit.align", "Align", align);
     if many < 2 {
         m = m.disabled(None);
@@ -545,7 +546,7 @@ fn edit_items(facts: &Facts) -> Vec<Item> {
     items.push(m);
     let distribute = [("Horizontally", "horizontal"), ("Vertically", "vertical")]
         .iter()
-        .map(|(label, axis)| Item::local("edit.distribute", *label, Some(json!({"axis": axis}))))
+        .map(|(label, axis)| Item::new("edit.distribute", *label, Some("selection.distribute"), Some(json!({"axis": axis}))))
         .collect();
     let mut m = Item::submenu("edit.distribute", "Distribute", distribute);
     if many < 3 {

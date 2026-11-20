@@ -12,7 +12,7 @@
   "frames": [
     {
       "id": "f1",
-      "nid": 31,
+      "nid": 34,
       "paint": {
         "color": [
           44,
@@ -42,9 +42,26 @@
       "depth": 0,
       "id": "g1",
       "name": "pair",
-      "nid": 32,
+      "nid": 35,
       "parent": null,
       "proxy": true,
+      "rect": null,
+      "rev": 1
+    },
+    {
+      "collapsed": false,
+      "depth": 0,
+      "id": "g2",
+      "name": "open pair",
+      "nid": 36,
+      "parent": null,
+      "proxy": false,
+      "rect": [
+        886.0,
+        358.0,
+        1434.0,
+        574.0
+      ],
       "rev": 1
     }
   ],
@@ -67,7 +84,7 @@
       "key": {
         "name": "caption"
       },
-      "nid": 30,
+      "nid": 33,
       "paint": {
         "color": [
           212,
@@ -175,7 +192,7 @@
       ],
       "kind": "",
       "menu": "proxy",
-      "nid": 20,
+      "nid": 22,
       "outputs": [
         {
           "hover": "Type: x.t.pic",
@@ -3474,6 +3491,296 @@
         "about": {
           "description": "",
           "family": null,
+          "id": "t.src",
+          "known": true,
+          "name": "Source",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Source 3",
+          "watch": true
+        }
+      },
+      "id": "n22",
+      "inputs": [],
+      "kind": "t.src",
+      "menu": "node",
+      "nid": 13,
+      "outputs": [
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pic",
+          "label": "pic · x.t.pic",
+          "list": false,
+          "node": "n22",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        },
+        {
+          "hover": "Type: TEXT",
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "node": "n22",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "TEXT"
+        },
+        {
+          "hover": "Type: x.t.pic",
+          "key": "pics",
+          "label": "[ ] pics · x.t.pic",
+          "list": true,
+          "node": "n22",
+          "pin": {
+            "fill": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                204,
+                68,
+                102,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "ty": "x.t.pic"
+        }
+      ],
+      "pos": [
+        900.0,
+        400.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
+          "id": "t.sink",
+          "known": true,
+          "name": "Sink",
+          "path": null
+        },
+        "badges": [],
+        "engine": null,
+        "enter": false,
+        "icon": "box",
+        "open": true,
+        "state": {
+          "hover": null,
+          "kind": "none",
+          "paint": null
+        },
+        "status": [
+          {
+            "hover": "No run has completed this node yet. Run to compute it.",
+            "paint": {
+              "color": [
+                34,
+                32,
+                28,
+                255
+              ],
+              "token": "header_text"
+            },
+            "strong": false,
+            "text": "not run"
+          }
+        ],
+        "title": {
+          "text": "Sink 3",
+          "watch": false
+        }
+      },
+      "id": "n23",
+      "inputs": [
+        {
+          "badge": null,
+          "dim": false,
+          "from": null,
+          "hover": null,
+          "inactive": null,
+          "key": "text",
+          "label": "text",
+          "list": false,
+          "named": null,
+          "node": "n23",
+          "pin": {
+            "fill": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "shape": "square",
+            "wire": {
+              "color": [
+                212,
+                160,
+                32,
+                255
+              ]
+            },
+            "wireable": true
+          },
+          "source": "wired",
+          "text": "text = x (wired from Source 3)",
+          "ty": "TEXT",
+          "widget": null
+        }
+      ],
+      "kind": "t.sink",
+      "menu": "node",
+      "nid": 14,
+      "outputs": [],
+      "pos": [
+        1200.0,
+        400.0
+      ],
+      "preview": null,
+      "proxy": null,
+      "rev": 1,
+      "run": {
+        "fraction": null,
+        "notRun": true,
+        "stale": false,
+        "state": null
+      },
+      "shown": null,
+      "tint": {
+        "body": {
+          "color": [
+            251,
+            250,
+            246,
+            255
+          ]
+        },
+        "header": {
+          "color": [
+            221,
+            216,
+            207,
+            255
+          ]
+        }
+      },
+      "view": "full",
+      "watched": false
+    },
+    {
+      "border": null,
+      "footer": [],
+      "header": {
+        "about": {
+          "description": "",
+          "family": null,
           "id": "t.join",
           "known": true,
           "name": "Join",
@@ -3708,7 +4015,7 @@
       ],
       "kind": "t.join",
       "menu": "node",
-      "nid": 13,
+      "nid": 15,
       "outputs": [
         {
           "hover": "Type: TEXT",
@@ -3858,7 +4165,7 @@
       ],
       "kind": "t.sink",
       "menu": "node",
-      "nid": 14,
+      "nid": 16,
       "outputs": [],
       "pos": [
         600.0,
@@ -3979,7 +4286,7 @@
       ],
       "kind": "t.sink",
       "menu": "node",
-      "nid": 15,
+      "nid": 17,
       "outputs": [],
       "pos": [
         600.0,
@@ -4082,7 +4389,7 @@
       "inputs": [],
       "kind": "t.src",
       "menu": "node",
-      "nid": 16,
+      "nid": 18,
       "outputs": [
         {
           "hover": "Type: x.t.pic",
@@ -4270,7 +4577,7 @@
       "inputs": [],
       "kind": "t.src",
       "menu": "node",
-      "nid": 17,
+      "nid": 19,
       "outputs": [
         {
           "hover": "Type: x.t.pic",
@@ -4464,7 +4771,7 @@
       "inputs": [],
       "kind": "t.src",
       "menu": "node",
-      "nid": 18,
+      "nid": 20,
       "outputs": [
         {
           "hover": "Type: x.t.pic",
@@ -4652,7 +4959,7 @@
       "inputs": [],
       "kind": "t.src",
       "menu": "node",
-      "nid": 19,
+      "nid": 21,
       "outputs": [
         {
           "hover": "Type: x.t.pic",
@@ -4781,6 +5088,17 @@
     "nodes": []
   },
   "shell": 1,
+  "view": {
+    "fit": {
+      "rect": [
+        -352.0,
+        -72.0,
+        1452.0,
+        2192.0
+      ],
+      "seq": 1
+    }
+  },
   "wires": [
     {
       "from": {
@@ -4792,7 +5110,7 @@
       "id": "n1.pic",
       "kind": "plain",
       "net": null,
-      "nid": 21,
+      "nid": 23,
       "paint": {
         "color": [
           204,
@@ -4801,6 +5119,60 @@
           255
         ]
       },
+      "path": [
+        [
+          -80.0,
+          39.0
+        ],
+        [
+          -66.5,
+          39.0
+        ],
+        [
+          -59.028,
+          47.849
+        ],
+        [
+          -53.328,
+          69.839
+        ],
+        [
+          -47.628,
+          91.827
+        ],
+        [
+          -43.852,
+          125.9
+        ],
+        [
+          -40.0,
+          160.5
+        ],
+        [
+          -36.148,
+          195.1
+        ],
+        [
+          -32.372,
+          229.172
+        ],
+        [
+          -26.672,
+          251.161
+        ],
+        [
+          -20.972,
+          273.15
+        ],
+        [
+          -13.5,
+          282.0
+        ],
+        [
+          0.0,
+          282.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4821,7 +5193,7 @@
       "id": "n1.pics",
       "kind": "plain",
       "net": null,
-      "nid": 25,
+      "nid": 27,
       "paint": {
         "color": [
           204,
@@ -4830,6 +5202,60 @@
           255
         ]
       },
+      "path": [
+        [
+          -80.0,
+          83.0
+        ],
+        [
+          -66.5,
+          83.0
+        ],
+        [
+          -58.996,
+          91.504
+        ],
+        [
+          -53.293,
+          111.559
+        ],
+        [
+          -47.589,
+          131.614
+        ],
+        [
+          -43.831,
+          162.336
+        ],
+        [
+          -40.0,
+          193.5
+        ],
+        [
+          -36.169,
+          224.664
+        ],
+        [
+          -32.411,
+          255.386
+        ],
+        [
+          -26.707,
+          275.441
+        ],
+        [
+          -21.004,
+          295.496
+        ],
+        [
+          -13.5,
+          304.0
+        ],
+        [
+          0.0,
+          304.0
+        ]
+      ],
       "rev": 1,
       "slice": "[:-1]",
       "to": {
@@ -4850,7 +5276,7 @@
       "id": "n17.tuning",
       "kind": "plain",
       "net": null,
-      "nid": 26,
+      "nid": 28,
       "paint": {
         "color": [
           125,
@@ -4860,6 +5286,60 @@
         ],
         "token": "wire"
       },
+      "path": [
+        [
+          220.0,
+          1639.0
+        ],
+        [
+          225.556,
+          1639.0
+        ],
+        [
+          231.319,
+          1639.0
+        ],
+        [
+          238.047,
+          1639.0
+        ],
+        [
+          244.774,
+          1639.0
+        ],
+        [
+          252.361,
+          1639.0
+        ],
+        [
+          260.0,
+          1639.0
+        ],
+        [
+          267.639,
+          1639.0
+        ],
+        [
+          275.226,
+          1639.0
+        ],
+        [
+          281.953,
+          1639.0
+        ],
+        [
+          288.681,
+          1639.0
+        ],
+        [
+          294.444,
+          1639.0
+        ],
+        [
+          300.0,
+          1639.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4880,7 +5360,7 @@
       "id": "n18.ink.width",
       "kind": "plain",
       "net": null,
-      "nid": 28,
+      "nid": 30,
       "paint": {
         "color": [
           125,
@@ -4890,6 +5370,60 @@
         ],
         "token": "wire"
       },
+      "path": [
+        [
+          220.0,
+          1661.0
+        ],
+        [
+          233.5,
+          1661.0
+        ],
+        [
+          241.04,
+          1669.173
+        ],
+        [
+          246.748,
+          1687.382
+        ],
+        [
+          252.456,
+          1705.591
+        ],
+        [
+          256.193,
+          1733.115
+        ],
+        [
+          260.0,
+          1761.0
+        ],
+        [
+          263.807,
+          1788.885
+        ],
+        [
+          267.544,
+          1816.409
+        ],
+        [
+          273.252,
+          1834.618
+        ],
+        [
+          278.96,
+          1852.827
+        ],
+        [
+          286.5,
+          1861.0
+        ],
+        [
+          300.0,
+          1861.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4910,7 +5444,7 @@
       "id": "n18.tuning",
       "kind": "plain",
       "net": null,
-      "nid": 27,
+      "nid": 29,
       "paint": {
         "color": [
           125,
@@ -4920,6 +5454,60 @@
         ],
         "token": "wire"
       },
+      "path": [
+        [
+          220.0,
+          1639.0
+        ],
+        [
+          233.5,
+          1639.0
+        ],
+        [
+          241.04,
+          1647.173
+        ],
+        [
+          246.748,
+          1665.382
+        ],
+        [
+          252.456,
+          1683.591
+        ],
+        [
+          256.193,
+          1711.115
+        ],
+        [
+          260.0,
+          1739.0
+        ],
+        [
+          263.807,
+          1766.885
+        ],
+        [
+          267.544,
+          1794.409
+        ],
+        [
+          273.252,
+          1812.618
+        ],
+        [
+          278.96,
+          1830.827
+        ],
+        [
+          286.5,
+          1839.0
+        ],
+        [
+          300.0,
+          1839.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4940,7 +5528,7 @@
       "id": "n21.c2",
       "kind": "plain",
       "net": null,
-      "nid": 29,
+      "nid": 31,
       "paint": {
         "color": [
           212,
@@ -4949,6 +5537,60 @@
           255
         ]
       },
+      "path": [
+        [
+          -80.0,
+          61.0
+        ],
+        [
+          -66.5,
+          61.0
+        ],
+        [
+          -40.22,
+          60.535
+        ],
+        [
+          45.174,
+          58.586
+        ],
+        [
+          130.568,
+          56.637
+        ],
+        [
+          268.687,
+          53.356
+        ],
+        [
+          410.0,
+          50.0
+        ],
+        [
+          551.313,
+          46.644
+        ],
+        [
+          689.431,
+          43.363
+        ],
+        [
+          774.826,
+          41.414
+        ],
+        [
+          860.22,
+          39.465
+        ],
+        [
+          886.5,
+          39.0
+        ],
+        [
+          900.0,
+          39.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4956,6 +5598,89 @@
         "port": "c2"
       },
       "toFace": "group:g1",
+      "toPin": 0,
+      "via": []
+    },
+    {
+      "from": {
+        "node": "n22",
+        "port": "text"
+      },
+      "fromFace": "n22",
+      "fromPin": 1,
+      "id": "n23.text",
+      "kind": "plain",
+      "net": null,
+      "nid": 32,
+      "paint": {
+        "color": [
+          212,
+          160,
+          32,
+          255
+        ]
+      },
+      "path": [
+        [
+          1080.0,
+          458.0
+        ],
+        [
+          1088.437,
+          458.0
+        ],
+        [
+          1097.081,
+          456.968
+        ],
+        [
+          1107.155,
+          455.206
+        ],
+        [
+          1117.23,
+          453.444
+        ],
+        [
+          1128.575,
+          450.978
+        ],
+        [
+          1140.0,
+          448.5
+        ],
+        [
+          1151.425,
+          446.022
+        ],
+        [
+          1162.77,
+          443.556
+        ],
+        [
+          1172.845,
+          441.794
+        ],
+        [
+          1182.919,
+          440.032
+        ],
+        [
+          1191.563,
+          439.0
+        ],
+        [
+          1200.0,
+          439.0
+        ]
+      ],
+      "rev": 1,
+      "slice": null,
+      "to": {
+        "node": "n23",
+        "port": "text"
+      },
+      "toFace": "n23",
       "toPin": 0,
       "via": []
     },
@@ -4969,7 +5694,7 @@
       "id": "n3.c1",
       "kind": "plain",
       "net": null,
-      "nid": 22,
+      "nid": 24,
       "paint": {
         "color": [
           212,
@@ -4978,6 +5703,60 @@
           255
         ]
       },
+      "path": [
+        [
+          -80.0,
+          61.0
+        ],
+        [
+          -66.5,
+          61.0
+        ],
+        [
+          -49.606,
+          60.304
+        ],
+        [
+          -16.947,
+          58.326
+        ],
+        [
+          15.711,
+          56.348
+        ],
+        [
+          62.429,
+          53.203
+        ],
+        [
+          110.0,
+          50.0
+        ],
+        [
+          157.571,
+          46.797
+        ],
+        [
+          204.289,
+          43.652
+        ],
+        [
+          236.947,
+          41.674
+        ],
+        [
+          269.606,
+          39.696
+        ],
+        [
+          286.5,
+          39.0
+        ],
+        [
+          300.0,
+          39.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -4998,7 +5777,7 @@
       "id": "n4.text",
       "kind": "routed",
       "net": null,
-      "nid": 23,
+      "nid": 25,
       "paint": {
         "color": [
           212,
@@ -5007,6 +5786,36 @@
           255
         ]
       },
+      "path": [
+        [
+          520.0,
+          39.0
+        ],
+        [
+          544.361,
+          39.0
+        ],
+        [
+          436.667,
+          60.0
+        ],
+        [
+          450.0,
+          60.0
+        ],
+        [
+          463.333,
+          60.0
+        ],
+        [
+          549.512,
+          39.0
+        ],
+        [
+          600.0,
+          39.0
+        ]
+      ],
       "rev": 1,
       "slice": null,
       "to": {
@@ -5034,7 +5843,7 @@
       "net": {
         "name": "caption"
       },
-      "nid": 24,
+      "nid": 26,
       "paint": {
         "color": [
           212,
@@ -5043,6 +5852,7 @@
           255
         ]
       },
+      "path": [],
       "rev": 1,
       "slice": null,
       "to": {
