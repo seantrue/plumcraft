@@ -83,15 +83,21 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     /// A gesture ran commands (the host says when one has no UI yet).
     public var onCommands: (([CommandRun]) -> Void)?
     let snapFeedback = UISelectionFeedbackGenerator()
+    /// Editing a value on a face (N4 slice 2): the core's row and the control over it.
+    public let rowEditor: RowEditor
+    public private(set) var fieldEditor: FieldEditorHost!
 
     public init(model: DocumentModel, frame: CGRect = CGRect(x: 0, y: 0, width: 1024, height: 768)) {
         let host = CALayer()
         canvas = LayerCanvas(model: model, host: host, screenScale: UITraitCollection.current.displayScale)
         palette = PaletteModel(model: model)
+        rowEditor = RowEditor(model: model)
         let c = canvas
         // a finger's target size (44 points across, plan 5.5); a pointer's while one is pressing
         drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 22, zoom: Double(c.viewport.zoom)) }
         super.init(frame: frame)
+        fieldEditor = FieldEditorHost(canvasView: self, editor: rowEditor)
+        canvas.followers = { [weak self] in self?.fieldEditor.follow() }
         drag.onError = { [weak self] e in self?.onError?(e) }
         drag.onBegan = { [weak self] k in self?.onGesture?("drag.begin.\(k?.rawValue ?? "none")") }
         drag.onEnded = { [weak self] k, r in
@@ -108,7 +114,10 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
             self?.dismissPalette?()
             self?.drag.releaseWire()
         }
-        model.onView = { [weak self] v in self?.palette.follow(v) }
+        model.onView = { [weak self] v in
+            self?.palette.follow(v)
+            self?.rowEditor.follow(v)
+        }
         layer.addSublayer(host)
         host.frame = bounds
         host.masksToBounds = true
@@ -201,7 +210,7 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
 
     // MARK: Geometry
 
-    func graph(_ v: CGPoint) -> Point {
+    public func graph(_ v: CGPoint) -> Point {
         let g = canvas.viewport.toGraph(v)
         return Point(Double(g.x), Double(g.y))
     }
@@ -232,8 +241,22 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     }
 
     public func gestureRecognizer(_ g: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        // a touch on a field editor or a face's menu button is theirs, not the canvas's
+        if let v = touch.view, v !== self { return false }
         if g === dragPan || g === onePan { pressType = touch.type }
         return true
+    }
+
+    /// A touch on a choice's row or the more-button goes to the button over it with the system's
+    /// menu (the core's choices, the node's menu); everything else is the canvas's.
+    public override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        let v = super.hitTest(point, with: event)
+        if let v, v !== self { return v }
+        guard event?.type == .touches || event == nil, !drag.active else { return v }
+        let h = hit(at: point)
+        if h.ok, h.kind == .node, let routed = fieldEditor.routeTouch(at: point, hit: h) { return routed }
+        fieldEditor.menuButton.isHidden = true
+        return v
     }
 
     /// Whether the core drags what is at `h` (a face, a pin, a bend point, a frame's tab or

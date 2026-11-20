@@ -57,11 +57,25 @@ public final class KitDriver: ConformanceDriver {
             guard let id = f["node"].string else { throw ConformanceError("a face's node must be an id") }
             guard let nid = nids[id] else { throw ConformanceError("no face \(id) in the scene") }
             let floats: (JSONValue) -> [Float?] = { v in (v.array ?? []).map { $0.double.map(Float.init) } }
+            let rows: [Rect?] = (f["rows"].array ?? []).map { r in
+                guard let a = r.array, a.count == 4, let x0 = a[0].double, let y0 = a[1].double, let x1 = a[2].double, let y1 = a[3].double else { return nil }
+                return Rect(x0, y0, x1, y1)
+            }
             typed.append(FaceMeasure(face: nid, width: Float(f["size"][0].double ?? 0), height: Float(f["size"][1].double ?? 0),
                                      header: f["header"].double.map(Float.init),
-                                     inputs: floats(f["pins"]["in"]), outputs: floats(f["pins"]["out"])))
+                                     inputs: floats(f["pins"]["in"]), outputs: floats(f["pins"]["out"]), rows: rows))
         }
         try canvas.report(typed)
+        // the header's parts after it, as the canvas sends them (the typed call has none)
+        let parts: [(id: String, parts: [String: Rect])] = list.compactMap { f in
+            guard let id = f["node"].string, let o = f["parts"].object else { return nil }
+            var m: [String: Rect] = [:]
+            for (k, v) in o {
+                if let a = v.array, a.count == 4, let x0 = a[0].double, let y0 = a[1].double, let x1 = a[2].double, let y1 = a[3].double { m[k] = Rect(x0, y0, x1, y1) }
+            }
+            return (id: id, parts: m)
+        }
+        await CanvasLink.reportParts(core: core, doc: nil, faces: parts)
         // the core has them once a request after them sees them measured (they apply in order)
         let deadline = ContinuousClock.now + .seconds(20)
         for f in list {
@@ -101,6 +115,7 @@ public final class KitDriver: ConformanceDriver {
         if d.kind == .marquee {
             v["rect"] = [.double(Double(d.rect.0)), .double(Double(d.rect.1)), .double(Double(d.rect.2)), .double(Double(d.rect.3))]
         }
+        if let value = d.scrubValue { v["value"] = .double(value) }
         return .object(v)
     }
 
@@ -191,9 +206,11 @@ public final class PortDriver: ConformanceDriver {
 
     public func hotMove(at: (Float, Float), slop: Float) -> JSONValue? { nil }
 
-    /// The engines the core has; the port doesn't serve `media.get`.
+    /// The engines the core has; the port doesn't serve `media.get`; an app's canvas measures its
+    /// rows' widgets and header parts (`rows`).
     public func has(_ capability: String) -> Bool {
-        capability.hasPrefix("engine:") && engines.contains(String(capability.dropFirst(7)))
+        if capability == "rows" { return !reports }
+        return capability.hasPrefix("engine:") && engines.contains(String(capability.dropFirst(7)))
     }
 
     /// The core's next feed batch when this process has the core, else 20 ms.

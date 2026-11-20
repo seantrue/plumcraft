@@ -193,4 +193,94 @@ final class GestureTests: XCTestCase {
         XCTAssertEqual(status()["gesture"] as? String, "tidy")
         shot("n4s1-ui-after-tidy")
     }
+
+    /// Row `k` of face `face`'s widget: where it is in the canvas and what it shows, from the status.
+    func row(_ face: String, _ k: Int) -> (CGPoint, String)? {
+        guard let rows = (window()["rows"] as? [String: Any])?[face] as? [Any], k < rows.count,
+              let r = rows[k] as? [String: Any], let at = r["at"] as? [Double], at.count == 2 else { return nil }
+        return (CGPoint(x: at[0], y: at[1]), (r["value"] as? String) ?? "")
+    }
+
+    func value(_ face: String, _ k: Int) -> String? { row(face, k)?.1 }
+
+    /// Editing values on a face (N4 slice 2), through UIKit: a tap on a text row opens a text field
+    /// with the keyboard up and the row above it, typing and Done set it (one undo step, "Set
+    /// Value"); a number the same with the numbers keyboard; a choice's row gives the system's menu;
+    /// a switch flips on a tap; a drag on a number scrubs it.
+    @MainActor
+    func testInlineEdits() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
+        try? FileManager.default.removeItem(atPath: statusPath)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--then", "zoom:1.5:w"]
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready, at 1.5", timeout: 60) { ($0["ready"] as? Bool) == true && abs((($0["zoom"] as? Double) ?? 0) - 1.5) < 0.01 && $0["rows"] != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        func at(_ p: CGPoint) -> XCUICoordinate { origin.withOffset(CGVector(dx: p.x, dy: p.y)) }
+
+        // a text: tap, the field with the keyboard up and the row above it, type, Done
+        let (label, _) = try XCTUnwrap(row("w", 1))
+        at(label).tap()
+        wait("the text field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "text" }
+        let field = app.textFields["row-editor"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.typeText("hello iPad")
+        wait("the keyboard up, the field above it", timeout: 10) { w in
+            guard let e = w["editor"] as? [String: Any], let top = e["keyboardTop"] as? Double, let f = e["frame"] as? [Double] else { return false }
+            return f[1] + f[3] <= top
+        }
+        shot("n4s2-ui-text-keyboard")
+        app.buttons["row-editor-done"].tap()
+        wait("the label set, one undo step") { _ in self.value("w", 1) == "hello iPad" }
+        wait("its undo name") { ($0["undo"] as? String) == "Set Value" }
+        wait("the field gone") { (($0["editor"] as? [String: Any])?["open"] as? Bool) == false }
+        shot("n4s2-ui-text-set")
+
+        // a number: the numbers keyboard; past its range it is held there by the core
+        let (count, _) = try XCTUnwrap(row("w", 2))
+        at(count).tap()
+        wait("the number field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "number" }
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        field.typeText("7")
+        shot("n4s2-ui-number-keyboard")
+        app.buttons["row-editor-done"].tap()
+        wait("count set to 7") { _ in self.value("w", 2) == "7" }
+
+        // a choice: the system's menu on the row
+        let (mode, _) = try XCTUnwrap(row("w", 5))
+        at(mode).tap()
+        let title = app.buttons["title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 10), "the choices' menu")
+        shot("n4s2-ui-choice-menu")
+        title.tap()
+        wait("mode set to title") { _ in self.value("w", 5) == "title" }
+
+        // a switch flips on a tap
+        let (flag, before) = try XCTUnwrap(row("w", 4))
+        XCTAssertEqual(before, "on")
+        at(flag).tap()
+        wait("flag off") { _ in self.value("w", 4) == "off" }
+
+        // a number scrubbed by a drag on its row: amount, 0.50, moves up with a drag right
+        let (amount, a0) = try XCTUnwrap(row("w", 3))
+        XCTAssertEqual(a0, "0.50")
+        at(amount).press(forDuration: 0.05, thenDragTo: at(CGPoint(x: amount.x + 90, y: amount.y)))
+        wait("amount scrubbed up") { _ in (Double(self.value("w", 3) ?? "") ?? 0) > 0.5 }
+        shot("n4s2-ui-after-scrub")
+
+        // the more-button: the system's menu with the node's items
+        if let p = ((window()["points"] as? [String: Any])?["w"] as? [String: Any])?["more"] as? [Double], p.count == 2 {
+            at(CGPoint(x: p[0], y: p[1])).tap()
+            let dup = app.buttons["Duplicate"]
+            XCTAssertTrue(dup.waitForExistence(timeout: 10), "the node's menu from the more-button")
+            shot("n4s2-ui-more-menu")
+            app.tap()
+        } else {
+            XCTFail("no more-button in the status")
+        }
+    }
 }

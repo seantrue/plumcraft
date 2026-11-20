@@ -73,7 +73,7 @@ func canvasOnCore(_ name: String) async throws -> (PlumCore, DocumentModel, Laye
 /// Until the model has `faces` faces and the canvas has laid out, reported and drawn them all.
 @MainActor
 func settled(_ model: DocumentModel, _ canvas: LayerCanvas, faces: Int, wires: Int = 0) async -> Bool {
-    await until { model.faces.count == faces && canvas.faceCount == faces && model.wires.count == wires && canvas.allMeasured && canvas.idle }
+    await until { model.faces.count == faces && canvas.faceCount == faces && model.wires.count == wires && canvas.allMeasured && canvas.idle && !canvas.settlePending }
 }
 
 @MainActor
@@ -258,7 +258,14 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         let b = try await add(model, "text.upper", 400, 0)
         _ = try await model.run("wire.connect", ["from": ["node": .string(a), "port": "text"], "to": ["node": .string(b), "port": "text"]])
         #expect(await settled(model, canvas, faces: 2, wires: 1))
-        let drawnBefore = canvas.counts.facesDrawn
+        // the faces' icons arrive from the core after they are first drawn, and draw them again
+        // (N4 slice 2): the count is read once it has held for a moment
+        var drawnBefore = canvas.counts.facesDrawn
+        for _ in 0..<40 {
+            try await Task.sleep(for: .milliseconds(100))
+            if canvas.counts.facesDrawn == drawnBefore && canvas.idle && !canvas.settlePending { break }
+            drawnBefore = canvas.counts.facesDrawn
+        }
         let link = CanvasLink(model: model)
         let at = try await link.locate(["node": .string(b), "part": "header"]).at
         try await link.tap(at, slop: 2)

@@ -630,6 +630,11 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             Some(v) => ok(v),
             None => err(not_here("theme.get")),
         },
+        // the node icons' SVGs, for a shell that draws them itself (N4 slice 2)
+        "icon.get" => match crate::icons::reply(params) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         // the log (N1 slice 8): read it, or add the shell's own entry
         "log.tail" => match crate::log::tail_request(params) {
             Ok(v) => ok(v),

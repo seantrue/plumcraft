@@ -20,6 +20,8 @@ pub const TEXT: &str = core_types::TEXT;
 pub const STRING: &str = "STRING";
 pub const INT: &str = "INT";
 pub const FLOAT: &str = "FLOAT";
+pub const BOOL: &str = "BOOL";
+pub const ENUM: &str = "ENUM";
 pub const TABLE: &str = core_types::TABLE;
 pub const ARRAY: &str = plumcraft_proto::catalogue::core_types::ARRAY;
 
@@ -75,6 +77,8 @@ pub fn engine() -> Engine {
         .with_wire_type(WireType { id: STRING.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(WireType { id: INT.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(WireType { id: FLOAT.into(), media: Media::Scalar, ..Default::default() })
+        .with_wire_type(WireType { id: BOOL.into(), media: Media::Scalar, ..Default::default() })
+        .with_wire_type(WireType { id: ENUM.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(core_types::table())
         .with_wire_type(core_types::array())
         .with_wire_type(core_types::json());
@@ -134,6 +138,7 @@ fn nodes() -> Vec<Box<dyn Node>> {
             f: |_| Err(NodeError::new(NodeError::OP, "this node always fails")),
         }),
         Box::new(Slow),
+        Box::new(Widgets),
         Box::new(Simple {
             id: "text.repeat",
             display: "Repeat",
@@ -268,6 +273,87 @@ impl Node for Simple {
     fn run(&self, inputs: &Inputs, _cx: &mut Cx) -> Result<Outputs, NodeError> {
         Ok(Outputs::from([(out_port(self.output).to_owned(), (self.f)(inputs)?)]))
     }
+}
+
+/// Every kind of widget a face can hold, for the editors' inline-edit tests (N4 slice 2): a text,
+/// a whole and a fractional number with their ranges, a switch, a choice, several choices,
+/// several lines and a colour. It says what it was given, one line a setting (as the Python
+/// engine's `widgets_text`).
+struct Widgets;
+
+impl Node for Widgets {
+    fn def(&self) -> NodeDef {
+        let hint = |name: &str, widget: &str, default: Value| Port { widget: Some(widget.into()), ..self::widget(name, STRING, default) };
+        NodeDef {
+            id: "text.widgets".into(),
+            display: "Every widget".into(),
+            category: vec!["Text".into(), "Testing".into()],
+            inputs: vec![
+                socket("text"),
+                self::widget("label", STRING, json!("hello")),
+                Port { min: Some(0.0), max: Some(10.0), step: Some(1.0), ..self::widget("count", INT, json!(3)) },
+                Port { min: Some(0.0), max: Some(1.0), decimals: Some(2), ..self::widget("amount", FLOAT, json!(0.5)) },
+                self::widget("flag", BOOL, json!(true)),
+                Port { choices: Some(vec![json!("upper"), json!("lower"), json!("title")]), ..self::widget("mode", ENUM, json!("upper")) },
+                hint("tags", "multichoice", json!("")),
+                hint("note", "multiline", json!("")),
+                hint("tint", "hexcolor", json!("#3366cc")),
+            ],
+            outputs: vec![Port { name: "text".into(), ty: TEXT.into(), ..Default::default() }],
+            family: "text".into(),
+            ..Default::default()
+        }
+    }
+
+    fn run(&self, inputs: &Inputs, _cx: &mut Cx) -> Result<Outputs, NodeError> {
+        let json_of = |k: &str| inputs.get(k).and_then(Data::json).cloned().unwrap_or(Value::Null);
+        let text = s(inputs, "text");
+        let flag = json_of("flag").as_bool().unwrap_or(true);
+        let mode = s(inputs, "mode");
+        let shown = if !flag {
+            text.clone()
+        } else {
+            match mode.as_str() {
+                "upper" => text.to_uppercase(),
+                "lower" => text.to_lowercase(),
+                "title" => title_case(&text),
+                _ => text.clone(),
+            }
+        };
+        let count = json_of("count");
+        let amount = json_of("amount").as_f64().unwrap_or(0.0);
+        let out = format!(
+            "{}: {shown}\ncount={} amount={amount:.2} flag={} mode={mode}\ntags={} tint={}\n{}",
+            s(inputs, "label"),
+            count.as_i64().map_or_else(|| count.to_string(), |n| n.to_string()),
+            if flag { "on" } else { "off" },
+            s(inputs, "tags"),
+            s(inputs, "tint"),
+            s(inputs, "note"),
+        );
+        Ok(Outputs::from([("text".to_owned(), Data::Json(json!(out)))]))
+    }
+}
+
+/// Python's `str.title` for the Latin letters: each run of letters starts upper case, the rest
+/// lower.
+fn title_case(t: &str) -> String {
+    let mut out = String::with_capacity(t.len());
+    let mut in_word = false;
+    for c in t.chars() {
+        if c.is_alphabetic() {
+            if in_word {
+                out.extend(c.to_lowercase());
+            } else {
+                out.extend(c.to_uppercase());
+            }
+            in_word = true;
+        } else {
+            out.push(c);
+            in_word = false;
+        }
+    }
+    out
 }
 
 /// Passes text through after `seconds`, reporting progress in tenths and stopping early on

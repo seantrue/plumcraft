@@ -264,6 +264,8 @@ pub struct Document {
     /// The node palette while it is open (`canvas.palette`, `palette.choose`; core state since N3
     /// slice 1): the scene's `view.palette`.
     pub palette: Option<crate::scene::Palette>,
+    /// The row a field editor is open on (`row.edit`, N4 slice 2): the scene's `view.edit`.
+    pub editing: Option<crate::inline::RowEdit>,
     /// The latest snapshot, for readers on other threads (the C ABI's hot calls), set as it is made.
     pub snapshot_out: crate::geometry::SnapshotCell,
     /// The run animation ([`crate::run_anim`]): each node's body washed by its state while a run
@@ -342,6 +344,7 @@ impl Document {
             snapshot: std::sync::Arc::default(),
             drag: crate::gesture::DragCell::default(),
             palette: None,
+            editing: None,
             snapshot_out: crate::geometry::SnapshotCell::default(),
         }
     }
@@ -567,6 +570,10 @@ impl Document {
         if self.focus.as_ref().is_some_and(|f| g.group(f).is_none()) {
             self.focus = None;
         }
+        // the field editor's row goes with its node
+        if self.editing.as_ref().is_some_and(|e| !g.nodes.contains_key(&plumcraft_graph::NodeId::from(e.node.as_str()))) {
+            self.editing = None;
+        }
     }
 
     /// What Ungroup acts on: the first selected collapsed group, else the innermost group of the
@@ -784,6 +791,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.geometry.clear();
         d.drag.set(None);
         d.palette = None;
+        d.editing = None;
         let graph = d.session.graph();
         d.fit_owed = !graph.nodes.is_empty() || !graph.frames.is_empty();
     } else {
@@ -1294,7 +1302,7 @@ impl Document {
             now: std::time::Instant::now(),
             app_text,
             editors,
-            view: crate::scene::View { fit: self.fit.clone(), palette: self.palette.clone() },
+            view: crate::scene::View { fit: self.fit.clone(), palette: self.palette.clone(), edit: self.editing.clone() },
             geometry: Some(&self.geometry),
         }
     }

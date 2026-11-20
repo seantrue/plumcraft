@@ -238,6 +238,88 @@ pub fn plain_chain(from: Point, to: Point) -> Vec<Point> {
     out
 }
 
+/// How far a wire routed backward keeps from the faces it leaves and enters (graph units).
+pub const BACK_CLEAR: f32 = 24.0;
+/// The radius of a routed backward wire's corners (graph units; less where a leg is short).
+pub const BACK_CORNER: f32 = 12.0;
+/// A quarter circle's cubic control distance, a radius's fraction.
+const KAPPA: f32 = 0.552_284_8;
+
+/// A wire that runs right to left (its input left of its output, N4 slice 2; the maintainer, N3
+/// exit card 13: "Lay out engine could also add bend points on wires going right to left so as
+/// to clear the corners of the sending and receiving nodes"): instead of egui-snarl's S-curve,
+/// which cuts across both faces, it leaves its output to the right, turns, runs along a channel
+/// clear of both faces, and comes into its input from the left, with rounded corners. The
+/// channel is midway between the faces when one is wholly above the other, else below both or
+/// above both, whichever is the shorter way. `a` and `b` are the source's and the target's faces.
+/// None when the wire runs left to right (a plain wire's curve is used), or a rect isn't a
+/// number. The chain is cubic, as every chain: straight legs and quarter turns, at most nine.
+pub fn backward_chain(from: Point, to: Point, a: Rect, b: Rect) -> Option<Vec<Point>> {
+    let all = [from.x, from.y, to.x, to.y, a.min.x, a.min.y, a.max.x, a.max.y, b.min.x, b.min.y, b.max.x, b.max.y];
+    if !all.iter().all(|v| v.is_finite()) || to.x >= from.x {
+        return None;
+    }
+    let x1 = from.x.max(a.max.x) + BACK_CLEAR;
+    let x2 = to.x.min(b.min.x) - BACK_CLEAR;
+    let y = if b.min.y >= a.max.y {
+        (a.max.y + b.min.y) / 2.0
+    } else if b.max.y <= a.min.y {
+        (b.max.y + a.min.y) / 2.0
+    } else {
+        let below = a.max.y.max(b.max.y) + BACK_CLEAR;
+        let above = a.min.y.min(b.min.y) - BACK_CLEAR;
+        let cost = |c: f32| (from.y - c).abs() + (to.y - c).abs();
+        if cost(above) < cost(below) { above } else { below }
+    };
+    let corners = [from, Point::new(x1, from.y), Point::new(x1, y), Point::new(x2, y), Point::new(x2, to.y), to];
+    Some(rounded(&corners, BACK_CORNER))
+}
+
+/// A polyline as a cubic chain: its legs straight, its corners rounded to radius `r` (less on a
+/// short leg); points that repeat or lie on a line are left out.
+pub fn rounded(points: &[Point], r: f32) -> Vec<Point> {
+    let mut pts: Vec<Point> = Vec::with_capacity(points.len());
+    for p in points.iter().copied().map(tame) {
+        if pts.last().is_some_and(|l: &Point| l.distance(p) < 1e-3) {
+            continue;
+        }
+        // a point on the line through the two before it is no corner
+        if pts.len() >= 2 {
+            let (a, b) = (pts[pts.len() - 2], pts[pts.len() - 1]);
+            let (u, v) = (b - a, p - b);
+            if (u.x * v.y - u.y * v.x).abs() < 1e-3 && u.x * v.x + u.y * v.y > 0.0 {
+                pts.pop();
+            }
+        }
+        pts.push(p);
+    }
+    let Some(&first) = pts.first() else { return Vec::new() };
+    let mut out = vec![first];
+    let line = |out: &mut Vec<Point>, to: Point| {
+        if let Some(&at) = out.last() {
+            out.push(tame(lerp(at, to, 1.0 / 3.0)));
+            out.push(tame(lerp(at, to, 2.0 / 3.0)));
+            out.push(tame(to));
+        }
+    };
+    for k in 1..pts.len() {
+        let p = pts[k];
+        if k + 1 == pts.len() {
+            line(&mut out, p);
+            break;
+        }
+        let (prev, next) = (pts[k - 1], pts[k + 1]);
+        let (din, dout) = (normalized(p - prev), normalized(next - p));
+        let rk = r.min((p - prev).length() / 2.0).min((next - p).length() / 2.0).max(0.0);
+        let (s, e) = (p - din * rk, p + dout * rk);
+        line(&mut out, s);
+        out.push(tame(s + din * (rk * KAPPA)));
+        out.push(tame(e - dout * (rk * KAPPA)));
+        out.push(tame(e));
+    }
+    out
+}
+
 /// The distance from `p` to a chain (each cubic sampled [`STEPS`] times); infinite for no chain,
 /// and for a lone point its distance.
 pub fn chain_distance(chain: &[Point], p: Point) -> f32 {
@@ -316,6 +398,55 @@ pub fn as_point(v: &[i32; 2]) -> Point {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn rect(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
+        Rect::from_min_max(Point::new(x0, y0), Point::new(x1, y1))
+    }
+
+    /// Does the chain stay out of `r` (sampled)?
+    fn clear_of(chain: &[Point], r: Rect) -> bool {
+        sample_chain(chain).iter().all(|p| !(p.x > r.min.x + 0.5 && p.x < r.max.x - 0.5 && p.y > r.min.y + 0.5 && p.y < r.max.y - 0.5))
+    }
+
+    #[test]
+    fn a_wire_running_right_to_left_clears_both_faces() {
+        // the target below and left of the source: the channel runs between them
+        let (a, b) = (rect(300.0, 0.0, 500.0, 120.0), rect(0.0, 200.0, 180.0, 320.0));
+        let (from, to) = (Point::new(500.0, 60.0), Point::new(0.0, 240.0));
+        let c = backward_chain(from, to, a, b).unwrap();
+        assert_eq!((c.len() - 1) % 3, 0, "a cubic chain");
+        assert_eq!((c[0], *c.last().unwrap()), (from, to));
+        assert!(clear_of(&c, a) && clear_of(&c, b), "{c:?}");
+        let (lo, hi) = c.iter().fold((f32::MAX, f32::MIN), |(lo, hi), p| (lo.min(p.y), hi.max(p.y)));
+        assert!(lo >= 60.0 - 1e-3 && hi <= 240.0 + 1e-3, "no detour above or below: {lo}..{hi}");
+        // leaves to the right and enters from the left, level
+        assert!(c[1].x > from.x && (c[1].y - from.y).abs() < 1e-3);
+        let n = c.len();
+        assert!(c[n - 2].x < to.x && (c[n - 2].y - to.y).abs() < 1e-3);
+        // stacked: the target straight below the source, its input left of the output
+        let (a, b) = (rect(0.0, 0.0, 200.0, 100.0), rect(0.0, 160.0, 200.0, 260.0));
+        let c = backward_chain(Point::new(200.0, 50.0), Point::new(0.0, 200.0), a, b).unwrap();
+        assert!(clear_of(&c, a) && clear_of(&c, b), "stacked: {c:?}");
+        // a node directly behind (overlapping heights): round below or above, whichever is shorter
+        let (a, b) = (rect(400.0, 0.0, 600.0, 100.0), rect(0.0, 20.0, 200.0, 140.0));
+        let c = backward_chain(Point::new(600.0, 80.0), Point::new(0.0, 100.0), a, b).unwrap();
+        assert!(clear_of(&c, a) && clear_of(&c, b), "behind: {c:?}");
+        assert!(c.iter().any(|p| p.y >= 140.0 + BACK_CLEAR - 1e-3), "below both: {c:?}");
+        let c = backward_chain(Point::new(600.0, 10.0), Point::new(0.0, 30.0), a, b).unwrap();
+        assert!(c.iter().any(|p| p.y <= -BACK_CLEAR + 1e-3), "above both, nearer: {c:?}");
+        // left to right is no routed wire; a NaN is none either
+        assert!(backward_chain(Point::new(0.0, 0.0), Point::new(10.0, 0.0), a, b).is_none());
+        assert!(backward_chain(Point::new(f32::NAN, 0.0), Point::new(-10.0, 0.0), a, b).is_none());
+    }
+
+    #[test]
+    fn a_polyline_is_rounded_into_cubics() {
+        let c = rounded(&[Point::new(0.0, 0.0), Point::new(50.0, 0.0), Point::new(100.0, 0.0), Point::new(100.0, 80.0)], 12.0);
+        // the middle point is on a line: a leg, a corner, a leg
+        assert_eq!(c.len(), 1 + 3 * 3, "{c:?}");
+        assert!(rounded(&[], 5.0).is_empty());
+        assert_eq!(rounded(&[Point::new(1.0, 1.0), Point::new(1.0, 1.0)], 5.0), vec![Point::new(1.0, 1.0)]);
+    }
 
     #[test]
     fn the_curve_passes_through_its_points_and_leaves_pins_level() {

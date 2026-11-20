@@ -19,7 +19,8 @@ public enum FaceRenderer {
     }
 
     /// Draw `face` laid out as `layout` at `scale` pixels per graph unit.
-    public static func render(_ face: Face, _ layout: FaceLayout, colors: CanvasColors, fonts: FaceFonts = .standard, scale: CGFloat) -> CGImage? {
+    public static func render(_ face: Face, _ layout: FaceLayout, colors: CanvasColors, fonts: FaceFonts = .standard, scale: CGFloat,
+                              icon: IconPath? = nil) -> CGImage? {
         let m = FaceMetrics.margin
         let W = layout.size.width
         let H = layout.size.height
@@ -35,7 +36,7 @@ public enum FaceRenderer {
         ctx.translateBy(x: m, y: m)
         ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
         ctx.setShouldSmoothFonts(false)
-        draw(face, layout, colors: colors, fonts: fonts, in: ctx)
+        draw(face, layout, colors: colors, fonts: fonts, icon: icon, in: ctx)
         return ctx.makeImage()
     }
 
@@ -56,7 +57,7 @@ public enum FaceRenderer {
         }
     }
 
-    static func draw(_ face: Face, _ L: FaceLayout, colors C: CanvasColors, fonts F: FaceFonts, in ctx: CGContext) {
+    static func draw(_ face: Face, _ L: FaceLayout, colors C: CanvasColors, fonts F: FaceFonts, icon: IconPath? = nil, in ctx: CGContext) {
         let W = L.size.width
         let H = L.size.height
         let r = FaceMetrics.corner
@@ -96,6 +97,7 @@ public enum FaceRenderer {
         }
 
         header(face, L, C, F, ctx)
+        headerButtons(L, C, icon, ctx)
         if !L.collapsed {
             rows(face, L, C, F, ctx)
             if let p = L.preview {
@@ -162,6 +164,30 @@ public enum FaceRenderer {
         }
     }
 
+    /// The node's icon (the pack's Lucide icon, stroked in its 24-unit box at the icon's size) and
+    /// the more-button's three dots (N4 slice 2).
+    static func headerButtons(_ L: FaceLayout, _ C: CanvasColors, _ icon: IconPath?, _ ctx: CGContext) {
+        let ink = C.headerText
+        if let r = L.icon, let icon {
+            ctx.saveGState()
+            ctx.translateBy(x: r.minX, y: r.minY)
+            ctx.scaleBy(x: r.width / 24, y: r.height / 24)
+            ctx.addPath(icon.path)
+            ctx.setStrokeColor(ink.copy(alpha: 0.85) ?? ink)
+            ctx.setLineWidth(2)
+            ctx.setLineCap(.round)
+            ctx.setLineJoin(.round)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        if let m = L.more {
+            ctx.setFillColor(ink.copy(alpha: 0.7) ?? ink)
+            for k in -1...1 {
+                ctx.fillEllipse(in: CGRect(x: m.midX - 1.4, y: m.midY + CGFloat(k) * 4.2 - 1.4, width: 2.8, height: 2.8))
+            }
+        }
+    }
+
     static func rows(_ face: Face, _ L: FaceLayout, _ C: CanvasColors, _ F: FaceFonts, _ ctx: CGContext) {
         for (k, r) in face.inputs.enumerated() where k < L.inputRows.count {
             let row = L.inputRows[k]
@@ -198,6 +224,16 @@ public enum FaceRenderer {
         let ink = w.blank ? C.textFaint : C.text
         switch w.kind.word {
         case .toggle?:
+            #if os(iOS)
+            // a switch, as UIKit draws one: a capsule, the knob at the end it is set to
+            let on = w.value.bool ?? w.default.bool ?? false
+            let cap = CGPath(roundedRect: rect, cornerWidth: rect.height / 2, cornerHeight: rect.height / 2, transform: nil)
+            ctx.addPath(cap); ctx.setFillColor(on ? C.accent : C.fieldBorder); ctx.fillPath()
+            let d = rect.height - 3
+            let kx = on ? rect.maxX - d - 1.5 : rect.minX + 1.5
+            ctx.setFillColor(CGColor(srgbRed: 1, green: 1, blue: 1, alpha: 1))
+            ctx.fillEllipse(in: CGRect(x: kx, y: rect.minY + 1.5, width: d, height: d))
+            #else
             ctx.addPath(box); ctx.setFillColor(w.value.bool == true ? C.accent : C.field); ctx.fillPath()
             ctx.addPath(box); ctx.setStrokeColor(C.fieldBorder); ctx.setLineWidth(1); ctx.strokePath()
             if w.value.bool == true {
@@ -205,6 +241,7 @@ public enum FaceRenderer {
                 ctx.move(to: CGPoint(x: rect.minX + 3, y: rect.midY)); ctx.addLine(to: CGPoint(x: rect.minX + 6, y: rect.maxY - 3.5))
                 ctx.addLine(to: CGPoint(x: rect.maxX - 3, y: rect.minY + 3.5)); ctx.strokePath()
             }
+            #endif
         case .color?:
             ctx.addPath(box); ctx.setFillColor(FaceLayout.widgetColor(w) ?? C.field); ctx.fillPath()
             ctx.addPath(box); ctx.setStrokeColor(C.fieldBorder); ctx.setLineWidth(1); ctx.strokePath()
@@ -224,7 +261,12 @@ public enum FaceRenderer {
                 ctx.move(to: CGPoint(x: c.x - 3, y: c.y - 1.5)); ctx.addLine(to: CGPoint(x: c.x, y: c.y + 1.5)); ctx.addLine(to: CGPoint(x: c.x + 3, y: c.y - 1.5))
                 ctx.setStrokeColor(C.textDim); ctx.setLineWidth(1.2); ctx.strokePath()
             case .multiline?:
-                for (i, line) in FaceLayout.wrap(value, F.mono, rect.width - 10, 3).enumerated() {
+                // its own lines kept, each wrapped, three at most
+                let lines = value.split(separator: "\n", omittingEmptySubsequences: false).flatMap { l -> [String] in
+                    let w = FaceLayout.wrap(String(l), F.mono, rect.width - 10, 3)
+                    return w.isEmpty ? [""] : w
+                }
+                for (i, line) in lines.prefix(3).enumerated() {
                     text(line, F.mono, ink, x: rect.minX + 5, baseline: rect.minY + 13 + CGFloat(i) * 14, in: ctx)
                 }
             case .path?:

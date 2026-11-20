@@ -122,6 +122,10 @@ pub struct View {
     /// question 4). Left out while it is closed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub palette: Option<Palette>,
+    /// The row a field editor is open on (`row.edit`, N4 slice 2): the shell puts its native
+    /// control over it. Left out while none is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edit: Option<crate::inline::RowEdit>,
 }
 
 /// The node palette as the core keeps it (N3 slice 1): where a node picked goes, what was typed,
@@ -894,6 +898,13 @@ pub fn faces(i: &Inputs<'_>) -> Vec<Face> {
     faces_in(&cx)
 }
 
+/// Node `id`'s own face, shown or not (a member of a collapsed group, outside the group
+/// entered): what `row.set` reads a row's widget from.
+pub fn face_of_node(i: &Inputs<'_>, id: &NodeId) -> Option<Face> {
+    let cx = Ctx::new(i);
+    i.graph.node(id).map(|node| node_face(&cx, id, node))
+}
+
 fn faces_in(cx: &Ctx<'_>) -> Vec<Face> {
     let mut nodes = Vec::new();
     for (id, node) in &cx.i.graph.nodes {
@@ -906,7 +917,61 @@ fn faces_in(cx: &Ctx<'_>) -> Vec<Face> {
             nodes.push(f);
         }
     }
+    make_room(cx, &mut nodes);
     nodes
+}
+
+/// The gap a face pushed out of another's way keeps from it (graph units).
+pub const ROOM_GAP: f32 = 16.0;
+/// The most passes [`make_room`] makes (each settles the overlaps the one before made).
+pub const ROOM_PASSES: usize = 8;
+
+/// Faces never overlap (N4 slice 2, the maintainer's N3 exit decision 13: "Nodes that grow
+/// after a run overlap their neighbours: Fix in N4"). Where two measured faces overlap, the
+/// lower one (the later by top, then left, then id) is pushed out of the way: right when it
+/// stands to the right of the other and that is the shorter way, else down, keeping
+/// [`ROOM_GAP`]; a face pushed may push the next. The push is the view's, not the graph's: a
+/// face's `pos` in the scene is where it is shown, its node's position is untouched, so a run
+/// that grows a face changes nothing of the document (no undo step, nothing to save), and when
+/// the face shrinks again the push goes. A drag or a nudge moves a face from where it is shown
+/// (the gesture's `edit.move` names the shown place plus the offset). Faces not measured yet are
+/// left where they are (their size is a guess).
+fn make_room(cx: &Ctx<'_>, nodes: &mut [Face]) {
+    use crate::plain::{Point, Rect};
+    let mut rects: Vec<Option<Rect>> = nodes.iter().map(|f| cx.measured(&f.id).map(|g| crate::geometry::face_rect(f.pos, Some(g)))).collect();
+    let mut shift = vec![[0.0f32; 2]; nodes.len()];
+    let mut any = false;
+    for _ in 0..ROOM_PASSES {
+        let mut order: Vec<usize> = (0..nodes.len()).filter(|k| rects.get(*k).is_some_and(Option::is_some)).collect();
+        let key = |k: usize| rects.get(k).copied().flatten().map_or((0.0, 0.0), |r| (r.min.y, r.min.x));
+        order.sort_by(|a, b| key(*a).partial_cmp(&key(*b)).unwrap_or(std::cmp::Ordering::Equal).then_with(|| nodes[*a].id.cmp(&nodes[*b].id)));
+        let mut changed = false;
+        for (oi, &b) in order.iter().enumerate() {
+            for &a in &order[..oi] {
+                let (Some(ra), Some(rb)) = (rects[a], rects[b]) else { continue };
+                let overlaps = ra.min.x < rb.max.x && rb.min.x < ra.max.x && ra.min.y < rb.max.y && rb.min.y < ra.max.y;
+                if !overlaps || ra.width() <= 0.0 || ra.height() <= 0.0 || rb.width() <= 0.0 || rb.height() <= 0.0 {
+                    continue;
+                }
+                let dx = ra.max.x - rb.min.x + ROOM_GAP;
+                let dy = ra.max.y - rb.min.y + ROOM_GAP;
+                let by = if rb.min.x > ra.min.x && dx < dy { Point::new(dx, 0.0) } else { Point::new(0.0, dy) };
+                rects[b] = Some(Rect::from_min_max(rb.min + by, rb.max + by));
+                shift[b][0] += by.x;
+                shift[b][1] += by.y;
+                changed = true;
+            }
+        }
+        any |= changed;
+        if !changed {
+            break;
+        }
+    }
+    if any {
+        for (f, s) in nodes.iter_mut().zip(shift) {
+            f.pos = [crate::wire_path::coord(f.pos[0] + s[0]), crate::wire_path::coord(f.pos[1] + s[1])];
+        }
+    }
 }
 
 /// Build the scene (generation 0, full).
@@ -1552,7 +1617,7 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face], rects: &HashMap<&str, crate::pla
             (Some(a), Some(b)) => {
                 let from = crate::geometry::pin_point(*a, cx.measured(&from_face), true, from_pin);
                 let to = crate::geometry::pin_point(*b, cx.measured(&to_face), false, to_pin);
-                crate::geometry::chain_json(&crate::geometry::wire_chain(kind, from, to, &w.via))
+                crate::geometry::chain_json(&crate::geometry::wire_chain(kind, from, to, &w.via, Some((*a, *b))))
             }
             _ => Vec::new(),
         };
@@ -2304,7 +2369,7 @@ mod tests {
             ),
         );
         m.set(&o1.0, crate::geometry::FaceGeometry::sized([180.0, 90.0], &[], &[36.0, 58.0, 80.0]));
-        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }), palette: None };
+        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }), palette: None, edit: None };
         let with = |i: Inputs<'_>| -> Scene {
             let mut i = i;
             i.geometry = Some(&m);

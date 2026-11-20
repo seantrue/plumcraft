@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N4 slice 2: editing values on a node's face (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The maintainer, after using the iPad app: "App looks good, cant edit text values". Also from the N3 exit: nodes that grow after a run must not overlap their neighbours, wires going right to left could bend "so as to clear the corners of the sending and receiving nodes", and icons and the more-button. The maintainer tried slice 1's Mac build by hand (wire drags, the filtered palette): "Looks good."
+
+**What the agent did (~1,900 LOC of Swift, ~1,600 lines of Rust and ~30 of Python added, tests included).** In the core, which row is being edited and every value check (`row.edit`, `row.set`): numbers parsed and held to their range with a note, choices checked, one undo step per accepted value; a drag on a number's row is a scrub, decided by the core's gesture arbiter. In the kit, one native control at a time placed over the row, for text, several lines, numbers, switches, choices, paths and colours, with the keyboard bar and scrolling on the iPad. The core shows overlapping faces pushed apart without changing the graph, its history or its dirty state. Backward wires route round both faces in up to nine cubics, within the existing path format, and hit testing follows them. Icons moved into the core and are served to shells; the more-button opens the core's node menu. Six new conformance cases (30 in all); both apps pass 30 of 30. A test node with every widget kind in the Rust and Python text engines.
+
+**Defects in the agent's work, caught by its tests.** Two older conformance cases broke when the apps began reporting header parts; a race between icons arriving and a face's first draw; a value showing through a pop-up; a multi-line value flattened.
+
+**Against the maintainer's rule.** The agent wrote the iPad's Select mode and Share into the contract as shell-side. The maintainer had said "No exceptions to the rule"; the controller is having both made core commands in the next slice.
+
+**Open.** The egui editor draws neither the push nor the routed wires, while the core hit-tests the routed shape, so a click on a backward wire in egui can miss. `scrolling_in_past_the_picture_asks_for_detail_once` failed once under the full parallel run (B40), and B37 was seen again.
+
+**Not verified.** Real typing on the Mac: the agent filled fields through the kit with the app in the background, so as to put nothing on the maintainer's screen. Nothing on an iPad device. The controller looked at two pictures (routes and a grown node).
+
 ### 2026-11-20 — N4 slice 1: the editing gestures and the palette (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The first of six N4 slices: dragging nodes, wiring, the marquee and the node palette in both Swift apps, following the maintainer's N2 and N3 exit decisions. During the slice the maintainer ruled on Run Selected, which an agent had built inside the two apps: "Do it. No exceptions to the rule. Unless I change my mind." (the rule being that everything is a command). The controller had offered leaving it in the apps as an option, which the rule already excluded.

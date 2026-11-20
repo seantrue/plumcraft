@@ -243,7 +243,7 @@ public struct Located: Codable, Hashable, Sendable {
 
 public enum GestureWord: String, Sendable, CaseIterable { case tap, doubleTap, context, longPress, drag, marquee }
 public enum PhaseWord: String, Sendable, CaseIterable { case begin, move, end, cancel }
-public enum DragWord: String, Sendable, CaseIterable { case move, wire, marquee, bend, frame, resize, group }
+public enum DragWord: String, Sendable, CaseIterable { case move, wire, marquee, bend, frame, resize, group, scrub }
 
 /// A recognised gesture, in graph units (`ui.gesture`'s params).
 public struct Gesture: Hashable, Sendable {
@@ -254,16 +254,20 @@ public struct Gesture: Hashable, Sendable {
     public var mods: [ModifierWord]
     /// The hit distance in graph units: the target size over the zoom. Nil: the core's 12.
     public var slop: Double?
+    /// The view's zoom (screen points a graph unit): a scrub moves by screen points. Nil: 1.
+    public var zoom: Double?
 
-    public init(_ kind: GestureWord, phase: PhaseWord? = nil, at: Point?, to: Point? = nil, mods: [ModifierWord] = [], slop: Double? = nil) {
-        self.kind = kind; self.phase = phase; self.at = at; self.to = to; self.mods = mods; self.slop = slop
+    public init(_ kind: GestureWord, phase: PhaseWord? = nil, at: Point?, to: Point? = nil, mods: [ModifierWord] = [], slop: Double? = nil, zoom: Double? = nil) {
+        self.kind = kind; self.phase = phase; self.at = at; self.to = to; self.mods = mods; self.slop = slop; self.zoom = zoom
     }
 
     public static func tap(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) -> Gesture { Gesture(.tap, at: at, mods: mods, slop: slop) }
     public static func doubleTap(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) -> Gesture { Gesture(.doubleTap, at: at, mods: mods, slop: slop) }
     public static func context(_ at: Point, slop: Double? = nil) -> Gesture { Gesture(.context, at: at, slop: slop) }
     public static func marquee(_ from: Point, _ to: Point, mods: [ModifierWord] = []) -> Gesture { Gesture(.marquee, at: from, to: to, mods: mods) }
-    public static func dragBegin(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) -> Gesture { Gesture(.drag, phase: .begin, at: at, mods: mods, slop: slop) }
+    public static func dragBegin(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil, zoom: Double? = nil) -> Gesture {
+        Gesture(.drag, phase: .begin, at: at, mods: mods, slop: slop, zoom: zoom)
+    }
     /// A drag's move as JSON (a shell sends moves typed, `CanvasLink.dragMove`, never this).
     public static func dragMove(_ at: Point, slop: Double? = nil) -> Gesture { Gesture(.drag, phase: .move, at: at, slop: slop) }
     public static func dragEnd(_ at: Point, slop: Double? = nil) -> Gesture { Gesture(.drag, phase: .end, at: at, slop: slop) }
@@ -276,6 +280,7 @@ public struct Gesture: Hashable, Sendable {
         if let to { o["to"] = to.json }
         if !mods.isEmpty { o["mods"] = .array(mods.map { .string($0.rawValue) }) }
         if let slop { o["slop"] = .double(slop) }
+        if let zoom { o["zoom"] = .double(zoom) }
         return .object(o)
     }
 }
@@ -299,6 +304,9 @@ public struct DragBegun: Codable, Hashable, Sendable {
     public var from: JSONValue?
     /// A wired input's wire picked up.
     public var picked: PortRef?
+    /// A scrub's row (`{node, port, face, index}`) and its value when it began.
+    public var row: JSONValue?
+    public var value: Double?
 }
 
 /// Where a drag is (`ui.gesture`'s move, or the typed `plum_gesture_move`).
@@ -309,6 +317,8 @@ public struct DragUpdate: Codable, Hashable, Sendable {
     public var rect: Rect?
     public var touches: [String]?
     public var target: Hit?
+    /// A scrub's value now.
+    public var value: Double?
 }
 
 /// `ui.gesture`'s reply.

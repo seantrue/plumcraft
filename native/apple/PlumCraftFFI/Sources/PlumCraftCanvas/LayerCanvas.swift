@@ -19,6 +19,7 @@
 // recognise input and call in here.
 
 import CoreGraphics
+import CoreText
 import Foundation
 import Observation
 import PlumCraft
@@ -128,6 +129,13 @@ public final class LayerCanvas {
     var movingWires: Set<UInt64> = []
     /// Pictures the core lends (the faces' previews; a Watched panel may share it).
     public let pictures: Pictures
+    /// The node icons the faces name, fetched from the core once each (`icon.get`, N4 slice 2).
+    public let icons = IconStore()
+    /// A scrubbed number's value over its row while the drag goes on, and a note the core gave
+    /// for an edit (held to its range, refused), shown for a moment by its row.
+    let scrubLabel = CATextLayer()
+    let noteLabel = CATextLayer()
+    var noteTask: Task<Void, Never>?
     /// When the run animation's colours began to fade, for the generation shown (8.6): the core
     /// keeps `anim.on` while they show and drops it once faded; the shell fades them itself.
     var fadeBegin: CFTimeInterval?
@@ -157,6 +165,15 @@ public final class LayerCanvas {
             l.position = .zero
             l.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
             world.addSublayer(l)
+        }
+        for t in [scrubLabel, noteLabel] {
+            t.anchorPoint = .zero
+            t.isHidden = true
+            t.contentsScale = self.screenScale * 2
+            t.cornerRadius = 4
+            t.alignmentMode = .center
+            t.truncationMode = .end
+            overlay.addSublayer(t)
         }
         for s in [hoverRing, marquee, dragWire, dragTarget, ghost] {
             s.anchorPoint = .zero
@@ -260,6 +277,7 @@ public final class LayerCanvas {
             }
         }
         if orderTouched { reorder() }
+        fetchIcons(c.changed)
         if netsTouched || !c.removed.isEmpty { placeTags() }
         if c.selectionChanged || c.full { updateSelection() }
         updateWashes(c.changed)
@@ -268,6 +286,30 @@ public final class LayerCanvas {
         pump()
         // nothing to draw (no face changed, or an empty graph): what is shown is already current
         if idle { onDrawn?([]) }
+    }
+
+    /// Fetch the icons the changed faces name that the store hasn't; draw those faces again when
+    /// they come.
+    func fetchIcons(_ changed: Set<UInt64>) {
+        var want = Set<String>()
+        for nid in changed { if let e = faces[nid], icons.path(e.face.header.icon) == nil { want.insert(e.face.header.icon) } }
+        let names = icons.claim(want)
+        if names.isEmpty { return }
+        let core = link.core
+        let doc = link.requestDoc
+        let store = icons
+        iconFetches += 1
+        Task { [weak self] in
+            _ = await store.fetch(names, core: core, doc: doc)
+            guard let self else { return }
+            iconFetches -= 1
+            let set = Set(names)
+            for e in faces.values where set.contains(e.face.header.icon) {
+                e.drawnRev = nil
+                needDraw.insert(e.nid)
+            }
+            pump()
+        }
     }
 
     func remove(_ nid: UInt64) {
@@ -321,6 +363,7 @@ public final class LayerCanvas {
         var layout: FaceLayout?
         var relayout: Bool
         var scale: CGFloat?
+        var icon: IconPath?
     }
 
     struct Done: @unchecked Sendable {
@@ -350,7 +393,7 @@ public final class LayerCanvas {
             let seen = e.rect.intersects(visible)
             let scale: CGFloat? = seen ? want : (e.drawnRev == e.face.rev && e.drawnTheme == themeGen ? nil : min(want, 1))
             if !relayout && scale == nil { continue }
-            jobs.append(Job(nid: nid, face: e.face, layout: relayout ? nil : e.layout, relayout: relayout, scale: scale))
+            jobs.append(Job(nid: nid, face: e.face, layout: relayout ? nil : e.layout, relayout: relayout, scale: scale, icon: icons.path(e.face.header.icon)))
         }
         if jobs.isEmpty { return }
         working = true
@@ -359,6 +402,7 @@ public final class LayerCanvas {
         let fonts = fonts
         let core = link.core
         let doc = link.hotDoc
+        let rdoc = link.requestDoc
         Task.detached(priority: .userInitiated) { [weak self] in
             let done = LayerCanvas.work(jobs, colors: colors, fonts: fonts)
             // measurements go to the core from here: plum_geometry_set copies and returns
@@ -371,6 +415,10 @@ public final class LayerCanvas {
             var reported = false
             if !measured.isEmpty {
                 reported = (try? core.geometrySet(doc: doc, faces: measured)) != nil
+                // the header's parts (the more-button, the title, the icon) after it, which the
+                // typed call can't carry (N4 slice 2)
+                let parts = zip(jobs, done).compactMap { j, d in j.relayout ? (id: j.face.id, parts: d.layout.parts) : nil }
+                await CanvasLink.reportParts(core: core, doc: rdoc, faces: parts)
             }
             await self?.finish(done, laid: jobs.filter(\.relayout).count, reported: reported ? 1 : 0)
         }
@@ -387,7 +435,7 @@ public final class LayerCanvas {
         DispatchQueue.concurrentPerform(iterations: jobs.count) { k in
             let j = jobs[k]
             let layout = j.layout ?? FaceLayout.make(j.face, fonts: fonts)
-            let image = j.scale.flatMap { FaceRenderer.render(j.face, layout, colors: colors, fonts: fonts, scale: $0) }
+            let image = j.scale.flatMap { FaceRenderer.render(j.face, layout, colors: colors, fonts: fonts, scale: $0, icon: j.icon) }
             o[k] = Done(nid: j.nid, rev: j.face.rev, layout: layout, image: image, scale: j.scale)
         }
         return out.compactMap { $0 }
@@ -839,7 +887,12 @@ public final class LayerCanvas {
         cull(force: false)
         CATransaction.commit()
         onViewport?(v)
+        followers?()
     }
+
+    /// The host's own followers of the transform (a field editor over a row), beside the app's
+    /// `onViewport`.
+    var followers: (() -> Void)?
 
     public func setViewport(_ v: Viewport, animated: Bool = false) {
         viewport = Viewport(pan: v.pan, zoom: min(max(v.zoom, Viewport.minZoom), Viewport.maxZoom))
@@ -956,6 +1009,7 @@ public final class LayerCanvas {
         settleTask = Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
             if Task.isCancelled { return }
+            self?.settleTask = nil
             self?.settle()
         }
     }
@@ -974,8 +1028,11 @@ public final class LayerCanvas {
         return n
     }
 
-    /// Nothing waits to be laid out or drawn, and no batch is out.
-    public var idle: Bool { !working && needLayout.isEmpty && needDraw.isEmpty }
+    /// Nothing waits to be laid out or drawn, no batch is out, and no icon is being fetched.
+    public var idle: Bool { !working && needLayout.isEmpty && needDraw.isEmpty && iconFetches == 0 }
+    var iconFetches = 0
+    /// A redraw at the settled zoom is still to come (tests wait for it).
+    public var settlePending: Bool { settleTask != nil }
 
     /// Every face the model has is laid out at its current `rev` (and so reported).
     public var allMeasured: Bool {
@@ -1190,6 +1247,69 @@ public final class LayerCanvas {
         movingWires = []
         reorder()
         CATransaction.commit()
+    }
+
+    // MARK: - Rows (N4 slice 2: editing values on a face)
+
+    /// Row `row`'s widget rect on face `nid`, in graph units (where the face is shown).
+    public func rowRect(face nid: UInt64, row: Int) -> CGRect? {
+        guard let e = faces[nid], let L = e.layout, row >= 0, row < L.widgets.count, let w = L.widgets[row] else { return nil }
+        var p = CGPoint(x: e.face.pos.x, y: e.face.pos.y)
+        if let h = held[nid] { p = h }
+        return w.offsetBy(dx: p.x, dy: p.y)
+    }
+
+    /// The more-button's rect on face `nid`, in graph units.
+    public func moreRect(face nid: UInt64) -> CGRect? {
+        guard let e = faces[nid], let m = e.layout?.more else { return nil }
+        return m.offsetBy(dx: e.face.pos.x, dy: e.face.pos.y)
+    }
+
+    func styleLabel(_ t: CATextLayer, _ text: String, over r: CGRect, ink: CGColor, fill: CGColor, size: CGFloat) {
+        let w = max(r.width, TextLine.width(text, fonts.mono) * size / 11 + 12)
+        t.string = NSAttributedString(string: text, attributes: [
+            NSAttributedString.Key(kCTFontAttributeName as String): CTFontCreateWithName("Menlo" as CFString, size, nil),
+            NSAttributedString.Key(kCTForegroundColorAttributeName as String): ink,
+        ])
+        t.backgroundColor = fill
+        t.borderColor = colors.accent
+        t.borderWidth = 1
+        t.frame = CGRect(x: r.midX - w / 2, y: r.minY, width: w, height: r.height)
+        t.isHidden = false
+    }
+
+    /// A scrub's value over its row (graph units), or nil to hide it: a label, so the face isn't
+    /// drawn again every frame.
+    public func showScrub(_ text: String?, over r: CGRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let text, let r else {
+            scrubLabel.isHidden = true
+            return
+        }
+        styleLabel(scrubLabel, text, over: r, ink: colors.text, fill: colors.field, size: max(r.height - 6, 8))
+    }
+
+    /// The core's note on an edit (a value held to its range, an edit refused) under row `r`
+    /// for a few seconds.
+    public func flashNote(_ text: String, under r: CGRect, error: Bool) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let below = CGRect(x: r.minX, y: r.maxY + 3, width: r.width, height: 16)
+        styleLabel(noteLabel, text, over: below, ink: error ? colors.error : colors.text, fill: colors.field, size: 10)
+        noteLabel.borderColor = error ? colors.error : colors.accent
+        CATransaction.commit()
+        noteTask?.cancel()
+        noteTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            if !Task.isCancelled { self?.noteLabel.isHidden = true }
+        }
+    }
+
+    /// The note's text while it shows (tests).
+    public var noteShown: String? {
+        noteLabel.isHidden ? nil : (noteLabel.string as? NSAttributedString)?.string
     }
 
     // MARK: - For tests, measurements and screenshots

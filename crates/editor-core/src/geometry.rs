@@ -173,12 +173,34 @@ impl Measured {
 
     /// Keep what face `id` measured; did anything change?
     pub fn set(&mut self, id: &str, g: FaceGeometry) -> bool {
+        let mut g = g;
+        // a report with no parts (the typed `plum_geometry_set` carries none) keeps the parts a
+        // `geometry.parts` gave for the same layout (N4 slice 2)
+        if g.parts.is_empty()
+            && let Some(old) = self.faces.get(id)
+            && old.size == g.size
+            && old.header == g.header
+        {
+            g.parts.clone_from(&old.parts);
+        }
         if self.faces.get(id) == Some(&g) {
             return false;
         }
         self.faces.insert(id.to_owned(), g);
         self.generation = self.generation.wrapping_add(1);
         true
+    }
+
+    /// Face `id`'s parts (`geometry.parts`, N4 slice 2): kept with what it measured; none for a
+    /// face not measured yet. Did anything change?
+    pub fn set_parts(&mut self, id: &str, parts: Vec<Part>) -> Option<bool> {
+        let g = self.faces.get_mut(id)?;
+        if g.parts == parts {
+            return Some(false);
+        }
+        g.parts = parts;
+        self.generation = self.generation.wrapping_add(1);
+        Some(true)
     }
 
     /// Forget the faces `keep` says no to (gone from the scene).
@@ -327,28 +349,52 @@ pub fn parse_set(params: &Value) -> Result<Vec<Report>, String> {
                 [n(&a[0])?, n(&a[1])?]
             }
         };
-        let mut parts = Vec::new();
-        if let Some(p) = f.get("parts").filter(|p| !p.is_null()) {
-            let names: Vec<&str> = PART_NAMES.iter().map(|(n, _)| *n).chain(["footer"]).collect();
-            check_fields(p, &names).map_err(|e| at(&format!("parts: {e}")))?;
-            for (name, code) in PART_NAMES {
-                if let Some(r) = p.get(name).filter(|r| !r.is_null()) {
-                    parts.push(Part { part: code, index: -1, rect: rect_of(r, &at(&format!("parts.{name}")))? });
+        let parts = parts_of(f.get("parts"), &at)?;
+        out.push(Report { face: face.to_owned(), rev, geometry: FaceGeometry { size, header, inputs, outputs, rows, parts, offset } });
+    }
+    Ok(out)
+}
+
+/// A face's `parts` in `geometry.set` or `geometry.parts`.
+fn parts_of(v: Option<&Value>, at: &dyn Fn(&str) -> String) -> Result<Vec<Part>, String> {
+    let mut parts = Vec::new();
+    let Some(p) = v.filter(|p| !p.is_null()) else { return Ok(parts) };
+    let names: Vec<&str> = PART_NAMES.iter().map(|(n, _)| *n).chain(["footer"]).collect();
+    check_fields(p, &names).map_err(|e| at(&format!("parts: {e}")))?;
+    for (name, code) in PART_NAMES {
+        if let Some(r) = p.get(name).filter(|r| !r.is_null()) {
+            parts.push(Part { part: code, index: -1, rect: rect_of(r, &at(&format!("parts.{name}")))? });
+        }
+    }
+    match p.get("footer") {
+        None | Some(Value::Null) => {}
+        Some(Value::Array(a)) if a.len() <= MAX_PINS => {
+            for (i, r) in a.iter().enumerate() {
+                if !r.is_null() {
+                    parts.push(Part { part: part::FOOTER, index: i32::try_from(i).unwrap_or(i32::MAX), rect: rect_of(r, &at("parts.footer[]"))? });
                 }
-            }
-            match p.get("footer") {
-                None | Some(Value::Null) => {}
-                Some(Value::Array(a)) if a.len() <= MAX_PINS => {
-                    for (i, r) in a.iter().enumerate() {
-                        if !r.is_null() {
-                            parts.push(Part { part: part::FOOTER, index: i32::try_from(i).unwrap_or(i32::MAX), rect: rect_of(r, &at("parts.footer[]"))? });
-                        }
-                    }
-                }
-                Some(_) => return Err(at("parts.footer must be a list of rects")),
             }
         }
-        out.push(Report { face: face.to_owned(), rev, geometry: FaceGeometry { size, header, inputs, outputs, rows, parts, offset } });
+        Some(_) => return Err(at("parts.footer must be a list of rects")),
+    }
+    Ok(parts)
+}
+
+/// `geometry.parts`' params (N4 slice 2): `{faces: [{node, parts}]}`, the header's and footer's
+/// parts of faces already measured, for a shell whose measurements go typed
+/// (`plum_geometry_set` has no field for them). Unknown fields are refused.
+pub fn parse_parts(params: &Value) -> Result<Vec<(String, Vec<Part>)>, String> {
+    check_fields(params, &["faces"])?;
+    let faces = params.get("faces").and_then(Value::as_array).ok_or("faces must be a list of faces")?;
+    if faces.len() > MAX_FACES {
+        return Err(format!("at most {MAX_FACES} faces a call"));
+    }
+    let mut out = Vec::with_capacity(faces.len());
+    for (k, f) in faces.iter().enumerate() {
+        let at = |what: &str| format!("faces[{k}].{what}");
+        check_fields(f, &["node", "parts"]).map_err(|e| format!("faces[{k}]: {e}"))?;
+        let face = f.get("node").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 512).ok_or_else(|| at("node must be a face's id"))?;
+        out.push((face.to_owned(), parts_of(f.get("parts"), &at)?));
     }
     Ok(out)
 }
@@ -372,8 +418,15 @@ pub fn pin_point(rect: Rect, g: Option<&FaceGeometry>, output: bool, index: usiz
 
 /// A wire's path as a cubic chain (`crate::wire_path`): a plain wire fitted to egui-snarl's
 /// curve, a routed one through its bend points; a wire drawn through a net has none (its tags
-/// are drawn instead).
-pub fn wire_chain(kind: &str, from: Point, to: Point, via: &[[i32; 2]]) -> Vec<Point> {
+/// are drawn instead). A plain wire that runs right to left, with its two faces' rects in `ends`
+/// (source, target), goes round them ([`wire_path::backward_chain`], N4 slice 2).
+pub fn wire_chain(kind: &str, from: Point, to: Point, via: &[[i32; 2]], ends: Option<(Rect, Rect)>) -> Vec<Point> {
+    if kind == "plain"
+        && let Some((a, b)) = ends
+        && let Some(c) = wire_path::backward_chain(from, to, a, b)
+    {
+        return c;
+    }
     match kind {
         "net" => Vec::new(),
         "routed" if !via.is_empty() => {
@@ -496,10 +549,26 @@ struct SPin {
     key: String,
 }
 
+/// An input row's widget as a gesture reads it (N4 slice 2): what a tap edits and a drag scrubs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowWidget {
+    /// The node whose input it is (on a collapsed group's face, the member's) and its key.
+    pub node: String,
+    pub key: String,
+    /// The row can be edited on the face ([`crate::inline::editable`]).
+    pub editable: bool,
+    pub widget: crate::scene::Widget,
+}
+
 #[derive(Debug, Clone)]
 struct SFace {
     nid: u64,
     id: String,
+    /// Where the scene shows it (its node's position, pushed out of another face's way:
+    /// `crate::scene`'s `make_room`).
+    pos: [f32; 2],
+    /// Each input row's widget, in row order (none for a row without one).
+    widgets: Vec<Option<RowWidget>>,
     rect: Rect,
     header: f32,
     inputs: Vec<SPin>,
@@ -734,7 +803,14 @@ impl Snapshot {
             let at = rect.min;
             let rows = g.map(|g| g.rows.iter().map(|r| r.map(|r| offset(rect_from(r), at))).collect()).unwrap_or_default();
             let parts = g.map(|g| g.parts.iter().map(|p| (p.part, p.index, offset(rect_from(p.rect), at))).collect()).unwrap_or_default();
-            faces.push(SFace { nid: f.nid, id: f.id.clone(), rect, header, inputs, outputs, rows, parts });
+            let widgets = f
+                .inputs
+                .iter()
+                .map(|r| {
+                    r.widget.as_ref().map(|w| RowWidget { node: r.node.clone(), key: r.key.clone(), editable: crate::inline::editable(r), widget: w.clone() })
+                })
+                .collect();
+            faces.push(SFace { nid: f.nid, id: f.id.clone(), pos: f.pos, widgets, rect, header, inputs, outputs, rows, parts });
         }
         let face_at: HashMap<u64, usize> = faces.iter().enumerate().map(|(k, f)| (f.nid, k)).collect();
         let face_id: HashMap<String, usize> = faces.iter().enumerate().map(|(k, f)| (f.id.clone(), k)).collect();
@@ -1114,7 +1190,9 @@ impl Snapshot {
         let shift = |face: usize| if moved.contains(&face) { by } else { Point::ZERO };
         let from = tame(self.pin_point(w.from.0, true, w.from.1)? + shift(w.from.0));
         let to = tame(self.pin_point(w.to.0, false, w.to.1)? + shift(w.to.0));
-        Some(wire_chain(w.kind.word(), from, to, &w.via))
+        let rect = |face: usize| self.faces.get(face).map(|f| Rect::from_min_max(tame(f.rect.min + shift(face)), tame(f.rect.max + shift(face))));
+        let ends = rect(w.from.0).zip(rect(w.to.0));
+        Some(wire_chain(w.kind.word(), from, to, &w.via, ends))
     }
 
     /// A face's nid by id (the JSON calls name faces by id).
@@ -1248,6 +1326,34 @@ impl Snapshot {
     /// Face `nid`'s rect (graph units), at the size the core has for it.
     pub fn face_rect_of(&self, nid: u64) -> Option<Rect> {
         self.face_by_nid(nid).map(|f| f.rect)
+    }
+
+    /// Row `row`'s widget rect on face `nid` (absolute), when the shell measured one.
+    pub fn row_rect(&self, nid: u64, row: i32) -> Option<Rect> {
+        let f = self.face_by_nid(nid)?;
+        f.rows.get(usize::try_from(row).ok()?).copied().flatten()
+    }
+
+    /// Does a part the shell measured on face `nid` cover `p`?
+    pub fn covers_part(&self, nid: u64, p: Point) -> bool {
+        self.face_by_nid(nid).is_some_and(|f| f.parts.iter().any(|(_, _, r)| r.contains(p)))
+    }
+
+    /// Part `code`'s rect on face `nid` (absolute), when the shell measured it.
+    pub fn part_rect(&self, nid: u64, code: u32) -> Option<Rect> {
+        self.face_by_nid(nid)?.parts.iter().find(|(c, _, _)| *c == code).map(|(_, _, r)| *r)
+    }
+
+    /// Row `row`'s widget on face `nid`, when it has one.
+    pub fn row_widget(&self, nid: u64, row: i32) -> Option<&RowWidget> {
+        let f = self.face_by_nid(nid)?;
+        f.widgets.get(usize::try_from(row).ok()?)?.as_ref()
+    }
+
+    /// Where face `id` is shown (the scene's `pos`: its node's position, or where it was pushed
+    /// to out of another face's way).
+    pub fn shown_pos(&self, id: &str) -> Option<[f32; 2]> {
+        self.face_id.get(id).and_then(|&k| self.faces.get(k)).map(|f| f.pos)
     }
 
     /// Face `nid`'s header height (what the hit test takes as header).
@@ -1437,7 +1543,7 @@ pub fn parse_paths(snapshot: &Snapshot, params: &Value) -> Result<(Vec<u64>, f32
 /// middle), or `{frame: frame id, part?: "body" | "tab" | "handle"}` → `{at: [x, y], rect?,
 /// measured?}`.
 pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Value, String> {
-    check_fields(params, &["node", "part", "pin", "wire", "frame"])?;
+    check_fields(params, &["node", "part", "pin", "row", "wire", "frame"])?;
     let pt = |p: Point| json!([round(p.x), round(p.y)]);
     let part_name = params.get("part").map(|p| p.as_str().ok_or("part must be a name")).transpose()?;
     if let Some(id) = params.get("node") {
@@ -1455,11 +1561,39 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
             snap.pin_at(nid, output, k)
                 .ok_or_else(|| format!("face {} has no {} pin {k}", crate::selection::shown_id(id), if output { "out" } else { "in" }))?
         } else {
-            match part_name.unwrap_or("center") {
-                "center" => r.center(),
-                "header" => Point::new(r.center().x, r.min.y + header / 2.0),
-                "body" => Point::new(r.center().x, r.min.y + header + (r.height() - header) / 2.0),
-                other => return Err(format!("part {:?}: center, header or body", other.chars().take(32).collect::<String>())),
+            match (part_name.unwrap_or("center"), params.get("row")) {
+                (_, Some(k)) => {
+                    let k = k.as_u64().and_then(|k| i32::try_from(k).ok()).ok_or("row must be an input row's index")?;
+                    snap.row_rect(nid, k)
+                        .map(|r| r.center())
+                        .ok_or_else(|| format!("face {} has no widget measured on row {k}", crate::selection::shown_id(id)))?
+                }
+                ("center", _) => r.center(),
+                // the header's own area: its middle, or the nearest point along it that no part
+                // the shell measured (a title, a button) covers
+                ("header", _) => {
+                    let y = r.min.y + header / 2.0;
+                    let free = |x: f32| !snap.covers_part(nid, Point::new(x, y));
+                    let w = r.width().max(1.0);
+                    let cx = r.center().x;
+                    (0..64)
+                        .flat_map(|k| [cx + w * k as f32 / 128.0, cx - w * k as f32 / 128.0])
+                        .find(|x| *x > r.min.x && *x < r.max.x && free(*x))
+                        .map_or(Point::new(cx, y), |x| Point::new(x, y))
+                }
+                ("body", _) => Point::new(r.center().x, r.min.y + header + (r.height() - header) / 2.0),
+                (other, _) => match PART_NAMES.iter().find(|(n, _)| *n == other) {
+                    Some((_, code)) => snap
+                        .part_rect(nid, *code)
+                        .map(|r| r.center())
+                        .ok_or_else(|| format!("face {} has no {other} measured", crate::selection::shown_id(id)))?,
+                    None => {
+                        return Err(format!(
+                            "part {:?}: center, header, body, or a part the shell measured (title, chevron, icon, menu, enter, preview)",
+                            other.chars().take(32).collect::<String>()
+                        ));
+                    }
+                },
             }
         };
         return Ok(json!({"at": pt(at), "rect": rect_json(r), "nid": nid, "measured": snap.is_measured(measured, id)}));
@@ -1651,12 +1785,17 @@ mod tests {
     #[test]
     fn degenerate_and_hostile_points_never_panic() {
         let (mut d, src, b) = two();
-        // overlapping faces: the last drawn is on top
+        // a face placed over another is shown out of its way (N4 slice 2: faces never overlap;
+        // until then the last drawn was on top here)
         let c = add(&mut d, "t.src", [310.0, 10.0]);
         measure(&mut d, json!([{"node": c, "size": [50, 50]}, {"node": src, "size": [0, 0]}]));
         let s = snap(&mut d);
-        let top = s.hit(330.0, 30.0, 0.0);
-        assert_eq!((top.kind, top.node), (kind::NODE, s.face_nid(&c).unwrap()), "{c} over {b}");
+        let under = s.hit(330.0, 30.0, 0.0);
+        assert_eq!((under.kind, under.node), (kind::NODE, s.face_nid(&b).unwrap()), "{b} stays where it is");
+        let shown = s.shown_pos(&c).unwrap();
+        assert!(shown[1] > 10.0 || shown[0] > 310.0, "{c} pushed off {b}: {shown:?}");
+        let moved = s.hit(shown[0] + 25.0, shown[1] + 25.0, 0.0);
+        assert_eq!((moved.kind, moved.node), (kind::NODE, s.face_nid(&c).unwrap()));
         // a face of no size hits nothing but its corner, and no query trips on it
         assert_eq!(s.hit(0.0, 0.0, 0.0).node, s.face_nid(&src).unwrap());
         for (x, y, slop) in [

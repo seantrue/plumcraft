@@ -125,6 +125,9 @@ pub struct Request {
     pub gesture: Gesture,
     /// The hit distance, graph units (the shell's target size over its zoom).
     pub slop: f32,
+    /// The shell's zoom, screen points a graph unit (N4 slice 2; default 1): a scrub moves a
+    /// number by screen points, as egui's drag fields do, whatever the zoom.
+    pub zoom: f32,
 }
 
 fn point(v: Option<&Value>, name: &str) -> Result<Point, String> {
@@ -139,12 +142,20 @@ fn point(v: Option<&Value>, name: &str) -> Result<Point, String> {
 /// `{kind: tap | doubleTap | context | drag | marquee, phase?: begin | move | end | cancel (a
 /// drag's), at: [x, y], to?: [x, y] (a marquee's other corner), mods?: [..], slop?}`.
 pub fn parse(params: &Value) -> Result<Request, String> {
-    check_fields(params, &["kind", "phase", "at", "to", "mods", "slop"])?;
+    check_fields(params, &["kind", "phase", "at", "to", "mods", "slop", "zoom"])?;
     let kind = params.get("kind").and_then(Value::as_str).ok_or("kind must be tap, doubleTap, context, drag or marquee")?;
     let mods = Mods::parse(params.get("mods"))?;
     let slop = match params.get("slop") {
         None | Some(Value::Null) => DEFAULT_SLOP,
         Some(v) => v.as_f64().filter(|f| f.is_finite() && *f >= 0.0).map(|f| f.min(1.0e4) as f32).ok_or("slop must be a distance in graph units, 0 or more")?,
+    };
+    let zoom = match params.get("zoom") {
+        None | Some(Value::Null) => 1.0,
+        Some(v) => v
+            .as_f64()
+            .filter(|f| f.is_finite() && *f > 0.0)
+            .map(|f| f.clamp(0.01, 100.0) as f32)
+            .ok_or("zoom must be the view's zoom, screen points a graph unit, more than 0")?,
     };
     let phase = match params.get("phase") {
         None | Some(Value::Null) => None,
@@ -179,7 +190,7 @@ pub fn parse(params: &Value) -> Result<Request, String> {
             ));
         }
     };
-    Ok(Request { gesture, slop })
+    Ok(Request { gesture, slop, zoom })
 }
 
 /// What a drag is, decided when it began.
@@ -217,10 +228,19 @@ pub enum DragKind {
     Group {
         group: GroupId,
     },
+    /// A number scrubbed by a drag on its row (N4 slice 2; egui's drag fields): its value moves
+    /// with the pointer, a `row.set` at the end.
+    Scrub {
+        node: String,
+        port: String,
+        start: f64,
+        widget: Box<crate::scene::Widget>,
+    },
 }
 
 impl DragKind {
-    /// Its code in `plum_drag`: 1 move, 2 wire, 3 marquee, 4 bend, 5 frame, 6 resize, 7 group.
+    /// Its code in `plum_drag`: 1 move, 2 wire, 3 marquee, 4 bend, 5 frame, 6 resize, 7 group,
+    /// 8 scrub.
     pub fn code(&self) -> u32 {
         match self {
             DragKind::Move { .. } => 1,
@@ -230,6 +250,7 @@ impl DragKind {
             DragKind::Frame { .. } => 5,
             DragKind::Resize { .. } => 6,
             DragKind::Group { .. } => 7,
+            DragKind::Scrub { .. } => 8,
         }
     }
 
@@ -242,6 +263,7 @@ impl DragKind {
             DragKind::Frame { .. } => "frame",
             DragKind::Resize { .. } => "resize",
             DragKind::Group { .. } => "group",
+            DragKind::Scrub { .. } => "scrub",
         }
     }
 }
@@ -255,6 +277,8 @@ pub struct Drag {
     pub from: Point,
     pub mods: Mods,
     pub kind: DragKind,
+    /// The shell's zoom when it began (a scrub's speed is in screen points).
+    pub zoom: f32,
 }
 
 /// Where a drag is now ([`Drag::update`], `plum_gesture_move`): nothing in the document changes.
@@ -269,6 +293,8 @@ pub struct Update {
     pub rect: Option<Rect>,
     /// A wire's target: where it would land and whether it fits.
     pub target: Hit,
+    /// A scrub's value now.
+    pub value: Option<f64>,
 }
 
 fn rect_of(a: Point, b: Point) -> Rect {
@@ -284,7 +310,12 @@ impl Drag {
             _ => Hit { index: -1, x: at.x, y: at.y, ..Hit::default() },
         };
         let rect = matches!(self.kind, DragKind::Marquee).then(|| rect_of(self.from, at));
-        Update { code: self.kind.code(), serial: self.serial, dx, dy, rect, target }
+        // a scrub moves by screen points right (and up), as egui's drag fields
+        let value = match &self.kind {
+            DragKind::Scrub { start, widget, .. } => Some(crate::inline::scrub_value(widget, *start, f64::from((dx - dy) * self.zoom))),
+            _ => None,
+        };
+        Update { code: self.kind.code(), serial: self.serial, dx, dy, rect, target, value }
     }
 }
 
@@ -386,12 +417,25 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
         Gesture::Tap { at, mods } => {
             let h = snap.hit(at.x, at.y, r.slop);
             p.reply.insert("hit".into(), hit_reply(snap, &h));
-            tap(f, snap, &h, mods, &mut p.commands);
+            // the header's more-button opens the node's menu, as a context gesture there does
+            // (N4 slice 2): no command, the menu in the reply
+            if h.kind == kind::NODE && h.part == part::MENU {
+                if let Some(cx) = context(f, snap, &h) {
+                    p.reply.insert("context".into(), cx.clone());
+                    p.menu = Some(cx);
+                }
+            } else {
+                tap(f, snap, &h, mods, &mut p.commands);
+            }
         }
         Gesture::DoubleTap { at, .. } => {
             let h = snap.hit(at.x, at.y, r.slop);
             p.reply.insert("hit".into(), hit_reply(snap, &h));
-            double_tap(snap, &h, at, &mut p.commands);
+            // a double tap on a row that can be edited edits it (the first tap opened it)
+            match edit_row(snap, &h) {
+                Some(cmd) => p.commands.push(cmd),
+                None => double_tap(snap, &h, at, &mut p.commands),
+            }
         }
         Gesture::Context { at, .. } => {
             let h = snap.hit(at.x, at.y, r.slop);
@@ -407,7 +451,7 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
         Gesture::Marquee { at, to, mods } => {
             p.commands.push(marquee(snap, rect_of(at, to), mods));
         }
-        Gesture::Drag { phase, at, mods } => drag(f, snap, phase, at, mods, r.slop, &mut p)?,
+        Gesture::Drag { phase, at, mods } => drag(f, snap, phase, at, mods, r.slop, r.zoom, &mut p)?,
     }
     Ok(p)
 }
@@ -442,6 +486,14 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, mods: Mods, out: &mut Vec<(&'sta
                 part::ENTER => {
                     if let Some(g) = &group {
                         out.push(("canvas.focus", json!({"group": g})));
+                    }
+                }
+                part::ROW if !mods.shift && !mods.primary && edit_row(snap, h).is_some() => {
+                    // a row that can be edited: the node is selected and the row edited (N4
+                    // slice 2): a switch flips, anything else opens the shell's field editor
+                    out.push(select(id, mods));
+                    if let Some(cmd) = edit_row(snap, h) {
+                        out.push(cmd);
                     }
                 }
                 _ => {
@@ -483,6 +535,21 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, mods: Mods, out: &mut Vec<(&'sta
             }
         }
     }
+}
+
+/// What a tap on an editable row does (N4 slice 2): a switch's `row.set` to the other state, any
+/// other widget's `row.edit` (the shell's field editor over it). None for a row that can't be
+/// edited (wired, socket-only, inherited, read-only), or a hit that isn't a row.
+fn edit_row(snap: &Snapshot, h: &Hit) -> Option<(&'static str, Value)> {
+    if h.kind != kind::NODE || h.part != part::ROW {
+        return None;
+    }
+    let w = snap.row_widget(h.node, h.index).filter(|w| w.editable)?;
+    if w.widget.kind == "toggle" {
+        let on = w.widget.value.as_bool().or_else(|| w.widget.default.as_bool()).unwrap_or(false);
+        return Some(("row.set", json!({"node": w.node, "port": w.key, "value": !on})));
+    }
+    Some(("row.edit", json!({"node": w.node, "port": w.key})))
 }
 
 fn double_tap(snap: &Snapshot, h: &Hit, at: Point, out: &mut Vec<(&'static str, Value)>) {
@@ -594,6 +661,19 @@ fn begin(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> DragKind {
                 None => DragKind::Marquee,
             }
         }
+        kind::NODE if h.part == part::ROW && snap.row_widget(h.node, h.index).is_some_and(|w| w.editable && w.widget.kind == "number") => {
+            // a drag on a number's row scrubs it (N4 slice 2: egui's drag fields; the core's
+            // rule, not each shell's)
+            match snap.row_widget(h.node, h.index) {
+                Some(w) => DragKind::Scrub {
+                    node: w.node.clone(),
+                    port: w.key.clone(),
+                    start: crate::inline::scrub_start(&w.widget),
+                    widget: Box::new(w.widget.clone()),
+                },
+                None => DragKind::Marquee,
+            }
+        }
         kind::NODE => {
             let Some(id) = snap.face_id_of(h.node) else { return DragKind::Marquee };
             let sel = &f.selection;
@@ -644,10 +724,14 @@ fn update_json(snap: &Snapshot, u: &Update) -> Value {
     if u.code == 2 {
         v["target"] = snap.hit_json(&u.target);
     }
+    if let Some(value) = u.value {
+        v["value"] = json!(value);
+    }
     v
 }
 
-fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slop: f32, p: &mut Plan) -> Result<(), String> {
+#[allow(clippy::too_many_arguments)]
+fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slop: f32, zoom: f32, p: &mut Plan) -> Result<(), String> {
     match phase {
         Phase::Begin => {
             let h = snap.hit(at.x, at.y, slop);
@@ -656,6 +740,10 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
             let mut d = json!({"serial": serial, "kind": kind.word()});
             match &kind {
                 DragKind::Move { faces, .. } => d["faces"] = json!(faces),
+                DragKind::Scrub { node, port, start, .. } => {
+                    d["row"] = json!({"node": node, "port": port, "face": snap.face_id_of(h.node), "index": h.index});
+                    d["value"] = json!(start);
+                }
                 DragKind::Wire { anchor: (face, output, pin), picked, .. } => {
                     d["from"] = json!({"node": snap.face_id_of(*face), "nid": face, "side": if *output { "out" } else { "in" }, "pin": pin});
                     if let Some(to) = picked {
@@ -666,7 +754,7 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
             }
             p.reply.insert("hit".into(), snap.hit_json(&h));
             p.reply.insert("drag".into(), d);
-            f.drag.set(Some(Drag { serial, from: at, mods, kind }));
+            f.drag.set(Some(Drag { serial, from: at, mods, kind, zoom }));
         }
         Phase::Move => {
             let d = f.drag.get().ok_or("no drag under way (begin one first)")?;
@@ -697,6 +785,8 @@ fn moved(u: &Update) -> bool {
 
 fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut Plan) {
     let by = |pos: [f32; 2]| [pos[0] + u.dx, pos[1] + u.dy];
+    // a face moves from where it is shown (pushed out of another's way, the scene's make_room)
+    let shown = |face: &str, pos: [f32; 2]| by(snap.shown_pos(face).unwrap_or(pos));
     let graph = f.graph;
     let key = drag_key(d);
     match &d.kind {
@@ -705,8 +795,10 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut 
                 return;
             }
             // one command, one undo step, named for what moved (N3 slice 1)
-            let groups: serde_json::Map<String, Value> = groups.iter().filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(grp.pos))))).collect();
-            let nodes: serde_json::Map<String, Value> = nodes.iter().filter_map(|n| graph.node(n).map(|node| (n.0.clone(), json!(by(node.pos))))).collect();
+            let groups: serde_json::Map<String, Value> =
+                groups.iter().filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(shown(&format!("group:{}", g.0), grp.pos))))).collect();
+            let nodes: serde_json::Map<String, Value> =
+                nodes.iter().filter_map(|n| graph.node(n).map(|node| (n.0.clone(), json!(shown(&n.0, node.pos))))).collect();
             if !groups.is_empty() || !nodes.is_empty() {
                 p.commands.push(("edit.move", json!({"nodes": nodes, "groups": groups, "drag": key})));
             }
@@ -776,6 +868,15 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut 
                 && moved(u)
             {
                 p.commands.push(("group.move", json!({"group": group, "pos": by(g.pos), "drag": key})));
+            }
+        }
+        DragKind::Scrub { node, port, start, .. } => {
+            // one row.set at the end, none when it came back to where it was
+            if let Some(v) = u.value
+                && moved(u)
+                && v != *start
+            {
+                p.commands.push(("row.set", json!({"node": node, "port": port, "value": v})));
             }
         }
     }

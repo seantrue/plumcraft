@@ -129,8 +129,20 @@ public final class CanvasLink {
 
     /// Begin a drag: the core decides what it is (a move, a wire, a marquee…) and replies.
     @discardableResult
-    public func dragBegin(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil) async throws -> GestureReply {
-        try await gesture(.dragBegin(at, mods: mods, slop: slop))
+    public func dragBegin(_ at: Point, mods: [ModifierWord] = [], slop: Double? = nil, zoom: Double? = nil) async throws -> GestureReply {
+        try await gesture(.dragBegin(at, mods: mods, slop: slop, zoom: zoom))
+    }
+
+    /// Report faces' header parts (`geometry.parts`): what the typed `plum_geometry_set` can't
+    /// carry, after it (the same queue keeps them in order).
+    public nonisolated static func reportParts(core: PlumCore, doc: UInt64?, faces: [(id: String, parts: [String: Rect])]) async {
+        guard !faces.isEmpty else { return }
+        let list: [JSONValue] = faces.map { f in
+            var parts: [String: JSONValue] = [:]
+            for (k, r) in f.parts { parts[k] = .array([.double(r.x0), .double(r.y0), .double(r.x1), .double(r.y1)]) }
+            return ["node": .string(f.id), "parts": .object(parts)]
+        }
+        _ = try? await core.command("geometry.parts", ["faces": .array(list)], doc: doc)
     }
 
     /// Where the drag is, typed (`plum_gesture_move`): never JSON, never a request. Nothing

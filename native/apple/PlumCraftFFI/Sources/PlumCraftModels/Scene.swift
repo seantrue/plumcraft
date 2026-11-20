@@ -166,7 +166,19 @@ public enum SceneReply: Codable, Hashable, Sendable {
 public struct View: Codable, Hashable, Sendable {
     public var fit: Fit?
     public var palette: Palette?
-    public init(fit: Fit? = nil, palette: Palette? = nil) { self.fit = fit; self.palette = palette }
+    /// The row a field editor is open on (`row.edit`, N4 slice 2).
+    public var edit: RowEdit?
+    public init(fit: Fit? = nil, palette: Palette? = nil, edit: RowEdit? = nil) { self.fit = fit; self.palette = palette; self.edit = edit }
+}
+
+/// The row a field editor is open on: the node whose input it is (a member's on a collapsed
+/// group's face) and its key; the face that shows it and the row's index there.
+public struct RowEdit: Codable, Hashable, Sendable {
+    public var node: String
+    public var port: String
+    public var face: String
+    public var row: Int
+    public init(node: String, port: String, face: String, row: Int) { self.node = node; self.port = port; self.face = face; self.row = row }
 }
 
 /// Fit `rect` into the view (zoom 0.2 to 1), once per `seq`.

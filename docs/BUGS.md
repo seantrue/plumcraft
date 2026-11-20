@@ -17,6 +17,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "record bugs"
 - Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
 - Seen again: 2026-11-20, in the full run for N3 slice 2 with nothing else building. It fails at `crates/engine/tests/persist.rs:166`, the "too big" case: a 60 ms node that makes 32 MB was persisted, where the test expects it not to be worth it. Passed 40 of 40 alone. The test's own comment says the margin is a matter of timing.
+- Seen again: 2026-11-20, on the Mac in N4 slice 2's gate, in the Python suite's test of the same name (`python/tests/test_persist.py`) while cargo was running in parallel. Passed 10 of 10 alone.
 - Issue: none
 
 ### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
@@ -31,6 +32,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-20
 - Report: recorded by the controller under the maintainer's "record bugs"
 - Context: `plumcraft-media` `service::tests`, `crates/media/src/service.rs:1133`, "let go of everywhere: read again": after the test dropped its two handles on the bytes, the service still answered with them. Failed once in the full run for N3 slice 2; passed 300 of 300 alone. Not looked into; whether a worker can still hold the bytes at that moment is the first thing to check.
+- Issue: none
+
+### B40. `scrolling_in_past_the_picture_asks_for_detail_once` failed once on the Mac under the full parallel run
+
+- Reported: 2026-11-20
+- Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
+- Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
 ## Fixed
