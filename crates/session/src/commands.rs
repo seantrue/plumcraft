@@ -403,6 +403,18 @@ pub(crate) fn node_list_param(p: &Value, key: &str) -> Result<Vec<NodeId>> {
 }
 
 /// An optional `[x, y]` of finite numbers.
+/// A move's `drag` (N3 slice 1): what names the drag that sent it, so its moves are one undo step
+/// ([`crate::Session::edit_move`]): a string of at most 64 characters or a whole number; none or
+/// null names none.
+pub(crate) fn drag_param(p: &Value) -> Result<Option<String>> {
+    match p.get("drag") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if !s.is_empty() && s.chars().count() <= 64 => Ok(Some(s.clone())),
+        Some(Value::Number(n)) if n.as_u64().is_some() => Ok(Some(n.to_string())),
+        Some(_) => Err(SessionError::Params("\"drag\" must name the drag: a string of 1 to 64 characters or a whole number".into())),
+    }
+}
+
 pub(crate) fn pos_param(p: &Value, key: &str) -> Result<Option<[f32; 2]>> {
     let Some(v) = p.get(key) else { return Ok(None) };
     let bad = || SessionError::Params(format!("{key:?} must be [x, y] with finite numbers"));

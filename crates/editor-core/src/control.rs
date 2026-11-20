@@ -602,6 +602,14 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         }
         // a recognised gesture (N2 slice 4): the core decides what it means and runs it
         "ui.gesture" => gesture(s, params),
+        // what the node palette offers (N3 slice 1): for a dropped wire, only kinds that take it
+        "palette.items" => match s.document_mut() {
+            Some(d) => match crate::palette::items(d.session.graph(), d.session.catalog(), d.palette.as_ref(), params) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            None => err(not_here(method)),
+        },
         // the colours the scene names by token (N2 slice 4, question 13)
         "theme.get" => match s.theme_tokens() {
             Some(v) => ok(v),
@@ -677,6 +685,9 @@ pub fn inspect_core<S: Shell>(s: &S) -> Map<String, Value> {
     put("selection", json!(s.selection().0));
     put("docs", session.docs.inspect());
     put("save", session.save.summary());
+    // the watched value as the core has it (N3 slice 1); a shell with a Watched panel of its own
+    // adds what its panel shows (the egui editor's `watched`)
+    put("watched", crate::values::watched_json(&session.run));
     m
 }
 

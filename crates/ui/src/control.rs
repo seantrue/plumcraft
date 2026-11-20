@@ -215,10 +215,11 @@ impl EditorApp {
             "anyPopup": ctx.is_some_and(egui::Popup::is_any_open),
         });
         let run = &self.doc.session.run;
+        let core_watched = plumcraft_editor_core::values::watched_json(run);
         let watched = run.panel().map(|(w, d)| {
             // the application's value for the node stands in for the run's (crate::app_hooks)
             let d = self.app_display.as_ref().or(d);
-            json!({"node": w.node, "port": w.port, "summary": d.map(|d| d.summary.clone()), "full": self.watched.full.is_some(), "missing": self.watched.missing,
+            let mine = json!({"node": w.node, "port": w.port, "summary": d.map(|d| d.summary.clone()), "full": self.watched.full.is_some(), "missing": self.watched.missing,
                    "audio": d.filter(|d| d.media == plumcraft_proto::catalogue::Media::Audio).map(|_| self.audio.inspect()),
                    "media": d.map(|d| d.media),
                    "view": d.and_then(|d| self.media.inspect(d.media)),
@@ -226,7 +227,14 @@ impl EditorApp {
                    "panelViewer": self.panel_pane.inspect(),
                    "sheet": w.sheet,
                    "px": w.px,
-                   "compare": self.compare.inspect()})
+                   "compare": self.compare.inspect()});
+            // the core's block (N3 slice 1: the value's references and default viewer), with what
+            // this panel shows over it
+            let mut v = core_watched.clone();
+            if let (Some(o), Value::Object(mine)) = (v.as_object_mut(), mine) {
+                o.extend(mine);
+            }
+            v
         });
         let v = json!({
             "popouts": self.popouts_inspect(),

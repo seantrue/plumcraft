@@ -407,3 +407,20 @@ impl Pane {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The core names a watched value's viewer for a shell with no registry of its own
+    /// (`plumcraft_editor_core::values::default_viewer`, N3 slice 1); for the media it decides by
+    /// media alone, this registry's first choice is the same.
+    #[test]
+    fn the_cores_default_viewer_is_this_registrys_first() {
+        for media in [Media::Image, Media::Vector, Media::Doc, Media::Ndarray, Media::Audio, Media::Table, Media::Text, Media::Scalar, Media::Tree] {
+            let d = Display { media, ..Default::default() };
+            let ours = kinds_for(&d).first().map(|k| k.id);
+            assert_eq!(ours, Some(plumcraft_editor_core::values::default_viewer(&d)), "{media:?}");
+        }
+    }
+}

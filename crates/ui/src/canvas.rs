@@ -161,6 +161,13 @@ pub struct Canvas {
     /// Where a Shift-drag on empty canvas began (graph units) and the modifiers then: a marquee
     /// sent as `ui.gesture` when let go (`crate::edit_view`).
     pub(crate) marquee_from: Option<(Pos2, egui::Modifiers)>,
+    /// Rises with every press of the primary button: what names a drag's moves (`drag` on
+    /// `edit.move`, `frame.move`, `frame.resize`, `group.move`), so a drag is one undo step
+    /// however many frames it moves things in (N3 slice 1).
+    pub(crate) press: u64,
+    /// Rises with every arrow key pressed (not its repeats): what names a nudge's moves, so a
+    /// held key is one undo step (N3 slice 1).
+    pub(crate) nudge_press: u64,
 }
 
 impl Default for Canvas {
@@ -195,6 +202,8 @@ impl Default for Canvas {
             frame_drag: None,
             drag_anchor: None,
             marquee_from: None,
+            press: 0,
+            nudge_press: 0,
         }
     }
 }
@@ -570,6 +579,9 @@ impl Canvas {
         crate::icons::ensure_loaders(ui.ctx());
         self.palette_index.refresh(catalog);
         let ctx = ui.ctx().clone();
+        if ctx.input(|i| i.pointer.primary_pressed()) {
+            self.press = self.press.wrapping_add(1);
+        }
         // Keys go to the canvas unless a text field has the keyboard (egui moves focus on Tab
         // before we see it, so "nothing focused" isn't the test).
         let nothing_focused = !ctx.text_edit_focused();
@@ -666,6 +678,7 @@ impl Canvas {
             group_frames: &self.group_frames,
             routed_paths,
             name_request: None,
+            dropped_wire: None,
             anim: runs.anim,
             now: std::time::Instant::now(),
             faces: runs.faces,
@@ -677,6 +690,14 @@ impl Canvas {
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
         if let Some(edit) = viewer.name_request.take() {
             self.nets.edit = Some(edit);
+        }
+        // a new wire dropped on empty canvas opens the palette there, for kinds that take it
+        if let Some(wire) = viewer.dropped_wire.take()
+            && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
+        {
+            let g = self.to_global.inverse() * p;
+            keyed.push(("canvas.palette", json!({"open": true, "at": [g.x, g.y], "wire": wire})));
+            ctx.request_repaint();
         }
         let mut actions = keyed;
         actions.extend(viewer.actions);
@@ -844,9 +865,14 @@ impl Canvas {
         if let Some(state) = &mut self.palette {
             match palette::show(&ctx, state, &self.palette_index, catalog) {
                 PaletteOutcome::Open => {}
-                PaletteOutcome::Closed => self.palette = None,
+                // the palette is the core's state (N3 slice 1): closing it and picking from it are
+                // its commands, so a dropped wire's pick adds the node and the wire as one step
+                PaletteOutcome::Closed => {
+                    actions.push(("canvas.palette", json!({"open": false})));
+                    self.palette = None;
+                }
                 PaletteOutcome::Add(kind) => {
-                    actions.push(("node.add", json!({"kind": kind, "pos": [state.graph_pos.x, state.graph_pos.y]})));
+                    actions.push(("palette.choose", json!({"kind": kind, "at": [state.graph_pos.x, state.graph_pos.y]})));
                     self.palette = None;
                 }
             }
@@ -914,6 +940,9 @@ struct NodeViewer<'a> {
     routed_paths: Vec<(Vec<Pos2>, egui::Color32)>,
     /// A name editor an input's menu asked for this frame (name or rename a named port).
     name_request: Option<crate::net_view::NameEdit>,
+    /// A new wire dropped on empty canvas, from egui-snarl (`has_dropped_wire_menu`): the end
+    /// that stays, as `canvas.palette`'s `wire` (question 8, N3 slice 1).
+    dropped_wire: Option<Value>,
     /// The latest run's replay, and the time it is shown at.
     anim: Option<&'a crate::run_anim::RunAnim>,
     now: std::time::Instant,
@@ -1667,6 +1696,18 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
                 self.actions.push(("wire.disconnect", json!({"to": to})));
             }
         }
+    }
+
+    /// egui-snarl asks this when a new wire is let go on empty canvas: the core's palette opens
+    /// there for it (`canvas.palette {wire}`, question 8, N3 slice 1), so snarl's own menu is
+    /// never shown. A drag of several wires at once is left as snarl leaves it (nothing).
+    fn has_dropped_wire_menu(&mut self, src_pins: egui_snarl::ui::AnyPins, snarl: &mut Snarl<CanvasNode>) -> bool {
+        self.dropped_wire = match src_pins {
+            egui_snarl::ui::AnyPins::Out([one]) => out_port(snarl, self.catalog, *one).map(|p| json!({"from": p})),
+            egui_snarl::ui::AnyPins::In([one]) => in_port(snarl, *one).map(|p| json!({"to": p})),
+            _ => None,
+        };
+        false
     }
 
     fn has_graph_menu(&mut self, _pos: Pos2, _snarl: &mut Snarl<CanvasNode>) -> bool {

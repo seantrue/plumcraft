@@ -24,11 +24,14 @@ pub struct PaletteState {
     /// The highlighted row among the shown results.
     pub selected: usize,
     focus_requested: bool,
+    /// Opened for a dropped wire: the node types (catalogue indices) that take it, the only ones
+    /// offered (the core's `palette::fitting`, N3 slice 1).
+    pub fits: Option<std::collections::BTreeSet<usize>>,
 }
 
 impl PaletteState {
     pub fn new(screen_pos: Pos2, graph_pos: Pos2) -> Self {
-        PaletteState { screen_pos, graph_pos, query: String::new(), selected: 0, focus_requested: false }
+        PaletteState { screen_pos, graph_pos, query: String::new(), selected: 0, focus_requested: false, fits: None }
     }
 }
 
@@ -46,7 +49,7 @@ pub const SEARCH_HINT: &str = "Search nodes…";
 
 /// Draw the palette. Escape or a click outside closes it.
 pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex, catalog: &SchemaReply) -> PaletteOutcome {
-    let (shown, total) = index.filter(&state.query, MAX_SHOWN);
+    let (shown, total) = index.filter_in(&state.query, MAX_SHOWN, |i| state.fits.as_ref().is_none_or(|f| f.contains(&i)));
     let mut outcome = PaletteOutcome::Open;
     let (up, down, enter, escape) = ctx.input_mut(|i| {
         (
@@ -85,7 +88,13 @@ pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex,
             }
             ui.separator();
             if shown.is_empty() {
-                ui.weak(if catalog.nodes.is_empty() { "No node types: the engine is not connected." } else { "No matching nodes." });
+                ui.weak(if catalog.nodes.is_empty() {
+                    "No node types: the engine is not connected."
+                } else if state.fits.is_some() && state.query.trim().is_empty() {
+                    "No node takes this wire."
+                } else {
+                    "No matching nodes."
+                });
             }
             egui::ScrollArea::vertical().max_height(360.0).auto_shrink([false, true]).show(ui, |ui| {
                 let mut last_category: Option<&str> = None;

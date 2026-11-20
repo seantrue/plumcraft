@@ -261,6 +261,9 @@ pub struct Document {
     pub snapshot: std::sync::Arc<crate::geometry::Snapshot>,
     /// A drag under way (`ui.gesture`, N2 slice 4), shared with the C ABI's `plum_gesture_move`.
     pub drag: crate::gesture::DragCell,
+    /// The node palette while it is open (`canvas.palette`, `palette.choose`; core state since N3
+    /// slice 1): the scene's `view.palette`.
+    pub palette: Option<crate::scene::Palette>,
     /// The latest snapshot, for readers on other threads (the C ABI's hot calls), set as it is made.
     pub snapshot_out: crate::geometry::SnapshotCell,
 }
@@ -328,6 +331,7 @@ impl Document {
             fit_owed: false,
             snapshot: std::sync::Arc::default(),
             drag: crate::gesture::DragCell::default(),
+            palette: None,
             snapshot_out: crate::geometry::SnapshotCell::default(),
         }
     }
@@ -769,6 +773,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         // once they are measured, when there is anything to show
         d.geometry.clear();
         d.drag.set(None);
+        d.palette = None;
         let graph = d.session.graph();
         d.fit_owed = !graph.nodes.is_empty() || !graph.frames.is_empty();
     } else {
@@ -1225,7 +1230,7 @@ impl Document {
             now: std::time::Instant::now(),
             app_text,
             editors,
-            view: crate::scene::View { fit: self.fit.clone() },
+            view: crate::scene::View { fit: self.fit.clone(), palette: self.palette.clone() },
             geometry: Some(&self.geometry),
         }
     }

@@ -58,7 +58,12 @@ fn dragging_one_pasted_node_moves_every_pasted_node() {
     drag(&mut h, from, egui::vec2(60.0, 120.0));
     moved_by(&h, &new, &before, egui::vec2(60.0, 120.0));
     assert_eq!((pos(&h, &a), pos(&h, &b)), (a0, b0), "the originals stay");
-    // undo takes the paste back (moves aren't undo steps), redo brings it again
+    // the drag is one undo step, over the many frames it moved in (N3 slice 1: moves are undo
+    // steps); undo takes it back, then the paste; redo brings the paste again
+    assert_eq!(h.state().session.undo_label(), Some("Move 2 Nodes"));
+    h.state_mut().run("edit.undo", &json!({}));
+    h.run_steps(3);
+    moved_by(&h, &new, &before, egui::vec2(0.0, 0.0));
     assert_eq!(h.state().session.undo_label(), Some("Paste Nodes"));
     h.state_mut().run("edit.undo", &json!({}));
     h.run_steps(3);
@@ -256,6 +261,9 @@ fn insert_as_group_arrives_collapsed_moves_and_expands_where_moved() {
     assert_eq!(h.state().canvas.snarl.nodes_ids_data().count(), 2, "the literal and the group's node");
     expands_where_moved(&mut h, "g1");
     assert_eq!(h.state().session.undo_label(), Some("Expand Group"));
+    // the expand, the drag (one step since N3 slice 1), then the insert
+    h.state_mut().run("edit.undo", &json!({}));
+    assert_eq!(h.state().session.undo_label(), Some("Move Group"));
     h.state_mut().run("edit.undo", &json!({}));
     h.state_mut().run("edit.undo", &json!({}));
     assert_eq!(h.state().session.graph().nodes.len(), 1, "the insert undone");

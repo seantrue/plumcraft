@@ -3053,6 +3053,7 @@ dependencies = [
  "plumcraft-session",
  "plumcraft-store",
  "plumcraft-text",
+ "schemars",
  "serde",
  "serde_json",
  "serde_yaml",
