@@ -4,16 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B29. `mode2_python_kill_9_mid_run_recovers` fails on Linux CI: "the engine is not connected"
-
-- Reported: 2026-11-19 (found by the controller on the native dev branch's pull request #101; not reported by the maintainer)
-- Report: `plumcraft-text::conformance mode2_python_kill_9_mid_run_recovers` panicked at `crates/text/tests/conformance.rs:649` with `run: unavailable (-32006): the engine is not connected`, after 0.855 s, on run https://github.com/seantrue/plumcraft/actions/runs/44615077606 and again on its rerun: 2 of 2. Everything else passed (1,342 of 1,343). The Rust engine's twin, `mode2_kill_9_mid_run_recovers`, passed both times.
-- Context: the same test passed on the four Linux runs before it that day (#98, #99, and #100 twice). The pull request's changes (N1 slices 4 and 5) touch nothing in `crates/text`, `crates/host`, `crates/conform`, `crates/proto` or `python/`. Not reproduced on the Mac: 40 runs alone and 48 runs twelve at a time all pass.
-- Since (2026-11-19): intermittent, not constant. The Linux run of pull request #104 (the same code plus N1 slice 6) passed it, under md5 and b3: 2 failures in 7 Linux runs that day. #101 was merged into the dev branch with it failing (the maintainer's CPM, given to the slice 6 agent).
-- Suspect, read from the code and not confirmed: in `crates/host/src/process.rs` the reader thread's end fails the run in flight before the supervisor has set the state to `EngineDown` (it reaps the process first, holding the `child` lock). `plumcraft_conform::kill_9_mid_run_recovers` gets the failed reply, then calls `wait_ready`, which returns at once on the stale `Connected`; `pid()` waits for the reap and is then not the first pid; the next `run` finds no writer.
-- Open question: fix the host (state goes down before replies fail) or make the check wait for a new connection? The first changes what an editor sees after a crash, for the better if the suspicion is right.
-- Issue: #103
-
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 
 - Reported: 2026-11-19
@@ -23,6 +13,19 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Issue: #102
 
 ## Fixed
+
+### B29. `mode2_python_kill_9_mid_run_recovers` fails on Linux CI: "the engine is not connected"
+
+- Reported: 2026-11-19 (found by the controller on the native dev branch's pull request #101; not reported by the maintainer)
+- Report: `plumcraft-text::conformance mode2_python_kill_9_mid_run_recovers` panicked at `crates/text/tests/conformance.rs:649` with `run: unavailable (-32006): the engine is not connected`, after 0.855 s, on run https://github.com/seantrue/plumcraft/actions/runs/44615077606 and again on its rerun: 2 of 2. Everything else passed (1,342 of 1,343). The Rust engine's twin, `mode2_kill_9_mid_run_recovers`, passed both times.
+- Context: the same test passed on the four Linux runs before it that day (#98, #99, and #100 twice). The pull request's changes (N1 slices 4 and 5) touch nothing in `crates/text`, `crates/host`, `crates/conform`, `crates/proto` or `python/`. Not reproduced on the Mac: 40 runs alone and 48 runs twelve at a time all pass.
+- Since (2026-11-19): intermittent, not constant. The Linux run of pull request #104 (the same code plus N1 slice 6) passed it, under md5 and b3: 2 failures in 7 Linux runs that day. #101 was merged into the dev branch with it failing (the maintainer's CPM, given to the slice 6 agent).
+- Suspect, read from the code and not confirmed: in `crates/host/src/process.rs` the reader thread's end fails the run in flight before the supervisor has set the state to `EngineDown` (it reaps the process first, holding the `child` lock). `plumcraft_conform::kill_9_mid_run_recovers` gets the failed reply, then calls `wait_ready`, which returns at once on the stale `Connected`; `pid()` waits for the reap and is then not the first pid; the next `run` finds no writer.
+- Open question: fix the host (state goes down before replies fail) or make the check wait for a new connection? The first changes what an editor sees after a crash, for the better if the suspicion is right.
+- Issue: #103
+- Cause (2026-11-19, confirmed; the suspect above had the order wrong): in `crates/host/src/process.rs` the supervisor failed the pending calls and live runs first and set the state to `EngineDown` after. Between the two, the check got its failed reply, `wait_ready` returned at once on the dead connection's `Connected`, `pid()` was `None` (already reaped, so "not the first pid" held), and the next `run` found no writer. A unit test that reads the state on hearing of the failure fails every time with that order.
+- Fix: the state goes down first (`Inner::went_down`). An editor now sees the engine-state event before the failed run's reply, not after.
+- Fixed: 2026-11-19, on the native dev branch only, PR pending. Not shown on Linux beyond CI passing: the failure was 2 runs in 9.
 
 ### B27. Eight editor kittests fail on `main`'s Linux CI, as in closed issue #89
 

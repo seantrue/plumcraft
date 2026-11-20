@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — B29: the engine state went down after the failures it explains (Claude Fable 5.2)
+
+**What the maintainer asked for.** "fix B28,29".
+
+**What the AI did** (+65 −8 in `crates/host/src/process.rs`, 45 of them a test). The supervisor failed pending calls and live runs, then set the state to `EngineDown`; a caller woken by its failure could still read `Connected` and send its next run to a closed connection. The state is set first now.
+
+**Checked.** A new unit test (200 rounds, a waiting call and a waiting run each read the state on hearing of the failure) passes with the fix and fails at once with the old order put back. The 395 tests of the six crates that use the process host pass under b3; fmt and clippy clean.
+
+**What the AI had wrong.** Its recorded suspicion blamed the reader thread; the reader fails nothing. The mechanism was found only on reading the code to fix it. The failure never reproduced on the Mac, so the proof is the unit test and the code, not a Linux reproduction.
+
 ### 2026-11-19 — N1's exit review (Claude Fable 5.2)
 
 **What the maintainer asked for.** The standing go-ahead for N1's slices, which ends here; N2 needs a new one.

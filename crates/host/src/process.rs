@@ -140,6 +140,19 @@ impl Inner {
         }
     }
 
+    /// The engine is down: the state says so before any call or run hears of it. A caller that
+    /// gets its failure and then asks for the state (or waits to be ready again) must never find
+    /// the dead connection's `Connected`: it would send its next call to no one.
+    fn went_down(&self, why: &str) {
+        self.set_state(EngineState::EngineDown {
+            reason: why.to_owned(),
+            queues: None,
+            stderr_tail: Some(self.stderr_tail()),
+            hint: self.manifest.hint.clone(),
+        });
+        self.fail_everything(why);
+    }
+
     fn stderr_tail(&self) -> String {
         let b = lock(&self.stderr);
         let bytes: Vec<u8> = b.iter().copied().collect();
@@ -311,13 +324,7 @@ fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
             Some(cause) => format!("{why}: {cause}"),
             None => why,
         };
-        inner.fail_everything(&why);
-        inner.set_state(EngineState::EngineDown {
-            reason: why.clone(),
-            queues: None,
-            stderr_tail: Some(inner.stderr_tail()),
-            hint: inner.manifest.hint.clone(),
-        });
+        inner.went_down(&why);
         let now = Instant::now();
         crashes.push_back(now);
         while crashes.front().is_some_and(|t| now.duration_since(*t) > CRASH_WINDOW) {
@@ -537,7 +544,57 @@ pub(crate) fn private_dir(prefix: &str) -> std::io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::known_cause;
+    use super::*;
+
+    fn connected() -> Inner {
+        Inner {
+            manifest: Manifest::default(),
+            token: String::new(),
+            writer: Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            ring: Ring::default(),
+            live: Mutex::new(BTreeMap::new()),
+            synthesised: Mutex::new(BTreeMap::new()),
+            state: Mutex::new(EngineState::Connected { version: String::new(), nodes: 1, caps: Default::default() }),
+            state_cv: Condvar::new(),
+            child: Mutex::new(None),
+            stderr: Arc::new(Mutex::new(VecDeque::new())),
+            stop: AtomicBool::new(false),
+            store: Store::new(PathBuf::from("unused")),
+            data: Mutex::new(DataSession::default()),
+        }
+    }
+
+    /// B29: a run in flight was failed while the state still said `Connected`, so a caller that
+    /// then waited to be ready went straight on and sent its next run to a closed connection
+    /// ("the engine is not connected"), on a slow machine. Whoever hears of the failure, by a
+    /// pending call or by a run's reply in the ring, finds the engine down already.
+    #[test]
+    fn the_state_is_down_before_anyone_hears_of_the_failure() {
+        for _ in 0..200 {
+            let inner = Arc::new(connected());
+            let (tx, rx) = channel();
+            lock(&inner.pending).insert(1, tx);
+            lock(&inner.live).insert("r".into(), 1);
+            let (a, b) = (Arc::clone(&inner), Arc::clone(&inner));
+            let call = std::thread::spawn(move || {
+                let reply = rx.recv();
+                (reply, lock(&a.state).clone())
+            });
+            let run = std::thread::spawn(move || {
+                let page = b.ring.poll(0, 5_000, Some("r"));
+                (page.events.len(), lock(&b.state).clone())
+            });
+            inner.went_down("the engine stopped (signal 9); restarting");
+            let (reply, at_reply) = call.join().unwrap();
+            assert!(matches!(reply, Ok(Err(_))), "{reply:?}");
+            assert!(matches!(at_reply, EngineState::EngineDown { .. }), "a failed call saw {at_reply:?}");
+            let (events, at_event) = run.join().unwrap();
+            assert!(events >= 1);
+            assert!(matches!(at_event, EngineState::EngineDown { .. }), "a failed run saw {at_event:?}");
+        }
+    }
 
     /// The maintainer's report: the OpenCV engine, installed on Windows with an SDK pinned before
     /// the Windows port, died with this, and the banner showed only the traceback.
