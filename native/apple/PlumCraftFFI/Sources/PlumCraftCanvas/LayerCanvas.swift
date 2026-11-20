@@ -1,0 +1,1006 @@
+// The layer canvas (plan 5.4, as N0 measured it in 15.2): a CALayer per node with its face drawn
+// once into it, one CAShapeLayer per wire with its frame tight around the wire, frames, open
+// groups, net tags and marks as their own layers, all under one transformed layer. Pan and zoom
+// change that one transform, so they are the compositor's work; nothing crosses to the core per
+// frame (5.3).
+//
+// It follows a DocumentModel: `onChange` names the nids that changed or went, and only those
+// layers are touched. A face whose `rev` changed is laid out again and drawn again on a worker,
+// and its measurements go to the core (`plum_geometry_set`, typed) from there, so text is never
+// measured on the main thread or per frame. The core then recomputes wire paths from what was
+// measured, and those wires arrive as changed too.
+//
+// Faces are drawn at a scale that steps in powers of two of the screen's, chosen from the zoom;
+// when a pan or zoom settles, only the visible faces whose scale is wrong are drawn again (15.2).
+// The selection and the run wash are sublayers, so selecting or a run's animation never redraws a
+// face.
+//
+// Platform-free: QuartzCore, Core Graphics and Core Text only. The hosts (an NSView, a UIView)
+// recognise input and call in here.
+
+import CoreGraphics
+import Foundation
+import Observation
+import PlumCraft
+import PlumCraftKit
+import PlumCraftModels
+import QuartzCore
+
+/// The canvas transform: `screen = graph · zoom + pan` (contract 6.3, `ui.viewport`).
+public struct Viewport: Equatable, Sendable {
+    public var pan: CGPoint
+    public var zoom: CGFloat
+    public init(pan: CGPoint = .zero, zoom: CGFloat = 1) { self.pan = pan; self.zoom = zoom }
+    public static let minZoom: CGFloat = 0.1
+    public static let maxZoom: CGFloat = 4
+    public func toGraph(_ v: CGPoint) -> CGPoint { CGPoint(x: (v.x - pan.x) / zoom, y: (v.y - pan.y) / zoom) }
+    public func toView(_ g: CGPoint) -> CGPoint { CGPoint(x: g.x * zoom + pan.x, y: g.y * zoom + pan.y) }
+}
+
+/// What the canvas did, for measurements and tests.
+public struct CanvasCounts: Sendable, Equatable {
+    public var facesLaidOut = 0
+    public var facesDrawn = 0
+    public var reports = 0
+    public var wiresPathed = 0
+    public var batches = 0
+}
+
+@MainActor
+public final class LayerCanvas {
+    public let model: DocumentModel
+    public let link: CanvasLink
+    /// The layer the host gives: the canvas's background; `world` hangs under it.
+    public let host: CALayer
+    public let screenScale: CGFloat
+    public private(set) var colors = CanvasColors()
+    public var fonts = FaceFonts.standard
+
+    let world = CALayer()
+    let frameRoot = CALayer()
+    let groupRoot = CALayer()
+    let wireRoot = CALayer()
+    let nodeRoot = CALayer()
+    let tagRoot = CALayer()
+    let overlay = CALayer()
+
+    public var viewSize: CGSize = CGSize(width: 1024, height: 768) {
+        didSet { if viewSize != oldValue { scheduleSettle() } }
+    }
+    public private(set) var viewport = Viewport()
+    /// The pan a gesture asks for before the rubber band is applied.
+    var rawPan: CGPoint?
+
+    final class FaceEntry {
+        let nid: UInt64
+        let layer = CALayer()
+        var wash: CALayer?
+        var select: CAShapeLayer?
+        var preview: CALayer?
+        var face: Face
+        var layout: FaceLayout?
+        var laidRev: UInt64?
+        var drawnRev: UInt64?
+        var drawnScale: CGFloat = 0
+        var drawnTheme = -1
+        var previewKey: String?
+        init(nid: UInt64, face: Face) { self.nid = nid; self.face = face }
+        var rect: CGRect {
+            CGRect(x: face.pos.x, y: face.pos.y, width: layout?.size.width ?? 220, height: layout?.size.height ?? 160)
+        }
+    }
+
+    var faces: [UInt64: FaceEntry] = [:]
+    var faceById: [String: UInt64] = [:]
+    var wires: [UInt64: CAShapeLayer] = [:]
+    var tags: [UInt64: [CALayer]] = [:]
+    var frames: [UInt64: CALayer] = [:]
+    var groups: [UInt64: CALayer] = [:]
+    var marks: [UInt64: CALayer] = [:]
+    var themeGen = 0
+
+    // work on faces: what is waiting, whether a batch is out
+    var needLayout: Set<UInt64> = []
+    var needDraw: Set<UInt64> = []
+    var working = false
+    var settleTask: Task<Void, Never>?
+    var lastFitSeq: UInt64?
+    /// The first full scene's faces were all measured (the time to first frame stops here).
+    public private(set) var firstFrameAt: ContinuousClock.Instant?
+    public private(set) var counts = CanvasCounts()
+    /// Called after each batch of faces is on its layers (measurements, budgets).
+    public var onDrawn: ((Set<UInt64>) -> Void)?
+    /// Called when the transform changes (the host shows the zoom, reports it).
+    public var onViewport: ((Viewport) -> Void)?
+    /// Called when the canvas wants the theme read again (an appearance change).
+    var hoverWire: UInt64?
+    let hoverRing = CAShapeLayer()
+    let marquee = CAShapeLayer()
+    let dragWire = CAShapeLayer()
+    /// Faces moved by a drag under way, at their positions when it began.
+    var moving: [UInt64: CGPoint] = [:]
+    var movingWires: Set<UInt64> = []
+
+    public init(model: DocumentModel, host: CALayer, screenScale: CGFloat) {
+        self.model = model
+        self.link = CanvasLink(model: model)
+        self.host = host
+        self.screenScale = max(screenScale, 1)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        world.anchorPoint = .zero
+        world.position = .zero
+        world.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+        for l in [frameRoot, groupRoot, wireRoot, nodeRoot, tagRoot, overlay] {
+            l.anchorPoint = .zero
+            l.position = .zero
+            l.bounds = CGRect(x: 0, y: 0, width: 1, height: 1)
+            world.addSublayer(l)
+        }
+        for s in [hoverRing, marquee, dragWire] {
+            s.anchorPoint = .zero
+            s.position = .zero
+            s.fillColor = nil
+            s.isHidden = true
+            overlay.addSublayer(s)
+        }
+        host.addSublayer(world)
+        CATransaction.commit()
+        model.onChange = { [weak self] c in self?.apply(c) }
+        observeTheme()
+        if model.applied > 0 { rebuildAll() }
+    }
+
+    // MARK: - Following the model
+
+    func observeTheme() {
+        withObservationTracking {
+            _ = model.theme
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                self?.themeChanged()
+                self?.observeTheme()
+            }
+        }
+        themeChanged()
+    }
+
+    func themeChanged() {
+        let c = CanvasColors(model.theme)
+        guard c != colors else { return }
+        colors = c
+        themeGen += 1
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        host.backgroundColor = colors.canvas
+        for nid in wires.keys { if let w = model.wires[nid]?.item { pathWire(w) } }
+        for nid in frames.keys { if let f = model.frames[nid]?.item { placeFrame(f) } }
+        for nid in groups.keys { if let g = model.groups[nid]?.item { placeGroup(g) } }
+        for nid in marks.keys { if let m = model.marks[nid]?.item { placeMark(m) } }
+        placeTags()
+        updateSelection()
+        CATransaction.commit()
+        // every face is drawn again in the new colours (their sizes don't change)
+        needDraw.formUnion(faces.keys)
+        pump()
+    }
+
+    /// Everything the model has, as if it had all just changed.
+    func rebuildAll() {
+        var all = Set<UInt64>()
+        all.formUnion(model.faces.order)
+        all.formUnion(model.wires.order)
+        all.formUnion(model.nets.order)
+        all.formUnion(model.frames.order)
+        all.formUnion(model.groups.order)
+        all.formUnion(model.marks.order)
+        apply(SceneChange(gen: model.gen, full: true, changed: all, removed: [], selectionChanged: true, viewChanged: true))
+    }
+
+    /// One apply of the model: layers by nid.
+    public func apply(_ c: SceneChange) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        for nid in c.removed { remove(nid) }
+        var netsTouched = false
+        var orderTouched = false
+        for nid in c.changed {
+            if let f = model.faces[nid]?.item {
+                if let e = faces[nid] {
+                    let moved = e.face.pos != f.pos
+                    e.face = f
+                    if moved { held[nid] = nil }
+                    if moved { placeFace(e) }
+                    if e.laidRev != f.rev { needLayout.insert(nid) }
+                } else {
+                    let e = FaceEntry(nid: nid, face: f)
+                    e.layer.anchorPoint = .zero
+                    e.layer.contentsGravity = .resize
+                    e.layer.isOpaque = false
+                    faces[nid] = e
+                    nodeRoot.addSublayer(e.layer)
+                    orderTouched = true
+                    needLayout.insert(nid)
+                }
+                faceById[f.id] = nid
+                netsTouched = true
+            } else if let w = model.wires[nid]?.item {
+                pathWire(w)
+            } else if model.nets[nid] != nil {
+                netsTouched = true
+            } else if let fr = model.frames[nid]?.item {
+                placeFrame(fr)
+            } else if let g = model.groups[nid]?.item {
+                placeGroup(g)
+                orderTouched = true
+            } else if let m = model.marks[nid]?.item {
+                placeMark(m)
+            }
+        }
+        if orderTouched { reorder() }
+        if netsTouched || !c.removed.isEmpty { placeTags() }
+        if c.selectionChanged || c.full { updateSelection() }
+        updateWashes(c.changed)
+        if c.viewChanged || c.full { honourFit() }
+        pump()
+        // nothing to draw (no face changed, or an empty graph): what is shown is already current
+        if idle { onDrawn?([]) }
+    }
+
+    func remove(_ nid: UInt64) {
+        if let e = faces.removeValue(forKey: nid) {
+            e.layer.removeFromSuperlayer()
+            faceById = faceById.filter { $0.value != nid }
+            needLayout.remove(nid)
+            needDraw.remove(nid)
+        }
+        wires.removeValue(forKey: nid)?.removeFromSuperlayer()
+        if hoverWire == nid { hoverWire = nil }
+        for l in tags.removeValue(forKey: nid) ?? [] { l.removeFromSuperlayer() }
+        frames.removeValue(forKey: nid)?.removeFromSuperlayer()
+        groups.removeValue(forKey: nid)?.removeFromSuperlayer()
+        marks.removeValue(forKey: nid)?.removeFromSuperlayer()
+    }
+
+    /// Faces in the scene's drawing order (the last on top); open groups outer first.
+    func reorder() {
+        var k: UInt32 = 0
+        for nid in model.faces.order {
+            if let e = faces[nid] {
+                e.layer.zPosition = CGFloat(k)
+                k += 1
+            }
+        }
+        for (nid, l) in groups {
+            l.zPosition = CGFloat(model.groups[nid]?.item.depth ?? 0)
+        }
+    }
+
+    // MARK: - Faces: layout, measuring, drawing (on workers)
+
+    /// The raster scale for a zoom: powers of two of the screen's, so a small zoom change never
+    /// redraws (15.2); from half the screen's to twice it.
+    public func rasterScale(forZoom z: CGFloat) -> CGFloat {
+        let s = screenScale * pow(2, ceil(log2(max(z, 0.01))))
+        return min(max(s, 0.5), screenScale * 2)
+    }
+
+    /// The visible part of the graph, with a margin of a fifth of the view each side.
+    public var visibleRect: CGRect {
+        let v = viewport
+        let r = CGRect(x: -v.pan.x / v.zoom, y: -v.pan.y / v.zoom, width: viewSize.width / v.zoom, height: viewSize.height / v.zoom)
+        return r.insetBy(dx: -r.width * 0.2, dy: -r.height * 0.2)
+    }
+
+    struct Job: Sendable {
+        var nid: UInt64
+        var face: Face
+        var layout: FaceLayout?
+        var relayout: Bool
+        var scale: CGFloat?
+    }
+
+    struct Done: @unchecked Sendable {
+        // CGImage is immutable and thread-safe
+        var nid: UInt64
+        var rev: UInt64
+        var layout: FaceLayout
+        var image: CGImage?
+        var scale: CGFloat?
+    }
+
+    /// Send the faces waiting to a worker: lay out those whose `rev` changed and report them, draw
+    /// those that need it, then put the pictures on their layers. One batch at a time; what comes
+    /// while one is out waits for the next.
+    func pump() {
+        if working || (needLayout.isEmpty && needDraw.isEmpty) { return }
+        let visible = visibleRect
+        let want = rasterScale(forZoom: viewport.zoom)
+        var jobs: [Job] = []
+        let ids = needLayout.union(needDraw)
+        needLayout = []
+        needDraw = []
+        for nid in ids {
+            guard let e = faces[nid] else { continue }
+            let relayout = e.laidRev != e.face.rev || e.layout == nil
+            // a visible face at the zoom's scale; one out of sight at the lowest, once
+            let seen = e.rect.intersects(visible)
+            let scale: CGFloat? = seen ? want : (e.drawnRev == e.face.rev && e.drawnTheme == themeGen ? nil : min(want, 1))
+            if !relayout && scale == nil { continue }
+            jobs.append(Job(nid: nid, face: e.face, layout: relayout ? nil : e.layout, relayout: relayout, scale: scale))
+        }
+        if jobs.isEmpty { return }
+        working = true
+        counts.batches += 1
+        let colors = colors
+        let fonts = fonts
+        let core = link.core
+        let doc = link.hotDoc
+        Task.detached(priority: .userInitiated) { [weak self] in
+            let done = LayerCanvas.work(jobs, colors: colors, fonts: fonts)
+            // measurements go to the core from here: plum_geometry_set copies and returns
+            let measured: [FaceMeasure] = zip(jobs, done).compactMap { j, d in
+                guard j.relayout else { return nil }
+                let m = d.layout.measure(face: d.nid, rev: d.rev)
+                return FaceMeasure(face: m.face, rev: m.rev, width: m.width, height: m.height, header: m.header,
+                                   inputs: m.inputs.map { Optional($0) }, outputs: m.outputs.map { Optional($0) }, rows: m.rows)
+            }
+            var reported = false
+            if !measured.isEmpty {
+                reported = (try? core.geometrySet(doc: doc, faces: measured)) != nil
+            }
+            await self?.finish(done, laid: jobs.filter(\.relayout).count, reported: reported ? 1 : 0)
+        }
+    }
+
+    nonisolated static func work(_ jobs: [Job], colors: CanvasColors, fonts: FaceFonts) -> [Done] {
+        let out = UnsafeMutableBufferPointer<Done?>.allocate(capacity: jobs.count)
+        out.initialize(repeating: nil)
+        defer {
+            _ = out.deinitialize()
+            out.deallocate()
+        }
+        nonisolated(unsafe) let o = out
+        DispatchQueue.concurrentPerform(iterations: jobs.count) { k in
+            let j = jobs[k]
+            let layout = j.layout ?? FaceLayout.make(j.face, fonts: fonts)
+            let image = j.scale.flatMap { FaceRenderer.render(j.face, layout, colors: colors, fonts: fonts, scale: $0) }
+            o[k] = Done(nid: j.nid, rev: j.face.rev, layout: layout, image: image, scale: j.scale)
+        }
+        return out.compactMap { $0 }
+    }
+
+    func finish(_ done: [Done], laid: Int, reported: Int) {
+        working = false
+        counts.facesLaidOut += laid
+        counts.reports += reported
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        var touched = Set<UInt64>()
+        for d in done {
+            guard let e = faces[d.nid] else { continue }
+            if e.face.rev != d.rev {
+                // it changed again while drawn: do it again
+                needLayout.insert(d.nid)
+                continue
+            }
+            e.layout = d.layout
+            e.laidRev = d.rev
+            if let img = d.image, let s = d.scale {
+                e.layer.contents = img
+                e.layer.contentsScale = s
+                e.drawnScale = s
+                e.drawnRev = d.rev
+                e.drawnTheme = themeGen
+                counts.facesDrawn += 1
+            }
+            placeFace(e)
+            touched.insert(d.nid)
+        }
+        placeTags()
+        updateSelection()
+        updateWashes(touched)
+        CATransaction.commit()
+        let vis = visibleRect
+        if firstFrameAt == nil, !faces.isEmpty, faces.values.allSatisfy({ $0.layout != nil && ($0.drawnRev != nil || !$0.rect.intersects(vis)) }) {
+            firstFrameAt = .now
+        }
+        onDrawn?(touched)
+        pump()
+    }
+
+    /// The face's layer where its scene position and layout say.
+    func placeFace(_ e: FaceEntry) {
+        let m = FaceMetrics.margin
+        let size = e.layout?.size ?? CGSize(width: 220, height: 160)
+        var p = CGPoint(x: e.face.pos.x, y: e.face.pos.y)
+        if let start = moving[e.nid], let off = moveOffset {
+            p = CGPoint(x: start.x + off.x, y: start.y + off.y)
+        } else if let h = held[e.nid] {
+            p = h
+        }
+        e.layer.bounds = CGRect(x: 0, y: 0, width: size.width + 2 * m, height: size.height + 2 * m)
+        e.layer.position = CGPoint(x: p.x - m, y: p.y - m)
+        if let pv = e.preview, let r = e.layout?.preview {
+            pv.frame = r.offsetBy(dx: m, dy: m)
+        }
+        if let w = e.wash, let L = e.layout {
+            w.frame = CGRect(x: m, y: m + L.header, width: size.width, height: max(size.height - L.header, 0))
+        }
+        if let s = e.select {
+            s.frame = CGRect(x: 0, y: 0, width: size.width + 2 * m, height: size.height + 2 * m)
+            s.path = CGPath(roundedRect: CGRect(x: m - 3.5, y: m - 3.5, width: size.width + 7, height: size.height + 7),
+                            cornerWidth: FaceMetrics.corner + 3, cornerHeight: FaceMetrics.corner + 3, transform: nil)
+        }
+    }
+
+    // MARK: - Selection and run washes
+
+    func updateSelection() {
+        let sel = model.selection
+        let nodes = Set(sel.nodes)
+        let groupsSel = Set(sel.groups)
+        for e in faces.values {
+            let on = nodes.contains(e.face.id) || (e.face.proxy.map { groupsSel.contains($0.group) } ?? false)
+            if on {
+                let s = e.select ?? {
+                    let s = CAShapeLayer()
+                    s.fillColor = nil
+                    s.lineWidth = 2.5
+                    s.anchorPoint = .zero
+                    e.layer.addSublayer(s)
+                    e.select = s
+                    return s
+                }()
+                s.strokeColor = colors.accent
+                s.isHidden = false
+                placeFace(e)
+            } else {
+                e.select?.isHidden = true
+            }
+        }
+    }
+
+    /// The run's fill while it shows (contract 8.6): a sublayer over the body in the state's
+    /// colour, at the table's amount; the running pulse is a Core Animation animation, so the
+    /// compositor runs it and nothing is drawn per frame.
+    func updateWashes(_ changed: Set<UInt64>) {
+        let on = model.anim.on
+        for nid in changed {
+            guard let e = faces[nid], e.layout != nil else { continue }
+            let shown = on ? e.face.shown?.word : nil
+            guard let shown else {
+                e.wash?.removeFromSuperlayer()
+                e.wash = nil
+                continue
+            }
+            let (token, amount): (String, Float) = switch shown {
+            case .waiting: ("field", 0.55)
+            case .running: ("state_running", 0.42)
+            case .done: ("state_done", 0.40)
+            case .cached: ("state_cached", 0.24)
+            case .failed: ("state_error", 0.45)
+            case .skipped: ("state_skipped", 0.60)
+            }
+            let w = e.wash ?? {
+                let w = CALayer()
+                w.anchorPoint = .zero
+                w.cornerRadius = FaceMetrics.corner
+                w.maskedCorners = [.layerMinXMaxYCorner, .layerMaxXMaxYCorner]
+                e.layer.insertSublayer(w, at: 0)
+                e.wash = w
+                return w
+            }()
+            w.backgroundColor = colors.token(token, RGBA(128, 128, 128, 255))
+            w.opacity = amount
+            w.removeAnimation(forKey: "pulse")
+            if shown == .running {
+                let a = CABasicAnimation(keyPath: "opacity")
+                a.fromValue = 0.28
+                a.toValue = 0.56
+                a.duration = Double(model.anim.pulseMs) / 2000
+                a.autoreverses = true
+                a.repeatCount = .infinity
+                w.add(a, forKey: "pulse")
+            }
+            placeFace(e)
+        }
+    }
+
+    // MARK: - Wires
+
+    /// A wire's layer, its frame tight around its path (15.2), stroked in its colour; a routed
+    /// wire's bend points as rings; none for a wire drawn through a net.
+    func pathWire(_ w: Wire) {
+        let l = wires[w.nid] ?? {
+            let s = CAShapeLayer()
+            s.fillColor = nil
+            s.lineCap = .round
+            s.lineJoin = .round
+            s.anchorPoint = .zero
+            wireRoot.addSublayer(s)
+            wires[w.nid] = s
+            return s
+        }()
+        counts.wiresPathed += 1
+        l.strokeColor = colors.color(w.paint)
+        l.lineWidth = hoverWire == w.nid ? 4.5 : 2.5
+        guard w.kind.word != .net, w.path.count >= 4 else {
+            l.path = nil
+            l.isHidden = true
+            return
+        }
+        l.isHidden = false
+        setPath(l, Self.chain(w.path.map { CGPoint(x: $0.x, y: $0.y) }, via: w.via.map { CGPoint(x: $0.x, y: $0.y) }))
+    }
+
+    /// A cubic chain (start, then three points a segment) as a path, with rings at `via`.
+    static func chain(_ pts: [CGPoint], via: [CGPoint]) -> CGMutablePath {
+        let p = CGMutablePath()
+        guard let first = pts.first else { return p }
+        p.move(to: first)
+        var k = 1
+        while k + 2 < pts.count {
+            p.addCurve(to: pts[k + 2], control1: pts[k], control2: pts[k + 1])
+            k += 3
+        }
+        for v in via {
+            p.addEllipse(in: CGRect(x: v.x - 5, y: v.y - 5, width: 10, height: 10))
+        }
+        return p
+    }
+
+    func setPath(_ l: CAShapeLayer, _ p: CGPath) {
+        let box = p.boundingBoxOfPath.insetBy(dx: -4, dy: -4)
+        var t = CGAffineTransform(translationX: -box.minX, y: -box.minY)
+        l.position = box.origin
+        l.bounds = CGRect(origin: .zero, size: box.size)
+        l.path = p.copy(using: &t)
+    }
+
+    // MARK: - Frames, groups, tags, marks
+
+    func labelLayer(_ spec: LabelRenderer.Spec) -> CALayer {
+        let l = CALayer()
+        l.anchorPoint = .zero
+        l.bounds = CGRect(origin: .zero, size: spec.size)
+        l.contentsGravity = .resize
+        let s = screenScale * 2
+        l.contents = LabelRenderer.render(spec, fonts: fonts, scale: s)
+        l.contentsScale = s
+        return l
+    }
+
+    func placeFrame(_ f: Frame) {
+        frames[f.nid]?.removeFromSuperlayer()
+        let col = colors.color(f.paint)
+        let l = CALayer()
+        l.anchorPoint = .zero
+        l.position = CGPoint(x: f.pos.x, y: f.pos.y)
+        l.bounds = CGRect(x: 0, y: 0, width: f.size.x, height: f.size.y)
+        l.backgroundColor = col.copy(alpha: 0.08)
+        l.borderColor = col.copy(alpha: 0.7)
+        l.borderWidth = 1.5
+        l.cornerRadius = 6
+        let tabW = min(max(f.size.x, 22), 180)
+        let tab = labelLayer(.init(text: "☰  " + f.title, size: CGSize(width: tabW, height: 22), fill: CGColorBox(col.copy(alpha: 0.85) ?? col),
+                                   stroke: nil, ink: CGColorBox(colors.headerText), corner: 5, mono: false, bold: false))
+        tab.position = CGPoint(x: 0, y: -22)
+        l.addSublayer(tab)
+        // the corner handle
+        let h = CAShapeLayer()
+        let p = CGMutablePath()
+        for k in 1...3 {
+            let d = CGFloat(k) * 4
+            p.move(to: CGPoint(x: f.size.x - d - 2, y: f.size.y - 2)); p.addLine(to: CGPoint(x: f.size.x - 2, y: f.size.y - d - 2))
+        }
+        h.path = p
+        h.strokeColor = col.copy(alpha: 0.8)
+        h.lineWidth = 1.2
+        l.addSublayer(h)
+        frameRoot.addSublayer(l)
+        frames[f.nid] = l
+    }
+
+    func placeGroup(_ g: Group) {
+        groups[g.nid]?.removeFromSuperlayer()
+        groups[g.nid] = nil
+        guard !g.collapsed, let r = g.rect else { return }
+        let col = colors.group
+        let l = CALayer()
+        l.anchorPoint = .zero
+        l.position = CGPoint(x: r.x0, y: r.y0)
+        l.bounds = CGRect(x: 0, y: 0, width: r.width, height: r.height)
+        l.backgroundColor = colors.groupBody.copy(alpha: 0.35)
+        l.borderColor = col.copy(alpha: 0.8)
+        l.borderWidth = 1.5
+        l.cornerRadius = 8
+        let band = labelLayer(.init(text: "▾  " + g.name, size: CGSize(width: r.width, height: 28), fill: CGColorBox(col.copy(alpha: 0.85) ?? col),
+                                    stroke: nil, ink: CGColorBox(colors.headerText), corner: 8, mono: false, bold: true, inset: 10))
+        band.position = .zero
+        l.addSublayer(band)
+        l.zPosition = CGFloat(g.depth)
+        groupRoot.addSublayer(l)
+        groups[g.nid] = l
+    }
+
+    func placeMark(_ m: Mark) {
+        marks[m.nid]?.removeFromSuperlayer()
+        marks[m.nid] = nil
+        guard let at = m.at else { return }
+        let tone: CGColor = switch m.tone.word {
+        case .warn?: colors.warning
+        case .error?: colors.error
+        default: colors.accent
+        }
+        let w = TextLine.width(m.label, fonts.small) + 14
+        let l = labelLayer(.init(text: m.label, size: CGSize(width: w, height: 18), fill: CGColorBox(colors.field), stroke: CGColorBox(tone),
+                                 ink: CGColorBox(colors.text), corner: 9, mono: false, bold: false, inset: 7))
+        l.position = CGPoint(x: at.x - w / 2, y: at.y - 9)
+        tagRoot.addSublayer(l)
+        marks[m.nid] = l
+    }
+
+    /// Net tags at their pins (8.8), where the core puts them for its hit test (`geometry.rs`'s
+    /// estimate: 6.6 a character plus 17 wide, 17 high).
+    func placeTags() {
+        for (_, ls) in tags { for l in ls { l.removeFromSuperlayer() } }
+        tags = [:]
+        for n in model.nets.items {
+            var ls: [CALayer] = []
+            let col = colors.color(n.paint)
+            let w = 6.6 * CGFloat(min(n.key.name.count, 64)) + 17
+            let spec = LabelRenderer.Spec(text: n.key.name, size: CGSize(width: w, height: 17), fill: CGColorBox(n.selected ? (col.copy(alpha: 0.45) ?? col) : colors.field),
+                                          stroke: CGColorBox(col), ink: CGColorBox(colors.text), corner: 8.5, mono: false, bold: false, inset: 4, centred: true)
+            if let p = pinPoint(face: n.driver.face, output: true, pin: n.driver.pin) {
+                let l = labelLayer(spec)
+                l.position = CGPoint(x: p.x + n.driver.at.x, y: p.y + n.driver.at.y - 8.5)
+                tagRoot.addSublayer(l)
+                ls.append(l)
+            }
+            for u in n.uses {
+                guard let p = pinPoint(face: u.face, output: false, pin: u.pin) else { continue }
+                let l = labelLayer(spec)
+                l.position = CGPoint(x: p.x + u.at.x - w, y: p.y + u.at.y - 8.5)
+                tagRoot.addSublayer(l)
+                ls.append(l)
+            }
+            tags[n.nid] = ls
+        }
+    }
+
+    /// A pin's point in graph units, from the face's layout.
+    public func pinPoint(face id: String, output: Bool, pin: Int) -> CGPoint? {
+        guard let nid = faceById[id], let e = faces[nid], let L = e.layout else { return nil }
+        let ys = output ? L.outputPins : L.inputPins
+        guard pin >= 0, pin < ys.count else { return nil }
+        return CGPoint(x: e.face.pos.x + (output ? L.size.width : 0), y: e.face.pos.y + ys[pin])
+    }
+
+    // MARK: - The view
+
+    func applyTransform(animated: Bool = false) {
+        CATransaction.begin()
+        if animated {
+            CATransaction.setAnimationDuration(0.28)
+            CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
+        } else {
+            CATransaction.setDisableActions(true)
+        }
+        let v = viewport
+        world.setAffineTransform(CGAffineTransform(a: v.zoom, b: 0, c: 0, d: v.zoom, tx: v.pan.x, ty: v.pan.y))
+        CATransaction.commit()
+        onViewport?(v)
+    }
+
+    public func setViewport(_ v: Viewport, animated: Bool = false) {
+        viewport = Viewport(pan: v.pan, zoom: min(max(v.zoom, Viewport.minZoom), Viewport.maxZoom))
+        applyTransform(animated: animated)
+        scheduleSettle()
+    }
+
+    /// Zoom by `factor`, keeping the view point `at` where it is.
+    public func zoom(by factor: CGFloat, at v: CGPoint, animated: Bool = false) {
+        let g = viewport.toGraph(v)
+        let z = min(max(viewport.zoom * factor, Viewport.minZoom), Viewport.maxZoom)
+        setViewport(Viewport(pan: CGPoint(x: v.x - g.x * z, y: v.y - g.y * z), zoom: z), animated: animated)
+    }
+
+    /// Zoom to `z` about the view's centre.
+    public func zoom(to z: CGFloat, animated: Bool = true) {
+        zoom(by: z / viewport.zoom, at: CGPoint(x: viewSize.width / 2, y: viewSize.height / 2), animated: animated)
+    }
+
+    /// Fit `rect` (graph units) into the view, zoom held to `lo…hi`.
+    public func fit(_ r: CGRect, lo: CGFloat = 0.2, hi: CGFloat = 1, animated: Bool = true) {
+        guard r.width > 0, r.height > 0, viewSize.width > 0, viewSize.height > 0 else { return }
+        let z = min(max(min(viewSize.width / r.width, viewSize.height / r.height), lo), hi)
+        let pan = CGPoint(x: viewSize.width / 2 - r.midX * z, y: viewSize.height / 2 - r.midY * z)
+        rawPan = nil
+        setViewport(Viewport(pan: pan, zoom: z), animated: animated)
+    }
+
+    /// The core's fit, once per `seq` (8.9).
+    func honourFit() {
+        guard let f = model.view.fit, f.seq != lastFitSeq else { return }
+        lastFitSeq = f.seq
+        fit(CGRect(x: f.rect.x0, y: f.rect.y0, width: f.rect.width, height: f.rect.height), animated: firstFrameAt != nil)
+    }
+
+    /// View › Fit: the core works out the rect (`canvas.fit`); its reply and the scene carry it.
+    public func requestFit() {
+        Task {
+            if let r = try? await model.run("canvas.fit"), let rect = r["rect"].array, rect.count == 4,
+               let x0 = rect[0].double, let y0 = rect[1].double, let x1 = rect[2].double, let y1 = rect[3].double {
+                lastFitSeq = r["seq"].uint64 ?? lastFitSeq
+                fit(CGRect(x: x0, y: y0, width: x1 - x0, height: y1 - y0))
+            }
+        }
+    }
+
+    /// Fit one face (smart zoom): a little room around it, up to zoom 2.
+    public func fitFace(_ nid: UInt64) {
+        guard let e = faces[nid] else { return }
+        fit(e.rect.insetBy(dx: -40, dy: -40), lo: Viewport.minZoom, hi: 2)
+    }
+
+    /// Every face's and frame's rect together.
+    public var contentBounds: CGRect? {
+        var r: CGRect?
+        for e in faces.values { r = r.map { $0.union(e.rect) } ?? e.rect }
+        for f in model.frames.items {
+            let fr = CGRect(x: f.pos.x, y: f.pos.y - 22, width: f.size.x, height: f.size.y + 22)
+            r = r.map { $0.union(fr) } ?? fr
+        }
+        return r
+    }
+
+    // MARK: Panning with a rubber band
+
+    /// Pan by `d` view points. While `elastic`, past the content the pan meets a rubber band
+    /// (as a scroll view's: it gives less the further it goes) and `endPan` springs it back.
+    public func pan(by d: CGPoint, elastic: Bool) {
+        let raw = rawPan ?? viewport.pan
+        let next = CGPoint(x: raw.x + d.x, y: raw.y + d.y)
+        if !elastic {
+            rawPan = nil
+            setViewport(Viewport(pan: next, zoom: viewport.zoom))
+            return
+        }
+        rawPan = next
+        let c = clamped(next)
+        let band = { (o: CGFloat, dim: CGFloat) -> CGFloat in
+            let s: CGFloat = o < 0 ? -1 : 1
+            return s * (1 - 1 / (abs(o) * 0.55 / max(dim, 1) + 1)) * dim
+        }
+        let shown = CGPoint(x: c.x + band(next.x - c.x, viewSize.width), y: c.y + band(next.y - c.y, viewSize.height))
+        viewport.pan = shown
+        applyTransform()
+        scheduleSettle()
+    }
+
+    /// The gesture ended: spring back inside the content.
+    public func endPan() {
+        rawPan = nil
+        let c = clamped(viewport.pan)
+        if c != viewport.pan {
+            setViewport(Viewport(pan: c, zoom: viewport.zoom), animated: true)
+        }
+    }
+
+    /// `pan` held so the view's centre stays over the content.
+    func clamped(_ pan: CGPoint) -> CGPoint {
+        guard let b = contentBounds else { return pan }
+        let z = viewport.zoom
+        // the view's centre in graph units is (W/2 - pan) / z; keep it within b
+        let cx = (viewSize.width / 2 - pan.x) / z
+        let cy = (viewSize.height / 2 - pan.y) / z
+        let kx = min(max(cx, b.minX), b.maxX)
+        let ky = min(max(cy, b.minY), b.maxY)
+        return CGPoint(x: viewSize.width / 2 - kx * z, y: viewSize.height / 2 - ky * z)
+    }
+
+    // MARK: Settling
+
+    /// 200 ms after the last change of the view: draw the visible faces whose scale is wrong.
+    func scheduleSettle() {
+        settleTask?.cancel()
+        settleTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            if Task.isCancelled { return }
+            self?.settle()
+        }
+    }
+
+    /// Draw again the visible faces not at the zoom's scale (and the theme's colours).
+    @discardableResult
+    public func settle() -> Int {
+        let want = rasterScale(forZoom: viewport.zoom)
+        let vis = visibleRect
+        var n = 0
+        for e in faces.values where e.layout != nil && e.rect.intersects(vis) && (e.drawnScale != want || e.drawnTheme != themeGen || e.drawnRev != e.face.rev) {
+            needDraw.insert(e.nid)
+            n += 1
+        }
+        pump()
+        return n
+    }
+
+    /// Nothing waits to be laid out or drawn, and no batch is out.
+    public var idle: Bool { !working && needLayout.isEmpty && needDraw.isEmpty }
+
+    /// Every face the model has is laid out at its current `rev` (and so reported).
+    public var allMeasured: Bool {
+        model.faces.order.allSatisfy { nid in faces[nid].map { $0.laidRev == $0.face.rev } ?? false }
+    }
+
+    // MARK: - Hover, marquee, a drag's preview
+
+    /// Show what the pointer is over: a ring on a pin, a wire drawn wider.
+    public func hover(_ h: HotHit?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        if let old = hoverWire, h?.kind != .wire || h?.wire != old {
+            hoverWire = nil
+            wires[old]?.lineWidth = 2.5
+        }
+        if let h, h.kind == .wire, let l = wires[h.wire] {
+            hoverWire = h.wire
+            l.lineWidth = 4.5
+        }
+        if let h, h.kind == .pin {
+            let r: CGFloat = 8
+            hoverRing.path = CGPath(ellipseIn: CGRect(x: CGFloat(h.x) - r, y: CGFloat(h.y) - r, width: 2 * r, height: 2 * r), transform: nil)
+            hoverRing.strokeColor = colors.accent
+            hoverRing.lineWidth = 2
+            hoverRing.isHidden = false
+        } else {
+            hoverRing.isHidden = true
+        }
+    }
+
+    /// The marquee's rect (graph units), or none to hide it.
+    public func showMarquee(_ r: CGRect?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let r else {
+            marquee.isHidden = true
+            return
+        }
+        marquee.path = CGPath(rect: r.standardized, transform: nil)
+        marquee.strokeColor = colors.accent
+        marquee.fillColor = colors.accent.copy(alpha: 0.08)
+        marquee.lineWidth = 1 / viewport.zoom
+        marquee.isHidden = false
+    }
+
+    /// A new wire being dragged, from `a` to `b` (graph units), coloured by whether it fits.
+    public func showDragWire(from a: CGPoint?, to b: CGPoint, fits: UInt32) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        guard let a else {
+            dragWire.isHidden = true
+            return
+        }
+        let dx = max(abs(b.x - a.x) * 0.5, 30)
+        let p = CGMutablePath()
+        p.move(to: a)
+        p.addCurve(to: b, control1: CGPoint(x: a.x + dx, y: a.y), control2: CGPoint(x: b.x - dx, y: b.y))
+        dragWire.path = p
+        dragWire.strokeColor = fits == 0 ? colors.textDim : (fits == 1 ? colors.accent : colors.warning)
+        dragWire.lineWidth = 2.5
+        dragWire.lineDashPattern = fits == 2 ? [6, 4] : nil
+        dragWire.isHidden = false
+    }
+
+    var moveOffset: CGPoint?
+
+    /// A move drag began: these faces follow the pointer until it ends.
+    public func beginMove(_ nids: [UInt64]) {
+        moving = [:]
+        for n in nids { if let e = faces[n] { moving[n] = CGPoint(x: e.face.pos.x, y: e.face.pos.y) } }
+        moveOffset = .zero
+        for n in nids { faces[n]?.layer.zPosition = 1_000_000 }
+    }
+
+    /// The drag is at `(dx, dy)` from its start: move the faces' layers, and re-path their wires
+    /// from `plum_wire_paths` (one typed call, no JSON).
+    public func move(dx: CGFloat, dy: CGFloat) {
+        guard !moving.isEmpty else { return }
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        defer { CATransaction.commit() }
+        moveOffset = CGPoint(x: dx, y: dy)
+        for n in moving.keys { if let e = faces[n] { placeFace(e) } }
+        for p in link.wirePaths(faces: Array(moving.keys), dx: Float(dx), dy: Float(dy)) {
+            guard let l = wires[p.nid], p.pointCount >= 4 else { continue }
+            var pts: [CGPoint] = []
+            pts.reserveCapacity(p.pointCount)
+            var k = p.points.startIndex
+            while k + 1 < p.points.endIndex {
+                pts.append(CGPoint(x: CGFloat(p.points[k]), y: CGFloat(p.points[k + 1])))
+                k += 2
+            }
+            let via = model.wires[p.nid]?.item.via.map { CGPoint(x: $0.x, y: $0.y) } ?? []
+            setPath(l, Self.chain(pts, via: via))
+            movingWires.insert(p.nid)
+        }
+    }
+
+    /// Positions a finished move holds until the scene brings the faces' new ones.
+    var held: [UInt64: CGPoint] = [:]
+
+    /// The drag ended (`kept`: it moved things, and the scene will say where) or was cancelled:
+    /// the scene's positions take over again. Kept faces stay where they were dropped until their
+    /// new positions arrive (at most a second), so they don't jump back for a frame.
+    public func endMove(kept: Bool = false) {
+        let was = moving
+        let off = moveOffset ?? .zero
+        moving = [:]
+        moveOffset = nil
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if kept && (off.x != 0 || off.y != 0) {
+            for (n, start) in was { held[n] = CGPoint(x: start.x + off.x, y: start.y + off.y) }
+            let ids = Array(was.keys)
+            let wiresMoved = movingWires
+            Task { @MainActor [weak self] in
+                try? await Task.sleep(for: .seconds(1))
+                guard let self else { return }
+                var any = false
+                for n in ids where self.held.removeValue(forKey: n) != nil {
+                    any = true
+                    if let e = self.faces[n] { self.placeFace(e) }
+                }
+                if any { for w in wiresMoved { if let item = self.model.wires[w]?.item { self.pathWire(item) } } }
+            }
+        } else {
+            for n in was.keys { if let e = faces[n] { placeFace(e) } }
+            for w in movingWires { if let item = model.wires[w]?.item { pathWire(item) } }
+        }
+        movingWires = []
+        reorder()
+        CATransaction.commit()
+    }
+
+    // MARK: - For tests, measurements and screenshots
+
+    public func faceLayout(nid: UInt64) -> FaceLayout? { faces[nid]?.layout }
+    public func faceLayer(nid: UInt64) -> CALayer? { faces[nid]?.layer }
+    public func wireLayer(nid: UInt64) -> CAShapeLayer? { wires[nid] }
+    public var faceCount: Int { faces.count }
+    public var wireLayerCount: Int { wires.count }
+    public var tagCount: Int { tags.values.reduce(0) { $0 + $1.count } }
+    public var drawnBytes: Int {
+        faces.values.reduce(0) { $0 + ($1.layout.map { FaceRenderer.bytes($0.size, scale: 1) } ?? 0) }
+    }
+    /// Bytes of the faces' pictures as drawn.
+    public var pictureBytes: Int {
+        faces.values.reduce(0) { a, e in a + (e.drawnScale > 0 ? (e.layout.map { FaceRenderer.bytes($0.size, scale: e.drawnScale) } ?? 0) : 0) }
+    }
+
+    /// The face of a graph node by its id.
+    public func nid(of id: String) -> UInt64? { faceById[id] }
+
+    /// The layer tree drawn into a picture, `size` points at `scale` (an app's own snapshot).
+    public func snapshot(size: CGSize, scale: CGFloat) -> CGImage? {
+        let w = Int(size.width * scale)
+        let h = Int(size.height * scale)
+        guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
+                                  bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
+        else { return nil }
+        if host.isGeometryFlipped {
+            ctx.scaleBy(x: scale, y: scale)
+        } else {
+            ctx.translateBy(x: 0, y: CGFloat(h))
+            ctx.scaleBy(x: scale, y: -scale)
+        }
+        host.render(in: ctx)
+        return ctx.makeImage()
+    }
+}
