@@ -15,6 +15,7 @@ import AppKit
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
+import PlumCraftShell
 
 /// A menu item's place in the model, for validation (looked up again each time).
 final class ModelRef: NSObject {
@@ -33,15 +34,6 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     private(set) weak var source: DocumentModel?
     /// Called with the text of the built bar each time it is built or changes (`--dump-menus`).
     var onDump: ((String) -> Void)?
-
-    /// Commands whose effect is UI this app doesn't have yet: choosing one says so in the
-    /// window, without running it (it would open state nothing here shows).
-    static let unbuilt: [String: String] = [
-        "app.settings": "Settings", "app.about": "PlumCraft's own About window", "node.parameters": "the parameters sheet",
-        "node.editor": "value editors", "view.popout": "pop-out viewers", "view.messages": "the Messages window",
-        "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window", "canvas.palette": "the node palette",
-        "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",
-    ]
 
     // MARK: Building
 
@@ -321,8 +313,9 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     func dispatch(_ it: MenuItem, model: DocumentModel) {
         guard let command = it.command else { return }
         let window = GraphWindowController.of(model)
-        if let what = Self.unbuilt[command] {
-            window?.banner("\(it.label.replacingOccurrences(of: "…", with: "")) isn't available yet in this app (\(what)).")
+        // what has no UI here yet says so instead of running (the kit's list, shared with the iPad)
+        if let say = ShellCommands.notBuilt(it) {
+            window?.banner(say)
             return
         }
         if command == "app.quit" {

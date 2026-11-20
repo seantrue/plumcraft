@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "nodes": {
+    "n1": {"kind": "text.literal", "pos": [0, 0], "values": {"text": "the corgi naps on a warm stone"}},
+    "n2": {"kind": "text.upper", "pos": [360, -120]},
+    "n3": {"kind": "text.lower", "pos": [360, 120]},
+    "n4": {"kind": "text.join", "pos": [700, 0], "values": {"sep": " / "}},
+    "n5": {"kind": "text.words", "pos": [1060, -160]},
+    "n6": {"kind": "text.text_to_table", "pos": [1060, 40]},
+    "n7": {"kind": "text.table_to_json", "pos": [1380, 40]},
+    "n8": {"kind": "text.json_to_text", "pos": [1700, 40]},
+    "n9": {"kind": "text.repeat", "pos": [760, 380], "values": {"times": 3}},
+    "n10": {"kind": "text.reverse", "pos": [1060, 380]}
+  },
+  "wires": [
+    {"from": {"node": "n1", "port": "text"}, "to": {"node": "n2", "port": "text"}},
+    {"from": {"node": "n1", "port": "text"}, "to": {"node": "n3", "port": "text"}},
+    {"from": {"node": "n2", "port": "text"}, "to": {"node": "n4", "port": "a"}},
+    {"from": {"node": "n3", "port": "text"}, "to": {"node": "n4", "port": "b"}},
+    {"from": {"node": "n4", "port": "text"}, "to": {"node": "n5", "port": "text"}},
+    {"from": {"node": "n4", "port": "text"}, "to": {"node": "n6", "port": "text"}},
+    {"from": {"node": "n6", "port": "table"}, "to": {"node": "n7", "port": "table"}},
+    {"from": {"node": "n7", "port": "json"}, "to": {"node": "n8", "port": "json"}},
+    {"from": {"node": "n2", "port": "text"}, "to": {"node": "n9", "port": "text"}, "label": "Loud"},
+    {"from": {"node": "n9", "port": "text"}, "to": {"node": "n10", "port": "text"}, "via": [[980, 300]]}
+  ],
+  "nets": {"Loud": {"from": {"node": "n2", "port": "text"}}},
+  "groups": {
+    "g1": {"name": "to json", "nodes": ["n7", "n8"], "collapsed": true, "pos": [1380, 40]},
+    "g2": {"name": "echoes", "nodes": ["n9", "n10"], "collapsed": false, "pos": [760, 380]}
+  },
+  "frames": {"f1": {"title": "Source", "pos": [-40, -60], "size": [330, 220]}},
+  "next_id": 11,
+  "next_group": 3,
+  "next_frame": 2
+}

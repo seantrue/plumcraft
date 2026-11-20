@@ -27,6 +27,7 @@
 import AppKit
 import PlumCraft
 import PlumCraftModels
+import PlumCraftShell
 
 struct Options {
     var paths: [String] = []
@@ -109,45 +110,33 @@ enum CoreHost {
         }
     }
     /// Done once the core's own first document is closed: windows open theirs after it.
-    static var ready: Task<Void, Never>?
+    static var ready: Task<UInt64?, Never>?
 
     static func open() {
         let fm = FileManager.default
-        let caches = (fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
-            .appendingPathComponent(Bundle.main.bundleIdentifier ?? "com.plumcraft.mac")
+        let id = Bundle.main.bundleIdentifier ?? "com.plumcraft.mac"
+        let caches = (fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent(id)
         let store = options.storeRoot ?? caches.appendingPathComponent("store").path
         try? fm.createDirectory(atPath: store, withIntermediateDirectories: true)
         let logs = (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
             .appendingPathComponent("Logs/PlumCraft").path
-        var config: [String: JSONValue] = [
-            "shell": 1,
-            "app": ["id": .string(Bundle.main.bundleIdentifier ?? "com.plumcraft.mac"), "name": "PlumCraft", "version": "0.7.0"],
-            "store_root": .string(store),
-            "dirs": ["caches": .string(caches.path), "store": .string(store), "logs": .string(logs)],
-            "platform": ["os": "macos", "subprocess": true, "craft_apps": true, "python": true, "multi_window": true,
-                         "pointer": true, "keyboard": true, "hover": true],
-            "display": ["scale": .double(Double(NSScreen.main?.backingScaleFactor ?? 2)), "frame_ms": 8.3],
-            "engines": ["default": .string(options.engine), "mode": "inproc", "also": .array(options.also.filter { $0 != options.engine }.map { .string($0) })],
-        ]
-        if let tf = options.controlTokenFile {
-            config["control"] = ["port": 0, "token_file": .string(tf)]
-        }
+        // the config (contract 4.1) and the start are the kit's, shared with the iPad app
+        var config = ShellConfig(appID: id, appName: "PlumCraft", version: "0.7.0", storeRoot: store)
+        config.dirs = ["caches": caches.path, "logs": logs]
+        config.platform = ["os": "macos", "subprocess": true, "craft_apps": true, "python": true, "multi_window": true,
+                           "pointer": true, "keyboard": true, "hover": true]
+        config.displayScale = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        config.frameMs = 8.3
+        config.engine = options.engine
+        config.also = options.also
+        config.controlTokenFile = options.controlTokenFile
         do {
-            let c = try PlumCore(config: .object(config))
+            let (c, r) = try ShellCore.open(config)
             core = c
-            // the core opens a first, untitled document of its own; this app opens one per window,
-            // so that one is closed
             ready = Task {
-                if let list = try? await c.request("document.list"), let docs = list["docs"].array {
-                    for d in docs {
-                        if let id = d["doc"].uint64 {
-                            _ = try? await c.request("document.close", ["discard": true], doc: id)
-                        }
-                    }
-                }
-                if let port = try? await c.request("core.control")["port"].uint64 {
-                    Status.shared.set("port", .uint(port))
-                }
+                let port = await r.value
+                if let port { Status.shared.set("port", .uint(port)) }
+                return port
             }
         } catch {
             openError = "\(error)"
@@ -155,36 +144,9 @@ enum CoreHost {
     }
 }
 
-/// What the app writes to `--status-file` for the scripts that drive it (they wait on it with a
-/// time limit, never on a process name).
-@MainActor
-final class Status {
-    static let shared = Status()
-    private var state: [String: JSONValue] = ["pid": .int(Int64(ProcessInfo.processInfo.processIdentifier))]
-    private var windows: [UInt64: JSONValue] = [:]
-
-    func set(_ key: String, _ v: JSONValue) {
-        state[key] = v
-        write()
-    }
-
-    func window(_ doc: UInt64, _ v: JSONValue) {
-        windows[doc] = v
-        write()
-    }
-
-    func removeWindow(_ doc: UInt64) {
-        windows[doc] = nil
-        write()
-    }
-
-    private func write() {
-        guard let path = CoreHost.options.statusFile else { return }
-        var s = state
-        s["windows"] = .array(windows.keys.sorted().compactMap { windows[$0] })
-        try? JSONValue.object(s).serialized().write(to: URL(fileURLWithPath: path), options: .atomic)
-    }
-}
+/// What the app writes to `--status-file` for the scripts that drive it (the kit's, shared with the
+/// iPad app).
+typealias Status = StatusFile
 
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
@@ -195,14 +157,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         CoreHost.options = Options.parse(CommandLine.arguments)
         // every copy started for a status file says its pid in `<status>.pids` (a tracer may
         // start more than one), so a script can quit each by its PID
-        if let f = CoreHost.options.statusFile, let h = FileHandle(forWritingAtPath: f + ".pids") ?? {
-            FileManager.default.createFile(atPath: f + ".pids", contents: nil)
-            return FileHandle(forWritingAtPath: f + ".pids")
-        }() {
-            h.seekToEndOfFile()
-            h.write(Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8))
-            try? h.close()
-        }
+        Status.shared.path = CoreHost.options.statusFile
+        Status.shared.notePid()
         switch CoreHost.options.appearance {
         case "dark"?: NSApp.appearance = NSAppearance(named: .darkAqua)
         case "light"?: NSApp.appearance = NSAppearance(named: .aqua)

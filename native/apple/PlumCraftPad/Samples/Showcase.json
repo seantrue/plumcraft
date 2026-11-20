@@ -1,0 +1,154 @@
+{
+ "version": 1,
+ "nodes": {
+  "story": {
+   "kind": "text.literal",
+   "values": {
+    "text": "A corgi naps on a floral carpet.\nThe carpet is red and gold."
+   },
+   "pos": [
+    0,
+    0
+   ]
+  },
+  "think": {
+   "kind": "text.slow",
+   "values": {
+    "seconds": 3.0
+   },
+   "pos": [
+    320,
+    0
+   ]
+  },
+  "swap": {
+   "kind": "text.replace",
+   "values": {
+    "find": "corgi",
+    "with": "very good corgi"
+   },
+   "pos": [
+    640,
+    0
+   ]
+  },
+  "shout": {
+   "kind": "text.upper",
+   "pos": [
+    960,
+    -80
+   ]
+  },
+  "count": {
+   "kind": "text.words",
+   "pos": [
+    960,
+    140
+   ]
+  },
+  "broken": {
+   "kind": "text.fail",
+   "pos": [
+    320,
+    300
+   ]
+  },
+  "after": {
+   "kind": "text.lower",
+   "pos": [
+    640,
+    300
+   ]
+  },
+  "fractal": {
+   "kind": "array.mandelbrot",
+   "values": {
+    "width": 320,
+    "height": 240
+   },
+   "pos": [
+    0,
+    560
+   ]
+  },
+  "png": {
+   "kind": "array.encode_image",
+   "pos": [
+    400,
+    560
+   ]
+  }
+ },
+ "wires": [
+  {
+   "from": {
+    "node": "story",
+    "port": "text"
+   },
+   "to": {
+    "node": "think",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "think",
+    "port": "text"
+   },
+   "to": {
+    "node": "swap",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "swap",
+    "port": "text"
+   },
+   "to": {
+    "node": "shout",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "swap",
+    "port": "text"
+   },
+   "to": {
+    "node": "count",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "story",
+    "port": "text"
+   },
+   "to": {
+    "node": "broken",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "broken",
+    "port": "text"
+   },
+   "to": {
+    "node": "after",
+    "port": "text"
+   }
+  },
+  {
+   "from": {
+    "node": "fractal",
+    "port": "escape"
+   },
+   "to": {
+    "node": "png",
+    "port": "image"
+   }
+  }
+ ]
+}

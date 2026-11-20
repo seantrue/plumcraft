@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N3 slice 5: the iPad app and the device budgets (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The last N3 slice: an iPad app that opens, shows, pans, zooms, runs and watches, the read-only conformance half against it, and N3's budgets measured on a device. The maintainer said the iPad was connected and unlocked, and after trying the app: "App looks good, cant edit text values" (editing is stage N4).
+
+**What the agent did (~3,500 LOC of Swift added and ~400 removed, tests included; ~210 lines of Rust).** `native/apple/PlumCraftPad`, a UIKit app on the system document browser, with touch pan and zoom, the core's menus and context menus, native answers to the asks, both engines in process and the Watched panel as a column or a sheet. A new kit target, `PlumCraftShell`, holds what the two apps share; the Mac app now uses it. A UI test drives real touch gestures in the simulator. Conformance against the iPad app in the simulator: both halves 12 of 12. In Rust, graph validation no longer restarts its walk for every wire, which took about 10 ms out of a one-node change at 2,000 nodes.
+
+**N3's gate is not met.** The read-only half passes on both apps. On the maintainer's iPad, 500 nodes meets launch (0.49 s) and a one-node change through the kit (12.5 ms); 2,000 nodes meets neither (1.55 s; 57 ms after the fix). Frame hitches at 500 nodes are far over budget in the one trace taken, with no control. The display ran at 60 Hz throughout, so 120 Hz is unmeasured. The Mac was loaded and its numbers cannot be trusted; one of them (a one-node change at 2,000 nodes reading 130 to 170 ms against slice 4's 35) is unexplained and may be a regression.
+
+**Defects in the agent's work, caught by its own tests and runs.** A rotation dismissed the graph; a crash going from compact to regular width; engine state stuck at "starting" (a kit bug, fixed with a test); earlier scenes coming forward over a scripted graph; a hitch reader that read the wrong table.
+
+**Not verified.** Only the maintainer has held the iPad: real finger momentum, a keyboard's menu bar, Split View, iCloud Drive and restoration are unchecked. The conformance suite did not run on the device, since the control port binds loopback only. The controller did not look at this slice's screenshots.
+
 ### 2026-11-20 — N3 slice 4: menus, asks, run and watch in the Mac app (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The fourth of five N3 slices: the real menu bar from the core's menu model, the asks, engines and running, a Watched panel with viewers for pictures, plain text and scalars, culling, and the read-only conformance half with no engine-dependent skips.

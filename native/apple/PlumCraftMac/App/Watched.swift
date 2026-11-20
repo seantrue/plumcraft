@@ -15,6 +15,7 @@ import PlumCraft
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
+import PlumCraftShell
 
 @MainActor
 final class WatchedPanel: NSViewController {
@@ -85,10 +86,10 @@ final class WatchedPanel: NSViewController {
             return
         }
         titleLabel.stringValue = "\(model.face(id: w.node)?.header.title.text ?? w.node) · \(w.port)"
-        summaryLabel.stringValue = w.summary ?? (w.media.map { "\($0), not computed yet" } ?? "not computed yet")
+        summaryLabel.stringValue = ValueText.summary(w)
         describe = ["viewer": w.viewer.map(JSONValue.string) ?? .null, "node": .string(w.node), "port": .string(w.port)]
         if let e = w.error, e != .null {
-            put(message("This value failed: \(e.string ?? e.text)"))
+            put(message("This value failed: \(e.string ?? e["message"].string ?? e.text)"))
             describe["error"] = e
             onShown?()
             return
@@ -236,8 +237,8 @@ final class WatchedPanel: NSViewController {
             scroll.bottomAnchor.constraint(equalTo: box.bottomAnchor),
         ])
         let ex = w.excerpt
-        let total = Int(ex?.totalChars ?? UInt64(ex?.text.count ?? 0))
-        let dataHandle = w.data.flatMap { Pictures.handle(of: $0) }
+        let total = ValueText.excerpt(w).total
+        let dataHandle = ValueText.dataHandle(w)
         let setText = { [weak self] (s: String) in
             let mono = self?.mono ?? false
             tv.font = mono ? .monospacedSystemFont(ofSize: 12, weight: .regular) : .systemFont(ofSize: 13)
@@ -280,47 +281,16 @@ final class WatchedPanel: NSViewController {
         return box
     }
 
-    /// The value's own bytes as UTF-8 (`media.get {want: "bytes"}`, then `plum_blob`), read and
-    /// decoded off the main thread.
+    /// The value's own bytes as UTF-8, read and decoded off the main thread (the kit's).
     private func wholeText(_ handle: String) async -> String? {
-        let core = model.core
-        guard let note = try? await core.request(MediaNote.self, "media.get", ["handle": .string(handle), "want": "bytes"], doc: model.requestDoc) else { return nil }
-        var latest = note
-        if latest.status.word == .pending {
-            let key = note.key
-            _ = await model.wait(timeout: .seconds(30)) { self.model.media[key].map { $0.status.word != .pending } ?? false }
-            guard let m = model.media[key] else { return nil }
-            latest = m
-        }
-        guard latest.status.word == .ready else { return nil }
-        let key = latest.key
-        return await Task.detached {
-            guard case .ready(let b)? = try? core.blob(key) else { return nil }
-            return String(decoding: b.data, as: UTF8.self)
-        }.value
+        await ValueText.whole(model, handle: handle)
     }
 
     // MARK: scalar
 
     private func scalarView(_ w: Watched) -> NSView {
         let box = NSView()
-        let v = w.value ?? .null
-        let text: String
-        switch v {
-        case .bool(let b): text = b ? "true" : "false"
-        case .string(let s): text = s
-        case .null: text = w.summary ?? "—"
-        default:
-            if let d = v.double {
-                let f = NumberFormatter()
-                f.numberStyle = .decimal
-                f.maximumFractionDigits = if case .double = v { 6 } else { 0 }
-                f.usesGroupingSeparator = true
-                text = f.string(from: NSNumber(value: d)) ?? v.text
-            } else {
-                text = v.text
-            }
-        }
+        let text = ValueText.scalar(w)
         let l = NSTextField(labelWithString: text)
         l.font = .monospacedDigitSystemFont(ofSize: 28, weight: .medium)
         l.isSelectable = true

@@ -223,6 +223,23 @@ public final class DocumentModel {
         refreshScene()
         Task { await refreshTheme() }
         refreshMenus()
+        refreshEngine()
+    }
+
+    /// Read the engine's state once (`ui.inspect`'s `engine`): the feed says when it changes, but
+    /// an engine that connected before this model followed the feed said so before it listened
+    /// (N3 slice 5 found the iPad's engines ready before its graph's model started).
+    public func refreshEngine() {
+        Task {
+            guard let r = try? await core.request("ui.inspect", [:], doc: requestDoc), let connected = r["engine"]["connected"].bool else { return }
+            let e = EngineState(connected: connected, ready: engine.ready || connected, label: r["engine"]["label"].string ?? engine.label)
+            // the feed's word, if it came meanwhile, is newer
+            if engine == EngineState() && e != engine {
+                engine = e
+                onEngine?(e)
+            }
+            pulse()
+        }
     }
 
     /// Stop following the feed (the core stays open).
