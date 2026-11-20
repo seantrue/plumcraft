@@ -420,8 +420,6 @@ pub struct EditorApp {
     pub(crate) control_ctx: Option<egui::Context>,
     /// The window title's app name: [`APP_TITLE`] unless an application names itself.
     pub app_title: &'static str,
-    /// The latest run, replayed for the canvas's run colours ([`run_anim`]).
-    pub run_anim: run_anim::RunAnim,
     /// The context new engine links repaint, for the Engine menu's connector on the worker.
     pub(crate) repaint_cell: std::sync::Arc<std::sync::Mutex<Option<egui::Context>>>,
     /// Run once the first engine has connected (or failed to) and the graph has opened, when
@@ -463,7 +461,6 @@ impl EditorApp {
             params: params_view::ParamsPanel::default(),
             value_editors: value_editors::ValueEditors::default(),
             app_title: APP_TITLE,
-            run_anim: run_anim::RunAnim::default(),
             doc,
             canvas,
             tokens: theme::DEFAULT,
@@ -625,25 +622,8 @@ impl EditorApp {
     /// shown as it happens, and View › Animate Last Run (`view.animateRun`) replays the last one
     /// slowly. While either shows or fades the canvas is redrawn.
     pub fn pump_run_anim(&mut self, ctx: &egui::Context) {
-        let now = Instant::now();
-        if std::mem::take(&mut self.doc.session.views.animate_asked) && !self.doc.session.run.running {
-            let run = &self.doc.session.run;
-            let plan = run_anim_plan(&self.doc.session, &run.needed);
-            let slow = std::time::Duration::from_millis(u64::from(self.doc.session.views.anim_ms()));
-            self.run_anim.replay(run.generation, &run.needed, plan, slow, &run.log, now);
-        }
-        let run = &self.doc.session.run;
-        if run.generation != self.run_anim.generation() && !run.needed.is_empty() {
-            let plan = run_anim_plan(&self.doc.session, &run.needed);
-            self.run_anim.begin(run.generation, &run.needed, plan, std::time::Duration::ZERO);
-        }
-        if run.generation == self.run_anim.generation() {
-            self.run_anim.feed(&run.log);
-            if !run.running {
-                self.run_anim.end(now);
-            }
-        }
-        if (!self.doc.session.views.run_colors_off || self.run_anim.is_replay()) && self.run_anim.is_active(now) {
+        // the core's document keeps it (N3 slice 4: a native shell's scene carries it too)
+        if self.doc.pump_run_anim(Instant::now()) {
             ctx.request_repaint_after(std::time::Duration::from_millis(33));
         }
     }
@@ -1393,7 +1373,7 @@ impl EditorApp {
     /// The run animation, when faces are washed with it (View › Colour Nodes While Running, or
     /// a replay).
     fn shown_anim(&self) -> Option<&run_anim::RunAnim> {
-        (!self.doc.session.views.run_colors_off || self.run_anim.is_replay()).then_some(&self.run_anim)
+        (!self.doc.session.views.run_colors_off || self.doc.run_anim.is_replay()).then_some(&self.doc.run_anim)
     }
 
     /// The scene as this window shows it (`scene.get`): the document's, in this window's theme,
@@ -1490,7 +1470,7 @@ impl EditorApp {
             source: &source,
             docs: &self.doc.session.docs.apps,
             recent_apps: &self.doc.session.docs.recent_apps,
-            anim: (!self.doc.session.views.run_colors_off || self.run_anim.is_replay()).then_some(&self.run_anim),
+            anim: (!self.doc.session.views.run_colors_off || self.doc.run_anim.is_replay()).then_some(&self.doc.run_anim),
             faces: &faces,
         };
         let actions = egui::CentralPanel::default()
@@ -1729,28 +1709,6 @@ pub fn save_png(image: &egui::ColorImage, path: &Path) -> Result<(), String> {
 /// ([`plumcraft_editor_core::menu::parse_shortcut`]).
 pub fn parse_shortcut(s: &str) -> Option<egui::KeyboardShortcut> {
     plumcraft_editor_core::menu::parse_shortcut(s).and_then(|sc| menu_view::to_egui(&sc))
-}
-
-/// What the run animation needs of the graph: each node's upstream nodes, and the engine
-/// that computes it (its pin, else the first of the graph's engines that offers it, else the
-/// first that does; one lane when no engine is named).
-fn run_anim_plan(session: &Session, needed: &std::collections::BTreeSet<String>) -> run_anim::Plan {
-    let g = session.graph();
-    let catalog = session.catalog();
-    let mut plan = run_anim::Plan::default();
-    for w in &g.wires {
-        if needed.contains(&w.to.node.0) && needed.contains(&w.from.node.0) {
-            plan.upstream.entry(w.to.node.0.clone()).or_default().push(w.from.node.0.clone());
-        }
-    }
-    for id in needed {
-        let node = g.node(&plumcraft_graph::NodeId(id.clone()));
-        let offered = node.and_then(|n| catalog.nodes.iter().find(|d| d.id == n.kind)).map(|d| d.engines.clone()).unwrap_or_default();
-        let pin = node.and_then(|n| n.engine.clone()).filter(|p| offered.contains(p));
-        let lane = pin.or_else(|| g.engines.iter().find(|e| offered.contains(e)).cloned()).or_else(|| offered.first().cloned()).unwrap_or_default();
-        plan.lane.insert(id.clone(), lane);
-    }
-    plan
 }
 
 /// The egui editor's media service: the default's workers and queue, and a 64 MiB cache, since

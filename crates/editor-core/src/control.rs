@@ -142,6 +142,13 @@ pub trait Shell: Host {
     }
     /// Did the last command run ask for an engine switch? (Recorded by the session until the
     /// shell begins it.)
+    /// Who a `ui.invoke` handled now is for: a script's (the default: what it asks is left for
+    /// the script to answer), or the person at the shell, when the shell sent it for its own
+    /// menu or toolbar (the C ABI's `ui.invoke {by: "person"}`, N3 slice 4), so its asks are the
+    /// shell's to show natively.
+    fn invoke_by(&self) -> By {
+        By::Script
+    }
     fn engine_asked(&self) -> bool {
         self.session().engines.is_pending()
     }
@@ -462,9 +469,11 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 return err(format!("{id} is not available: {why}"));
             }
             s.clear_last_error();
-            // what it asks (a file, a prompt) is the script's to answer: the reply comes at
-            // once, with the ask in `asks` (ask.answer)
-            invoke::invoke(s, id, By::Script);
+            // what it asks (a file, a prompt) is the script's to answer, or the person's when
+            // the shell invoked it for them: the reply comes at once, with the ask in `asks`
+            // (ask.answer)
+            let by = s.invoke_by();
+            invoke::invoke(s, id, by);
             s.presented();
             s.redraw();
             let mut out = inspect(s);

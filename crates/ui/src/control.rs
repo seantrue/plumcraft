@@ -104,7 +104,7 @@ impl core::Shell for EditorApp {
             asks: &self.doc.asks,
             document: &self.doc.document,
             app_title: self.app_title,
-            run_anim: Some(&self.run_anim),
+            run_anim: Some(&self.doc.run_anim),
             prefs: Some(&self.prefs),
             theme: Some(self.tokens.name),
         }

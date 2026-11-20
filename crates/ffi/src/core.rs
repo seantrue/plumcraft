@@ -105,6 +105,10 @@ pub struct Config {
     pub engine: Option<String>,
     /// Its hosting (`engines.mode`, or `mode`); the engine's default when absent.
     pub mode: Option<String>,
+    /// Engines started beside it in every document (`engines.also`, N3 slice 4), each by id and
+    /// hosted its own default way: one catalogue for both, as `engine.add` gives (the Mac app
+    /// opens every document on the text and array engines, both compiled in).
+    pub also: Vec<String>,
     /// What the platform has (`platform`, 4.2). What the config doesn't say it has, it hasn't:
     /// without `platform`, only engines compiled in and engines already running elsewhere.
     pub platform: Capabilities,
@@ -136,6 +140,7 @@ impl Default for Config {
             demo: false,
             engine: None,
             mode: None,
+            also: Vec::new(),
             platform: Capabilities::NONE,
             control: None,
             media: media_config(None).unwrap_or_default(),
@@ -159,12 +164,33 @@ impl Config {
             demo: o.get("demo").and_then(Value::as_bool).unwrap_or(false),
             engine: named("default", "engine"),
             mode: named("mode", "mode"),
+            also: also(engines.and_then(|e| e.get("also")))?,
             platform: Capabilities::declared(o.get("platform")),
             control: control_config(o.get("control"))?,
             media: media_config(o.get("media"))?,
             log_level: log_level(o.get("log"))?,
             log_dir: log_dir(o)?,
         })
+    }
+
+    /// The engines to start beside `first` (`engines.also`), each hosted its default way and
+    /// checked as the first is; the first itself, or one named twice, once.
+    fn also_targets(&self, first: EngineKind) -> Result<Vec<plumcraft_session::EngineTarget>, String> {
+        let mut out: Vec<plumcraft_session::EngineTarget> = Vec::new();
+        let mut seen = vec![first];
+        for id in &self.also {
+            let Some(kind) = EngineKind::from_id(id) else { return Err(format!("config: engines.also: {id:?} is no engine")) };
+            if seen.contains(&kind) {
+                continue;
+            }
+            seen.push(kind);
+            let mode = kind.default_mode();
+            if let Some(why) = self.platform.refuses(kind, mode) {
+                return Err(format!("config: engines.also: the {} engine as {}: {why}", kind.id(), mode.id()));
+            }
+            out.push(plumcraft_session::EngineTarget::Choice { engine: kind.id().to_owned(), mode: mode.id().to_owned() });
+        }
+        Ok(out)
     }
 
     /// The engine and hosting asked for, checked against what exists and what the platform can
@@ -186,6 +212,21 @@ impl Config {
         }
         Ok((kind, mode))
     }
+}
+
+/// `engines.also: [engine id]`: none when absent or null; at most 8, each a known engine.
+fn also(v: Option<&Value>) -> Result<Vec<String>, String> {
+    let list = match v {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(a)) if a.len() <= 8 => a,
+        Some(_) => return Err("config: engines.also must be a list of at most 8 engine ids".into()),
+    };
+    list.iter()
+        .map(|e| match e.as_str().and_then(EngineKind::from_id) {
+            Some(k) => Ok(k.id().to_owned()),
+            None => Err(format!("config: engines.also: {e} is no engine")),
+        })
+        .collect()
 }
 
 /// `control: {port, token_file}`: none when absent, null or with a null port (4.1: "Null `port`:
@@ -611,6 +652,7 @@ impl Core {
     /// document whose engine hasn't connected yet are held and answered once it has.
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
         let (kind, mode) = config.engine_and_mode()?;
+        let also = config.also_targets(kind)?;
         if let Some(level) = config.log_level {
             plumcraft_editor_core::log::set_level(level);
         }
@@ -690,6 +732,7 @@ impl Core {
                     waiters: Vec::new(),
                     kind,
                     mode,
+                    also,
                     launcher,
                     engines: SharedEngines::default(),
                     waker,
@@ -783,6 +826,10 @@ struct Doc {
     /// A shell has asked for the menus (`menu.get`), so it hears when they change; one that never
     /// asks costs the core nothing.
     menus_watched: bool,
+    /// The document's state last told the shell (`changed`, domain `document`: title, path,
+    /// dirty, undo and redo, last error; N3 slice 4), and its generation.
+    told: Value,
+    told_gen: u64,
 }
 
 /// The core thread's state: its documents, by id, and what they share.
@@ -793,6 +840,8 @@ struct Worker {
     /// The engine the config names, and its hosting: every document starts on it.
     kind: EngineKind,
     mode: Mode,
+    /// The engines started beside it in every document (`engines.also`).
+    also: Vec<plumcraft_session::EngineTarget>,
     /// Starts the engines (on each document's worker).
     launcher: Launcher,
     /// The engines compiled in, one of each for every document (decision 11B).
@@ -837,11 +886,14 @@ impl Worker {
         doc.starter = Some(shared_starter(self.engines.clone(), move |e: &str, m: &str, w: Option<link::Waker>| launcher.connect_ids(e, m, w)));
         let shared = Arc::clone(&self.shared);
         doc.set_asks_sink(Some(Box::new(move |raised, ended| shared.push_asks(raised, ended))));
-        doc.start_engines(target, Vec::new(), opening);
+        doc.start_engines(target, self.also.clone(), opening);
         let id = doc.id;
         lock(&self.shared.drags).insert(id, doc.drag.clone());
         lock(&self.shared.snapshots).insert(id, doc.snapshot_out.clone());
-        self.docs.insert(id, Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, scene_sent: 0, menus_watched: false });
+        self.docs.insert(
+            id,
+            Doc { doc, ready: false, held: Vec::new(), generation: 0, menus_sent: 0, scene_sent: 0, menus_watched: false, told: Value::Null, told_gen: 0 },
+        );
         id
     }
 
@@ -949,6 +1001,35 @@ impl Worker {
         });
     }
 
+    /// The document's own state, noted once its engine is there: the feed says when its title,
+    /// path, dirty state, undo or redo step or last error changed (`changed`, domain `document`,
+    /// with them all and a generation), so a native shell keeps its window's title, edited dot and
+    /// Edit menu without asking (contract 7.2's `document` domain; N3 slice 4).
+    fn note_document(&mut self, id: DocId) {
+        let Some(d) = self.docs.get_mut(&id) else { return };
+        if !d.ready {
+            return;
+        }
+        let s = &d.doc.session;
+        let now = json!({"title": control::window_title(s, &Shell::view(&d.doc)), "document": control::document_name(s, &d.doc.document),
+                         "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error});
+        if now == d.told {
+            return;
+        }
+        d.told_gen += 1;
+        let mut c = now.clone();
+        d.told = now;
+        c["doc"] = json!(id);
+        c["domain"] = json!("document");
+        c["gen"] = json!(d.told_gen);
+        let mut o = lock(&self.shared.outbox);
+        // a change of it not yet polled is replaced (7.3: each domain once a poll, the latest);
+        // `closing` changes are kept
+        o.changed
+            .retain(|x| serde_json::from_str::<Value>(x).map_or(true, |v| !(v["doc"] == json!(id) && v["domain"] == "document" && v.get("gen").is_some())));
+        o.changed.push(c.to_string());
+    }
+
     /// The document's menu bar, noted: the feed says when it changed (`changed`, domain `menus`),
     /// so a shell rebuilds its native menus then and not on every wake.
     fn note_menus(&mut self, id: DocId) {
@@ -1038,8 +1119,10 @@ impl Worker {
                 control::tick(&mut d.doc);
                 if d.doc.close_asked {
                     self.close_doc(id);
+                    continue;
                 }
             }
+            self.note_document(id);
         }
         let conns: Vec<Arc<dyn Connection>> = self.docs.values().filter_map(|d| d.doc.link.as_ref().map(|l| Arc::clone(&l.conn))).collect();
         *lock(&self.shared.conns) = conns;
@@ -1244,6 +1327,23 @@ impl Worker {
                 if let Some(d) = self.docs.get_mut(&doc) {
                     if method == "menu.get" {
                         d.menus_watched = true;
+                    }
+                    // `ui.invoke {by: "person"}`: the shell invokes for the person at it (its menu,
+                    // its toolbar), so what the command asks is the shell's to show (N3 slice 4).
+                    // Only a shell's own requests may say so; the control channel's are a script's
+                    // and refuse the field as unknown.
+                    if method == "ui.invoke" && params.get("by").is_some() {
+                        let mut p = params.clone();
+                        let by = p.as_object_mut().and_then(|o| o.remove("by"));
+                        let person = match by.as_ref().and_then(Value::as_str) {
+                            Some("person") => true,
+                            Some("script") => false,
+                            _ => return (reply)(control::err("by must be \"person\" or \"script\"")),
+                        };
+                        d.doc.invoke_by = if person { By::Person } else { By::Script };
+                        control::handle(&mut d.doc, method, &p, reply);
+                        d.doc.invoke_by = By::Script;
+                        return;
                     }
                     control::handle(&mut d.doc, method, params, reply);
                 }

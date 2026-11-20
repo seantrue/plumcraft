@@ -27,6 +27,11 @@ func scratch(_ name: String) -> String {
 
 let testEnvironment: Void = {
     setenv("PLUMCRAFT_EDITOR_PREFS", scratch("prefs") + "/prefs.json", 1)
+    // never the maintainer's store, whatever the environment names (N3 slice 4)
+    setenv("COMMONKIT_STORE_ROOT", scratch("store"), 1)
+    setenv("COMMONKIT_MARK_DIR", scratch("marks"), 1)
+    setenv("COMMONKIT_TEST_RUN", scratch("run"), 1)
+    setenv("PLUMCRAFT_CRAFT_ROOT", scratch("craft"), 1)
     setenv("COMMONKIT_HASH", "b3", 0)
     setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
 }()
@@ -306,5 +311,61 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         let mid = Point(Double(pin.x) + net.driver.at.x + 12, Double(pin.y) + net.driver.at.y)
         let h = CanvasLink(model: model).hit(mid, slop: 0)
         #expect(h.kind == .tag, "\(h)")
+    }
+}
+
+/// Pictures (N3 slice 4): rgba8 with straight alpha becomes a premultiplied CGImage of its size;
+/// bytes too few for the size are refused, never read past.
+@Suite struct PictureBytes {
+    @Test func rgba8BecomesAnImageOfItsSize() throws {
+        let px: [UInt8] = [255, 0, 0, 255, 0, 255, 0, 128, 0, 0, 255, 0, 255, 255, 255, 255, 1, 2, 3, 4, 5, 6, 7, 8]
+        let p = try #require(Pictures.make(Data(px), width: 3, height: 2))
+        #expect(p.width == 3 && p.height == 2 && p.image.width == 3 && p.image.height == 2)
+        #expect(Pictures.make(Data(px.prefix(20)), width: 3, height: 2) == nil)
+        #expect(Pictures.make(Data(), width: 0, height: 0) == nil)
+        #expect(Pictures.handle(of: ["handle": "md5:raw:x"]) == "md5:raw:x")
+        #expect(Pictures.handle(of: "b3:raw:y") == "b3:raw:y")
+    }
+}
+
+/// Culling and the run's wash on a real core (N3 slice 4).
+@Suite struct CullAndRun {
+    @MainActor @Test func farFacesAndWiresAreHiddenAndComeBackWhenSeen() async throws {
+        let (core, model, canvas) = try await canvasOnCore("cull")
+        defer { core.close() }
+        let near = try await add(model, "text.literal", 0, 0)
+        let far = try await add(model, "text.upper", 20_000, 0)
+        _ = try await model.run("wire.connect", ["from": ["node": .string(near), "port": "text"], "to": ["node": .string(far), "port": "text"]])
+        #expect(await settled(model, canvas, faces: 2, wires: 1))
+        canvas.setViewport(Viewport(pan: .zero, zoom: 1))
+        let farNid = try #require(canvas.nid(of: far))
+        let nearNid = try #require(canvas.nid(of: near))
+        #expect(canvas.faceLayer(nid: farNid)?.isHidden == true, "20,000 units off is hidden")
+        #expect(canvas.faceLayer(nid: nearNid)?.isHidden == false)
+        // the wire reaches into view: kept
+        #expect(canvas.wireLayer(nid: model.wires.order[0])?.isHidden == false)
+        // pan to it: shown at once, its picture kept
+        let picture = canvas.faceLayer(nid: farNid)?.contents
+        canvas.setViewport(Viewport(pan: CGPoint(x: -20_000 + 100, y: 100), zoom: 1))
+        #expect(canvas.faceLayer(nid: farNid)?.isHidden == false)
+        #expect(canvas.faceLayer(nid: nearNid)?.isHidden == true)
+        #expect(picture != nil && canvas.faceLayer(nid: farNid)?.contents as AnyObject === picture as AnyObject)
+        // culling off: everything shown
+        canvas.culling = false
+        canvas.setViewport(Viewport(pan: CGPoint(x: -20_000 + 101, y: 100), zoom: 1))
+        canvas.cull(force: true)
+        #expect(canvas.hiddenCount == 0)
+    }
+
+    @MainActor @Test func aRunWashesItsFacesThenTheyFadeAndGo() async throws {
+        let (core, model, canvas) = try await canvasOnCore("wash")
+        defer { core.close() }
+        let a = try await add(model, "text.literal", 0, 0)
+        #expect(await settled(model, canvas, faces: 1))
+        _ = try await model.run("run.start")
+        let nid = try #require(canvas.nid(of: a))
+        // while the run shows (and holds), the face has a wash; once faded the core drops it
+        #expect(await until(.seconds(20)) { model.anim.on && canvas.washed(nid: nid) })
+        #expect(await until(.seconds(20)) { !model.anim.on && !canvas.washed(nid: nid) })
     }
 }

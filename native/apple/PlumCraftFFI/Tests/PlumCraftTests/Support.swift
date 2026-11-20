@@ -24,6 +24,13 @@ func scratch(_ name: String) -> String {
 /// (never the maintainer's), BLAKE3 hashes, a store that takes blobs with 2 GB free.
 let testEnvironment: Void = {
     setenv("PLUMCRAFT_EDITOR_PREFS", scratch("prefs") + "/prefs.json", 1)
+    // the store's root and marks in scratch whatever the environment says: COMMONKIT_STORE_ROOT
+    // wins over the config's store_root, and a login shell may name the maintainer's own store
+    // (N3 slice 4 found the tests had been reaching it that way)
+    setenv("COMMONKIT_STORE_ROOT", scratch("store"), 1)
+    setenv("COMMONKIT_MARK_DIR", scratch("marks"), 1)
+    setenv("COMMONKIT_TEST_RUN", scratch("run"), 1)
+    setenv("PLUMCRAFT_CRAFT_ROOT", scratch("craft"), 1)
     setenv("COMMONKIT_HASH", "b3", 0)
     setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
 }()

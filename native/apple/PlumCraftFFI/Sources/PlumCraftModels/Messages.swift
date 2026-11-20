@@ -373,7 +373,8 @@ public enum DomainWord: String, Sendable, CaseIterable { case engine, document, 
 public typealias Domain = Open<DomainWord>
 
 /// A domain of a document that changed. Engine changes carry `connected`, `label`, `ready`; a
-/// closing document `closing`.
+/// closing document `closing`; the document's own state (N3 slice 4) `title`, `document`, `path`,
+/// `dirty`, `undo`, `redo` and `lastError`.
 public struct Changed: Codable, Hashable, Sendable {
     public var doc: UInt64
     public var domain: Domain
@@ -382,6 +383,42 @@ public struct Changed: Codable, Hashable, Sendable {
     public var label: String?
     public var ready: Bool?
     public var closing: Bool?
+    public var title: String?
+    public var document: String?
+    public var path: String?
+    public var dirty: Bool?
+    public var undo: String?
+    public var redo: String?
+    public var lastError: String?
+}
+
+/// The document as the feed last told it (`changed`, domain `document`): what a window's title,
+/// edited dot and Edit menu show.
+public struct DocumentState: Hashable, Sendable {
+    public var gen: UInt64 = 0
+    public var title = ""
+    public var name = ""
+    public var path: String?
+    public var dirty = false
+    /// The step Undo would undo ("Add Node"), nil when there is none.
+    public var undo: String?
+    public var redo: String?
+    public var lastError: String?
+
+    public init() {}
+
+    /// From a `document` change carrying the state (one with a `gen`).
+    public init?(_ c: Changed) {
+        guard c.domain.word == .document, let g = c.gen else { return nil }
+        gen = g
+        title = c.title ?? ""
+        name = c.document ?? ""
+        path = c.path
+        dirty = c.dirty ?? false
+        undo = c.undo
+        redo = c.redo
+        lastError = c.lastError
+    }
 }
 
 public enum MediaWord: String, Sendable, CaseIterable { case ready, pending, missing, failed }

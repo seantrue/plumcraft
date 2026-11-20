@@ -341,3 +341,18 @@ struct Sampler {
         }
     }
 }
+
+/// The feed's `document` change (N3 slice 4): the state a window shows, and what isn't one.
+@Suite struct DocumentChanges {
+    @Test func aDocumentChangeCarriesTheStateAWindowShows() throws {
+        let v = try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 3, "title": "a.json • — PlumCraft", "document": "a.json", "path": "/x/a.json", "dirty": true, "undo": "Add Node", "redo": null, "lastError": null}"#)
+        let c = try JSONValueDecoder().decode(Changed.self, from: v)
+        let st = try #require(DocumentState(c))
+        #expect(st.gen == 3 && st.dirty && st.undo == "Add Node" && st.redo == nil && st.path == "/x/a.json" && st.name == "a.json")
+        // a closing change has no state; another domain isn't one
+        let closing = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "document", "closing": true}"#))
+        #expect(DocumentState(closing) == nil)
+        let engine = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "engine", "gen": 1, "connected": true}"#))
+        #expect(DocumentState(engine) == nil)
+    }
+}

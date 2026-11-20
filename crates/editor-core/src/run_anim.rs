@@ -243,6 +243,28 @@ impl RunAnim {
     }
 }
 
+/// What the run animation needs of the graph: each node's upstream nodes, and the engine
+/// that computes it (its pin, else the first of the graph's engines that offers it, else the
+/// first that does; one lane when no engine is named).
+pub fn plan(session: &plumcraft_session::Session, needed: &BTreeSet<String>) -> Plan {
+    let g = session.graph();
+    let catalog = session.catalog();
+    let mut plan = Plan::default();
+    for w in &g.wires {
+        if needed.contains(&w.to.node.0) && needed.contains(&w.from.node.0) {
+            plan.upstream.entry(w.to.node.0.clone()).or_default().push(w.from.node.0.clone());
+        }
+    }
+    for id in needed {
+        let node = g.node(&plumcraft_graph::NodeId(id.clone()));
+        let offered = node.and_then(|n| catalog.nodes.iter().find(|d| d.id == n.kind)).map(|d| d.engines.clone()).unwrap_or_default();
+        let pin = node.and_then(|n| n.engine.clone()).filter(|p| offered.contains(p));
+        let lane = pin.or_else(|| g.engines.iter().find(|e| offered.contains(e)).cloned()).or_else(|| offered.first().cloned()).unwrap_or_default();
+        plan.lane.insert(id.clone(), lane);
+    }
+    plan
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

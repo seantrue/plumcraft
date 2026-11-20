@@ -266,6 +266,14 @@ pub struct Document {
     pub palette: Option<crate::scene::Palette>,
     /// The latest snapshot, for readers on other threads (the C ABI's hot calls), set as it is made.
     pub snapshot_out: crate::geometry::SnapshotCell,
+    /// The run animation ([`crate::run_anim`]): each node's body washed by its state while a run
+    /// computes, and View › Animate Last Run's replay. Kept up to date every turn
+    /// ([`Document::pump_run_anim`]); the egui shell draws from it, and a scene a native shell
+    /// fetches carries it while it shows (N3 slice 4).
+    pub run_anim: crate::run_anim::RunAnim,
+    /// Who the `ui.invoke` being handled is for ([`Shell::invoke_by`]): the C ABI sets it to the
+    /// person for the request a shell sends as `ui.invoke {by: "person"}`, and back after.
+    pub invoke_by: crate::asks::By,
 }
 
 impl std::fmt::Debug for Document {
@@ -328,6 +336,8 @@ impl Document {
             scene: crate::scene::Published::default(),
             geometry: crate::geometry::Measured::default(),
             fit: None,
+            run_anim: crate::run_anim::RunAnim::default(),
+            invoke_by: crate::asks::By::Script,
             fit_owed: false,
             snapshot: std::sync::Arc::default(),
             drag: crate::gesture::DragCell::default(),
@@ -1072,6 +1082,7 @@ pub fn turn<H: Holder>(h: &mut H) -> Turn {
     let ready = settle_startup(h);
     let (events, reread) = plumcraft_session::commands::with_doc(h.doc().id, || h.doc_mut().drain_engine());
     let mut t = pump(h);
+    h.doc_mut().pump_run_anim(std::time::Instant::now());
     if let Some(d) = after(h) {
         t.again(d);
     }
@@ -1174,6 +1185,9 @@ impl Shell for Document {
     fn engine_asked(&self) -> bool {
         self.engine_asked
     }
+    fn invoke_by(&self) -> crate::asks::By {
+        self.invoke_by
+    }
     fn menu_facts(&self) -> crate::menu::Facts {
         let s = self.selection.get();
         crate::menu::Facts { selected: s.nodes, selected_groups: s.groups, live: self.link.is_some(), caps: self.caps, ..crate::menu::Facts::default() }
@@ -1181,10 +1195,11 @@ impl Shell for Document {
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         Some(&mut self.menus)
     }
-    /// The scene in the document's theme ([`Document::scene_theme`]), with no run animation and
-    /// no application editors (this shell draws none).
+    /// The scene in the document's theme ([`Document::scene_theme`]), with the run animation
+    /// while it shows ([`Document::shown_anim`]) and no application editors (this shell draws
+    /// none).
     fn scene(&self) -> Option<crate::scene::Scene> {
-        Some(self.build_scene(&self.scene_theme(), None, &crate::scene::app_texts(), &[]))
+        Some(self.build_scene(&self.scene_theme(), self.shown_anim(std::time::Instant::now()), &crate::scene::app_texts(), &[]))
     }
     /// `theme.get`: the tokens of the theme the scenes are built in.
     fn theme_tokens(&self) -> Option<Value> {
@@ -1204,6 +1219,42 @@ impl Document {
     /// ABI's core, N3 slice 3): the one `view.theme {name}` last named, so a native shell that
     /// follows the system's appearance names Paper or Dusk; else the default. A name that is no
     /// theme is the default. Not kept between runs (the egui shell keeps its own in preferences).
+    /// Bring the run animation up to date with the session's run: a new run is shown as it
+    /// happens, View › Animate Last Run (`view.animateRun`) replays the last one slowly, and the
+    /// real run's end is noted. Called every turn ([`turn`]); doing it twice changes nothing.
+    /// Whether it still shows (the shell keeps drawing while it does).
+    pub fn pump_run_anim(&mut self, now: std::time::Instant) -> bool {
+        use crate::run_anim;
+        if std::mem::take(&mut self.session.views.animate_asked) && !self.session.run.running {
+            let run = &self.session.run;
+            let plan = run_anim::plan(&self.session, &run.needed);
+            let slow = std::time::Duration::from_millis(u64::from(self.session.views.anim_ms()));
+            self.run_anim.replay(run.generation, &run.needed, plan, slow, &run.log, now);
+        }
+        let run = &self.session.run;
+        if run.generation != self.run_anim.generation() && !run.needed.is_empty() {
+            let plan = run_anim::plan(&self.session, &run.needed);
+            self.run_anim.begin(run.generation, &run.needed, plan, std::time::Duration::ZERO);
+        }
+        let run = &self.session.run;
+        if run.generation == self.run_anim.generation() {
+            self.run_anim.feed(&run.log);
+            if !run.running {
+                self.run_anim.end(now);
+            }
+        }
+        (!self.session.views.run_colors_off || self.run_anim.is_replay()) && self.run_anim.is_active(now)
+    }
+
+    /// The run animation for a scene a native shell fetches: while it shows at `now` (View ›
+    /// Colour Nodes While Running on, or a replay, and not yet faded), else none, so the faces'
+    /// `shown` goes once the colours have faded and a scene at rest carries no animation (N3
+    /// slice 4). The shell computes the wash, its pulse and its fade from the scene's `anim`
+    /// (contract 8.6); the core never publishes per frame.
+    pub fn shown_anim(&self, now: std::time::Instant) -> Option<&crate::run_anim::RunAnim> {
+        ((!self.session.views.run_colors_off || self.run_anim.is_replay()) && self.run_anim.is_active(now)).then_some(&self.run_anim)
+    }
+
     pub fn scene_theme(&self) -> crate::theme::Tokens {
         self.session.views.theme_asked.as_deref().and_then(crate::theme::by_name).unwrap_or(crate::theme::DEFAULT)
     }

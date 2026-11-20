@@ -106,6 +106,8 @@ final class BenchWindow: NSObject {
             let built = ContinuousClock.now
             let model = DocumentModel(core: core, doc: doc)
             let v = CanvasView(model: model, frame: window.contentLayoutRect)
+            // PLUMCRAFT_NO_CULL=1: the canvas as slice 3 had it, for a comparison
+            v.canvas.culling = ProcessInfo.processInfo.environment["PLUMCRAFT_NO_CULL"] != "1"
             v.autoresizingMask = [.width, .height]
             window.contentView = v
             view = v
@@ -168,7 +170,8 @@ final class BenchWindow: NSObject {
         let expected = 1.0 / Double(window.screen?.maximumFramesPerSecond ?? 120) * 1000
         let late = intervals.filter { $0 > expected * 1.5 }.count
         put("phase_" + name, ["frames": .int(Int64(intervals.count)), "interval_ms": stats(intervals), "late_frames": .int(Int64(late)),
-                              "visible_faces_redrawn": .int(Int64(v.canvas.settle()))])
+                              "visible_faces_redrawn": .int(Int64(v.canvas.settle())),
+                              "hidden_layers": .int(Int64(v.canvas.hiddenCount)), "culling": .bool(v.canvas.culling)])
         // let the settle land before the next phase
         _ = await waitDrawn(.seconds(2)) { _ in v.canvas.idle }
     }
