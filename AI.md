@@ -28,7 +28,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Whose code.** The test and the service are AI-written (N1 slice 6, an AI agent's work); both the flaky test and the lost wake are defects shipped there.
 
-**Defects in this work.** None caught by the gate or review that the agent knows of.
+**Defects in this work.** The test for the worker skipping a settled request first asked for bytes, which a worker shares rather than reads again, so it passed with the skip removed. It now asks for a rendition and fails without the skip (3 reads, want 2). This came to light when the controller asked about a second intermittent test in the same file.
 
 **Not verified.** No shell (Swift, Kotlin, egui) was run against the change; nothing measured how often a shell actually hit the lost wake (a shell that draws in frames asks again every frame and would not notice). Not run on the Mac.
 

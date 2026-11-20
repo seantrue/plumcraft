@@ -1016,7 +1016,9 @@ mod tests {
     #[test]
     fn a_queued_request_settled_in_place_is_not_made_again() {
         // one worker, held by a first request; a second waits in the queue, is read in place,
-        // and the worker that reaches it later leaves it as it is
+        // and the worker that reaches it later leaves it as it is. A rendition, which shares no
+        // bytes: made again, it would be read again, and asked for meanwhile, it would be pending
+        // (the intermittent "then cached" in `blocking_reads_in_place_and_shares_the_cache`)
         let m = MediaService::new(Config { workers: 1, ..Config::default() });
         let (open, calls) = (Arc::new(std::sync::atomic::AtomicBool::new(false)), Arc::new(AtomicU64::new(0)));
         m.set_resolver(Some(gated(&open, &calls)));
@@ -1028,13 +1030,13 @@ mod tests {
         let (a, b) = (rgba_ref("held", 2, 2), rgba_ref("queued", 2, 2));
         assert!(m.get(&a, Want::Bytes).is_pending());
         assert!(until(Duration::from_secs(10), || calls.load(Ordering::SeqCst) == 1), "the worker holds the first");
-        assert!(m.get(&b, Want::Bytes).is_pending(), "queued behind it");
-        assert!(m.blocking(&b, Want::Bytes).bytes().ready().is_some(), "read in place");
+        assert!(m.get(&b, Want::Rendition).is_pending(), "queued behind it");
+        assert!(m.blocking(&b, Want::Rendition).picture().ready().is_some(), "read in place");
         assert_eq!(wakes.load(Ordering::SeqCst), 1, "its asker is woken");
         open.store(true, Ordering::SeqCst);
         assert!(m.wait_idle(Duration::from_secs(10)));
         assert_eq!(calls.load(Ordering::SeqCst), 2, "each read once");
-        assert!(m.get(&b, Want::Bytes).bytes().ready().is_some(), "and kept, never pending again");
+        assert!(m.get(&b, Want::Rendition).picture().ready().is_some(), "and kept, never pending again");
     }
 
     #[test]
