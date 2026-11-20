@@ -4,13 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
-
-- Reported: 2026-11-20
-- Report: "record the others"
-- Context: `plumcraft-ui::engine_thread`, `crates/ui/tests/engine_thread.rs:546`: a spectrogram took longer than the test's 150 ms limit. Failed in the baseline run of the dev branch at `b4a561b` (80 cores, all tests in parallel); passes alone.
-- Issue: none
-
 ### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
 
 - Reported: 2026-11-20
@@ -27,6 +20,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
+
+- Reported: 2026-11-20
+- Report: "record the others"
+- Context: `plumcraft-ui::engine_thread`, `crates/ui/tests/engine_thread.rs:546`: a spectrogram took longer than the test's 150 ms limit. Failed in the baseline run of the dev branch at `b4a561b` (80 cores, all tests in parallel); passes alone.
+- Issue: none
+- Cause (2026-11-20, confirmed): the test, not the editor. It held every frame under half of a 300 ms `resolve`, which measured the editor's own work in a frame, not a wait. With 40 copies at once on the Linux test host it failed 34 of 200: 32 in "watch n5" (the audio value; frames of 74 to 319 ms, median 122 ms), whose frame computes the Watched panel's spectrogram in place (`AudioView::sync`, clips under `SPEC_SYNC_SAMPLES`), and one each in the pop-out and compare phases. In all 200 runs no `resolve` was made on the editor's thread. Alone the audio frame is about 80 ms.
+- Fix: the test holds each `resolve` at a gate until the editor has drawn three frames with it held, and fails if the gate has to give up on one (10 s): a frame that waited for an engine, directly or through a lock or channel, never returns while the call is held, however loaded the machine. Frame times are printed, not asserted. A deliberate fault (the Watched panel spinning until its value arrives) fails it. After: 0 of 200 under the same load, with audio frames up to 225 ms. The in-place spectrogram is still a stall of the editor's thread; moving it off the thread is a separate change.
+- Fixed: 2026-11-20, PR #118
 ### B35. A blocking read's result could turn pending again (`blocking_reads_in_place_and_shares_the_cache` failed now and then)
 
 - Reported: 2026-11-20

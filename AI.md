@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — B32: `values_never_wait_for_an_engine` timed the editor's work, not a wait (Claude Opus 5.5)
+
+**Asked for.** The maintainer said "start tasks for addressing bugs"; this is B32, one of three tests that failed only under the Linux test host's full parallel run.
+
+**What the agent found.** Run 40 copies at a time, the test failed 34 of 200. 32 failures were the audio value's frame, which computes the spectrogram on the editor's thread (74 to 319 ms under load, about 80 ms alone); no run made a `resolve` on the editor's thread. The 150 ms frame limit measured the machine's load.
+
+**What the agent did (148 lines added and 37 removed in `crates/ui/tests/engine_thread.rs`; no product code).** A gate in the test's slow connection holds each `resolve` until the editor has drawn three frames with it held; the test fails if the gate gives up on one. Frame times are printed, no longer asserted. A deliberate fault (the Watched panel spinning on its pending value) made it fail with "a frame waited for a held resolve". After: 0 of 200 under the same load.
+
+**Not done.** The in-place spectrogram still stalls the editor's thread by tens of milliseconds; moving it to a worker is left to a separate change. Not run on the Mac.
 ### 2026-11-20 — N3 slice 1: moves as undo steps, a wire dropped on empty canvas, the suite in two halves (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The maintainer's answers at N2's exit, "N2 exit: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A": N3 goes ahead; a move drag becomes one undo step (3A); a new wire dropped on empty canvas opens the filtered palette (8A). The controller cut N3 into five slices and made this one the core's groundwork.
