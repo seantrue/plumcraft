@@ -4,21 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B30. Video to frames fails with ffmpeg older than 5.1 (Ubuntu 22.04)
-
-- Reported: 2026-11-20
-- Report: "Bug:" (in answer to: the array engine's video reader passes `-fps_mode passthrough`, which ffmpeg only has from 5.1; Ubuntu 22.04 packages 4.4.2)
-- Context: `video_goes_to_frames_and_back` (`crates/array/tests/channels.rs`) fails on the Linux test host with "video: /usr/bin/ffmpeg failed: Error splitting the argument list: Option not found". The option is passed at `crates/array/src/channels/video.rs:248`. GitHub's runner has a newer ffmpeg, so CI doesn't show it.
-- Cause: `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. Confirmed by the error on ffmpeg 4.4.2; the other options the reader and writer pass were not each checked against 4.4.
-- Issue: #113
-### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
-
-- Reported: 2026-11-20
-- Report: "record the others" (the four tests that fail only under the Linux host's full parallel run)
-- Context: `plumcraft-media` `service::tests`. Failed once in the full run for N2 slice 2 (`85695df`) at `crates/media/src/service.rs:909`, "the shell was woken": the picture had arrived and the wake count was still zero. Passed 30 of 30 when run alone on the same host. The test is from N1 slice 6.
-- Open question: is the test reading the wake counter too early, or does the service deliver a result before it wakes the shell (a real ordering fault)? Not yet looked into.
-- Issue: none
-
 ### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
 
 - Reported: 2026-11-20
