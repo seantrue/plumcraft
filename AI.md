@@ -20,6 +20,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-19 — CI tests under b3 only (Claude Fable 5.2)
+
+**What the maintainer asked for.** "Drop all MD5 tests from the active tests."
+
+**What the AI did** (+15 −18 in `.github/workflows/ci.yml`). The Rust and Python test steps ran once under md5 and once under b3; they now run once, under b3, the default algorithm. No test was removed: tests that name md5 handles as fixtures still run, under b3. The AI read "active tests" as CI's runs; that reading is the AI's.
+
 ### 2026-11-19 — N1's exit review (Claude Fable 5.2)
 
 **What the maintainer asked for.** The standing go-ahead for N1's slices, which ends here; N2 needs a new one.
