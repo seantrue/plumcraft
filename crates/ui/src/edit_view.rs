@@ -296,41 +296,50 @@ impl Canvas {
         if moved.is_empty() {
             return Vec::new();
         }
-        let to = |id: &NodeId, group: &Option<GroupId>, pos: [f32; 2]| match group {
-            Some(g) => ("group.move", json!({"group": g, "pos": pos})),
-            None => ("node.move", json!({"id": id, "pos": pos})),
+        // One `edit.move` a frame, named by the press, so the whole drag is one undo step
+        // ("Move 3 Nodes"; N3 slice 1) however many frames it takes.
+        let drag = format!("egui:{}", self.press);
+        let one = |nodes: serde_json::Map<String, Value>, groups: serde_json::Map<String, Value>| -> Vec<Action> {
+            vec![("edit.move", json!({"nodes": nodes, "groups": groups, "drag": drag}))]
+        };
+        let split = |list: Vec<(NodeId, Option<GroupId>, [f32; 2])>| {
+            let (mut nodes, mut groups) = (serde_json::Map::new(), serde_json::Map::new());
+            for (id, g, pos) in list {
+                match g {
+                    Some(g) => groups.insert(g.0, json!(pos)),
+                    None => nodes.insert(id.0, json!(pos)),
+                };
+            }
+            (nodes, groups)
         };
         let dragged = self.drag_anchor.as_ref().and_then(|a| moved.iter().find(|m| &m.0 == a));
         let Some((id, group, now, was)) = dragged else {
             // Not a drag we can attribute: take snarl's positions as they are.
-            return moved.iter().map(|(id, g, now, _)| to(id, g, *now)).collect();
+            let (nodes, groups) = split(moved.iter().map(|(id, g, now, _)| (id.clone(), g.clone(), *now)).collect());
+            return one(nodes, groups);
         };
         let in_selection = match group {
             Some(g) => self.picked.groups().contains(g),
             None => self.picked.nodes().contains(id),
         };
         if !in_selection {
-            return vec![to(id, group, *now)];
+            let (nodes, groups) = split(vec![(id.clone(), group.clone(), *now)]);
+            return one(nodes, groups);
         }
         let delta = [now[0] - was[0], now[1] - was[1]];
         let by = |p: [f32; 2]| [p[0] + delta[0], p[1] + delta[1]];
         // The selected groups' members move with their group, not again on their own.
         let carried: std::collections::BTreeSet<NodeId> = self.picked.groups().iter().flat_map(|g| graph.group_members(g)).collect();
-        let mut out: Vec<Action> = self
+        let groups: serde_json::Map<String, Value> = self
             .picked
             .groups()
             .iter()
             .filter(|g| !self.picked.groups().iter().any(|outer| outer != *g && graph.group_subtree(outer).contains(*g)))
-            .filter_map(|g| graph.group(g).map(|grp| ("group.move", json!({"group": g, "pos": by(grp.pos)}))))
+            .filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(grp.pos)))))
             .collect();
-        out.extend(
-            self.picked
-                .nodes()
-                .iter()
-                .filter(|n| !carried.contains(*n))
-                .filter_map(|n| graph.node(n).map(|g| ("node.move", json!({"id": n, "pos": by(g.pos)})))),
-        );
-        out
+        let nodes: serde_json::Map<String, Value> =
+            self.picked.nodes().iter().filter(|n| !carried.contains(*n)).filter_map(|n| graph.node(n).map(|g| (n.0.clone(), json!(by(g.pos))))).collect();
+        one(nodes, groups)
     }
 
     /// Outline the selected nodes (snarl's own outline is hidden: its selection may be stale).
@@ -469,6 +478,9 @@ impl EditorApp {
                 Some(r) if r.len() == 4 => self.canvas.fit_to([r[0], r[1], r[2], r[3]]),
                 _ => self.canvas.request_fit(),
             },
+            // a node picked: the core added it (with the dropped wire connected) and closed its
+            // palette (N3 slice 1)
+            "palette.choose" => self.canvas.palette = None,
             "canvas.palette" => {
                 if v["open"] == false {
                     self.canvas.palette = None;
@@ -488,6 +500,16 @@ impl EditorApp {
                         }
                     }
                     None => self.canvas.open_palette(screen),
+                }
+                // opened for a dropped wire (question 8, N3 slice 1): only what takes it is offered
+                let fits = self.doc.palette.as_ref().and_then(|p| p.wire.as_ref()).and_then(|w| w.end()).map(|(end, output)| {
+                    plumcraft_editor_core::palette::fitting(self.doc.session.graph(), self.doc.session.catalog(), &end, output)
+                        .into_iter()
+                        .map(|(i, _)| i)
+                        .collect()
+                });
+                if let Some(state) = &mut self.canvas.palette {
+                    state.fits = fits;
                 }
             }
             "canvas.reveal" => {
@@ -531,6 +553,34 @@ impl EditorApp {
                 self.doc.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
             )
         });
+        // the arrows nudge the selection, 1 graph unit, 10 with Shift (N3 slice 1:
+        // `selection.nudge`; a held key's nudges are one undo step, each new press another); only
+        // with something selected, so the keys are left alone otherwise
+        let mut nudge = [0.0f32; 2];
+        if !self.doc.selection.with(|s| s.nodes.is_empty() && s.groups.is_empty()) {
+            // a press that isn't a key's repeat starts a new nudge step; its repeats join it
+            let arrows = [egui::Key::ArrowLeft, egui::Key::ArrowRight, egui::Key::ArrowUp, egui::Key::ArrowDown];
+            let fresh = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key, pressed: true, repeat: false, .. } if arrows.contains(key))));
+            if fresh {
+                self.canvas.nudge_press = self.canvas.nudge_press.wrapping_add(1);
+            }
+            ctx.input_mut(|i| {
+                for (key, d) in [
+                    (egui::Key::ArrowLeft, [-1.0, 0.0]),
+                    (egui::Key::ArrowRight, [1.0, 0.0]),
+                    (egui::Key::ArrowUp, [0.0, -1.0]),
+                    (egui::Key::ArrowDown, [0.0, 1.0]),
+                ] {
+                    // Shift first: a plain key's match ignores Shift
+                    for (mods, step) in [(egui::Modifiers::SHIFT, 10.0), (egui::Modifiers::NONE, 1.0)] {
+                        while i.consume_key(mods, key) {
+                            nudge[0] += d[0] * step;
+                            nudge[1] += d[1] * step;
+                        }
+                    }
+                }
+            });
+        }
         if delete {
             ops.push(EditOp::Delete);
         }
@@ -545,6 +595,10 @@ impl EditorApp {
         }
         if escape {
             self.run("run.cancel", &Value::Null);
+        }
+        if nudge != [0.0, 0.0] {
+            // named by the press, so a held key is one undo step however long it is held
+            self.run("selection.nudge", &json!({"by": nudge, "drag": format!("key:{}", self.canvas.nudge_press)}));
         }
     }
 }

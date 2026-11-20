@@ -4,36 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B30. Video to frames fails with ffmpeg older than 5.1 (Ubuntu 22.04)
-
-- Reported: 2026-11-20
-- Report: "Bug:" (in answer to: the array engine's video reader passes `-fps_mode passthrough`, which ffmpeg only has from 5.1; Ubuntu 22.04 packages 4.4.2)
-- Context: `video_goes_to_frames_and_back` (`crates/array/tests/channels.rs`) fails on the Linux test host with "video: /usr/bin/ffmpeg failed: Error splitting the argument list: Option not found". The option is passed at `crates/array/src/channels/video.rs:248`. GitHub's runner has a newer ffmpeg, so CI doesn't show it.
-- Cause: `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. Confirmed by the error on ffmpeg 4.4.2; the other options the reader and writer pass were not each checked against 4.4.
-- Issue: #113
-
-### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
-
-- Reported: 2026-11-20
-- Report: "record the others" (the four tests that fail only under the Linux host's full parallel run)
-- Context: `plumcraft-media` `service::tests`. Failed once in the full run for N2 slice 2 (`85695df`) at `crates/media/src/service.rs:909`, "the shell was woken": the picture had arrived and the wake count was still zero. Passed 30 of 30 when run alone on the same host. The test is from N1 slice 6.
-- Open question: is the test reading the wake counter too early, or does the service deliver a result before it wakes the shell (a real ordering fault)? Not yet looked into.
-- Issue: none
-
-### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
-
-- Reported: 2026-11-20
-- Report: "record the others"
-- Context: `plumcraft-ui::engine_thread`, `crates/ui/tests/engine_thread.rs:546`: a spectrogram took longer than the test's 150 ms limit. Failed in the baseline run of the dev branch at `b4a561b` (80 cores, all tests in parallel); passes alone.
-- Issue: none
-
-### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
-
-- Reported: 2026-11-20
-- Report: "record the others"
-- Context: `plumcraft-media::hostile`, `crates/media/tests/hostile.rs:98`: a decode went past the test's 5 s limit. Failed in the baseline run of the dev branch at `b4a561b`; passes alone.
-- Issue: none
-
 ## Fixed
 
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
@@ -45,6 +15,52 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause (2026-11-20, confirmed): the test's saves came too close together for the file system's clock. Its last two saves (`{"doc": 1}` and then `{"doc": 4}`) are the same size as the save before each, and come 0.4 to 0.8 ms after it. The copy's clock on the Linux test host ticks once a millisecond. So often neither the size nor the modification time changed, and `poll_doc_edits` never saw the save. That is lines 784 and 791. An instrumented run printed an unchanged stamp before every failure. It is not load: on that host the test failed 91 of 100 runs alone, one at a time, and 123 of 200 with 40 copies at once. It passes on the Mac. That APFS's finer timestamps are the reason is inferred; it was not re-run there. Like B13, this is a test that met a clock. The session drops nothing in real use: a copy holds still for one 500 ms poll before it is read, so a later save lands at least 500 ms after the change the session last saw. Only a file system whose clock ticks more slowly than that (FAT, 2 s) could hide one. The test's polls run on a made-up clock, well under a millisecond apart.
 - Fix: the test saves through a helper that writes the copy and, while its size and time are unchanged, waits a millisecond and writes it again, for at most 5 s. `doc_edits.rs` now states the limit. After: 0 of 100 alone and 0 of 200 with 40 copies at once.
 - Fixed: 2026-11-20, PR #120
+
+### B33. `hostile_files_never_panic_a_decoder` fails under the Linux test host's full parallel run
+
+- Reported: 2026-11-20
+- Report: "record the others"
+- Context: `plumcraft-media::hostile`, `crates/media/tests/hostile.rs:98`: a decode went past the test's 5 s limit. Failed in the baseline run of the dev branch at `b4a561b`; passes alone.
+- Issue: none
+- Cause (2026-11-20, confirmed): the test, not a decoder. One input is slow. It is the empty SVG that claims `width='1e30'`, drawn by `svg::rasterise(&f, 1e9)`. The clamp holds: it is drawn at 4096 × 4096 (`MAX_RENDER_PIXELS`), not at its claim. Drawing those 16.8 million pixels and making them opaque takes 4.1 s in the test profile, against 0.23 s in release, so a 5 s limit on each file fails under load. Each file was timed alone through each decoder: every other input takes under 1 ms, apart from the first SVG parse, which loads the system fonts once (0.3 s). With 40 copies at once on the Linux test host it failed 37 of 200.
+- Fix: the picture decoders stay timed against 5 s, which they reach only by believing a header. Each SVG raster is checked against the clamp that bounds its work (each side at most 4096, at most `MAX_RENDER_PIXELS`, a buffer of exactly w × h × 4) instead of being timed. After: 0 of 200 under the same load.
+- Fixed: 2026-11-20, PR #119
+### B32. `values_never_wait_for_an_engine` fails under the Linux test host's full parallel run
+
+- Reported: 2026-11-20
+- Report: "record the others"
+- Context: `plumcraft-ui::engine_thread`, `crates/ui/tests/engine_thread.rs:546`: a spectrogram took longer than the test's 150 ms limit. Failed in the baseline run of the dev branch at `b4a561b` (80 cores, all tests in parallel); passes alone.
+- Issue: none
+- Cause (2026-11-20, confirmed): the test, not the editor. It held every frame under half of a 300 ms `resolve`, which measured the editor's own work in a frame, not a wait. With 40 copies at once on the Linux test host it failed 34 of 200: 32 in "watch n5" (the audio value; frames of 74 to 319 ms, median 122 ms), whose frame computes the Watched panel's spectrogram in place (`AudioView::sync`, clips under `SPEC_SYNC_SAMPLES`), and one each in the pop-out and compare phases. In all 200 runs no `resolve` was made on the editor's thread. Alone the audio frame is about 80 ms.
+- Fix: the test holds each `resolve` at a gate until the editor has drawn three frames with it held, and fails if the gate has to give up on one (10 s): a frame that waited for an engine, directly or through a lock or channel, never returns while the call is held, however loaded the machine. Frame times are printed, not asserted. A deliberate fault (the Watched panel spinning until its value arrives) fails it. After: 0 of 200 under the same load, with audio frames up to 225 ms. The in-place spectrogram is still a stall of the editor's thread; moving it off the thread is a separate change.
+- Fixed: 2026-11-20, PR #118
+### B35. A blocking read's result could turn pending again (`blocking_reads_in_place_and_shares_the_cache` failed now and then)
+
+- Reported: 2026-11-20
+- Report: found by the B30 fix's full run on the Linux test host (failed at `crates/media/src/service.rs:1055`, "then cached"); 1 in 10 when run alone there.
+- Cause (2026-11-20, confirmed): `MediaService::blocking` first calls `get`, which queues the request for a worker, then makes the value itself and keeps it as done, with the key still in the queue. A worker that reached the key after that set the done entry back to working and made it again, so a `get` meanwhile answered pending. Nothing else turns a done entry back. Not B31's cause (B31's test read too early); found while reading the same path. Reproduced 1 in 1,200 under load (0 in 300 alone); 0 in 1,200 after.
+- Fix: a worker skips a queued request that is no longer queued (`run_one`). `a_queued_request_settled_in_place_is_not_made_again` fails without it (3 reads, want 2).
+- Fixed: 2026-11-20, PR #117
+- Issue: none
+
+### B31. `a_request_answers_at_once_and_arrives_on_a_worker_with_a_wake` fails now and then on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record the others" (the four tests that fail only under the Linux host's full parallel run)
+- Context: `plumcraft-media` `service::tests`. Failed once in the full run for N2 slice 2 (`85695df`) at `crates/media/src/service.rs:909`, "the shell was woken": the picture had arrived and the wake count was still zero. Passed 30 of 30 when run alone on the same host. The test is from N1 slice 6.
+- Cause (2026-11-20, confirmed): the test read the wake counter too early. A worker keeps its result under the service's lock, lets the lock go, then calls the wake; the test asks without waiting for the wake, so a worker descheduled between the two lets it see the picture with the count still zero. That order (kept, then woken) is the right one: whoever a wake sends to ask again finds the result. Reproduced 112 times in 1,200 (60 copies at once, 20 rounds, with 40 busy loops alongside). Reading the path also found a real lost wake: when `MediaService::blocking` (`doc.open`, `value.open`) settled a request a worker was already making, the worker found it settled and neither kept its result nor woke, so a shell that had been told "pending" never heard; and a queued request settled that way was made a second time when a worker reached it.
+- Fix: the test waits for the wake (10 s limit) and says what order is guaranteed; `blocking` wakes when it settles a request a worker had, after keeping it; a worker skips a queued request already settled. Three new tests: a wake always finds its result (200 rounds, the wake itself asks), and two for the in-place cases, which fail without the fix. After: 0 in 1,200 on the same load.
+- Issue: none
+- Fixed: 2026-11-20, PR #117
+### B30. Video to frames fails with ffmpeg older than 5.1 (Ubuntu 22.04)
+
+- Reported: 2026-11-20
+- Report: "Bug:" (in answer to: the array engine's video reader passes `-fps_mode passthrough`, which ffmpeg only has from 5.1; Ubuntu 22.04 packages 4.4.2)
+- Context: `video_goes_to_frames_and_back` (`crates/array/tests/channels.rs`) fails on the Linux test host with "video: /usr/bin/ffmpeg failed: Error splitting the argument list: Option not found". The option is passed at `crates/array/src/channels/video.rs:248`. GitHub's runner has a newer ffmpeg, so CI doesn't show it.
+- Issue: #113
+- Cause (2026-11-20, confirmed): `-fps_mode` was added in ffmpeg 5.1; before that the same setting is `-vsync passthrough`. It is the only option the video nodes pass that 4.4 lacks: on ffmpeg 4.4.2 the reader with `-vsync` (rgb24 and grayf32le), the ffprobe call, and the MP4 (libx264), MOV (prores_ks, profile 3, yuv422p10le) and GIF (palettegen/paletteuse, `-loop 0`, rgb and gray) writers all ran, and each written clip read back.
+- Fix: the reader asks `ffmpeg -version` once per ffmpeg program and passes `-vsync` for a version before 5.1, else `-fps_mode`; an answer with no version in it (a git snapshot, or anything unparseable) gets `-fps_mode`. Test: `frames_pass_through_with_the_option_this_ffmpeg_has`.
+- Fixed: 2026-11-20, PR #116
 
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 

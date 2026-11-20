@@ -91,8 +91,13 @@ fn dragging_the_tab_moves_the_frame_and_what_it_holds() {
     assert!((moved[0] - 60.0 / z).abs() < 12.0 / z && (moved[1] - 90.0 / z).abs() < 12.0 / z, "moved by {moved:?}");
     assert_eq!(pos(&h, &inside), [n0[0] + moved[0], n0[1] + moved[1]], "the node inside goes with it");
     assert_eq!(pos(&h, &outside), o0, "the node outside stays");
-    assert_eq!(h.state().session.undo_label().map(str::to_owned), undo, "a move isn't an undo step");
+    // since N3 slice 1 the drag is one undo step, over every frame it moved in
+    assert_eq!(h.state().session.undo_label(), Some("Move Frame"));
     assert!(h.state().session.is_dirty());
+    h.state_mut().run("edit.undo", &json!({}));
+    h.run_steps(3);
+    assert_eq!((frame(&h).pos, pos(&h, &inside)), (f0, n0), "one undo puts the frame and what it held back");
+    assert_eq!(h.state().session.undo_label().map(str::to_owned), undo);
 }
 
 #[test]

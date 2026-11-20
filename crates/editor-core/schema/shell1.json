@@ -1745,6 +1745,69 @@
       },
       "type": "object"
     },
+    "Palette": {
+      "description": "The node palette as the core keeps it (N3 slice 1): where a node picked goes, what was typed,\nand the wire it was opened for, when a new wire was dropped on empty canvas (question 8).",
+      "properties": {
+        "at": {
+          "description": "Where a node picked is added (graph units), or none: the view's centre, the shell's.",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 2,
+          "minItems": 2,
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "The search it opened with.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "wire": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PaletteWire"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The wire dropped: only kinds that take it are offered (`palette.items`), and the one\npicked is added with it connected (`palette.choose`, one undo step)."
+        }
+      },
+      "type": "object"
+    },
+    "PaletteWire": {
+      "description": "The end of a dropped wire that stays: the output it leaves (`from`; a new node's input takes\nit), or the input it enters (`to`; a new node's output feeds it). Exactly one is given.",
+      "properties": {
+        "from": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortAt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PortAt"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
     "PartsReport": {
       "additionalProperties": false,
       "properties": {
@@ -1963,6 +2026,22 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "PortAt": {
+      "description": "A port: `{node, port}`.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node",
+        "port"
+      ],
       "type": "object"
     },
     "PortRefSchema": {
@@ -2498,6 +2577,17 @@
             }
           ],
           "description": "The latest fit asked for (`canvas.fit`), or none since the document opened."
+        },
+        "palette": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Palette"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The node palette, while it is open (`canvas.palette`; core state since N3 slice 1, open\nquestion 4). Left out while it is closed."
         }
       },
       "type": "object"

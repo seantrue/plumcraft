@@ -1,5 +1,6 @@
 //! Group commands: create, ungroup, rename, promote, edit and unpromote a parameter, add and
-//! remove an output, collapse and expand, move. Every command but `group.move` is an undo step.
+//! remove an output, collapse and expand, move. Every command is an undo step (`group.move` since
+//! N3 slice 1, joined as `node.move`'s are).
 //!
 //! Groups are an editing overlay saved in the workflow file; engines run the flat graph and
 //! ignore them ([`plumcraft_graph::groups`]).
@@ -8,7 +9,7 @@
 //! 10.3, E3). Names are any short text, not Python identifiers,
 //! and `group.create` picks a fresh name (`group 1`, …) when none is given.
 
-use plumcraft_graph::{GroupId, NodeId, PromotedEdit};
+use plumcraft_graph::{GraphError, GroupId, NodeId, PromotedEdit};
 use serde_json::{Value, json};
 
 use crate::commands::{
@@ -127,11 +128,15 @@ fn group_collapse(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(Value::Null)
 }
 
+/// `group.move {group, pos, drag?}`: an undo step since N3 slice 1, joined as `node.move`'s are.
 fn group_move(s: &mut Session, p: &Value) -> Result<Value> {
     let id = group_param(p, "group")?;
     let pos = pos_param(p, "pos")?.ok_or_else(|| SessionError::Params("\"pos\" is required".into()))?;
-    s.graph_mut_untracked().move_group(&id, pos)?;
-    s.mark_dirty();
+    let drag = crate::commands::drag_param(p)?;
+    let was = s.graph().group(&id).ok_or_else(|| GraphError::UnknownGroup(id.clone()))?.pos;
+    if was != pos {
+        s.edit_move("Move Group", vec![format!("group:{}", id.0)], drag.as_deref(), |g| Ok(g.move_group(&id, pos)?))?;
+    }
     Ok(Value::Null)
 }
 
@@ -242,7 +247,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Move Group",
             menu: &[],
             shortcut: None,
-            params: "{group: group id, pos: [x, y]} (where the collapsed group's node sits; its members and nested groups move by the same offset; not an undo step)",
+            params: "{group: group id, pos: [x, y]} (where the collapsed group's node sits; its members and nested groups move by the same offset; drag?: names the drag; an undo step, \"Move Group\", joined by the same group's moves after it as node.move's are)",
             enabled: has_groups,
             run: group_move,
             journal: false,
@@ -407,14 +412,19 @@ mod tests {
     }
 
     #[test]
-    fn group_move_is_not_an_undo_step() {
+    fn group_move_is_an_undo_step() {
+        // N3 slice 1 (the maintainer's N2 exit decision 3): a move is an undo step
         let mut s = session();
         let a = add(&mut s, "text.upper");
         s.execute("group.create", &json!({"nodes": [a], "name": "one"})).unwrap();
+        let was = s.graph().group(&GroupId::from("g1")).unwrap().pos;
         s.execute("group.move", &json!({"group": "g1", "pos": [10, 20]})).unwrap();
-        assert_eq!(s.undo_label(), Some("Group"));
+        assert_eq!(s.undo_label(), Some("Move Group"));
         assert!(s.is_dirty());
         assert_eq!(s.graph().group(&GroupId::from("g1")).unwrap().pos, [10.0, 20.0]);
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!(s.graph().group(&GroupId::from("g1")).unwrap().pos, was);
+        assert_eq!(s.undo_label(), Some("Group"));
         assert!(s.execute("group.move", &json!({"group": "g2", "pos": [1, 2]})).is_err());
     }
 
@@ -445,18 +455,23 @@ mod tests {
         assert_eq!((pos(&s, &a), pos(&s, &b), pos(&s, &c)), ([250.0, 310.0], [500.0, 380.0], [800.0, 360.0]));
         assert_eq!(gpos(&s, "g1"), [500.0, 380.0], "the nested group too");
         assert_eq!(pos(&s, &outside), [0.0, 500.0]);
-        assert_eq!(s.undo_depth(), depth, "a move is not an undo step (as node.move)");
+        assert_eq!(s.undo_depth(), depth + 1, "a move is an undo step (N3 slice 1)");
+        assert_eq!(s.undo_label(), Some("Move Group"));
         // opened: the members are where the group now is
         s.execute("group.collapse", &json!({"group": "g2", "collapsed": false})).unwrap();
         assert_eq!(pos(&s, &a), [250.0, 310.0]);
         // and an open group's move carries them too
         s.execute("group.move", &json!({"group": "g2", "pos": [260.0, 300.0]})).unwrap();
         assert_eq!((pos(&s, &a), pos(&s, &c)), ([260.0, 300.0], [810.0, 350.0]));
-        // undo walks back over the open, to the collapse (which put it at the moved place)
+        // undo walks back over the open group's move, the open, and the collapsed group's move
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert!(!s.graph().group(&GroupId::from("g2")).unwrap().collapsed);
+        assert_eq!(pos(&s, &a), [250.0, 310.0]);
         s.execute("edit.undo", &Value::Null).unwrap();
         assert!(s.graph().group(&GroupId::from("g2")).unwrap().collapsed);
         s.execute("edit.undo", &Value::Null).unwrap();
-        assert!(!s.graph().group(&GroupId::from("g2")).unwrap().collapsed);
+        assert_eq!(gpos(&s, "g2"), [150.0, 10.0]);
+        assert_eq!(s.graph(), &collapsed);
         s.execute("edit.redo", &Value::Null).unwrap();
         // redo brings back the collapsed group as it was left: moved, its members with it
         assert!(s.graph().group(&GroupId::from("g2")).unwrap().collapsed);

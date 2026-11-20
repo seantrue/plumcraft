@@ -83,6 +83,13 @@ fn hostile_blobs_never_panic_a_decoder() {
     let _ = shrink(Rgba { w: 0, h: 0, pixels: Vec::new() }, 0);
 }
 
+/// The pictures' decoders refuse junk, and nothing they make is the size a header claims.
+///
+/// The picture decoders are timed: each file takes well under a millisecond alone, so 5 s is
+/// reached only by believing a header (a 2³¹-pixel-wide PNG). SVGs are drawn at the size the
+/// caller asks, clamped (`svg::render_size`), not at the size they claim; that clamp is what bounds
+/// the work, so it is checked on the picture made, not timed (B33). At the clamp, 4096 × 4096, an
+/// empty drawing takes about 0.23 s in release and 4 s unoptimised, past 5 s on a loaded machine.
 #[test]
 fn hostile_files_never_panic_a_decoder() {
     for f in files() {
@@ -90,12 +97,17 @@ fn hostile_files_never_panic_a_decoder() {
         let _ = picture_size(&f);
         assert!(decode_picture(&f, 64).is_err(), "{:?}", String::from_utf8_lossy(&f[..f.len().min(16)]));
         let _ = decode_numbers(&f);
-        #[cfg(feature = "svg")]
-        {
-            let _ = plumcraft_media::svg::rasterise(&f, 1e9);
-            let _ = plumcraft_media::svg::rasterise(&f, f32::NAN);
-        }
         assert!(t.elapsed() < Duration::from_secs(5), "a header's claim was believed");
+        #[cfg(feature = "svg")]
+        for long in [1e9, f32::NAN] {
+            use plumcraft_media::decode::MAX_TEXTURE_SIDE;
+            use plumcraft_media::svg::{MAX_RENDER_PIXELS, rasterise};
+            if let Ok(img) = rasterise(&f, long) {
+                let (w, h) = (u64::from(img.w), u64::from(img.h));
+                assert!(img.w <= MAX_TEXTURE_SIDE && img.h <= MAX_TEXTURE_SIDE && w * h <= MAX_RENDER_PIXELS, "an SVG's claim was believed: {w}×{h}");
+                assert_eq!(img.pixels.len() as u64, w * h * 4);
+            }
+        }
     }
     #[cfg(feature = "spectrogram")]
     for v in [vec![], vec![f32::NAN; 5000], vec![f32::INFINITY; 2000], vec![1e38; 4096]] {

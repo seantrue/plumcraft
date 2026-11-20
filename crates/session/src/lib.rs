@@ -114,6 +114,41 @@ pub const JOURNAL_LIMIT: usize = 10_000;
 struct Snapshot {
     label: String,
     graph: Graph,
+    /// Which step this is: rises with every step pushed (a move that follows one may join it,
+    /// [`MoveMark`]).
+    serial: u64,
+}
+
+/// How far apart two moves of the same things may come, naming no drag, and still be one undo
+/// step: a held arrow key, a script's run of `node.move`s (N3 slice 1).
+pub const MOVE_COALESCE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The undo step a move made, for the next move to join ([`Session::edit_move`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveMark {
+    /// What was moved (`node:<id>`, `group:<id>`, `frame:<id>`, `size:<frame id>`), sorted.
+    pub items: Vec<String>,
+    /// The drag that moved them, when one was named.
+    pub drag: Option<String>,
+    /// When the last move joined it.
+    pub at: std::time::Instant,
+    /// The step's [`Snapshot::serial`].
+    step: u64,
+}
+
+impl MoveMark {
+    /// Does a move of `items` by `drag` at `now` join this step? The rule (N3 slice 1): the same
+    /// things, and either the same drag named, or no drag named by either and at most
+    /// [`MOVE_COALESCE`] since the last move joined. A move naming another drag, or a drag where
+    /// the step named none (or none where it named one), is a step of its own.
+    pub fn joins(&self, items: &[String], drag: Option<&str>, now: std::time::Instant) -> bool {
+        self.items == items
+            && match (self.drag.as_deref(), drag) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => now.saturating_duration_since(self.at) <= MOVE_COALESCE,
+                _ => false,
+            }
+    }
 }
 
 /// What is wrong with `graph` against `catalog`: nodes of kinds it doesn't have, wires that
@@ -165,6 +200,10 @@ pub struct Session {
     graph: Graph,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// The serial the next undo step gets.
+    next_step: u64,
+    /// The move step on top of the undo stack, while it is there ([`Session::edit_move`]).
+    last_move: Option<MoveMark>,
     journal: Vec<JournalEntry>,
     generation: u64,
     /// The workflow file this graph was opened from or last saved to.
@@ -237,6 +276,8 @@ impl Session {
             graph: Graph::new(),
             undo: Vec::new(),
             redo: Vec::new(),
+            next_step: 1,
+            last_move: None,
             journal: Vec::new(),
             generation: 0,
             path: None,
@@ -547,10 +588,7 @@ impl Session {
         match result {
             Ok(v) => {
                 self.dirty = true;
-                self.undo.push(Snapshot { label: label.to_owned(), graph: before });
-                if self.undo.len() > UNDO_LIMIT {
-                    self.undo.remove(0);
-                }
+                self.push_undo(label.to_owned(), before);
                 self.redo.clear();
                 Ok(v)
             }
@@ -559,6 +597,47 @@ impl Session {
                 Err(e)
             }
         }
+    }
+
+    fn push_undo(&mut self, label: String, graph: Graph) {
+        let serial = self.next_step;
+        self.next_step = self.next_step.wrapping_add(1);
+        self.undo.push(Snapshot { label, graph, serial });
+        if self.undo.len() > UNDO_LIMIT {
+            self.undo.remove(0);
+        }
+    }
+
+    /// A move (`node.move`, `group.move`, `frame.move`, `frame.resize`, `edit.move`; N3 slice 1):
+    /// one undo step under `label`, or, when it follows a move of the same `items` that it
+    /// [joins](MoveMark::joins), part of that step (its label kept). So a drag is one step however
+    /// many moves it sends, and a held arrow key is one step. `f` must change the graph (the
+    /// caller leaves out moves to where things already are) and must not fail once the caller has
+    /// checked the ids: a step joined is not snapshotted again, so an error there leaves what `f`
+    /// did so far, positions only.
+    pub fn edit_move<T>(&mut self, label: &str, mut items: Vec<String>, drag: Option<&str>, f: impl FnOnce(&mut Graph) -> Result<T>) -> Result<T> {
+        items.sort();
+        items.dedup();
+        let now = std::time::Instant::now();
+        let top = self.undo.last().map(|s| s.serial);
+        let joined = self.last_move.as_ref().is_some_and(|m| Some(m.step) == top && self.redo.is_empty() && m.joins(&items, drag, now));
+        if joined {
+            let v = f(&mut self.graph)?;
+            self.dirty = true;
+            if let Some(m) = &mut self.last_move {
+                m.at = now;
+            }
+            return Ok(v);
+        }
+        let v = self.edit(label, |g, _| f(g))?;
+        self.last_move = self.undo.last().map(|s| MoveMark { items, drag: drag.map(str::to_owned), at: now, step: s.serial });
+        Ok(v)
+    }
+
+    /// The move step on top of the undo stack, if the last step was a move (tests, `ui.inspect`).
+    pub fn last_move(&self) -> Option<&MoveMark> {
+        let top = self.undo.last().map(|s| s.serial);
+        self.last_move.as_ref().filter(|m| Some(m.step) == top && self.redo.is_empty())
     }
 
     /// A change that isn't an undo step (canvas positions while dragging). Call
@@ -622,7 +701,7 @@ impl Session {
     pub(crate) fn step_undo(&mut self) -> bool {
         let Some(prev) = self.undo.pop() else { return false };
         let current = std::mem::replace(&mut self.graph, prev.graph);
-        self.redo.push(Snapshot { label: prev.label, graph: current });
+        self.redo.push(Snapshot { label: prev.label, graph: current, serial: prev.serial });
         self.dirty = true;
         true
     }
@@ -631,7 +710,8 @@ impl Session {
     pub(crate) fn step_redo(&mut self) -> bool {
         let Some(next) = self.redo.pop() else { return false };
         let current = std::mem::replace(&mut self.graph, next.graph);
-        self.undo.push(Snapshot { label: next.label, graph: current });
+        // a step redone is a new step: a move after it doesn't join it
+        self.push_undo(next.label, current);
         self.dirty = true;
         true
     }

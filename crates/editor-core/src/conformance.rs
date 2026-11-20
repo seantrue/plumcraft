@@ -5,27 +5,45 @@
 //! control dispatcher), and any shell that serves the control port (a Swift or Kotlin shell's
 //! core opens one; a driver speaking the control protocol's JSON lines runs the same cases).
 //!
-//! **A case** is `{name, about, steps: [step]}`. The runner starts each case on a new graph
-//! (`graph.new {discard: true}`) and runs its steps in order; the first that fails fails the
-//! case, with the step's number and what was seen. A step is one of:
+//! **A case** is `{name, about, half, needs?, steps: [step]}`. The runner starts each case on a
+//! new graph (`graph.new {discard: true}`) and runs its steps in order; the first that fails
+//! fails the case, with the step's number and what was seen.
+//!
+//! **Halves** (N3 slice 1; `docs/shell-interface.md` 16.1): `half` is `"read"` or `"edit"`. A
+//! read-only case changes nothing of the graph through the shell under test: it may build the
+//! graph it reads with `command.run` (its setup), and after that only selects, taps, hits,
+//! locates, opens menus, the palette and windows, fits, runs and watches. Anything that moves,
+//! wires, routes, adds from the palette, undoes or redoes is an editing case. [`run_half`] runs
+//! one half; N3's gate is the read half on the Apple shells.
+//!
+//! **Needs:** `needs: [capability]` runs the case only on a driver that has every one
+//! ([`Driver::has`]): `engine:text` and `engine:array` (an engine of that pack is connected, so
+//! runs and watches work), `media` (it serves `media.get`), `reports` (the suite gives it its
+//! measurements). A case a driver can't run is skipped, and the outcome says so.
+//!
+//! A step is one of:
 //!
 //! - `{call: method, params?, ok?: bool (default true), expect?: {pointer: want}, save?: {var:
-//!   pointer}}`: one control request; `pointer` is a JSON pointer into the reply `{ok, result |
-//!   error}`;
+//!   pointer}, until?: {pointer: want}, timeout?: seconds}`: one control request; `pointer` is a
+//!   JSON pointer into the reply `{ok, result | error}`. With `until` the request is sent again
+//!   (the driver settling between, [`Driver::pause`]) until the reply matches, or `timeout`
+//!   (default 30) seconds pass: a condition waited on, never a fixed time;
 //! - `{gesture: params, …}`: `ui.gesture` with these params, as `call`;
 //! - `{geometry: faces}`: report these faces' measurements (`geometry.set`'s `faces`); a driver
 //!   whose shell measures its own faces ignores it ([`Driver::reports`]);
 //! - `{hot: {at, slop?}, expect}`: the typed drag move (`plum_gesture_move`) where the driver has
 //!   one, else skipped;
 //! - `{check: name, …}`: a check the runner knows ([`check`]);
-//! - `only: "reports"` on any step runs it only on a driver that reports geometry.
+//! - `only: capability` (or a list) on any step runs it only on a driver that has it.
 //!
 //! **Values.** A string `"$v"` is the saved value `v` (any JSON); `$v` inside a longer string is
 //! its text. An object `{"$locate": {node | wire | frame, part?, pin?}, "$plus"?: [dx, dy]}` is
 //! the point `geometry.locate` gives, moved by `$plus`: so a case aims at what the shell
 //! measured, whatever its sizes. A want is a value (numbers equal within 1e-3), or one of
 //! `{"$len": n}`, `{"$exists": bool}`, `{"$contains": v}`, `{"$deep": {k: v}}` (some object in
-//! it has these fields), `{"$not": v}`, `{"$one": [v, …]}`.
+//! it has these fields), `{"$not": v}`, `{"$one": [v, …]}`, `{"$find": {where: {k: v}, want:
+//! {pointer: want}}}` (an item of a list with these fields, and what it must hold), `{"$min": n}`
+//! (a number at least `n`).
 //!
 //! **Waiting.** After every call that changes something the runner calls [`Driver::settle`]:
 //! a shell that measures what it draws waits there, on a condition (every face measured), never
@@ -55,6 +73,36 @@ pub trait Driver {
     fn hot_move(&mut self, _at: [f32; 2], _slop: f32) -> Option<Value> {
         None
     }
+    /// Does this driver have `capability` (`engine:<pack>`, `media`; `reports` is
+    /// [`Driver::reports`])? None by default.
+    fn has(&self, _capability: &str) -> bool {
+        false
+    }
+    /// Let the shell get on (a run, a read) before a request is sent again (`until`): wait for
+    /// the core's wake, draw a frame. The default is the driver's [`Driver::settle`].
+    fn pause(&mut self) {
+        self.settle();
+    }
+}
+
+/// A half of the suite (section 16.1): what changes nothing of the graph, and what edits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Half {
+    Read,
+    Edit,
+}
+
+impl Half {
+    pub fn word(self) -> &'static str {
+        match self {
+            Half::Read => "read",
+            Half::Edit => "edit",
+        }
+    }
+}
+
+fn has(d: &dyn Driver, capability: &str) -> bool {
+    if capability == "reports" { d.reports() } else { d.has(capability) }
 }
 
 /// How one case went.
@@ -63,8 +111,10 @@ pub struct Outcome {
     pub name: String,
     /// Steps run.
     pub steps: usize,
-    /// None: passed.
+    /// None: passed (or skipped).
     pub error: Option<String>,
+    /// Not run, and why: the driver lacks what the case needs.
+    pub skipped: Option<String>,
 }
 
 /// The cases (`fixtures/conformance/cases.json`).
@@ -78,34 +128,57 @@ pub fn run_all(d: &mut dyn Driver) -> Result<Vec<Outcome>, String> {
     Ok(cases()?.iter().map(|c| run_case(d, c)).collect())
 }
 
+/// Run the cases of one half on `d` (N3's gate is the read half).
+pub fn run_half(d: &mut dyn Driver, half: Half) -> Result<Vec<Outcome>, String> {
+    Ok(cases()?.iter().filter(|c| c.get("half").and_then(Value::as_str) == Some(half.word())).map(|c| run_case(d, c)).collect())
+}
+
 /// A short report of `outcomes`, for a failing test's message.
 pub fn summary(driver: &str, outcomes: &[Outcome]) -> String {
     let failed: Vec<String> = outcomes.iter().filter_map(|o| o.error.as_ref().map(|e| format!("  {}: {e}", o.name))).collect();
-    format!("{driver}: {} of {} cases passed\n{}", outcomes.len() - failed.len(), outcomes.len(), failed.join("\n"))
+    let skipped: Vec<String> = outcomes.iter().filter_map(|o| o.skipped.as_ref().map(|why| format!("  skipped {}: {why}", o.name))).collect();
+    let run = outcomes.len() - skipped.len();
+    format!(
+        "{driver}: {} of {run} cases passed, {} skipped\n{}{}",
+        run - failed.len(),
+        skipped.len(),
+        failed.join("\n"),
+        if skipped.is_empty() { String::new() } else { format!("\n{}", skipped.join("\n")) }
+    )
 }
 
-/// Run one case on a new graph.
+/// Run one case on a new graph (or skip it, when `d` lacks what it needs).
 pub fn run_case(d: &mut dyn Driver, case: &Value) -> Outcome {
     let name = case.get("name").and_then(Value::as_str).unwrap_or("(unnamed)").to_owned();
+    let lacks: Vec<&str> = case.get("needs").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|c| !has(d, c)).collect();
+    if !lacks.is_empty() {
+        return Outcome { name, steps: 0, error: None, skipped: Some(format!("{} lacks {}", d.name(), lacks.join(", "))) };
+    }
     let mut vars = Map::new();
     let fresh = d.call("command.run", json!({"command": "graph.new", "params": {"discard": true}}));
     if fresh["ok"] != true {
-        return Outcome { name, steps: 0, error: Some(format!("graph.new: {fresh}")) };
+        return Outcome { name, steps: 0, error: Some(format!("graph.new: {fresh}")), skipped: None };
     }
     d.settle();
     let steps = case.get("steps").and_then(Value::as_array).cloned().unwrap_or_default();
     for (k, s) in steps.iter().enumerate() {
         if let Err(e) = step(d, &mut vars, s) {
-            return Outcome { name, steps: k, error: Some(format!("step {}: {e}", k + 1)) };
+            return Outcome { name, steps: k, error: Some(format!("step {}: {e}", k + 1)), skipped: None };
         }
     }
-    // a drag left under way would carry into the next case
+    // a drag left under way would carry into the next case, and so would an open palette
     let _ = d.call("ui.gesture", json!({"kind": "drag", "phase": "cancel"}));
-    Outcome { name, steps: steps.len(), error: None }
+    let _ = d.call("command.run", json!({"command": "canvas.palette", "params": {"open": false}}));
+    Outcome { name, steps: steps.len(), error: None, skipped: None }
 }
 
 fn step(d: &mut dyn Driver, vars: &mut Map<String, Value>, s: &Value) -> Result<(), String> {
-    if s.get("only").and_then(Value::as_str) == Some("reports") && !d.reports() {
+    let only: Vec<&str> = match s.get("only") {
+        Some(Value::String(c)) => vec![c.as_str()],
+        Some(Value::Array(a)) => a.iter().filter_map(Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    if only.iter().any(|c| !has(d, c)) {
         return Ok(());
     }
     if let Some(faces) = s.get("geometry") {
@@ -134,7 +207,18 @@ fn step(d: &mut dyn Driver, vars: &mut Map<String, Value>, s: &Value) -> Result<
         _ => return Err(format!("a step is a call, a gesture, geometry, hot or a check: {s}")),
     };
     let params = resolve(d, &subst(&params, vars))?;
-    let reply = d.call(&method, params.clone());
+    let mut reply = d.call(&method, params.clone());
+    if let Some(until) = s.get("until") {
+        let limit = std::time::Duration::from_secs_f64(s.get("timeout").and_then(Value::as_f64).unwrap_or(30.0).clamp(0.0, 600.0));
+        let t0 = std::time::Instant::now();
+        while let Err(e) = expect(&reply, Some(until), vars) {
+            if t0.elapsed() > limit {
+                return Err(format!("{method} {params}: not so in {limit:?}: {e}"));
+            }
+            d.pause();
+            reply = d.call(&method, params.clone());
+        }
+    }
     let want_ok = s.get("ok").and_then(Value::as_bool).unwrap_or(true);
     if (reply["ok"] == true) != want_ok {
         return Err(format!("{method} {params}: wanted ok {want_ok}, got {}", short(&reply)));
@@ -270,6 +354,18 @@ fn matches(got: Option<&Value>, want: &Value) -> Result<(), String> {
             "$deep" => arg.as_object().is_some_and(|f| got.is_some_and(|g| deep_has(g, f))),
             "$not" => got.is_none_or(|g| !same(g, arg)),
             "$one" => arg.as_array().is_some_and(|a| got.is_some_and(|g| a.iter().any(|x| same(g, x)))),
+            "$min" => arg.as_f64().is_some_and(|n| got.and_then(Value::as_f64).is_some_and(|g| g >= n)),
+            "$find" => {
+                let fields = arg.get("where").and_then(Value::as_object).ok_or("$find needs where: {field: value}")?;
+                let found = got.and_then(Value::as_array).and_then(|a| a.iter().find(|x| fields.iter().all(|(k, w)| x.get(k).is_some_and(|v| same(v, w)))));
+                let Some(item) = found else {
+                    return Err(format!("no item with {} in {}", Value::Object(fields.clone()), got.map_or_else(|| "nothing".into(), short)));
+                };
+                for (ptr, w) in arg.get("want").and_then(Value::as_object).into_iter().flatten() {
+                    matches(item.pointer(ptr), w).map_err(|e| format!("the item with {}: at {ptr}: {e}", Value::Object(fields.clone())))?;
+                }
+                true
+            }
             other => return Err(format!("unknown matcher {other}")),
         };
         return if ok { Ok(()) } else { Err(format!("wanted {k} {arg}, got {}", got.map_or_else(|| "nothing".into(), short))) };
@@ -354,6 +450,7 @@ mod tests {
             let name = c["name"].as_str().unwrap();
             assert!(names.insert(name), "two cases called {name}");
             assert!(c["about"].as_str().is_some_and(|a| !a.is_empty()), "{name} says what it checks");
+            assert!(matches!(c["half"].as_str(), Some("read" | "edit")), "{name} names its half");
             for s in c["steps"].as_array().unwrap() {
                 let kinds = ["call", "gesture", "geometry", "hot", "check"].iter().filter(|k| s.get(**k).is_some()).count();
                 assert_eq!(kinds, 1, "{name}: {s}");

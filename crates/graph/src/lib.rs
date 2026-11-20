@@ -465,26 +465,69 @@ impl Graph {
     /// choices bring) at its default.
     pub fn add_node(&mut self, def: &NodeDef, pos: [f32; 2]) -> NodeId {
         let id = self.fresh_node_id();
-        let mut node = Node {
-            kind: def.id.clone(),
-            pos,
-            values: BTreeMap::new(),
-            inherited: BTreeSet::new(),
-            title: None,
-            serial: None,
-            view: NodeView::Full,
-            cache: NodeCache::Auto,
-            engine: None,
-            all_fields: false,
-            extra: BTreeMap::new(),
-        };
-        node.values = input_ports(def, &node).into_iter().filter(|(_, p)| p.has_widget()).map(|(n, p)| (n, p.default.clone())).collect();
-        ports::drop_filled(def, &mut node);
+        let node = new_node(def, pos);
         self.nodes.insert(id.clone(), node);
         self.touch();
         id
     }
 
+    /// The input a new node of type `def` would give a wire from output `from` (a wire dropped on
+    /// empty canvas, the palette filtered by it; N3 slice 1): the first, in the definition's
+    /// order (variadic slots and default sub-ports included), that [`Graph::connect`] would take,
+    /// by wireability, types and list-ness. None when no input fits. Core's Convert node is
+    /// neither offered nor looked through: its rules are its own, at the drop.
+    pub fn input_for_new(&self, catalog: &SchemaReply, from: &PortRef, def: &NodeDef) -> Option<String> {
+        if def.id == plumcraft_proto::convert::KIND || self.is_convert(&from.node) {
+            return None;
+        }
+        let out = def_of(catalog, self, &from.node).ok()?.output(&from.port)?;
+        let list = self.output_is_list(catalog, from);
+        let node = new_node(def, [0.0, 0.0]);
+        input_ports(def, &node)
+            .into_iter()
+            .find(|(name, p)| p.wireable() && check_wire(catalog, from, out, list, &PortRef::new("new", name.as_str()), p).is_ok())
+            .map(|(name, _)| name)
+    }
+
+    /// The output a new node of type `def` would feed input `to` from: the first, in the
+    /// definition's order, that [`Graph::connect`] would take into it. None when `to` can't be
+    /// wired (hidden, or a named port) or no output fits. Convert as [`Graph::input_for_new`].
+    pub fn output_for_new(&self, catalog: &SchemaReply, def: &NodeDef, to: &PortRef) -> Option<String> {
+        if def.id == plumcraft_proto::convert::KIND || self.is_convert(&to.node) {
+            return None;
+        }
+        let to_def = def_of(catalog, self, &to.node).ok()?;
+        let to_node = self.nodes.get(&to.node)?;
+        let inp = resolve_input(to_def, to_node, &to.node, &to.port).ok()?.port;
+        if !inp.wireable() || self.name_of_port(to).is_some() {
+            return None;
+        }
+        def.outputs.iter().find(|o| check_wire(catalog, &PortRef::new("new", o.name.as_str()), o, o.list, to, inp).is_ok()).map(|o| o.name.clone())
+    }
+}
+
+/// A node of type `def` at `pos`, with each widget (including the sub-ports its default choices
+/// bring) at its default.
+fn new_node(def: &NodeDef, pos: [f32; 2]) -> Node {
+    let mut node = Node {
+        kind: def.id.clone(),
+        pos,
+        values: BTreeMap::new(),
+        inherited: BTreeSet::new(),
+        title: None,
+        serial: None,
+        view: NodeView::Full,
+        cache: NodeCache::Auto,
+        engine: None,
+        all_fields: false,
+        extra: BTreeMap::new(),
+    };
+    node.values = input_ports(def, &node).into_iter().filter(|(_, p)| p.has_widget()).map(|(n, p)| (n, p.default.clone())).collect();
+    ports::drop_filled(def, &mut node);
+    node
+}
+
+impl Graph {
     /// Give serials to the nodes titled by their type (`display(kind)`) that need one: those
     /// without a serial, and each node in `fresh` (just added: a paste or a duplicate) whose
     /// serial another node with the same type name already has. A serial is one past the
@@ -909,37 +952,43 @@ impl Graph {
     /// every node one at a time looks at every wire for each. Nodes on a (corrupt) cycle aren't
     /// mapped.
     pub fn mapped_nodes(&self, catalog: &SchemaReply) -> BTreeSet<NodeId> {
-        let mut into: BTreeMap<&NodeId, Vec<&Wire>> = BTreeMap::new();
-        let mut after: BTreeMap<&NodeId, Vec<&NodeId>> = BTreeMap::new();
-        let mut waiting: BTreeMap<&NodeId, usize> = self.nodes.keys().map(|k| (k, 0)).collect();
+        // nodes by their place in the map, so the walk compares no ids (N3 slice 1: by id, through
+        // ordered maps, this was over half of the hot calls' snapshot at 2,000 nodes)
+        let nodes: Vec<(&NodeId, &Node)> = self.nodes.iter().collect();
+        let ix: std::collections::HashMap<&str, usize> = nodes.iter().enumerate().map(|(k, (id, _))| (id.0.as_str(), k)).collect();
+        let defs: Vec<Option<&NodeDef>> = nodes.iter().map(|(id, _)| def_of(catalog, self, id).ok()).collect();
+        let mut into: Vec<Vec<&Wire>> = vec![Vec::new(); nodes.len()];
+        let mut after: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        let mut waiting: Vec<usize> = vec![0; nodes.len()];
         for w in &self.wires {
-            if !self.nodes.contains_key(&w.from.node) || !self.nodes.contains_key(&w.to.node) {
-                continue;
+            let (Some(&a), Some(&b)) = (ix.get(w.from.node.0.as_str()), ix.get(w.to.node.0.as_str())) else { continue };
+            if let (Some(i), Some(f), Some(n)) = (into.get_mut(b), after.get_mut(a), waiting.get_mut(b)) {
+                i.push(w);
+                f.push(b);
+                *n += 1;
             }
-            into.entry(&w.to.node).or_default().push(w);
-            after.entry(&w.from.node).or_default().push(&w.to.node);
-            *waiting.entry(&w.to.node).or_default() += 1;
         }
-        let mut ready: Vec<&NodeId> = waiting.iter().filter(|(_, n)| **n == 0).map(|(k, _)| *k).collect();
-        let mut mapped = BTreeSet::new();
-        while let Some(id) = ready.pop() {
-            if let (Some(node), Ok(def)) = (self.nodes.get(id), def_of(catalog, self, id))
+        let mut ready: Vec<usize> = waiting.iter().enumerate().filter(|(_, n)| **n == 0).map(|(k, _)| k).collect();
+        let mut mapped = vec![false; nodes.len()];
+        while let Some(k) = ready.pop() {
+            if let (Some((id, node)), Some(Some(def))) = (nodes.get(k), defs.get(k))
                 && !def.flags.input_list
-                && into.get(id).into_iter().flatten().any(|w| {
+                && into.get(k).into_iter().flatten().any(|w| {
                     let single = resolve_input(def, node, id, &w.to.port).is_ok_and(|r| !r.port.list);
                     let indexed = matches!(w.parsed_slice(), Some(Ok(s)) if s.is_index());
                     single
                         && !indexed
-                        && match def_of(catalog, self, &w.from.node) {
-                            Ok(src) => src.output(&w.from.port).is_some_and(|p| p.list) || mapped.contains(&w.from.node),
-                            Err(_) => false,
-                        }
+                        && ix.get(w.from.node.0.as_str()).is_some_and(|&f| {
+                            defs.get(f).copied().flatten().is_some_and(|src| src.output(&w.from.port).is_some_and(|p| p.list))
+                                || mapped.get(f).copied().unwrap_or(false)
+                        })
                 })
+                && let Some(m) = mapped.get_mut(k)
             {
-                mapped.insert(id.clone());
+                *m = true;
             }
-            for next in after.get(id).into_iter().flatten() {
-                if let Some(n) = waiting.get_mut(*next) {
+            for &next in after.get(k).into_iter().flatten() {
+                if let Some(n) = waiting.get_mut(next) {
                     *n = n.saturating_sub(1);
                     if *n == 0 {
                         ready.push(next);
@@ -947,7 +996,7 @@ impl Graph {
                 }
             }
         }
-        mapped
+        nodes.iter().zip(mapped).filter(|(_, m)| *m).map(|((id, _), _)| (*id).clone()).collect()
     }
 
     /// Is `id` run once per item of a list? Memoized over the (acyclic) upstream graph.

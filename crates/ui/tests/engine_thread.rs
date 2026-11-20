@@ -358,14 +358,77 @@ fn stalls() {
 
 // ---------- values (slice 6): no frame waits for an engine's `resolve` ----------
 
-/// A connection whose `resolve` takes `delay`, as an HTTP engine's fetch of a value does, and
-/// which counts every `resolve` made on the thread that owns the editor.
+/// Holds `resolve`s until the test lets them go. A frame that waited for a held `resolve`,
+/// directly or through a lock or a channel, would not return until the gate gave up after
+/// [`Gate::MOST`], which no frame's own work comes near however loaded the machine.
+#[derive(Default)]
+struct Gate {
+    state: Mutex<GateState>,
+    cv: std::sync::Condvar,
+}
+
+#[derive(Default)]
+struct GateState {
+    /// New `resolve`s are held.
+    holding: bool,
+    /// Bumped by each release: a `resolve` waits until the generation it came in on is let go.
+    generation: u64,
+    /// `resolve`s being held now.
+    held: usize,
+    /// `resolve`s the test never let go of: something waited on them.
+    overran: usize,
+}
+
+impl Gate {
+    const MOST: Duration = Duration::from_secs(10);
+
+    fn hold(&self) {
+        self.state.lock().unwrap().holding = true;
+    }
+    /// Let go of the `resolve`s held now; later ones are held again.
+    fn release(&self) {
+        self.state.lock().unwrap().generation += 1;
+        self.cv.notify_all();
+    }
+    /// Stop holding, and let everything go.
+    fn open(&self) {
+        let mut st = self.state.lock().unwrap();
+        st.holding = false;
+        st.generation += 1;
+        self.cv.notify_all();
+    }
+    fn held(&self) -> usize {
+        self.state.lock().unwrap().held
+    }
+    fn overran(&self) -> usize {
+        self.state.lock().unwrap().overran
+    }
+    fn pass(&self) {
+        let mut st = self.state.lock().unwrap();
+        if !st.holding {
+            return;
+        }
+        let generation = st.generation;
+        st.held += 1;
+        let (mut st, wait) = self.cv.wait_timeout_while(st, Self::MOST, |s| s.generation == generation).unwrap();
+        st.held -= 1;
+        if wait.timed_out() {
+            st.overran += 1;
+            st.holding = false; // one is enough to fail on: don't hold up the rest too
+        }
+    }
+}
+
+/// A connection whose `resolve` takes `delay`, as an HTTP engine's fetch of a value does, or
+/// waits at its [`Gate`], and which counts every `resolve` made on the thread that owns the
+/// editor.
 struct SlowValues {
     inner: Arc<dyn Connection>,
     owner: Owner,
     on_owner: Arc<AtomicU64>,
     total: Arc<AtomicU64>,
     delay: Duration,
+    gate: Arc<Gate>,
 }
 
 impl Connection for SlowValues {
@@ -380,6 +443,7 @@ impl Connection for SlowValues {
             self.on_owner.fetch_add(1, Ordering::Relaxed);
         }
         self.total.fetch_add(1, Ordering::Relaxed);
+        self.gate.pass();
         std::thread::sleep(self.delay);
         self.inner.resolve(r)
     }
@@ -451,8 +515,9 @@ fn values_engine() -> plumcraft_engine::Engine {
     e
 }
 
-/// An editor over [`values_engine`] whose `resolve` takes `delay`: one node of each kind.
-fn values_editor(eyes: &Eyes, on_owner: &Arc<AtomicU64>, total: &Arc<AtomicU64>, delay: Duration) -> (EditorApp, Vec<String>) {
+/// An editor over [`values_engine`] whose `resolve` takes `delay` and passes `gate`: one node of
+/// each kind.
+fn values_editor(eyes: &Eyes, on_owner: &Arc<AtomicU64>, total: &Arc<AtomicU64>, delay: Duration, gate: &Arc<Gate>) -> (EditorApp, Vec<String>) {
     let host = Host::start(Box::new(|| Ok(values_engine())), None);
     host.wait_ready(Duration::from_secs(10));
     let catalog = serde_json::from_value(host.schema(None).unwrap()).unwrap();
@@ -464,27 +529,63 @@ fn values_editor(eyes: &Eyes, on_owner: &Arc<AtomicU64>, total: &Arc<AtomicU64>,
         .enumerate()
         .map(|(i, k)| s.execute("node.add", &json!({"kind": k, "pos": [40 + 260 * (i % 3), 40 + 240 * (i / 3)]})).unwrap()["id"].as_str().unwrap().to_owned())
         .collect();
-    let conn: Arc<dyn Connection> =
-        Arc::new(SlowValues { inner: Arc::new(InProc(host)), owner: Arc::clone(&eyes.owner), on_owner: Arc::clone(on_owner), total: Arc::clone(total), delay });
+    let conn: Arc<dyn Connection> = Arc::new(SlowValues {
+        inner: Arc::new(InProc(host)),
+        owner: Arc::clone(&eyes.owner),
+        on_owner: Arc::clone(on_owner),
+        total: Arc::clone(total),
+        delay,
+        gate: Arc::clone(gate),
+    });
     (EditorApp::new(s).with_link(Link::start(conn, "in-process", None).unwrap()), ids)
 }
 
-/// Step frames for at least `min` and until `done` (or `limit`): the longest frame.
+/// Frames stepped with a `resolve` held before a holding [`Gate`] lets it go.
+const HELD_FRAMES: usize = 3;
+
+/// One phase of [`values_scenario`].
+struct Phase {
+    what: String,
+    /// The longest frame (reported: under load it measures the machine, not a wait).
+    longest: Duration,
+    /// What the phase waited for arrived.
+    ok: bool,
+    /// Frames that began and ended with a `resolve` held at the gate.
+    held_frames: usize,
+}
+
+/// Step frames for at least `min` and until `done` (or `limit`). While the gate holds a
+/// `resolve`, step [`HELD_FRAMES`] frames before letting it go.
 fn frames_for(
     h: &mut Harness<'static, EditorApp>,
+    gate: &Gate,
+    what: String,
     min: Duration,
     limit: Duration,
     done: impl Fn(&mut Harness<'static, EditorApp>) -> bool,
-) -> (Duration, bool) {
+) -> Phase {
     let start = Instant::now();
-    let mut longest = Duration::ZERO;
+    let mut phase = Phase { what, longest: Duration::ZERO, ok: false, held_frames: 0 };
+    let mut this_batch = 0;
     loop {
+        let held = gate.held();
         let t = Instant::now();
         h.step();
-        longest = longest.max(t.elapsed());
-        let ok = done(h);
-        if (ok && start.elapsed() >= min) || start.elapsed() >= limit {
-            return (longest, ok);
+        phase.longest = phase.longest.max(t.elapsed());
+        // only this thread lets a held resolve go, so one held before the frame was held
+        // throughout it, unless the gate gave up on it (counted as overran)
+        if held > 0 && gate.held() > 0 {
+            phase.held_frames += 1;
+            this_batch += 1;
+            if this_batch >= HELD_FRAMES {
+                gate.release();
+                this_batch = 0;
+            }
+        }
+        phase.ok = done(h);
+        if (phase.ok && start.elapsed() >= min) || start.elapsed() >= limit {
+            gate.release();
+            return phase;
         }
         std::thread::sleep(Duration::from_millis(5));
     }
@@ -496,54 +597,63 @@ fn inspect(h: &mut Harness<'static, EditorApp>) -> Value {
 }
 
 /// The values scenario: run (thumbnails and waveforms on the canvas), watch each value (the
-/// Watched panel reads it in full), pop one out, and compare two. Returns each phase's longest
-/// frame and whether what it waited for arrived.
-fn values_scenario(h: &mut Harness<'static, EditorApp>, ids: &[String], min: Duration) -> Vec<(String, Duration, bool)> {
+/// Watched panel reads it in full), pop one out, and compare two. The gate opens at the end.
+fn values_scenario(h: &mut Harness<'static, EditorApp>, gate: &Gate, ids: &[String], min: Duration) -> Vec<Phase> {
     let limit = Duration::from_secs(20);
     let mut out = Vec::new();
     h.state_mut().run("run.start", &json!({}));
-    let (l, ok) = frames_for(h, min, limit, |h| run_done(h.state()));
-    out.push(("run, then the canvas's thumbnails and waveform".to_owned(), l, ok));
+    out.push(frames_for(h, gate, "run, then the canvas's thumbnails and waveform".to_owned(), min, limit, |h| run_done(h.state())));
     for id in ids {
         h.state_mut().run("run.watch", &json!({"node": id}));
-        let (l, ok) = frames_for(h, min, limit, |h| {
+        out.push(frames_for(h, gate, format!("watch {id}"), min, limit, |h| {
             let v = inspect(h);
             let w = &v["watched"];
             w["node"] == id.as_str() && w["full"] == true
-        });
-        out.push((format!("watch {id}"), l, ok));
+        }));
     }
     let a = ids[0].clone();
     h.state_mut().run("run.watch", &json!({"node": a}));
     h.state_mut().run("view.popout", &json!({"node": a, "port": "out"}));
-    let (l, ok) = frames_for(h, min, limit, |h| inspect(h)["popouts"].as_array().and_then(|p| p.first()).is_some_and(|p| p["pane"]["full"] == true));
-    out.push(("a pop-out".to_owned(), l, ok));
+    out.push(frames_for(h, gate, "a pop-out".to_owned(), min, limit, |h| {
+        inspect(h)["popouts"].as_array().and_then(|p| p.first()).is_some_and(|p| p["pane"]["full"] == true)
+    }));
     h.state_mut().run("viewer.pin", &json!({"slot": "a"}));
     h.state_mut().run("run.watch", &json!({"node": ids[1]}));
     h.state_mut().run("viewer.pin", &json!({"slot": "b"}));
     h.state_mut().run("viewer.compare", &json!({"on": true, "how": "difference"}));
-    let (l, ok) = frames_for(h, min, limit, |h| inspect(h)["watched"]["compare"]["result"]["state"] == "ready");
-    out.push(("compare A and B".to_owned(), l, ok));
+    out.push(frames_for(h, gate, "compare A and B".to_owned(), min, limit, |h| inspect(h)["watched"]["compare"]["result"]["state"] == "ready"));
+    gate.open();
     out
 }
 
 /// Rule 6 for values: thumbnails, the Watched panel, a pop-out and compare never call `resolve`
-/// on the editor's thread, and no frame waits for an engine whose `resolve` takes 300 ms.
+/// on the editor's thread, and frames go on while the engine's `resolve` is held, for as long as
+/// it is held.
+///
+/// It doesn't time frames against a limit (B32): under a loaded machine the editor's own work in a
+/// frame (the Watched panel's in-place spectrogram, a texture upload) reached 320 ms, and a limit
+/// fails on that without any wait. A held `resolve` tells the two apart however loaded the
+/// machine is: a frame that waited for it would not return until the gate gave up.
 #[test]
 fn values_never_wait_for_an_engine() {
     let eyes = Eyes::default();
     let (on_owner, total) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-    let slow = Duration::from_millis(300);
-    let (app, ids) = values_editor(&eyes, &on_owner, &total, slow);
+    let gate = Arc::new(Gate::default());
+    let (app, ids) = values_editor(&eyes, &on_owner, &total, Duration::ZERO, &gate);
     let mut h = harness(app);
     eyes.arm();
-    let phases = values_scenario(&mut h, &ids, Duration::ZERO);
-    for (what, longest, ok) in &phases {
-        eprintln!("{what}: longest frame {:.1} ms, arrived: {ok}", longest.as_secs_f64() * 1000.0);
+    gate.hold();
+    let phases = values_scenario(&mut h, &gate, &ids, Duration::ZERO);
+    for p in &phases {
+        eprintln!("{}: longest frame {:.1} ms, {} frames with a resolve held, arrived: {}", p.what, p.longest.as_secs_f64() * 1000.0, p.held_frames, p.ok);
     }
-    for (what, longest, ok) in &phases {
-        assert!(*ok, "{what}: never arrived: {}", inspect(&mut h)["watched"]);
-        assert!(*longest < slow / 2, "{what}: a frame waited for the engine's resolve: {longest:?}");
+    assert_eq!(gate.overran(), 0, "a frame waited for a held resolve: the gate gave up after {:?}", Gate::MOST);
+    for p in &phases {
+        assert!(p.ok, "{}: never arrived: {}", p.what, inspect(&mut h)["watched"]);
+    }
+    // the run's thumbnails and each full value are read by resolve: frames went on while each was held
+    for p in phases.iter().take(1 + ids.len()) {
+        assert!(p.held_frames >= HELD_FRAMES, "{}: only {} frames with a resolve held", p.what, p.held_frames);
     }
     drop(h);
     assert_eq!(on_owner.load(Ordering::Relaxed), 0, "resolve called on the editor's thread ({} in all)", total.load(Ordering::Relaxed));
@@ -558,11 +668,12 @@ fn value_stalls() {
     for delay in [Duration::ZERO, Duration::from_millis(300)] {
         let eyes = Eyes::default();
         let (on_owner, total) = (Arc::new(AtomicU64::new(0)), Arc::new(AtomicU64::new(0)));
-        let (app, ids) = values_editor(&eyes, &on_owner, &total, delay);
+        let gate = Arc::new(Gate::default()); // never holds
+        let (app, ids) = values_editor(&eyes, &on_owner, &total, delay, &gate);
         let mut h = harness(app);
         eyes.arm();
-        for (what, longest, ok) in values_scenario(&mut h, &ids, Duration::from_millis(300)) {
-            eprintln!("resolve {} ms · {what}: longest frame {:.1} ms (arrived: {ok})", delay.as_millis(), longest.as_secs_f64() * 1000.0);
+        for p in values_scenario(&mut h, &gate, &ids, Duration::from_millis(300)) {
+            eprintln!("resolve {} ms · {}: longest frame {:.1} ms (arrived: {})", delay.as_millis(), p.what, p.longest.as_secs_f64() * 1000.0, p.ok);
         }
         drop(h);
         eprintln!(
