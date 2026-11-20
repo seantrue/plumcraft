@@ -224,3 +224,30 @@ fn hostile_scene_requests_are_answered() {
     assert_eq!(scene(&mut c, json!({}))["nodes"].as_array().unwrap().len(), 1);
     c.close();
 }
+
+/// A shell that fetches `scene.get {since}` on every scene change (the Swift kit's document model)
+/// sees an edit's change in the feed within a display frame or so of the edit's reply, not a
+/// tick (50 ms) later. N3 slice 2 found the second: a `scene.get` answered in a turn with no look
+/// left the scene marked fresh, and the look after the next edit took the old generation for it.
+#[test]
+fn an_edit_reaches_the_feed_without_waiting_for_a_tick() {
+    let mut c = Client::open(&json!({"store_root": store_root("scene-edit-feed")}));
+    let mut feed = Feed::default();
+    let a = add(&mut c, "text.literal", 0.0);
+    let mut have = feed.scene(&mut c, json!({}))["gen"].as_u64().unwrap();
+    let mut late = Vec::new();
+    for i in 0..15 {
+        feed.run(&mut c, "node.set", json!({"node": a, "port": "text", "value": format!("v{i}")}));
+        let t0 = Instant::now();
+        let seen = feed.past(&mut c, have, Duration::from_secs(5));
+        late.push(t0.elapsed());
+        // fetched at once, as a shell does on the change
+        have = feed.scene(&mut c, json!({"since": have}))["gen"].as_u64().unwrap();
+        assert!(have >= seen);
+    }
+    late.sort();
+    let median = late[late.len() / 2];
+    // a look owed is taken within SCENE_EVERY (16 ms) of the last; the bug's was a 50 ms tick
+    assert!(median < Duration::from_millis(35), "an edit's scene change came {median:?} after its reply (median): {late:?}");
+    c.close();
+}

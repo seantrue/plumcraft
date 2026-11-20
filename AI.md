@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N3 slice 2: the Swift kit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The second of the controller's five N3 slices, under the maintainer's "N2 exit: 1A": everything the Apple apps need below their views, with no views yet.
+
+**What the agent did (~5,350 LOC of Swift added, ~310 removed, tests included; 35 lines of Rust).** One Swift package, `native/apple/PlumCraftFFI`, in five targets: the wrapper over the whole C ABI (Swift 6 mode, no warnings), Codable models with their own JSON parser, an observable `DocumentModel` that applies scene changes by nid, `CanvasLink` for geometry, hit tests and gestures, and a conformance runner with a kit driver and a control-port driver. No third-party dependencies. 33 Swift tests; the models' tests fail on any field the Swift types don't know, against the scene fixtures, the schema and live replies.
+
+**Conformance, on the Mac only.** The read-only half: 11 of 12 through the kit, the twelfth (the picture case) on a core with the array engine.
+
+**A defect the kit's tests found in earlier AI-written Rust.** After a shell's `scene.get`, an edit reached the C ABI's feed an idle tick late (67 to 80 ms at 500 nodes). Fixed in eight lines of `crates/ffi/src/core.rs`, with a test that fails without it.
+
+**Defects in this slice's own work, caught by its tests or by comparison with earlier numbers.** A 64-bit unsigned value decoded as −1; a context menu decoded as a menu bar; a 512-level nesting limit that overflowed a background thread's stack; two measurements that measured the wrong thing; memory measured by process footprint came out negative.
+
+**Budgets not met.** A change learned from the feed takes 21.5 ms at 500 nodes (budget 16); nothing at 2,000 nodes is inside 16 ms.
+
+**Not verified.** iOS is compiled only: nothing ran on a simulator or a device. All numbers are from one Mac. The new Rust test is timing-based.
+
 ### 2026-11-20 — N3 slice 1: moves as undo steps, a wire dropped on empty canvas, the suite in two halves (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The maintainer's answers at N2's exit, "N2 exit: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A": N3 goes ahead; a move drag becomes one undo step (3A); a new wire dropped on empty canvas opens the filtered palette (8A). The controller cut N3 into five slices and made this one the core's groundwork.

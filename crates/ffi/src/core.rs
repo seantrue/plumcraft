@@ -901,6 +901,14 @@ impl Worker {
                 }
             } else {
                 scene_owed = true;
+                // A publish this turn (a `scene.get`) stands for this turn only. Kept to a later
+                // turn, the look after an edit there took the edit's scene to be the one already
+                // published and saw nothing new, so the edit reached the feed only at the next
+                // idle look, a tick (50 ms) and a build later (N3 slice 2: a shell that fetches
+                // `scene.get {since}` on each change, as the Swift kit does, met it on every edit).
+                for d in self.docs.values_mut() {
+                    d.doc.scene.take_fresh();
+                }
             }
             let o = lock(&self.shared.outbox);
             let any = !o.replies.is_empty()
