@@ -90,11 +90,83 @@ pub struct Engines {
     changes: Vec<EngineChange>,
     /// Pick engines automatically (`engine.auto`): an engine started on the editor's own account
     /// is hosted the fastest way it can be ([`mode_rank`]), and a graph opened or inserted starts
-    /// the engines it names that aren't connected.
+    /// the engines it uses that aren't connected ([`engines_used`]).
     pub auto: bool,
     /// Engines a graph asked for that were already started on its account (each once, so one
     /// that fails to start isn't tried every time): cleared when nothing is missing.
     pub(crate) tried: std::collections::BTreeSet<String>,
+    /// The node kinds of each engine the host can start, by engine id, where the host knows them
+    /// without starting the engine (the engines compiled in; empty: it knows none). How a graph
+    /// that doesn't name its engines still says which it uses ([`engines_used`]; decision 8C at
+    /// N3's exit, "start only the engines the graph uses").
+    pub offered: Offered,
+}
+
+/// The node kinds each engine offers, by engine id ([`Engines::offered`]).
+pub type Offered = std::collections::BTreeMap<String, std::collections::BTreeSet<String>>;
+
+/// The engines a graph's nodes use, as far as the file and `offered` say (decision 8C at N3's
+/// exit). `nodes` are each node's kind and the engine it is pinned to, if any; `named` the engines
+/// the workflow names (spec 8.2); `prefer` the order to pick in when several engines offer a kind
+/// and the file doesn't say (the host's own engine first).
+///
+/// A pinned node uses its engine. A kind exactly one engine in `offered` has uses that one. A kind
+/// several have uses one already used, else the first of `named` that has it, else the first of
+/// `prefer`, else the first by id. A kind no engine in `offered` has uses the engines the
+/// workflow names that `offered` doesn't know (as [`Session::missing_engines`] always read them),
+/// or none when it names none. In the order the workflow names them, then as nodes need them.
+pub fn engines_used<'a>(nodes: impl IntoIterator<Item = (&'a str, Option<&'a str>)>, named: &[String], offered: &Offered, prefer: &[&str]) -> Vec<String> {
+    let mut used: Vec<String> = Vec::new();
+    let mut shared: Vec<Vec<&str>> = Vec::new();
+    let add = |used: &mut Vec<String>, e: &str| {
+        if !used.iter().any(|u| u == e) {
+            used.push(e.to_owned());
+        }
+    };
+    for (kind, pin) in nodes {
+        if let Some(p) = pin {
+            add(&mut used, p);
+            continue;
+        }
+        let having: Vec<&str> = offered.iter().filter(|(_, kinds)| kinds.contains(kind)).map(|(e, _)| e.as_str()).collect();
+        match having.len() {
+            0 => {
+                for e in named.iter().filter(|e| !offered.contains_key(*e)) {
+                    add(&mut used, e);
+                }
+            }
+            1 => add(&mut used, having[0]),
+            _ => shared.push(having),
+        }
+    }
+    // a kind several engines have is decided once the others have said what is used
+    for having in shared {
+        if having.iter().any(|h| used.iter().any(|u| u == h)) {
+            continue;
+        }
+        let pick = named
+            .iter()
+            .map(String::as_str)
+            .find(|n| having.contains(n))
+            .or_else(|| prefer.iter().copied().find(|p| having.contains(p)))
+            .or_else(|| having.first().copied());
+        if let Some(e) = pick {
+            add(&mut used, e);
+        }
+    }
+    // in the workflow's order first
+    let mut out: Vec<String> = named.iter().filter(|n| used.contains(n)).cloned().collect();
+    for u in used {
+        if !out.contains(&u) {
+            out.push(u);
+        }
+    }
+    out
+}
+
+/// The engines graph `g` uses ([`engines_used`] over all its nodes).
+pub fn graph_engines(g: &plumcraft_graph::Graph, offered: &Offered, prefer: &[&str]) -> Vec<String> {
+    engines_used(g.nodes.values().map(|n| (n.kind.as_str(), n.engine.as_deref())), &g.engines, offered, prefer)
 }
 
 /// How fast a hosting is: mode 1 (compiled in) first, then a separate process (Rust before
@@ -296,6 +368,42 @@ pub(crate) fn start_needed(s: &mut Session) -> Vec<String> {
         started.push(e);
     }
     started
+}
+
+/// The engine the host could start for node kind `kind`, which the catalogue lacks: the one
+/// [`engines_used`] picks from [`Engines::offered`] among those not connected or asked for, and
+/// that the host can start. `None`: the catalogue has it, or no engine the host knows of offers it.
+pub fn engine_for_kind(s: &Session, kind: &str) -> Option<String> {
+    if s.catalog().node(kind).is_some() {
+        return None;
+    }
+    let here = s.engines.engine_ids();
+    let offered: Offered = s.engines.offered.iter().filter(|(e, _)| !here.contains(&e.as_str())).map(|(e, k)| (e.clone(), k.clone())).collect();
+    engines_used([(kind, None)], &s.graph().engines, &offered, &here).into_iter().find(|e| offered.contains_key(e) && s.engines.best(e).is_some())
+}
+
+/// Adding a node of a kind only an engine not started offers (N4's palette will offer such kinds;
+/// the conformance suite's picture case adds one): with [`Engines::auto`] on, ask for that engine
+/// beside the others, once, as [`start_needed`] does. The engine asked for, or already asked for
+/// and still coming; `None` when there is none to start, or picking is off.
+pub fn start_for_kind(s: &mut Session, kind: &str) -> Option<String> {
+    if !s.engines.auto {
+        return None;
+    }
+    let e = engine_for_kind(s, kind)?;
+    if s.engines.tried.contains(&e) {
+        // asked for already: still coming while a change is pending
+        return s.engines.is_pending().then_some(e);
+    }
+    s.engines.tried.insert(e.clone());
+    let choice = s.engines.best(&e)?;
+    let target = EngineTarget::Choice { engine: e.clone(), mode: choice.mode.clone() };
+    if !s.connected && s.engines.request.is_none() && s.engines.current.is_none() {
+        s.engines.request = Some(target);
+    } else {
+        s.engines.changes.push(EngineChange::Add(target));
+    }
+    Some(e)
 }
 
 fn can_clear(s: &Session) -> std::result::Result<(), String> {
@@ -527,6 +635,60 @@ mod tests {
         s.engines.current = Some(EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() });
         s.engines.can_attach = true;
         s
+    }
+
+    fn kinds(list: &[(&str, &[&str])]) -> Offered {
+        list.iter().map(|(e, k)| ((*e).to_owned(), k.iter().map(|k| (*k).to_owned()).collect())).collect()
+    }
+
+    #[test]
+    fn the_engines_a_graph_uses_come_from_pins_the_file_and_what_engines_offer() {
+        let offered = kinds(&[("text", &["text.upper", "shared.vary"]), ("array", &["array.blur", "shared.vary"])]);
+        let used = |nodes: &[(&str, Option<&str>)], named: &[&str], prefer: &[&str]| {
+            let named: Vec<String> = named.iter().map(|n| (*n).to_owned()).collect();
+            engines_used(nodes.iter().copied(), &named, &offered, prefer)
+        };
+        // one engine's kinds: that engine alone
+        assert_eq!(used(&[("text.upper", None)], &[], &["text"]), ["text"]);
+        assert_eq!(used(&[("array.blur", None)], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("text.upper", None), ("array.blur", None)], &[], &["text"]), ["text", "array"]);
+        // a kind both offer goes with an engine already used, else the file's, else the host's
+        assert_eq!(used(&[("shared.vary", None), ("array.blur", None)], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("shared.vary", None)], &["array"], &["text"]), ["array"]);
+        assert_eq!(used(&[("shared.vary", None)], &[], &["text"]), ["text"]);
+        // a pin wins; the file's order comes first
+        assert_eq!(used(&[("text.upper", Some("array"))], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("text.upper", None), ("array.blur", None)], &["array", "text"], &["text"]), ["array", "text"]);
+        // a kind no engine here offers: the engines the file names that aren't known here (a craft)
+        assert_eq!(used(&[("vc.open", None)], &["vectorcraft", "text"], &["text"]), ["vectorcraft"]);
+        assert!(used(&[("vc.open", None)], &[], &["text"]).is_empty(), "nothing says");
+        assert!(used(&[], &["text"], &["text"]).is_empty(), "no nodes, no engines");
+    }
+
+    #[test]
+    fn a_missing_kind_an_engine_offers_names_that_engine_and_picking_starts_it() {
+        let mut s = offered();
+        s.engines.choices.push(EngineChoice { engine: "array".into(), mode: "inproc".into(), engine_label: "array".into(), mode_label: "inproc".into() });
+        s.engines.offered = kinds(&[("array", &["array.blur"]), ("text", &["text.upper"])]);
+        s.connected = true;
+        // the file names no engine: the host's kinds say which
+        s.graph = plumcraft_graph::Graph::from_json(r#"{"version": 1, "nodes": {"b": {"kind": "array.blur"}, "x": {"kind": "nowhere.x"}}}"#).unwrap();
+        let m = s.missing_engines().unwrap();
+        assert_eq!(m.engines, ["array"], "{m:?}");
+        assert!(m.text.contains("array"), "{}", m.text);
+        assert_eq!(engine_for_kind(&s, "array.blur").as_deref(), Some("array"));
+        assert_eq!(engine_for_kind(&s, "nowhere.x"), None);
+        // not picking: nothing starts
+        assert_eq!(start_for_kind(&mut s, "array.blur"), None);
+        assert!(!s.engines.is_pending());
+        s.engines.auto = true;
+        assert_eq!(start_for_kind(&mut s, "array.blur").as_deref(), Some("array"));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(EngineTarget::Choice { engine: "array".into(), mode: "inproc".into() })));
+        // asked once: not again while it is tried (one that failed isn't tried on every add)
+        assert_eq!(start_for_kind(&mut s, "array.blur"), None);
+        // an engine the host can't start isn't named
+        s.engines.offered.insert("film".into(), ["film.cut".to_owned()].into_iter().collect());
+        assert_eq!(engine_for_kind(&s, "film.cut"), None);
     }
 
     #[test]

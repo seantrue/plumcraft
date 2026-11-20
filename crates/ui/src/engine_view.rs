@@ -75,6 +75,8 @@ impl EditorApp {
     /// Offer `choices` in the Engine menu, started by `connector`; `current` is the one the app
     /// connected at startup (or tried to).
     pub fn with_engines(mut self, choices: Vec<EngineChoice>, current: Option<(String, String)>, connector: Connector) -> Self {
+        // which engine offers a kind a file doesn't name, for Pick Engines Automatically
+        self.doc.session.engines.offered = plumcraft_editor_core::engines::offered(&choices);
         self.doc.session.engines.choices = choices;
         self.doc.session.engines.current = current.map(|(engine, mode)| EngineTarget::Choice { engine, mode });
         self.doc.session.engines.can_attach = true;

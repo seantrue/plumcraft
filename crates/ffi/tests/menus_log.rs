@@ -148,8 +148,9 @@ fn the_menu_bar_follows_the_document_and_invoking_an_item_runs_its_command() {
 
 #[test]
 fn a_platform_that_cant_start_programs_lists_process_engines_disabled_with_why() {
-    // no `platform`: nothing but engines compiled in and engines already running
-    let mut c = Client::open(&json!({"store_root": store_root("menus-engines")}));
+    // no `platform`: nothing but engines compiled in and engines already running. Engines picked
+    // by hand (`engines.auto: false`): the menu lists each hosting
+    let mut c = Client::open(&json!({"store_root": store_root("menus-engines"), "engines": {"auto": false}}));
     let mut feed = Feed::default();
     let bar = ok(&call(&mut c, &mut feed, "menu.get", json!({})));
     let engine = bar["menus"].as_array().unwrap().iter().find(|m| m["label"] == "Engine").cloned().unwrap();
@@ -159,6 +160,21 @@ fn a_platform_that_cant_start_programs_lists_process_engines_disabled_with_why()
     let inproc = find(&engine["items"], |i| i["params"] == json!({"engine": "text", "mode": "inproc"})).unwrap();
     assert_eq!(inproc["enabled"], true, "{inproc}");
     assert_eq!(inproc["checked"], true, "in use: {inproc}");
+    c.close();
+    // picked by the graph (the default since the budget stage, as the egui editor's Pick Engines
+    // Automatically): one item an engine, hosted the fastest way the platform can; one it can't
+    // start at all says why
+    let mut c = Client::open(&json!({"store_root": store_root("menus-engines-auto")}));
+    let mut feed = Feed::default();
+    let bar = ok(&call(&mut c, &mut feed, "menu.get", json!({})));
+    let engine = bar["menus"].as_array().unwrap().iter().find(|m| m["label"] == "Engine").cloned().unwrap();
+    let text = find(&engine["items"], |i| i["params"] == json!({"engine": "text"})).expect("the text engine is listed");
+    assert_eq!((text["enabled"].clone(), text["checked"].clone()), (json!(true), json!(true)), "{text}");
+    let array = find(&engine["items"], |i| i["params"] == json!({"engine": "array"})).expect("the array engine is listed");
+    assert_eq!((array["enabled"].clone(), array["checked"].clone()), (json!(true), json!(false)), "{array}");
+    let audio = find(&engine["items"], |i| i["params"] == json!({"engine": "audio"})).expect("the audio engine is listed");
+    assert_eq!(audio["enabled"], false, "a process only: {audio}");
+    assert_eq!(audio["reason"], "this device can't start programs");
     c.close();
 }
 

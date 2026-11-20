@@ -23,6 +23,10 @@ public struct ShellConfig: Sendable {
     /// `engines.default` and `engines.also`.
     public var engine = "text"
     public var also: [String] = []
+    /// `engines.auto`: each document starts only the engines its graph uses, and starts another
+    /// when the graph comes to use it (decision 8C at N3's exit). False: `engine` and `also` in
+    /// every document.
+    public var pickEngines = true
     /// The control port's token file: the port opens (loopback, port 0) only when set.
     public var controlTokenFile: String?
     /// `log.level`, when the app wants other than the core's default.
@@ -43,7 +47,8 @@ public struct ShellConfig: Sendable {
             "dirs": .object(d),
             "platform": .object(platform),
             "display": ["scale": .double(displayScale), "frame_ms": .double(frameMs)],
-            "engines": ["default": .string(engine), "mode": "inproc", "also": .array(also.filter { $0 != engine }.map { .string($0) })],
+            "engines": ["default": .string(engine), "mode": "inproc", "also": .array(also.filter { $0 != engine }.map { .string($0) }),
+                        "auto": .bool(pickEngines)],
         ]
         if let tf = controlTokenFile { c["control"] = ["port": 0, "token_file": .string(tf)] }
         if let l = logLevel { c["log"] = ["level": .string(l)] }
