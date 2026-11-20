@@ -4,6 +4,27 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B36. A short clip's spectrogram is computed on the editor's thread
+
+- Reported: 2026-11-20
+- Report: "record bugs" (found while fixing B32)
+- Context: `AudioView::sync` computes the spectrogram in place for clips under `SPEC_SYNC_SAMPLES`. A frame that shows a watched audio value took about 80 ms alone and 74 to 319 ms under load on the Linux test host (median 122 ms). It is not a wait for an engine, so B32's test no longer flags it.
+- Issue: none
+
+### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
+- Issue: none
+
+### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-text::conformance mode2_process`, `crates/text/tests/conformance.rs:390`, "off really runs the slow node". Failed once in a full parallel run while three other builds were running on the host. Not looked into.
+- Issue: none
+
 ## Fixed
 
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
