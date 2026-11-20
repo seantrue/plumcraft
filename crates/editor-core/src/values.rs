@@ -106,6 +106,67 @@ pub fn nonblocking(media: &MediaService) -> impl Fn(&DataRef) -> Option<Blob> + 
     move |r: &DataRef| m.bytes(r).ready().map(|b| (*b).clone())
 }
 
+/// The viewer a value is shown in first, for the kinds a shell draws from the core alone (N3
+/// slice 1: `picture`, `text.plain`, `scalar`, the floor N3's gate names, and the plainer others
+/// by media). This is the start of `docs/shell-interface.md` 13.1's registry moving into the core:
+/// the egui editor still chooses from its own registry (`plumcraft_ui::viewers::kinds_for`), and a
+/// test there holds the two to the same first choice for these media. A value no viewer here takes
+/// is `hex`.
+pub fn default_viewer(d: &plumcraft_proto::display::Display) -> &'static str {
+    use plumcraft_proto::catalogue::Media;
+    match d.media {
+        Media::Image => "picture",
+        Media::Vector => "svg",
+        Media::Doc => "doc",
+        Media::Ndarray => "array.pictures",
+        Media::Audio => "audio",
+        Media::Table => "table.grid",
+        Media::Text => "text.plain",
+        Media::Scalar => "scalar",
+        Media::Tree => "yaml",
+        _ => "hex",
+    }
+}
+
+/// The Watched panel's value as the core has it (`ui.inspect`'s `watched` on a shell with no
+/// panel of its own, N3 slice 1): `{node, port, summary, media, viewer, value?, data?, picture?,
+/// excerpt?, error?}` (`value`: a small value inline; `data`: the full value's reference, for
+/// `media.get` and `plum_blob`; `picture`: its first rgba8 rendition, `{ref, w, h}`; `excerpt`:
+/// a text's first 4 KiB, `{text, offset, totalChars, lines}`), or null while nothing is watched. `summary` and the rest are null
+/// until a run has sent the value.
+pub fn watched_json(run: &plumcraft_session::RunState) -> serde_json::Value {
+    use plumcraft_proto::display::Rendition;
+    use serde_json::{Value, json};
+    let Some((w, d)) = run.panel() else { return Value::Null };
+    let mut v = json!({"node": w.node, "port": w.port, "summary": d.map(|d| d.summary.clone()), "media": d.map(|d| d.media), "viewer": d.map(default_viewer)});
+    if let Some(d) = d {
+        if let Some(x) = &d.value {
+            v["value"] = x.clone();
+        }
+        if let Some(full) = &d.full {
+            v["data"] = serde_json::to_value(full).unwrap_or(Value::Null);
+        }
+        let picture = d.renditions.iter().find_map(|r| match r {
+            Rendition::Rgba8 { data, role, w, h, .. } if role.is_empty() || role == "thumb" => Some(json!({"ref": data, "w": w, "h": h})),
+            _ => None,
+        });
+        if let Some(p) = picture {
+            v["picture"] = p;
+        }
+        let excerpt = d.renditions.iter().find_map(|r| match r {
+            Rendition::Excerpt { text, offset, total_chars, lines } => Some(json!({"text": text, "offset": offset, "totalChars": total_chars, "lines": lines})),
+            _ => None,
+        });
+        if let Some(x) = excerpt {
+            v["excerpt"] = x;
+        }
+        if let Some(e) = &d.error {
+            v["error"] = serde_json::to_value(e).unwrap_or(Value::Null);
+        }
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

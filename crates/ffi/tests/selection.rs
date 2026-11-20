@@ -92,10 +92,12 @@ fn a_shell_selects_and_reads_the_selection_back() {
     let fit = c.run("canvas.fit", json!({}));
     assert_eq!((fit["fit"].clone(), fit["seq"].clone()), (json!(true), json!(1)), "{fit}");
     assert_eq!(fit["rect"].as_array().map(Vec::len), Some(4), "{fit}");
-    for (id, p) in [("canvas.palette", json!({"open": true})), ("canvas.reveal", json!({"node": a}))] {
-        let r = c.call("command.run", json!({"command": id, "params": p}));
-        assert_eq!(r["error"], json!(format!("{id} isn't available from this shell")), "{r}");
-    }
+    let r = c.call("command.run", json!({"command": "canvas.reveal", "params": {"node": a}}));
+    assert_eq!(r["error"], json!("canvas.reveal isn't available from this shell"), "{r}");
+    // the palette is the core's state since N3 slice 1 (open question 4), so it is served here
+    let p = c.run("canvas.palette", json!({"open": true, "at": [10, 20]}));
+    assert_eq!((p["open"].clone(), p["at"].clone()), (json!(true), json!([10.0, 20.0])), "{p}");
+    assert_eq!(c.run("canvas.palette", json!({"open": false}))["open"], false);
     // clearing leaves nothing selected
     assert_eq!(c.run("selection.clear", json!({}))["nodes"], json!([]));
     c.close();

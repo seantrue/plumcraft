@@ -5,7 +5,7 @@
 //! end, cancel) or a marquee, in graph units, with the modifiers held, and sends it as
 //! `ui.gesture`; the core hit-tests it against the hot calls' snapshot ([`Snapshot::hit`],
 //! [`Snapshot::wire_target`]) and says what it means by running the commands every shell already
-//! has (`selection.set`, `node.move`, `wire.connect`, `run.watch`, `canvas.palette`, …). Raw
+//! has (`selection.set`, `edit.move`, `wire.connect`, `run.watch`, `canvas.palette`, …). Raw
 //! pointer events never cross: what a press, a hold or a flick is, is the platform's.
 //!
 //! **Drags are stateful.** `begin` decides what the drag is (a move of the faces under it and the
@@ -14,8 +14,11 @@
 //! [`DragCell`]; `move` says where it is now (the offset, the wire's target and whether it fits,
 //! the marquee's rect) and changes nothing; `end` runs what it means; `cancel` forgets it. So a
 //! cancelled drag leaves the document as it was, and a drag runs at most one command that is an
-//! undo step (a wire's `wire.connect`, `wire.reroute`, `wire.disconnect` or `wire.route`; moves
-//! are not undo steps in this editor, as `node.move` isn't). `move` is also a typed hot call on
+//! undo step: a face drag's `edit.move` (one step, "Move 3 Nodes", since N3 slice 1, named by the
+//! drag's serial so the next drag is a step of its own), a frame's or an open group's move, or a
+//! wire's `wire.connect`, `wire.reroute`, `wire.disconnect` or `wire.route`. A new wire dropped
+//! on nothing opens the palette there for it (`canvas.palette {wire}`, question 8), which is no
+//! step until a kind is chosen (`palette.choose`). `move` is also a typed hot call on
 //! the C ABI (`plum_gesture_move`), read from the same cell on the shell's thread, so a drag
 //! crosses the boundary as JSON only at its two ends.
 //!
@@ -182,7 +185,7 @@ pub fn parse(params: &Value) -> Result<Request, String> {
 /// What a drag is, decided when it began.
 #[derive(Debug, Clone, PartialEq)]
 pub enum DragKind {
-    /// Faces moved: nodes (`node.move`) and collapsed groups (`group.move`, members with them).
+    /// Faces moved: nodes and collapsed groups (members with them), by one `edit.move`.
     Move {
         faces: Vec<u64>,
         nodes: Vec<NodeId>,
@@ -288,16 +291,40 @@ impl Drag {
 /// A document's drag under way, shared with the C ABI's hot call (`plum_gesture_move`), which
 /// reads it on the shell's thread. Held only to clone or swap the `Arc`.
 #[derive(Debug, Clone, Default)]
-pub struct DragCell(Arc<Mutex<Option<Arc<Drag>>>>);
+pub struct DragCell(Arc<Mutex<DragState>>);
+
+#[derive(Debug, Default)]
+struct DragState {
+    drag: Option<Arc<Drag>>,
+    /// The highest serial a drag has had: serials rise with every drag begun, under way or not
+    /// (N2 slice 4 restarted them at 1 once a drag ended; N3 slice 1 names a drag's moves by its
+    /// serial, so two drags must not share one).
+    last: u64,
+}
 
 impl DragCell {
     pub fn get(&self) -> Option<Arc<Drag>> {
-        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).drag.clone()
     }
 
     pub fn set(&self, d: Option<Drag>) {
-        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = d.map(Arc::new);
+        let mut st = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(d) = &d {
+            st.last = st.last.max(d.serial);
+        }
+        st.drag = d.map(Arc::new);
     }
+
+    /// The serial the next drag begun gets.
+    pub fn next_serial(&self) -> u64 {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).last.wrapping_add(1).max(1)
+    }
+}
+
+/// What a drag's moves are named by (`edit.move`'s `drag`), so they are one undo step and the
+/// next drag's are another.
+fn drag_key(d: &Drag) -> String {
+    format!("gesture:{}", d.serial)
 }
 
 /// What the dispatcher does for a gesture: the commands to run in order, the reply's own
@@ -584,15 +611,7 @@ fn begin(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> DragKind {
             }
             // the whole selection: selected groups not inside another selected one, and the
             // selected nodes their groups don't carry already
-            let graph = f.graph;
-            let groups: Vec<GroupId> = sel
-                .groups
-                .iter()
-                .filter(|g| graph.group(g).is_some() && !sel.groups.iter().any(|outer| outer != *g && graph.group_subtree(outer).contains(*g)))
-                .cloned()
-                .collect();
-            let carried: std::collections::BTreeSet<NodeId> = sel.groups.iter().flat_map(|g| graph.group_members(g)).collect();
-            let nodes: Vec<NodeId> = sel.nodes.iter().filter(|n| !carried.contains(*n) && graph.node(n).is_some()).cloned().collect();
+            let (groups, nodes) = sel.moving(f.graph);
             let mut faces: Vec<u64> = groups.iter().filter_map(|g| snap.face_by_id(&format!("group:{}", g.0)).map(|(nid, _)| nid)).collect();
             faces.extend(nodes.iter().filter_map(|n| snap.face_by_id(&n.0).map(|(nid, _)| nid)));
             DragKind::Move { faces, nodes, groups }
@@ -633,7 +652,7 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
         Phase::Begin => {
             let h = snap.hit(at.x, at.y, slop);
             let kind = begin(f, snap, &h);
-            let serial = f.drag.get().map_or(0, |d| d.serial).wrapping_add(1).max(1);
+            let serial = f.drag.next_serial();
             let mut d = json!({"serial": serial, "kind": kind.word()});
             match &kind {
                 DragKind::Move { faces, .. } => d["faces"] = json!(faces),
@@ -666,7 +685,7 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
             let u = d.update(snap, at, slop);
             p.reply.insert("drag".into(), json!({"serial": d.serial, "kind": d.kind.word()}));
             p.reply.insert("update".into(), update_json(snap, &u));
-            end(f, snap, &d, &u, p);
+            end(f, snap, &d, &u, at, p);
         }
     }
     Ok(())
@@ -676,23 +695,20 @@ fn moved(u: &Update) -> bool {
     u.dx.abs() > STILL || u.dy.abs() > STILL
 }
 
-fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, p: &mut Plan) {
+fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut Plan) {
     let by = |pos: [f32; 2]| [pos[0] + u.dx, pos[1] + u.dy];
     let graph = f.graph;
+    let key = drag_key(d);
     match &d.kind {
         DragKind::Move { groups, nodes, .. } => {
             if !moved(u) {
                 return;
             }
-            for g in groups {
-                if let Some(grp) = graph.group(g) {
-                    p.commands.push(("group.move", json!({"group": g, "pos": by(grp.pos)})));
-                }
-            }
-            for n in nodes {
-                if let Some(node) = graph.node(n) {
-                    p.commands.push(("node.move", json!({"id": n, "pos": by(node.pos)})));
-                }
+            // one command, one undo step, named for what moved (N3 slice 1)
+            let groups: serde_json::Map<String, Value> = groups.iter().filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(grp.pos))))).collect();
+            let nodes: serde_json::Map<String, Value> = nodes.iter().filter_map(|n| graph.node(n).map(|node| (n.0.clone(), json!(by(node.pos))))).collect();
+            if !groups.is_empty() || !nodes.is_empty() {
+                p.commands.push(("edit.move", json!({"nodes": nodes, "groups": groups, "drag": key})));
             }
         }
         DragKind::Wire { anchor: (_, output, _), port, picked } => {
@@ -712,9 +728,14 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, p: &mut Plan) {
                     let (from, to) = if *output { (port, &other) } else { (&other, port) };
                     p.commands.push(("wire.connect", json!({"from": port_json(from), "to": port_json(to)})));
                 }
-                // a new wire dropped on nothing makes nothing (open question 8's palette is
-                // not built)
-                (None, None) => {}
+                // a new wire dropped on nothing opens the palette there, offering what takes
+                // the wire (question 8, N3 slice 1); a choice adds and connects in one step
+                (None, None) => {
+                    if moved(u) {
+                        let wire = if *output { json!({"from": port_json(port)}) } else { json!({"to": port_json(port)}) };
+                        p.commands.push(("canvas.palette", json!({"open": true, "at": [at.x, at.y], "wire": wire})));
+                    }
+                }
             }
         }
         DragKind::Marquee => {
@@ -740,21 +761,21 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, p: &mut Plan) {
             if let Some(fr) = graph.frames.get(&plumcraft_graph::FrameId(frame.clone()))
                 && moved(u)
             {
-                p.commands.push(("frame.move", json!({"frame": frame, "pos": by(fr.pos)})));
+                p.commands.push(("frame.move", json!({"frame": frame, "pos": by(fr.pos), "drag": key})));
             }
         }
         DragKind::Resize { frame } => {
             if let Some(fr) = graph.frames.get(&plumcraft_graph::FrameId(frame.clone()))
                 && moved(u)
             {
-                p.commands.push(("frame.resize", json!({"frame": frame, "size": [(fr.size[0] + u.dx).max(0.0), (fr.size[1] + u.dy).max(0.0)]})));
+                p.commands.push(("frame.resize", json!({"frame": frame, "size": [(fr.size[0] + u.dx).max(0.0), (fr.size[1] + u.dy).max(0.0)], "drag": key})));
             }
         }
         DragKind::Group { group } => {
             if let Some(g) = graph.group(group)
                 && moved(u)
             {
-                p.commands.push(("group.move", json!({"group": group, "pos": by(g.pos)})));
+                p.commands.push(("group.move", json!({"group": group, "pos": by(g.pos), "drag": key})));
             }
         }
     }
@@ -828,5 +849,14 @@ mod tests {
         let p = plan(&f, &snap, &r).unwrap();
         assert_eq!(p.commands, vec![("selection.set", json!({"nodes": [], "groups": [], "mode": "replace"}))]);
         assert!(cell.get().is_none(), "an end forgets the drag");
+        // a drag's serial rises with every drag begun, ended or not (it names a drag's moves, so
+        // two drags are two undo steps; N3 slice 1)
+        let begin = parse(&json!({"kind": "drag", "phase": "begin", "at": [0, 0]})).unwrap();
+        let serial = |f: &Facts<'_>| plan(f, &snap, &begin).unwrap().reply["drag"]["serial"].as_u64().unwrap();
+        let a = serial(&f);
+        let r = parse(&json!({"kind": "drag", "phase": "cancel"})).unwrap();
+        plan(&f, &snap, &r).unwrap();
+        let b = serial(&f);
+        assert!(b > a && a > 1, "{a} then {b}");
     }
 }

@@ -115,7 +115,8 @@ impl Canvas {
                 if r.dragged() {
                     let d = r.drag_delta() / t.scaling;
                     if d != Vec2::ZERO {
-                        let mut p = json!({"frame": id, "pos": [frame.pos[0] + d.x, frame.pos[1] + d.y]});
+                        // named by the press, so the drag is one undo step (N3 slice 1)
+                        let mut p = json!({"frame": id, "pos": [frame.pos[0] + d.x, frame.pos[1] + d.y], "drag": format!("egui:{}", self.press)});
                         if let Some((_, held)) = self.frame_drag.as_ref().filter(|(f, _)| f == id) {
                             p["nodes"] = json!(held.nodes);
                             p["groups"] = json!(held.groups);
@@ -152,7 +153,10 @@ impl Canvas {
                 if r.dragged() {
                     let d = r.drag_delta() / t.scaling;
                     if d != Vec2::ZERO {
-                        actions.push(("frame.resize", json!({"frame": id, "size": [frame.size[0] + d.x, frame.size[1] + d.y]})));
+                        actions.push((
+                            "frame.resize",
+                            json!({"frame": id, "size": [frame.size[0] + d.x, frame.size[1] + d.y], "drag": format!("egui:{}", self.press)}),
+                        ));
                     }
                 }
             });

@@ -114,9 +114,27 @@ const COMMANDS: &[CanvasCommand] = &[
         label: "Search…",
         menu: &["Node"],
         shortcut: Some("Tab"),
-        params: "{open?: bool (default true), at?: [x, y] graph coordinates (default the view's centre), query?: string} -> {open, at, query} (the node palette; a node picked is added there)",
+        params: "{open?: bool (default true), at?: [x, y] graph coordinates (default the view's centre), query?: string, wire?: {from: {node, port}} | {to: {node, port}} (a new wire dropped on empty canvas: only kinds that take it are offered)} -> {open, at, query, wire?, offered?} (the node palette, the core's state since N3 slice 1: the scene's view.palette; palette.items lists what it offers, palette.choose adds one there; open false closes it, leaving nothing behind)",
         enabled: always,
-        shell: true,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "palette.choose",
+        label: "Add from the Palette",
+        menu: &[],
+        shortcut: None,
+        params: "{kind: node type, port?: the port to connect (default the first that fits), at?: [x, y] (default where the palette opened)} -> node.add's or node.addWired's reply (one undo step: the node, with the palette's dropped wire connected when it has one); the palette closes",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "selection.nudge",
+        label: "Nudge",
+        menu: &[],
+        shortcut: None,
+        params: "{by: [dx, dy] graph units, each within ±10000, drag?: names the key press, as edit.move's} -> edit.move's reply (the selected nodes and collapsed groups moved by it; the arrow keys, 1 unit, 10 with Shift; nudges of the same selection naming the same drag, or none less than a second apart, are one undo step)",
+        enabled: always,
+        shell: false,
     },
     CanvasCommand {
         id: "canvas.reveal",
@@ -210,8 +228,49 @@ fn net_param(session: &Session, p: &Value) -> Result<Option<NetKey>, String> {
     Ok(Some(key))
 }
 
-fn palette_param(p: &Value) -> Result<Value, String> {
-    check_fields(p, &["open", "at", "query"])?;
+/// `canvas.palette`'s `wire`: `{from: {node, port}}` (an output the graph's node has) or `{to:
+/// {node, port}}` (an input address it has).
+fn wire_param(session: &Session, v: &Value) -> Result<Option<crate::scene::PaletteWire>, String> {
+    if v.is_null() {
+        return Ok(None);
+    }
+    let shape = "wire must be {from: {node, port}} or {to: {node, port}}";
+    check_fields(v, &["from", "to"]).map_err(|_| shape.to_owned())?;
+    let port = |v: &Value| -> Result<crate::scene::PortAt, String> {
+        check_fields(v, &["node", "port"]).map_err(|_| shape.to_owned())?;
+        let s = |k: &str| v.get(k).and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 256).map(str::to_owned).ok_or(shape);
+        Ok(crate::scene::PortAt { node: s("node")?, port: s("port")? })
+    };
+    let w = match (v.get("from").filter(|x| !x.is_null()), v.get("to").filter(|x| !x.is_null())) {
+        (Some(f), None) => crate::scene::PaletteWire { from: Some(port(f)?), to: None },
+        (None, Some(t)) => crate::scene::PaletteWire { from: None, to: Some(port(t)?) },
+        _ => return Err(shape.into()),
+    };
+    let (end, output) = w.end().ok_or(shape)?;
+    let graph = session.graph();
+    let node = graph.node(&end.node).ok_or_else(|| format!("no node {}", shown_id(&end.node.0)))?;
+    let def = session.catalog().node(&node.kind).ok_or_else(|| format!("{} is of a kind no engine has", shown_id(&end.node.0)))?;
+    let has = if output { def.output(&end.port).is_some() } else { plumcraft_graph::resolve_input(def, node, &end.node, &end.port).is_ok() };
+    if !has {
+        return Err(format!("{} has no {} {}", shown_id(&end.node.0), if output { "output" } else { "input" }, shown_id(&end.port)));
+    }
+    Ok(Some(w))
+}
+
+/// `[x, y]` within ±1e7, or none.
+fn at_param(p: &Value) -> Result<Option<[f64; 2]>, String> {
+    match p.get("at") {
+        None | Some(Value::Null) => Ok(None),
+        Some(v) => {
+            let a = v.as_array().filter(|a| a.len() == 2).ok_or("at must be [x, y]")?;
+            let c = |v: Option<&Value>| v.and_then(Value::as_f64).filter(|f| f.is_finite() && f.abs() <= 1.0e7).ok_or("at must be [x, y] numbers");
+            Ok(Some([c(a.first())?, c(a.get(1))?]))
+        }
+    }
+}
+
+fn palette_param(session: &Session, p: &Value) -> Result<(Value, Option<crate::scene::Palette>), String> {
+    check_fields(p, &["open", "at", "query", "wire"])?;
     let open = match p.get("open") {
         None | Some(Value::Null) => true,
         Some(Value::Bool(b)) => *b,
@@ -230,7 +289,19 @@ fn palette_param(p: &Value) -> Result<Value, String> {
         Some(Value::String(q)) => json!(q.chars().take(256).collect::<String>()),
         Some(_) => return Err("query must be a string".into()),
     };
-    Ok(json!({"open": open, "at": at, "query": query}))
+    let wire = wire_param(session, p.get("wire").unwrap_or(&Value::Null))?;
+    let mut reply = json!({"open": open, "at": at, "query": query});
+    if !open {
+        return Ok((reply, None));
+    }
+    if let Some(w) = &wire {
+        reply["wire"] = serde_json::to_value(w).unwrap_or(Value::Null);
+        if let Some((end, output)) = w.end() {
+            reply["offered"] = json!(crate::palette::fitting(session.graph(), session.catalog(), &end, output).len());
+        }
+    }
+    let state = crate::scene::Palette { at: at_param(p)?, query: query.as_str().map(str::to_owned), wire };
+    Ok((reply, Some(state)))
 }
 
 /// Run canvas command `c` (see the module docs): its core part, then the shell's.
@@ -315,7 +386,62 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             p[key] = json!(how);
             h.run(command, &p)
         }
-        "canvas.palette" => palette_param(params),
+        "canvas.palette" => {
+            let (reply, state) = palette_param(&d.session, params)?;
+            d.palette = state;
+            Ok(reply)
+        }
+        "palette.choose" => {
+            check_fields(params, &["kind", "port", "at"])?;
+            let kind = params.get("kind").and_then(Value::as_str).filter(|k| k.len() <= 256).ok_or("kind must be a node type")?.to_owned();
+            let port = match params.get("port") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(p)) if p.len() <= 256 => Some(p.clone()),
+                Some(_) => return Err("port must be a port's name".into()),
+            };
+            let palette = d.palette.clone();
+            let at = at_param(params)?.or_else(|| palette.as_ref().and_then(|p| p.at)).ok_or("the palette has no place to add at: give at")?;
+            let pos = json!([at[0], at[1]]);
+            let r = match palette.as_ref().and_then(|p| p.wire.as_ref()).and_then(crate::scene::PaletteWire::end) {
+                Some((end, output)) => {
+                    let mut p = json!({"kind": kind, "pos": pos});
+                    p[if output { "from" } else { "to" }] = json!({"node": end.node, "port": end.port});
+                    if let Some(port) = port {
+                        p["port"] = json!(port);
+                    }
+                    h.run("node.addWired", &p)?
+                }
+                None => {
+                    if port.is_some() {
+                        return Err("port is for a palette opened for a dropped wire".into());
+                    }
+                    h.run("node.add", &json!({"kind": kind, "pos": pos}))?
+                }
+            };
+            h.doc_mut().palette = None;
+            Ok(r)
+        }
+        "selection.nudge" => {
+            check_fields(params, &["by", "drag"])?;
+            let by = params.get("by").and_then(Value::as_array).filter(|a| a.len() == 2).ok_or("by must be [dx, dy]")?;
+            let c = |v: &Value| v.as_f64().filter(|f| f.is_finite() && f.abs() <= 1.0e4).map(|f| f as f32).ok_or("by must be [dx, dy], each within ±10000");
+            let (dx, dy) = (c(&by[0])?, c(&by[1])?);
+            let graph = d.session.graph();
+            let (groups, nodes) = d.selection.with(|s| s.moving(graph));
+            if groups.is_empty() && nodes.is_empty() {
+                return Err("select nodes to move first".into());
+            }
+            let place = |p: [f32; 2]| json!([p[0] + dx, p[1] + dy]);
+            let groups: serde_json::Map<String, Value> = groups.iter().filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), place(grp.pos)))).collect();
+            let nodes: serde_json::Map<String, Value> = nodes.iter().filter_map(|n| graph.node(n).map(|node| (n.0.clone(), place(node.pos)))).collect();
+            let mut p = json!({"nodes": nodes, "groups": groups});
+            // a shell that knows a key is held names its repeats (a Mac's key repeat), so they
+            // are one step however slowly they come; else one second apart at most
+            if let Some(drag) = params.get("drag").filter(|v| !v.is_null()) {
+                p["drag"] = drag.clone();
+            }
+            h.run("edit.move", &p)
+        }
         "canvas.reveal" => {
             check_fields(params, &["node"])?;
             let node = params.get("node").and_then(Value::as_str).ok_or("node must be a node id")?;

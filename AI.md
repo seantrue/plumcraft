@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N3 slice 1: moves as undo steps, a wire dropped on empty canvas, the suite in two halves (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The maintainer's answers at N2's exit, "N2 exit: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A": N3 goes ahead; a move drag becomes one undo step (3A); a new wire dropped on empty canvas opens the filtered palette (8A). The controller cut N3 into five slices and made this one the core's groundwork.
+
+**What the agent did (~1,600 LOC of Rust added, ~170 removed, tests included; fixtures, schema and docs apart).** Node, group and frame moves are undo steps, joined by a named drag or within one second; the arrow keys nudge (`selection.nudge`). The palette is core state; `palette.items` lists the kinds that take a dropped wire and `palette.choose` adds and connects as one step. The conformance suite is 24 cases in a read-only and an editing half, with cases for a run's state and for watched text, scalar and picture values. `Graph::mapped_nodes` no longer compares id strings through ordered maps (a 2,000-node snapshot builds in 1.9 ms, was 3.2). The N0 Swift package builds against today's header and its 6 tests pass. 10 new tests.
+
+**Defects found in earlier AI-written slices.** Slice 4's drag serials restarted at 1 after every drag; the 9% snapshot slowdown slice 4 reported was `mapped_nodes`.
+
+**Defects in this slice's own work, each caught by a test, clippy or a comparison with earlier runs.** A swallowed error that made a test step do nothing; Shift+arrow nudging by 1 and not 10; wrong JSON pointers in new cases; `selection.nudge` refusing `drag`; a measurement that made the hot calls look slower.
+
+**Existing tests changed** because they asserted moves are not undo steps (session and egui kittests) or that `canvas.palette` is refused over the C ABI.
+
+**Not verified.** No native shell has called any of it; nothing ran on an iOS device or simulator. The agent made a dozen choices the maintainer has not reviewed (listed in `claude-debug/native-n3-slice1.md`), among them the one-second joining rule and egui binding the arrow keys.
+
+**The controller (Fable).** Recorded the maintainer's ten answers in note 24; committed the iPad spike's gestures on `spike/ios` under 10A; added the `Cargo.lock` line slice 4's commit had left out.
+
 ### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The last slice of N2 under the maintainer's "same arrangement for N2". The colour question was the maintainer's earlier answer "13A" (tokens, not colours beside them).
