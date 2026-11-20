@@ -952,6 +952,12 @@ impl Graph {
     /// every node one at a time looks at every wire for each. Nodes on a (corrupt) cycle aren't
     /// mapped.
     pub fn mapped_nodes(&self, catalog: &SchemaReply) -> BTreeSet<NodeId> {
+        self.mapped_walk(catalog).0
+    }
+
+    /// [`Graph::mapped_nodes`], and whether the walk reached every node (false on a cycle, where
+    /// the nodes on it and after it are left out, and [`Graph::output_is_list`] may differ).
+    fn mapped_walk(&self, catalog: &SchemaReply) -> (BTreeSet<NodeId>, bool) {
         // nodes by their place in the map, so the walk compares no ids (N3 slice 1: by id, through
         // ordered maps, this was over half of the hot calls' snapshot at 2,000 nodes)
         let nodes: Vec<(&NodeId, &Node)> = self.nodes.iter().collect();
@@ -970,7 +976,9 @@ impl Graph {
         }
         let mut ready: Vec<usize> = waiting.iter().enumerate().filter(|(_, n)| **n == 0).map(|(k, _)| k).collect();
         let mut mapped = vec![false; nodes.len()];
+        let mut reached = 0usize;
         while let Some(k) = ready.pop() {
+            reached += 1;
             if let (Some((id, node)), Some(Some(def))) = (nodes.get(k), defs.get(k))
                 && !def.flags.input_list
                 && into.get(k).into_iter().flatten().any(|w| {
@@ -996,7 +1004,8 @@ impl Graph {
                 }
             }
         }
-        nodes.iter().zip(mapped).filter(|(_, m)| *m).map(|((id, _), _)| (*id).clone()).collect()
+        let all = reached == nodes.len();
+        (nodes.iter().zip(mapped).filter(|(_, m)| *m).map(|((id, _), _)| (*id).clone()).collect(), all)
     }
 
     /// Is `id` run once per item of a list? Memoized over the (acyclic) upstream graph.
@@ -1130,6 +1139,13 @@ impl Graph {
     /// Wires that no longer pass the type rules (after an upstream change stopped a node being
     /// mapped, say, or a new engine schema), each with the reason. For the UI to flag.
     pub fn wire_problems(&self, catalog: &SchemaReply) -> Vec<(Wire, String)> {
+        // which nodes are mapped, worked out once for every wire (N3 slice 5: asked of each
+        // wire's source one at a time, each looking at every wire upstream, this was two thirds
+        // of a `node.set` at 2,000 nodes); on a (corrupt) cycle, asked one at a time as before
+        let (mapped, whole) = self.mapped_walk(catalog);
+        let is_list = |at: &PortRef, out: &plumcraft_proto::catalogue::Port| {
+            if whole { out.list || mapped.contains(&at.node) } else { self.output_is_list(catalog, at) }
+        };
         let check = |w: &Wire| -> Result<()> {
             let from_def = def_of(catalog, self, &w.from.node)?;
             let to_def = def_of(catalog, self, &w.to.node)?;
@@ -1159,7 +1175,7 @@ impl Graph {
                 }
                 return Ok(());
             }
-            check_sliced_wire(catalog, &w.from, out, self.output_is_list(catalog, &w.from), parsed.as_ref(), &w.to, inp)
+            check_sliced_wire(catalog, &w.from, out, is_list(&w.from, out), parsed.as_ref(), &w.to, inp)
         };
         self.wires.iter().filter_map(|w| check(w).err().map(|e| (w.clone(), e.to_string()))).collect()
     }
@@ -1531,6 +1547,53 @@ mod tests {
             assert_eq!(all.contains(id), g.output_is_list(&c, &p(id, "text")) && id != &sp, "{id}: the bulk answer is each node's");
         }
         assert!(all.contains(&u) && all.contains(&u2) && !all.contains(&u3) && !all.contains(&a));
+    }
+
+    /// Each wire's problem, its source's list-ness asked of that node alone (what
+    /// `wire_problems` did before it worked them all out in one pass).
+    fn problems_one_at_a_time(g: &Graph, c: &SchemaReply) -> Vec<PortRef> {
+        g.wires
+            .iter()
+            .filter(|w| {
+                let out = def_of(c, g, &w.from.node).unwrap().output(&w.from.port).unwrap();
+                let inp = resolve_input(def_of(c, g, &w.to.node).unwrap(), &g.nodes[&w.to.node], &w.to.node, &w.to.port).unwrap().port;
+                let slice = w.parsed_slice().transpose().unwrap();
+                check_sliced_wire(c, &w.from, out, g.output_is_list(c, &w.from), slice.as_ref(), &w.to, inp).is_err()
+            })
+            .map(|w| w.to.clone())
+            .collect()
+    }
+
+    #[test]
+    fn wire_problems_find_what_asking_each_wire_found() {
+        let c = catalog();
+        let mut g = Graph::new();
+        let (a, sp, j, u, u2) = (
+            add(&mut g, &c, "text.literal"),
+            add(&mut g, &c, "text.split"),
+            add(&mut g, &c, "text.join_all"),
+            add(&mut g, &c, "text.upper"),
+            add(&mut g, &c, "text.upper"),
+        );
+        g.connect(&c, p(&a, "text"), p(&sp, "text")).unwrap();
+        g.connect(&c, p(&sp, "parts"), p(&u, "text")).unwrap();
+        g.connect(&c, p(&u, "text"), p(&u2, "text")).unwrap();
+        g.connect(&c, p(&u2, "text"), p(&j, "parts")).unwrap();
+        assert!(g.wire_problems(&c).is_empty());
+        assert!(problems_one_at_a_time(&g, &c).is_empty());
+        // upper fed a single value again: nothing downstream is mapped, so join_all's list
+        // input is fed a single value, two nodes on
+        g.wires.retain(|w| w.to != p(&u, "text"));
+        g.wires.push(Wire::new(p(&a, "text"), p(&u, "text")));
+        let found: Vec<PortRef> = g.wire_problems(&c).into_iter().map(|(w, _)| w.to).collect();
+        assert_eq!(found, vec![p(&j, "parts")]);
+        assert_eq!(found, problems_one_at_a_time(&g, &c));
+        // a (corrupt) cycle: asked one at a time, as before
+        g.wires.retain(|w| w.to != p(&u, "text"));
+        g.wires.push(Wire::new(p(&u2, "text"), p(&u, "text")));
+        assert!(!g.mapped_walk(&c).1, "the walk doesn't reach the cycle");
+        let found: Vec<PortRef> = g.wire_problems(&c).into_iter().map(|(w, _)| w.to).collect();
+        assert_eq!(found, problems_one_at_a_time(&g, &c));
     }
 
     #[test]

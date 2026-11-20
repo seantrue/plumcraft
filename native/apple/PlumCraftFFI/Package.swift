@@ -15,6 +15,10 @@
 // - PlumCraftCanvas (N3 slice 3): the layer canvas, a CALayer per face drawn on workers, a shape
 //   layer per wire, under one transformed layer; with a thin host per platform (an NSView on
 //   macOS, a UIView on iOS) that recognises input and sends it as ui.gesture.
+// - PlumCraftShell (N3 slice 5): what the Mac and iPad apps share above the canvas and below their
+//   windows: the core's config and start, the status file for scripts, the menu model's lookups and
+//   the words for answers, watched values as text, the budget run, and the core's log into the
+//   unified log.
 // - PlumCraftConformance: the conformance runner (docs/shell-interface.md 16.1) in Swift, with a
 //   driver through the kit and one over the core's control port.
 // - plumcraft-conformance: the runner as a command, pointed at a running app's control port.
@@ -29,6 +33,7 @@ let package = Package(
         .library(name: "PlumCraftKit", targets: ["PlumCraftKit", "PlumCraft", "PlumCraftModels"]),
         .library(name: "PlumCraft", targets: ["PlumCraft", "PlumCraftModels"]),
         .library(name: "PlumCraftCanvas", targets: ["PlumCraftCanvas"]),
+        .library(name: "PlumCraftShell", targets: ["PlumCraftShell"]),
         .library(name: "PlumCraftConformance", targets: ["PlumCraftConformance"]),
         .executable(name: "plumcraft-conformance", targets: ["plumcraft-conformance"]),
     ],
@@ -43,11 +48,13 @@ let package = Package(
         ),
         .target(name: "PlumCraftKit", dependencies: ["PlumCraft", "PlumCraftModels"], swiftSettings: strict),
         .target(name: "PlumCraftCanvas", dependencies: ["PlumCraftKit", "PlumCraft", "PlumCraftModels"], swiftSettings: strict),
+        .target(name: "PlumCraftShell", dependencies: ["PlumCraftCanvas", "PlumCraftKit", "PlumCraft", "PlumCraftModels"], swiftSettings: strict),
         .target(name: "PlumCraftConformance", dependencies: ["PlumCraftKit", "PlumCraft", "PlumCraftModels"], swiftSettings: strict),
         .executableTarget(name: "plumcraft-conformance", dependencies: ["PlumCraftConformance", "PlumCraftModels"], swiftSettings: strict),
         .testTarget(name: "PlumCraftModelsTests", dependencies: ["PlumCraftModels"], swiftSettings: strict),
         .testTarget(name: "PlumCraftTests", dependencies: ["PlumCraft", "PlumCraftKit", "PlumCraftModels"], swiftSettings: strict),
         .testTarget(name: "PlumCraftCanvasTests", dependencies: ["PlumCraftCanvas", "PlumCraftKit", "PlumCraft", "PlumCraftModels"], swiftSettings: strict),
+        .testTarget(name: "PlumCraftShellTests", dependencies: ["PlumCraftShell", "PlumCraftKit", "PlumCraft", "PlumCraftModels"], swiftSettings: strict),
         .testTarget(
             name: "PlumCraftConformanceTests",
             dependencies: ["PlumCraftConformance", "PlumCraftKit", "PlumCraft", "PlumCraftModels"],

@@ -161,6 +161,19 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         #expect(canvas.hit(Point(f.pos.x + 10, f.pos.y + 10), slop: 2).node == f.nid)
     }
 
+    /// A model started after its engine connected still learns the engine is ready (N3 slice 5:
+    /// the feed had said so before the model listened).
+    @Test func aModelStartedLateKnowsItsEngine() async throws {
+        let (core, first) = try await started("model-late")
+        defer { core.close() }
+        #expect(first.engine.connected)
+        // a second model of the same document, started once everything is quiet
+        let late = DocumentModel(core: core, doc: first.doc)
+        late.start()
+        #expect(await late.wait { late.engine.connected }, "the late model never heard its engine is ready")
+        #expect(late.engine.label.contains("connected"))
+    }
+
     /// A picture from the array engine: watched, made by media.get, lent by plum_blob.
     @Test func aWatchedPictureIsLentWithoutACopy() async throws {
         let (core, model) = try await started("model-picture", ["engine": "array"])

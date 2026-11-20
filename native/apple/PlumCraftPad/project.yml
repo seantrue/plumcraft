@@ -1,0 +1,106 @@
+# PlumCraft for the iPad (N3 slice 5, docs/research/24-native-shells.md section 18): a
+# document-based UIKit app on the Swift kit (../PlumCraftFFI) and its layer canvas, sharing the
+# kit's shell pieces (PlumCraftShell) with the Mac app. Generate with `xcodegen generate`; build,
+# check and measure with ./conformance.sh and ./bench.sh.
+# The generated PlumCraftPad.xcodeproj, App/Info.plist and build/ are not committed (.gitignore).
+#
+# Signing: the simulator build is signed to run locally. A device build is signed by the
+# command line that builds it (bench.sh device), with the team's development identity and an
+# existing profile; nothing here asks Apple for one.
+name: PlumCraftPad
+options:
+  bundleIdPrefix: com.plumcraft
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  PlumCraftFFI:
+    path: ../PlumCraftFFI
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+targets:
+  PlumCraftPad:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+      - path: Samples
+        type: folder
+        buildPhase: resources
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: PlumCraft
+        CFBundleDisplayName: PlumCraft
+        CFBundleShortVersionString: "0.7.0"
+        CFBundleVersion: "1"
+        LSApplicationCategoryType: public.app-category.developer-tools
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: false
+        # the scene's restoration activity (the graph shown and its view)
+        NSUserActivityTypes:
+          - com.plumcraft.pad.graph
+        # the system's document browser, Files, open in place
+        UISupportsDocumentBrowser: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: PlumCraft Graph
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+    scheme:
+      testTargets:
+        - PlumCraftPadUITests
+    dependencies:
+      - package: PlumCraftFFI
+        product: PlumCraftKit
+      - package: PlumCraftFFI
+        product: PlumCraftCanvas
+      - package: PlumCraftFFI
+        product: PlumCraftShell
+    settings:
+      base:
+        PRODUCT_NAME: PlumCraftPad
+        PRODUCT_MODULE_NAME: PlumCraftPad
+        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad
+        TARGETED_DEVICE_FAMILY: "2"
+        ARCHS: arm64
+        DEAD_CODE_STRIPPING: YES
+        "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+        CODE_SIGN_STYLE: Manual
+  # the platform's recognisers driven by XCUITest in the simulator (real taps, long presses, pinches
+  # and drags through UIKit, which the conformance suite over the port doesn't reach)
+  PlumCraftPadUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: PlumCraftPad
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad.uitests
+        TARGETED_DEVICE_FAMILY: "2"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PlumCraftPad
+        "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+        CODE_SIGN_STYLE: Manual

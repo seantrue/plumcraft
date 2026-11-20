@@ -49,6 +49,8 @@ targets:
         product: PlumCraftKit
       - package: PlumCraftFFI
         product: PlumCraftCanvas
+      - package: PlumCraftFFI
+        product: PlumCraftShell
     settings:
       base:
         PRODUCT_NAME: PlumCraft

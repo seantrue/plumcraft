@@ -15,6 +15,7 @@ import PlumCraft
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
+import PlumCraftShell
 
 @objc(GraphDocument)
 final class GraphDocument: NSDocument {
@@ -194,7 +195,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         let path = document.fileURL?.path
         let opened = ContinuousClock.now
         Task { [weak self] in
-            await CoreHost.ready?.value
+            _ = await CoreHost.ready?.value
             guard let self else { return }
             do {
                 let r = try await core.request("document.open", path.map { ["path": .string($0)] } ?? [:])
@@ -386,16 +387,9 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         return item
     }
 
-    /// The model's item for `command`, wherever it is in the bar.
+    /// The model's item for `command`, wherever it is in the bar (the kit's lookup).
     func modelItem(_ command: String) -> MenuItem? {
-        func find(_ l: [MenuItem]) -> MenuItem? {
-            for it in l {
-                if it.command == command && it.params == nil { return it }
-                if let f = find(it.items) { return f }
-            }
-            return nil
-        }
-        return canvasView.flatMap { find($0.model.menuBar) }
+        canvasView?.model.menuBar.item(command: command)
     }
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {

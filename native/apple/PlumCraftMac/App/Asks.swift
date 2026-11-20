@@ -18,6 +18,7 @@ import AppKit
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
+import PlumCraftShell
 
 @MainActor
 final class AskPresenter {
@@ -102,8 +103,8 @@ final class AskPresenter {
             panel.canChooseFiles = a.kind.word != .folderPick
             panel.allowsMultipleSelection = p["multiple"].bool ?? false
             if let start = p["startIn"].string { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
-            let exts = (p["kinds"].array ?? []).flatMap { $0["extensions"].array ?? [] }.compactMap(\.string)
-            if !exts.isEmpty && !exts.contains("*") { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
+            let exts = AskWords.extensions(p)
+            if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
             closeSheet = { [weak window, weak panel] in if let panel { window?.endSheet(panel, returnCode: .cancel) } }
             panel.beginSheetModal(for: window) { [weak self] r in
                 guard let self else { return }
@@ -123,8 +124,8 @@ final class AskPresenter {
             panel.message = p["title"].string ?? ""
             panel.nameFieldStringValue = p["name"].string ?? "untitled"
             if let start = p["startIn"].string { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
-            let exts = (p["kinds"].array ?? []).flatMap { $0["extensions"].array ?? [] }.compactMap(\.string)
-            if !exts.isEmpty && !exts.contains("*") { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
+            let exts = AskWords.extensions(p)
+            if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
             panel.canCreateDirectories = true
             closeSheet = { [weak window, weak panel] in if let panel { window?.endSheet(panel, returnCode: .cancel) } }
             panel.beginSheetModal(for: window) { [weak self] r in
@@ -216,16 +217,8 @@ final class AskPresenter {
         Task { @MainActor [weak self] in self?.update(pending) }
     }
 
-    /// The Mac's words for the core's answers.
-    static func buttonTitle(_ answer: String, kind: String?) -> String {
-        switch answer {
-        case "save": "Save"
-        case "discard": kind == "unsavedChanges" ? "Don't Save" : "Discard"
-        case "cancel": "Cancel"
-        case "trust": "Trust"
-        default: answer.prefix(1).uppercased() + answer.dropFirst()
-        }
-    }
+    /// The Mac's words for the core's answers (the kit's, shared with the iPad).
+    static func buttonTitle(_ answer: String, kind: String?) -> String { AskWords.buttonTitle(answer, kind: kind) }
 
     // MARK: Non-modal
 
