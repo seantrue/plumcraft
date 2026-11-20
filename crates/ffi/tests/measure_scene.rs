@@ -133,6 +133,41 @@ fn hot_calls_cost() {
             c.wait_wake(Duration::from_millis(5));
         }
         let applied_us = t0.elapsed().as_secs_f64() * 1e6;
+        // with PLUMCRAFT_MEASURE_IDLE=1, the same once the core has been quiet for longer than its
+        // scene throttle (`SCENE_EVERY`, 16 ms), so what is left is the work: applying, rebuilding
+        // the scene, the snapshot (N3 slice 1: the number above includes waiting for the throttle
+        // after the scene.get before it). A pause, not a wait on a condition: being idle is the
+        // condition measured. Off by default, so the timings after it are taken as before.
+        let idle_applied_us = if std::env::var("PLUMCRAFT_MEASURE_IDLE").is_ok_and(|v| v == "1") {
+            let bigger: Vec<plumcraft_ffi::PlumFace> = list.iter().map(|f| plumcraft_ffi::PlumFace { w: 210.0, ..*f }).collect();
+            std::thread::sleep(Duration::from_millis(100));
+            let t0 = Instant::now();
+            // SAFETY: the faces and their pins are live for the call.
+            assert_eq!(unsafe { plumcraft_ffi::plum_geometry_set(c.core, 0, bigger.as_ptr(), bigger.len()) }, plumcraft_ffi::PLUM_OK);
+            loop {
+                let h = plumcraft_ffi::plum_hit_test(c.core, 0, 210.0, 40.0, 1.0);
+                if h.status == plumcraft_ffi::PLUM_OK && h.node == first && h.kind == 2 && h.x == 210.0 {
+                    break;
+                }
+                assert!(t0.elapsed() < Duration::from_secs(20), "no snapshot with the second geometry");
+                c.poll();
+                c.wait_wake(Duration::from_millis(1));
+            }
+            let idle_applied_us = t0.elapsed().as_secs_f64() * 1e6;
+            // back to the first sizes before the hot calls are timed, so they hit what they always did
+            // SAFETY: the faces and their pins are live for the call.
+            assert_eq!(unsafe { plumcraft_ffi::plum_geometry_set(c.core, 0, list.as_ptr(), list.len()) }, plumcraft_ffi::PLUM_OK);
+            let t0 = Instant::now();
+            while !matches!(plumcraft_ffi::plum_hit_test(c.core, 0, 200.0, 40.0, 1.0), h if h.status == plumcraft_ffi::PLUM_OK && h.node == first && h.kind == 2 && h.x == 200.0)
+            {
+                assert!(t0.elapsed() < Duration::from_secs(20), "no snapshot with the first geometry again");
+                c.poll();
+                c.wait_wake(Duration::from_millis(1));
+            }
+            idle_applied_us
+        } else {
+            0.0
+        };
         let nids: Vec<u64> = faces.iter().map(|f| f.0).collect();
         let (mut hit, mut target, mut paths) = (vec![], vec![], vec![]);
         let mut out = vec![0.0f32; 1 << 16];
@@ -174,7 +209,7 @@ fn hot_calls_cost() {
         let (d, dbytes, dus) = timed(&mut c, &json!({"method": "scene.get", "params": {"since": generation}}));
         println!(
             "MEASURE {}",
-            json!({"name": format!("hot.ffi.{nodes}"), "geometry_set_call_us": set_us, "geometry_to_snapshot_us": applied_us,
+            json!({"name": format!("hot.ffi.{nodes}"), "geometry_set_call_us": set_us, "geometry_to_snapshot_us": applied_us, "geometry_to_snapshot_idle_us": idle_applied_us,
                    "hit_test": stats(hit), "wire_target": stats(target), "wire_paths_20_faces": stats(paths),
                    "gesture_move_wire": wire_moves, "gesture_move_face": face_moves,
                    "delta_after_one_run": {"faces": d["upsert"]["nodes"].as_array().unwrap().len(), "bytes": dbytes, "us": dus}})

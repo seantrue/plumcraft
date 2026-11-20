@@ -1,6 +1,7 @@
 //! Frame commands: add, retitle or recolour, remove, move and resize the canvas's frames
 //! (titled rectangles for arranging nodes; [`plumcraft_graph::frames`]). Adding, editing and
-//! removing are undo steps; moving and resizing are not, as `node.move` isn't. None of them
+//! removing are undo steps; since N3 slice 1 moving and resizing are too, joined by the moves of
+//! the same frame that follow (as `node.move`'s; [`crate::Session::edit_move`]). None of them
 //! makes anything stale: an engine ignores frames (`docs/interface.md`, section 7.6 rule 8).
 //!
 //! Lifted from the research software's `crates/engine/src/frame_cmds.rs`. `frame.add` also takes collapsed
@@ -76,16 +77,27 @@ fn frame_move(s: &mut Session, p: &Value) -> Result<Value> {
             })
         })
         .transpose()?;
-    let moved = s.graph_mut_untracked().move_frame(&id, pos, held.as_ref())?;
-    s.mark_dirty();
+    let drag = crate::commands::drag_param(p)?;
+    let was = s.graph().frame(&id).ok_or_else(|| plumcraft_graph::GraphError::UnknownFrame(id.clone()))?.pos;
+    if was == pos {
+        // nothing moves: what it holds, as a move would name it
+        let held = held.unwrap_or_else(|| s.graph().frame_held(&id));
+        return Ok(json!({"nodes": held.nodes, "groups": held.groups}));
+    }
+    let moved = s.edit_move("Move Frame", vec![format!("frame:{}", id.0)], drag.as_deref(), |g| Ok(g.move_frame(&id, pos, held.as_ref())?))?;
     Ok(json!({"nodes": moved.nodes, "groups": moved.groups}))
 }
 
 fn frame_resize(s: &mut Session, p: &Value) -> Result<Value> {
     let id = frame_param(p)?;
     let size = pos_param(p, "size")?.ok_or_else(|| SessionError::Params("\"size\" is required".into()))?;
-    s.graph_mut_untracked().resize_frame(&id, size)?;
-    s.mark_dirty();
+    let drag = crate::commands::drag_param(p)?;
+    let was = s.graph().frame(&id).ok_or_else(|| plumcraft_graph::GraphError::UnknownFrame(id.clone()))?.size;
+    // the size it would have (each side at least the least a frame has)
+    let would = plumcraft_graph::frames::checked_size(size)?;
+    if was != would {
+        s.edit_move("Resize Frame", vec![format!("size:{}", id.0)], drag.as_deref(), |g| Ok(g.resize_frame(&id, size)?))?;
+    }
     Ok(json!({"frame": s.graph().frame(&id)}))
 }
 
@@ -126,7 +138,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Move Frame",
             menu: &[],
             shortcut: None,
-            params: "{frame: frame id, pos: [x, y], nodes?: [node id], groups?: [group id]} -> {nodes: [moved], groups: [moved]} (what is inside moves with it, or the nodes and groups named: a drag names what it picked up when it began; not an undo step)",
+            params: "{frame: frame id, pos: [x, y], nodes?: [node id], groups?: [group id]} -> {nodes: [moved], groups: [moved]} (what is inside moves with it, or the nodes and groups named: a drag names what it picked up when it began; drag?: names the drag; an undo step, \"Move Frame\", joined by the same frame's moves after it as node.move's are)",
             enabled: has_frames,
             run: frame_move,
             journal: false,
@@ -136,7 +148,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Resize Frame",
             menu: &[],
             shortcut: None,
-            params: "{frame: frame id, size: [w, h]} -> {frame} (each side at least 80; not an undo step)",
+            params: "{frame: frame id, size: [w, h]} -> {frame} (each side at least 80; drag?: names the drag; an undo step, \"Resize Frame\", joined as node.move's are)",
             enabled: has_frames,
             run: frame_resize,
             journal: false,
@@ -178,8 +190,16 @@ mod tests {
         assert_eq!(r["nodes"].as_array().unwrap().len(), 2);
         assert_eq!(pos(&s, &a), [100.0 - 76.0, 100.0 - 44.0]);
         assert_eq!(pos(&s, &far), [2000.0, 2000.0]);
-        assert_eq!(s.undo_label(), Some("Add Frame"), "moving isn't an undo step");
+        // since N3 slice 1 a move is an undo step, and so is a resize
+        assert_eq!(s.undo_label(), Some("Move Frame"));
+        s.execute("frame.move", &json!({"frame": id, "pos": [0, 0]})).unwrap();
+        assert_eq!(s.undo_label(), Some("Move Frame"), "a move to where it is adds nothing");
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!(pos(&s, &a), [100.0, 100.0], "undo puts the frame's nodes back");
+        assert_eq!(s.undo_label(), Some("Add Frame"));
+        s.execute("edit.redo", &Value::Null).unwrap();
         s.execute("frame.resize", &json!({"frame": id, "size": [10, 900]})).unwrap();
+        assert_eq!(s.undo_label(), Some("Resize Frame"));
         s.execute("frame.set", &json!({"frame": id, "title": "sources", "color": "#204060"})).unwrap();
         assert_eq!(s.graph().frame(&FrameId::from(id.as_str())).unwrap().title, "sources");
         s.execute("edit.undo", &Value::Null).unwrap();

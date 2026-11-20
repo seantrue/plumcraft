@@ -440,7 +440,8 @@ impl Canvas {
                 if drag.dragged() && t.scaling > 0.0 {
                     let d = drag.drag_delta() / t.scaling;
                     if d != Vec2::ZERO {
-                        actions.push(("group.move", json!({"group": gid, "pos": [grp.pos[0] + d.x, grp.pos[1] + d.y]})));
+                        actions
+                            .push(("group.move", json!({"group": gid, "pos": [grp.pos[0] + d.x, grp.pos[1] + d.y], "drag": format!("egui:{}", self.press)})));
                     }
                 }
                 drag.on_hover_cursor(egui::CursorIcon::Grab);
