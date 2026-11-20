@@ -188,6 +188,12 @@ pub trait Shell: Host {
     fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
         None
     }
+    /// The tokens the scene names, in the theme its scenes are built in (`theme.get`, N2 slice 4:
+    /// the scene sends a token by name alone). By default the core's default theme, which a
+    /// shell with no theme of its own builds its scenes in.
+    fn theme_tokens(&self) -> Option<Value> {
+        Some(theme_reply(self.view().theme.unwrap_or("paper"), &crate::theme::DEFAULT))
+    }
     /// The document this shell shows, when it has one (the scene's geometry, the hot calls'
     /// snapshot: N2 slice 3).
     fn document_mut(&mut self) -> Option<&mut crate::document::Document> {
@@ -210,6 +216,59 @@ fn publish<S: Shell>(s: &mut S) -> Option<u64> {
 fn snapshot<S: Shell>(s: &mut S, method: &str) -> Result<std::sync::Arc<crate::geometry::Snapshot>, Value> {
     publish(s).ok_or_else(|| err(not_here(method)))?;
     s.document_mut().map(|d| std::sync::Arc::clone(&d.snapshot)).ok_or_else(|| err(not_here(method)))
+}
+
+/// `theme.get`'s reply: `{shell, name, tokens: {name: [r, g, b, a]}}`, every token a scene may
+/// name (`crate::theme::Tokens::scene_tokens`).
+pub fn theme_reply(name: &str, tokens: &crate::theme::Tokens) -> Value {
+    json!({"shell": crate::scene::SHELL, "name": name, "tokens": tokens.scene_tokens()})
+}
+
+/// `ui.gesture` (N2 slice 4, `docs/shell-interface.md` 6.3 and 8.13): hit-test the gesture
+/// against the scene published now, decide what it means ([`crate::gesture::plan`]), and run
+/// it: `{commands: [{command, params, ok, result | error}], hit?, drag?, update?, context?,
+/// menu?, cancelled?}`. Every command runs as any other does (its error is kept for the status
+/// bar); a later one runs even when an earlier failed.
+pub fn gesture<S: Shell>(s: &mut S, params: &Value) -> Value {
+    let req = match crate::gesture::parse(params) {
+        Ok(r) => r,
+        Err(e) => return err(e),
+    };
+    let snap = match snapshot(s, "ui.gesture") {
+        Ok(snap) => snap,
+        Err(e) => return e,
+    };
+    let plan = {
+        let Some(d) = s.document_mut() else { return err(not_here("ui.gesture")) };
+        let facts = crate::gesture::Facts { graph: d.session.graph(), selection: d.selection.get(), drag: &d.drag };
+        match crate::gesture::plan(&facts, &snap, &req) {
+            Ok(p) => p,
+            Err(e) => return err(e),
+        }
+    };
+    let mut commands = Vec::with_capacity(plan.commands.len());
+    for (command, p) in plan.commands {
+        let r = s.run(command, &p);
+        commands.push(match r {
+            Ok(v) => json!({"command": command, "params": p, "ok": true, "result": v}),
+            Err(e) => json!({"command": command, "params": p, "ok": false, "error": e}),
+        });
+    }
+    let mut out = plan.reply;
+    out.insert("commands".into(), Value::Array(commands));
+    if let Some(cx) = plan.menu {
+        let facts = s.menu_facts();
+        match crate::menu::get(s.session(), &facts, &json!({"context": cx}), None) {
+            Ok(m) => {
+                out.insert("menu".into(), m);
+            }
+            Err(e) => {
+                out.insert("menuError".into(), json!(e));
+            }
+        }
+    }
+    s.redraw();
+    ok(Value::Object(out))
 }
 
 /// A method this shell has nothing to answer with.
@@ -527,6 +586,27 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 Err(e) => err(e),
             }
         }
+        // where the core has something (N2 slice 4): a face, its pin, a wire's middle, a frame's
+        // tab, at the geometry it has, so a script (the conformance suite) aims a gesture at what
+        // any shell measured
+        "geometry.locate" => {
+            let snap = match snapshot(s, method) {
+                Ok(snap) => snap,
+                Err(e) => return e,
+            };
+            let measured = s.document_mut().map(|d| d.geometry.clone()).unwrap_or_default();
+            match crate::geometry::locate(&snap, &measured, params) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            }
+        }
+        // a recognised gesture (N2 slice 4): the core decides what it means and runs it
+        "ui.gesture" => gesture(s, params),
+        // the colours the scene names by token (N2 slice 4, question 13)
+        "theme.get" => match s.theme_tokens() {
+            Some(v) => ok(v),
+            None => err(not_here("theme.get")),
+        },
         // the log (N1 slice 8): read it, or add the shell's own entry
         "log.tail" => match crate::log::tail_request(params) {
             Ok(v) => ok(v),

@@ -81,6 +81,16 @@ impl core::Shell for EditorApp {
     fn scene(&self) -> Option<plumcraft_editor_core::scene::Scene> {
         Some(self.scene_now())
     }
+    /// The document this window shows: its scene's geometry and the hot calls' snapshot, so the
+    /// `geometry.*` queries and `ui.gesture` answer here as over the C ABI (N2 slice 4; before,
+    /// they said "isn't available from this shell" on this port).
+    fn document_mut(&mut self) -> Option<&mut plumcraft_editor_core::document::Document> {
+        Some(&mut self.doc)
+    }
+    /// The tokens of the theme this window draws, which its scenes are built in.
+    fn theme_tokens(&self) -> Option<Value> {
+        Some(core::theme_reply(self.tokens.name, &plumcraft_editor_core::theme::Tokens::from(&self.tokens)))
+    }
     fn scene_published(&mut self) -> Option<&mut plumcraft_editor_core::scene::Published> {
         Some(&mut self.doc.scene)
     }

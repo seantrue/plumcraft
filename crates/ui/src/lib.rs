@@ -689,6 +689,14 @@ impl EditorApp {
                 self.present_asks();
                 continue;
             }
+            // a gesture the canvas recognised: the core decides what it means and runs it
+            if id == "ui.gesture" {
+                let r = plumcraft_editor_core::control::gesture(self, &params);
+                if r["ok"] != true {
+                    plumcraft_editor_core::log::warn("canvas", &format!("ui.gesture: {}", r["error"]));
+                }
+                continue;
+            }
             // Save Result…: the core asks where, then runs run.save
             if id == "run.save" && params.get("ask").and_then(Value::as_bool) == Some(true) {
                 plumcraft_editor_core::invoke::save_result(self, params, By::Person);

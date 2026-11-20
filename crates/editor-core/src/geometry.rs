@@ -124,6 +124,9 @@ pub struct FaceGeometry {
     /// Each input row's widget rect, face coordinates; none for a row without one.
     pub rows: Vec<Option<[f32; 4]>>,
     pub parts: Vec<Part>,
+    /// Where the face's top left is drawn, from its position (N2 slice 4): `[0, 0]` for a shell
+    /// that draws a face at its position; egui-snarl draws its frame's margin around it.
+    pub offset: [f32; 2],
 }
 
 impl FaceGeometry {
@@ -290,7 +293,7 @@ pub fn parse_set(params: &Value) -> Result<Vec<Report>, String> {
     let mut out = Vec::with_capacity(faces.len());
     for (k, f) in faces.iter().enumerate() {
         let at = |what: &str| format!("faces[{k}].{what}");
-        check_fields(f, &["node", "rev", "size", "pins", "header", "rows", "parts"]).map_err(|e| format!("faces[{k}]: {e}"))?;
+        check_fields(f, &["node", "rev", "size", "pins", "header", "rows", "parts", "offset"]).map_err(|e| format!("faces[{k}]: {e}"))?;
         let face = f.get("node").and_then(Value::as_str).filter(|s| !s.is_empty() && s.len() <= 512).ok_or_else(|| at("node must be a face's id"))?;
         let rev = match f.get("rev") {
             None | Some(Value::Null) => None,
@@ -316,6 +319,14 @@ pub fn parse_set(params: &Value) -> Result<Vec<Report>, String> {
             }
             Some(_) => return Err(at(&format!("rows must be a list of at most {MAX_PINS} rects (null for a row without a widget)"))),
         };
+        let offset = match f.get("offset") {
+            None | Some(Value::Null) => [0.0; 2],
+            Some(v) => {
+                let a = v.as_array().filter(|a| a.len() == 2).ok_or_else(|| at("offset must be [dx, dy]"))?;
+                let n = |v: &Value| num(v, &at("offset")).map(|f| f.clamp(-1.0e4, 1.0e4));
+                [n(&a[0])?, n(&a[1])?]
+            }
+        };
         let mut parts = Vec::new();
         if let Some(p) = f.get("parts").filter(|p| !p.is_null()) {
             let names: Vec<&str> = PART_NAMES.iter().map(|(n, _)| *n).chain(["footer"]).collect();
@@ -337,7 +348,7 @@ pub fn parse_set(params: &Value) -> Result<Vec<Report>, String> {
                 Some(_) => return Err(at("parts.footer must be a list of rects")),
             }
         }
-        out.push(Report { face: face.to_owned(), rev, geometry: FaceGeometry { size, header, inputs, outputs, rows, parts } });
+        out.push(Report { face: face.to_owned(), rev, geometry: FaceGeometry { size, header, inputs, outputs, rows, parts, offset } });
     }
     Ok(out)
 }
@@ -345,7 +356,8 @@ pub fn parse_set(params: &Value) -> Result<Vec<Report>, String> {
 /// A face's rect: its position (the graph's) and the size the core has for it.
 pub fn face_rect(pos: [f32; 2], g: Option<&FaceGeometry>) -> Rect {
     let size = g.map_or(DEFAULT_SIZE, |g| g.size);
-    let min = tame(Point::new(pos[0], pos[1]));
+    let off = g.map_or([0.0; 2], |g| g.offset);
+    let min = tame(Point::new(pos[0] + off[0], pos[1] + off[1]));
     Rect::from_min_max(min, tame(min + Point::new(size[0], size[1])))
 }
 
@@ -480,6 +492,8 @@ struct SPin {
     /// The graph node it belongs to (a proxy's rows stand for members'), by index.
     node: u32,
     convert: bool,
+    /// Its port's name on that node.
+    key: String,
 }
 
 #[derive(Debug, Clone)]
@@ -532,6 +546,8 @@ struct STag {
     /// The net's nid and id.
     net: u64,
     net_id: String,
+    /// The net's name and the group it is local to.
+    net_key: (String, Option<String>),
     /// A use's wire (nid, id); the driver's: none.
     wire: Option<(u64, String)>,
     face: usize,
@@ -573,6 +589,24 @@ pub struct Snapshot {
     /// Graph nodes by index, and what each feeds (cycles).
     nodes: Vec<String>,
     downstream: Vec<Vec<u32>>,
+}
+
+/// Where a document hands its latest snapshot to readers on other threads (the C ABI's hot
+/// calls): swapped in by [`crate::document::Document::publish_scene`] the moment a new one is
+/// made, before any reply that follows it goes out (N2 slice 4: the C ABI shared it at the end of
+/// its core thread's turn, so a hot call right after a reply could read the one before). Held
+/// only to clone or swap the `Arc`.
+#[derive(Debug, Clone, Default)]
+pub struct SnapshotCell(std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<Snapshot>>>>);
+
+impl SnapshotCell {
+    pub fn get(&self) -> Option<std::sync::Arc<Snapshot>> {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
+    }
+
+    pub fn set(&self, s: std::sync::Arc<Snapshot>) {
+        *self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(s);
+    }
 }
 
 /// What is under a point, or where a wire may land (`plum_hit`, section 9.2 and 9.3).
@@ -674,6 +708,7 @@ impl Snapshot {
                         wireable: r.pin.wireable && !named.contains(&port),
                         node: node_of(&r.node),
                         convert: graph.is_convert(&port.node),
+                        key: r.key.clone(),
                     }
                 })
                 .collect();
@@ -692,6 +727,7 @@ impl Snapshot {
                         wireable: r.pin.wireable,
                         node: node_of(&r.node),
                         convert: graph.is_convert(&node),
+                        key: r.key.clone(),
                     }
                 })
                 .collect();
@@ -742,7 +778,15 @@ impl Snapshot {
                 && let Some(pin) = pin_at(&faces, face, true, n.driver.pin)
             {
                 let anchor = pin + Point::new(n.driver.at[0] as f32, n.driver.at[1] as f32);
-                tags.push(STag { part: part::DRIVER, net: n.nid, net_id: n.id.clone(), wire: None, face, rect: tag_rect(anchor, name, false) });
+                tags.push(STag {
+                    part: part::DRIVER,
+                    net: n.nid,
+                    net_id: n.id.clone(),
+                    net_key: (n.key.name.clone(), n.key.group.as_ref().map(|g| g.0.clone())),
+                    wire: None,
+                    face,
+                    rect: tag_rect(anchor, name, false),
+                });
             }
             for u in &n.uses {
                 let Some(&face) = face_id.get(&u.face) else { continue };
@@ -750,7 +794,15 @@ impl Snapshot {
                 let anchor = pin + Point::new(u.at[0] as f32, u.at[1] as f32);
                 let wid = format!("{}.{}", u.to.node, u.to.port);
                 let wire = wire_nid.get(wid.as_str()).map(|(nid, id)| (*nid, (*id).to_owned()));
-                tags.push(STag { part: part::USE, net: n.nid, net_id: n.id.clone(), wire, face, rect: tag_rect(anchor, name, true) });
+                tags.push(STag {
+                    part: part::USE,
+                    net: n.nid,
+                    net_id: n.id.clone(),
+                    net_key: (n.key.name.clone(), n.key.group.as_ref().map(|g| g.0.clone())),
+                    wire,
+                    face,
+                    rect: tag_rect(anchor, name, true),
+                });
             }
         }
         let frames = i
@@ -1022,7 +1074,7 @@ impl Snapshot {
 
     /// The paths of every wire with an end on one of `faces` (nids), as if those faces were
     /// moved by `(dx, dy)`, appended to `out` as section 9.1 lays them out: per wire its nid's
-    /// low 32 bits and its point count (each a `u32` bit-cast to a float), then the points as
+    /// low and high 32 bits and its point count (each a `u32` bit-cast to a float), then the points as
     /// `x, y`. A wire drawn through a net has no path and is left out; unknown nids are skipped.
     /// Returns how many floats it appended.
     pub fn wire_paths(&self, faces: &[u64], dx: f32, dy: f32, out: &mut Vec<f32>) -> usize {
@@ -1040,7 +1092,9 @@ impl Snapshot {
                     continue;
                 }
                 let nid = self.wires.get(k).map_or(0, |w| w.nid);
+                // the whole nid, low word first (N2 slice 4: slice 3 sent the low 32 bits only)
                 out.push(f32::from_bits((nid & u64::from(u32::MAX)) as u32));
+                out.push(f32::from_bits((nid >> 32) as u32));
                 out.push(f32::from_bits(u32::try_from(chain.len()).unwrap_or(u32::MAX)));
                 for p in chain {
                     out.push(p.x);
@@ -1179,6 +1233,156 @@ impl Snapshot {
     pub fn node_count(&self) -> usize {
         self.nodes.len()
     }
+
+    // ---- what a gesture reads (N2 slice 4, `crate::gesture`) ----
+
+    fn face_by_nid(&self, nid: u64) -> Option<&SFace> {
+        self.face_at.get(&nid).and_then(|&k| self.faces.get(k))
+    }
+
+    /// Face `nid`'s id (a node's, or `group:<id>` for a collapsed group's).
+    pub fn face_id_of(&self, nid: u64) -> Option<&str> {
+        self.face_by_nid(nid).map(|f| f.id.as_str())
+    }
+
+    /// Face `nid`'s rect (graph units), at the size the core has for it.
+    pub fn face_rect_of(&self, nid: u64) -> Option<Rect> {
+        self.face_by_nid(nid).map(|f| f.rect)
+    }
+
+    /// Face `nid`'s header height (what the hit test takes as header).
+    pub fn face_header_of(&self, nid: u64) -> Option<f32> {
+        self.face_by_nid(nid).map(|f| f.header)
+    }
+
+    /// Was face `id` measured by the shell (else its size is the core's default)?
+    pub fn is_measured(&self, measured: &Measured, id: &str) -> bool {
+        measured.get(id).is_some() && self.face_id.contains_key(id)
+    }
+
+    /// The graph port pin `pin` of face `nid` stands for (an output when `output`): a collapsed
+    /// group's pins stand for its members' ports.
+    pub fn pin_port(&self, nid: u64, output: bool, pin: u32) -> Option<PortRef> {
+        let f = self.face_by_nid(nid)?;
+        let p = if output { f.outputs.get(pin as usize) } else { f.inputs.get(pin as usize) }?;
+        let node = self.nodes.get(p.node as usize)?;
+        Some(PortRef::new(NodeId(node.clone()), p.key.clone()))
+    }
+
+    /// Where pin `pin` of face `nid` is (graph units).
+    pub fn pin_at(&self, nid: u64, output: bool, pin: u32) -> Option<Point> {
+        let k = *self.face_at.get(&nid)?;
+        self.pin_point(k, output, pin as usize)
+    }
+
+    /// Wire `nid`: its id, its output end's port, its input end's port, its bend points, its
+    /// chain, the face nids at its ends and their pins `((face, pin), (face, pin))`.
+    pub fn wire_of(&self, nid: u64) -> Option<WireInfo> {
+        let w = self.wires.iter().find(|w| w.nid == nid)?;
+        self.wire_info(w)
+    }
+
+    /// Wire `id` (its input end's `node.port`), as [`Snapshot::wire_of`].
+    pub fn wire_by_id(&self, id: &str) -> Option<WireInfo> {
+        let w = self.wires.iter().find(|w| w.id == id)?;
+        self.wire_info(w)
+    }
+
+    fn wire_info(&self, w: &SWire) -> Option<WireInfo> {
+        let (fa, fb) = (self.faces.get(w.from.0)?, self.faces.get(w.to.0)?);
+        let from = self.pin_port(fa.nid, true, u32::try_from(w.from.1).ok()?)?;
+        let to = self.pin_port(fb.nid, false, u32::try_from(w.to.1).ok()?)?;
+        Some(WireInfo {
+            nid: w.nid,
+            id: w.id.clone(),
+            from,
+            to,
+            via: w.via.clone(),
+            chain: w.chain.clone(),
+            from_pin: (fa.nid, u32::try_from(w.from.1).unwrap_or(u32::MAX)),
+            to_pin: (fb.nid, u32::try_from(w.to.1).unwrap_or(u32::MAX)),
+        })
+    }
+
+    /// The wire into input pin `pin` of face `nid`, if it has one drawn.
+    pub fn wire_into(&self, nid: u64, pin: u32) -> Option<WireInfo> {
+        let k = *self.face_at.get(&nid)?;
+        let w = self.wires.iter().find(|w| w.to == (k, pin as usize))?;
+        self.wire_info(w)
+    }
+
+    /// A net tag's net (name, the group it is local to) and, for a use's tag, its wire's id;
+    /// `driver` picks a driver's tag, by the net's nid, else a use's, by its wire's nid.
+    pub fn tag_of(&self, driver: bool, item: u64) -> Option<(String, Option<String>, Option<String>)> {
+        let t = self
+            .tags
+            .iter()
+            .find(|t| if driver { t.part == part::DRIVER && t.net == item } else { t.part == part::USE && t.wire.as_ref().is_some_and(|w| w.0 == item) })?;
+        Some((t.net_key.0.clone(), t.net_key.1.clone(), t.wire.as_ref().map(|w| w.1.clone())))
+    }
+
+    /// Frame `nid`: its id and rect.
+    pub fn frame_of(&self, nid: u64) -> Option<(&str, Rect)> {
+        self.frames.iter().find(|(b, ..)| b.nid == nid).map(|(b, ..)| (b.id.as_str(), b.rect))
+    }
+
+    /// Frame `id`: its rect, tab and resize handle.
+    pub fn frame_by_id(&self, id: &str) -> Option<(Rect, Rect, Rect)> {
+        self.frames.iter().find(|(b, ..)| b.id == id).map(|(b, tab, handle)| (b.rect, *tab, *handle))
+    }
+
+    /// Open group `nid`: its id and rect.
+    pub fn group_of(&self, nid: u64) -> Option<(&str, Rect)> {
+        self.groups.iter().find(|g| g.nid == nid).map(|g| (g.id.as_str(), g.rect))
+    }
+
+    /// Face `id`'s nid and rect.
+    pub fn face_by_id(&self, id: &str) -> Option<(u64, Rect)> {
+        self.face_id.get(id).and_then(|&k| self.faces.get(k)).map(|f| (f.nid, f.rect))
+    }
+
+    /// How many pins face `nid` has on a side.
+    pub fn pin_count(&self, nid: u64, output: bool) -> usize {
+        self.face_by_nid(nid).map_or(0, |f| if output { f.outputs.len() } else { f.inputs.len() })
+    }
+
+    /// The faces a rect touches (a marquee: a face it intersects, as egui-snarl's), by id, in
+    /// drawing order.
+    pub fn faces_touching(&self, r: Rect) -> Vec<(u64, &str)> {
+        self.faces
+            .iter()
+            .filter(|f| f.rect.min.x <= r.max.x && f.rect.max.x >= r.min.x && f.rect.min.y <= r.max.y && f.rect.max.y >= r.min.y)
+            .map(|f| (f.nid, f.id.as_str()))
+            .collect()
+    }
+
+    /// A hit's JSON with no ids looked up: for a `plum_drag`'s target as JSON.
+    pub fn hit_kind_name(kind: u32) -> &'static str {
+        match kind {
+            kind::NODE => "node",
+            kind::PIN => "pin",
+            kind::WIRE => "wire",
+            kind::BEND => "bend",
+            kind::TAG => "tag",
+            kind::FRAME => "frame",
+            kind::GROUP => "group",
+            _ => "none",
+        }
+    }
+}
+
+/// A drawn wire, as a gesture needs it ([`Snapshot::wire_of`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct WireInfo {
+    pub nid: u64,
+    pub id: String,
+    pub from: PortRef,
+    pub to: PortRef,
+    pub via: Vec<[i32; 2]>,
+    pub chain: Vec<Point>,
+    /// (face nid, pin index) at each end.
+    pub from_pin: (u64, u32),
+    pub to_pin: (u64, u32),
 }
 
 /// `{at: [x, y], slop?}` (`geometry.hit`), or with `from` (`geometry.wireTarget`).
@@ -1225,6 +1429,62 @@ pub fn parse_paths(snapshot: &Snapshot, params: &Value) -> Result<(Vec<u64>, f32
         }
     };
     Ok((nids, dx, dy))
+}
+
+/// `geometry.locate` (N2 slice 4): where the core has something, at the geometry it has, so a
+/// script aims a gesture at what any shell measured. `{node: face id, part?: "center" | "header"
+/// | "body", pin?: {side: "in" | "out", index}}`, `{wire: wire id}` (a point on its path, its
+/// middle), or `{frame: frame id, part?: "body" | "tab" | "handle"}` → `{at: [x, y], rect?,
+/// measured?}`.
+pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Value, String> {
+    check_fields(params, &["node", "part", "pin", "wire", "frame"])?;
+    let pt = |p: Point| json!([round(p.x), round(p.y)]);
+    let part_name = params.get("part").map(|p| p.as_str().ok_or("part must be a name")).transpose()?;
+    if let Some(id) = params.get("node") {
+        let id = id.as_str().ok_or("node must be a face's id")?;
+        let (nid, r) = snap.face_by_id(id).ok_or_else(|| format!("no face {}", crate::selection::shown_id(id)))?;
+        let header = snap.face_header_of(nid).unwrap_or(DEFAULT_HEADER).min(r.height());
+        let at = if let Some(pin) = params.get("pin") {
+            check_fields(pin, &["side", "index"])?;
+            let output = match pin.get("side").and_then(Value::as_str) {
+                Some("out") => true,
+                Some("in") => false,
+                _ => return Err("pin.side must be \"in\" or \"out\"".into()),
+            };
+            let k = pin.get("index").and_then(Value::as_u64).and_then(|k| u32::try_from(k).ok()).ok_or("pin.index must be the pin's index on its side")?;
+            snap.pin_at(nid, output, k)
+                .ok_or_else(|| format!("face {} has no {} pin {k}", crate::selection::shown_id(id), if output { "out" } else { "in" }))?
+        } else {
+            match part_name.unwrap_or("center") {
+                "center" => r.center(),
+                "header" => Point::new(r.center().x, r.min.y + header / 2.0),
+                "body" => Point::new(r.center().x, r.min.y + header + (r.height() - header) / 2.0),
+                other => return Err(format!("part {:?}: center, header or body", other.chars().take(32).collect::<String>())),
+            }
+        };
+        return Ok(json!({"at": pt(at), "rect": rect_json(r), "nid": nid, "measured": snap.is_measured(measured, id)}));
+    }
+    if let Some(id) = params.get("wire") {
+        let id = id.as_str().ok_or("wire must be a wire's id")?;
+        let w = snap.wire_by_id(id).ok_or_else(|| format!("no wire {} drawn", crate::selection::shown_id(id)))?;
+        // a point on the chain: the start of its middle cubic
+        let segments = w.chain.len().saturating_sub(1) / 3;
+        let at =
+            w.chain.get(3 * (segments / 2)).copied().ok_or_else(|| format!("wire {} has no path (drawn through a net)", crate::selection::shown_id(id)))?;
+        return Ok(json!({"at": pt(at), "nid": w.nid}));
+    }
+    if let Some(id) = params.get("frame") {
+        let id = id.as_str().ok_or("frame must be a frame's id")?;
+        let (body, tab, handle) = snap.frame_by_id(id).ok_or_else(|| format!("no frame {}", crate::selection::shown_id(id)))?;
+        let at = match part_name.unwrap_or("body") {
+            "body" => body.center(),
+            "tab" => tab.center(),
+            "handle" => handle.center(),
+            other => return Err(format!("part {:?}: body, tab or handle", other.chars().take(32).collect::<String>())),
+        };
+        return Ok(json!({"at": pt(at), "rect": rect_json(body)}));
+    }
+    Err("name a node, a wire or a frame".into())
 }
 
 /// A rect as the scene carries it.
@@ -1414,13 +1674,13 @@ mod tests {
             assert!(t.x.is_finite(), "{t:?}");
             let mut out = Vec::new();
             s.wire_paths(&[s.face_nid(&src).unwrap()], x, y, &mut out);
-            // each wire: its nid and count (bit-cast), then its points, every one a number
+            // each wire: its nid (two words) and count (bit-cast), then its points, every one a number
             let mut at = 0;
-            while at + 2 <= out.len() {
-                let count = out[at + 1].to_bits() as usize;
-                let points = out.get(at + 2..at + 2 + 2 * count).expect("as many points as it says");
+            while at + 3 <= out.len() {
+                let count = out[at + 2].to_bits() as usize;
+                let points = out.get(at + 3..at + 3 + 2 * count).expect("as many points as it says");
                 assert!(points.iter().all(|v| v.is_finite()), "{x} {y}: {points:?}");
-                at += 2 + 2 * count;
+                at += 3 + 2 * count;
             }
             assert_eq!(at, out.len());
         }
@@ -1515,17 +1775,17 @@ mod tests {
         let mut out = Vec::new();
         let n = s.wire_paths(&[s.face_nid(&src).unwrap()], 10.0, 5.0, &mut out);
         assert_eq!(n, out.len());
-        let count = out[1].to_bits() as usize;
-        assert_eq!(n, 2 + 2 * count, "one wire: its nid, its count, its points");
-        assert_eq!((out[2], out[3]), (110.0, 35.0), "its start moved with the source");
+        let count = out[2].to_bits() as usize;
+        assert_eq!(n, 3 + 2 * count, "one wire: its nid (low and high words), its count, its points");
+        assert_eq!((out[3], out[4]), (110.0, 35.0), "its start moved with the source");
         assert_eq!((out[n - 2], out[n - 1]), (300.0, 60.0), "its end stayed");
         let w = d.scene().unwrap().wires.into_iter().find(|w| w.to_face == b).unwrap();
         let published = d.scene.get(None)["wires"].as_array().unwrap().iter().find(|v| v["id"] == json!(w.id)).unwrap()["nid"].as_u64().unwrap();
-        assert_eq!(u64::from(out[0].to_bits()), published);
+        assert_eq!(u64::from(out[0].to_bits()) | (u64::from(out[1].to_bits()) << 32), published);
         // both ends moved: the same shape, shifted
         out.clear();
         s.wire_paths(&[s.face_nid(&src).unwrap(), s.face_nid(&b).unwrap()], 10.0, 5.0, &mut out);
-        let shifted: Vec<[f64; 2]> = out[2..].chunks(2).map(|c| [f64::from(c[0]), f64::from(c[1])]).collect();
+        let shifted: Vec<[f64; 2]> = out[3..].chunks(2).map(|c| [f64::from(c[0]), f64::from(c[1])]).collect();
         let at_rest: Vec<[f64; 2]> = w.path.iter().map(|p| [p[0] + 10.0, p[1] + 5.0]).collect();
         for (a, b) in shifted.iter().zip(&at_rest) {
             assert!((a[0] - b[0]).abs() < 2e-3 && (a[1] - b[1]).abs() < 2e-3, "{a:?} {b:?}");

@@ -57,31 +57,40 @@ pub const FALLBACK_ICON: &str = "box";
 /// The icon of the button that enters a group.
 pub const ENTER_ICON: &str = "pencil";
 
-/// A colour, and the theme token it came from (none: computed, or from an engine).
+/// A colour: a theme token by name, or `[r, g, b, a]` where there is none (computed: a family's
+/// tint, an engine's wire-type colour, a frame's own). Exactly one of the two is sent
+/// (`docs/shell-interface.md` question 13, decided 13A; built in N2 slice 4): a shell resolves a
+/// token with `theme.get`, so a theme change changes only the faces whose computed colours change.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Paint {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token: Option<String>,
-    /// `[r, g, b, a]`, premultiplied.
-    pub color: [u8; 4],
+    /// `[r, g, b, a]`, premultiplied; none when `token` names it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<[u8; 4]>,
 }
 
 impl Paint {
-    fn token(name: &str, c: Color) -> Paint {
-        Paint { token: Some(name.to_owned()), color: c.to_array() }
+    fn token(name: &str, _now: Color) -> Paint {
+        Paint { token: Some(name.to_owned()), color: None }
     }
     fn of(c: Color) -> Paint {
-        Paint { token: None, color: c.to_array() }
+        Paint { token: None, color: Some(c.to_array()) }
     }
-    /// The colour, as the core holds colours.
-    pub fn color(&self) -> Color {
-        let [r, g, b, a] = self.color;
-        Color::from_rgba_premultiplied(r, g, b, a)
+    /// The colour in `tokens`' theme (a token the theme doesn't have: transparent).
+    pub fn resolve(&self, tokens: &Tokens) -> Color {
+        match (&self.color, &self.token) {
+            (Some([r, g, b, a]), _) => Color::from_rgba_premultiplied(*r, *g, *b, *a),
+            (None, Some(t)) => tokens.resolve(t).unwrap_or(Color::TRANSPARENT),
+            (None, None) => Color::TRANSPARENT,
+        }
     }
 }
 
 /// The whole scene, or (from [`Published::get`] with `since`) what changed.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Scene {
     pub shell: u32,
     pub doc: u64,
@@ -105,6 +114,7 @@ pub struct Scene {
 /// What the core asks the shell's view to show (`docs/shell-interface.md` 8.9's view domain, as
 /// far as N2 slice 3 builds it): the latest fit.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct View {
     /// The latest fit asked for (`canvas.fit`), or none since the document opened.
     pub fit: Option<Fit>,
@@ -114,6 +124,7 @@ pub struct View {
 /// (and at least 0.2), and animates there. `seq` rises with every request, so a shell fits once
 /// a request however often the scene comes.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Fit {
     pub seq: u64,
     /// `[x0, y0, x1, y1]`: every face shown, and the frames outside an entered group, with a
@@ -123,20 +134,24 @@ pub struct Fit {
 
 /// The selection, as the scene carries it.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Picked {
     pub nodes: Vec<String>,
     pub groups: Vec<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<crate::shell_schema::NetKeySchema>"))]
     pub net: Option<NetKey>,
 }
 
 /// The group entered, and the breadcrumb to it (outermost first).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Focus {
     pub group: String,
     pub path: Vec<Crumb>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Crumb {
     pub id: String,
     pub name: String,
@@ -145,6 +160,7 @@ pub struct Crumb {
 /// The run animation's switches. The fill a face takes from `shown` (and its pulse and fade)
 /// is the shell's to compute per frame (section 8.6); the core never publishes per frame.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Anim {
     /// Faces are washed with their run state (View › Colour Nodes While Running, or a replay).
     pub on: bool,
@@ -158,6 +174,7 @@ pub struct Anim {
 
 /// A node's face: a node, or a collapsed group's node (`proxy`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Face {
     /// The node's id; a collapsed group's is `group:<id>`.
@@ -191,18 +208,21 @@ pub struct Face {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct ProxyOf {
     pub group: String,
     pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Tint {
     pub header: Paint,
     pub body: Paint,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Border {
     pub paint: Paint,
     pub width: f32,
@@ -210,6 +230,7 @@ pub struct Border {
 
 /// The node's real run state (section 8.6's first layer).
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct RunShown {
     /// `queued`, `running` (started), `progress`, `preview`, `done`, `cached`, `error`,
@@ -221,6 +242,7 @@ pub struct RunShown {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Header {
     /// The node is open (not `collapsed`); a proxy's chevron expands its group.
@@ -240,6 +262,7 @@ pub struct Header {
 
 /// The node type, for the icon's hover and the hover card.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct About {
     pub name: String,
     pub description: String,
@@ -255,6 +278,7 @@ pub struct About {
 /// The header's state mark: `spinner` while running, `dot` in the state's colour, `none`
 /// before any run (the slot is kept).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Spot {
     pub kind: String,
     pub paint: Option<Paint>,
@@ -262,6 +286,7 @@ pub struct Spot {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Title {
     pub text: String,
     /// A tap watches the node's first output (it has outputs), a double tap opens its parameters.
@@ -269,6 +294,7 @@ pub struct Title {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Badge {
     pub text: String,
     pub paint: Paint,
@@ -276,6 +302,7 @@ pub struct Badge {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct EngineMark {
     pub text: String,
     pub pinned: bool,
@@ -284,6 +311,7 @@ pub struct EngineMark {
 
 /// A piece of the header's status slot (at least 88 wide).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Status {
     pub text: String,
     pub paint: Paint,
@@ -293,6 +321,7 @@ pub struct Status {
 
 /// A pin: round for scalars, square otherwise; a port that can't be wired has a hidden pin.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Pin {
     /// `circle` or `square`.
     pub shape: String,
@@ -304,6 +333,7 @@ pub struct Pin {
 
 /// An input row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct InRow {
     /// The value and wire key (`sigma`, `mode.turn`, `c2`).
@@ -335,6 +365,7 @@ pub struct InRow {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Named {
     pub name: String,
     pub paint: Paint,
@@ -343,6 +374,7 @@ pub struct Named {
 
 /// An output row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct OutRow {
     pub key: String,
     /// The node whose output it is (on a proxy, the member's).
@@ -357,6 +389,7 @@ pub struct OutRow {
 
 /// A widget: what it shows and what bounds it. Every widget commits one `node.set` (8.5).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Widget {
     /// `number`, `toggle`, `choice`, `multichoice`, `text`, `multiline`, `path`, `color`.
@@ -384,6 +417,7 @@ pub struct Widget {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Choice {
     pub value: Value,
     pub label: String,
@@ -393,6 +427,7 @@ pub struct Choice {
 
 /// A node's preview (only in view `full`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Preview {
     /// A picture, by its value reference (`media.get`).
@@ -413,6 +448,7 @@ impl Preview {
 
 /// A footer item, in the order drawn (section 8.7).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Footer {
     /// "3 more fields" / "Fewer fields": `node.fields {node, all}`.
@@ -463,6 +499,7 @@ pub enum Footer {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Line {
     pub text: String,
     pub paint: Paint,
@@ -471,13 +508,16 @@ pub struct Line {
 
 /// A wire, keyed by the input it feeds (one wire an input).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(rename_all = "camelCase")]
 pub struct Wire {
     /// `node.port` of the input.
     pub id: String,
     pub nid: u64,
     pub rev: u64,
+    #[cfg_attr(feature = "schema", schemars(with = "crate::shell_schema::PortRefSchema"))]
     pub from: PortRef,
+    #[cfg_attr(feature = "schema", schemars(with = "crate::shell_schema::PortRefSchema"))]
     pub to: PortRef,
     /// The faces and pins it is drawn between (a collapsed group's node stands for its members).
     pub from_face: String,
@@ -490,6 +530,7 @@ pub struct Wire {
     pub via: Vec<[i32; 2]>,
     /// A slice's label (`[:-1]`).
     pub slice: Option<String>,
+    #[cfg_attr(feature = "schema", schemars(with = "Option<crate::shell_schema::NetKeySchema>"))]
     pub net: Option<NetKey>,
     /// Its path as a cubic chain, graph units: the start, then two control points and the end a
     /// segment ([`crate::wire_path`]); every shell draws this curve and the core hit-tests it.
@@ -499,11 +540,13 @@ pub struct Wire {
 
 /// A net drawn through labels: its driving tag at the output, a receiving tag at each input.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Net {
     /// `name`, or `name@group` for a net local to a group.
     pub id: String,
     pub nid: u64,
     pub rev: u64,
+    #[cfg_attr(feature = "schema", schemars(with = "crate::shell_schema::NetKeySchema"))]
     pub key: NetKey,
     pub paint: Paint,
     pub selected: bool,
@@ -512,7 +555,9 @@ pub struct Net {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Driver {
+    #[cfg_attr(feature = "schema", schemars(with = "crate::shell_schema::PortRefSchema"))]
     pub from: PortRef,
     pub face: String,
     pub pin: usize,
@@ -521,7 +566,9 @@ pub struct Driver {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Use {
+    #[cfg_attr(feature = "schema", schemars(with = "crate::shell_schema::PortRefSchema"))]
     pub to: PortRef,
     pub face: String,
     pub pin: usize,
@@ -529,6 +576,7 @@ pub struct Use {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Frame {
     pub id: String,
     pub nid: u64,
@@ -542,6 +590,7 @@ pub struct Frame {
 /// A group. A collapsed one is drawn as its proxy face; an open one as a frame around its
 /// members, whose rect needs measured geometry (slice 3).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Group {
     pub id: String,
     pub nid: u64,
@@ -560,6 +609,7 @@ pub struct Group {
 
 /// An application's mark on a wire (`Hooks::wire_marks`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Mark {
     /// The wire it marks (`node.port` of its input).
     pub id: String,
@@ -1769,6 +1819,7 @@ impl Published {
 /// What `scene.get {since}` returns when it isn't everything (section 8.12): the items whose
 /// revision is past `since`, the ids gone since, and the parts that come every time.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Delta {
     pub shell: u32,
     pub doc: u64,
@@ -1786,6 +1837,7 @@ pub struct Delta {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Upsert {
     pub nodes: Vec<Face>,
     pub wires: Vec<Wire>,
@@ -1796,6 +1848,7 @@ pub struct Upsert {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 pub struct Removed {
     pub nodes: Vec<String>,
     pub wires: Vec<String>,
@@ -2011,7 +2064,8 @@ mod tests {
         assert_eq!(row("pics").text.as_deref(), Some("pics [ ] · x.t.pic"));
         assert_eq!(row("pics").source, "socket");
         assert_eq!(row("pic").pin.shape, "square");
-        assert_eq!(row("pic").pin.fill.color, [0xcc, 0x44, 0x66, 255], "the engine's colour");
+        assert_eq!(row("pic").pin.fill.color, Some([0xcc, 0x44, 0x66, 255]), "the engine's colour");
+        assert_eq!((row("gain").pin.fill.token.as_deref(), row("gain").pin.fill.color), (Some("pin_default"), None), "a token is sent by name alone");
         assert_eq!(row("gain").pin.shape, "circle");
         assert!(!row("gain").dim, "changed from the default");
         assert!(row("count").dim);

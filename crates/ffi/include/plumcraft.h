@@ -105,9 +105,10 @@ uint64_t plum_leases(void);
  * has) without waiting for the core thread, from any thread; they may be one publish behind a
  * request just sent. A document is named by its number (0: the first open). Coordinates and
  * distances are graph units (the shell divides its screen slop by its zoom). Faces, wires,
- * nets, frames and groups are named by the scene's nid (interned per kind). The same queries
- * are JSON methods too: geometry.hit, geometry.wireTarget, geometry.wirePaths, and the command
- * geometry.set. */
+ * nets, frames and groups are named by the scene's nid: one number per item for the document's
+ * life, never two items with the same number, whatever their kinds. The same queries are JSON
+ * methods too: geometry.hit, geometry.wireTarget, geometry.wirePaths, the command geometry.set,
+ * and ui.gesture's drag move for plum_gesture_move. */
 
 /* What is at a point, or where a dragged wire may land.
  * kind: 0 none, 1 node (part: 1 body, 2 header, 3 title, 4 chevron, 5 icon, 6 menu, 7 enter,
@@ -152,8 +153,9 @@ plum_hit plum_hit_test(plum_core core, uint64_t doc, float x, float y, float slo
  * doesn't (fits 0), else kind 0. PLUM_ERR_ARG for another side. */
 plum_hit plum_wire_target(plum_core core, uint64_t doc, uint64_t face, uint32_t side, uint32_t pin, float x, float y, float slop);
 /* The paths of every wire with an end on one of the n faces (nids), as if they were moved by
- * (dx, dy): per wire its nid's low 32 bits and its point count (each a uint32_t bit-cast into a
- * float), then the points as x, y (a cubic chain: the start, then three points a segment).
+ * (dx, dy): per wire its nid's low and high 32 bits and its point count (each a uint32_t
+ * bit-cast into a float: three floats), then the points as x, y (a cubic chain: the start, then
+ * three points a segment).
  * Returns the floats needed; nothing is written when that is more than cap or out is NULL.
  * 0 for a core or document that isn't there. */
 size_t plum_wire_paths(plum_core core, uint64_t doc, const uint64_t *faces, size_t n, float dx, float dy, float *out, size_t cap);
@@ -162,6 +164,25 @@ size_t plum_wire_paths(plum_core core, uint64_t doc, const uint64_t *faces, size
  * PLUM_ERR_ARG (NULL faces with n > 0, more than 100000 faces, more than 4096 pins or rows a
  * face, a misaligned pointer). */
 int32_t plum_geometry_set(plum_core core, uint64_t doc, const plum_face *faces, size_t n);
+
+/* Where a drag under way is (ui.gesture's drag move, typed; N2 slice 4). The drag begins, ends
+ * and is cancelled with ui.gesture {kind: "drag", phase: "begin" | "end" | "cancel", at}; the
+ * core decides at begin what it is, and its reply gives serial, kind and, for a move, the faces
+ * moving (nids, for plum_wire_paths). Nothing changes until the end.
+ * kind: 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group.
+ * status: PLUM_OK; PLUM_ERR_CORE; PLUM_ERR_MISSING (no such document, no drag under way, no
+ *       scene published); PLUM_ERR_ARG (a point that isn't a number); PLUM_ERR_PANIC. */
+typedef struct {
+    int32_t status;
+    uint32_t kind;
+    uint64_t serial;   /* the drag's number, as its begin replied */
+    float dx, dy;      /* the offset from where it began */
+    float rect[4];     /* a marquee's rect (x0, y0, x1, y1); zeros otherwise */
+    plum_hit target;   /* a wire's: where it would land (kind 2: a pin, x and y its point), fits */
+} plum_drag;
+
+/* The drag under way in document doc with the pointer at (x, y), within slop (graph units). */
+plum_drag plum_gesture_move(plum_core core, uint64_t doc, float x, float y, float slop);
 
 #ifdef __cplusplus
 }

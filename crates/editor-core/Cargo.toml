@@ -30,6 +30,15 @@ plumcraft-store = { workspace = true }
 plumcraft-text = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+# JSON Schema for the shell interface (src/shell_schema.rs, schema/shell1.json).
+schemars = { workspace = true, optional = true }
+
+[features]
+schema = ["dep:schemars"]
+
+[[example]]
+name = "export_shell_schema"
+required-features = ["schema"]
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }

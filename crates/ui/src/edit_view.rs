@@ -4,23 +4,25 @@
 //! **The selection is the document's** (`plumcraft_editor_core::selection`, N2 slice 1), and
 //! changes only through the canvas's commands (`selection.set`, `selection.clear`,
 //! `selection.all`, `edit.delete`, `net.select`). This canvas holds a handle to the same
-//! selection ([`Picked`]) to draw it, and turns its gestures into those commands:
+//! selection ([`Picked`]) to draw it. **Since N2 slice 4 its clicks and marquees are gestures
+//! the core decides** (`ui.gesture`, `plumcraft_editor_core::gesture`), hit-tested against the
+//! faces this canvas measured:
 //!
-//! - a click on a node is `selection.set {nodes: [id]}` (a collapsed group's node: `{groups:
-//!   [g]}`), Shift+click `mode: add`, Cmd+click `mode: remove`, and a click on empty canvas
-//!   `selection.clear`;
-//! - Shift+drag on empty canvas is snarl's marquee: what it adds is `selection.set {…, mode:
-//!   add}`;
+//! - a click is a tap: on a node `selection.set` (Shift adds, Cmd takes away), on a pin or a
+//!   wire `run.watch` of its value, on empty canvas `selection.clear`;
+//! - a Shift-drag begun on empty canvas is a marquee, sent when let go (egui-snarl draws its
+//!   rect; snarl's own selection is no longer read: the bridge that copied what it gained is
+//!   gone);
 //! - dragging a selected node (or collapsed group) moves everything selected, collapsed groups
-//!   with their members;
+//!   with their members (still worked out here from snarl's drag, [`Canvas::drag_moves`]: snarl
+//!   owns node drags);
 //! - the canvas draws the selection outline itself (snarl's own is hidden, see
 //!   [`crate::canvas::snarl_style`]).
 //!
-//! **egui-snarl's own selection** (0.12) is private state that can't be set from outside, kept by
-//! snarl node index, which the canvas rebuilds on every edit (so an index can come to mean
-//! another node). The canvas never reads it as the selection: it only compares snarl's set with
-//! last frame's to see what a marquee or a Shift+click added ([`Picked::gained`]), and sends that
-//! as a command. Snarl's own outline is hidden, so its stale set never shows.
+//! **egui-snarl's own selection** (0.12) is private state that can't be set from outside. It
+//! still grows as snarl sees clicks, and snarl still moves what it thinks is selected while a
+//! node is dragged; what is moved in the graph is the document's selection
+//! ([`Canvas::drag_moves`]), and the canvas is rebuilt from the graph after.
 //!
 //! **The clipboard** holds workflow JSON (`edit.copy`), so nodes paste into another workflow, or
 //! another PlumCraft. Cmd+C/X/V arrive as egui's Copy/Cut/Paste events (egui-winit reads the
@@ -41,26 +43,23 @@ use plumcraft_proto::catalogue::SchemaReply;
 use serde_json::{Value, json};
 
 use crate::EditorApp;
-use crate::canvas::{Action, CANVAS_ID, Canvas, CanvasNode};
+use crate::canvas::{Action, Canvas, CanvasNode};
 use crate::theme::Tokens;
 
-/// The canvas's handle to the document's selection, and what snarl's own selection was last
-/// frame (to see what its marquee added).
+/// The canvas's handle to the document's selection.
 ///
-/// Its setters (`set`, `clear`, `set_group`, `absorb`) change the document's selection without a
-/// command: they are for tests written before the selection moved into the core; the canvas's
-/// gestures send commands.
+/// Its setters (`set`, `clear`, `set_group`) change the document's selection without a command:
+/// they are for tests written before the selection moved into the core; the canvas's gestures
+/// go through the core (`ui.gesture`).
 #[derive(Debug, Clone, Default)]
 pub struct Picked {
     cell: SelectionCell,
-    /// snarl's own selection when last looked at, to see what its marquee added.
-    raw: Vec<SnarlId>,
 }
 
 impl Picked {
     /// A handle to `cell`, the document's selection.
     pub fn on(cell: SelectionCell) -> Picked {
-        Picked { cell, raw: Vec::new() }
+        Picked { cell }
     }
 
     /// The selection this canvas draws.
@@ -103,65 +102,31 @@ impl Picked {
         })
     }
 
-    /// What snarl's selection gained since last time (its marquee, a Shift+click), as graph
-    /// nodes and collapsed groups not selected yet. Only additions: an index snarl still holds
-    /// may mean another node since the last rebuild.
-    pub fn gained(&mut self, snarl: &Snarl<CanvasNode>, raw: Vec<SnarlId>) -> (Vec<NodeId>, Vec<GroupId>) {
-        if raw == self.raw {
-            return (Vec::new(), Vec::new());
-        }
-        let (mut nodes, mut groups) = (Vec::new(), Vec::new());
-        for sid in raw.iter().filter(|s| !self.raw.contains(s)) {
-            let Some(n) = snarl.get_node(*sid) else { continue };
-            if self.contains(n) {
-                continue;
-            }
-            match &n.proxy {
-                Some(p) if !groups.contains(&p.group) => groups.push(p.group.clone()),
-                None if !nodes.contains(&n.id) => nodes.push(n.id.clone()),
-                _ => {}
-            }
-        }
-        self.raw = raw;
-        (nodes, groups)
-    }
-
-    /// [`Picked::gained`], taken into the selection at once (tests).
-    pub fn absorb(&mut self, snarl: &Snarl<CanvasNode>, raw: Vec<SnarlId>) {
-        let (nodes, groups) = self.gained(snarl, raw);
-        self.cell.update(|s| s.apply(Mode::Add, nodes, groups));
-    }
-
     /// Forget nodes and groups the graph no longer has (the document does this after every
     /// command).
     pub fn retain_existing(&mut self, graph: &Graph) {
         self.cell.update(|s| s.retain_existing(graph));
     }
-
-    /// Forget what snarl had selected (its index set means nothing after a rebuild).
-    fn forget_raw(&mut self) {
-        self.raw.clear();
-    }
 }
 
-/// A click's selection command: on node `n` (none: empty canvas), with these modifiers.
-fn click_command(n: Option<&CanvasNode>, mods: egui::Modifiers) -> Option<Action> {
-    let what = |n: &CanvasNode| match &n.proxy {
-        Some(p) => json!({"groups": [p.group]}),
-        None => json!({"nodes": [n.id]}),
-    };
-    let with = |n: &CanvasNode, mode: &str| {
-        let mut p = what(n);
-        p["mode"] = json!(mode);
-        p
-    };
-    match n {
-        Some(n) if mods.command => Some(("selection.set", with(n, "remove"))),
-        Some(n) if mods.shift => Some(("selection.set", with(n, "add"))),
-        Some(n) => Some(("selection.set", what(n))),
-        None if mods.shift || mods.command => None,
-        None => Some(("selection.clear", json!({}))),
+/// egui's modifiers as `ui.gesture` takes them (⌘ on the Mac, Ctrl elsewhere, is `primary`).
+fn gesture_mods(mods: egui::Modifiers) -> Value {
+    let mut v = Vec::new();
+    if mods.shift {
+        v.push("shift");
     }
+    if mods.command {
+        v.push("primary");
+    }
+    json!(v)
+}
+
+/// A click on the canvas at graph point `p`, as the gesture it is: what it means (select, watch
+/// a pin's or a wire's value, clear) is the core's (`plumcraft_editor_core::gesture`), hit-tested
+/// against the faces this canvas measured. `scale` is the view's zoom: the hit distance is the
+/// canvas's wire hit in screen points.
+fn tap_action(p: Pos2, mods: egui::Modifiers, scale: f32) -> Action {
+    ("ui.gesture", json!({"kind": "tap", "at": [p.x, p.y], "mods": gesture_mods(mods), "slop": crate::canvas::WIRE_HIT / scale.max(0.05)}))
 }
 
 /// The snarl's wires as graph ports.
@@ -175,15 +140,12 @@ fn node_at(canvas: &Canvas, rects: &[(SnarlId, Rect)], p: Pos2) -> Option<Canvas
 }
 
 impl Canvas {
-    /// Selection gestures, after snarl has drawn: its marquee, then this frame's click, as the
-    /// selection commands they are (run after the canvas has drawn, like every gesture's).
+    /// Selection gestures, after snarl has drawn: a Shift-drag's marquee, then this frame's
+    /// click, as `ui.gesture`s the core decides (N2 slice 4: snarl's private selection is no
+    /// longer read, and the canvas no longer hit-tests a click itself).
     pub(crate) fn selection_gestures(&mut self, ctx: &egui::Context) -> Vec<Action> {
         let mut out = Vec::new();
-        let raw = egui_snarl::ui::get_selected_nodes(egui::Id::new(CANVAS_ID), ctx);
-        let (nodes, groups) = self.picked.gained(&self.snarl, raw);
-        if !nodes.is_empty() || !groups.is_empty() {
-            out.push(("selection.set", json!({"nodes": nodes, "groups": groups, "mode": "add"})));
-        }
+        out.extend(self.marquee_gesture(ctx));
         if self.palette.is_some() || self.wire_menu.is_some() {
             return out;
         }
@@ -194,18 +156,46 @@ impl Canvas {
         if !self.rect.contains(p) || ctx.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background && l.order != egui::Order::Middle) {
             return out;
         }
-        let graph_p = self.to_global.inverse() * p;
-        let rects = self.snarl_rects();
-        // (a frame's tab sits over the canvas: a click there isn't a click on what is under it)
-        if self.over_frame_tab(p) {
+        // (a frame's tab and a net's tag sit over the canvas and take their own clicks: a click
+        // there isn't a click on what is under it)
+        if self.over_frame_tab(p) || self.over_net_tag(p) {
             return out;
         }
-        out.extend(click_command(node_at(self, &rects, graph_p).as_ref(), mods));
-        if !out.is_empty() {
-            // the outline follows once the commands have run
-            ctx.request_repaint();
-        }
+        out.push(tap_action(self.to_global.inverse() * p, mods, self.to_global.scaling));
+        // the outline follows once the gesture has run
+        ctx.request_repaint();
         out
+    }
+
+    /// A Shift-drag that began on empty canvas, once let go: `ui.gesture {kind: "marquee"}` from
+    /// where it began to where it ended (⌘ too takes away). egui-snarl draws the rect while it
+    /// is dragged; what it selects is the core's, from the faces this canvas measured.
+    fn marquee_gesture(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let (pressed, released, origin, at, mods) =
+            ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.press_origin(), i.pointer.interact_pos(), i.modifiers));
+        if pressed {
+            self.marquee_from = origin
+                .filter(|o| {
+                    mods.shift
+                        && self.palette.is_none()
+                        && self.rect.contains(*o)
+                        && !self.over_node(*o)
+                        && ctx.layer_id_at(*o).is_none_or(|l| l.order == egui::Order::Background)
+                })
+                .map(|o| (self.to_global.inverse() * o, mods));
+        }
+        if !released {
+            return None;
+        }
+        let (from, began) = self.marquee_from.take()?;
+        let to = self.to_global.inverse() * at?;
+        // a press and release in place is a click, not a marquee
+        if from.distance(to) * self.to_global.scaling < 3.0 {
+            return None;
+        }
+        let mut m = began;
+        m.command |= mods.command;
+        Some(("ui.gesture", json!({"kind": "marquee", "at": [from.x, from.y], "to": [to.x, to.y], "mods": gesture_mods(m)})))
     }
 
     /// Wire re-routing. egui-snarl 0.12 lets a ⌘-drag on a pin pick up its wires, but it takes
@@ -366,7 +356,6 @@ impl Canvas {
     /// Every node the canvas shows (members of an entered group only; a collapsed group counts
     /// as its proxy), at once (tests; the Edit menu's Select All is `selection.all`).
     pub fn select_all(&mut self) {
-        self.picked.forget_raw();
         let mut nodes = Vec::new();
         let mut groups = Vec::new();
         for (_, n) in self.snarl.nodes_ids_data() {
@@ -564,24 +553,11 @@ impl EditorApp {
 mod tests {
     use super::*;
 
-    fn node(id: &str) -> CanvasNode {
-        CanvasNode { tucked: 0, all_fields: false, id: NodeId::from(id), kind: "k".into(), inputs: Vec::new(), outputs: 0, proxy: None }
-    }
-
     #[test]
-    fn picked_takes_only_what_snarl_adds() {
-        let mut snarl = Snarl::new();
-        let a = snarl.insert_node(Pos2::ZERO, node("n1"));
-        let b = snarl.insert_node(Pos2::ZERO, node("n2"));
+    fn picked_is_the_documents_selection() {
         let mut p = Picked::default();
         p.set(vec![NodeId::from("n9")]);
-        p.absorb(&snarl, vec![a]);
-        assert_eq!(p.nodes(), [NodeId::from("n9"), NodeId::from("n1")]);
-        // snarl dropping an index (it may mean another node by now) removes nothing
-        p.absorb(&snarl, vec![b]);
-        assert_eq!(p.nodes(), [NodeId::from("n9"), NodeId::from("n1"), NodeId::from("n2")]);
-        p.absorb(&snarl, vec![b]);
-        assert_eq!(p.nodes().len(), 3, "no change, no growth");
+        assert_eq!(p.nodes(), [NodeId::from("n9")]);
         p.clear();
         assert!(p.is_empty());
         let mut g = Graph::new();
@@ -703,15 +679,17 @@ mod tests {
         assert!(app.canvas.palette.is_none());
     }
 
+    /// A click is a gesture the core decides: where it was (graph units), the modifiers, and the
+    /// wire hit in screen points at the view's zoom (what it selects is
+    /// `plumcraft_editor_core::gesture`'s, checked by the conformance suite).
     #[test]
-    fn a_click_is_a_selection_command() {
-        let n = node("n1");
-        let none = egui::Modifiers::NONE;
-        assert_eq!(click_command(Some(&n), none), Some(("selection.set", json!({"nodes": ["n1"]}))));
-        assert_eq!(click_command(Some(&n), egui::Modifiers::SHIFT).unwrap().1["mode"], "add");
-        assert_eq!(click_command(Some(&n), egui::Modifiers::COMMAND).unwrap().1["mode"], "remove");
-        assert_eq!(click_command(None, none), Some(("selection.clear", json!({}))));
-        assert_eq!(click_command(None, egui::Modifiers::SHIFT), None);
+    fn a_click_is_a_tap_gesture() {
+        let (id, p) = tap_action(Pos2::new(10.0, 20.0), egui::Modifiers::NONE, 2.0);
+        assert_eq!((id, &p["kind"], &p["at"], &p["mods"]), ("ui.gesture", &json!("tap"), &json!([10.0, 20.0]), &json!([])));
+        assert_eq!(p["slop"], json!(crate::canvas::WIRE_HIT / 2.0));
+        assert_eq!(tap_action(Pos2::ZERO, egui::Modifiers::SHIFT, 1.0).1["mods"], json!(["shift"]));
+        assert_eq!(tap_action(Pos2::ZERO, egui::Modifiers::COMMAND, 1.0).1["mods"], json!(["primary"]));
+        assert!(plumcraft_editor_core::gesture::parse(&tap_action(Pos2::ZERO, egui::Modifiers::COMMAND, 0.0).1).is_ok());
     }
 
     #[test]

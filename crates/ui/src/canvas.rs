@@ -35,7 +35,6 @@ use serde_json::{Value, json};
 
 use crate::menu_view;
 use crate::palette::{self, PaletteIndex, PaletteOutcome, PaletteState};
-use crate::plain::ToEgui;
 use crate::run_view::{self, PinKey, PinSink, Thumbs, TrackedPin};
 use crate::theme::{CLEAR, FamilyTint, Text, Tokens};
 use crate::value_editors;
@@ -159,6 +158,9 @@ pub struct Canvas {
     /// ([`Canvas::drag_moves`]). Kept for the whole drag, since the node leaves the press point
     /// as it moves.
     pub(crate) drag_anchor: Option<NodeId>,
+    /// Where a Shift-drag on empty canvas began (graph units) and the modifiers then: a marquee
+    /// sent as `ui.gesture` when let go (`crate::edit_view`).
+    pub(crate) marquee_from: Option<(Pos2, egui::Modifiers)>,
 }
 
 impl Default for Canvas {
@@ -192,6 +194,7 @@ impl Default for Canvas {
             frame_tabs: Vec::new(),
             frame_drag: None,
             drag_anchor: None,
+            marquee_from: None,
         }
     }
 }
@@ -223,9 +226,20 @@ use plumcraft_editor_core::widget_text::{typed_label, typed_tip};
 #[cfg(test)]
 use plumcraft_proto::catalogue::NodeDef;
 
-/// A scene colour in egui's.
-fn paint(p: &Paint) -> egui::Color32 {
-    p.color().to_egui()
+/// A scene colour in egui's: its own, or its token's in the theme drawn (N2 slice 4: the scene
+/// names a token alone).
+fn paint(p: &Paint, t: &Tokens) -> egui::Color32 {
+    if let Some(c) = p.color {
+        let [r, g, b, a] = c;
+        return egui::Color32::from_rgba_premultiplied(r, g, b, a);
+    }
+    match p.token.as_deref() {
+        Some("pin_hidden") => t.pin_hidden,
+        Some("group") => t.group.header,
+        Some("group_body") => t.group.body,
+        Some(name) => t.token(name).unwrap_or(egui::Color32::TRANSPARENT),
+        None => egui::Color32::TRANSPARENT,
+    }
 }
 
 /// The scene's structure of `graph` for the snarl ([`Canvas::sync`]): faces, wires and nets as
@@ -396,13 +410,17 @@ impl Canvas {
     /// heights from its top, in row order (the scene's).
     pub fn measured_faces(&self) -> Vec<(String, plumcraft_editor_core::geometry::FaceGeometry)> {
         let pins = self.pins.borrow();
+        let positions: HashMap<SnarlId, Pos2> = self.snarl.nodes_pos_ids().map(|(sid, pos, _)| (sid, pos)).collect();
         let mut out = Vec::with_capacity(self.node_rects.len());
         for (sid, r) in &self.node_rects {
             let Some(n) = self.snarl.get_node(*sid) else { continue };
             let y = |key: PinKey| pins.get(&key).map(|p| p.y - r.min.y);
             let inputs = (0..n.inputs.len()).map(|input| y(PinKey::In(egui_snarl::InPinId { node: *sid, input }))).collect();
             let outputs = (0..n.outputs).map(|output| y(PinKey::Out(egui_snarl::OutPinId { node: *sid, output }))).collect();
-            let g = plumcraft_editor_core::geometry::FaceGeometry { size: [r.width(), r.height()], inputs, outputs, ..Default::default() };
+            // egui-snarl draws the frame's margin around the node's position, its pins on the
+            // frame's edges: the face is the frame, offset from the position (N2 slice 4)
+            let offset = positions.get(sid).map_or([0.0; 2], |p| [r.min.x - p.x, r.min.y - p.y]);
+            let g = plumcraft_editor_core::geometry::FaceGeometry { size: [r.width(), r.height()], inputs, outputs, offset, ..Default::default() };
             out.push((n.id.0.clone(), g));
         }
         out
@@ -764,29 +782,9 @@ impl Canvas {
         {
             actions.push(("view.popout", json!({"node": from.node, "port": from.port})));
         }
-        // A left click on a port's pin watches its value (a click, not a drag: a drag from a
-        // pin still makes a wire). An output's label watches it too (NodeViewer::output_pin).
-        let clicked = ctx.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None });
-        let port_clicked = clicked
-            .filter(|p| self.palette.is_none() && self.wire_menu.is_none() && self.rect.contains(*p) && free(p))
-            .and_then(|p| self.port_at(graph, catalog, p));
-        if let Some((from, _)) = &port_clicked {
-            actions.push(("run.watch", json!({"node": from.node, "port": from.port})));
-        }
-        // A left click on a wire watches its value.
-        if port_clicked.is_none()
-            && self.palette.is_none()
-            && self.wire_menu.is_none()
-            && let Some(p) = clicked
-            && self.rect.contains(p)
-            && !self.over_node(p)
-            && !self.on_bend_handle(p)
-            && !self.over_frame_tab(p)
-            && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background || l.order == egui::Order::Middle)
-            && let Some((from, _)) = self.wire_at(ui.style(), catalog, p)
-        {
-            actions.push(("run.watch", json!({"node": from.node, "port": from.port})));
-        }
+        // A left click on a port's pin or a wire watches its value: since N2 slice 4 that is the
+        // core's meaning of the click, sent as a `ui.gesture` tap (crate::edit_view), which
+        // hit-tests the pins and wires this canvas measured.
         // Bend points on wires (crate::wire_route).
         actions.extend(self.route_overlay(&ctx));
         // Slice labels on wires, and the slice editor (crate::slice_view).
@@ -975,14 +973,14 @@ impl<'a> NodeViewer<'a> {
             return PinInfo::circle().with_fill(self.tokens.pin_hidden).with_stroke(egui::Stroke::NONE);
         }
         let pin = if p.shape == "square" { PinInfo::square() } else { PinInfo::circle() };
-        pin.with_fill(paint(&p.fill)).with_wire_color(paint(&p.wire))
+        pin.with_fill(paint(&p.fill, self.tokens)).with_wire_color(paint(&p.wire, self.tokens))
     }
 
     /// A named input's name, drawn as a net label with no wire: the name before the caption, in
     /// the wire type's colour (docs/research/23-named-ports.md 3).
-    fn named_tag(ui: &mut egui::Ui, named: Option<&scene::Named>) {
+    fn named_tag(ui: &mut egui::Ui, named: Option<&scene::Named>, tokens: &Tokens) {
         let Some(n) = named else { return };
-        ui.label(egui::RichText::new(format!("{} →", n.name)).monospace().small().color(paint(&n.paint))).on_hover_text(&n.hover);
+        ui.label(egui::RichText::new(format!("{} →", n.name)).monospace().small().color(paint(&n.paint, tokens))).on_hover_text(&n.hover);
     }
 
     /// An input's right-click menu: name it, or rename or unname its name (the core's menu model).
@@ -1070,7 +1068,7 @@ impl<'a> NodeViewer<'a> {
                 Some(badge) => {
                     ui.horizontal(|ui| {
                         pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
-                        ui.label(egui::RichText::new(&badge.text).small().color(paint(&badge.paint))).on_hover_text(&badge.hover);
+                        ui.label(egui::RichText::new(&badge.text).small().color(paint(&badge.paint, self.tokens))).on_hover_text(&badge.hover);
                         let r = ui.small_button("Reset").on_hover_text("Reset to inherited: remove the wire, so the bundle's value applies");
                         if r.clicked() {
                             self.actions.push(("bundle.reset", json!({"node": at.node, "port": at.port})));
@@ -1100,7 +1098,7 @@ impl<'a> NodeViewer<'a> {
                 let rich = if face.dim { egui::RichText::new(label) } else { egui::RichText::new(label).color(self.tokens.text) };
                 let current = face.widget.as_ref().map_or(Value::Null, |w| w.value.clone());
                 ui.horizontal(|ui| {
-                    Self::named_tag(ui, face.named.as_ref());
+                    Self::named_tag(ui, face.named.as_ref(), self.tokens);
                     let r = caption(ui, rich, label, hover);
                     self.input_menu(&r, &at, port);
                     let key = (node_id.clone(), row.key.clone());
@@ -1113,7 +1111,7 @@ impl<'a> NodeViewer<'a> {
                 // A widget the editor doesn't know: its value read-only, or what the
                 // application's editor for it says of it.
                 ui.horizontal(|ui| {
-                    Self::named_tag(ui, face.named.as_ref());
+                    Self::named_tag(ui, face.named.as_ref(), self.tokens);
                     let r = pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
                     self.input_menu(&r, &at, port);
                 });
@@ -1165,7 +1163,7 @@ impl<'a> NodeViewer<'a> {
                     }
                     Footer::Convert { lines } => {
                         for l in lines {
-                            let r = ui.label(egui::RichText::new(&l.text).small().color(paint(&l.paint)));
+                            let r = ui.label(egui::RichText::new(&l.text).small().color(paint(&l.paint, self.tokens)));
                             if let Some(h) = &l.hover {
                                 r.on_hover_text(h);
                             }
@@ -1210,7 +1208,7 @@ impl<'a> NodeViewer<'a> {
                 }
             }
             Footer::Error { text, full, paint: p } => {
-                ui.add(egui::Label::new(egui::RichText::new(text).color(paint(p))).wrap()).on_hover_text(full);
+                ui.add(egui::Label::new(egui::RichText::new(text).color(paint(p, self.tokens))).wrap()).on_hover_text(full);
             }
             // A result that has run: save it with its recipe; a list of them also as one
             // labelled contact sheet.
@@ -1242,7 +1240,7 @@ impl<'a> NodeViewer<'a> {
     /// A node's colours: the scene's (its family's, or a group's).
     fn tint(&self, node: &CanvasNode) -> FamilyTint {
         match self.face(node) {
-            Some(f) => FamilyTint { header: paint(&f.tint.header), body: paint(&f.tint.body) },
+            Some(f) => FamilyTint { header: paint(&f.tint.header, self.tokens), body: paint(&f.tint.body, self.tokens) },
             None => self.tokens.family_default,
         }
     }
@@ -1254,7 +1252,7 @@ impl<'a> NodeViewer<'a> {
             return Some(egui::Stroke::new(3.0, self.tokens.highlight));
         }
         let b = self.face(n)?.border.as_ref()?;
-        Some(egui::Stroke::new(b.width, paint(&b.paint)))
+        Some(egui::Stroke::new(b.width, paint(&b.paint, self.tokens)))
     }
 
     /// A node's actions: its right-click menu, and the menu in its header, as the core's menu
@@ -1462,11 +1460,11 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         // header is as wide either way
         match (head.state.kind.as_str(), &head.state.paint) {
             ("spinner", Some(p)) => {
-                ui.add(egui::Spinner::new().size(12.0).color(paint(p))).on_hover_text(head.state.hover.as_deref().unwrap_or_default());
+                ui.add(egui::Spinner::new().size(12.0).color(paint(p, self.tokens))).on_hover_text(head.state.hover.as_deref().unwrap_or_default());
             }
             ("dot", Some(p)) => {
                 let (rect, r) = ui.allocate_exact_size(Vec2::splat(12.0), egui::Sense::hover());
-                ui.painter().circle_filled(rect.center(), 4.5, paint(p));
+                ui.painter().circle_filled(rect.center(), 4.5, paint(p, self.tokens));
                 r.on_hover_text(head.state.hover.as_deref().unwrap_or_default());
             }
             _ => {
@@ -1491,7 +1489,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         }
         // a member's badges: its export mark, a group's output
         for b in &head.badges {
-            ui.label(egui::RichText::new(&b.text).small().color(paint(&b.paint))).on_hover_text(&b.hover);
+            ui.label(egui::RichText::new(&b.text).small().color(paint(&b.paint, self.tokens))).on_hover_text(&b.hover);
         }
         // With several engines: the one that runs the node (docs/research/15-multi-engine.md).
         if let Some(e) = &head.engine {
@@ -1502,7 +1500,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         // (measured from the drawn nodes) holds when a run fills the slot in.
         let status_start = ui.cursor().min.x;
         for st in &head.status {
-            let mut rich = egui::RichText::new(&st.text).small().color(paint(&st.paint));
+            let mut rich = egui::RichText::new(&st.text).small().color(paint(&st.paint, self.tokens));
             if st.strong {
                 rich = rich.strong();
             }
