@@ -4,6 +4,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+## Fixed
+
 ### B28. The hash gate fails on `main`'s Linux CI: "2 runtime commonkit v0.2 lines, want 1"
 
 - Reported: 2026-11-19
@@ -11,8 +13,9 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the `gate` job's "hash gates" step (`scripts/check-hash-gates.sh`) fails on `main` (latest `34f6aea`, run https://github.com/seantrue/plumcraft/actions/runs/43405581253) and on the native dev branch's pull requests, printing `hash gate: 2 runtime commonkit v0.2 lines, want 1; other versions: none`. The same script prints `hash gates: ok` on the Mac, on `main`'s code and on the dev branch's.
 - Checked since (2026-11-19): on the Mac the script also passes under Rust 1.100.0, and `cargo tree … -i commonkit --target x86_64-unknown-linux-gnu` prints the same lines as for the Mac. So neither the Rust version alone nor the target's dependencies explains it. The runner's own `cargo tree` output has not been captured.
 - Issue: #102
-
-## Fixed
+- Cause (2026-11-19, confirmed): CI sets `CARGO_TERM_COLOR=always`, so `cargo tree` wraps its `[build-dependencies]` heading in colour codes, and the script's `sed`, which cuts the output at that heading, no longer matches it: both `commonkit` lines are counted. Nothing to do with Linux or the Rust version; `CARGO_TERM_COLOR=always scripts/check-hash-gates.sh` fails the same way on a Mac. Found by making the script print the tree it counted and reading the runner's log.
+- Fix: the script sets `CARGO_TERM_COLOR=never`, and prints the tree when the count is wrong.
+- Fixed: 2026-11-19, on the native dev branch only, PR #109.
 
 ### B29. `mode2_python_kill_9_mid_run_recovers` fails on Linux CI: "the engine is not connected"
 
