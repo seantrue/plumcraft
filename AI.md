@@ -24,7 +24,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Asked for.** The maintainer's answers at N2's exit, "N2 exit: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A": N3 goes ahead; a move drag becomes one undo step (3A); a new wire dropped on empty canvas opens the filtered palette (8A). The controller cut N3 into five slices and made this one the core's groundwork.
 
-**What the agent did (~1,600 LOC of Rust added, ~170 removed, tests included; fixtures, schema and docs apart).** Node, group and frame moves are undo steps, joined by a named drag or within one second; the arrow keys nudge (`selection.nudge`). The palette is core state; `palette.items` lists the kinds that take a dropped wire and `palette.choose` adds and connects as one step. The conformance suite is 24 cases in a read-only and an editing half, with cases for a run's state and for watched text, scalar and picture values. `Graph::mapped_nodes` no longer compares id strings through ordered maps (a 2,000-node snapshot builds in 1.9 ms, was 3.2). The N0 Swift package builds against today's header and its 6 tests pass. 10 new tests.
+**What the agent did (~1,490 LOC of Rust added, ~170 removed, tests included; fixtures, schema and docs apart).** Node, group and frame moves are undo steps, joined by a named drag or within one second; the arrow keys nudge (`selection.nudge`). The palette is core state; `palette.items` lists the kinds that take a dropped wire and `palette.choose` adds and connects as one step. The conformance suite is 24 cases in a read-only and an editing half, with cases for a run's state and for watched text, scalar and picture values. `Graph::mapped_nodes` no longer compares id strings through ordered maps (a 2,000-node snapshot builds in 1.9 ms, was 3.2). The N0 Swift package builds against today's header and its 6 tests pass. 10 new tests.
 
 **Defects found in earlier AI-written slices.** Slice 4's drag serials restarted at 1 after every drag; the 9% snapshot slowdown slice 4 reported was `mapped_nodes`.
 
@@ -35,6 +35,28 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Not verified.** No native shell has called any of it; nothing ran on an iOS device or simulator. The agent made a dozen choices the maintainer has not reviewed (listed in `claude-debug/native-n3-slice1.md`), among them the one-second joining rule and egui binding the arrow keys.
 
 **The controller (Fable).** Recorded the maintainer's ten answers in note 24; committed the iPad spike's gestures on `spike/ios` under 10A; added the `Cargo.lock` line slice 4's commit had left out.
+### 2026-11-20 — B31: the media wake test read too early, and a wake `blocking` lost (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The maintainer's "start tasks for addressing bugs"; the controller gave this agent B31, with the question of whether the media service delivers a result before it wakes the shell.
+
+**What the agent found and did (+25 −3 in `crates/media/src/service.rs` outside its tests, comments included; +106 −1 in its tests).** The service's order is right: a worker keeps its result under the lock, then wakes, so an ask made on a wake always finds it. The test asked without waiting for the wake and could see the picture before the wake was called; under load on the Linux test host it failed 112 times in 1,200. The test now waits for the wake, and a new test has the wake itself ask, 200 rounds. Reading the path found a real lost wake: `MediaService::blocking` (`doc.open`, `value.open`) settling a request a worker was already making left the worker keeping nothing and waking nobody; and a queued request settled that way was made again. `blocking` now wakes when it settles a request a worker had; a worker skips one already settled. Two tests for those fail without the fix. After: 0 in 1,200 on the same load.
+
+**Also fixes B35.** The same PR (#117) fixes B35, the cache race behind the intermittent `blocking_reads_in_place_and_shares_the_cache`: the worker skip above.
+
+**Whose code.** The test and the service are AI-written (N1 slice 6, an AI agent's work); both the flaky test and the lost wake are defects shipped there.
+
+**Defects in this work.** The test for the worker skipping a settled request first asked for bytes, which a worker shares rather than reads again, so it passed with the skip removed. It now asks for a rendition and fails without the skip (3 reads, want 2). This came to light when the controller asked about a second intermittent test in the same file.
+
+**Not verified.** No shell (Swift, Kotlin, egui) was run against the change; nothing measured how often a shell actually hit the lost wake (a shell that draws in frames asks again every frame and would not notice). Not run on the Mac.
+### 2026-11-20 — B30: video frames pass through on ffmpeg before 5.1 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** The maintainer said "start tasks for addressing bugs"; this task was B30 (#113), on the Linux test host.
+
+**What the agent did (82 lines added and 4 removed in `crates/array/src/channels/video.rs`, about 30 of them the test; ledgers apart).** The video reader asks `ffmpeg -version` once per ffmpeg program (remembered for the process) and passes `-vsync passthrough` to a version before 5.1, `-fps_mode passthrough` to a newer one; an answer with no version in it gets `-fps_mode`, the spelling of git snapshots, which print none. Before the fix, every other option the reader, ffprobe and the MP4, MOV and GIF writers pass was run by hand on ffmpeg 4.4.2, and each written clip read back: `-fps_mode` was the only one missing. New test `frames_pass_through_with_the_option_this_ffmpeg_has`, with hostile answers (empty, no version, overflowing numbers, replacement characters); with the choice replaced by a constant `-fps_mode` it fails, as does `video_goes_to_frames_and_back` on 4.4.2.
+
+**Defects.** None found in this change.
+
+**Not verified.** Only ffmpeg 4.4.2 was run; the `-fps_mode` path on 5.1 or newer is left to CI's ffmpeg. The full run on the Linux test host had five failures, none in the array crate; one, `plumcraft-media` `blocking_reads_in_place_and_shares_the_cache`, is not among the known ones: it failed 1 of 10 runs alone ("then cached"), in a crate that doesn't depend on the array crate.
 
 ### 2026-11-20 — N2 slice 4: gestures, the schema and the conformance suite; N2's exit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
