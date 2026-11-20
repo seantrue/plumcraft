@@ -15,7 +15,8 @@ use plumcraft_editor_core::conformance::{self, Driver};
 use plumcraft_ffi::{PLUM_OK, PlumFace, plum_geometry_set, plum_gesture_move};
 use serde_json::{Value, json};
 
-struct Abi(Client);
+/// The C ABI headless, on a core whose engine is `engine` (`text` unless named).
+struct Abi(Client, &'static str);
 
 fn floats(v: &Value) -> Vec<f32> {
     v.as_array().into_iter().flatten().map(|x| x.as_f64().map_or(f32::NAN, |f| f as f32)).collect()
@@ -75,6 +76,14 @@ impl Driver for Abi {
         }
         Ok(())
     }
+    /// The engine it was opened on, and `media.get` (the C ABI serves it).
+    fn has(&self, capability: &str) -> bool {
+        capability == "media" || capability.strip_prefix("engine:") == Some(self.1)
+    }
+    /// Wait for the core's wake (at most 50 ms), then poll it.
+    fn pause(&mut self) {
+        self.0.wait_wake(Duration::from_millis(50));
+    }
     fn hot_move(&mut self, at: [f32; 2], slop: f32) -> Option<Value> {
         let d = plum_gesture_move(self.0.core, 0, at[0], at[1], slop);
         if d.status != PLUM_OK {
@@ -93,11 +102,37 @@ impl Driver for Abi {
 
 #[test]
 fn the_suite_passes_through_the_c_abi() {
-    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance")})));
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance")})), "text");
     let out = conformance::run_all(&mut d).unwrap();
     let all = out.iter().all(|o| o.error.is_none());
     assert!(all, "{}", conformance::summary(&d.name(), &out));
     assert!(out.len() >= 15);
+    // every case runs here but the ones for another engine's values
+    let skipped: Vec<&str> = out.iter().filter(|o| o.skipped.is_some()).map(|o| o.name.as_str()).collect();
+    assert_eq!(skipped, ["a watched picture arrives as picture"], "{}", conformance::summary(&d.name(), &out));
+    d.0.close();
+}
+
+/// N3's gate is the read-only half (`conformance::Half::Read`), run alone: it needs nothing the
+/// editing half leaves behind.
+#[test]
+fn the_read_half_passes_alone_through_the_c_abi() {
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-read")})), "text");
+    let out = conformance::run_half(&mut d, conformance::Half::Read).unwrap();
+    assert!(out.iter().all(|o| o.error.is_none()), "{}", conformance::summary(&d.name(), &out));
+    assert!(out.len() >= 10, "{}", out.len());
+    d.0.close();
+}
+
+/// The cases for the array engine's values (a picture), on a core opened on it.
+#[test]
+fn the_array_cases_pass_through_the_c_abi() {
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-array"), "engine": "array"})), "array");
+    let cases: Vec<Value> =
+        conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:array")))).collect();
+    assert!(!cases.is_empty());
+    let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
+    assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));
     d.0.close();
 }
 
@@ -134,6 +169,14 @@ impl Driver for Port {
     fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
         let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
         if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
+    }
+    /// The text engine (the core's default); the port doesn't serve `media.get`.
+    fn has(&self, capability: &str) -> bool {
+        capability == "engine:text"
+    }
+    /// A script on a socket has no wake to wait for: a moment before it asks again.
+    fn pause(&mut self) {
+        std::thread::sleep(Duration::from_millis(20));
     }
 }
 

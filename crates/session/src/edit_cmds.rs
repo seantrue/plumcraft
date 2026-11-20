@@ -3,7 +3,7 @@
 //!
 //! Copy only reads the graph; the UI puts its text on the system clipboard (egui's
 //! `copy_text`; Cmd+V arrives as egui's Paste event with the system clipboard's text). Cut,
-//! paste, align and distribute are undo steps.
+//! paste, align, distribute and (since N3 slice 1) `edit.move` are undo steps.
 //!
 //! Lifted from the research software's `crates/engine/src/edit_cmds.rs` (2026-10-27, the research software `8d96021`; plan
 //! 10.3, E2) without wire slices, bend points or net labels; `edit.cut` is new (the research software's UI
@@ -255,6 +255,91 @@ fn distribute(s: &mut Session, p: &Value) -> Result<Value> {
     apply_moves(s, "Distribute", moves)
 }
 
+/// The label of a move of `nodes` nodes and `groups` groups (N3 slice 1): "Move Node", "Move 3
+/// Nodes", "Move Group", "Move 2 Groups", "Move 4 Items".
+pub fn move_label(nodes: usize, groups: usize) -> String {
+    match (nodes, groups) {
+        (1, 0) => "Move Node".into(),
+        (n, 0) => format!("Move {n} Nodes"),
+        (0, 1) => "Move Group".into(),
+        (0, g) => format!("Move {g} Groups"),
+        (n, g) => format!("Move {} Items", n + g),
+    }
+}
+
+/// `{id: [x, y]}` of `key`.
+fn places(p: &Value, key: &str) -> Result<Vec<(String, [f32; 2])>> {
+    let bad = || SessionError::Params(format!("{key:?} must be {{id: [x, y]}} with finite numbers"));
+    match p.get(key) {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Object(o)) => o.iter().map(|(k, v)| Ok((k.clone(), pos_param(&json!({"p": v}), "p").map_err(|_| bad())?.ok_or_else(bad)?))).collect(),
+        Some(_) => Err(bad()),
+    }
+}
+
+/// `edit.move {nodes?: {id: [x, y]}, groups?: {id: [x, y]}, drag?}` (N3 slice 1): put nodes and
+/// groups (a group's members and nested groups go with it) where given, as one undo step named
+/// for what moved; the moves of the same things after it join it (the same `drag`, or none
+/// within [`crate::MOVE_COALESCE`]: [`Session::edit_move`]). What is already where it is given is
+/// left out; when nothing is left, nothing changes. A drag of faces and a nudge end here.
+fn move_items(s: &mut Session, p: &Value) -> Result<Value> {
+    if let Some(o) = p.as_object()
+        && let Some(k) = o.keys().find(|k| !matches!(k.as_str(), "nodes" | "groups" | "drag"))
+    {
+        return Err(SessionError::Params(format!("edit.move takes nodes, groups and drag, not {:?}", k.chars().take(32).collect::<String>())));
+    }
+    let drag = crate::commands::drag_param(p)?;
+    let mut moves: Vec<(Item, [f32; 2])> = Vec::new();
+    for (id, pos) in places(p, "nodes")? {
+        let id = NodeId::from(id.as_str());
+        let was = s.graph().node(&id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?.pos;
+        if was != pos {
+            moves.push((Item::Node(id), pos));
+        }
+    }
+    for (id, pos) in places(p, "groups")? {
+        let id = GroupId::from(id.as_str());
+        let was = s.graph().group(&id).ok_or_else(|| GraphError::UnknownGroup(id.clone()))?.pos;
+        if was != pos {
+            moves.push((Item::Group(id), pos));
+        }
+    }
+    if moves.len() > 100_000 {
+        return Err(SessionError::Params("too many moves at once".into()));
+    }
+    let moved = |moves: &[(Item, [f32; 2])]| -> serde_json::Map<String, Value> {
+        moves
+            .iter()
+            .map(|(item, p)| match item {
+                Item::Node(id) => (id.0.clone(), json!(p)),
+                Item::Group(id) => (id.0.clone(), json!(p)),
+            })
+            .collect()
+    };
+    if moves.is_empty() {
+        return Ok(json!({"moved": {}}));
+    }
+    let n = moves.iter().filter(|(i, _)| matches!(i, Item::Node(_))).count();
+    let label = move_label(n, moves.len() - n);
+    let items: Vec<String> = moves
+        .iter()
+        .map(|(i, _)| match i {
+            Item::Node(id) => format!("node:{}", id.0),
+            Item::Group(id) => format!("group:{}", id.0),
+        })
+        .collect();
+    s.edit_move(&label, items, drag.as_deref(), |g| {
+        for (item, pos) in &moves {
+            match item {
+                Item::Node(id) => g.move_node(id, *pos)?,
+                Item::Group(id) => g.move_group(id, *pos)?,
+            }
+        }
+        Ok(())
+    })?;
+    Ok(json!({"moved": moved(&moves)}))
+}
+
 fn apply_moves(s: &mut Session, label: &str, moves: Vec<(Item, [f32; 2])>) -> Result<Value> {
     if moves.iter().any(|(_, p)| !p[0].is_finite() || !p[1].is_finite()) {
         return Err(SessionError::Params("the arrangement leaves the canvas (positions not finite)".into()));
@@ -286,7 +371,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Undo",
             menu: &["Edit"],
             shortcut: Some("Cmd+Z"),
-            params: "{} -> {undid: label, undo: label|null, redo: label|null} (node moves and views aren't undo steps)",
+            params: "{} -> {undid: label, undo: label|null, redo: label|null} (views aren't undo steps; since N3 slice 1 moves are: a drag, or a run of moves of the same things, is one)",
             enabled: can_undo,
             run: undo,
             journal: true,
@@ -330,6 +415,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             enabled: always,
             run: paste,
             journal: true,
+        },
+        CommandSpec {
+            id: "edit.move",
+            label: "Move",
+            menu: &[],
+            shortcut: None,
+            params: "{nodes?: {node id: [x, y]}, groups?: {group id: [x, y]}, drag?: string | whole number} -> {moved: {id: [x, y]}} (one undo step, \"Move Node\", \"Move 3 Nodes\", \"Move Group\", \"Move 2 Items\"; a group's members go with it; the moves of the same things after it join it: the same drag named, or none named within a second; what is already there is left out; not journaled, as node.move isn't)",
+            enabled: always,
+            run: move_items,
+            journal: false,
         },
         CommandSpec {
             id: "edit.align",
@@ -430,6 +525,145 @@ mod tests {
         ] {
             assert!(s.execute(id, &p).is_err(), "{id} {p}");
             assert_eq!(s.graph(), &before, "{id} {p}");
+        }
+    }
+
+    /// N3 slice 1: a move is an undo step; the moves of the same things that follow it join it
+    /// (the same drag, or none within a second); anything else makes a new step.
+    #[test]
+    fn moves_are_undo_steps_and_a_drag_is_one() {
+        let mut s = session();
+        let a = add(&mut s, 0.0, 0.0);
+        let b = add(&mut s, 300.0, 0.0);
+        let depth = s.undo_depth();
+        // a drag: many moves, one step
+        for k in 1..=20 {
+            s.execute("node.move", &json!({"id": a, "pos": [k as f32, 2.0 * k as f32], "drag": "d1"})).unwrap();
+        }
+        assert_eq!((s.undo_depth(), s.undo_label()), (depth + 1, Some("Move Node")));
+        // another drag of the same node is another step
+        s.execute("node.move", &json!({"id": a, "pos": [50, 50], "drag": 2})).unwrap();
+        assert_eq!(s.undo_depth(), depth + 2);
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!(pos(&s, &a), [20.0, 40.0]);
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!(pos(&s, &a), [0.0, 0.0], "one undo takes the whole drag back");
+        assert_eq!(s.undo_label(), Some("Add Node"));
+        // moves naming no drag, one after another: one step (a held arrow key)
+        for k in 1..=5 {
+            s.execute("edit.move", &json!({"nodes": {a.as_str(): [k as f32, 0.0], b.as_str(): [300.0 + k as f32, 0.0]}})).unwrap();
+        }
+        assert_eq!((s.undo_depth(), s.undo_label()), (depth + 1, Some("Move 2 Nodes")));
+        // other things moved: a step of their own
+        s.execute("edit.move", &json!({"nodes": {a.as_str(): [9, 9]}})).unwrap();
+        assert_eq!((s.undo_depth(), s.undo_label()), (depth + 2, Some("Move Node")));
+        // an edit between ends the run
+        add(&mut s, 900.0, 0.0);
+        let d = s.undo_depth();
+        s.execute("node.move", &json!({"id": a, "pos": [10, 10]})).unwrap();
+        s.execute("node.move", &json!({"id": a, "pos": [11, 10]})).unwrap();
+        assert_eq!(s.undo_depth(), d + 1);
+        // an undo then a move: a new step, not the one undone
+        s.execute("edit.undo", &Value::Null).unwrap();
+        s.execute("node.move", &json!({"id": a, "pos": [12, 10]})).unwrap();
+        assert_eq!(s.undo_depth(), d + 1);
+        assert!(s.redo_label().is_none());
+        // moves change no run state: nothing goes stale
+        assert!(s.run.nodes.values().all(|n| n.stale_since.is_none()));
+        // a move to where it is: no step
+        let d = s.undo_depth();
+        s.execute("edit.move", &json!({"nodes": {a.as_str(): [12, 10]}})).unwrap();
+        s.execute("node.move", &json!({"id": a, "pos": [12, 10], "drag": "z"})).unwrap();
+        assert_eq!(s.undo_depth(), d);
+    }
+
+    #[test]
+    fn a_move_joins_only_within_the_rule() {
+        let t0 = std::time::Instant::now();
+        let mark = |drag: Option<&str>| crate::MoveMark { items: vec!["node:n1".into()], drag: drag.map(str::to_owned), at: t0, step: 0 };
+        let items = vec!["node:n1".to_owned()];
+        let later = |ms| t0 + std::time::Duration::from_millis(ms);
+        assert!(mark(None).joins(&items, None, later(999)));
+        assert!(!mark(None).joins(&items, None, later(1001)), "past a second, a new step");
+        assert!(mark(Some("d")).joins(&items, Some("d"), later(60_000)), "a named drag joins however long it takes");
+        assert!(!mark(Some("d")).joins(&items, Some("e"), later(1)));
+        assert!(!mark(Some("d")).joins(&items, None, later(1)));
+        assert!(!mark(None).joins(&items, Some("d"), later(1)));
+        assert!(!mark(None).joins(&["node:n2".to_owned()], None, later(1)));
+    }
+
+    #[test]
+    fn edit_move_names_what_moved_and_refuses_hostile_params() {
+        let mut s = session();
+        let a = add(&mut s, 0.0, 0.0);
+        let b = add(&mut s, 300.0, 0.0);
+        let c = add(&mut s, 600.0, 0.0);
+        let g = s.execute("group.create", &json!({"nodes": [c], "name": "G", "collapsed": true})).unwrap()["id"].as_str().unwrap().to_owned();
+        assert_eq!(move_label(3, 0), "Move 3 Nodes");
+        assert_eq!(move_label(0, 1), "Move Group");
+        assert_eq!(move_label(0, 2), "Move 2 Groups");
+        let r = s.execute("edit.move", &json!({"nodes": {a.as_str(): [1, 1], b.as_str(): [301, 1]}, "groups": {g.as_str(): [601, 1]}, "drag": "x"})).unwrap();
+        assert_eq!(r["moved"].as_object().unwrap().len(), 3);
+        assert_eq!(s.undo_label(), Some("Move 3 Items"));
+        assert_eq!(pos(&s, &c), [601.0, 1.0], "a group's member goes with it");
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!((pos(&s, &a), pos(&s, &b), pos(&s, &c)), ([0.0, 0.0], [300.0, 0.0], [600.0, 0.0]));
+        let before = s.graph().clone();
+        let depth = s.undo_depth();
+        for p in [
+            json!({"nodes": {"n99": [1, 1]}}),
+            json!({"nodes": {a.as_str(): [1]}}),
+            json!({"nodes": {a.as_str(): ["x", 1]}}),
+            json!({"nodes": {a.as_str(): [1.0e39, 1]}}),
+            json!({"nodes": [a]}),
+            json!({"groups": {"g99": [1, 1]}}),
+            json!({"nodes": {a.as_str(): [1, 1]}, "drag": ""}),
+            json!({"nodes": {a.as_str(): [1, 1]}, "drag": -1}),
+            json!({"nodes": {a.as_str(): [1, 1]}, "drag": "x".repeat(65)}),
+            json!({"nodes": {a.as_str(): [1, 1]}, "drag": {"d": 1}}),
+            json!({"nodes": {a.as_str(): [1, 1]}, "extra": true}),
+        ] {
+            assert!(s.execute("edit.move", &p).is_err(), "{p}");
+            assert_eq!(s.graph(), &before, "{p}");
+            assert_eq!(s.undo_depth(), depth, "{p}");
+        }
+        assert!(s.execute("node.move", &json!({"id": a, "pos": [1, 1], "drag": []})).is_err());
+        assert!(s.execute("node.move", &json!({"id": "n99", "pos": [1, 1]})).is_err());
+        assert_eq!(s.graph(), &before);
+    }
+
+    /// Question 8 (N3 slice 1): a node added with a dropped wire connected, as one undo step.
+    #[test]
+    fn a_node_added_wired_is_one_undo_step() {
+        let mut s = session();
+        let lit = s.execute("node.add", &json!({"kind": "text.literal", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+        let up = add(&mut s, 600.0, 0.0);
+        let before = s.graph().clone();
+        // from an output: into the new node's first input that fits
+        let r = s.execute("node.addWired", &json!({"kind": "text.upper", "pos": [300, 0], "from": {"node": lit, "port": "text"}})).unwrap();
+        let id = r["id"].as_str().unwrap().to_owned();
+        assert_eq!(r["wire"], json!({"from": {"node": lit, "port": "text"}, "to": {"node": id, "port": "text"}}));
+        assert_eq!(s.undo_label(), Some("Add and Connect"));
+        assert_eq!(pos(&s, &id), [300.0, 0.0]);
+        s.execute("edit.undo", &Value::Null).unwrap();
+        assert_eq!(s.graph(), &before, "one undo takes the node and its wire away");
+        // into an input: from the new node's first output that fits
+        let r = s.execute("node.addWired", &json!({"kind": "text.literal", "pos": [300, 0], "to": {"node": up, "port": "text"}})).unwrap();
+        assert_eq!(r["wire"]["to"], json!({"node": up, "port": "text"}));
+        assert_eq!(s.graph().wires.len(), 1);
+        s.execute("edit.undo", &Value::Null).unwrap();
+        // refused: nothing that fits, both ends, neither, an unknown kind or port; nothing changes
+        for p in [
+            json!({"kind": "text.literal", "from": {"node": lit, "port": "text"}}),
+            json!({"kind": "text.upper", "from": {"node": lit, "port": "text"}, "to": {"node": up, "port": "text"}}),
+            json!({"kind": "text.upper"}),
+            json!({"kind": "text.nope", "from": {"node": lit, "port": "text"}}),
+            json!({"kind": "text.upper", "from": {"node": lit, "port": "text"}, "port": "nope"}),
+            json!({"kind": "text.upper", "from": {"node": "n99", "port": "text"}}),
+            json!({"kind": "text.upper", "from": "here"}),
+        ] {
+            assert!(s.execute("node.addWired", &p).is_err(), "{p}");
+            assert_eq!(s.graph(), &before, "{p}");
         }
     }
 

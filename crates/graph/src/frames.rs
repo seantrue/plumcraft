@@ -88,6 +88,11 @@ fn check_pos(pos: [f32; 2]) -> Result<()> {
 
 /// A size clamped to [`MIN_FRAME_SIDE`], or an error for one that isn't a finite size. A
 /// negative side is clamped too, here where a person is dragging a corner.
+/// The size a frame given `size` gets (each side at least [`MIN_FRAME_SIDE`]), or why it can't.
+pub fn checked_size(size: [f32; 2]) -> Result<[f32; 2]> {
+    check_size(size)
+}
+
 fn check_size(size: [f32; 2]) -> Result<[f32; 2]> {
     if size.iter().all(|v| v.is_finite() && *v <= MAX_FRAME_COORD) {
         Ok([size[0].max(MIN_FRAME_SIDE), size[1].max(MIN_FRAME_SIDE)])

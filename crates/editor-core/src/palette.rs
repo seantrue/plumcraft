@@ -8,8 +8,15 @@
 //!
 //! Lifted from the research software's `crates/ui-egui/src/palette.rs`. The index moved to the
 //! core (stage N1); drawing the popup stays in each shell (the egui shell: `plumcraft_ui::palette`).
+//!
+//! **A dropped wire** (N3 slice 1, contract question 8): a palette opened for a new wire dropped
+//! on empty canvas offers only the kinds with a port that takes it ([`fitting`], by
+//! `Graph::input_for_new` and `Graph::output_for_new`: the types and list-ness `wire.connect`
+//! checks), and [`items`] is what `palette.items` lists, for a shell that draws the popup.
 
+use plumcraft_graph::{Graph, PortRef};
 use plumcraft_proto::catalogue::{NodeDef, SchemaReply};
+use serde_json::{Value, json};
 
 /// The most results the palette draws.
 pub const MAX_SHOWN: usize = 150;
@@ -64,12 +71,17 @@ impl PaletteIndex {
     /// Node indices matching every word of `query` (case-insensitive), in category order, at
     /// most `cap`. The second value is the total number of matches.
     pub fn filter(&self, query: &str, cap: usize) -> (Vec<usize>, usize) {
+        self.filter_in(query, cap, |_| true)
+    }
+
+    /// [`PaletteIndex::filter`] among the nodes `keep` takes (a dropped wire's [`fitting`]).
+    pub fn filter_in(&self, query: &str, cap: usize, keep: impl Fn(usize) -> bool) -> (Vec<usize>, usize) {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
         let mut shown = Vec::new();
         let mut total = 0;
         for &i in &self.order {
             let Some((hay, _, _)) = self.entries.get(i) else { continue };
-            if words.iter().all(|w| hay.contains(w.as_str())) {
+            if keep(i) && words.iter().all(|w| hay.contains(w.as_str())) {
                 total += 1;
                 if shown.len() < cap {
                     shown.push(i);
@@ -83,6 +95,61 @@ impl PaletteIndex {
     pub fn category(&self, i: usize) -> &str {
         self.entries.get(i).map_or("", |e| e.1.as_str())
     }
+}
+
+/// The node types (by index in `catalog.nodes`) a palette opened for a dropped wire offers, each
+/// with the port a pick connects: with `from_output`, `end` is the output the wire leaves and the
+/// port is the new node's input that takes it; else `end` is the input the wire enters and the
+/// port the new node's output that feeds it. In catalogue order.
+pub fn fitting(graph: &Graph, catalog: &SchemaReply, end: &PortRef, from_output: bool) -> Vec<(usize, String)> {
+    catalog
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(i, def)| {
+            let port = if from_output { graph.input_for_new(catalog, end, def) } else { graph.output_for_new(catalog, def, end) }?;
+            Some((i, port))
+        })
+        .collect()
+}
+
+/// `palette.items {query?, limit?}`'s reply for a palette in `palette` (or none open):
+/// `{items: [{kind, label, category, port?}], total, wire?}`, at most `limit` (default and most
+/// [`MAX_SHOWN`]) in category order, matching every word of `query` (default the palette's own);
+/// with a wire, only the kinds that take it, each with the port a pick connects.
+pub fn items(graph: &Graph, catalog: &SchemaReply, palette: Option<&crate::scene::Palette>, params: &Value) -> Result<Value, String> {
+    crate::control::check_fields(params, &["query", "limit"])?;
+    let query = match params.get("query") {
+        None | Some(Value::Null) => palette.and_then(|p| p.query.clone()).unwrap_or_default(),
+        Some(Value::String(q)) => q.chars().take(256).collect(),
+        Some(_) => return Err("query must be a string".into()),
+    };
+    let limit = match params.get("limit") {
+        None | Some(Value::Null) => MAX_SHOWN,
+        Some(v) => v.as_u64().filter(|n| *n >= 1).map(|n| n.min(MAX_SHOWN as u64) as usize).ok_or("limit must be a whole number, 1 or more")?,
+    };
+    let mut index = PaletteIndex::default();
+    index.refresh(catalog);
+    let wire = palette.and_then(|p| p.wire.as_ref());
+    let fits: Option<std::collections::BTreeMap<usize, String>> =
+        wire.and_then(|w| w.end()).map(|(end, out)| fitting(graph, catalog, &end, out).into_iter().collect());
+    let (shown, total) = index.filter_in(&query, limit, |i| fits.as_ref().is_none_or(|f| f.contains_key(&i)));
+    let items: Vec<Value> = shown
+        .iter()
+        .filter_map(|&i| {
+            let def = catalog.nodes.get(i)?;
+            let mut v = json!({"kind": def.id, "label": display_name(def), "category": index.category(i)});
+            if let Some(port) = fits.as_ref().and_then(|f| f.get(&i)) {
+                v["port"] = json!(port);
+            }
+            Some(v)
+        })
+        .collect();
+    let mut out = json!({"items": items, "total": total, "query": query});
+    if let Some(w) = wire {
+        out["wire"] = serde_json::to_value(w).unwrap_or(Value::Null);
+    }
+    Ok(out)
 }
 
 #[cfg(test)]

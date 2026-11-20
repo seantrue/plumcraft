@@ -166,6 +166,21 @@ impl Selection {
         ids
     }
 
+    /// What moving the selection moves: the selected groups not inside another selected one,
+    /// and the selected nodes those groups don't carry already (a drag of a selected face, a
+    /// nudge; N2 slice 4, N3 slice 1). Only what the graph has.
+    pub fn moving(&self, graph: &Graph) -> (Vec<GroupId>, Vec<NodeId>) {
+        let groups: Vec<GroupId> = self
+            .groups
+            .iter()
+            .filter(|g| graph.group(g).is_some() && !self.groups.iter().any(|outer| outer != *g && graph.group_subtree(outer).contains(*g)))
+            .cloned()
+            .collect();
+        let carried: std::collections::BTreeSet<NodeId> = self.groups.iter().flat_map(|g| graph.group_members(g)).collect();
+        let nodes: Vec<NodeId> = self.nodes.iter().filter(|n| !carried.contains(*n) && graph.node(n).is_some()).cloned().collect();
+        (groups, nodes)
+    }
+
     /// The canvas commands' reply: `{nodes, groups, net}`.
     pub fn reply(&self) -> Value {
         json!({"nodes": self.nodes, "groups": self.groups, "net": self.net})

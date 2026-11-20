@@ -118,6 +118,56 @@ pub struct Scene {
 pub struct View {
     /// The latest fit asked for (`canvas.fit`), or none since the document opened.
     pub fit: Option<Fit>,
+    /// The node palette, while it is open (`canvas.palette`; core state since N3 slice 1, open
+    /// question 4). Left out while it is closed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub palette: Option<Palette>,
+}
+
+/// The node palette as the core keeps it (N3 slice 1): where a node picked goes, what was typed,
+/// and the wire it was opened for, when a new wire was dropped on empty canvas (question 8).
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Palette {
+    /// Where a node picked is added (graph units), or none: the view's centre, the shell's.
+    pub at: Option<[f64; 2]>,
+    /// The search it opened with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
+    /// The wire dropped: only kinds that take it are offered (`palette.items`), and the one
+    /// picked is added with it connected (`palette.choose`, one undo step).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wire: Option<PaletteWire>,
+}
+
+/// The end of a dropped wire that stays: the output it leaves (`from`; a new node's input takes
+/// it), or the input it enters (`to`; a new node's output feeds it). Exactly one is given.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct PaletteWire {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<PortAt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<PortAt>,
+}
+
+/// A port: `{node, port}`.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct PortAt {
+    pub node: String,
+    pub port: String,
+}
+
+impl PaletteWire {
+    /// The port and whether it is an output (`from`).
+    pub fn end(&self) -> Option<(plumcraft_graph::PortRef, bool)> {
+        match (&self.from, &self.to) {
+            (Some(f), None) => Some((plumcraft_graph::PortRef::new(f.node.as_str(), f.port.as_str()), true)),
+            (None, Some(t)) => Some((plumcraft_graph::PortRef::new(t.node.as_str(), t.port.as_str()), false)),
+            _ => None,
+        }
+    }
 }
 
 /// A fit the core asks for: the shell fits `rect` (graph units) into its view, zoom at most 1
@@ -2254,7 +2304,7 @@ mod tests {
             ),
         );
         m.set(&o1.0, crate::geometry::FaceGeometry::sized([180.0, 90.0], &[], &[36.0, 58.0, 80.0]));
-        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }) };
+        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }), palette: None };
         let with = |i: Inputs<'_>| -> Scene {
             let mut i = i;
             i.geometry = Some(&m);
@@ -2539,6 +2589,18 @@ mod tests {
             let measured_publish_ms = ms(t0);
             let (mut snap_ms, mut hit_us, mut target_us, mut paths_us) = (vec![], vec![], vec![], vec![]);
             let mut snap = crate::geometry::Snapshot::default();
+            // for a profiler (N3 slice 1): make the 2,000-node snapshot for this many seconds
+            if n == 2000
+                && let Some(secs) = std::env::var("PLUMCRAFT_MEASURE_SNAPSHOT_SECS").ok().and_then(|s| s.parse::<u64>().ok())
+            {
+                let t0 = Instant::now();
+                let mut k = 0u64;
+                while t0.elapsed().as_secs() < secs {
+                    std::hint::black_box(p.snapshot((0, 0, k, None), s.graph(), s.catalog(), &m));
+                    k += 1;
+                }
+                println!("SNAPSHOTS {k}");
+            }
             for _ in 0..5 {
                 let t0 = Instant::now();
                 snap = p.snapshot((0, 0, 0, None), s.graph(), s.catalog(), &m);
