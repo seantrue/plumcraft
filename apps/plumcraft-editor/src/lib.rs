@@ -938,6 +938,43 @@ mod tests {
             assert!(h.state().session.missing_engines().is_none());
         }
 
+        /// The palette lists the kinds of an engine not started (N4 slice 1, contract 12.7; D3 of
+        /// the egui audit), saying which engine choosing one starts; choosing one starts it and
+        /// adds the node once it has connected, where the palette was opened, as one undo step.
+        #[test]
+        fn the_palette_offers_a_kind_whose_engine_isnt_started_and_choosing_it_starts_that_engine() {
+            let mut h = text_editor(Launcher::default());
+            assert_eq!(command(&mut h, "engine.auto", json!({"on": true})).unwrap()["on"], true);
+            assert!(h.state().session.catalog().node("array.mandelbrot").is_none(), "the array engine isn't started");
+            let ctx = h.ctx.clone();
+            let items = h.state_mut().control_now(&ctx, "palette.items", &json!({"query": "mandel"}))["result"].clone();
+            assert_eq!(
+                items["items"],
+                json!([{"kind": "array.mandelbrot", "label": "Mandelbrot", "category": items["items"][0]["category"], "starts": "array"}]),
+                "{items}"
+            );
+            // egui draws the same list, the engine named
+            command(&mut h, "canvas.palette", json!({"open": true, "at": [600.0, 500.0], "query": "mandel"})).unwrap();
+            h.run_steps(4);
+            let nodes = h.state().session.graph().nodes.len();
+            // a person's click on it
+            h.get_by_label("Mandelbrot  · starts the array engine").click();
+            h.run_steps(2);
+            assert_eq!(h.state().doc.held_add.as_ref().map(|a| a.kind.as_str()), Some("array.mandelbrot"), "held while the engine starts");
+            assert!(h.state().canvas.palette.is_none() && h.state().doc.palette.is_none(), "the palette closed");
+            until(&mut h, "the node added once the array engine connected", |a| a.session.graph().nodes.len() == nodes + 1);
+            let (_, node) = h.state().session.graph().nodes.iter().find(|(_, n)| n.kind == "array.mandelbrot").expect("added");
+            assert_eq!(node.pos, [600.0, 500.0], "where the palette was opened");
+            assert!(h.state().session.catalog().node("array.mandelbrot").is_some());
+            assert_eq!(h.state().session.undo_label(), Some("Add Node"));
+            assert!(h.state().last_error.is_none(), "{:?}", h.state().last_error);
+            assert!(h.state().doc.held_add.is_none());
+            // its engine connected, its kinds are the catalogue's own: listed without `starts`
+            let items = h.state_mut().control_now(&ctx, "palette.items", &json!({"query": "life"}))["result"].clone();
+            assert_eq!(items["items"].as_array().map(Vec::len), Some(1), "Game of Life is the array engine's, connected now: {items}");
+            assert!(items["items"][0].get("starts").is_none(), "{items}");
+        }
+
         /// Engine › Add Engine (docs/research/15-multi-engine.md): the array engine beside the
         /// text engine, behind a coordinator; one merged catalogue; the text demo still runs; a
         /// graph across both (Text → Code points → Arithmetic) runs, each node on its engine;

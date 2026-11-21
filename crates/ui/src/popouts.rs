@@ -30,16 +30,16 @@ pub struct PopoutWindow {
 impl EditorApp {
     /// Match the windows to the session's pop-outs, and give each its port's newest display.
     pub fn sync_popouts(&mut self, ctx: &egui::Context) {
-        let open: Vec<(u64, Option<String>, _)> = self
+        let open: Vec<(u64, Option<String>, _, _)> = self
             .session
             .views
             .popouts
             .iter_mut()
-            .map(|o| (o.id, o.viewer.clone(), plumcraft_session::viewer_cmds::Tools { zoom: o.tools.zoom.take(), ..o.tools }))
+            .map(|o| (o.id, o.viewer.clone(), plumcraft_session::viewer_cmds::Tools { zoom: o.tools.zoom.take(), ..o.tools }, o.state.channel))
             .collect();
         self.popouts.retain(|w| open.iter().any(|(id, ..)| *id == w.id));
         let source = self.source();
-        for (id, viewer, tools) in open {
+        for (id, viewer, tools, channel) in open {
             let role = WatchRole::Popout(id);
             let (title, display) = match self.doc.session.run.entry(role) {
                 Some((w, d)) => (format!("{}.{}", w.node, w.port), d.cloned()),
@@ -56,6 +56,7 @@ impl EditorApp {
             };
             w.title = title;
             w.pane.chosen = viewer;
+            w.pane.channel = Some(channel);
             if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
                 self.doc.rerun_pending = true;
             }
@@ -65,6 +66,7 @@ impl EditorApp {
     /// Draw every pop-out in its own viewport; run what their controls ask for.
     pub fn show_popouts(&mut self, ctx: &egui::Context) {
         let mut asks = Vec::new();
+        let mut invoked = Vec::new();
         let mut closed = Vec::new();
         let tokens = self.tokens.clone();
         // This frame's focus is known only after the viewports have run; the level follows it a
@@ -87,6 +89,8 @@ impl EditorApp {
                         if ui.small_button("Close").on_hover_text(format!("view.close {{id: {id}}}")).clicked() {
                             closed.push(id);
                         }
+                        ui.separator();
+                        bar(ui, id, &mut asks, &mut invoked);
                     });
                     asks.extend(pane.full_ui(ui, WatchRole::Popout(id), &tokens));
                 };
@@ -111,6 +115,11 @@ impl EditorApp {
             self.run("view.close", &json!({"id": id}));
         }
         self.run_all(asks);
+        // the person's Copy, Share… and Save As…: the core raises the ask each needs
+        for (command, params) in invoked {
+            plumcraft_editor_core::invoke::invoke_with(self, command, &params, plumcraft_editor_core::asks::By::Person);
+            self.present_asks();
+        }
     }
 
     /// The pop-outs' state, for `ui.inspect`: each with `on_top`, whether it floats above the
@@ -120,6 +129,38 @@ impl EditorApp {
         serde_json::Value::Array(self.popouts.iter().map(|w| json!({"id": w.id, "title": w.title, "on_top": on_top, "pane": w.pane.inspect()})).collect())
     }
 }
+
+/// The pop-out's bar (N4 slices 5 and 6, as the Apple apps' viewers have it): Copy, Save As…,
+/// Share…, and Pin as A or B for Compare. Each is the core's command for pop-out `id`: Copy, Save
+/// As… and Share… invoked for the person (`invoked`: the core raises the clipboard, file and
+/// share asks), the pins run (`run`). egui has no share sheet: its answer to the share ask shows
+/// the value's file in the file manager, to send from there ([`crate::FileDialogs::reveal`]). No
+/// drag out: egui and winit can't start a drag of a file out of a window.
+fn bar(ui: &mut egui::Ui, id: u64, run: &mut Vec<crate::canvas::Action>, invoked: &mut Vec<(&'static str, serde_json::Value)>) {
+    let at = json!({"popout": id});
+    if ui.small_button(COPY).on_hover_text("Copy the value (value.copy)").clicked() {
+        invoked.push(("value.copy", at.clone()));
+    }
+    if ui.small_button(SAVE_AS).on_hover_text("Save the value to a file, its recipe included (value.saveAs)").clicked() {
+        invoked.push(("value.saveAs", at.clone()));
+    }
+    let share = format!("The value as a file of its own, shown in {}, to send from there (value.share)", crate::REVEALED_IN);
+    if ui.small_button(SHARE).on_hover_text(share).clicked() {
+        invoked.push(("value.share", at.clone()));
+    }
+    for (label, slot) in [(PIN_A, "a"), (PIN_B, "b")] {
+        if ui.small_button(label).on_hover_text(format!("Keep this value as {} and compare (viewer.pin)", slot.to_uppercase())).clicked() {
+            run.push(("viewer.pin", json!({"slot": slot, "popout": id})));
+        }
+    }
+}
+
+/// The pop-out bar's buttons (tests find them by these labels).
+pub const COPY: &str = "Copy";
+pub const SAVE_AS: &str = "Save As…";
+pub const SHARE: &str = "Share…";
+pub const PIN_A: &str = "Pin as A";
+pub const PIN_B: &str = "Pin as B";
 
 /// A pop-out's window level: above the editor while one of the editor's windows has focus,
 /// normal when another application has it.

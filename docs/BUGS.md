@@ -36,7 +36,23 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+### B46. A Cancel Run was not honoured once in the egui editor (unconfirmed)
+
+- Reported: 2026-11-21
+- Report: found by the egui audit; recorded under the standing "record bugs"
+- Context: a 5 s Slow node finished `done` at 5,008 ms after Cancel Run; seven later attempts all cancelled within 2.4 s, and the first run's log was overwritten. Seen once, on the Linux test host. `claude-debug/egui-audit.md`, defect D9.
+- Tried (2026-11-21, egui parity, on the Mac): 510 cancels of a 1.5 s Slow node at delays from 0 to 1,000 ms after `run.start`, nothing cached: 150 in the egui editor (the command and the menu's invoke alternately), 120 with a run already going when `run.start` superseded it (Auto-Run's or another `run.start`), 90 through egui's control dispatcher (`ui.invoke run.cancel`, `ui.waitRun`), and 150 through the C ABI core (`command.run` and `ui.invoke {by: person}`). Every one ended `cancelled`. In the audit's sequence the cancel came after 40 frames, the first GPU picture of that process on a software renderer, `ui.inspect` and `menu.get`; if those took over 5 s, the node had finished before Cancel was sent, which would explain it. Scratch drivers: `claude-debug/egui-parity/b46/`.
+- Issue: none
+
 ## Fixed
+
+### B45. In the egui editor, hiding a row from a node's face shifts the rows, and an edit on the face changes the wrong port
+
+- Reported: 2026-11-21
+- Report: found by the egui audit the maintainer asked for ("Do the egui audit on yellowfin"); recorded under the standing "record bugs"
+- Context: the dev branch at `057ed2d`, on the Linux test host through the kittest harness. Add "Every widget", then `node.face {port: "count", shown: false}`: the labels, fields and pins no longer line up, and dragging the field beside "amount" changed `count` from 3 to 4. The same with Replace's `find` hidden. Graphs saved by the Apple apps can carry this state (Show on Face). Steps and pictures: `claude-debug/egui-audit.md`, defect D1. The audit's other findings in egui (D3 to D8: the palette not offering kinds of engines not started, viewers not following the core's viewer state, no rows reported to the core, no Match the System, double clicks not following the core's rule, a repeated word in the rename window's title) are gaps listed there, not recorded here one by one.
+- Cause: egui built each face's rows from `input_rows` less the fields its choice tucks away, while the core's scene (which egui draws labels and pins from) also leaves out the rows `node.face` hides (`rows::shown_rows`). With a row hidden, egui's pin `i` took the scene's row `i` for its label and the catalogue's row `i` for its field, so every row after the hidden one was off by one.
+- Fixed: 2026-11-21, branch `native/egui-parity`: egui builds its rows with `shown_rows` (`crates/ui/src/canvas.rs`), so pin `i` is the scene's row `i`; a row whose key isn't the scene's for that pin draws no field (no edit by another port's label). Verified by `crates/ui/tests/kittest_face_rows.rs`: a drag beside "amount" with `count` hidden on Every widget changes `amount` and not `count`; a check box beside "flag" changes `flag`; typing beside "with" with `find` hidden on Replace changes `with` and not `find`; wires into rows before and after the hidden one land on their ports; a graph opened with two rows hidden draws and edits right; and Show on Face in egui's parameters window hides and shows a row. Each failed before the fix (the rows check) and passes after. Pictures: `claude-debug/egui-parity/shots/{before,after}/b45-*.png`.
 
 ### B44. The iPad UI tests fail on a second run in the same app container
 

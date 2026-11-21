@@ -121,6 +121,23 @@ const HELD_AT_STARTUP: &[&str] = &["graph.open", "graph.new"];
 /// The most commands held at startup.
 const MAX_HELD: usize = 64;
 
+/// The longest an add waits for the engine that offers its kind to connect ([`Document::hold_adds`];
+/// the C ABI core's own wait is as long).
+pub const ENGINE_WAIT: Duration = Duration::from_secs(30);
+
+/// Commands that add a node of a kind ([`Document::hold_adds`]); `palette.choose` adds through
+/// one of them.
+const ADDS: &[&str] = &["node.add", "node.addWired"];
+
+/// An add waiting for the engine that offers its kind ([`Document::hold_adds`]).
+#[derive(Debug, Clone)]
+pub struct HeldAdd {
+    pub command: String,
+    pub params: Value,
+    pub kind: String,
+    pub until: Instant,
+}
+
 /// What opens once the first engine's catalogue has arrived ([`Document::start_engines`]).
 #[derive(Debug)]
 pub enum Opening {
@@ -300,6 +317,14 @@ pub struct Document {
     /// Who the `ui.invoke` being handled is for ([`Shell::invoke_by`]): the C ABI sets it to the
     /// person for the request a shell sends as `ui.invoke {by: "person"}`, and back after.
     pub invoke_by: crate::asks::By,
+    /// Adding a node of a kind only an engine not started offers (the palette lists such kinds,
+    /// N4 slice 1; contract 12.7) asks for that engine and holds the add until it has connected,
+    /// then adds it ([`execute`], [`pump`]), for a shell whose host doesn't hold its requests
+    /// itself: the egui editor. The C ABI core holds the whole request instead (its own queue,
+    /// which keeps every later request in order behind it), so it leaves this off.
+    pub hold_adds: bool,
+    /// The add held while its engine connects ([`Document::hold_adds`]).
+    pub held_add: Option<HeldAdd>,
 }
 
 impl std::fmt::Debug for Document {
@@ -369,6 +394,8 @@ impl Document {
             fit: None,
             run_anim: crate::run_anim::RunAnim::default(),
             invoke_by: crate::asks::By::Script,
+            hold_adds: false,
+            held_add: None,
             fit_owed: false,
             snapshot: std::sync::Arc::default(),
             drag: crate::gesture::DragCell::default(),
@@ -754,6 +781,9 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         st.held.push((id.to_owned(), params.clone()));
         return Ok(json!({"held": true, "until": "the engine has connected"}));
     }
+    if let Some(v) = hold_add(h, id, params) {
+        return v;
+    }
     // the canvas's own commands (the selection, the group entered, fit, the palette): the core's
     // and the shell's, not the session's
     if let Some(c) = crate::canvas_cmds::find(id) {
@@ -963,11 +993,57 @@ pub fn settle_startup<H: Holder>(h: &mut H) -> bool {
     true
 }
 
+/// With [`Document::hold_adds`]: an add of a kind only an engine not connected offers, one this
+/// platform can start, asks for that engine and is held until it has connected (or failed to, or
+/// [`ENGINE_WAIT`] passed); [`pump`] then runs it. `None`: run it now (the session refuses a kind
+/// nothing here can start, and says why).
+fn hold_add<H: Holder>(h: &mut H, id: &str, params: &Value) -> Option<Result<Value, String>> {
+    if !h.doc().hold_adds || !ADDS.contains(&id) {
+        return None;
+    }
+    let kind = params.get("kind").and_then(Value::as_str)?.to_owned();
+    if h.doc().held_add.is_some() {
+        return Some(Err("another node is waiting for its engine to connect: add this one once it has".into()));
+    }
+    let engine = plumcraft_session::engine_cmds::engine_for_kind(&h.doc().session, &kind)?;
+    let asked = plumcraft_session::engine_cmds::start_for_kind(&mut h.doc_mut().session, &kind).is_some();
+    if !asked && !h.doc().engine_busy() {
+        return None;
+    }
+    let d = h.doc_mut();
+    d.held_add = Some(HeldAdd { command: id.to_owned(), params: params.clone(), kind: kind.clone(), until: Instant::now() + ENGINE_WAIT });
+    d.last_error = None;
+    Some(Ok(json!({"held": true, "kind": kind, "engine": engine, "until": format!("the {engine} engine has connected")})))
+}
+
+/// The add [`hold_add`] held, run once its engine has connected (its kind is in the catalogue),
+/// or the switch ended without it, or [`ENGINE_WAIT`] passed: whether it ran.
+fn release_add<H: Holder>(h: &mut H) -> bool {
+    let d = h.doc();
+    let Some(held) = &d.held_add else { return false };
+    let arrived = d.session.catalog().node(&held.kind).is_some();
+    if !arrived && d.engine_busy() && Instant::now() < held.until {
+        return false;
+    }
+    let Some(held) = h.doc_mut().held_add.take() else { return false };
+    if let Err(e) = h.run(&held.command, &held.params) {
+        h.doc_mut().last_error = Some(e);
+    }
+    h.doc_mut().effects.redraw = true;
+    true
+}
+
 /// Run housekeeping before the shell's own (see the module docs): a due auto-run started, a review
 /// prompt raised, what the session queued handed to the worker (or held for the uploads prompt),
 /// a save sent, the media service's frame.
 pub fn pump<H: Holder>(h: &mut H) -> Turn {
     let mut t = Turn::default();
+    if release_add(h) {
+        t.again(Duration::ZERO);
+    } else if let Some(held) = &h.doc().held_add {
+        // look again while the engine connects (its connecting wakes the shell too)
+        t.again(SOON.min(held.until.saturating_duration_since(Instant::now())));
+    }
     let now = Instant::now();
     match h.doc().session.run.auto_due_in(now) {
         Some(d) if d.is_zero() => {

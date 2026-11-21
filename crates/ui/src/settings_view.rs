@@ -34,6 +34,9 @@ fn tab_label(tab: &str) -> &'static str {
     }
 }
 
+/// The Settings window's Match the System box (tests find it by this label).
+pub const MATCH_SYSTEM: &str = "Match the System";
+
 /// `p[key]` as a theme's name: the current one when it's left out.
 fn theme_of(p: &Value, current: &'static str) -> Result<&'static str, String> {
     match p.get("theme").and_then(Value::as_str) {
@@ -258,11 +261,21 @@ impl EditorApp {
         let t = self.tokens.clone();
         let a = self.prefs.prefs().appearance.clone();
         ui.heading("Theme");
+        // Match the System (N4 slice 4, the core's `system` theme and its default): Paper in
+        // light mode, Dusk in dark, following the system as it changes
+        let following = matches!(self.prefs.prefs().theme.as_deref(), None | Some(plumcraft_editor_core::settings::SYSTEM));
+        let mut matching = following;
+        let r = ui.checkbox(&mut matching, MATCH_SYSTEM).on_hover_text("Paper while the system is light, Dusk while it is dark, changing with it");
+        if r.changed() {
+            // off: keep the theme shown now as the choice
+            let name = if matching { plumcraft_editor_core::settings::SYSTEM } else { t.name };
+            out.push(("view.theme", json!({"name": name})));
+        }
         ui.horizontal_wrapped(|ui| {
             for th in &theme::ALL {
                 let shown = Tokens::from(a.resolve(th.name));
-                let r = theme_card(ui, &shown, th.name == t.name);
-                if r.clicked() && th.name != t.name {
+                let r = theme_card(ui, &shown, !following && th.name == t.name);
+                if r.clicked() && (following || th.name != t.name) {
                     out.push(("view.theme", json!({"name": th.name})));
                 }
             }

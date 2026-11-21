@@ -37,7 +37,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 pad="$here"
 kit="$root/native/apple/PlumCraftFFI"
-team="${TEAM:?set TEAM to the signing team's id}"
+team="${TEAM:?set TEAM to the signing team id}"
 dev="${DEVICE:-$(xcrun devicectl list devices 2>/dev/null | grep -E 'iPad.*physical' | grep -E 'available|connected' | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}')}"
 [ -n "$dev" ] || { echo "no iPad connected: set DEVICE to its UDID (xcrun devicectl list devices)"; exit 2; }
 bundle=com.plumcraft.pad

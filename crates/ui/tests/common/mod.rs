@@ -99,3 +99,32 @@ pub fn click(h: &mut Harness<'static, EditorApp>, label: &str) {
     let at = h.get_by_label(label).rect().center();
     click_at(h, at);
 }
+
+/// The folder `PLUMCRAFT_KITTEST_SHOTS` names, when set: the kittests that picture what they
+/// check save their pictures there (a person looks at them; nothing asserts on pixels).
+pub fn shots_dir() -> Option<std::path::PathBuf> {
+    std::env::var_os("PLUMCRAFT_KITTEST_SHOTS").map(std::path::PathBuf::from)
+}
+
+/// [`harness`], rendering with wgpu when pictures are asked for ([`shots_dir`]).
+pub fn harness_pictured(app: EditorApp, size: egui::Vec2) -> Harness<'static, EditorApp> {
+    let b = Harness::builder().with_size(size);
+    let mut h = if shots_dir().is_some() {
+        b.wgpu().build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app)
+    } else {
+        b.build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app)
+    };
+    h.run_steps(6);
+    h
+}
+
+/// Save the window as `<shots>/<name>.png` when pictures are asked for ([`shots_dir`]).
+pub fn shot(h: &mut Harness<'static, EditorApp>, name: &str) {
+    let Some(dir) = shots_dir() else { return };
+    h.run_steps(4);
+    std::fs::create_dir_all(&dir).unwrap();
+    let img = h.render().unwrap();
+    let (w, ht) = img.dimensions();
+    let color = egui::ColorImage::from_rgba_unmultiplied([w as usize, ht as usize], img.as_raw());
+    plumcraft_ui::save_png(&color, &dir.join(format!("{name}.png"))).unwrap();
+}

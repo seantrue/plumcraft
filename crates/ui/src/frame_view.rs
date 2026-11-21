@@ -22,7 +22,7 @@ use plumcraft_graph::{Frame, FrameId, Graph};
 use serde_json::{Value, json};
 
 use crate::canvas::{Action, Canvas};
-use crate::rename_view::{self, RenameTarget};
+
 use crate::theme::{Tokens, parse_hex};
 
 /// The icon before a frame's title.
@@ -134,8 +134,10 @@ impl Canvas {
                 if r.drag_stopped() {
                     self.frame_drag = None;
                 }
+                // a double click on the tab edits its name, as the core's double tap there does
+                // (the tab takes the click from the canvas, so it sends the core's command itself)
                 if r.double_clicked() {
-                    rename_view::request(ui.ctx(), RenameTarget::Frame(id.clone()), &frame.title, UNTITLED);
+                    actions.push(("name.edit", json!({"frame": id})));
                 }
                 r.on_hover_cursor(egui::CursorIcon::Grab)
                     .on_hover_text(format!("{title}\n\nDrag to move the frame and its nodes; double-click to rename; right-click for its menu"))

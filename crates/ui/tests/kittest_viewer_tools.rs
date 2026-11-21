@@ -110,6 +110,16 @@ fn png16() -> Data {
     Data::Blob(Box::new(Blob { handle: plumcraft_proto::Handle::raw(&bytes), meta, source: BlobSource::Bytes(Arc::from(bytes)), publish: true, thumb: None }))
 }
 
+/// An 8-bit colour PNG, every pixel (200, 50, 100), half opaque: each channel tells apart.
+fn png_rgb() -> Data {
+    let img = image::RgbaImage::from_pixel(W as u32, H as u32, image::Rgba([200, 50, 100, 128]));
+    let mut bytes = std::io::Cursor::new(Vec::new());
+    img.write_to(&mut bytes, image::ImageFormat::Png).unwrap();
+    let bytes = bytes.into_inner();
+    let meta = BlobMeta { media: "image/png".into(), size: bytes.len() as u64, form: Form::Image { width: W as u32, height: H as u32 }, aliases: Vec::new() };
+    Data::Blob(Box::new(Blob { handle: plumcraft_proto::Handle::raw(&bytes), meta, source: BlobSource::Bytes(Arc::from(bytes)), publish: true, thumb: None }))
+}
+
 /// A node that outputs a fixed value.
 struct Fixed {
     id: &'static str,
@@ -149,6 +159,7 @@ fn engine() -> Engine {
         ("t.segments", a, false, segments),
         ("t.list", a, true, list),
         ("t.png16", core_types::IMAGE, false, png16),
+        ("t.pngrgb", core_types::IMAGE, false, png_rgb),
     ] {
         e = e.with_node(Box::new(Fixed { id, ty, list, make }));
     }
@@ -180,7 +191,7 @@ fn app_with(wrap: impl FnOnce(InProc) -> Arc<dyn Connection>) -> (EditorApp, Vec
     host.wait_ready(Duration::from_secs(5));
     let catalog = serde_json::from_value(host.schema(None).unwrap()).unwrap();
     let mut s = Session::new(catalog);
-    let kinds = ["t.ramp", "t.nudged", "t.rgb", "t.checker", "t.big", "t.points", "t.segments", "t.list", "t.png16"];
+    let kinds = ["t.ramp", "t.nudged", "t.rgb", "t.checker", "t.big", "t.points", "t.segments", "t.list", "t.png16", "t.pngrgb"];
     let ids = kinds
         .iter()
         .enumerate()
@@ -722,4 +733,37 @@ fn the_compare_views_show_what_they_say() {
     // |A−B| is largest at a white square of the checker with A dark, and stretched to white.
     let top = r["pictures"][0]["top"].as_f64().unwrap();
     assert!(colour_at(&img, at(&diff[0], 0.0, 1.0), 1.0)[0] > 240, "|0 − 1| at (0, 1) of top {top}");
+}
+
+/// A pop-out's picture shows the channel the core's `viewer.picture` keeps, picked from its
+/// channel picker (the audit's eighth gap; the Apple apps' picture viewers have one): one
+/// channel as grey, or the colour without alpha; the Watched panel, with no pop-out to keep a
+/// channel, offers none.
+#[test]
+fn a_pop_outs_channel_picker_is_the_cores_viewer_picture() {
+    let (mut h, ids) = editor();
+    let r = cmd(&mut h, "view.popout", json!({"node": ids[9], "port": "out"}));
+    let id = r["id"].as_u64().expect("a pop-out");
+    h.state_mut().start_run_if_enabled();
+    until(&mut h, "the decoded picture in the pop-out", |h| inspect(h)["popouts"][0]["pane"]["state"]["state"] == "ready");
+    let channel = |h: &Harness<'static, EditorApp>| h.state().session.views.popouts.iter().find(|p| p.id == id).map(|p| p.state.channel);
+    assert_eq!(channel(&h), Some(plumcraft_session::viewer_state::Channel::Rgba));
+    let before = picture(&mut h, "channel-rgba");
+    h.get_by_label("Channel G").click();
+    h.run_steps(4);
+    assert_eq!(channel(&h), Some(plumcraft_session::viewer_state::Channel::G), "the core's state");
+    let v = inspect(&h)["popouts"][0]["pane"]["state"].clone();
+    assert_eq!((v["channel"].clone(), v["isolated"].clone()), (json!("g"), json!("g")), "{v}");
+    let after = picture(&mut h, "channel-g");
+    // somewhere the picture was colour is grey 50 now
+    let greys = after.pixels().filter(|p| p.0[..3] == [50, 50, 50]).count();
+    assert!(greys > 100, "the green channel as grey: {greys} pixels");
+    assert_eq!(before.pixels().filter(|p| p.0[..3] == [50, 50, 50]).count(), 0);
+    // a script's viewer.picture is drawn too
+    cmd(&mut h, "viewer.picture", json!({"popout": id, "channel": "rgb"}));
+    h.run_steps(4);
+    assert_eq!(inspect(&h)["popouts"][0]["pane"]["state"]["isolated"], json!("rgb"));
+    // the Watched panel has no picker
+    watch(&mut h, &ids[9]);
+    assert_eq!(h.query_all_by_label("Channel G").count(), 1, "only the pop-out's");
 }

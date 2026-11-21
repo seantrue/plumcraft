@@ -54,6 +54,9 @@ pub struct ViewInput<'a> {
     pub offered_views: &'a [String],
     /// Its probe and any zoom asked for (`viewer.probe`, `viewer.zoom`).
     pub tools: Tools,
+    /// A pop-out's picture channel, the core's (`viewer.picture`); `None` where there is no
+    /// pop-out to keep one (the Watched panel, a wire's preview).
+    pub channel: Option<plumcraft_session::viewer_state::Channel>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -219,7 +222,7 @@ pub fn aim(asks: Vec<Action>, role: WatchRole) -> Vec<Action> {
     let WatchRole::Popout(id) = role else { return asks };
     asks.into_iter()
         .map(|(cmd, mut p)| {
-            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet")
+            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet" | "viewer.picture")
                 && let Some(o) = p.as_object_mut()
             {
                 o.insert("popout".into(), json!(id));
@@ -242,6 +245,8 @@ pub struct Pane {
     viewers: Vec<(&'static str, Box<dyn Viewer>)>,
     /// The viewer shown; `None`: the value's default.
     pub chosen: Option<String>,
+    /// A pop-out's picture channel, the core's ([`ViewInput::channel`]).
+    pub channel: Option<plumcraft_session::viewer_state::Channel>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -306,6 +311,7 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -371,6 +377,7 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -388,6 +395,7 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);

@@ -77,6 +77,10 @@ impl EditorApp {
     pub fn with_engines(mut self, choices: Vec<EngineChoice>, current: Option<(String, String)>, connector: Connector) -> Self {
         // which engine offers a kind a file doesn't name, for Pick Engines Automatically
         self.doc.session.engines.offered = plumcraft_editor_core::engines::offered(&choices);
+        // and their node types, so the palette lists a kind whose engine isn't started; choosing
+        // one starts that engine and adds the node once it has connected (N4 slice 1, D3)
+        self.doc.session.engines.offered_defs = plumcraft_editor_core::engines::offered_defs(&choices);
+        self.doc.hold_adds = true;
         self.doc.session.engines.choices = choices;
         self.doc.session.engines.current = current.map(|(engine, mode)| EngineTarget::Choice { engine, mode });
         self.doc.session.engines.can_attach = true;
