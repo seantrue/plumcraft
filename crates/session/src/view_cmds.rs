@@ -34,6 +34,30 @@ pub struct Popout {
     /// Its probe and zoom.
     #[serde(skip)]
     pub tools: Tools,
+    /// How many times it was asked for while open (`view.popout` of a port already out): a
+    /// shell brings its window to the front each time this rises (N4 slice 3).
+    pub raised: u64,
+    /// How a text viewer shows it (`viewer.text`).
+    pub text: TextView,
+    /// The last whole-view zoom asked for (`viewer.zoom {to: "fit" | "1:1"}`): a picture viewer
+    /// keeps showing it that way until another is asked for.
+    pub fit: Option<crate::viewer_cmds::Zoom>,
+}
+
+/// How a text or scalar viewer shows its value (`viewer.text`, `docs/shell-interface.md` 13.2;
+/// N4 slice 3): wrapped at the window's width, in a monospaced face, and all of it rather than
+/// the excerpt a run sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TextView {
+    pub wrap: bool,
+    pub mono: bool,
+    pub all: bool,
+}
+
+impl Default for TextView {
+    fn default() -> Self {
+        TextView { wrap: true, mono: false, all: false }
+    }
 }
 
 /// The pop-outs open, and the viewer the panel uses.
@@ -143,14 +167,18 @@ fn popout(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(open) =
         s.views.popouts.iter().find(|o| s.run.entry(WatchRole::Popout(o.id)).is_some_and(|(x, _)| x.node == w.node && x.port == w.port && x.index == w.index))
     {
-        return Ok(json!({"id": open.id, "node": w.node, "port": w.port, "existing": true}));
+        let id = open.id;
+        if let Some(o) = s.views.popouts.iter_mut().find(|o| o.id == id) {
+            o.raised = o.raised.saturating_add(1);
+        }
+        return Ok(json!({"id": id, "node": w.node, "port": w.port, "existing": true}));
     }
     if s.views.popouts.len() >= MAX_POPOUTS {
         return Err(SessionError::Params(format!("at most {MAX_POPOUTS} pop-outs; close one first")));
     }
     s.views.next = s.views.next.saturating_add(1);
     let id = s.views.next;
-    s.views.popouts.push(Popout { id, viewer, tools: Tools::default() });
+    s.views.popouts.push(Popout { id, viewer, tools: Tools::default(), raised: 0, text: TextView::default(), fit: None });
     let mut out = json!({"id": id, "node": w.node, "port": w.port, "index": w.index});
     s.run.set_watch(WatchRole::Popout(id), Some(w));
     out["run_id"] = json!(refresh(s));
@@ -196,6 +224,35 @@ fn set_viewer(s: &mut Session, p: &Value) -> Result<Value> {
     let viewer = viewer_param(p)?;
     set_viewer_of(s, role_param(p)?, viewer.clone())?;
     Ok(json!({"viewer": viewer}))
+}
+
+/// `viewer.text {popout, wrap?, mono?, all?}`: how a pop-out's text viewer shows its value. Each
+/// field left out keeps what it was; `all` asks for the whole value rather than the excerpt.
+fn text_view(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = p.get("popout").and_then(Value::as_u64).ok_or_else(|| SessionError::Params("\"popout\" (a pop-out's id) is required".into()))?;
+    if let Some(Value::Object(o)) = Some(p)
+        && let Some(k) = o.keys().find(|k| !matches!(k.as_str(), "popout" | "wrap" | "mono" | "all"))
+    {
+        return Err(SessionError::Params(format!("viewer.text takes popout, wrap, mono and all, not {k:?}")));
+    }
+    let flag = |k: &str| -> Result<Option<bool>> {
+        match p.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(v) => v.as_bool().map(Some).ok_or_else(|| SessionError::Params(format!("\"{k}\" must be true or false"))),
+        }
+    };
+    let (wrap, mono, all) = (flag("wrap")?, flag("mono")?, flag("all")?);
+    let o = s.views.popouts.iter_mut().find(|o| o.id == id).ok_or_else(|| SessionError::Params(format!("no pop-out {id}")))?;
+    if let Some(b) = wrap {
+        o.text.wrap = b;
+    }
+    if let Some(b) = mono {
+        o.text.mono = b;
+    }
+    if let Some(b) = all {
+        o.text.all = b;
+    }
+    Ok(json!({"popout": id, "wrap": o.text.wrap, "mono": o.text.mono, "all": o.text.all}))
 }
 
 fn peek(s: &mut Session, p: &Value) -> Result<Value> {
@@ -394,6 +451,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{viewer: id | null, popout?} -> {viewer}: the viewer the panel (or pop-out popout) uses; null: the value's default",
             enabled: always,
             run: set_viewer,
+            journal: false,
+        },
+        CommandSpec {
+            id: "viewer.text",
+            label: "Text View",
+            menu: &[],
+            shortcut: None,
+            params: "{popout, wrap?: bool, mono?: bool, all?: bool} -> {popout, wrap, mono, all}: how a pop-out's text viewer shows its value: wrapped at the window's width (default on), in a monospaced face (default off), all of it rather than the run's excerpt (default off); a field left out keeps what it was",
+            enabled: has_popouts,
+            run: text_view,
             journal: false,
         },
         CommandSpec {

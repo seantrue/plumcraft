@@ -11,8 +11,8 @@
 //   text, form               an alert with text fields
 //   clipboard.set, .get      UIPasteboard
 //   open.external            a URL opens in its app; a file goes to the share sheet ("Open in…")
-//   share                    the share sheet with the file (no command raises it yet: the core
-//                            declares no share targets)
+//   share                    the share sheet with the file (File › Share…, the core's
+//                            `graph.share`, N4 slice 3)
 //   screenshot               the canvas drawn offscreen, as a PNG at the path asked
 
 import PlumCraftCanvas
@@ -100,7 +100,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
         guard let host else { return cancel(a) }
         showing = a.ask
         shown = vc
-        // over whatever the graph shows now (a sheet of its own, the Watched panel)
+        // over whatever the graph shows now (a sheet of its own, a pop-out's)
         var top = host
         while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
         top.present(vc, animated: true) { [weak self] in
@@ -254,7 +254,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             guard let path = p["path"].string else { return answer(a, ["error": "nothing to open"]) }
             shareSheet(a, file: URL(fileURLWithPath: path), done: "Opened")
         default:
-            guard let path = p["path"].string else { return answer(a, ["error": "nothing to share"]) }
+            // the contract's `file` (graph.share's), or `path`
+            guard let path = p["file"].string ?? p["path"].string else { return answer(a, ["error": "nothing to share"]) }
             shareSheet(a, file: URL(fileURLWithPath: path), done: "Shared")
         }
     }

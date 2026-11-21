@@ -88,12 +88,13 @@ fn a_shell_selects_and_reads_the_selection_back() {
     assert_eq!(r["ok"], false, "{r}");
 
     // a fit is the core's since N2 slice 3: the rect, from the geometry the core has, asked of
-    // the view through the scene; what only a canvas does is refused here, as ui.set is
+    // the view through the scene
     let fit = c.run("canvas.fit", json!({}));
     assert_eq!((fit["fit"].clone(), fit["seq"].clone()), (json!(true), json!(1)), "{fit}");
     assert_eq!(fit["rect"].as_array().map(Vec::len), Some(4), "{fit}");
-    let r = c.call("command.run", json!({"command": "canvas.reveal", "params": {"node": a}}));
-    assert_eq!(r["error"], json!("canvas.reveal isn't available from this shell"), "{r}");
+    // a reveal is the core's view state since N4 slice 3, as a fit is: served here, in the scene
+    let r = c.run("canvas.reveal", json!({"node": a}));
+    assert_eq!((r["node"].clone(), r["seq"].clone()), (json!(a), json!(1)), "{r}");
     // the palette is the core's state since N3 slice 1 (open question 4), so it is served here
     let p = c.run("canvas.palette", json!({"open": true, "at": [10, 20]}));
     assert_eq!((p["open"].clone(), p["at"].clone()), (json!(true), json!([10.0, 20.0])), "{p}");

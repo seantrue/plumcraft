@@ -106,6 +106,7 @@ public final class LayerCanvas {
     var working = false
     var settleTask: Task<Void, Never>?
     var lastFitSeq: UInt64?
+    var lastRevealSeq: UInt64?
     /// The first full scene's faces were all measured (the time to first frame stops here).
     public private(set) var firstFrameAt: ContinuousClock.Instant?
     public private(set) var counts = CanvasCounts()
@@ -848,7 +849,13 @@ public final class LayerCanvas {
             let spec = LabelRenderer.Spec(text: n.key.name, size: CGSize(width: w, height: 17), fill: CGColorBox(n.selected ? (col.copy(alpha: 0.45) ?? col) : colors.field),
                                           stroke: CGColorBox(col), ink: CGColorBox(colors.text), corner: 8.5, mono: false, bold: false, inset: 4, centred: true)
             if let p = pinPoint(face: n.driver.face, output: true, pin: n.driver.pin) {
-                let l = labelLayer(spec)
+                // the driver's tag says how many inputs the net feeds ("picture ×3", N4 slice 3),
+                // as wide as the core's hit test takes it
+                let text = n.driver.text ?? n.key.name
+                var ds = spec
+                ds.text = text
+                ds.size.width = 6.6 * CGFloat(min(text.count, 64)) + 17
+                let l = labelLayer(ds)
                 l.position = CGPoint(x: p.x + n.driver.at.x, y: p.y + n.driver.at.y - 8.5)
                 tagRoot.addSublayer(l)
                 ls.append(l)
@@ -921,8 +928,27 @@ public final class LayerCanvas {
         setViewport(Viewport(pan: pan, zoom: z), animated: animated)
     }
 
-    /// The core's fit, once per `seq` (8.9).
+    /// The core's fit, once per `seq` (8.9); and its reveal (N4 slice 3), centring the face at
+    /// the zoom the view has (at least 0.6), with the selection's ring for a moment.
     func honourFit() {
+        if let r = model.view.reveal, r.seq != lastRevealSeq {
+            let first = lastRevealSeq == nil && firstFrameAt == nil
+            lastRevealSeq = r.seq
+            if !first {
+                let z = max(viewport.zoom, 0.6)
+                let pan = CGPoint(x: viewSize.width / 2 - (r.rect.x0 + r.rect.width / 2) * z, y: viewSize.height / 2 - (r.rect.y0 + r.rect.height / 2) * z)
+                rawPan = nil
+                setViewport(Viewport(pan: pan, zoom: z), animated: true)
+                if let nid = faceById[r.node] ?? faceById["group:" + r.node], let l = faces[nid]?.layer {
+                    let a = CABasicAnimation(keyPath: "opacity")
+                    a.fromValue = 0.35
+                    a.toValue = 1
+                    a.duration = 0.25
+                    a.repeatCount = 2
+                    l.add(a, forKey: "reveal")
+                }
+            }
+        }
         guard let f = model.view.fit, f.seq != lastFitSeq else { return }
         lastFitSeq = f.seq
         fit(CGRect(x: f.rect.x0, y: f.rect.y0, width: f.rect.width, height: f.rect.height), animated: firstFrameAt != nil)

@@ -203,6 +203,28 @@ fn node_fields(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"node": id, "all": all}))
 }
 
+/// `node.face {node, port, shown}` (N4 slice 3): show an input on the node's face, hide it, or
+/// (`shown: null`) leave it to the default rule. A view change, saved with the workflow, not an
+/// undo step, like `node.fields`. A wired input shows whatever this says.
+fn node_face(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = NodeId::from(str_param(p, "node")?);
+    let port = str_param(p, "port")?.to_owned();
+    let shown = match p.get("shown") {
+        None => return Err(SessionError::Params("\"shown\" (true, false or null) is required".into())),
+        Some(Value::Null) => None,
+        Some(v) => Some(v.as_bool().ok_or_else(|| SessionError::Params("\"shown\" must be true, false or null".into()))?),
+    };
+    let node = s.graph().node(&id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?;
+    let def = s.catalog().node(&node.kind).ok_or_else(|| SessionError::Params(format!("{id} is of a kind no engine has")))?;
+    if plumcraft_graph::resolve_input(def, node, &id, &port).is_err() {
+        return Err(SessionError::Params(format!("{id} has no input {port:?}")));
+    }
+    if s.graph_mut_untracked().set_face(&id, &port, shown)? {
+        s.mark_dirty();
+    }
+    Ok(json!({"node": id, "port": port, "shown": shown}))
+}
+
 /// `node.parameters {node?}`: open the parameter editor on a node, or close it with no node.
 fn node_parameters(s: &mut Session, p: &Value) -> Result<Value> {
     let node = opt_str_param(p, "node")?.map(NodeId::from);
@@ -499,6 +521,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{node: node id, all: bool} (true: every field; false: the fields its choice doesn't use under \"more fields\") -> {node, all}",
             enabled: always,
             run: node_fields,
+            journal: false,
+        },
+        CommandSpec {
+            id: "node.face",
+            label: "Show on Face",
+            menu: &[],
+            shortcut: None,
+            params: "{node: node id, port: input address, shown: true | false | null} -> {node, port, shown} (true shows the input on the node's face even where its choice tucks it away; false hides it from the face; null goes back to the default rule; a wired input always shows. A view change, saved with the workflow, not an undo step)",
+            enabled: always,
+            run: node_face,
             journal: false,
         },
         CommandSpec {

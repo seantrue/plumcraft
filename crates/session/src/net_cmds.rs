@@ -59,6 +59,21 @@ fn wire_label(s: &mut Session, p: &Value) -> Result<Value> {
 
 /// `wire.unlabel {to}`: draw it as a plain wire again.
 fn wire_unlabel(s: &mut Session, p: &Value) -> Result<Value> {
+    // several at once (a net's Draw All as Wires, N4 slice 3): one undo step
+    if let Some(list) = p.get("to").and_then(Value::as_array) {
+        if list.is_empty() || list.len() > 4096 {
+            return Err(SessionError::Params("\"to\" names 1 to 4096 inputs".into()));
+        }
+        let tos = list.iter().map(|v| port_param(&json!({"to": v}), "to")).collect::<Result<Vec<_>>>()?;
+        let key = s.edit("Draw as Wires", |g, _| {
+            let mut last = None;
+            for to in &tos {
+                last = g.unlabel_wire(to)?.or(last);
+            }
+            Ok(last)
+        })?;
+        return Ok(key.as_ref().map_or(json!({"name": null}), key_json));
+    }
     let to = port_param(p, "to")?;
     let key = s.edit("Draw as Wire", |g, _| Ok(g.unlabel_wire(&to)?))?;
     Ok(key.as_ref().map_or(json!({"name": null}), key_json))
@@ -138,7 +153,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Draw as Wire",
             menu: &[],
             shortcut: None,
-            params: "{to: {node, port}} -> {name, group}: the net it was drawn through, or {name: null} (the net goes with its last wire; one undo step)",
+            params: "{to: {node, port} | [{node, port}]} -> {name, group}: the net it was drawn through, or {name: null} (the net goes with its last wire; several inputs at once are one step, a net's Draw All as Wires; one undo step)",
             enabled: always,
             run: wire_unlabel,
             journal: true,

@@ -625,6 +625,24 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             },
             None => err(not_here(method)),
         },
+        // the parameters inspector's rows (N4 slice 3): every input of a node, shown or not
+        "parameters.get" => match s.document_mut() {
+            Some(d) => {
+                let texts = std::collections::HashMap::new();
+                let tokens = crate::theme::DEFAULT;
+                let inputs = d.scene_inputs(&tokens, None, &texts, &[]);
+                match crate::windows::parameters_json(&d.session, &inputs, params) {
+                    Ok(v) => ok(v),
+                    Err(e) => err(e),
+                }
+            }
+            None => err(not_here(method)),
+        },
+        // a pop-out's value and its viewer's state (N4 slice 3)
+        "popout.get" => match crate::windows::popout_json(s.session(), params) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         // the colours the scene names by token (N2 slice 4, question 13)
         "theme.get" => match s.theme_tokens() {
             Some(v) => ok(v),

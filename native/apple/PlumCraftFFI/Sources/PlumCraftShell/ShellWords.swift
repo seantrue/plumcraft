@@ -22,14 +22,14 @@ public enum ShellCommands {
     /// Commands whose effect is UI these apps don't have yet: choosing one says so, without
     /// running it (it would open state nothing shows). Command id to what is missing.
     public static let unbuilt: [String: String] = [
-        "app.settings": "Settings", "app.about": "PlumCraft's own About window", "node.parameters": "the parameters sheet",
-        "node.editor": "value editors", "view.popout": "pop-out viewers", "view.messages": "the Messages window",
+        // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout)
+        "app.settings": "Settings", "app.about": "PlumCraft's own About window",
+        "node.editor": "value editors", "view.messages": "the Messages window",
         "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window",
         "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",
     ]
 
-    /// What to say when a gesture ran commands whose UI isn't built here (a double tap on a face
-    /// runs `node.parameters`, on a wire `view.popout`): the first such, or nil.
+    /// What to say when a gesture ran commands whose UI isn't built here: the first such, or nil.
     public static func notBuilt(ran: [CommandRun]) -> String? {
         for c in ran where c.ok {
             if let what = unbuilt[c.command] { return "That opens \(what), which isn't available yet in this app." }

@@ -11,12 +11,11 @@
 //   waitrun                   wait (60 s at most) until nothing runs
 //   fit                       fit everything
 //   zoom:Z[:ID]               zoom Z, centred on node ID when named
-//   panel:show|hide           the Watched panel
 //   theme:dark|light          the window's appearance
 //   close                     close the graph (back to the document browser)
 //   compact:on|off            the window's horizontal size class forced compact (what Split View and
 //                             a narrow Stage Manager window give; the simulator can't be split by a
-//                             script), so the Watched panel becomes a sheet
+//                             script), so the parameters and a pop-out are sheets
 
 import PlumCraftCanvas
 import PlumCraftKit
@@ -80,9 +79,6 @@ struct Script {
             } else {
                 v.canvas.zoom(to: z, animated: false)
             }
-        case "panel" where parts.count >= 2:
-            if (parts[1] == "show") != graph.panelShown { graph.toggleWatched(nil) }
-            try? await Task.sleep(for: .milliseconds(500))
         case "theme" where parts.count >= 2:
             graph.view.window?.overrideUserInterfaceStyle = parts[1] == "dark" ? .dark : .light
             _ = await m.wait(timeout: .seconds(3)) { (m.theme?.name ?? "") == (parts[1] == "dark" ? "dusk" : "paper") }
@@ -97,6 +93,7 @@ struct Script {
             try? await Task.sleep(for: .seconds(1.2))
         case "select-mode":
             if (parts.count < 2 || parts[1] == "on") != v.selectMode { graph.toggleSelectMode() }
+            _ = await m.wait(timeout: .seconds(3)) { (parts.count < 2 || parts[1] == "on") == m.view.selectMode }
         default:
             // the editing gestures' steps, shared with the Mac (N4 slice 1)
             _ = await CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette, rows: v.rowEditor, field: v.fieldEditor).run(parts)

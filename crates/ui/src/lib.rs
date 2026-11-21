@@ -385,6 +385,9 @@ pub struct EditorApp {
     after_typing: Vec<&'static str>,
     /// The rename window ([`rename_view`]), when open.
     pub rename: Option<rename_view::RenameDialog>,
+    /// The text being typed into the core's name editor (`name.edit`, the scene's `view.name`;
+    /// N4 slice 3), for the name it was opened on.
+    name_text: Option<(plumcraft_editor_core::naming::NameTarget, String, u32)>,
     /// What Copy or Cut last put on the clipboard.
     pub copied: Option<String>,
     /// An unattended screenshot to take.
@@ -485,6 +488,7 @@ impl EditorApp {
             paste_pos: None,
             after_typing: Vec::new(),
             rename: None,
+            name_text: None,
             copied: None,
             shot: None,
             title: String::new(),
@@ -1107,6 +1111,7 @@ impl EditorApp {
             live: self.doc.link.is_some(),
             caps: self.doc.caps,
             editors: value_editors::facts(),
+            select_mode: self.doc.select_mode,
         }
     }
 
@@ -1490,6 +1495,7 @@ impl EditorApp {
         let windows = windows.into_iter().chain(groups_view::parameter_window(&ctx, self.doc.session.graph(), self.doc.session.catalog())).collect();
         self.run_all(windows);
         self.rename_window(&ctx);
+        self.name_window(&ctx);
         self.browse_for_path();
         self.attach_window(&ctx);
         self.install_window(&ctx);
@@ -1626,6 +1632,131 @@ impl EditorApp {
         }
         if open {
             self.rename = Some(dialog);
+        }
+    }
+
+    /// The core's name editor (`name.edit`, N4 slice 3), as this shell presents it: the core keeps
+    /// which name is open; egui shows its own window for it (the node and frame rename window,
+    /// the group's, the net and port name field, the slice field), whose apply runs the command
+    /// that owns the name, and the core's editor closes with the window. A name egui has no
+    /// window for (a promoted parameter's label) gets a small window of the core's own: Enter is
+    /// `name.set`, Escape `name.edit {open: false}`. When the core closes it (a script's
+    /// `name.set`), egui's window goes too.
+    fn name_window(&mut self, ctx: &egui::Context) {
+        use plumcraft_editor_core::naming::NameTarget;
+        let Some(edit) = self.doc.naming.clone() else {
+            if let Some((target, _, frames)) = self.name_text.take()
+                && frames > 0
+            {
+                // the core closed it: so does egui's own window for it
+                match target {
+                    NameTarget::Node { .. } | NameTarget::Frame { .. } => self.rename = None,
+                    NameTarget::Group { .. } => crate::groups_view::close_rename(ctx),
+                    NameTarget::Net { .. } | NameTarget::Port { .. } | NameTarget::Label { .. } => self.canvas.nets.edit = None,
+                    NameTarget::Slice { .. } => self.canvas.slice_edit = None,
+                    NameTarget::Promoted { .. } => {}
+                }
+            }
+            return;
+        };
+        if self.name_text.as_ref().is_none_or(|(t, _, _)| *t != edit.target) {
+            let pos = self.canvas.to_global * egui::pos2(edit.rect[0] as f32, edit.rect[1] as f32);
+            let graph = self.doc.session.graph();
+            // 0: the core's own small window; 1 and up: egui's own, frames since it was asked for
+            let own = match &edit.target {
+                NameTarget::Node { node } => {
+                    rename_view::request(ctx, rename_view::RenameTarget::Node(plumcraft_graph::NodeId::from(node.as_str())), &edit.text, &edit.hint);
+                    true
+                }
+                NameTarget::Frame { frame } => {
+                    rename_view::request(ctx, rename_view::RenameTarget::Frame(plumcraft_graph::FrameId(frame.clone())), &edit.text, "");
+                    true
+                }
+                NameTarget::Group { group } => {
+                    crate::groups_view::request_rename(ctx, &plumcraft_graph::GroupId::from(group.as_str()), &edit.text);
+                    true
+                }
+                NameTarget::Net { name, group } => {
+                    let key = plumcraft_graph::NetKey { group: group.as_deref().map(plumcraft_graph::GroupId::from), name: name.clone() };
+                    self.canvas.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Rename(key), name.clone(), pos));
+                    true
+                }
+                NameTarget::Port { node, port } => {
+                    let at = plumcraft_graph::PortRef::new(node.as_str(), port.as_str());
+                    let what = if edit.text.is_empty() { crate::net_view::NameFor::Port(at) } else { crate::net_view::NameFor::RenamePort(edit.text.clone()) };
+                    let text = if edit.text.is_empty() { port.clone() } else { edit.text.clone() };
+                    self.canvas.nets.edit = Some(crate::net_view::NameEdit::new(what, text, pos));
+                    true
+                }
+                NameTarget::Label { node, port } => {
+                    let from = plumcraft_graph::PortRef::new(node.as_str(), port.as_str());
+                    let name = crate::net_view::suggested_name(graph, &from);
+                    self.canvas.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Output(from), name, pos));
+                    true
+                }
+                NameTarget::Slice { node, port } => {
+                    let to = plumcraft_graph::PortRef::new(node.as_str(), port.as_str());
+                    match graph.wire_into(&to) {
+                        Some(w) => {
+                            let (from, slice) = (w.from.clone(), w.slice.clone());
+                            self.canvas.slice_edit = Some(crate::slice_view::SliceEdit::new(from, to, slice.as_deref(), pos));
+                            true
+                        }
+                        None => false,
+                    }
+                }
+                NameTarget::Promoted { .. } => false,
+            };
+            self.name_text = Some((edit.target.clone(), edit.text.clone(), if own { 1 } else { 0 }));
+        }
+        let Some((target, mut text, frames)) = self.name_text.take() else { return };
+        if frames > 0 {
+            // egui's own window: once it is gone (applied, cancelled), the core's editor goes too
+            let open = match &target {
+                NameTarget::Node { .. } | NameTarget::Frame { .. } => self.rename.is_some(),
+                NameTarget::Group { .. } => crate::groups_view::rename_open(ctx),
+                NameTarget::Net { .. } | NameTarget::Port { .. } | NameTarget::Label { .. } => self.canvas.nets.edit.is_some(),
+                NameTarget::Slice { .. } => self.canvas.slice_edit.is_some(),
+                NameTarget::Promoted { .. } => true,
+            };
+            // a request is taken a frame or two after it is made
+            if !open && frames > 3 {
+                self.run("name.edit", &json!({"open": false}));
+                return;
+            }
+            self.name_text = Some((target, text, frames.saturating_add(1)));
+            return;
+        }
+        let (mut commit, mut cancel) = (false, false);
+        let mut open = true;
+        egui::Window::new(edit.label.clone())
+            .id(egui::Id::new("plumcraft-name-edit"))
+            .collapsible(false)
+            .resizable(false)
+            .open(&mut open)
+            .pivot(egui::Align2::CENTER_CENTER)
+            .default_pos(ctx.content_rect().center())
+            .show(ctx, |ui| {
+                let r = ui.add(egui::TextEdit::singleline(&mut text).hint_text(&edit.hint).desired_width(240.0));
+                r.request_focus();
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    commit = true;
+                }
+                ui.horizontal(|ui| {
+                    commit |= ui.button("OK").clicked();
+                    cancel |= ui.button("Cancel").clicked();
+                });
+            });
+        if !open || ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+            cancel = true;
+        }
+        if commit {
+            self.run("name.set", &json!({"text": text}));
+        } else if cancel {
+            self.run("name.edit", &json!({"open": false}));
+        }
+        if self.doc.naming.is_some() {
+            self.name_text = Some((target, text, 0));
         }
     }
 

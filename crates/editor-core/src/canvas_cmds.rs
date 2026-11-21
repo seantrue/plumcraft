@@ -45,6 +45,11 @@ fn always(_: &Session) -> Result<(), String> {
     Ok(())
 }
 
+/// Share… needs the graph's file.
+fn has_file(s: &Session) -> Result<(), String> {
+    if s.path().is_some() { Ok(()) } else { Err("save the graph first: Share sends its file".into()) }
+}
+
 /// `run.start`'s own rule (an engine connected, a graph to run), for Run Selected; that something
 /// is selected is checked when it runs, and by the menu model's item ([`run_selected_reason`]).
 fn can_run(s: &Session) -> Result<(), String> {
@@ -164,9 +169,9 @@ const COMMANDS: &[CanvasCommand] = &[
         label: "Reveal",
         menu: &[],
         shortcut: None,
-        params: "{node: node id} -> {node} (the shell centres its view on the node and highlights it for a moment)",
+        params: "{node: node id} | {net: net name, group?} (Go to Next Use: each time the next of the net's uses) -> {node, seq, rect} (the core's view state since N4 slice 3, the scene's view.reveal: the shell centres its view on the face once per seq and highlights it for a moment)",
         enabled: always,
-        shell: true,
+        shell: false,
     },
     CanvasCommand {
         id: "geometry.set",
@@ -200,7 +205,43 @@ const COMMANDS: &[CanvasCommand] = &[
         label: "Set Value",
         menu: &[],
         shortcut: None,
-        params: "{node, port, text?: what the field holds | value?: a value (a switch's, a choice's, a colour [r, g, b] in 0..1, a scrub's number)} -> {node, port, value, note?, unchanged?, set?: node.set's reply} (checked by the row's widget: a number parsed, made whole for an INT and held to its range with a note, a choice one of its own and not a disabled one, a colour in the port's format; then one node.set, one undo step, or none when the value is what the port holds. Refused, changing nothing, with why)",
+        params: "{node, port, text?: what the field holds | value?: a value (a switch's, a choice's, a colour [r, g, b] in 0..1, a scrub's number) | reset: true (the default)} -> {node, port, value, note?, unchanged?, set?: node.set's reply} (any input of the node, shown on its face or not; checked by the row's widget: a number parsed, made whole for an INT and held to its range with a note, a choice one of its own and not a disabled one, a colour in the port's format; then one node.set, one undo step, or none when the value is what the port holds. Refused, changing nothing, with why)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "canvas.selectMode",
+        label: "Select Mode",
+        menu: &["View"],
+        shortcut: None,
+        params: "{on?: bool (default: toggle)} -> {on} (N4 slice 3: while on, a one-finger drag on empty canvas draws a marquee rather than panning, on a shell recognising touch; the scene's view.select)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "graph.share",
+        label: "Share…",
+        menu: &["File"],
+        shortcut: None,
+        params: "{} -> {file, subject} (N4 slice 3: invoked, raises the share ask with the graph's file for the platform's share sheet; refused until the graph has a file)",
+        enabled: has_file,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "name.edit",
+        label: "Rename",
+        menu: &[],
+        shortcut: None,
+        params: "{node} | {group} | {frame} | {net, group?} | {port: {node, port}} | {slice: {node, port}} | {label: {node, port}} | {promoted: {group, label}}, or {open: false} -> {open, target, text, hint, label, rect} (N4 slice 3: a name edited in place, the core's state: the scene's view.name; the shell puts a text field over rect, graph units; name.set commits it)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "name.set",
+        label: "Set Name",
+        menu: &[],
+        shortcut: None,
+        params: "{text} -> {target, ran?: command, result?, unchanged?} (the open name editor's text, committed through the command that owns the name: node.title, group.rename, frame.set, net.rename, graph.port.name or rename or unname, wire.slice, output.label, group.editPromoted; one undo step, none when nothing changes; the editor closes. Refused, the editor staying open, with why)",
         enabled: always,
         shell: false,
     },
@@ -428,6 +469,22 @@ fn row_edit(d: &mut crate::document::Document, params: &Value) -> Result<Value, 
     Ok(json!({"open": true, "node": target.node, "port": target.port, "face": target.face, "row": target.row, "label": label, "widget": widget}))
 }
 
+/// Reveal `node`: the view state a shell follows (its face, or its collapsed group's, where the
+/// core has it), the next `seq`.
+fn reveal(d: &mut crate::document::Document, node: &str) -> Value {
+    let graph = d.session.graph();
+    let id = NodeId::from(node);
+    let face = graph
+        .groups
+        .iter()
+        .find(|(g, grp)| grp.collapsed && graph.group_members(g).contains(&id))
+        .map_or_else(|| node.to_owned(), |(g, _)| format!("group:{g}"));
+    let rect = d.snapshot.face_by_id(&face).map_or([0.0, 0.0, 220.0, 160.0], |(_, r)| crate::geometry::rect_json(r));
+    let seq = d.reveal.as_ref().map_or(0, |r| r.seq).wrapping_add(1);
+    d.reveal = Some(crate::scene::Reveal { seq, node: node.to_owned(), rect });
+    json!({"node": node, "seq": seq, "rect": rect})
+}
+
 /// Run canvas command `c` (see the module docs): its core part, then the shell's.
 pub fn execute<H: Holder>(h: &mut H, c: &CanvasCommand, params: &Value) -> Result<Value, String> {
     (c.enabled)(h.session()).map_err(|why| format!("{} is not available: {why}", c.id))?;
@@ -507,13 +564,38 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
         }
         "row.edit" => row_edit(d, params),
         "row.set" => {
-            check_fields(params, &["node", "port", "text", "value"])?;
+            check_fields(params, &["node", "port", "text", "value", "reset"])?;
             let (node, port) = row_param(params)?;
-            let input = crate::inline::Input::parse(params)?;
+            // reset: the default (N4 slice 3, the inspector's ↺): what nobody setting it gives
+            let reset = match params.get("reset") {
+                None | Some(Value::Null) | Some(Value::Bool(false)) => false,
+                Some(Value::Bool(true)) => true,
+                Some(_) => return Err("reset must be true or false".into()),
+            };
+            if reset && (params.get("text").is_some() || params.get("value").is_some()) {
+                return Err("reset sets the default: leave out text and value".into());
+            }
+            let input = if reset {
+                let graph = d.session.graph();
+                let n = graph.node(&NodeId::from(node.as_str())).ok_or_else(|| format!("no node {}", shown_id(&node)))?;
+                let def = d.session.catalog().node(&n.kind).ok_or_else(|| format!("{} is of a kind no engine has", shown_id(&node)))?;
+                let row = crate::rows::input_rows(def, &NodeId::from(node.as_str()), graph)
+                    .into_iter()
+                    .find(|r| r.key == port)
+                    .ok_or_else(|| format!("{} has no input {}", shown_id(&node), shown_id(&port)))?;
+                let default = def.filled_default(&port, |k| n.values.get(k).filter(|_| k != port)).unwrap_or(&row.port.default).clone();
+                crate::inline::Input::parse(&json!({"value": default}))?
+            } else {
+                crate::inline::Input::parse(params)?
+            };
             let texts = std::collections::HashMap::new();
-            let face = crate::scene::face_of_node(&d.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]), &NodeId::from(node.as_str()))
-                .ok_or_else(|| format!("no node {}", shown_id(&node)))?;
-            let row = face.inputs.iter().find(|r| r.key == port).ok_or_else(|| format!("{} has no input {} shown", shown_id(&node), shown_id(&port)))?;
+            // any input of the node, shown on its face or not (N4 slice 3: the parameters inspector)
+            let nid = NodeId::from(node.as_str());
+            if d.session.graph().node(&nid).is_none() {
+                return Err(format!("no node {}", shown_id(&node)));
+            }
+            let rows = crate::scene::param_rows(&d.scene_inputs(&crate::theme::DEFAULT, None, &texts, &[]), &nid);
+            let row = &rows.iter().find(|(r, _)| r.key == port).ok_or_else(|| format!("{} has no input {}", shown_id(&node), shown_id(&port)))?.0;
             if !crate::inline::editable(row) {
                 return Err(crate::inline::why_not(row));
             }
@@ -617,12 +699,78 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             h.run("edit.move", &p)
         }
         "canvas.reveal" => {
-            check_fields(params, &["node"])?;
-            let node = params.get("node").and_then(Value::as_str).ok_or("node must be a node id")?;
-            if !d.session.graph().nodes.contains_key(&NodeId::from(node)) {
-                return Err(format!("no node {}", shown_id(node)));
+            check_fields(params, &["node", "net", "group"])?;
+            // a net's tag (N4 slice 3): Go to Next Use, each time the next of its uses
+            if params.get("net").is_some() {
+                let key = net_param(&d.session, &json!({"name": params.get("net"), "group": params.get("group")}))?.ok_or("net must be a net's name")?;
+                let tos: Vec<String> = d.session.graph().net_wires(&key).map(|w| w.to.node.0.clone()).collect();
+                if tos.is_empty() {
+                    return Err(format!("net {} has no uses", shown_id(&key.name)));
+                }
+                let k = d.reveal_next.entry(crate::scene::net_id(&key)).or_insert(0);
+                let node = tos[*k % tos.len()].clone();
+                *k = (*k + 1) % tos.len();
+                return Ok(reveal(d, &node));
             }
-            Ok(json!({"node": node}))
+            let node = params.get("node").and_then(Value::as_str).ok_or("node must be a node id")?.to_owned();
+            if !d.session.graph().nodes.contains_key(&NodeId::from(node.as_str())) {
+                return Err(format!("no node {}", shown_id(&node)));
+            }
+            Ok(reveal(d, &node))
+        }
+        "canvas.selectMode" => {
+            check_fields(params, &["on"])?;
+            let on = match params.get("on") {
+                None | Some(Value::Null) => !d.select_mode,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err("on must be a boolean".into()),
+            };
+            d.select_mode = on;
+            Ok(json!({"on": on}))
+        }
+        "graph.share" => {
+            check_fields(params, &[])?;
+            let path = d.session.path().ok_or("save the graph first: Share sends its file")?;
+            Ok(json!({"file": path, "subject": d.document}))
+        }
+        "name.edit" => {
+            if params.get("open").is_some_and(|v| v == &json!(false)) {
+                check_fields(params, &["open"])?;
+                d.naming = None;
+                return Ok(json!({"open": false}));
+            }
+            check_fields(params, &["open", "node", "group", "frame", "net", "port", "slice", "label", "promoted"])?;
+            if params.get("open").is_some_and(|v| !v.is_boolean()) {
+                return Err("open must be a boolean".into());
+            }
+            let target = crate::naming::parse_target(params)?;
+            let edit = crate::naming::open(d, target)?;
+            let mut out = serde_json::to_value(&edit).unwrap_or(Value::Null);
+            out["open"] = json!(true);
+            d.naming = Some(edit);
+            Ok(out)
+        }
+        "name.set" => {
+            check_fields(params, &["text"])?;
+            let text = params.get("text").and_then(Value::as_str).filter(|t| t.len() <= 4096).ok_or("text must be a string")?;
+            if text.chars().any(char::is_control) {
+                return Err("a name has no control characters (a new line, a tab)".into());
+            }
+            let edit = d.naming.clone().ok_or("no name is being edited: name.edit first")?;
+            let ran = crate::naming::commit(d, &edit.target, text)?;
+            let mut out = json!({"target": edit.target});
+            match ran {
+                None => {
+                    out["unchanged"] = json!(true);
+                }
+                Some((command, p)) => {
+                    let r = h.run(command, &p)?;
+                    out["ran"] = json!(command);
+                    out["result"] = r;
+                }
+            }
+            h.doc_mut().naming = None;
+            Ok(out)
         }
         other => Err(format!("unknown command {:?}", shown_id(other))),
     }
@@ -663,6 +811,54 @@ mod tests {
         assert_eq!(d.group_to_ungroup().map(|g| g.0), Some(gid));
         execute(&mut d, "graph.new", &json!({"discard": true})).unwrap();
         assert!(d.selection.get().is_empty() && d.focus.is_none());
+    }
+
+    #[test]
+    fn share_and_select_mode_are_the_cores_and_share_raises_the_share_ask() {
+        let (mut d, _a, _b) = doc();
+        // Select mode: a toggle, the scene's view.select
+        assert_eq!(execute(&mut d, "canvas.selectMode", &json!({})).unwrap(), json!({"on": true}));
+        assert!(d.build_scene(&crate::theme::DEFAULT, None, &std::collections::HashMap::new(), &[]).view.select);
+        assert_eq!(execute(&mut d, "canvas.selectMode", &json!({})).unwrap(), json!({"on": false}));
+        assert!(execute(&mut d, "canvas.selectMode", &json!({"on": 1})).is_err());
+        // Share: refused until there is a file, then the share ask with it
+        invoke::invoke(&mut d, "graph.share", crate::asks::By::Script);
+        assert!(d.asks.first(Kind::Share).is_none());
+        assert!(d.last_error.as_deref().is_some_and(|e| e.contains("save the graph first")), "{:?}", d.last_error);
+        let dir = plumcraft_scratch::dir("share");
+        let path = dir.join("shared.json");
+        execute(&mut d, "graph.saveAs", &json!({"path": path})).unwrap();
+        invoke::invoke(&mut d, "graph.share", crate::asks::By::Person);
+        let ask = d.asks.first(Kind::Share).expect("a share ask").clone();
+        assert_eq!(ask.params["file"], json!(path));
+        assert_eq!(ask.by, crate::asks::By::Person);
+    }
+
+    #[test]
+    fn names_are_edited_in_place_through_the_core() {
+        let (mut d, a, _b) = doc();
+        let r = execute(&mut d, "name.edit", &json!({"node": a})).unwrap();
+        assert_eq!(r["open"], json!(true));
+        assert_eq!(r["label"], json!("Node title"));
+        assert!(d.naming.is_some());
+        let r = execute(&mut d, "name.set", &json!({"text": "shout"})).unwrap();
+        assert_eq!(r["ran"], json!("node.title"));
+        assert_eq!(d.session.graph().node(&NodeId::from(a.as_str())).unwrap().title.as_deref(), Some("shout"));
+        assert!(d.naming.is_none());
+        // the same again: no step
+        execute(&mut d, "name.edit", &json!({"node": a})).unwrap();
+        assert_eq!(execute(&mut d, "name.set", &json!({"text": "shout"})).unwrap()["unchanged"], json!(true));
+        // hostile: nothing open, a target that isn't there, control characters, unknown fields
+        assert!(execute(&mut d, "name.set", &json!({"text": "x"})).is_err());
+        assert!(execute(&mut d, "name.edit", &json!({"node": "gone"})).is_err());
+        assert!(execute(&mut d, "name.edit", &json!({"what": 1})).is_err());
+        assert!(execute(&mut d, "name.edit", &json!({})).is_err());
+        assert!(execute(&mut d, "name.edit", &json!({"frame": 7})).is_err());
+        execute(&mut d, "name.edit", &json!({"node": a})).unwrap();
+        assert!(execute(&mut d, "name.set", &json!({"text": "a\nb"})).is_err());
+        assert!(d.naming.is_some(), "a refusal leaves the editor open");
+        assert_eq!(execute(&mut d, "name.edit", &json!({"open": false})).unwrap(), json!({"open": false}));
+        assert!(d.naming.is_none());
     }
 
     #[test]
@@ -733,6 +929,10 @@ mod tests {
             assert!(!e.contains("isn't available"), "{bad}: checked first: {e}");
         }
         assert!(execute(&mut d, "canvas.reveal", &json!({"node": "n999"})).unwrap_err().starts_with("no node"));
-        assert_eq!(execute(&mut d, "canvas.reveal", &json!({"node": a})).unwrap_err(), "canvas.reveal isn't available from this shell");
+        // since N4 slice 3 the core keeps it (the scene's view.reveal), as it keeps fit
+        let r = execute(&mut d, "canvas.reveal", &json!({"node": a})).unwrap();
+        assert_eq!((r["node"].as_str(), r["seq"].as_u64()), (Some(a.as_str()), Some(1)));
+        assert_eq!(d.build_scene(&crate::theme::DEFAULT, None, &std::collections::HashMap::new(), &[]).view.reveal.map(|r| r.seq), Some(1));
+        assert_eq!(execute(&mut d, "canvas.reveal", &json!({"node": a})).unwrap()["seq"], json!(2));
     }
 }

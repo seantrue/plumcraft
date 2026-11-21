@@ -47,6 +47,9 @@ public final class CanvasView: NSView, NSMenuItemValidation {
     /// Editing a value on a face (N4 slice 2): the core's row and the control over it.
     public let rowEditor: RowEditor
     public private(set) var fieldEditor: FieldEditorHost!
+    /// A name edited in place (N4 slice 3): the core's name and the field over it.
+    public let nameEditor: NameEditor
+    public private(set) var nameField: NameFieldHost!
     /// A gesture ran commands (the host says when one has no UI yet).
     public var onCommands: (([CommandRun]) -> Void)?
     var smartReturn: Viewport?
@@ -72,9 +75,14 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 10, zoom: Double(c.viewport.zoom)) }
         palettePopover = PalettePopover(palette: palette)
         rowEditor = RowEditor(model: model)
+        nameEditor = NameEditor(model: model)
         super.init(frame: frame)
         fieldEditor = FieldEditorHost(canvasView: self, editor: rowEditor)
-        canvas.followers = { [weak self] in self?.fieldEditor.follow() }
+        nameField = NameFieldHost(canvasView: self, editor: nameEditor)
+        canvas.followers = { [weak self] in
+            self?.fieldEditor.follow()
+            self?.nameField.follow()
+        }
         drag.onError = { [weak self] e in self?.onError?(e) }
         drag.onEnded = { [weak self] _, r in if let r { self?.onCommands?(r.commands) } }
         palette.fallbackAt = { [weak self] in
@@ -89,6 +97,7 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         model.onView = { [weak self] v in
             self?.palette.follow(v)
             self?.rowEditor.follow(v)
+            self?.nameEditor.follow(v.name)
         }
         layer = root
         wantsLayer = true

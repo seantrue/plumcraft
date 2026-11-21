@@ -259,6 +259,12 @@ pub struct Node {
     /// Show the fields its choice doesn't use ([`ports::tucked`]) in full.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub all_fields: bool,
+    /// Inputs shown on the face, or hidden from it, against the default rule (N4 slice 3: the
+    /// parameters inspector's Show on Face): `true` shows a field its choice tucks away, `false`
+    /// hides one the face would show. A wired input always shows (its wire needs the pin). Keys
+    /// are input addresses, as `values`'.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub face: BTreeMap<String, bool>,
     /// Whether the engine persists this node's result (spec 14.5): when it was slow (`auto`),
     /// `always` or `never`. Sent with the workflow; it doesn't change what the node computes.
     #[serde(default, skip_serializing_if = "NodeCache::is_auto")]
@@ -520,6 +526,7 @@ fn new_node(def: &NodeDef, pos: [f32; 2]) -> Node {
         cache: NodeCache::Auto,
         engine: None,
         all_fields: false,
+        face: BTreeMap::new(),
         extra: BTreeMap::new(),
     };
     node.values = input_ports(def, &node).into_iter().filter(|(_, p)| p.has_widget()).map(|(n, p)| (n, p.default.clone())).collect();
@@ -801,6 +808,26 @@ impl Graph {
             self.touch();
         }
         Ok(())
+    }
+
+    /// Show input `port` of a node on its face (`Some(true)`), hide it (`Some(false)`), or leave
+    /// it to the default rule (`None`): [`Node::face`]. Whether anything changed.
+    pub fn set_face(&mut self, id: &NodeId, port: &str, shown: Option<bool>) -> Result<bool> {
+        let node = self.nodes.get_mut(id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?;
+        let before = node.face.get(port).copied();
+        if before == shown {
+            return Ok(false);
+        }
+        match shown {
+            Some(b) => {
+                node.face.insert(port.to_owned(), b);
+            }
+            None => {
+                node.face.remove(port);
+            }
+        }
+        self.touch();
+        Ok(true)
     }
 
     /// Drop, on every node, the values that only repeat what a filling choice gives them

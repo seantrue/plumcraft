@@ -109,13 +109,12 @@ enum PadMenus {
         }
     }
 
-    /// The view's own zoom, which the core never hears (plan 5.3), and the Watched panel.
+    /// The view's own zoom, which the core never hears (plan 5.3).
     static func viewExtras(_ used: inout Set<String>) -> UIMenu {
         var out: [UIMenuElement] = []
         for (t, sel, input, mods) in [("Zoom In", #selector(GraphViewController.zoomIn(_:)), "+", UIKeyModifierFlags.command),
                                       ("Zoom Out", #selector(GraphViewController.zoomOut(_:)), "-", .command),
-                                      ("Actual Size", #selector(GraphViewController.actualSize(_:)), "0", .command),
-                                      ("Show Watched Panel", #selector(GraphViewController.toggleWatched(_:)), "i", [.command, .alternate])] {
+                                      ("Actual Size", #selector(GraphViewController.actualSize(_:)), "0", .command)] {
             let sig = "\(input)|\(mods.rawValue)"
             if used.insert(sig).inserted {
                 out.append(UIKeyCommand(title: t, action: sel, input: input, modifierFlags: mods))

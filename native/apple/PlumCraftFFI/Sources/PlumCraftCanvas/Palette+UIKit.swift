@@ -183,6 +183,12 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
 
     public func tableView(_ tableView: UITableView, cellForRowAt ip: IndexPath) -> UITableViewCell {
         let cell = tableView.dequeueReusableCell(withIdentifier: "kind", for: ip)
+        // the palette's items can change before the table reloads (a search, the core closing
+        // it): a row past them is empty until the reload that follows, never a crash
+        guard palette.sections.indices.contains(ip.section), palette.sections[ip.section].items.indices.contains(ip.row) else {
+            cell.contentConfiguration = cell.defaultContentConfiguration()
+            return cell
+        }
         let sec = palette.sections[ip.section]
         let it = sec.items[ip.row]
         var c = cell.defaultContentConfiguration()

@@ -126,6 +126,22 @@ pub struct View {
     /// control over it. Left out while none is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edit: Option<crate::inline::RowEdit>,
+    /// Select mode is on (`canvas.selectMode`, N4 slice 3): a one-finger drag on empty canvas
+    /// draws a marquee rather than panning, on a shell recognising touch. Left out while off.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub select: bool,
+    /// The document's windows (contract 12.5's `windows` domain, carried in the scene's view
+    /// since N4 slice 3): the parameters inspector and the pop-outs. Left out while none is open.
+    #[serde(default, skip_serializing_if = "crate::windows::Windows::is_empty")]
+    pub windows: crate::windows::Windows,
+    /// The latest node asked to be revealed (`canvas.reveal`, N4 slice 3: core view state, as
+    /// `fit` is): the shell centres its view on `rect` once per `seq`. Left out until one is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reveal: Option<Reveal>,
+    /// A name being edited in place (`name.edit`, N4 slice 3): the shell puts a text field over
+    /// `rect`. Left out while none is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<crate::naming::NameEdit>,
 }
 
 /// The node palette as the core keeps it (N3 slice 1): where a node picked goes, what was typed,
@@ -183,6 +199,15 @@ pub struct Fit {
     pub seq: u64,
     /// `[x0, y0, x1, y1]`: every face shown, and the frames outside an entered group, with a
     /// margin of 32.
+    pub rect: [f64; 4],
+}
+
+/// Reveal `node`, whose face is at `rect` (graph units), once per `seq`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Reveal {
+    pub seq: u64,
+    pub node: String,
     pub rect: [f64; 4],
 }
 
@@ -617,6 +642,10 @@ pub struct Driver {
     pub pin: usize,
     /// The tag's offset from its pin.
     pub at: [i32; 2],
+    /// What the driver's tag says: the net's name and how many inputs it feeds ("picture ×3",
+    /// as the egui editor's tag; N4 slice 3). The hit test's estimate of the tag is this text's.
+    #[serde(default)]
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -905,6 +934,15 @@ pub fn face_of_node(i: &Inputs<'_>, id: &NodeId) -> Option<Face> {
     i.graph.node(id).map(|node| node_face(&cx, id, node))
 }
 
+/// Every input row of node `id`, shown on its face or not, each with the catalogue's row it
+/// came from (N4 slice 3: the parameters inspector, and `row.set`, which takes any input).
+pub fn param_rows(i: &Inputs<'_>, id: &NodeId) -> Vec<(InRow, rows::InputRow)> {
+    let cx = Ctx::new(i);
+    let Some(node) = i.graph.node(id) else { return Vec::new() };
+    let Some(def) = cx.def(&node.kind) else { return Vec::new() };
+    rows::input_rows_with(def, id, i.graph, &|p| cx.wire_into(p).is_some()).into_iter().map(|r| (in_row(&cx, id, &r), r)).collect()
+}
+
 fn faces_in(cx: &Ctx<'_>) -> Vec<Face> {
     let mut nodes = Vec::new();
     for (id, node) in &cx.i.graph.nodes {
@@ -998,7 +1036,7 @@ pub fn build(i: &Inputs<'_>) -> Scene {
             rev: 0,
             title: f.title.clone(),
             pos: f.pos,
-            size: f.size,
+            size: grown_frame(graph, id, f, &nodes, &rects),
             paint: f.color.as_deref().and_then(parse_hex).map_or_else(|| cx.tok("accent"), Paint::of),
         })
         .collect();
@@ -1056,6 +1094,62 @@ pub fn build(i: &Inputs<'_>) -> Scene {
         pulse_ms: 1200,
     };
     Scene { shell: SHELL, doc: i.doc, generation: 0, full: true, nodes, wires, nets, frames, groups, marks, selection, focus, anim, view: i.view.clone() }
+}
+
+/// The room a frame keeps round a member it grew for (graph units).
+pub const FRAME_GROW_PAD: f32 = 16.0;
+
+/// A frame's size as shown (N4 slice 3): its own, grown right and down to hold every member the
+/// push moved ([`make_room`]), so a face pushed out of another's way stays inside the frame that
+/// holds it. Like the push, this is the view's: the frame's size in the graph is untouched, and
+/// the growth goes when the push does. What the frame holds is still what its own rect holds
+/// (`Graph::frame_held`, by the members' positions), so moving it moves the same things.
+fn grown_frame(
+    graph: &Graph,
+    id: &plumcraft_graph::FrameId,
+    f: &plumcraft_graph::Frame,
+    faces: &[Face],
+    rects: &HashMap<&str, crate::plain::Rect>,
+) -> [f32; 2] {
+    let held = graph.frame_held(id);
+    let own_max = [f.pos[0] + f.size[0], f.pos[1] + f.size[1]];
+    let mut max = own_max;
+    let pushed = |face: &Face, own: [f32; 2]| face.pos != own;
+    for face in faces {
+        let own = match face.id.strip_prefix("group:") {
+            Some(g) => {
+                let gid = GroupId::from(g);
+                if !held.groups.contains(&gid) {
+                    continue;
+                }
+                match graph.group(&gid) {
+                    Some(grp) => grp.pos,
+                    None => continue,
+                }
+            }
+            None => {
+                let nid = NodeId::from(face.id.as_str());
+                if !held.nodes.contains(&nid) {
+                    continue;
+                }
+                match graph.node(&nid) {
+                    Some(n) => n.pos,
+                    None => continue,
+                }
+            }
+        };
+        if !pushed(face, own) {
+            continue;
+        }
+        if let Some(r) = rects.get(face.id.as_str()) {
+            max[0] = max[0].max(r.max.x + FRAME_GROW_PAD);
+            max[1] = max[1].max(r.max.y + FRAME_GROW_PAD);
+        }
+    }
+    if max == own_max {
+        return f.size;
+    }
+    [crate::wire_path::coord(max[0] - f.pos[0]), crate::wire_path::coord(max[1] - f.pos[1])]
 }
 
 fn depth_of(graph: &Graph, gid: &GroupId) -> usize {
@@ -1608,6 +1702,7 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face], rects: &HashMap<&str, crate::pla
                         face: from_face.clone(),
                         pin: from_pin,
                         at: graph.net(key).and_then(|n| n.at).unwrap_or([NET_STUB, 0]),
+                        text: String::new(),
                     },
                     uses: vec![use_],
                 }),
@@ -1638,6 +1733,9 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face], rects: &HashMap<&str, crate::pla
             net,
             path,
         });
+    }
+    for n in &mut nets {
+        n.driver.text = format!("{} ×{}", n.key.name, n.uses.len());
     }
     (wires, nets)
 }
@@ -2369,7 +2467,7 @@ mod tests {
             ),
         );
         m.set(&o1.0, crate::geometry::FaceGeometry::sized([180.0, 90.0], &[], &[36.0, 58.0, 80.0]));
-        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }), palette: None, edit: None };
+        let view = View { fit: Some(Fit { seq: 1, rect: [-352.0, -72.0, 1452.0, 2192.0] }), ..View::default() };
         let with = |i: Inputs<'_>| -> Scene {
             let mut i = i;
             i.geometry = Some(&m);

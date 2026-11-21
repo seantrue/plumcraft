@@ -97,11 +97,26 @@ pub fn shown_rows(def: &NodeDef, id: &NodeId, graph: &Graph) -> (Vec<InputRow>, 
 pub fn shown_rows_with(def: &NodeDef, id: &NodeId, graph: &Graph, wired: &dyn Fn(&PortRef) -> bool) -> (Vec<InputRow>, usize) {
     let mut inputs = input_rows_with(def, id, graph, wired);
     let Some(node) = graph.node(id) else { return (inputs, 0) };
-    let tucked = plumcraft_graph::ports::tucked(def, node, |p| wired(&PortRef::new(id.clone(), p)));
-    if !node.all_fields {
-        inputs.retain(|r| !(r.kind == RowKind::Plain && tucked.contains(&r.key)));
-    }
+    let mut tucked = plumcraft_graph::ports::tucked(def, node, |p| wired(&PortRef::new(id.clone(), p)));
+    // a field shown on the face by the person isn't tucked away (N4 slice 3)
+    tucked.retain(|k| node.face.get(k) != Some(&true));
+    inputs.retain(|r| {
+        if wired(&PortRef::new(id.clone(), r.key.clone())) {
+            return true;
+        }
+        match node.face.get(&r.key) {
+            Some(shown) => *shown,
+            None => node.all_fields || !(r.kind == RowKind::Plain && tucked.contains(&r.key)),
+        }
+    });
     (inputs, tucked.len())
+}
+
+/// Is input `key` of node `id` on its face (N4 slice 3, the parameters inspector's Show on
+/// Face)? A wired input always is; otherwise the person's choice ([`plumcraft_graph::Node::face`]),
+/// else the default rule (a field its choice tucks away isn't, unless the node shows every field).
+pub fn on_face(def: &NodeDef, id: &NodeId, graph: &Graph, key: &str) -> bool {
+    shown_rows(def, id, graph).0.iter().any(|r| r.key == key)
 }
 
 /// `base`, or `base 2`, `base 3`, … whichever `taken` doesn't have.

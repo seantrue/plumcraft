@@ -123,9 +123,15 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     let container = DropView(frame: NSRect(x: 0, y: 0, width: 1000, height: 820))
     var canvasView: CanvasView?
     var asks: AskPresenter?
-    var watched: WatchedPanel?
-    let split = NSSplitViewController()
-    var watchedItem: NSSplitViewItem?
+    /// The pop-out windows and the parameters inspector (N4 slice 3), following the core's.
+    var popouts: PopoutWindows?
+    var parameters: ParametersPopover?
+    /// The way back out of an entered group: Graph › outer › inner (the scene's focus path).
+    let crumbs = NSPathControl()
+    /// The path control's material, following the appearance as the toolbar's does.
+    let crumbsBox = NSVisualEffectView()
+    /// The toolbar's buttons as the core last gave them, by command.
+    var toolItems: [String: MenuItem] = [:]
     let placeholder = NSTextField(labelWithString: "Opening…")
     let bannerLabel = NSTextField(wrappingLabelWithString: "")
     var bannerTask: Task<Void, Never>?
@@ -147,16 +153,27 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         w.minSize = NSSize(width: 560, height: 360)
         super.init(window: w)
         Self.all[ObjectIdentifier(self)] = self
-        // the canvas, and the Watched panel as an inspector on the right
+        // the canvas fills the window; a watched value opens in a window of its own (N4 slice 3:
+        // the Watched column is gone)
         let canvasVC = NSViewController()
         canvasVC.view = container
-        let canvasItem = NSSplitViewItem(viewController: canvasVC)
-        canvasItem.minimumThickness = 320
-        split.addSplitViewItem(canvasItem)
-        w.contentViewController = split
+        w.contentViewController = canvasVC
         w.setContentSize(NSSize(width: 1320, height: 820))
         placeholder.textColor = .secondaryLabelColor
-        for x in [placeholder, bannerLabel] {
+        crumbs.pathStyle = .standard
+        crumbs.backgroundColor = .clear
+        crumbsBox.material = .headerView
+        crumbsBox.blendingMode = .withinWindow
+        crumbsBox.state = .active
+        crumbsBox.wantsLayer = true
+        crumbsBox.layer?.cornerRadius = 8
+        crumbsBox.isHidden = true
+        crumbs.translatesAutoresizingMaskIntoConstraints = false
+        crumbsBox.addSubview(crumbs)
+        crumbs.target = self
+        crumbs.action = #selector(crumbClicked(_:))
+        crumbs.setAccessibilityLabel("Groups entered")
+        for x in [placeholder, bannerLabel, crumbsBox] {
             x.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(x)
         }
@@ -172,6 +189,13 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             bannerLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             bannerLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             bannerLabel.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -40),
+            crumbs.topAnchor.constraint(equalTo: crumbsBox.topAnchor, constant: 3),
+            crumbs.bottomAnchor.constraint(equalTo: crumbsBox.bottomAnchor, constant: -3),
+            crumbs.leadingAnchor.constraint(equalTo: crumbsBox.leadingAnchor, constant: 6),
+            crumbs.trailingAnchor.constraint(equalTo: crumbsBox.trailingAnchor, constant: -8),
+            crumbsBox.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 8),
+            crumbsBox.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
+            crumbsBox.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -24),
         ])
         let tb = NSToolbar(identifier: "graph")
         tb.delegate = self
@@ -215,30 +239,35 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         v.autoresizingMask = [.width, .height]
         v.onError = { NSLog("PlumCraft: %@", $0) }
         placeholder.removeFromSuperview()
-        container.addSubview(v, positioned: .below, relativeTo: bannerLabel)
+        container.addSubview(v, positioned: .below, relativeTo: crumbsBox)
         canvasView = v
         window?.makeFirstResponder(v)
-        v.canvas.onViewport = { [weak self] vp in self?.showZoom(vp.zoom) }
-        v.canvas.onDrawn = { [weak self] _ in self?.drawn(doc: doc, opened: opened) }
+        v.canvas.onViewport = { [weak self] vp in
+            self?.showZoom(vp.zoom)
+            self?.parameters?.follow()
+        }
+        v.canvas.onDrawn = { [weak self] _ in
+            self?.drawn(doc: doc, opened: opened)
+            self?.parameters?.params.sceneChanged()
+            self?.showCrumbs()
+        }
         v.onContextMenu = { [weak self] p, items in self?.popContext(items, at: p) }
         v.onCanvasKey = { [weak self] id in self?.canvasKey(id) }
         v.validate = { mi in MenuBar.shared.validateStandard(mi) }
         v.onCommands = { [weak self] ran in self?.ranByGesture(ran) }
         v.palettePopover.onShown = { [weak self] _ in self?.reportNow() }
-        // the panel
-        let panel = WatchedPanel(model: model, pictures: v.canvas.pictures)
-        panel.onShown = { [weak self] in self?.report(doc: doc, ready: nil, opened: opened) }
-        let item = NSSplitViewItem(inspectorWithViewController: panel)
-        item.minimumThickness = 260
-        item.maximumThickness = 640
-        item.canCollapse = true
-        split.addSplitViewItem(item)
-        if CoreHost.options.hideWatched {
-            // collapsed once it is in the split view
-            DispatchQueue.main.async { item.isCollapsed = true }
+        // the core's windows: pop-outs and the parameters inspector
+        let pops = PopoutWindows(model: model, pictures: v.canvas.pictures)
+        pops.documentWindow = window
+        pops.onChange = { [weak self] in self?.reportNow() }
+        popouts = pops
+        let params = ParametersPopover(model: model, canvasView: v)
+        parameters = params
+        model.onWindows = { [weak pops, weak params] w in
+            pops?.follow(w)
+            params?.params.follow(w)
         }
-        watchedItem = item
-        watched = panel
+        model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks
         let a = AskPresenter(model: model)
         a.window = window
@@ -249,7 +278,6 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         }
         asks = a
         model.onAsks = { [weak a] list in a?.update(list) }
-        model.onWatched = { [weak panel] w in panel?.show(w) }
         model.onState = { [weak self] st in self?.followState(st) }
         model.onMenus = { [weak self] _ in
             guard let self, let m = canvasView?.model else { return }
@@ -285,6 +313,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
 
     func windowWillClose(_ notification: Notification) {
         Self.all[ObjectIdentifier(self)] = nil
+        popouts?.closeAll()
         if MenuBar.shared.source === canvasView?.model { MenuBar.shared.show(nil) }
     }
 
@@ -329,43 +358,61 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         }
     }
 
-    // MARK: Toolbar: Run, Run Selected, Cancel, the engines, the Watched panel
+    // MARK: Toolbar: the core's buttons (N4 slice 3), then the engines
 
-    static let runID = NSToolbarItem.Identifier("run")
-    static let runSelectedID = NSToolbarItem.Identifier("runSelected")
-    static let cancelID = NSToolbarItem.Identifier("cancel")
     static let engineID = NSToolbarItem.Identifier("engine")
-    static let watchedID = NSToolbarItem.Identifier("watched")
-    static let fitID = NSToolbarItem.Identifier("fit")
-    static let addID = NSToolbarItem.Identifier("add")
+    /// The core's buttons the Mac shows: Select mode is a touch shell's (a drag on empty canvas is
+    /// already a marquee here), so it is left out of this toolbar but stays in View.
+    static let notOnMac: Set<String> = ["canvas.selectMode"]
+
+    /// The identifiers, in the core's order, a separator a space.
+    func coreIdentifiers() -> [NSToolbarItem.Identifier] {
+        var out: [NSToolbarItem.Identifier] = []
+        for it in canvasView?.model.toolbar ?? [] {
+            if it.separator {
+                if let last = out.last, last != .space { out.append(.space) }
+            } else if let c = it.command, !Self.notOnMac.contains(c) {
+                out.append(NSToolbarItem.Identifier(c))
+            }
+        }
+        while out.last == .space { out.removeLast() }
+        return out
+    }
 
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        [Self.addID, Self.fitID, .space, Self.runID, Self.runSelectedID, Self.cancelID, .flexibleSpace, Self.engineID, .space, Self.watchedID]
+        coreIdentifiers() + [.flexibleSpace, Self.engineID]
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarDefaultItemIdentifiers(toolbar)
     }
 
+    /// The core's toolbar changed: new buttons rebuild it; new states only revalidate it.
+    func followToolbar(_ items: [MenuItem]) {
+        let before = Set(toolItems.keys)
+        toolItems = Dictionary(ToolbarWords.buttons(items).map { ($0.command ?? $0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        guard let w = window else { return }
+        if Set(toolItems.keys) != before || w.toolbar?.items.count ?? 0 <= 1 {
+            let tb = NSToolbar(identifier: "graph")
+            tb.delegate = self
+            tb.displayMode = .iconOnly
+            w.toolbar = tb
+        }
+        for item in w.toolbar?.items ?? [] { style(item) }
+        w.toolbar?.validateVisibleItems()
+    }
+
+    func style(_ item: NSToolbarItem) {
+        guard let it = toolItems[item.itemIdentifier.rawValue] else { return }
+        item.label = it.label
+        item.paletteLabel = it.label
+        item.toolTip = ToolbarWords.help(it)
+        item.image = NSImage(systemSymbolName: ToolbarWords.symbol(it.icon), accessibilityDescription: it.label)
+    }
+
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier id: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: id)
-        switch id {
-        case Self.runID:
-            item.label = "Run"
-            item.toolTip = "Run the graph (⌘Return)"
-            item.image = NSImage(systemSymbolName: "play.fill", accessibilityDescription: "Run")
-            item.action = #selector(runGraph(_:))
-        case Self.runSelectedID:
-            item.label = "Run Selected"
-            item.toolTip = "Run what the selected nodes need"
-            item.image = NSImage(systemSymbolName: "play.square", accessibilityDescription: "Run Selected")
-            item.action = #selector(runSelected(_:))
-        case Self.cancelID:
-            item.label = "Cancel"
-            item.toolTip = "Cancel the run (⌘.)"
-            item.image = NSImage(systemSymbolName: "stop.fill", accessibilityDescription: "Cancel Run")
-            item.action = #selector(cancelRun(_:))
-        case Self.engineID:
+        if id == Self.engineID {
             let box = NSStackView(views: [engineDot, engineLabel])
             box.orientation = .horizontal
             box.spacing = 6
@@ -379,25 +426,12 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             item.view = box
             item.label = "Engines"
             item.visibilityPriority = .low
-        case Self.fitID:
-            item.label = "Fit"
-            item.toolTip = "Fit the view to all nodes (F)"
-            item.image = NSImage(systemSymbolName: "arrow.up.left.and.down.right.magnifyingglass", accessibilityDescription: "Fit")
-            item.action = #selector(fitView(_:))
-        case Self.addID:
-            item.label = "Add Node"
-            item.toolTip = "Add a node from the palette (Tab, or double-click the canvas)"
-            item.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Add Node")
-            item.action = #selector(addNode(_:))
-        case Self.watchedID:
-            item.label = "Watched"
-            item.toolTip = "Show or hide the Watched panel (⌥⌘I)"
-            item.image = NSImage(systemSymbolName: "sidebar.right", accessibilityDescription: "Watched panel")
-            item.action = #selector(toggleWatched(_:))
-        default:
-            return nil
+            return item
         }
+        guard toolItems[id.rawValue] != nil else { return nil }
+        style(item)
         item.target = self
+        item.action = #selector(toolbarButton(_:))
         return item
     }
 
@@ -406,28 +440,54 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         canvasView?.model.menuBar.item(command: command)
     }
 
+    /// Enabled as the core says, with its reason as the tooltip.
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
-        switch item.itemIdentifier {
-        case Self.runID:
-            let it = modelItem("run.start")
-            item.toolTip = it?.enabled == false ? (it?.reason ?? "Can't run now") : "Run the graph (⌘Return)"
-            return it?.enabled ?? false
-        case Self.runSelectedID:
-            // the core's command and its reason (N4 slice 1)
-            let it = modelItem("run.selected")
-            item.toolTip = it?.enabled == false ? (it?.reason ?? "Can't run now") : "Run the selected nodes and what they need"
-            return it?.enabled ?? false
-        case Self.fitID, Self.addID:
-            return canvasView != nil
-        case Self.cancelID:
-            let it = modelItem("run.cancel")
-            item.toolTip = it?.enabled == false ? (it?.reason ?? "Nothing is running") : "Cancel the run (⌘.)"
-            return it?.enabled ?? false
-        case Self.watchedID:
-            return canvasView != nil
-        default:
-            return true
+        guard let it = toolItems[item.itemIdentifier.rawValue] else { return item.itemIdentifier == Self.engineID }
+        item.toolTip = ToolbarWords.help(it)
+        return it.enabled && canvasView != nil
+    }
+
+    /// A toolbar button: the core's item, dispatched as a menu's (the palette at the view's
+    /// centre for Add Node).
+    @objc func toolbarButton(_ sender: NSToolbarItem) {
+        guard let m = canvasView?.model, let it = toolItems[sender.itemIdentifier.rawValue] else { return }
+        if it.command == "canvas.palette", let v = canvasView {
+            v.openPalette(at: CGPoint(x: v.bounds.midX, y: v.bounds.midY))
+            return
         }
+        MenuBar.shared.dispatch(it, model: m)
+    }
+
+    // MARK: The way back out of a group
+
+    func showCrumbs() {
+        guard let m = canvasView?.model else { return }
+        guard let f = m.focus else {
+            if !crumbsBox.isHidden { crumbsBox.isHidden = true }
+            return
+        }
+        var items: [NSPathControlItem] = []
+        let root = NSPathControlItem()
+        root.title = "Graph"
+        root.image = NSImage(systemSymbolName: "square.grid.3x3", accessibilityDescription: "Graph")
+        items.append(root)
+        for c in f.path {
+            let it = NSPathControlItem()
+            it.title = c.name
+            it.image = NSImage(systemSymbolName: "square.on.square", accessibilityDescription: "Group")
+            items.append(it)
+        }
+        let titles = items.map(\.title)
+        if crumbs.pathItems.map(\.title) != titles { crumbs.pathItems = items }
+        crumbsBox.isHidden = false
+    }
+
+    /// A crumb: back out to the graph, or to that group (`canvas.focus`).
+    @objc func crumbClicked(_ sender: NSPathControl) {
+        guard let m = canvasView?.model, let f = m.focus, let clicked = sender.clickedPathItem,
+              let k = sender.pathItems.firstIndex(where: { $0 === clicked }) else { return }
+        let target: JSONValue = k == 0 ? .null : (k - 1 < f.path.count ? .string(f.path[k - 1].id) : .null)
+        Task { _ = try? await m.run("canvas.focus", ["group": target]) }
     }
 
     @objc func runGraph(_ sender: Any?) {
@@ -461,11 +521,6 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     @objc func cancelRun(_ sender: Any?) {
         guard let m = canvasView?.model, let it = modelItem("run.cancel") else { return }
         MenuBar.shared.dispatch(it, model: m)
-    }
-
-    @objc func toggleWatched(_ sender: Any?) {
-        guard let item = watchedItem else { return }
-        item.animator().isCollapsed.toggle()
     }
 
     func showEngine(_ e: EngineState) {
@@ -564,7 +619,14 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
                    "shown": .bool(v.palettePopover.isShown), "pending": pal.pendingText.map(JSONValue.string) ?? .null]
                 : ["open": false, "shown": .bool(v.palettePopover.isShown)]
         }
-        if let p = watched { s["watched"] = .object(p.describe) }
+        if let p = popouts { s["popouts"] = p.describe }
+        if let p = parameters { s["parameters"] = p.describe }
+        if let n = canvasView?.nameField.field { s["nameField"] = ["text": .string(n.stringValue), "window": .int(Int64(n.window?.windowNumber ?? 0))] }
+        s["toolbar"] = .array(coreIdentifiers().map { id in
+            let it = toolItems[id.rawValue]
+            return ["id": .string(id.rawValue), "label": .string(it?.label ?? ""), "enabled": .bool(it?.enabled ?? false), "checked": it?.checked.map(JSONValue.bool) ?? .null]
+        })
+        s["crumbs"] = .array(crumbsBox.isHidden ? [] : crumbs.pathItems.map { .string($0.title) })
         Status.shared.window(doc, .object(s))
     }
 

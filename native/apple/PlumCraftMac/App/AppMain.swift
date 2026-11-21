@@ -19,7 +19,7 @@
 //                                 and --engines-also in every document, for comparisons)
 //   --then STEP;STEP              what the first window does once ready (Script.swift)
 //   --dump-menus F                write the built menu bar, as text, to F whenever it changes
-//   --hide-watched                start with the Watched panel collapsed
+//   --hide-watched                accepted and ignored (N4 slice 3: no Watched column)
 //   --scratch-state               don't restore or save windows (scripts: the Mac's saved state is
 //                                 left alone; `-ApplePersistenceIgnoreState YES` would do it too,
 //                                 but AppKit then offers the `YES` as a file to open). A scripted
@@ -47,7 +47,6 @@ struct Options {
     var pick = true
     var then: [String] = []
     var dumpMenus: String?
-    var hideWatched = false
     var scratchState = false
     var bench: BenchOptions?
 
@@ -77,7 +76,7 @@ struct Options {
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
             case "--then": o.then = (next() ?? "").split(separator: ";").map(String.init)
             case "--dump-menus": o.dumpMenus = next()
-            case "--hide-watched": o.hideWatched = true
+            case "--hide-watched": break  // N4 slice 3: no Watched column to hide
             case "--engine": o.engine = next() ?? "text"
             case "--bench": b = BenchOptions(out: next() ?? "bench.json")
             case "--nodes": b?.nodes = next().flatMap(Int.init) ?? 500

@@ -623,6 +623,7 @@ mod tests {
                 values: Default::default(),
                 inherited: Default::default(),
                 all_fields: false,
+                face: Default::default(),
                 title: None,
                 serial: None,
                 view: Default::default(),
