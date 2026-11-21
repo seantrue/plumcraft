@@ -244,7 +244,7 @@ enum CoreHost {
         setenv("PLUMCRAFT_EDITOR_PREFS", d.prefs.appendingPathComponent("prefs.json").path, 1)
         setenv("COMMONKIT_HASH", "b3", 0)
         setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
-        var config = ShellConfig(appID: Bundle.main.bundleIdentifier ?? "com.plumcraft.pad", appName: "PlumCraft", version: "0.7.0", storeRoot: store)
+        var config = ShellConfig(appID: Bundle.main.bundleIdentifier ?? "com.plumcraft.pad", appName: "PlumCraft", version: ShellConfig.bundleVersion, storeRoot: store)
         config.dirs = ["documents": d.documents.path, "caches": d.caches.path, "scratch": d.scratch.path, "prefs": d.prefs.path, "logs": d.logs.path]
         // contract 4.2: no programs, no craft apps, no Python; in-process engines only
         config.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false, "multi_window": true,

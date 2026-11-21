@@ -38,6 +38,20 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Fixed
 
+### B48. `build-xcframework.sh` ignored `CARGO_TARGET_DIR`
+
+- Reported: 2026-11-21
+- Report: found while preparing the Apple builds
+- Context: the script read the libraries back from the checkout's own `target/` while cargo, honouring `CARGO_TARGET_DIR`, built them elsewhere; in a git worktree pointed at the main checkout's target directory it would have packaged stale libraries, or failed, rather than the ones just built.
+- Fixed: 2026-11-21, Apple prep: the script reads from `CARGO_TARGET_DIR` when it is set. Verified by building the xcframework from a worktree into the main checkout's target directory.
+
+### B47. A Mac app built for distribution would carry no engine programs
+
+- Reported: 2026-11-21
+- Report: found while preparing the Apple builds (the maintainer's standing instruction to record bugs found on the way)
+- Context: the Mac app's Release bundle held only `PlumCraft`. The core looks for engine programs beside the app's own (`Contents/MacOS`), or in the cargo build a test runs from, so on another Mac the audio engine (never in process) and every engine hosted as a process (Engine › Rust · process) would have failed with "no engine binary". In-process text and array, which the suite uses, worked, so nothing caught it.
+- Fixed: 2026-11-21, Apple prep (branch `native/n4-apple-prep`): `native/apple/release.sh mac` builds the text, array, audio and craft engines for both Macs and the Mac target's Bundle engines phase puts them in `Contents/MacOS`, each signed with the hardened runtime before the app seals them. Verified on the exported Developer ID build: the text engine switched to a process, audio and array added as processes, a graph run, the three children running from the bundle with the runtime flag. A plain Xcode build still has none (it runs engines from the cargo build, as before).
+
 ### B44. The iPad UI tests fail on a second run in the same app container
 
 - Reported: 2026-11-21

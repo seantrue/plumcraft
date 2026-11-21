@@ -1,0 +1,22 @@
+// The Mac app's signing and runtime (research note 24 section 19, "Apple prep").
+//
+// By default it is signed ad hoc, to run on this Mac only, with the hardened runtime on, so every
+// local build and test runs as a notarized build will. A Developer ID build sets the identity and
+// team: native/apple/release.sh mac does it from the environment (PLUMCRAFT_TEAM_ID), or put them
+// in Config/Signing.local.xcconfig (untracked; see Signing.local.xcconfig.example).
+#include "Version.xcconfig"
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM = $(PLUMCRAFT_TEAM_ID)
+// Notarization needs the hardened runtime. The app needs no exception from it (the entitlements
+// file is empty, each candidate tried and found unneeded: claude-debug/native-n4-apple-prep.md).
+ENABLE_HARDENED_RUNTIME = YES
+CODE_SIGN_ENTITLEMENTS = PlumCraft.entitlements
+// Developer ID distribution, not the Mac App Store: no App Sandbox (it would stop engines started
+// as programs, the craft apps, and a store outside the container; see the note).
+ENABLE_APP_SANDBOX = NO
+// Xcode adds get-task-allow to a Debug build only; a Release build must never carry it.
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS[config=Release] = NO
+
+#include? "Signing.local.xcconfig"

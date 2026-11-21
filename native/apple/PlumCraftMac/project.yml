@@ -30,8 +30,9 @@ targets:
       properties:
         CFBundleName: PlumCraft
         CFBundleDisplayName: PlumCraft
-        CFBundleShortVersionString: "0.7.0"
-        CFBundleVersion: "1"
+        # both from the build settings (../Config/Version.xcconfig; the release script passes them)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.developer-tools
         NSPrincipalClass: NSApplication
         NSHumanReadableCopyright: ""
@@ -44,6 +45,26 @@ targets:
             LSItemContentTypes:
               - public.json
             NSDocumentClass: GraphDocument
+    # signing, the hardened runtime and versions (Config/Mac.xcconfig; a local, untracked
+    # Config/Signing.local.xcconfig or the environment names the team and identity)
+    configFiles:
+      Debug: ../Config/Mac.xcconfig
+      Release: ../Config/Mac.xcconfig
+    # the engine programs beside the app's own (Contents/MacOS, where the core looks for them):
+    # only when PLUMCRAFT_ENGINES_DIR names a folder of them (release.sh builds it); a build
+    # without it has none, and starts engines in process or from the cargo build, as before
+    postBuildScripts:
+      - name: Bundle engines
+        basedOnDependencyAnalysis: false
+        script: |
+          [ -n "${PLUMCRAFT_ENGINES_DIR:-}" ] || exit 0
+          dest="$TARGET_BUILD_DIR/$EXECUTABLE_FOLDER_PATH"
+          for e in plumcraft-text-engine plumcraft-array-engine plumcraft-audio-engine plumcraft-craft-engine; do
+            [ -x "$PLUMCRAFT_ENGINES_DIR/$e" ] || { echo "error: no engine at $PLUMCRAFT_ENGINES_DIR/$e"; exit 1; }
+            cp -f "$PLUMCRAFT_ENGINES_DIR/$e" "$dest/$e"
+            # nested code is signed before the app seals it, with the app's identity and runtime
+            codesign --force --sign "$EXPANDED_CODE_SIGN_IDENTITY" --options runtime --timestamp=none "$dest/$e"
+          done
     dependencies:
       - package: PlumCraftFFI
         product: PlumCraftKit
@@ -57,9 +78,7 @@ targets:
         PRODUCT_MODULE_NAME: PlumCraftMac
         PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.mac
         ARCHS: arm64
-        # signed to run here only: ad hoc, no hardened runtime, no notarization
-        CODE_SIGN_STYLE: Manual
-        CODE_SIGN_IDENTITY: "-"
-        ENABLE_HARDENED_RUNTIME: NO
-        ENABLE_APP_SANDBOX: NO
         DEAD_CODE_STRIPPING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Bundle engines reads PLUMCRAFT_ENGINES_DIR, outside the project
+        ENABLE_USER_SCRIPT_SANDBOXING: NO

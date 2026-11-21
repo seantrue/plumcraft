@@ -1,0 +1,8 @@
+// The Apple apps' version and build number, for builds made in Xcode or by the test scripts.
+//
+// A build for Apple never uses these: native/apple/release.sh passes MARKETING_VERSION from the
+// workspace version (Cargo.toml's [workspace.package] version, the one source of truth) and
+// CURRENT_PROJECT_VERSION from its --build argument (default: the UTC time, YYYYMMDDHHMM, which only
+// goes up). The values here only label local builds; release.sh says when the first lags Cargo.toml.
+MARKETING_VERSION = 0.7.0
+CURRENT_PROJECT_VERSION = 1
