@@ -1,0 +1,13 @@
+<Project>
+  <!-- What every project under native/windows shares (N5 slice 1). -->
+  <PropertyGroup>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <LangVersion>latest</LangVersion>
+    <!-- the repository's root, from this file's place in it -->
+    <PlumRepo>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</PlumRepo>
+    <!-- the core DLL, built for this machine as the README says -->
+    <PlumFfiDir Condition="'$(PlumFfiDir)' == '' And Exists('$(PlumRepo)\target\aarch64-pc-windows-msvc\release\plumcraft_ffi.dll')">$(PlumRepo)\target\aarch64-pc-windows-msvc\release</PlumFfiDir>
+  </PropertyGroup>
+</Project>

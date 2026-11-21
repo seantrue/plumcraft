@@ -2,8 +2,8 @@
 //
 // Every layout here mirrors the header field for field; PlumCraft.Probe checks the sizes at start
 // (Marshal.SizeOf) against what the header's natural alignment gives on a 64-bit target. This file
-// is the only one in the Windows shell that uses pointers (`unsafe`): everything above it sees
-// spans, strings and records.
+// and PlumCore.cs's pointer methods are the only `unsafe` code in the Windows kit (the interop layer):
+// everything above them sees spans, strings and records.
 
 using System.Runtime.InteropServices;
 
@@ -28,7 +28,7 @@ public struct PlumBytes
 
 /// <summary>plum_hit: what is at a point, or where a dragged wire may land.</summary>
 [StructLayout(LayoutKind.Sequential)]
-public struct PlumHit
+public partial struct PlumHit
 {
     public int Status;
     public uint Kind;
@@ -60,7 +60,7 @@ public struct PlumFace
 
 /// <summary>plum_drag: where a drag under way is.</summary>
 [StructLayout(LayoutKind.Sequential)]
-public struct PlumDrag
+public partial struct PlumDrag
 {
     public int Status;
     public uint Kind;
