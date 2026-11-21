@@ -3130,6 +3130,7 @@ dependencies = [
  "plumcraft-svg",
  "png 0.18.1",
  "rustfft",
+ "serde",
  "serde_json",
 ]
 
