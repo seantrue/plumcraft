@@ -17,6 +17,9 @@ final class BenchViewController: UIViewController {
 
     init(options: BenchOptions) {
         var o = options
+        // the bench's own switches (the wire switches of the device pass), read here so the
+        // app's startup needn't know them
+        o.take(all: CommandLine.arguments)
         if !o.out.hasPrefix("/") { o.out = CoreHost.dirs.documents.appendingPathComponent(o.out).path }
         // an earlier run's results go first, so a script that reads after a launch the system
         // refused (a locked iPad) finds nothing rather than an old run's numbers (the N4 device gate)

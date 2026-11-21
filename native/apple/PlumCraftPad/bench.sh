@@ -14,6 +14,15 @@
 #                                  binned by phase (hitches.py)
 #   ./bench.sh trace-spike-device [N M]  the N0 spike (already installed) under the same trace: the
 #                                  control
+#   ./bench.sh trace-wires [N M]   the wire-hitch check: one build, installed once, then a hitch trace
+#                                  for each configuration in WIRES (default "tiles layers hidden"),
+#                                  RUNS rounds (default 2), and a table of them all
+#                                  (OUT/PREFIX-wires-N-summary.md). Configurations: tiles (the canvas
+#                                  as it is: wires drawn into tile pictures), layers (--wire-layers:
+#                                  a shape layer per wire, the canvas before the fix, in this build),
+#                                  hidden (--hide-wires), short (--wire-layers --wire-short-only:
+#                                  only wires as short as the N0 spike's), thin and miter
+#                                  (--wire-layers with the spike's 2-point width, or mitred joins)
 #
 # BENCH_EXTRA adds bench arguments (--hide-wires: no wires drawn, the faces' share of a trace).
 # APP=<path to a built Plummer.app> runs that app instead of building this checkout (a device
@@ -146,6 +155,45 @@ device|trace-device)
   else
     trace_device "$bundle" Plummer "$p-pad-device-trace-$n" "${args[@]}"
   fi ;;
+trace-wires)
+  dev="${DEVICE:-$(xcrun devicectl list devices 2>/dev/null | grep -E 'iPad.*physical' | grep -E 'available|connected' | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}')}"
+  [ -n "$dev" ] || { echo "no iPad connected"; exit 2; }
+  app="${APP:-}"
+  if [ -z "$app" ]; then
+    [ -n "$team" ] || { echo "set TEAM to the signing team's id (or APP to a built app)"; exit 2; }
+    timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -target PlumCraftPad -configuration Release -sdk iphoneos \
+      SYMROOT="$here/build-device" OBJROOT="$here/build-device/obj" \
+      CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" CODE_SIGN_IDENTITY="Apple Development" \
+      build -quiet 2>&1 | grep -v 'appintentsmetadataprocessor\|DVTProvisioning' || true
+    app="$here/build-device/Release-iphoneos/Plummer.app"
+  fi
+  [ -d "$app" ] || { echo "no device app at $app (the build failed: signing?)"; exit 1; }
+  timeout 300 xcrun devicectl device install app --device "$dev" "$app" >"$scratch/install.log" 2>&1 || { cat "$scratch/install.log"; exit 4; }
+  summary="$out/$p-wires-$n-summary.md"
+  { echo "# Wire hitches by configuration ($n nodes, $m wires)"; echo
+    echo "Hitch ms a second by phase (Instruments' Animation Hitches)."; echo
+    echo "| configuration | round | idle | pan | pan_fit | zoom | drag |"; echo "|---|---|---|---|---|---|---|"; } > "$summary"
+  for k in $(seq "${RUNS:-2}"); do
+    for c in ${WIRES:-tiles layers hidden}; do
+      case "$c" in
+        tiles) extra=() ;;
+        layers) extra=(--wire-layers) ;;
+        hidden) extra=(--hide-wires) ;;
+        short) extra=(--wire-layers --wire-short-only) ;;
+        thin) extra=(--wire-layers --wire-thin) ;;
+        miter) extra=(--wire-layers --wire-miter) ;;
+        *) echo "unknown configuration $c (tiles layers hidden short thin miter)"; exit 2 ;;
+      esac
+      # each run's result has a name of its own (the app removes older ones when it starts)
+      rid="$(date +%H%M%S)-$$-$c-$k"
+      targs=(--bench "bench-$n-$rid.json" --nodes "$n" --wires "$m" --phase-seconds "$secs" --scratch-state ${extra[@]+"${extra[@]}"})
+      name="$p-wires-$c-$k-device-trace-$n"
+      trace_device "$bundle" Plummer "$name" "${targs[@]}"
+      python3 "$here/hitch_row.py" "$out/$name-hitches.md" "$c" "$k" >> "$summary"
+    done
+  done
+  echo
+  cat "$summary" ;;
 trace-spike-device)
   # the N0 spike (com.plumcraft.spike.canvas, installed at N0 and left as it is) under the same
   # trace: the control beside the app's, on the same device in the same minutes
@@ -153,5 +201,5 @@ trace-spike-device)
   [ -n "$dev" ] || { echo "no iPad connected"; exit 2; }
   trace_device com.plumcraft.spike.canvas CanvasSpike "$p-spike-device-trace-$n" --bench "bench-$n-$run_id.json" --nodes "$n" --wires "$m" \
     --phase-seconds "$secs" --modes perWire ;;
-*) echo "usage: $0 sim|device|trace-device|trace-spike-device [nodes wires]"; exit 2 ;;
+*) echo "usage: $0 sim|device|trace-device|trace-wires|trace-spike-device [nodes wires]"; exit 2 ;;
 esac
