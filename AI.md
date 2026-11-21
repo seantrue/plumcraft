@@ -29,6 +29,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Fix (agent; `python/tests/test_persist.py`, ~45 LOC).** The not-persisted test runs on a virtual clock patched into the executor's `time`, so a node's work is exactly what it sleeps; a new test pins the work either side of the limit (60 ms not persisted, 97 ms persisted). No SDK code changed. B37, the Rust twin, got a note, not a fix.
 
 **Verified, on the Linux test host.** With an injected 40 ms stall on large `np.full`, the old file failed 3 of 3 with the host quiet and the new one passed 3 of 3. Under a self-made load (CPU spinners and memory churners), old 6 of 10 failed, new 30 of 30 passed, full Python suite 225 of 225; quiet, new 30 of 30 and the suite 225 of 225. `ruff check` clean. No Rust was built or run.
+### 2026-11-21 — B70: the Mac app could not make a new graph (Claude Fable 5.2)
+
+**What the maintainer reported**, on first opening the Mac build: "I can't create a new graph? Only open an old one?" Offered an untitled graph at launch or a button on the Open panel, they chose "1".
+
+**The controller's wrong answer first.** Reading the code, the controller said New worked once the Open panel was cancelled. It did not: the first test of the launch change showed no window at all. The app declared its document type as Viewer, and AppKit creates new documents only for a type an app can edit, so File › New had been dead since the Mac app became document-based (AI-written, several slices ago). Every scripted launch and every conformance case opens a file, and no person had launched the app without one, so nothing caught it until the maintainer did.
+
+**Fix (controller, ~10 lines).** The type's role is Editor; a launch with nothing to open, and a Dock click with no graph open, make a new untitled graph.
+
+**Verified.** A scratch launch with nothing to open: no window before, one ready untitled graph after. Mac conformance 53 of 53, the person's Library unchanged. **Not verified:** by a person; and there is still no automated check that launches without a file, which is the gap that let this through.
 
 ### 2026-11-21 — Identifying strings cleaned out of tracked files (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

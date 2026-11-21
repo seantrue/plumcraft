@@ -10,7 +10,7 @@
 //   --appearance light|dark       the app's appearance, whatever the system's
 //   --zoom Z --center ID          after the first frame, centre node ID at zoom Z (screenshots)
 //   --select ID,ID                after the first frame, select these nodes
-//   --no-open-panel               don't show File › Open when launched with nothing to open
+//   --no-open-panel               don't open a new graph when launched with nothing to open
 //   --engine text|array           the engine the core starts on (default text)
 //   --engines-also array,…        engines started beside it in every document, whatever the graph
 //                                 uses (default none: each document starts only the engines its
@@ -302,8 +302,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 if let error { CoreHost.present(error) }
             }
         }
+        // launched with nothing to open: a new, untitled graph, as Mac document apps do. File › Open
+        // is one key away; the Open panel shown here before had no way to make a new graph and
+        // blocked the menus while it was up (B70)
         if o.paths.isEmpty && o.openPanel && NSDocumentController.shared.documents.isEmpty {
-            NSDocumentController.shared.openDocument(nil)
+            NSDocumentController.shared.newDocument(nil)
         }
         // a scripted launch (conformance, screenshots) stays in the background: it never takes
         // the keyboard from the person at the Mac (N4 slice 1)
@@ -313,13 +316,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
 
     /// A click on the Dock icon with no window showing (every graph closed, or only pop-outs
-    /// left and closed): the graphs' windows come back, or, with none open, File › Open, so a
+    /// left and closed): the graphs' windows come back, or, with none open, a new graph, so a
     /// running app is never left with nothing to click (N4 slice 4).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if flag || CoreHost.options.scratchState { return true }
         let docs = NSDocumentController.shared.documents
         if docs.isEmpty {
-            NSDocumentController.shared.openDocument(nil)
+            NSDocumentController.shared.newDocument(nil)
         } else {
             for d in docs { d.showWindows() }
         }
