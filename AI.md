@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — B50: scripted Mac launches no longer write the person's recent documents (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** "Fix B50", recorded that afternoon as a scripted launch of the Mac app writing to the real defaults domain.
+
+**The recorded cause was wrong.** The agent found that under `--scratch-state` the defaults domain was not written by any run it made; the real leak was the system's recent-documents list, which gained every scratch document a scripted run opened. Window frames and saved state were already kept out. What created the empty preferences file that prompted B50 is still unknown.
+
+**Fix (agent).** A document controller that, under scratch state, notes no recent documents and reports a recent count of zero, so AppKit leaves the list alone; a normal launch is AppKit's own behaviour. A new read-only check, run by the Mac conformance script before the launch and after the quit, snapshots the person's Library (defaults, saved state, recents, caches, logs, application support) and fails the run on any difference. Before the fix that check failed on the recents file; after it, the read (31) and edit (21) halves pass with the Library unchanged. `swift test` 81.
+
+**A defect the agent introduced and caught.** Its first attempt returned an empty recents list, and AppKit wrote that empty list over the maintainer's real one. The list then held only scratch entries from the agent's own earlier runs, so no real entry was lost, but it now has none where it had one scratch entry.
+
+**Limits.** AppKit's own panels could still write to the real defaults domain if a scripted case opened one; none does, and the domain cannot be redirected wholesale (two ways were tried). A normal launch was checked by reading the code, not by launching. Nothing was checked on an iPad.
+
 ### 2026-11-21 — The signing team id removed from tracked files (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked.** Told that the Apple signing team id was in two tracked files of a public repository against their standing rule, the maintainer said "remove the team id".

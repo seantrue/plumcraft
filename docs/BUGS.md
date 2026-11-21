@@ -43,13 +43,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
 - Issue: none
 
-### B50. A scripted launch of the Mac app writes to the person's real defaults domain
-
-- Reported: 2026-11-21
-- Report: found by the before and after check of the decisions branch (`native/decisions-1121`); recorded under the standing "record bugs"
-- Context: the Mac app's conformance runs (`--scratch-state`, scratch store, prefs, caches and logs) left `~/Library/Preferences/com.swapwizard.plummer.mac.plist`, the new id's real defaults file, created at the time of the runs; it holds an empty dictionary. The old id's file, `com.plumcraft.mac.plist`, holds keys such as `NSWindow Frame PlumCraft Pop-Out count.count`, the pop-out windows' remembered frames (`Popouts.swift`'s `setFrameAutosaveName`; the Settings window does the same), which look like they came from earlier scripted runs. So `--scratch-state` keeps the core's files in scratch but not AppKit's defaults. Not fixed: a scripted launch could skip frame autosave names, or run in a defaults suite of its own. Not checked: which call created the empty file.
-- Issue: none
-
 ### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
 
 - Reported: 2026-11-21
@@ -72,6 +65,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B50. A scripted launch of the Mac app writes to the person's real defaults domain
+
+- Reported: 2026-11-21
+- Report: found by the before and after check of the decisions branch (`native/decisions-1121`); recorded under the standing "record bugs"
+- Context: the Mac app's conformance runs (`--scratch-state`, scratch store, prefs, caches and logs) left `~/Library/Preferences/com.swapwizard.plummer.mac.plist`, the new id's real defaults file, created at the time of the runs; it holds an empty dictionary. The old id's file, `com.plumcraft.mac.plist`, holds keys such as `NSWindow Frame PlumCraft Pop-Out count.count`, the pop-out windows' remembered frames (`Popouts.swift`'s `setFrameAutosaveName`; the Settings window does the same), which look like they came from earlier scripted runs. So `--scratch-state` keeps the core's files in scratch but not AppKit's defaults. Not fixed: a scripted launch could skip frame autosave names, or run in a defaults suite of its own. Not checked: which call created the empty file.
+- Cause: the pop-out and Settings windows already skipped their frame autosave names under `--scratch-state`, and saved state was already off (`ApplePersistenceIgnoreState` and `NSQuitAlwaysKeepsWindows` in the argument domain), but every document a scripted launch opened went into the person's recent documents: `NSDocumentController` notes it in the system's shared file list (`~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/com.swapwizard.plummer.mac.sfl4`), which held only the scratch paths of conformance runs (`plumcraft-mac-conformance.*/empty.json`). With AppKit's own recent count, the first launch of each new build also rewrote that list's properties (the code requirement it carries). The empty defaults file was not reproduced: none of the runs below wrote the domain, so which call created it is still not known. AppKit's own panels (the colour panel, Open and Save) keep frames and the last folder in the domain (the old id's file holds such keys), and the domain cannot be pointed elsewhere: `CFFIXED_USER_HOME` and `__CFPREFERENCES_AVOID_DAEMON` both still read the real one. No conformance case opens those panels.
+- Fixed: 2026-11-21, branch `fix/b50-scripted-defaults`: the Mac app's document controller (`PlummerDocumentController`, `native/apple/PlumCraftMac/App/AppMain.swift`, made in `main` so it is the shared one) neither notes a recent document nor keeps any (a count of 0) under `--scratch-state`, so AppKit leaves the list alone; a person's launch is AppKit's as before (frames remembered, recents noted). The iPad and iPhone app keep everything in their own container, and a scripted launch there already skips the first-launch flag and scene restoration; not checked on a device. Verified by `native/apple/PlumCraftMac/library-check.sh`, which `conformance.sh` now runs around the app: it snapshots the defaults domain (cfprefsd's answer and the plist's size, time and hash, ByHost too), the saved state (and anything AppKit leaves in its temporary copy), the recent documents list and the app's caches, logs and application support folders before the launch and 10 s after the quit (`SETTLE`; a noted recent landed 3 to 8 s after the quit), and fails the run on any difference. Before the fix the read half failed it (the recent documents list changed); after it, the read half (31 of 31) and the edit half (21 of 21) leave the Library unchanged, as do two launches of new builds. Defect caught on the way: a first try also returned an empty `recentDocumentURLs`, and AppKit wrote that empty list over the person's (which held only the two scratch entries). The empty `com.swapwizard.plummer.mac.plist` is left as it was (42 bytes, 2026-11-21 16:29).
+- Issue: none
 ### B51. The Windows app dropped every mouse click and mouse drag on the canvas
 
 - Reported: 2026-11-21
