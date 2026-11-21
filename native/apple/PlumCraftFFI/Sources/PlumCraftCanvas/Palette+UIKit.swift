@@ -34,7 +34,11 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
 
     public override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemGroupedBackground
+        // opaque: iPadOS 26 draws a partial-height sheet as glass and its grouped background
+        // see-through, so the graph showed blurred under the list (N4 slice 6)
+        view.backgroundColor = UIColor { t in
+            t.userInterfaceStyle == .dark ? UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1) : UIColor(red: 0.949, green: 0.949, blue: 0.969, alpha: 1)
+        }
         field.placeholder = "Search nodes"
         field.delegate = self
         field.returnKeyType = .go

@@ -42,11 +42,40 @@ pub struct Windows {
     /// with `view.messages {open: false}`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub messages: bool,
+    /// The Cache Report is open (`run.cacheReport`, N4 slice 6): `report.get {window: "cache"}`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub cache: bool,
+    /// The graph's Parameters window is open (`view.params`, N4 slice 6):
+    /// `report.get {window: "params"}`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub params: bool,
+    /// The nodes whose value editor is open (`node.editor`, N4 slice 6), oldest first:
+    /// `report.get {window: "editor", node}`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub editors: Vec<String>,
+    /// Compare is open (`viewer.compare {on}`, N4 slice 6): `compare.get`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub compare: bool,
+    /// Changes when what a report window reads changes (a run reported, the named ports, a
+    /// value): the shell reads its open reports again then.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub reports: u64,
+}
+
+fn is_zero(n: &u64) -> bool {
+    *n == 0
 }
 
 impl Windows {
     pub fn is_empty(&self) -> bool {
-        self.parameters.is_none() && self.popouts.is_empty() && self.settings.is_none() && !self.messages
+        self.parameters.is_none()
+            && self.popouts.is_empty()
+            && self.settings.is_none()
+            && !self.messages
+            && !self.cache
+            && !self.params
+            && self.editors.is_empty()
+            && !self.compare
     }
 }
 
@@ -103,7 +132,33 @@ pub fn of(session: &Session) -> Windows {
             })
         })
         .collect();
-    Windows { parameters, popouts, settings: session.views.settings.clone(), messages: session.views.messages }
+    let v = &session.views;
+    let (cache, params, compare) = (v.cache_report, v.graph_params, v.compare.on);
+    let editors: Vec<String> = v.editors.iter().filter(|n| graph.node(n).is_some()).map(|n| n.0.clone()).collect();
+    // what the open reports read: the run's cache numbers, the named ports, the edited values
+    let reports = if cache || params || !editors.is_empty() || compare {
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        if cache {
+            serde_json::to_string(&session.run.cache.last).unwrap_or_default().hash(&mut h);
+            session.run.cache.runs.hash(&mut h);
+        }
+        if params || !editors.is_empty() {
+            serde_json::to_string(&graph.named).unwrap_or_default().hash(&mut h);
+            for e in &editors {
+                serde_json::to_string(&graph.node(&NodeId::from(e.as_str())).map(|n| &n.values)).unwrap_or_default().hash(&mut h);
+            }
+        }
+        if compare {
+            for role in [WatchRole::PinA, WatchRole::PinB] {
+                serde_json::to_string(&session.run.entry(role)).unwrap_or_default().hash(&mut h);
+            }
+            format!("{:?}", v.compare).hash(&mut h);
+        }
+        h.finish().max(1)
+    } else {
+        0
+    };
+    Windows { parameters, popouts, settings: v.settings.clone(), messages: v.messages, cache, params, editors, compare, reports }
 }
 
 /// `popout.get {id}`: a pop-out's value, as `ui.inspect`'s `watched` has the panel's
@@ -137,6 +192,34 @@ pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
         _ => Value::Null,
     };
     Ok(v)
+}
+
+/// `compare.get {}` (N4 slice 6): Compare's state and its two sides, A and B, each as
+/// `popout.get` has a value (`node`, `port`, `title`, `viewer`, `summary`, `media`, `picture`,
+/// `handle`, `form`, `views`, …) or null when not pinned: `{on, how, split, channel, a, b}`.
+/// A side is pinned from a pop-out (`viewer.pin {slot, popout}`).
+pub fn compare_json(session: &Session, params: &Value) -> Result<Value, String> {
+    crate::control::check_fields(params, &[])?;
+    let c = &session.views.compare;
+    let graph = session.graph();
+    let side = |role: WatchRole| -> Value {
+        let Some((w, d)) = session.run.entry(role) else { return Value::Null };
+        let mut v = crate::values::value_json(w, d);
+        let node = NodeId::from(w.node.as_str());
+        let title = if graph.node(&node).is_some() { plumcraft_session::node_title(graph, session.catalog(), &node) } else { w.node.clone() };
+        v["title"] = json!(format!("{title} · {}", w.port));
+        v["index"] = json!(w.index);
+        for (k, x) in crate::viewers::popout_extra(d, &Default::default()) {
+            v[k] = x;
+        }
+        v
+    };
+    let how = match c.how {
+        plumcraft_session::viewer_cmds::CompareHow::Side => "side",
+        plumcraft_session::viewer_cmds::CompareHow::Split => "split",
+        plumcraft_session::viewer_cmds::CompareHow::Difference => "difference",
+    };
+    Ok(json!({"on": c.on, "how": how, "split": c.split, "channel": c.channel, "a": side(WatchRole::PinA), "b": side(WatchRole::PinB)}))
 }
 
 /// Which section of the inspector a row is in, egui's parameters panel's order.

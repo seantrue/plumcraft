@@ -4,13 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B36. A short clip's spectrogram is computed on the editor's thread
-
-- Reported: 2026-11-20
-- Report: "record bugs" (found while fixing B32)
-- Context: `AudioView::sync` computes the spectrogram in place for clips under `SPEC_SYNC_SAMPLES`. A frame that shows a watched audio value took about 80 ms alone and 74 to 319 ms under load on the Linux test host (median 122 ms). It is not a wait for an engine, so B32's test no longer flags it.
-- Issue: none
-
 ### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -43,14 +36,24 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+## Fixed
+
 ### B41. A run setting kept in the preferences is sometimes lost on the Linux test host
 
 - Reported: 2026-11-20
 - Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
-- Context: `plumcraft-ffi::settings_autosave` `settings_are_the_cores_kept_in_its_prefs_and_every_document_follows_them`, `crates/ffi/tests/settings_autosave.rs:84`, added in N4 slice 4. After `theme.setToken`, `view.animationSpeed {ms: 1000}` and `lifecycle.appearance {dark: true}`, `settings.get {fromDisk: true}` gives Animation speed 500 (the default), not 1000. On the Linux test host it failed 1 of 10 alone at the dev branch before slice 5 and 6 of 10 at slice 5, which did not touch the settings code; it has not failed on the Mac. It may be the test's timing or a setting really lost when a document follows the shared look (`settings::follow` sets the animation speed from the preferences without a guard, unlike the run colours). Not looked into further.
+- Context: `plumcraft-ffi::settings_autosave` `settings_are_the_cores_kept_in_its_prefs_and_every_document_follows_them`, `crates/ffi/tests/settings_autosave.rs:84`, added in N4 slice 4. After `theme.setToken`, `view.animationSpeed {ms: 1000}` and `lifecycle.appearance {dark: true}`, `settings.get {fromDisk: true}` gives Animation speed 500 (the default), not 1000. On the Linux test host it failed 1 of 10 alone at the dev branch before slice 5 and 6 of 10 at slice 5, which did not touch the settings code; it has not failed on the Mac. It may be the test's timing or a setting really lost when a document follows the shared look (`settings::follow` sets the animation speed from the preferences without a guard, unlike the run colours).
 - Issue: none
+- Cause: a defect in the editor, not in the test. `settings::after_command` wrote all three run settings (run colours, animation speed, Pick Engines Automatically) from whichever document ran a run command. Every document runs `engine.auto` when its first engine connects; a second document that connected after the first had set the speed, but before it had followed the shared look, wrote its own stale value back. A person with two windows could lose the setting the same way.
+- Fixed: 2026-11-21, N4 slice 6: only the setting the command changed is kept (`Look::keep_run_pref`), and `settings.get {fromDisk}` reports the file's run settings. Test: `settings::tests::a_run_setting_changed_in_one_document_survives_another_that_has_not_followed_yet`. On the Linux test host the C ABI test file passed 100 of 100 runs at `e8a051b` (6 of 10 failed before).
 
-## Fixed
+### B36. A short clip's spectrogram is computed on the editor's thread
+
+- Reported: 2026-11-20
+- Report: "record bugs" (found while fixing B32)
+- Context: `AudioView::sync` computes the spectrogram in place for clips under `SPEC_SYNC_SAMPLES`. A frame that shows a watched audio value took about 80 ms alone and 74 to 319 ms under load on the Linux test host (median 122 ms). It is not a wait for an engine, so B32's test no longer flags it.
+- Issue: none
+- Fixed: 2026-11-20, PR #131 (N4 slice 5): the spectrogram is computed on the media workers.
 
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
 

@@ -71,6 +71,7 @@ pub mod plain;
 pub mod prefs;
 pub mod probe;
 pub mod raster;
+pub mod reports;
 pub mod rows;
 pub mod run_anim;
 pub mod run_text;

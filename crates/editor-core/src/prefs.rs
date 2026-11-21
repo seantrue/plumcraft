@@ -187,6 +187,22 @@ impl Store {
         self.save();
     }
 
+    /// View › Colour Nodes While Running, kept.
+    pub fn set_run_colors(&mut self, on: bool) {
+        if self.prefs.run_colors != Some(on) {
+            self.prefs.run_colors = Some(on);
+            self.save();
+        }
+    }
+
+    /// View › Animation Speed, kept (`None`: the default).
+    pub fn set_anim_ms(&mut self, ms: Option<u32>) {
+        if self.prefs.anim_ms != ms {
+            self.prefs.anim_ms = ms;
+            self.save();
+        }
+    }
+
     /// Change the appearance settings, and keep them.
     pub fn set_appearance(&mut self, appearance: crate::appearance::Appearance) {
         if self.prefs.appearance != appearance {

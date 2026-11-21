@@ -50,6 +50,9 @@ struct Options {
     var storeRoot: String?
     var scratchState = false
     var appearance: String?
+    /// `--width-class compact`: the scripted launch's windows lay out as a narrow window does
+    /// (Split View, Slide Over, a narrow Stage Manager window), on any iPad (N4 slice 6).
+    var compactWidth = false
     var engine = "text"
     var also: [String] = []
     var pick = true
@@ -76,6 +79,7 @@ struct Options {
             case "--store-root": o.storeRoot = next()
             case "--scratch-state": o.scratchState = true
             case "--appearance": o.appearance = next()
+            case "--width-class": o.compactWidth = next() == "compact"
             case "--engine": o.engine = next() ?? "text"
             case "--engines-pick": o.pick = next() != "off"
             case "--engines-also":

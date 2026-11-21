@@ -22,6 +22,9 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
     let params: ParametersModel
     weak var host: GraphViewController?
     private(set) var nav: UINavigationController?
+    /// The popover controller the inspector was anchored on (N4 slice 6: the unanchored-popover
+    /// crash's evidence: a different one at presentation means UIKit made a new one).
+    private(set) var configured: ObjectIdentifier?
     private(set) var list: ParametersList?
     private var closingFromCore = false
 
@@ -43,8 +46,14 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
             host?.reportNow()
             return
         }
-        if let l = list, l.reply?.node == r.node {
+        if let l = list, let n = nav, l.reply?.node == r.node || n.isBeingPresented || n.presentingViewController != nil {
+            // the same inspector shows another node: never a popover dismissed while its
+            // presentation hasn't begun (N4 slice 6: UIKit clears a popover's anchor when it is
+            // dismissed before its transition runs after the next commit, then runs that transition
+            // and throws: the unanchored-popover crash of slice 5's conformance runs)
             l.show(r)
+            l.navigationItem.title = r.title
+            if let p = n.popoverPresentationController, let v = host?.canvasView { p.sourceRect = anchor(r.node, in: v) }
         } else {
             present(r)
         }
@@ -71,6 +80,7 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
         l.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "parameters-done"
         let n = UINavigationController(rootViewController: l)
         n.view.accessibilityIdentifier = "parameters"
+        n.view.backgroundColor = .sheetGround
         if host.traitCollection.horizontalSizeClass == .compact {
             n.modalPresentationStyle = .pageSheet
             if let s = n.sheetPresentationController {
@@ -88,6 +98,7 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
             }
         }
         n.presentationController?.delegate = self
+        configured = n.popoverPresentationController.map(ObjectIdentifier.init)
         nav = n
         list = l
         closingFromCore = false

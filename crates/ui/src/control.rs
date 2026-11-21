@@ -113,6 +113,7 @@ impl core::Shell for EditorApp {
         let views = &self.doc.session.views;
         let facts = settings::Facts {
             ui_zoom: true,
+            text_size: true,
             auto_engines: self.doc.session.engines.auto,
             run_colors: prefs.run_colors.unwrap_or(!views.run_colors_off),
             anim_ms: if from_disk { prefs.anim_ms.unwrap_or(500) } else { views.anim_ms() },

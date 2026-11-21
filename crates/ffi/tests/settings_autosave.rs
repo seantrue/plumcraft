@@ -222,3 +222,27 @@ fn watching_a_port_pops_its_value_out_and_a_second_watch_brings_it_forward() {
     assert!(s["result"]["view"]["windows"]["popouts"].as_array().is_none_or(Vec::is_empty));
     c.close();
 }
+
+/// N4 slice 6: Engine › Attach… and Install Engine… have no window of their own here: invoked,
+/// the core asks with its form, and runs the command with what was typed.
+#[test]
+fn attach_asks_with_the_cores_form_and_install_is_refused_here() {
+    let mut c = Client::open(&config("attach-form", None));
+    let r = c.call("ui.invoke", json!({"command": "engine.attach"}));
+    assert_eq!(r["ok"], true, "{r}");
+    let form = |v: &Value| v["result"]["asks"].as_array().and_then(|a| a.iter().find(|x| x["kind"] == "form").cloned());
+    let ask = form(&r).unwrap_or_else(|| panic!("no form ask: {r}"));
+    assert_eq!(ask["params"]["command"], "engine.attach", "{ask}");
+    assert_eq!(ask["params"]["fields"][0]["key"], "url");
+    assert_eq!(ask["params"]["fields"][1]["kind"], "secret");
+    // the address left empty: the form stays, saying why
+    let a = c.call("ask.answer", json!({"ask": ask["ask"], "answer": {"values": {"url": ""}}}));
+    let again = form(&a).unwrap_or_else(|| panic!("the form went: {a}"));
+    assert!(again["params"]["error"].as_str().is_some_and(|e| e.contains("Address")), "{again}");
+    let gone = c.call("ask.answer", json!({"ask": again["ask"], "cancel": true}));
+    assert!(form(&gone).is_none(), "{gone}");
+    // this core can't install engines: the command is refused, and nothing is asked
+    let i = c.call("ui.invoke", json!({"command": "engine.install"}));
+    assert!(i["ok"] == false || form(&i).is_none(), "{i}");
+    c.close();
+}

@@ -21,14 +21,13 @@ public extension Array where Element == MenuItem {
 public enum ShellCommands {
     /// Commands whose effect is UI these apps don't have yet: choosing one says so, without
     /// running it (it would open state nothing shows). Command id to what is missing.
-    public static let unbuilt: [String: String] = [
-        // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout);
-        // slice 4 Settings (app.settings) and About (app.about)
-        // N4 slice 5 the Messages window (view.messages)
-        "node.editor": "value editors",
-        "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window",
-        "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",
-    ]
+    public static let unbuilt: [String: String] = [:]
+    // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout);
+    // slice 4 Settings (app.settings) and About (app.about); slice 5 the Messages window
+    // (view.messages); slice 6 the rest: value editors (node.editor), the Cache Report
+    // (run.cacheReport), the graph's Parameters window (view.params), Compare (viewer.compare,
+    // viewer.pin) and Engine › Attach… and Install Engine… (the core's form asks). Nothing is left:
+    // a command whose UI a later stage hasn't built goes back in here with what is missing.
 
     /// What to say when a gesture ran commands whose UI isn't built here: the first such, or nil.
     public static func notBuilt(ran: [CommandRun]) -> String? {

@@ -127,6 +127,8 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     var popouts: PopoutWindows?
     var parameters: ParametersPopover?
     var messagesWindow: MessagesWindow?
+    /// The Cache Report, Parameters, value editors and Compare (N4 slice 6).
+    var coreWindows: CoreWindows?
     /// The way back out of an entered group: Graph › outer › inner (the scene's focus path).
     let crumbs = NSPathControl()
     /// The path control's material, following the appearance as the toolbar's does.
@@ -266,10 +268,15 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         parameters = params
         let msgs = MessagesWindow(model: model)
         messagesWindow = msgs
-        model.onWindows = { [weak pops, weak params, weak model, weak self, weak msgs] w in
+        let cw = CoreWindows(model: model, pictures: v.canvas.pictures)
+        coreWindows = cw
+        model.onWindows = { [weak pops, weak params, weak model, weak self, weak msgs, weak cw] w in
             pops?.follow(w)
             params?.params.follow(w)
             msgs?.follow(w.messages ?? false, over: self?.window)
+            let had = !(cw?.windows.isEmpty ?? true)
+            cw?.follow(w, over: self?.window)
+            if had || !CoreWindowKeys.of(w).isEmpty { self?.reportNow() }
             if let model { SettingsWindow.shared.follow(w.settings, model: model, over: self?.window) }
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
@@ -319,6 +326,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     func windowWillClose(_ notification: Notification) {
         Self.all[ObjectIdentifier(self)] = nil
         popouts?.closeAll()
+        coreWindows?.closeAll()
         if MenuBar.shared.source === canvasView?.model { MenuBar.shared.show(nil) }
     }
 
@@ -627,6 +635,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         if let p = popouts { s["popouts"] = p.describe }
         if let p = parameters { s["parameters"] = p.describe }
         if let m = messagesWindow { s["messages"] = m.describe }
+        if let c = coreWindows { s["coreWindows"] = c.describe }
         if let n = canvasView?.nameField.field { s["nameField"] = ["text": .string(n.stringValue), "window": .int(Int64(n.window?.windowNumber ?? 0))] }
         s["toolbar"] = .array(coreIdentifiers().map { id in
             let it = toolItems[id.rawValue]

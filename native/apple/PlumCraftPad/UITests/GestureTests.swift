@@ -409,6 +409,93 @@ final class GestureTests: XCTestCase {
     }
 }
 
+// N4 slice 6: the windows the core draws as a model, and Compare, each reached by a person's taps:
+// the compact bar's More menu (an iPhone, or a narrow iPad window: `--width-class compact`) and its
+// core menus, Settings › Cache's Open Cache Report, Engine › Attach…'s form, and a value's Compare
+// menu in its sheet's bar.
+extension GestureTests {
+    func coreWindows() -> [String: Any] { window()["coreWindows"] as? [String: Any] ?? [:] }
+
+    /// A menu item by its label, wherever the system put it (a button or a menu item).
+    func item(_ app: XCUIApplication, _ label: String) -> XCUIElement {
+        let b = app.buttons[label]
+        return b.exists ? b : app.menuItems[label]
+    }
+
+    @MainActor
+    func testCompactWindowsByATap() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
+        try? FileManager.default.removeItem(atPath: statusPath)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--width-class", "compact", "--then", "zoom:0.7:tab"]
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        XCTAssertEqual(window()["compact"] as? Bool, true, "the compact layout")
+        let more = app.buttons["tool.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "the compact bar's More menu")
+        shot("n4s6-ui-compact-canvas")
+
+        // View › Parameters…, from the More menu
+        more.tap()
+        item(app, "View").tap()
+        let params = item(app, "Parameters…")
+        XCTAssertTrue(params.waitForExistence(timeout: 5))
+        params.tap()
+        wait("the Parameters sheet") { _ in (self.coreWindows()["shown"] as? String) == "params" }
+        XCTAssertTrue(app.buttons["report-done"].waitForExistence(timeout: 10))
+        shot("n4s6-ui-params")
+        app.buttons["report-done"].tap()
+        wait("the Parameters sheet closed") { _ in self.coreWindows()["shown"] is NSNull || self.coreWindows()["shown"] == nil }
+
+        // Settings › Cache › Open Cache Report: the report over Settings
+        more.tap()
+        item(app, "Settings").tap()
+        let cache = app.buttons["settings.section.cache"]
+        XCTAssertTrue(cache.waitForExistence(timeout: 10), "Settings' Cache section")
+        cache.tap()
+        let open = app.buttons["Open Cache Report"]
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "Settings' Open Cache Report")
+        open.tap()
+        wait("the Cache Report sheet") { _ in (self.coreWindows()["shown"] as? String) == "cache" }
+        shot("n4s6-ui-cache-report")
+        app.buttons["report-done"].tap()
+        wait("the Cache Report closed") { _ in self.coreWindows()["shown"] == nil || self.coreWindows()["shown"] is NSNull }
+        let settingsDone = app.buttons["settings.done"]
+        XCTAssertTrue(settingsDone.waitForExistence(timeout: 10))
+        settingsDone.tap()
+
+        // Engine › Attach…: the core's form, cancelled
+        more.tap()
+        item(app, "Engine").tap()
+        let attach = item(app, "Attach…")
+        XCTAssertTrue(attach.waitForExistence(timeout: 5))
+        attach.tap()
+        let alert = app.alerts.firstMatch
+        XCTAssertTrue(alert.waitForExistence(timeout: 10), "the Attach form")
+        XCTAssertTrue(alert.staticTexts["Attach to an Engine"].exists)
+        shot("n4s6-ui-attach")
+        alert.buttons["Cancel"].tap()
+
+        // a value's sheet: Compare › Pin as A opens Compare
+        let canvas = app.otherElements["Canvas"]
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        let out = try XCTUnwrap((((window()["points"] as? [String: Any])?["tab"] as? [String: Any])?["out"] as? [[Double]])?.first)
+        origin.withOffset(CGVector(dx: out[0], dy: out[1])).doubleTap()
+        wait("the table's sheet", timeout: 120) { w in ((w["popouts"] as? [[String: Any]])?.first?["shown"] as? String) == "sheet" }
+        let compare = app.buttons["viewer-compare"]
+        XCTAssertTrue(compare.waitForExistence(timeout: 20))
+        shot("n4s6-ui-table-compact")
+        compare.tap()
+        item(app, "Pin as A").tap()
+        wait("Compare over the value") { _ in (self.coreWindows()["shown"] as? String) == "compare" }
+        shot("n4s6-ui-compare")
+        app.buttons["compare-done"].tap()
+        wait("Compare closed") { _ in self.coreWindows()["shown"] == nil || self.coreWindows()["shown"] is NSNull }
+    }
+}
+
 extension XCUIElement {
     /// Select what the field holds and type over it.
     func clearAndType(_ text: String) {

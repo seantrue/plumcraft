@@ -39,6 +39,7 @@ final class PadSettingsSheet: NSObject, UIAdaptivePresentationControllerDelegate
         model.onPrefs = { [weak s] in Task { await s?.refresh() } }
         let h = UIHostingController(rootView: SettingsView(settings: s, done: { [weak self] in self?.closed() }))
         h.modalPresentationStyle = .formSheet
+        h.view.backgroundColor = .sheetGround
         h.view.accessibilityIdentifier = "settings"
         h.presentationController?.delegate = self
         sheet = h

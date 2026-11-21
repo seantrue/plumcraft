@@ -723,3 +723,110 @@ final class MessagesWindow: NSObject, NSWindowDelegate {
         ["open": .bool(window != nil), "window": .int(Int64(window?.windowNumber ?? 0)), "count": .uint(UInt64(messages.messages.count))]
     }
 }
+
+/// The windows the core keeps and draws as a model (N4 slice 6): the Cache Report, the graph's
+/// Parameters window, value editors (`report.get`) and Compare (`compare.get`), each a window of
+/// its own while the scene's `view.windows` says it is open; its close button closes it in the
+/// core too.
+@MainActor
+final class CoreWindows: NSObject, NSWindowDelegate {
+    let model: DocumentModel
+    let pictures: Pictures
+    private(set) var windows: [String: NSWindow] = [:]
+    private(set) var reports: [String: ReportModel] = [:]
+    private(set) var compare: CompareModel?
+    private var closingFromCore = false
+
+    init(model: DocumentModel, pictures: Pictures) {
+        self.model = model
+        self.pictures = pictures
+    }
+
+    func follow(_ w: Windows, over doc: NSWindow?) {
+        let keys = CoreWindowKeys.of(w)
+        for k in keys where windows[k] == nil { open(k, over: doc) }
+        for (k, win) in windows where !keys.contains(k) {
+            closingFromCore = true
+            win.close()
+            closingFromCore = false
+            windows[k] = nil
+            reports[k] = nil
+            if k == "compare" { compare = nil }
+        }
+        for (_, r) in reports { r.follow(w.reports) }
+        compare?.follow(w.reports)
+    }
+
+    private func open(_ key: String, over doc: NSWindow?) {
+        let content: NSView
+        let title: String
+        var size = NSSize(width: 520, height: 560)
+        if key == "compare" {
+            let c = CompareModel(model: model, pictures: pictures)
+            compare = c
+            content = NSHostingView(rootView: CompareView(compare: c))
+            title = "Compare"
+            size = NSSize(width: 820, height: 520)
+        } else {
+            let r = ReportModel(model: model, key: key)
+            reports[key] = r
+            content = NSHostingView(rootView: ReportView(report: r))
+            title = r.title
+            if key == "params" { size = NSSize(width: 460, height: 420) }
+        }
+        let w = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+        w.title = title
+        w.identifier = NSUserInterfaceItemIdentifier("core-\(key)")
+        w.contentView = content
+        w.isReleasedWhenClosed = false
+        w.collectionBehavior.insert(.fullScreenAuxiliary)
+        w.delegate = self
+        w.center()
+        windows[key] = w
+        // in front for the person at the app; else just above the document's window
+        if NSApp.isActive && !CoreHost.options.scratchState {
+            w.makeKeyAndOrderFront(nil)
+        } else if let doc, doc.isVisible {
+            w.order(.above, relativeTo: doc.windowNumber)
+        } else {
+            w.orderBack(nil)
+        }
+    }
+
+    func windowWillClose(_ n: Notification) {
+        guard let w = n.object as? NSWindow, let key = windows.first(where: { $0.value === w })?.key else { return }
+        if !closingFromCore {
+            if key == "compare", let c = compare {
+                Task { await c.close() }
+            } else if let r = reports[key] {
+                Task { await r.close() }
+            }
+        }
+        windows[key] = nil
+        reports[key] = nil
+        if key == "compare" { compare = nil }
+        // the document's window back in front for a person at the app
+        if NSApp.isActive && !CoreHost.options.scratchState { NSApp.mainWindow?.makeKeyAndOrderFront(nil) }
+    }
+
+    /// Close every window (the document closed).
+    func closeAll() {
+        closingFromCore = true
+        for (_, w) in windows { w.close() }
+        closingFromCore = false
+        windows = [:]
+        reports = [:]
+        compare = nil
+    }
+
+    var describe: JSONValue {
+        var o: [String: JSONValue] = [:]
+        for (k, w) in windows {
+            var d: [String: JSONValue] = ["window": .int(Int64(w.windowNumber)), "title": .string(w.title)]
+            if let r = reports[k] { d["report"] = r.describe }
+            if k == "compare", let c = compare { d["compare"] = c.describe }
+            o[k] = .object(d)
+        }
+        return .object(o)
+    }
+}
