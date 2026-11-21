@@ -446,7 +446,7 @@ public sealed record GeometrySetReply
 
 // ---------- the feed (7.1, as built on the C ABI) ----------
 
-public enum DomainWord { Engine, Document, Menus, Scene, Prefs }
+public enum DomainWord { Engine, Document, Menus, Scene, Prefs, Window }
 
 /// <summary>A domain of a document that changed. Engine changes carry `connected`, `label`, `ready`; a
 /// closing document `closing`; the document's own state (N3 slice 4) `title`, `document`, `path`,
@@ -468,6 +468,11 @@ public sealed record Changed
     public string? Redo { get; init; }
     public string? LastError { get; init; }
     public AutosaveState? Autosave { get; init; }
+    /// <summary>A `window` change (N5 slice 3, `platform.document_windows`): make a window for `doc`, which
+    /// New or Open in document `from` made, for the person or a script (`by`), on the file `path` or untitled.</summary>
+    public bool? Open { get; init; }
+    public ulong? From { get; init; }
+    public string? By { get; init; }
 
     [JsonIgnore] public DomainWord? DomainWord => Words.Of<DomainWord>(Domain);
 }

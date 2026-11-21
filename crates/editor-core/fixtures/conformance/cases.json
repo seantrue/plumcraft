@@ -1447,6 +1447,22 @@
         {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$q"}}},
         {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
       ]
+    },
+    {
+      "name": "Zoom In, Zoom Out and Actual Size are the core's commands",
+      "about": "N5 slice 3 (golden rule 4, the maintainer: 'No exceptions to the rule'): the zoom keys are canvas.zoom, by a factor or to a zoom; the view stays the shell's, and the scene's view.zoom asks it once per seq; neither both nor none is taken, and nothing in the graph changes",
+      "half": "read",
+      "steps": [
+        {"call": "scene.get", "expect": {"/result/view/zoom": {"$exists": false}}},
+        {"call": "command.run", "params": {"command": "canvas.zoom", "params": {"by": 1.25}}, "expect": {"/result/by": 1.25}, "save": {"seq": "/result/seq"}},
+        {"call": "scene.get", "expect": {"/result/view/zoom/by": 1.25, "/result/view/zoom/seq": "$seq"}},
+        {"call": "command.run", "params": {"command": "canvas.zoom", "params": {"to": 1}}, "expect": {"/result/to": 1.0}},
+        {"call": "scene.get", "expect": {"/result/view/zoom/to": 1.0, "/result/view/zoom/by": {"$exists": false}}},
+        {"call": "command.run", "params": {"command": "canvas.zoom", "params": {"by": 1.25, "to": 1}}, "ok": false},
+        {"call": "command.run", "params": {"command": "canvas.zoom", "params": {}}, "ok": false},
+        {"call": "command.run", "params": {"command": "canvas.zoom", "params": {"by": 0}}, "ok": false},
+        {"call": "ui.inspect", "expect": {"/result/dirty": false}}
+      ]
     }
   ]
 }

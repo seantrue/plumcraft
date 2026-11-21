@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.UI.Xaml;
 using PlumCraft.Core;
+using PlumCraft.Kit;
 using PlumCraft.Models;
 
 namespace PlumCraft.App;
@@ -48,13 +49,17 @@ public partial class App : Application
 /// <summary>The process's one core, its windows and the status file scripts wait on.</summary>
 public static class CoreHost
 {
+    /// <summary>The app's name (the maintainer, 2026-11-21: "Plummer will be the new base app/platform"): window
+    /// titles, About, the executable, the data folder. The project, kit, core and protocol stay PlumCraft.</summary>
+    public const string AppName = "Plummer";
+    public const string AppId = "com.swapwizard.plummer.windows";
+
     public static Options Options { get; set; } = new();
     public static PlumCore? Core { get; private set; }
     public static readonly List<DocWindow> Windows = [];
     public static readonly StatusFile Status = new();
     public static readonly Stopwatch Clock = Stopwatch.StartNew();
     static readonly object logLock = new();
-    static bool quitting;
 
     static readonly System.Text.Json.Nodes.JsonObject marks = [];
 
@@ -101,8 +106,16 @@ public static class CoreHost
         };
         cfg.Prepare();
         var json = cfg.ToJson();
-        json["app"]!["build"] = "n5-slice2";
+        json["app"]!["build"] = "n5-slice3";
+        // the shell names itself: the core's default (PlumCraft, the egui editor's) stays
+        json["app"]!["name"] = AppName;
+        json["app"]!["id"] = AppId;
         json["engines"]!["auto"] = true;
+        // a window per document: New, Open and Quit are the core's, and it says which documents to show
+        // and no share sheet yet: the core disables Share with its reason (platform.share, 4.2)
+        if (json["platform"] is not System.Text.Json.Nodes.JsonObject plat) json["platform"] = plat = new System.Text.Json.Nodes.JsonObject();
+        plat["document_windows"] = true;
+        plat["share"] = false;
         var display = json["display"]!.AsObject();
         var look = Appearance.Now(dark);
         display["contrast"] = look.Contrast;
@@ -134,12 +147,36 @@ public static class CoreHost
             catch (PlumException e) { Log($"core.control: {e.Message}"); }
         }
         Appearance.Follow(core, o.Appearance is null);
+        _ = FollowWindows(core);
         if (o.Paths.Count == 0) await OpenWindowAsync(null, first: true);
         else
             for (int i = 0; i < o.Paths.Count; i++) await OpenWindowAsync(Path.GetFullPath(o.Paths[i]), first: i == 0);
     }
 
-    /// <summary>A new document (`document.open`, a graph's path or none) in a new window.</summary>
+    /// <summary>The documents the core opens for New and Open (`changed` domain `window`): a window each,
+    /// placed from the window it was asked in.</summary>
+    static async Task FollowWindows(PlumCore core)
+    {
+        var feed = core.Subscribe();
+        try
+        {
+            await foreach (var b in feed.Reader.ReadAllAsync())
+                foreach (var w in WindowWanted.Of(b))
+                {
+                    if (Windows.Any(x => x.Doc == w.Doc)) continue;
+                    var from = Windows.FirstOrDefault(x => x.Doc == w.From);
+                    var win = new DocWindow(core, w.Doc, false);
+                    Windows.Add(win);
+                    win.PlaceFrom(from);
+                    win.Activate();
+                    Mark("window_from_core");
+                }
+        }
+        catch (Exception e) { Log($"following the core's windows: {e.Message}"); }
+    }
+
+    /// <summary>A new document (`document.open`, a graph's path or none) in a new window: what the app was
+    /// launched with (its command line is the platform's way of opening files).</summary>
     public static async Task<DocWindow?> OpenWindowAsync(string? path, bool first = false)
     {
         if (Core is not { } core) return null;
@@ -157,6 +194,7 @@ public static class CoreHost
             }
             var w = new DocWindow(core, doc, first);
             Mark("window");
+            if (!first) w.PlaceFrom(Windows.LastOrDefault());
             Windows.Add(w);
             w.Activate();
             return w;
@@ -181,23 +219,6 @@ public static class CoreHost
             Core = null;
             Application.Current.Exit();
         }
-    }
-
-    /// <summary>File › Exit (`app.quit`): each document's window closes as the core says (it asks about
-    /// unsaved changes, one window at a time).</summary>
-    public static async void QuitAll()
-    {
-        if (quitting) return;
-        quitting = true;
-        try
-        {
-            foreach (var w in Windows.ToList())
-            {
-                var closed = await w.CloseAsPersonAsync();
-                if (!closed) return; // the person cancelled: the rest stay open
-            }
-        }
-        finally { quitting = false; }
     }
 }
 

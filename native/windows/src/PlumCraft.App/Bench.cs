@@ -120,6 +120,26 @@ public static class Bench
             var z = fz + (1.5f - fz) * k;
             c.SetView(new Viewport(size / 2 - centre * z, z));
         });
+        // N5 slice 3: a face dragged and a new wire dragged, through the canvas's own pointer entry points
+        // (the handlers real input reaches) a frame at a time; "pointer to screen" is from the move to the
+        // next frame the compositor shows
+        var face = w.Model.Faces.Items.OrderBy(f => Vector2.Distance(new Vector2((float)f.Pos.X, (float)f.Pos.Y), centre)).FirstOrDefault();
+        if (face is not null && c.FaceRect(face.Id) is { } dr)
+        {
+            var head = new Vector2((float)(dr.X + 30), (float)dr.Y + 10);
+            c.SetView(new Viewport(size / 2 - head, 1));
+            c.Settle();
+            await Task.Delay(500);
+            phases["drag_face"] = await DragPhase(w, size / 2, o.PhaseSeconds, period, release: true);
+            await w.Model.RunAsync("edit.undo");
+            await Task.Delay(500);
+            if (w.CanvasView.Canvas.PinPoint(face.Id, true, 0) is { } pin)
+            {
+                c.SetView(new Viewport(size / 2 - pin, 1));
+                await Task.Delay(500);
+                phases["drag_wire"] = await DragPhase(w, size / 2, o.PhaseSeconds, period, release: false);
+            }
+        }
         results["phases"] = phases;
 
         // a one-node change to its face drawn, at zoom 1 with the face in view
@@ -151,8 +171,39 @@ public static class Bench
         if (o.Exit)
         {
             await Task.Delay(300);
-            foreach (var win in CoreHost.Windows.ToList()) await win.CloseAsPersonAsync();
+            // closed without asking: the bench's graph is a script's, not the person's work
+            foreach (var win in CoreHost.Windows.ToList())
+                if (CoreHost.Core is { } core) await core.ResultAsync("document.close", Jsonv.Object(("doc", Jsonv.Of(win.Doc)), ("discard", Jsonv.True)));
         }
+    }
+
+    /// <summary>A drag from view point `from` along a loop for `seconds`, a move each frame; then let go (one
+    /// undo step) or cancelled (Escape). Frames as Phase's, and each move's time to the next frame.</summary>
+    static async Task<JsonObject> DragPhase(DocWindow w, Vector2 from, double seconds, double period, bool release)
+    {
+        var v = w.CanvasView;
+        var toScreen = new List<double>();
+        double? moved = null;
+        void On(object? s, object e)
+        {
+            if (moved is { } m) { toScreen.Add(Now - m); moved = null; }
+        }
+        CompositionTarget.Rendering += On;
+        v.Press(from, [], Microsoft.UI.Input.PointerDeviceType.Mouse, false);
+        Vector2 at = from;
+        var r = await Phase(seconds, period, u =>
+        {
+            var a = (float)(u * 2 * Math.PI);
+            at = from + new Vector2(MathF.Sin(a) * 260, (1 - MathF.Cos(a)) * 120);
+            var t = Now;
+            v.MoveTo(at);
+            moved ??= t;
+        });
+        CompositionTarget.Rendering -= On;
+        r["kind"] = v.DragState;
+        if (release) await v.Release(at); else await v.CancelDragAsync();
+        r["pointer_to_screen_ms"] = Stats(toScreen);
+        return r;
     }
 
     /// <summary>Until `cond` holds, checked as each canvas batch finishes (so the next frame is the one that

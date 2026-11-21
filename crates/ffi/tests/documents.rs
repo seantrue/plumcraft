@@ -233,6 +233,136 @@ fn unknown_and_closed_documents_and_bad_requests_are_refused() {
     c.close();
 }
 
+/// Poll (through `document.list`) until `done` holds, at most 10 s.
+fn until(c: &mut Client, feed: &mut Feed, what: &str, done: impl Fn(&Feed, &[Value]) -> bool) {
+    let t0 = Instant::now();
+    loop {
+        let list = docs(c, feed);
+        if done(feed, &list) {
+            return;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(10), "{what}: changed {:?}, asks {:?}", feed.changed, feed.asks);
+        c.wait_wake(Duration::from_millis(20));
+    }
+}
+
+/// The open documents' ids.
+fn ids(list: &[Value]) -> Vec<u64> {
+    list.iter().filter_map(|d| d["doc"].as_u64()).collect()
+}
+
+/// The latest prompt of document `doc` whose `then` is `then`.
+fn prompt_of(feed: &Feed, doc: u64, then: &str) -> Option<Value> {
+    feed.asks.iter().rev().find(|a| a["doc"] == doc && a["kind"] == "prompt" && a["params"]["then"] == then).cloned()
+}
+
+/// A window per document (`platform.document_windows`, N5 slice 3; contract 4.3): File › New and
+/// File › Open are documents of their own that the feed tells the shell to show (domain `window`),
+/// Open of a file into an untouched document stays there, a window closing asks in words that say
+/// close (not quit), and Quit closes every document in turn, a cancelled prompt stopping it.
+#[test]
+fn with_a_window_per_document_new_open_close_and_quit_are_the_cores() {
+    let dir = std::path::PathBuf::from(store_root("docs-windows"));
+    let mut c = Client::open(&json!({"store_root": dir, "platform": {"document_windows": true}}));
+    let mut feed = Feed::default();
+    let first = docs(&mut c, &mut feed)[0]["doc"].as_u64().unwrap();
+    let windows = |feed: &Feed| -> Vec<Value> { feed.changed.iter().filter(|ch| ch["domain"] == "window").cloned().collect() };
+    let nodes = |c: &mut Client, feed: &mut Feed, doc: u64| {
+        ask(c, feed, Some(json!(doc)), "graph.get", json!({}))["result"]["nodes"].as_object().map_or(0, |n| n.len())
+    };
+    // New: a document of its own, which the feed says to show; this one keeps its graph and
+    // nothing asks about its unsaved changes
+    run(&mut c, &mut feed, first, "node.add", json!({"kind": "text.literal", "pos": [0, 0]}));
+    let r = ask(&mut c, &mut feed, Some(json!(first)), "ui.invoke", json!({"command": "graph.new"}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert!(r["result"]["asks"].as_array().is_none_or(Vec::is_empty), "{r}");
+    until(&mut c, &mut feed, "New's window", |f, _| !windows(f).is_empty());
+    let w = windows(&feed)[0].clone();
+    assert_eq!((w["open"].as_bool(), w["from"].as_u64(), w["by"].as_str()), (Some(true), Some(first), Some("script")), "{w}");
+    let second = w["doc"].as_u64().unwrap();
+    assert_eq!(ids(&docs(&mut c, &mut feed)), vec![first, second]);
+    assert_eq!((nodes(&mut c, &mut feed, first), nodes(&mut c, &mut feed, second)), (1, 0));
+    // Open into the untouched new document: the graph goes there, no window
+    let file = dir.join("opened.json");
+    run(&mut c, &mut feed, first, "graph.saveAs", json!({"path": file}));
+    let r = ask(&mut c, &mut feed, Some(json!(second)), "ui.invoke", json!({"command": "graph.open"}));
+    let a = r["result"]["asks"][0]["ask"].as_u64().unwrap();
+    let r = ask(&mut c, &mut feed, Some(json!(second)), "ask.answer", json!({"ask": a, "answer": {"paths": [file]}}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!((nodes(&mut c, &mut feed, second), windows(&feed).len(), docs(&mut c, &mut feed).len()), (1, 1, 2));
+    // Open from a document that holds something: a window of its own on the file
+    let r = ask(&mut c, &mut feed, Some(json!(second)), "ui.invoke", json!({"command": "graph.open"}));
+    let a = r["result"]["asks"][0]["ask"].as_u64().unwrap();
+    ask(&mut c, &mut feed, Some(json!(second)), "ask.answer", json!({"ask": a, "answer": {"paths": [file]}}));
+    until(&mut c, &mut feed, "Open's window", |f, _| windows(f).len() >= 2);
+    let w = windows(&feed)[1].clone();
+    let third = w["doc"].as_u64().unwrap();
+    assert_eq!((w["from"].as_u64(), w["path"].as_str()), (Some(second), file.to_str()), "{w}");
+    assert_eq!(nodes(&mut c, &mut feed, third), 1);
+    // a window closing over unsaved changes asks in words that say close, for the person when
+    // the shell says it closes for them
+    run(&mut c, &mut feed, third, "node.add", json!({"kind": "text.literal", "pos": [0, 200]}));
+    let r = ask(&mut c, &mut feed, None, "document.close", json!({"doc": third, "by": "person"}));
+    assert_eq!(r["result"]["closing"], false, "{r}");
+    let p = prompt_of(&feed, third, "close").expect("a close prompt");
+    assert_eq!(p["by"].as_str(), Some("person"), "{p}");
+    assert!(p["params"]["text"].as_str().unwrap().contains("close the window"), "{p}");
+    let r = ask(&mut c, &mut feed, Some(json!(third)), "ask.answer", json!({"ask": p["ask"], "answer": {"answer": "cancel"}}));
+    assert_eq!(r["ok"], true, "{r}");
+    for bad in [json!({"doc": third, "by": "robot"}), json!({"doc": third, "by": 1})] {
+        assert_eq!(ask(&mut c, &mut feed, None, "document.close", bad.clone())["ok"], false, "{bad}");
+    }
+    assert_eq!(docs(&mut c, &mut feed).len(), 3);
+    // Quit: every document in turn, the one it was chosen in first; the second is clean and
+    // closes at once, the first asks (quit), and a cancel stops Quit with the rest open
+    run(&mut c, &mut feed, first, "node.add", json!({"kind": "text.literal", "pos": [0, 300]}));
+    let r = ask(&mut c, &mut feed, Some(json!(second)), "ui.invoke", json!({"command": "app.quit"}));
+    assert_eq!(r["ok"], true, "{r}");
+    until(&mut c, &mut feed, "the first's quit prompt", |f, _| prompt_of(f, first, "quit").is_some());
+    assert_eq!(ids(&docs(&mut c, &mut feed)), vec![first, third], "the clean one closed");
+    let p = prompt_of(&feed, first, "quit").unwrap();
+    ask(&mut c, &mut feed, Some(json!(first)), "ask.answer", json!({"ask": p["ask"], "answer": {"answer": "cancel"}}));
+    for _ in 0..5 {
+        let _ = docs(&mut c, &mut feed);
+        c.wait_wake(Duration::from_millis(20));
+    }
+    assert!(prompt_of(&feed, third, "quit").is_none(), "a cancel stops Quit: {:?}", feed.asks);
+    assert_eq!(ids(&docs(&mut c, &mut feed)), vec![first, third]);
+    // Quit again, each prompt answered Discard: every document closes
+    feed.asks.clear();
+    ask(&mut c, &mut feed, Some(json!(third)), "ui.invoke", json!({"command": "app.quit"}));
+    for doc in [third, first] {
+        until(&mut c, &mut feed, "a quit prompt", |f, list| ids(list).contains(&doc) && prompt_of(f, doc, "quit").is_some());
+        let p = prompt_of(&feed, doc, "quit").unwrap();
+        let r = ask(&mut c, &mut feed, Some(json!(doc)), "ask.answer", json!({"ask": p["ask"], "answer": {"answer": "discard"}}));
+        assert_eq!(r["ok"], true, "{doc}: {r}");
+        until(&mut c, &mut feed, "closed", |_, list| !ids(list).contains(&doc));
+    }
+    assert_eq!(docs(&mut c, &mut feed), Vec::<Value>::new());
+    c.close();
+}
+
+/// Without `platform.document_windows` (the default, and the Apple apps' cores) New replaces the
+/// document's graph and Quit closes only the document it was chosen in, as before; a document
+/// closing still asks in words that say close.
+#[test]
+fn without_a_window_per_document_new_and_quit_stay_in_their_document() {
+    let mut c = Client::open(&json!({"store_root": store_root("docs-one-window")}));
+    let mut feed = Feed::default();
+    let first = docs(&mut c, &mut feed)[0]["doc"].as_u64().unwrap();
+    let second = ask(&mut c, &mut feed, None, "document.open", json!({}))["result"]["doc"].as_u64().unwrap();
+    assert_eq!(ask(&mut c, &mut feed, Some(json!(first)), "ui.invoke", json!({"command": "graph.new"}))["ok"], true);
+    assert_eq!(ask(&mut c, &mut feed, Some(json!(first)), "ui.invoke", json!({"command": "app.quit"}))["ok"], true);
+    until(&mut c, &mut feed, "the first closing", |_, list| ids(list) == vec![second]);
+    assert!(feed.changed.iter().all(|ch| ch["domain"] != "window"), "{:?}", feed.changed);
+    run(&mut c, &mut feed, second, "node.add", json!({"kind": "text.literal", "pos": [0, 0]}));
+    let r = ask(&mut c, &mut feed, None, "document.close", json!({"doc": second}));
+    assert_eq!(r["result"]["closing"], false, "{r}");
+    let p = prompt_of(&feed, second, "close").expect("a close prompt");
+    assert_eq!(p["by"].as_str(), Some("script"), "{p}");
+    c.close();
+}
+
 /// `plum_open` returns before its engine has connected: requests sent at once are held, then
 /// answered in order once it has, and the feed says when (`changed`, domain `engine`).
 #[test]

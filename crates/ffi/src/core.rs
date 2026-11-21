@@ -150,6 +150,12 @@ pub struct Config {
     /// (an iOS app may write only inside its container's folders, never at its root).
     pub caches: Option<PathBuf>,
     pub scratch: Option<PathBuf>,
+    /// Each document is a window of the shell's (`platform.document_windows`, N5 slice 3):
+    /// File › New and File › Open make documents of their own, which the feed tells the shell to
+    /// show (`changed` domain `window`), and Quit closes every document in turn. False (the
+    /// default, and the Apple apps, whose document controllers make their windows): New and Open
+    /// replace the document's graph, and Quit closes the document it was asked in.
+    pub document_windows: bool,
 }
 
 /// The application, as the config names it (contract 4.1's `app`).
@@ -207,6 +213,7 @@ impl Default for Config {
             app: AppInfo::default(),
             caches: None,
             scratch: None,
+            document_windows: false,
         }
     }
 }
@@ -250,6 +257,11 @@ impl Config {
             },
             caches: dir_of(o, "caches")?,
             scratch: dir_of(o, "scratch")?,
+            document_windows: match o.get("platform").and_then(|p| p.get("document_windows")) {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err("config: platform.document_windows must be true or false".into()),
+            },
         })
     }
 
@@ -798,6 +810,7 @@ impl Core {
         let (kind, mode) = config.engine_and_mode()?;
         let also = config.also_targets(kind)?;
         let auto = config.auto;
+        let document_windows = config.document_windows;
         if let Some(level) = config.log_level {
             plumcraft_editor_core::log::set_level(level);
         }
@@ -908,6 +921,8 @@ impl Core {
                     app,
                     dirs,
                     share,
+                    document_windows,
+                    quitting: None,
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -1014,6 +1029,15 @@ fn added_kind(h: &Held) -> Option<String> {
     params.get("params")?.get("kind")?.as_str().map(str::to_owned)
 }
 
+/// Quit closing every document in turn (`app.quit` with `platform.document_windows`): each asks
+/// first over unsaved changes; a prompt cancelled (the document still open, nothing asked) stops
+/// it, and the rest stay open.
+struct Quitting {
+    by: By,
+    /// The document closing now, once it was asked.
+    current: Option<DocId>,
+}
+
 /// A document of this core, and what waits for its engine.
 struct Doc {
     doc: Document,
@@ -1052,6 +1076,10 @@ struct Worker {
     also: Vec<plumcraft_session::EngineTarget>,
     /// Start only the engines a document's graph uses (`engines.auto`).
     auto: bool,
+    /// Each document is a window of the shell's (`platform.document_windows`, N5 slice 3).
+    document_windows: bool,
+    /// Quit under way (N5 slice 3): who asked, and the document asked to close now.
+    quitting: Option<Quitting>,
     /// Starts the engines (on each document's worker).
     launcher: Launcher,
     /// The engines compiled in, one of each for every document (decision 11B).
@@ -1123,6 +1151,7 @@ impl Worker {
         doc.look = Some(Arc::clone(&self.look));
         // the Apple apps have no Watched panel: a watch pops its value out (N4 slice 4)
         doc.watch_pops_out = true;
+        doc.document_windows = self.document_windows;
         doc.scratch = self.dirs.1.clone();
         plumcraft_editor_core::settings::follow(&mut doc);
         doc.caps = self.launcher.caps;
@@ -1241,6 +1270,7 @@ impl Worker {
             }
             self.control_requests();
             self.turn_all();
+            self.quit_step();
             self.answer_waiters();
             self.note_log();
             // the menus are looked at when the core is idle (at most a tick after a change), and at
@@ -1435,6 +1465,9 @@ impl Worker {
             }
             if let Some(d) = self.docs.get_mut(&id) {
                 control::tick(&mut d.doc);
+                self.windows_asked(id);
+            }
+            if let Some(d) = self.docs.get_mut(&id) {
                 if d.doc.close_asked {
                     self.close_doc(id);
                     continue;
@@ -1479,6 +1512,67 @@ impl Worker {
             out.push(v.to_string());
         }
         self.shared.push_events(out);
+    }
+
+    /// What document `id` asked of its windows (`platform.document_windows`, N5 slice 3): the
+    /// documents New and Open want, each opened here and told to the shell as `changed` domain
+    /// `window` (`{doc, domain: "window", open: true, from, by, path?}`: make a window for `doc`),
+    /// and a Quit, which starts closing every document in turn.
+    fn windows_asked(&mut self, id: DocId) {
+        let Some(d) = self.docs.get_mut(&id) else { return };
+        let opens = std::mem::take(&mut d.doc.opens);
+        let quit = d.doc.quit_asked.take();
+        for (path, by) in opens {
+            let opening = path.clone().map_or(Opening::Nothing, Opening::Path);
+            let new = self.open_doc(opening);
+            let by = if by == By::Person { "person" } else { "script" };
+            let mut c = json!({"doc": new, "domain": "window", "open": true, "from": id, "by": by});
+            if let Some(p) = path {
+                c["path"] = json!(p);
+            }
+            lock(&self.shared.outbox).changed.push(c.to_string());
+        }
+        if let Some(by) = quit
+            && self.quitting.is_none()
+        {
+            // the document Quit was chosen in goes first, then the rest in order
+            self.quitting = Some(Quitting { by, current: None });
+            self.quit_next(Some(id));
+        }
+    }
+
+    /// Quit's next step: while the document asked is still deciding (a prompt or a file ask
+    /// open), wait; once it has closed, ask the next (`first`, else the first open); when it is
+    /// still open with nothing asked, its prompt was cancelled and Quit stops there.
+    fn quit_step(&mut self) {
+        let Some(q) = &self.quitting else { return };
+        match q.current {
+            Some(cur) => match self.docs.get(&cur) {
+                Some(d) if d.doc.close_asked || d.doc.asks.modal_open() => {}
+                Some(_) => self.quitting = None,
+                None => self.quit_next(None),
+            },
+            None => self.quit_next(None),
+        }
+    }
+
+    fn quit_next(&mut self, first: Option<DocId>) {
+        let Some(by) = self.quitting.as_ref().map(|q| q.by) else { return };
+        let next = first.filter(|f| self.docs.contains_key(f)).or_else(|| self.docs.keys().next().copied());
+        let Some(next) = next else {
+            // every document closed: the shell, with no window left, ends
+            self.quitting = None;
+            return;
+        };
+        if let Some(q) = &mut self.quitting {
+            q.current = Some(next);
+        }
+        let Some(d) = self.docs.get_mut(&next) else { return };
+        invoke::quit(&mut d.doc, by);
+        d.doc.feed_asks();
+        if d.doc.close_asked {
+            self.close_doc(next);
+        }
     }
 
     /// Close document `id` now: its asks withdrawn (the feed says so), what waits on it answered,
@@ -1829,11 +1923,18 @@ impl Worker {
     /// true (`{closing: true}`); else the unsaved-changes prompt is asked (`{closing: false, ask}`)
     /// and the document closes once it is answered Discard, or saved.
     fn document_close(&mut self, doc: DocId, p: &Value) -> Result<Value, String> {
-        control::check_fields(p, &["doc", "discard"])?;
+        control::check_fields(p, &["doc", "discard", "by"])?;
         let discard = match p.get("discard") {
             None | Some(Value::Null) => false,
             Some(Value::Bool(b)) => *b,
             Some(_) => return Err("discard must be a boolean".into()),
+        };
+        // the shell's close button closes for the person at it, who answers the prompt (N5 slice 3)
+        let by = match p.get("by") {
+            None | Some(Value::Null) => By::Script,
+            Some(Value::String(w)) if w == "person" => By::Person,
+            Some(Value::String(w)) if w == "script" => By::Script,
+            Some(_) => return Err("by must be \"person\" or \"script\"".into()),
         };
         let Some(d) = self.docs.get_mut(&doc) else { return Err(format!("no document {doc} is open")) };
         // an autosaved document is saved as it closes; only a failed save asks (N4 slice 4)
@@ -1841,7 +1942,8 @@ impl Worker {
         if discard || saved {
             d.doc.close_asked = true;
         } else {
-            invoke::quit(&mut d.doc, By::Script);
+            // the prompt says the window closes, not the application (N5 slice 3)
+            invoke::close_window(&mut d.doc, by);
             d.doc.feed_asks();
         }
         if d.doc.close_asked {

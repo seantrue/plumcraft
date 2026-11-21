@@ -234,9 +234,11 @@ public class Schema
                 if (alt.Get("enum") is { ValueKind: JsonValueKind.Array } en) foreach (var x in en.EnumerateArray()) kinds.Add(x.GetString()!);
                 else if (alt.Get("const").Str() is { } c) kinds.Add(c);
             }
-        // not `zoom` (contract 8.13, N4 slice 2): shell1.json's Gesture lacks it, a gap in the schema the
-        // Windows kit found (the slice 1 report); the core takes it
-        Gesture[] gestures = [Gesture.Tap(new Point(1, 2), [ModifierWord.Shift], 4), Gesture.MarqueeOf(new Point(0, 0), new Point(5, 5)), Gesture.DragBegin(new Point(1, 1)), Gesture.DragCancel];
+        // a drag's begin carries `zoom` (contract 8.13, N4 slice 2), as every canvas sends it: shell1.json's
+        // Gesture has had it since the gap slice 1 found was closed
+        Gesture[] gestures = [Gesture.Tap(new Point(1, 2), [ModifierWord.Shift], 4), Gesture.MarqueeOf(new Point(0, 0), new Point(5, 5)),
+            Gesture.DragBegin(new Point(1, 1), [ModifierWord.Primary], 4, 1.5), Gesture.DragEnd(new Point(2, 2), 4), Gesture.DragCancel];
+        Assert.Contains("zoom", gestures[2].ToJson().EnumerateObject().Select(p => p.Name));
         foreach (var g in gestures)
         {
             var keys = g.ToJson().EnumerateObject().Select(p => p.Name).ToHashSet();

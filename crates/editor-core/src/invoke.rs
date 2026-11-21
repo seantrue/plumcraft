@@ -44,6 +44,8 @@ pub enum AfterDiscard {
     Open,
     /// Close the window (quit).
     Quit,
+    /// Close this document's window, one of several (N5 slice 3: the prompt says close, not quit).
+    Close,
 }
 
 impl AfterDiscard {
@@ -52,6 +54,7 @@ impl AfterDiscard {
             AfterDiscard::New => "new",
             AfterDiscard::Open => "open",
             AfterDiscard::Quit => "quit",
+            AfterDiscard::Close => "close",
         }
     }
 }
@@ -112,6 +115,7 @@ impl Prompt {
             Prompt::Uploads(_) => "This run would send these files from your computer to an engine you attached to.",
             Prompt::Review(_) => "This workflow came from elsewhere, and it runs with your permissions. Check what it touches before you run it.",
             Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
+            Prompt::Discard { then: AfterDiscard::Close } => "The graph has unsaved changes. Discard them and close the window?",
         }
     }
 
@@ -250,6 +254,22 @@ pub trait Host {
     }
     /// Close the window (quit), unsaved changes dealt with.
     fn close(&mut self) {}
+    /// Each document is a window of the shell's own (the C ABI's `platform.document_windows`, N5
+    /// slice 3): File › New makes a new document, File › Open opens the graph in a new one (or in
+    /// this one while it is untouched), and the shell makes a window for each as the core says;
+    /// Quit closes every document in turn. False (the egui editor, the Apple apps' cores): New and
+    /// Open replace this document's graph, and Quit closes this one.
+    fn document_windows(&self) -> bool {
+        false
+    }
+    /// Open a new document, on a graph's file or untitled, for the shell to show in a window of
+    /// its own ([`Host::document_windows`]).
+    fn open_document(&mut self, _path: Option<PathBuf>, _by: By) {}
+    /// Quit the application: every document closed in turn, each asking first over unsaved
+    /// changes. False when this host has only this document to close ([`quit`] closes it).
+    fn quit_all(&mut self, _by: By) -> bool {
+        false
+    }
     /// The window may close already.
     fn closing(&self) -> bool {
         false
@@ -371,6 +391,12 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
     }
     let (nodes, groups) = h.selection();
     match id {
+        // a window per document (N5 slice 3): New is a document of its own, and Open asks for
+        // the file first; nothing here is discarded, so neither asks about unsaved changes
+        "graph.new" if h.document_windows() => h.open_document(None, by),
+        "graph.open" if h.document_windows() => {
+            ask_workflow(h, by, Then::OpenWorkflow { discard: false });
+        }
         "graph.new" | "graph.open" => {
             let then = if id == "graph.new" { AfterDiscard::New } else { AfterDiscard::Open };
             if h.session().is_dirty() {
@@ -379,7 +405,11 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
                 go_on(h, then, false, by);
             }
         }
-        "app.quit" => quit(h, by),
+        "app.quit" => {
+            if !h.quit_all(by) {
+                quit(h, by);
+            }
+        }
         "engine.install" | "engine.attach" if h.open_window(id) => {}
         // a shell without a window of its own for them (the Apple apps, N4 slice 6): the core's
         // form asks for the address or the repository, then runs the command
@@ -619,6 +649,23 @@ pub fn quit(h: &mut impl Host, by: By) {
     }
 }
 
+/// Close this document's window (its close button; N5 slice 3), asking first over unsaved
+/// changes in words that say the window closes, not the application.
+pub fn close_window(h: &mut impl Host, by: By) {
+    if h.session().is_dirty() && !h.closing() {
+        raise_prompt(h, Prompt::Discard { then: AfterDiscard::Close }, by);
+    } else {
+        h.close();
+    }
+}
+
+/// Nothing in this document yet: no file, nothing unsaved, no nodes. File › Open puts a graph
+/// in such a document rather than a window of its own, as a platform's document controller does.
+pub fn untouched(h: &impl Host) -> bool {
+    let s = h.session();
+    s.path().is_none() && !s.is_dirty() && s.graph().nodes.is_empty()
+}
+
 /// New, or Open through a file ask, once unsaved changes may go.
 fn go_on(h: &mut impl Host, then: AfterDiscard, discard: bool, by: By) {
     match then {
@@ -628,7 +675,7 @@ fn go_on(h: &mut impl Host, then: AfterDiscard, discard: bool, by: By) {
         AfterDiscard::Open => {
             ask_workflow(h, by, Then::OpenWorkflow { discard });
         }
-        AfterDiscard::Quit => h.close(),
+        AfterDiscard::Quit | AfterDiscard::Close => h.close(),
     }
 }
 
@@ -740,7 +787,11 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
         },
         (Then::OpenWorkflow { discard }, a) => {
             if let Some(p) = path(&a) {
-                let _ = h.run("graph.open", &json!({"path": p, "discard": discard}));
+                if h.document_windows() && !untouched(h) {
+                    h.open_document(Some(p), by);
+                } else {
+                    let _ = h.run("graph.open", &json!({"path": p, "discard": discard}));
+                }
             }
         }
         (Then::SaveWorkflow { after }, a) => {

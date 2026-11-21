@@ -183,6 +183,15 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "canvas.zoom",
+        label: "Zoom",
+        menu: &[],
+        shortcut: None,
+        params: "{by: factor 0.1 to 10} | {to: zoom 0.1 to 4} -> {seq, by?, to?} (Zoom In, Zoom Out and Actual Size, N5 slice 3: Ctrl+= by 1.25, Ctrl+- by 0.8, Ctrl+0 to 1; the view is the shell's, and the scene's view.zoom asks it to zoom about its centre once per seq)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "canvas.palette",
         label: "Search…",
         menu: &["Node"],
@@ -602,6 +611,29 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
         "canvas.fit" => {
             check_fields(params, &[])?;
             Ok(d.ask_fit())
+        }
+        "canvas.zoom" => {
+            check_fields(params, &["by", "to"])?;
+            let num = |k: &str, lo: f64, hi: f64| -> Result<Option<f64>, String> {
+                match params.get(k) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => v.as_f64().filter(|x| (lo..=hi).contains(x)).map(Some).ok_or_else(|| format!("{k} must be a number from {lo} to {hi}")),
+                }
+            };
+            let (by, to) = (num("by", 0.1, 10.0)?, num("to", 0.1, 4.0)?);
+            if by.is_some() == to.is_some() {
+                return Err("canvas.zoom takes by (a factor) or to (a zoom), one of them".into());
+            }
+            let seq = d.zoom.as_ref().map_or(0, |z| z.seq).wrapping_add(1);
+            d.zoom = Some(crate::scene::Zoom { seq, by, to });
+            let mut out = json!({"seq": seq});
+            if let Some(b) = by {
+                out["by"] = json!(b);
+            }
+            if let Some(t) = to {
+                out["to"] = json!(t);
+            }
+            Ok(out)
         }
         "geometry.set" => {
             let reports = crate::geometry::parse_set(params)?;
@@ -1025,5 +1057,22 @@ mod tests {
         assert_eq!((r["node"].as_str(), r["seq"].as_u64()), (Some(a.as_str()), Some(1)));
         assert_eq!(d.build_scene(&crate::theme::DEFAULT, None, &std::collections::HashMap::new(), &[]).view.reveal.map(|r| r.seq), Some(1));
         assert_eq!(execute(&mut d, "canvas.reveal", &json!({"node": a})).unwrap()["seq"], json!(2));
+    }
+
+    #[test]
+    fn zoom_in_out_and_actual_size_are_commands_whose_scene_asks_the_view() {
+        let (mut d, _, _) = doc();
+        let undo = d.session.undo_label().map(str::to_owned);
+        for bad in [json!({}), json!({"by": 1.25, "to": 1}), json!({"by": 0}), json!({"by": 11}), json!({"to": 5}), json!({"by": "in"}), json!({"step": 1})] {
+            assert!(execute(&mut d, "canvas.zoom", &bad).is_err(), "{bad}");
+        }
+        assert!(d.zoom.is_none(), "a refusal asks nothing");
+        let view = |d: &mut Document| d.build_scene(&crate::theme::DEFAULT, None, &std::collections::HashMap::new(), &[]).view.zoom;
+        assert_eq!(view(&mut d), None);
+        assert_eq!(execute(&mut d, "canvas.zoom", &json!({"by": 1.25})).unwrap(), json!({"seq": 1, "by": 1.25}));
+        assert_eq!(view(&mut d), Some(crate::scene::Zoom { seq: 1, by: Some(1.25), to: None }));
+        assert_eq!(execute(&mut d, "canvas.zoom", &json!({"to": 1})).unwrap(), json!({"seq": 2, "to": 1.0}));
+        assert_eq!(view(&mut d), Some(crate::scene::Zoom { seq: 2, by: None, to: Some(1.0) }));
+        assert_eq!(d.session.undo_label().map(str::to_owned), undo, "the view's, not an undo step");
     }
 }
