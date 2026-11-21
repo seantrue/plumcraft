@@ -1076,6 +1076,10 @@ pub fn step<D: Driver>(d: &mut D, out: &mut Vec<Result<Value, String>>) {
         let Some(next) = d.board(|b| b.begin()) else { break };
         go(d, next, out);
     }
+    // an install under way (B71: every shell follows it here, not the egui shell alone)
+    if d.session().engines.installing.is_some() {
+        d.board(|b| b.poll_install());
+    }
     let retired = d.switching().take_retired();
     d.worker().retire(retired);
     settle(d);
