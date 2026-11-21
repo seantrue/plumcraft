@@ -2,7 +2,8 @@
 # The conformance suite's read-only half (docs/shell-interface.md 16.1) against the running Mac app,
 # which measures its own faces: build the app (release) and the runner, launch the app on scratch
 # preferences, store and saved state with its control port open and an empty graph in a window,
-# run the cases over the port, quit the app by its PID. Local runs only (no macOS CI).
+# run the cases over the port, quit the app by its PID, and check that the person's Library is as
+# it was (library-check.sh, B50). Local runs only (no macOS CI).
 #
 #   native/apple/PlumCraftMac/conformance.sh [read|edit|all]      (default read)
 #   APP=path/Plummer.app native/apple/PlumCraftMac/conformance.sh all    (that app, not a fresh build)
@@ -81,8 +82,17 @@ return $code
 
 echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.json"
 failed=0
+# B50: the person's Library (defaults domain, saved state, recent documents, caches, logs) is
+# snapshotted before the app starts and compared after it quits; any change fails the run
+bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$(dirname "$app")/../Info.plist")
+"$here/library-check.sh" snapshot "$bundle_id" "$scratch/library-before.txt"
 # every case on one app, as it opens every document: the empty graph on the text engine alone, and
 # the picture case's first array node starts the array engine (decision 8C: engines start as the
 # graph comes to use them), so no case is skipped for want of an engine
 run_on text array || failed=1
+# cfprefsd and the shared file list's daemon write their files a few seconds after the process
+# asked (a recent document noted by the app landed 3 to 8 s after it quit, B50)
+sleep "${SETTLE:-10}"
+"$here/library-check.sh" snapshot "$bundle_id" "$scratch/library-after.txt"
+"$here/library-check.sh" compare "$scratch/library-before.txt" "$scratch/library-after.txt" || failed=1
 exit $failed

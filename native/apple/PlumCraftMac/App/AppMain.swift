@@ -191,6 +191,27 @@ enum CoreHost {
     }
 }
 
+/// The app's document controller: AppKit's, except that a scripted launch (`--scratch-state`)
+/// never notes a document in the person's recent documents (the system keeps them outside the
+/// app, in the shared file list, so a scratch graph stayed in File › Open Recent: B50), and keeps
+/// none (a count of 0): AppKit then leaves the list alone, where with its own count the first
+/// launch of each new build rewrote the list's properties (the code requirement it carries). Made
+/// in `main` before AppKit's first use, so it is `NSDocumentController.shared`.
+///
+/// `recentDocumentURLs` is left as AppKit's: overriding it to an empty list made AppKit write the
+/// empty list back over the person's (B50's first try).
+final class PlummerDocumentController: NSDocumentController {
+    /// Read from the arguments, not `CoreHost.options`: AppKit may ask before the delegate parses them.
+    static let scratch = CommandLine.arguments.contains("--scratch-state")
+
+    override func noteNewRecentDocumentURL(_ url: URL) {
+        if Self.scratch { return }
+        super.noteNewRecentDocumentURL(url)
+    }
+
+    override var maximumRecentDocumentCount: Int { Self.scratch ? 0 : super.maximumRecentDocumentCount }
+}
+
 /// What the app writes to `--status-file` for the scripts that drive it (the kit's, shared with the
 /// iPad app).
 typealias Status = StatusFile
@@ -323,11 +344,16 @@ enum Main {
         argDomain["NSTreatUnknownArgumentsAsOpen"] = "NO"
         UserDefaults.standard.setVolatileDomain(argDomain, forName: UserDefaults.argumentDomain)
         if CommandLine.arguments.contains("--scratch-state") {
+            // the person's saved state is neither restored nor written: AppKit keeps a scripted
+            // launch's in the system's temporary folder (`<id>.savedState` there, which it leaves
+            // empty at quit; TMPDIR doesn't move it), never in ~/Library/Saved Application State
             var args = UserDefaults.standard.volatileDomain(forName: UserDefaults.argumentDomain)
             args["ApplePersistenceIgnoreState"] = true
             args["NSQuitAlwaysKeepsWindows"] = false
             UserDefaults.standard.setVolatileDomain(args, forName: UserDefaults.argumentDomain)
         }
+        // the first document controller made is the shared one (B50: a scripted launch's recents)
+        _ = PlummerDocumentController()
         let app = NSApplication.shared
         let delegate = AppDelegate()
         app.delegate = delegate
