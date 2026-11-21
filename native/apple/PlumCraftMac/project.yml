@@ -45,7 +45,7 @@ targets:
         NSSupportsSuddenTermination: false
         CFBundleDocumentTypes:
           - CFBundleTypeName: Plummer Graph
-            CFBundleTypeRole: Viewer
+            CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:
               - public.json
