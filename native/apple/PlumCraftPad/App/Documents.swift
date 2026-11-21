@@ -168,6 +168,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         case "light"?: w.overrideUserInterfaceStyle = .light
         default: break
         }
+        if o.compactWidth { w.traitOverrides.horizontalSizeClass = .compact }
         let first = Self.firstScene
         Self.firstScene = false
         StatusFile.shared.set("scenes", .int(Int64(UIApplication.shared.connectedScenes.count)))

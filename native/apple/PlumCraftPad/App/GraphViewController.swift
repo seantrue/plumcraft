@@ -131,6 +131,11 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             banner.widthAnchor.constraint(lessThanOrEqualTo: canvasHost.widthAnchor, constant: -40),
         ])
         makeBar()
+        // the bar's layout follows the width: the compact bar in a narrow window (N4 slice 6)
+        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (self: Self, _: UITraitCollection) in
+            self.layoutBar()
+            if let e = self.model?.engine { self.showEngine(e) }
+        }
         openInCore()
     }
 
@@ -238,10 +243,55 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             return ka < kb
         }
         barItems = made
+        if compact {
+            // an iPhone, or a narrow iPad window (Split View, Slide Over, Stage Manager): Documents
+            // and Add on the left; Run and a More menu on the right, which holds the rest of the
+            // core's toolbar, Settings and the engines' state, built as it opens (N4 slice 6)
+            left = (doneItem.map { [$0] } ?? []) + (made["canvas.palette"].map { [$0] } ?? [])
+            right = (made["run.start"].map { [$0] } ?? [])
+            right.insert(moreItem, at: 0)
+        }
         navigationItem.leftBarButtonItems = left
         navigationItem.rightBarButtonItems = right
+        StatusFile.shared.set("bar", .array((left + right).map { .string($0.accessibilityIdentifier ?? $0.title ?? "") }))
         validateBar()
     }
+
+    /// The compact bar's More menu: the toolbar's buttons the bar has no room for, Settings, and
+    /// the engines' state, each as enabled as the core says when it opens.
+    lazy var moreItem: UIBarButtonItem = {
+        let menu = UIMenu(children: [UIDeferredMenuElement.uncached { [weak self] done in
+            guard let self else { return done([]) }
+            var items: [UIMenuElement] = []
+            for it in ToolbarWords.buttons(self.toolItems) {
+                guard let c = it.command, !["canvas.palette", "run.start"].contains(c) else { continue }
+                let a = UIAction(title: it.label, image: UIImage(systemName: ToolbarWords.symbol(it.icon)),
+                                 attributes: it.enabled && self.model != nil ? [] : .disabled,
+                                 state: it.checked == true ? .on : .off) { [weak self] _ in self?.toolbarButton(c) }
+                a.accessibilityIdentifier = "more.\(c)"
+                items.append(a)
+            }
+            let settings = UIAction(title: "Settings", image: UIImage(systemName: "gearshape")) { [weak self] _ in
+                guard let self, let m = self.model, let it = m.menuBar.item(command: "app.settings") else { return }
+                self.dispatch(it)
+            }
+            settings.accessibilityIdentifier = "more.app.settings"
+            let engines = UIAction(title: self.engineLabel.superview?.accessibilityLabel ?? "Engines", image: UIImage(systemName: "circle.fill"), attributes: .disabled) { _ in }
+            // the core's menus, for a screen with no menu bar (an iPhone): File, Edit, View, Node,
+            // Run, Engine, each as the menu bar has it
+            var menus: [UIMenuElement] = []
+            if let m = self.model {
+                for top in m.menuBar where top.isSubmenu {
+                    menus.append(UIMenu(title: top.label, children: PadMenus.actions(top.items, model: m) { [weak self] it in self?.dispatch(it) }))
+                }
+            }
+            done([UIMenu(options: .displayInline, children: items), settings, UIMenu(options: .displayInline, children: menus),
+                  UIMenu(options: .displayInline, children: [engines])])
+        }])
+        let b = UIBarButtonItem(title: "More", image: UIImage(systemName: "ellipsis.circle"), menu: menu)
+        b.accessibilityIdentifier = "tool.more"
+        return b
+    }()
 
     /// The core's toolbar changed: new buttons lay the bar out again; states only revalidate.
     func followToolbar(_ items: [MenuItem]) {
@@ -272,7 +322,14 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     }
 
     func presentReplacing(_ vc: UIViewController) {
+        // one still being presented is replaced once its presentation has run: dismissing it
+        // before then leaves UIKit a transition with no anchor (the unanchored-popover crash)
+        if let other = presentedViewController, other !== vc, other.isBeingPresented, let tc = other.transitionCoordinator {
+            tc.animate(alongsideTransition: nil) { [weak self] _ in self?.presentReplacing(vc) }
+            return
+        }
         if let other = presentedViewController, other !== vc {
+            coreWindows?.willBeReplaced(other)
             other.dismiss(animated: false) { [weak self] in self?.present(vc, animated: true) }
         } else if presentedViewController == nil {
             present(vc, animated: true)
@@ -375,6 +432,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             guard let self, let v = canvasView, let pc = paletteView else { return }
             // a sheet or popover the graph shows (a pop-out's, the parameters) gives way first
             if let other = presentedViewController, other !== pc {
+                self.coreWindows?.willBeReplaced(other)
                 other.dismiss(animated: false) { pc.present(from: self, source: v, at: p, focus: focus) }
             } else {
                 pc.present(from: self, source: v, at: p, focus: focus)
@@ -413,11 +471,15 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         let msgs = PadMessages(model: model)
         msgs.host = self
         messagesSheet = msgs
-        model.onWindows = { [weak pops, weak params, weak sheet, weak msgs] w in
+        let cw = PadCoreWindows(model: model, pictures: v.canvas.pictures)
+        cw.host = self
+        coreWindows = cw
+        model.onWindows = { [weak pops, weak params, weak sheet, weak msgs, weak cw] w in
             pops?.follow(w)
             params?.params.follow(w)
             sheet?.follow(w.settings)
             msgs?.follow(w.messages ?? false)
+            cw?.follow(w)
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks
@@ -596,6 +658,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var settingsSheet: PadSettingsSheet?
     /// The Messages sheet, following the core's `view.windows.messages` (N4 slice 5).
     var messagesSheet: PadMessages?
+    /// The Cache Report, Parameters, value editors and Compare as sheets (N4 slice 6).
+    var coreWindows: PadCoreWindows?
 
     var shownZoom = -1
     var viewportReport: Task<Void, Never>?
@@ -835,6 +899,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
         if let p = popouts { s["popouts"] = p.describe }
         if let p = parameters { s["parameters"] = p.describe }
+        if let c = coreWindows { s["coreWindows"] = c.describe }
         if let n = canvasView?.nameField.field {
             s["nameField"] = ["text": .string(n.text ?? ""), "frame": [.double(Double(n.frame.minX)), .double(Double(n.frame.minY)), .double(Double(n.frame.width)), .double(Double(n.frame.height))]]
         }
@@ -995,6 +1060,8 @@ enum PopoverAnchor {
               p.sourceView == nil, p.barButtonItem == nil, p.sourceItem == nil else { return }
         p.sourceView = view
         p.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
-        CoreHost.say("warn", "a popover (\(type(of: vc))) came with no anchor: shown from the middle of the graph")
+        let params = (view.next as? GraphViewController)?.parameters
+        let which = params?.nav === vc ? (params?.configured == ObjectIdentifier(p) ? "the inspector, its own popover controller" : "the inspector, a new popover controller") : "\(type(of: vc))"
+        CoreHost.say("warn", "a popover (\(which)) came with no anchor: shown from the middle of the graph")
     }
 }

@@ -3092,6 +3092,21 @@
     "Windows": {
       "description": "The document's windows, in the scene's `view.windows`.",
       "properties": {
+        "cache": {
+          "description": "The Cache Report is open (`run.cacheReport`, N4 slice 6): `report.get {window: \"cache\"}`.",
+          "type": "boolean"
+        },
+        "compare": {
+          "description": "Compare is open (`viewer.compare {on}`, N4 slice 6): `compare.get`.",
+          "type": "boolean"
+        },
+        "editors": {
+          "description": "The nodes whose value editor is open (`node.editor`, N4 slice 6), oldest first:\n`report.get {window: \"editor\", node}`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "messages": {
           "description": "The Messages window is open (`view.messages`, N4 slice 5): a native shell shows the\nstatus bar's messages in full (`messages.get`) in a window or sheet of its own, and closes it\nwith `view.messages {open: false}`.",
           "type": "boolean"
@@ -3103,12 +3118,22 @@
             "null"
           ]
         },
+        "params": {
+          "description": "The graph's Parameters window is open (`view.params`, N4 slice 6):\n`report.get {window: \"params\"}`.",
+          "type": "boolean"
+        },
         "popouts": {
           "description": "The pop-outs open, oldest first.",
           "items": {
             "$ref": "#/$defs/PopoutWindow"
           },
           "type": "array"
+        },
+        "reports": {
+          "description": "Changes when what a report window reads changes (a run reported, the named ports, a\nvalue): the shell reads its open reports again then.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         },
         "settings": {
           "description": "The Settings window is open, on this section (`app.settings {tab?, open?}`, N4 slice 4):\na native shell shows its own settings window or sheet while it is, and closes it with\n`app.settings {open: false}`.",

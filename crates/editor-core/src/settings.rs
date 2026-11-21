@@ -158,19 +158,20 @@ impl Look {
         }
     }
 
-    /// Keep a document's run look and engine picking (after `view.runColors`,
-    /// `view.animationSpeed`, `engine.auto` ran in it), so every document and the next launch
-    /// have them.
-    pub fn keep_run_prefs(&mut self, run_colors: bool, anim_ms: Option<u32>, auto_engines: bool) {
+    /// Keep the one run setting a command changed in a document (`view.runColors`,
+    /// `view.animationSpeed` or `engine.auto`), so every document and the next launch have it.
+    /// Only that one: the document's other two may be stale (it has not followed the look since
+    /// another document changed them), and writing them back would lose that change (B41).
+    pub fn keep_run_pref(&mut self, kept: RunPref) {
         let p = self.store.prefs();
-        if p.run_colors != Some(run_colors) || p.anim_ms != anim_ms {
-            self.store.set_run_anim(run_colors, anim_ms);
-            self.bump();
+        let (colors, anim, auto) = (p.run_colors, p.anim_ms, p.auto_engines);
+        match kept {
+            RunPref::Colors(c) if colors != Some(c) => self.store.set_run_colors(c),
+            RunPref::Anim(ms) if anim != ms => self.store.set_anim_ms(ms),
+            RunPref::Auto(a) if auto != Some(a) => self.store.set_auto_engines(a),
+            _ => return,
         }
-        if self.store.prefs().auto_engines != Some(auto_engines) {
-            self.store.set_auto_engines(auto_engines);
-            self.bump();
-        }
+        self.bump();
     }
 
     /// One settings command, its shape already checked by the session (`view.theme`,
@@ -322,11 +323,26 @@ pub fn opaque(t: &mut Tokens) {
     }
 }
 
+/// One run setting a document changed, for [`Look::keep_run_pref`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RunPref {
+    /// View › Colour Nodes While Running.
+    Colors(bool),
+    /// View › Animation Speed, in ms (`None`: the default).
+    Anim(Option<u32>),
+    /// Pick Engines Automatically.
+    Auto(bool),
+}
+
 /// What a shell tells the model of itself.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Facts {
     /// Offer the UI zoom ([`Look::ui_zoom`]).
     pub ui_zoom: bool,
+    /// Offer the text size: a shell whose canvas draws with it (the egui editor). The Apple apps
+    /// draw faces at the platform's sizes and follow the system's text size, so they don't offer
+    /// one that would change nothing there (N4 slice 6); `view.textSize` is kept for scripts.
+    pub text_size: bool,
     /// Pick Engines Automatically is on in this document.
     pub auto_engines: bool,
     /// View › Colour Nodes While Running is on.
@@ -401,7 +417,10 @@ pub fn model(
     text["step"] = json!(0.5);
     text["unit"] = json!("pt");
     text["default"] = json!(theme::BASE_TEXT);
-    let mut appearance = vec![theme_item, text];
+    let mut appearance = vec![theme_item];
+    if f.text_size {
+        appearance.push(text);
+    }
     if f.ui_zoom {
         let mut z = item("zoom", "Zoom", "number", json!(a.zoom.unwrap_or(1.0)), "view.zoom", Some("zoom"));
         z["min"] = json!(theme::ZOOMS.start());
@@ -541,10 +560,19 @@ pub fn after_command(d: &mut crate::document::Document, look: &SharedLook, id: &
     for (ask, p) in asks {
         out = l.apply(&ask, &p, d.session.catalog())?;
     }
-    if matches!(id, "view.runColors" | "view.animationSpeed" | "engine.auto") {
-        let views = &d.session.views;
-        l.keep_run_prefs(!views.run_colors_off, views.anim_ms, d.session.engines.auto);
-        d.look_seen = l.generation();
+    let kept = match id {
+        "view.runColors" => Some(RunPref::Colors(!d.session.views.run_colors_off)),
+        "view.animationSpeed" => Some(RunPref::Anim(d.session.views.anim_ms)),
+        "engine.auto" => Some(RunPref::Auto(d.session.engines.auto)),
+        _ => None,
+    };
+    if let Some(kept) = kept {
+        // only what the command changed is kept; the document then takes the rest from the look
+        // (it may not have followed since another document changed them)
+        l.keep_run_pref(kept);
+        drop(l);
+        follow(d);
+        l = lock(look);
     }
     if id == "app.settings"
         && let (Some(o), Value::Object(more)) = (out.as_object_mut(), model_of(d, &l))
@@ -556,15 +584,20 @@ pub fn after_command(d: &mut crate::document::Document, look: &SharedLook, id: &
 
 /// A document's settings model, from the shared look.
 pub fn model_of(d: &crate::document::Document, l: &Look) -> Value {
+    model(l.store.prefs(), l.chosen(), &l.tokens(), &l.system, l.generation(), d.session.catalog(), &facts_of(d, l))
+}
+
+fn facts_of(d: &crate::document::Document, l: &Look) -> Facts {
     let views = &d.session.views;
-    let facts = Facts {
+    Facts {
         ui_zoom: l.ui_zoom,
+        // the C ABI's shells draw faces at the platform's sizes (N4 slice 6)
+        text_size: false,
         auto_engines: d.session.engines.auto,
         run_colors: !views.run_colors_off,
         anim_ms: views.anim_ms(),
         cache_report: views.cache_report,
-    };
-    model(l.store.prefs(), l.chosen(), &l.tokens(), &l.system, l.generation(), d.session.catalog(), &facts)
+    }
 }
 
 /// A document takes the look's run look and engine picking when the look changed since it last
@@ -603,7 +636,14 @@ pub fn get(d: &crate::document::Document, p: &Value) -> Result<Value, String> {
                 return Ok(v);
             };
             let read = Look { store: prefs::Store::at(path.to_path_buf()), system: l.system, ui_zoom: l.ui_zoom, generation: l.generation() };
-            let mut v = model_of(d, &read);
+            // the run settings as the file keeps them, not as this document has them now
+            let mut facts = facts_of(d, &read);
+            let (colors, anim, auto) = read.run_prefs();
+            facts.run_colors = colors.unwrap_or(true);
+            facts.anim_ms = anim.unwrap_or(plumcraft_session::view_cmds::DEFAULT_ANIM_MS);
+            facts.auto_engines = auto.unwrap_or(facts.auto_engines);
+            let p = read.store.prefs();
+            let mut v = model(p, read.chosen(), &read.tokens(), &read.system, read.generation(), d.session.catalog(), &facts);
             v["persisted"] = json!(true);
             Ok(v)
         }
@@ -667,6 +707,35 @@ mod tests {
         assert_eq!(theme::hex(l.tokens().wire), "#abcdef");
     }
 
+    /// B41: a document that had not yet followed the look ran a run setting (here Pick Engines
+    /// Automatically, as every document does once its first engine is there) and wrote its stale
+    /// copy of all three back, losing the Animation Speed another document had just set.
+    #[test]
+    fn a_run_setting_changed_in_one_document_survives_another_that_has_not_followed_yet() {
+        use crate::document::{self, Document};
+        let (l, path) = look_at("b41");
+        let look: SharedLook = Arc::new(Mutex::new(l));
+        let open = || {
+            let mut d = Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()));
+            d.look = Some(Arc::clone(&look));
+            follow(&mut d);
+            d
+        };
+        let (mut a, mut b) = (open(), open());
+        document::execute(&mut a, "view.animationSpeed", &json!({"ms": 1000})).unwrap();
+        // b runs before it follows (the core's tick had not reached it)
+        document::execute(&mut b, "engine.auto", &json!({"on": true})).unwrap();
+        assert_eq!(lock(&look).run_prefs().1, Some(1000), "b wrote its stale animation speed back");
+        assert_eq!(b.session.views.anim_ms(), 1000, "b takes the rest from the look as it keeps its own");
+        follow(&mut a);
+        assert_eq!(a.session.views.anim_ms(), 1000);
+        // and the file, which a reopen reads, has it, as settings.get {fromDisk} says
+        assert_eq!(Look::new(prefs::Store::at(path), System::default()).run_prefs().1, Some(1000));
+        let disk = get(&b, &json!({"fromDisk": true})).unwrap();
+        let running = disk["sections"].as_array().unwrap().iter().find(|s| s["id"] == "running").unwrap().clone();
+        assert_eq!(running["items"][1]["value"], 1000, "{running}");
+    }
+
     #[test]
     fn increased_contrast_never_lowers_a_pair_and_reduced_transparency_is_opaque() {
         for base in theme::ALL {
@@ -689,8 +758,15 @@ mod tests {
     #[test]
     fn the_model_names_a_command_for_every_setting() {
         let (l, _) = look_at("model");
-        let m =
-            model(l.store.prefs(), l.chosen(), &l.tokens(), &l.system, l.generation(), &cat(), &Facts { anim_ms: 500, run_colors: true, ..Facts::default() });
+        let m = model(
+            l.store.prefs(),
+            l.chosen(),
+            &l.tokens(),
+            &l.system,
+            l.generation(),
+            &cat(),
+            &Facts { anim_ms: 500, run_colors: true, text_size: true, ..Facts::default() },
+        );
         let mut kinds = std::collections::BTreeSet::new();
         for s in m["sections"].as_array().unwrap() {
             for it in s["items"].as_array().unwrap() {
@@ -704,6 +780,8 @@ mod tests {
         }
         assert_eq!(kinds.into_iter().collect::<Vec<_>>(), ["action", "choice", "color", "note", "number", "toggle"]);
         assert!(m["sections"][0]["items"].as_array().unwrap().iter().all(|i| i["id"] != "zoom"), "no UI zoom on a shell that doesn't scale");
+        let apple = model(l.store.prefs(), l.chosen(), &l.tokens(), &l.system, l.generation(), &cat(), &Facts::default());
+        assert!(apple["sections"][0]["items"].as_array().unwrap().iter().all(|i| i["id"] != "textSize"), "no text size where the canvas doesn't draw with it");
         let sys = System::default().with(&json!({"dark": true, "contrast": "more"})).unwrap();
         assert!(sys.dark && sys.more_contrast);
         for bad in [json!({"dark": "yes"}), json!({"contrast": "max"}), json!({"other": true})] {

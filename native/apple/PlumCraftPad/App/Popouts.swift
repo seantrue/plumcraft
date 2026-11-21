@@ -124,7 +124,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
             // one value at a time in a sheet: the one it replaces closes in the core too
             let old = s.id
             sheet = nil
-            s.nav.dismiss(animated: false)
+            host.coreWindows?.willBeReplaced(s.nav)
+            (s.nav.presentingViewController ?? s.nav).dismiss(animated: false)
             Task { await models[old]?.close() }
         }
         if sheet?.id == m.id { return }
@@ -136,7 +137,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
             guard let self, let m else { return }
             if let s = sheet, s.id == m.id {
                 sheet = nil
-                s.nav.dismiss(animated: !CoreHost.options.scratchState)
+                host.coreWindows?.willBeReplaced(s.nav)
+                (s.nav.presentingViewController ?? s.nav).dismiss(animated: !CoreHost.options.scratchState)
             }
             Task { await m.close() }
             onChange?()
@@ -144,15 +146,19 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         vc.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "popout-done"
         let more = UIAction(title: "Open in New Window", image: UIImage(systemName: "macwindow.badge.plus")) { [weak self] _ in
             guard let self else { return }
-            sheet?.nav.dismiss(animated: true)
+            if let n = sheet?.nav { host.coreWindows?.willBeReplaced(n) }
+            sheet.map { $0.nav.presentingViewController ?? $0.nav }?.dismiss(animated: true)
             sheet = nil
             openScene(m.id)
         }
-        vc.navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "macwindow.badge.plus"), primaryAction: more)
-        vc.navigationItem.leftBarButtonItem?.accessibilityLabel = "Open in New Window"
+        // a window of its own only where there are windows (not on an iPhone, N4 slice 6)
+        if UIApplication.shared.supportsMultipleScenes {
+            vc.navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "macwindow.badge.plus"), primaryAction: more)
+            vc.navigationItem.leftBarButtonItem?.accessibilityLabel = "Open in New Window"
+        }
         let nav = UINavigationController(rootViewController: vc)
         // opaque: a value is read, not seen through (iPadOS 26 draws a partial sheet as glass)
-        nav.view.backgroundColor = .systemBackground
+        nav.view.backgroundColor = .sheetGround
         nav.modalPresentationStyle = .pageSheet
         if let sp = nav.sheetPresentationController {
             sp.detents = [.medium(), .large()]
@@ -184,7 +190,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         if let s = sheet, s.id == id {
             sheet = nil
-            s.nav.dismiss(animated: true)
+            host?.coreWindows?.willBeReplaced(s.nav)
+            (s.nav.presentingViewController ?? s.nav).dismiss(animated: true)
         }
     }
 
@@ -199,7 +206,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
     func closeAll() {
         for (_, s) in scenes { UIApplication.shared.requestSceneSessionDestruction(s, options: nil) { _ in } }
         scenes = [:]
-        sheet?.nav.dismiss(animated: false)
+        if let n = sheet?.nav { host?.coreWindows?.willBeReplaced(n) }
+        sheet.map { $0.nav.presentingViewController ?? $0.nav }?.dismiss(animated: false)
         sheet = nil
     }
 
@@ -304,13 +312,19 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        view.backgroundColor = .systemBackground
-        body.backgroundColor = .systemBackground
+        view.backgroundColor = .sheetGround
+        body.backgroundColor = .sheetGround
         summaryLabel.font = .preferredFont(forTextStyle: .footnote)
         summaryLabel.adjustsFontForContentSizeCategory = true
         summaryLabel.textColor = .secondaryLabel
         summaryLabel.numberOfLines = 2
         summaryLabel.text = "Reading the value…"
+        // the summary keeps its own height: a viewer of a fixed height (the sound's) left the
+        // label to take the sheet's spare height, an empty band with the line in its middle
+        // (N4 slice 6); the viewer takes it instead
+        summaryLabel.setContentHuggingPriority(.required, for: .vertical)
+        summaryLabel.setContentCompressionResistancePriority(.required, for: .vertical)
+        body.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
         for x in [summaryLabel, body] {
             x.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(x)
@@ -353,7 +367,7 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
                 current?.removeFromSuperview()
                 restyle = nil
                 let h = UIHostingController(rootView: ViewerView(box: box))
-                h.view.backgroundColor = .systemBackground
+                h.view.backgroundColor = .sheetGround
                 addChild(h)
                 hosted = h
                 put(h.view)
@@ -421,6 +435,7 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
 
     private func put(_ v: UIView) {
         v.translatesAutoresizingMaskIntoConstraints = false
+        v.setContentHuggingPriority(.defaultLow - 1, for: .vertical)
         body.addSubview(v)
         NSLayoutConstraint.activate([
             v.topAnchor.constraint(equalTo: body.topAnchor),
@@ -800,6 +815,7 @@ final class PadMessages: NSObject, UIAdaptivePresentationControllerDelegate {
         if open, sheet == nil, let host {
             let h = UIHostingController(rootView: MessagesView(messages: messages, done: { [weak self] in self?.closed() }))
             h.modalPresentationStyle = .formSheet
+            h.view.backgroundColor = .sheetGround
             h.presentationController?.delegate = self
             h.view.accessibilityIdentifier = "messages"
             sheet = h
@@ -824,5 +840,137 @@ final class PadMessages: NSObject, UIAdaptivePresentationControllerDelegate {
         sheet = nil
         let m = messages
         Task { await m.close() }
+    }
+}
+
+/// The windows the core keeps and draws as a model (N4 slice 6): the Cache Report, the graph's
+/// Parameters window, value editors (`report.get`) and Compare (`compare.get`), each a sheet
+/// while the scene's `view.windows` says it is open (the newest shown: one presentation at a
+/// time); Done or a swipe down closes it in the core too.
+@MainActor
+final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
+    let model: DocumentModel
+    let pictures: Pictures
+    weak var host: GraphViewController?
+    private var open: [String] = []
+    private var reports: [String: ReportModel] = [:]
+    private var compare: CompareModel?
+    private(set) var shown: (key: String, vc: UIViewController)?
+
+    init(model: DocumentModel, pictures: Pictures) {
+        self.model = model
+        self.pictures = pictures
+    }
+
+    func follow(_ w: Windows) {
+        // ours went with something under it (dismissed by another presentation): closed in the core
+        if let s = shown, s.vc.presentingViewController == nil, !s.vc.isBeingPresented {
+            shown = nil
+            tellClosed(s.key)
+        }
+        let keys = CoreWindowKeys.of(w)
+        let added = keys.filter { !open.contains($0) }
+        open = keys
+        for k in reports.keys where !keys.contains(k) { reports[k] = nil }
+        if !keys.contains("compare") { compare = nil }
+        for (_, r) in reports { r.follow(w.reports) }
+        compare?.follow(w.reports)
+        if let s = shown, !keys.contains(s.key) {
+            shown = nil
+            s.vc.dismiss(animated: !CoreHost.options.scratchState)
+        }
+        if let k = added.last { show(k, stamp: w.reports) }
+        host?.reportNow()
+    }
+
+    private func show(_ key: String, stamp: UInt64?) {
+        guard let host else { return }
+        let vc: UIViewController
+        if key == "compare" {
+            let c = compare ?? CompareModel(model: model, pictures: pictures)
+            compare = c
+            c.follow(stamp)
+            vc = UIHostingController(rootView: CompareView(compare: c, done: { [weak self] in self?.closed(key) }))
+        } else {
+            let r = reports[key] ?? ReportModel(model: model, key: key)
+            reports[key] = r
+            r.follow(stamp)
+            vc = UIHostingController(rootView: ReportView(report: r, done: { [weak self] in self?.closed(key) }))
+        }
+        vc.view.backgroundColor = .sheetGround
+        vc.modalPresentationStyle = .pageSheet
+        if let sp = vc.sheetPresentationController {
+            sp.detents = [.medium(), .large()]
+            sp.prefersGrabberVisible = true
+        }
+        vc.presentationController?.delegate = self
+        vc.view.accessibilityIdentifier = "core-\(key)"
+        if let s = shown, s.vc.presentingViewController != nil { s.vc.dismiss(animated: false) }
+        shown = (key, vc)
+        // over what is shown now (Settings, a value's sheet), as a window over another on the Mac;
+        // closing it shows that again
+        var top: UIViewController = host
+        while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
+        top.present(vc, animated: !CoreHost.options.scratchState)
+    }
+
+    /// Done: closed at once, the core told after.
+    func closed(_ key: String) {
+        if let s = shown, s.key == key {
+            shown = nil
+            s.vc.dismiss(animated: true)
+        }
+        tellClosed(key)
+    }
+
+    private func tellClosed(_ key: String) {
+        if key == "compare" {
+            let c = compare ?? CompareModel(model: model, pictures: pictures)
+            Task { await c.close() }
+        } else {
+            let r = reports[key] ?? ReportModel(model: model, key: key)
+            Task { await r.close() }
+        }
+    }
+
+    func presentationControllerDidDismiss(_ pc: UIPresentationController) {
+        guard let s = shown, pc.presentedViewController === s.vc else { return }
+        shown = nil
+        tellClosed(s.key)
+    }
+
+    // (a value's sheet is dismissed from its presenter, so a report over it goes with it: N4 slice 6)
+    /// The graph is about to dismiss `vc` to show something else (a value's sheet, the palette):
+    /// if it is ours, or ours is shown over it, it closes in the core too, so the core never keeps
+    /// a window open that nothing shows (and asking for it again shows it).
+    func willBeReplaced(_ vc: UIViewController) {
+        guard let s = shown else { return }
+        var v: UIViewController? = vc
+        while let x = v {
+            if x === s.vc {
+                shown = nil
+                tellClosed(s.key)
+                return
+            }
+            v = x.presentedViewController
+        }
+    }
+
+    var describe: JSONValue {
+        var o: [String: JSONValue] = ["open": .array(open.map { .string($0) }), "shown": shown.map { .string($0.key) } ?? .null]
+        if let s = shown {
+            if let r = reports[s.key] { o["report"] = r.describe }
+            if s.key == "compare", let c = compare { o["compare"] = c.describe }
+        }
+        return .object(o)
+    }
+}
+
+extension UIColor {
+    /// The ground of a sheet over the graph: opaque, light or dark (N4 slice 6). iPadOS 26 draws a
+    /// partial-height sheet as glass and resolves `.systemBackground` inside it to see-through, so
+    /// the graph showed blurred through a value's sheet in dark; a value is read, not seen through.
+    static let sheetGround = UIColor { t in
+        t.userInterfaceStyle == .dark ? UIColor(red: 0.110, green: 0.110, blue: 0.118, alpha: 1) : UIColor.white
     }
 }

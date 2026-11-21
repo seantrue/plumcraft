@@ -121,6 +121,24 @@ public struct ViewerBar: SwiftUI.View {
             }
             Spacer(minLength: 4)
             let p = box.popout
+            // drag the value out as a file of its own (`value.export`, N4 slice 6)
+            Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                .foregroundStyle(.tint)
+                .help("Drag the value out as a file")
+                .accessibilityLabel("Drag Out")
+                .accessibilityIdentifier("viewer-drag")
+                .onDrag { DragOut.provider(p, name: value.title ?? p.window.title) }
+            Menu {
+                Button("Pin as A") { Task { await p.command("viewer.pin", ["slot": "a"]) } }
+                Button("Pin as B") { Task { await p.command("viewer.pin", ["slot": "b"]) } }
+            } label: {
+                Label("Compare", systemImage: "rectangle.split.2x1")
+            }
+            .labelStyle(.iconOnly)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .help("Pin this value as A or B and compare")
+            .accessibilityIdentifier("viewer-compare")
             Button { Task { await p.takeOut("value.copy") } } label: { Label("Copy", systemImage: "doc.on.doc") }
                 .labelStyle(.iconOnly).help("Copy the value").accessibilityIdentifier("viewer-copy")
             Button { Task { await p.takeOut("value.share") } } label: { Label("Share…", systemImage: "square.and.arrow.up") }
@@ -137,6 +155,35 @@ public struct ViewerBar: SwiftUI.View {
         guard i >= 0, UInt64(i) < n else { return }
         let p = box.popout
         Task { await p.command("run.item", ["index": .int(i)]) }
+    }
+}
+
+/// A value dragged out of its viewer: the file `value.export` writes, made when the drop asks.
+@MainActor
+enum DragOut {
+    static func provider(_ p: PopoutModel, name: String) -> NSItemProvider {
+        let provider = NSItemProvider()
+        provider.suggestedName = name.replacingOccurrences(of: "/", with: "-").replacingOccurrences(of: ":", with: "-")
+        provider.registerFileRepresentation(forTypeIdentifier: "public.data", fileOptions: [], visibility: .all) { done in
+            let deliver = Deliver(done)
+            Task { @MainActor in
+                if let f = await p.exportFile() {
+                    deliver.call(URL(fileURLWithPath: f), nil)
+                } else {
+                    deliver.call(nil, CocoaError(.fileWriteUnknown))
+                }
+            }
+            return nil
+        }
+        return provider
+    }
+
+    /// The drop's completion, handed to the main actor once the file is written.
+    final class Deliver: @unchecked Sendable {
+        // the system's completion handler: called once, from any thread
+        let done: (URL?, Bool, (any Error)?) -> Void
+        init(_ done: @escaping (URL?, Bool, (any Error)?) -> Void) { self.done = done }
+        func call(_ url: URL?, _ error: (any Error)?) { done(url, false, error) }
     }
 }
 
@@ -255,6 +302,7 @@ struct TableViewer: SwiftUI.View {
                             Task { await p.command("viewer.table", ["sort": .null]) }
                         }
                     })
+                #if os(macOS)
                 Table(rows, sortOrder: sort) {
                     TableColumnForEach(cols) { c in
                         TableColumn(c.name, sortUsing: CoreSort(column: c.id)) { (r: PageRow) in
@@ -266,6 +314,12 @@ struct TableViewer: SwiftUI.View {
                     }
                 }
                 .accessibilityIdentifier("viewer-table")
+                #else
+                // a SwiftUI Table on iOS shows one column in compact width and starts its columns
+                // far from the edge in a sheet (N4 slice 6): a grid of the page's own widths, and a
+                // list of rows when the width is compact
+                PageGrid(cols: cols, rows: rows, sort: sort.wrappedValue.first, onSort: { sort.wrappedValue = $0.map { [$0] } ?? [] }, id: "viewer-table")
+                #endif
                 Divider()
                 PageBar(what: "rows", start: start, shown: rows.count, total: page["rows"].uint64 ?? 0, page: page["page"].uint64 ?? 0, pages: page["pages"].uint64 ?? 1) { n in
                     let p = box.popout
@@ -279,6 +333,128 @@ struct TableViewer: SwiftUI.View {
         .onChange(of: key) { _, k in loader.load(box, "table", key: k) }
     }
 }
+
+#if os(iOS)
+/// A page of rows on iOS: a grid with a header row (a tap on a header sorts through the core, as a
+/// table's header click does on the Mac) in regular width; a list of rows, each a card of its
+/// columns, in compact width (an iPhone, a narrow Split View or Stage Manager window).
+struct PageGrid: SwiftUI.View {
+    let cols: [PageColumn]
+    let rows: [PageRow]
+    let sort: CoreSort?
+    let onSort: ((CoreSort?) -> Void)?
+    let id: String
+    var rowNumbers = false
+    @Environment(\.horizontalSizeClass) private var size
+
+    var body: some SwiftUI.View {
+        if size == .compact { list } else { grid }
+    }
+
+    private func cell(_ r: PageRow, _ c: PageColumn) -> String { c.id < r.cells.count ? r.cells[c.id] : "" }
+
+    /// Each column as wide as its header and the page's cells need, within reason.
+    private var widths: [CGFloat] {
+        cols.map { c in
+            // the header's sort chevron has room too
+            let longest = rows.prefix(200).reduce(c.name.count + 3) { max($0, cell($1, c).count) }
+            return min(max(CGFloat(longest) * 10 + 28, 64), 360)
+        }
+    }
+
+    private func tapped(_ c: PageColumn) {
+        guard let onSort else { return }
+        if let s = sort, s.column == c.id {
+            onSort(CoreSort(column: c.id, order: s.order == .forward ? .reverse : .forward))
+        } else {
+            onSort(CoreSort(column: c.id, order: .forward))
+        }
+    }
+
+    private var grid: some SwiftUI.View {
+        let w = widths
+        // from the leading edge (a two-way scroll view centres content narrower than itself)
+        return GeometryReader { g in ScrollView([.horizontal, .vertical]) {
+            LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
+                Section {
+                    ForEach(rows) { r in
+                        HStack(spacing: 0) {
+                            if rowNumbers { Text("\(r.id)").font(.caption.monospacedDigit()).foregroundStyle(.secondary).frame(width: 56, alignment: .leading) }
+                            ForEach(Array(cols.enumerated()), id: \.offset) { i, c in
+                                Text(cell(r, c))
+                                    .font(c.numeric ? .body.monospacedDigit() : .body)
+                                    .lineLimit(1)
+                                    .frame(width: w[i] - 16, alignment: c.numeric ? .trailing : .leading)
+                                    .padding(.horizontal, 8)
+                                    .textSelection(.enabled)
+                            }
+                        }
+                        .padding(.vertical, 7)
+                        .background(r.id % 2 == 1 ? Color.secondary.opacity(0.06) : Color.clear)
+                    }
+                } header: {
+                    HStack(spacing: 0) {
+                        if rowNumbers { Text("row").font(.caption).foregroundStyle(.secondary).frame(width: 56, alignment: .leading) }
+                        ForEach(Array(cols.enumerated()), id: \.offset) { i, c in
+                            Button { tapped(c) } label: {
+                                HStack(spacing: 4) {
+                                    if c.numeric { Spacer(minLength: 0) }
+                                    Text(c.name).fontWeight(.semibold).lineLimit(1)
+                                    if let s = sort, s.column == c.id { Image(systemName: s.order == .forward ? "chevron.up" : "chevron.down").font(.caption) }
+                                    if !c.numeric { Spacer(minLength: 0) }
+                                }
+                                .frame(width: w[i] - 16)
+                                .padding(.horizontal, 8)
+                            }
+                            .buttonStyle(.borderless)
+                            .disabled(onSort == nil)
+                            .accessibilityIdentifier("\(id)-header-\(c.id)")
+                        }
+                    }
+                    .padding(.vertical, 8)
+                    .background(.background)
+                    .overlay(alignment: .bottom) { Divider() }
+                }
+            }
+            .padding(.leading, 8)
+            .frame(minWidth: g.size.width, minHeight: g.size.height, alignment: .topLeading)
+        } }
+        .accessibilityIdentifier(id)
+    }
+
+    private var list: some SwiftUI.View {
+        List {
+            if let onSort, !cols.isEmpty {
+                Picker("Sort by", selection: Binding<Int>(get: { sort.map { $0.column } ?? -1 }, set: { c in
+                    onSort(c < 0 ? nil : CoreSort(column: c, order: sort?.order ?? .forward))
+                })) {
+                    Text("Unsorted").tag(-1)
+                    ForEach(cols) { c in Text(c.name).tag(c.id) }
+                }
+                .accessibilityIdentifier("\(id)-sort")
+                if let s = sort {
+                    Toggle("Descending", isOn: Binding(get: { s.order == .reverse }, set: { onSort(CoreSort(column: s.column, order: $0 ? .reverse : .forward)) }))
+                }
+            }
+            ForEach(rows) { r in
+                VStack(alignment: .leading, spacing: 3) {
+                    if rowNumbers { Text("row \(r.id)").font(.caption).foregroundStyle(.secondary) }
+                    ForEach(cols) { c in
+                        HStack(alignment: .firstTextBaseline) {
+                            Text(c.name).font(.callout).foregroundStyle(.secondary)
+                            Spacer(minLength: 12)
+                            Text(cell(r, c)).font(c.numeric ? .body.monospacedDigit() : .body).multilineTextAlignment(.trailing).textSelection(.enabled)
+                        }
+                    }
+                }
+                .padding(.vertical, 2)
+            }
+        }
+        .listStyle(.plain)
+        .accessibilityIdentifier(id)
+    }
+}
+#endif
 
 struct GridViewer: SwiftUI.View {
     let box: ViewerBox
@@ -324,6 +500,7 @@ struct GridViewer: SwiftUI.View {
                     Text(stats.map { "\($0["name"].string ?? "") \($0["min"].string ?? "?") to \($0["max"].string ?? "?")" }.joined(separator: " · "))
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading)
                 }
+                #if os(macOS)
                 Table(rows) {
                     TableColumn("row") { (r: PageRow) in Text("\(r.id)").font(.caption.monospacedDigit()).foregroundStyle(.secondary) }.width(min: 36, ideal: 48)
                     TableColumnForEach(cols) { c in
@@ -334,6 +511,9 @@ struct GridViewer: SwiftUI.View {
                     }
                 }
                 .accessibilityIdentifier("viewer-grid")
+                #else
+                PageGrid(cols: cols, rows: rows, sort: nil, onSort: nil, id: "viewer-grid", rowNumbers: true)
+                #endif
                 Divider()
                 PageBar(what: "rows", start: start, shown: rows.count, total: page["rows"].uint64 ?? 0, page: page["page"].uint64 ?? 0, pages: page["pages"].uint64 ?? 1) { n in
                     let p = box.popout

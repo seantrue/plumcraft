@@ -1356,6 +1356,64 @@
         {"call": "command.run", "params": {"command": "view.messages", "params": {"open": false}}, "expect": {"/result/open": false}},
         {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
       ]
+    },
+    {
+      "name": "the Cache Report and the graph's Parameters window are the core's: opened, read, edited and closed",
+      "about": "N4 slice 6: run.cacheReport and view.params open windows in the scene's view.windows (cache, params, with a reports stamp); report.get gives each as sections of rows, the Parameters window's name and description as fields their commands take; a rename through the field's command is read back; closing them by their commands leaves no window",
+      "half": "read",
+      "needs": ["engine:text"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [400, 0]}}, "save": {"u": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$u", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "graph.port.name", "params": {"port": {"node": "$a", "port": "text"}, "name": "words", "doc": "what to shout"}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "command.run", "params": {"command": "run.cacheReport", "params": {"open": true}}, "expect": {"/result/open": true}},
+        {"call": "scene.get", "expect": {"/result/view/windows/cache": true, "/result/view/windows/reports": {"$min": 1}}},
+        {"call": "report.get", "params": {"window": "cache"}, "expect": {"/result/title": "Cache Report", "/result/sections/0/title": "Latest run", "/result/sections/0/rows/0/label": "Computed", "/result/actions/0/command": "run.cacheReport"}},
+        {"call": "command.run", "params": {"command": "view.params", "params": {"open": true}}},
+        {"call": "scene.get", "expect": {"/result/view/windows/params": true}},
+        {"call": "report.get", "params": {"window": "params"}, "expect": {"/result/sections/0/rows/0/label": "words", "/result/sections/0/rows/0/edits/0/command": "graph.port.rename", "/result/sections/0/rows/0/edits/1/value": "what to shout", "/result/sections/0/rows/0/actions/0/params/node": "$a"}},
+        {"call": "command.run", "params": {"command": "graph.port.rename", "params": {"name": "words", "to": "shout"}}},
+        {"call": "report.get", "params": {"window": "params"}, "expect": {"/result/sections/0/rows/0/label": "shout"}},
+        {"call": "report.get", "params": {"window": "editor", "node": "$a"}, "ok": false},
+        {"call": "report.get", "params": {"window": "nowhere"}, "ok": false},
+        {"call": "command.run", "params": {"command": "view.params", "params": {"open": false}}},
+        {"call": "command.run", "params": {"command": "run.cacheReport", "params": {"open": false}}},
+        {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
+      ]
+    },
+    {
+      "name": "Compare pins two values popped out by a person, side by side or split, and unpins them",
+      "about": "N4 slice 6: a value popped out by a double tap is pinned as A with viewer.pin {slot, popout} (the Apple apps have no Watched panel), another as B; the scene's view.windows has compare; compare.get gives both sides as popout.get has a value; viewer.compare changes how; viewer.unpin forgets them and Compare closes",
+      "half": "read",
+      "needs": ["engine:text"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$a", "port": "text", "value": "plum"}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [500, 0]}}, "save": {"u": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$u", "port": "text"}}}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"node": "$a", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/commands/0/command": "view.popout"}, "save": {"p": "/result/commands/0/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewer": {"$exists": true}}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "viewer.pin", "params": {"slot": "a", "popout": "$p"}}, "expect": {"/result/slot": "a", "/result/node": "$a"}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$p"}}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"node": "$u", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/commands/0/command": "view.popout"}, "save": {"q": "/result/commands/0/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$q"}, "until": {"/result/viewer": {"$exists": true}}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "viewer.pin", "params": {"slot": "b", "popout": "$q"}}, "expect": {"/result/slot": "b", "/result/node": "$u"}},
+        {"call": "command.run", "params": {"command": "viewer.pin", "params": {"slot": "b", "popout": 424242}}, "ok": false},
+        {"call": "scene.get", "expect": {"/result/view/windows/compare": true}},
+        {"call": "compare.get", "expect": {"/result/on": true, "/result/how": "side", "/result/a/node": "$a", "/result/b/node": "$u", "/result/b/title": {"$exists": true}}},
+        {"call": "command.run", "params": {"command": "viewer.compare", "params": {"how": "split", "split": 0.25}}},
+        {"call": "compare.get", "expect": {"/result/how": "split", "/result/split": 0.25}},
+        {"call": "compare.get", "params": {"junk": 1}, "ok": false},
+        {"call": "command.run", "params": {"command": "viewer.unpin", "params": {}}, "expect": {"/result/pinned": false}},
+        {"call": "compare.get", "expect": {"/result/on": false, "/result/a": null}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$q"}}},
+        {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
+      ]
     }
   ]
 }

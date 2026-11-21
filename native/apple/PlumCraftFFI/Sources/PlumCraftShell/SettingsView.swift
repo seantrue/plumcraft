@@ -76,7 +76,13 @@ public struct SettingsView: SwiftUI.View {
             List {
                 ForEach(settings.sections) { s in
                     NavigationLink {
+                        // Done on every page of the sheet, not only the first (N4 slice 6)
                         SectionForm(section: s, settings: settings).navigationTitle(s.label)
+                            .toolbar {
+                                ToolbarItem(placement: .confirmationAction) {
+                                    Button("Done") { done?() }.accessibilityIdentifier("settings.done")
+                                }
+                            }
                     } label: {
                         Label(s.label, systemImage: sectionSymbol(s.id))
                     }

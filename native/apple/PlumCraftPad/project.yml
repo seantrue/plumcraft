@@ -53,6 +53,10 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
         UIRequiresFullScreen: false
         # a mouse's or trackpad's clicks arrive as indirect pointer touches, so the canvas tells
         # them from a finger (N4 slice 1: a pointer drag on empty canvas is a marquee, as on the Mac)
@@ -87,7 +91,8 @@ targets:
         PRODUCT_NAME: PlumCraftPad
         PRODUCT_MODULE_NAME: PlumCraftPad
         PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad
-        TARGETED_DEVICE_FAMILY: "2"
+        # the iPad and, since N4 slice 6, the iPhone: one app, a compact layout in compact width
+        TARGETED_DEVICE_FAMILY: "1,2"
         ARCHS: arm64
         DEAD_CODE_STRIPPING: YES
         "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
@@ -112,7 +117,7 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad.uitests
-        TARGETED_DEVICE_FAMILY: "2"
+        TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: PlumCraftPad
         "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"

@@ -662,6 +662,17 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             },
             None => err(not_here(method)),
         },
+        // the Cache Report, the graph's Parameters window and a value editor, as models a shell
+        // draws (N4 slice 6)
+        "report.get" => match crate::reports::get(s.session(), params) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
+        // Compare's two sides, A and B (N4 slice 6)
+        "compare.get" => match crate::windows::compare_json(s.session(), params) {
+            Ok(v) => ok(v),
+            Err(e) => err(e),
+        },
         // a page of what a pop-out's viewer shows, read on the media service's workers (N4 slice 5)
         "viewer.data" => match s.document_mut() {
             Some(d) => match crate::viewers::data(&d.session, &d.media_service, params) {

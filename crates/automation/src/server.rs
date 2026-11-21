@@ -9,7 +9,7 @@
 //! [`REPLY_DEADLINE`].
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, TcpListener, TcpStream};
+use std::net::{IpAddr, Ipv4Addr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -229,14 +229,56 @@ pub fn is_local(ip: IpAddr) -> bool {
     }
 }
 
-/// This machine's address on its local network: the one it would send from (no packet is
-/// sent: a UDP socket is only connected), when that address is a local one ([`is_local`]) and
-/// not loopback. None without a local network.
+/// Where [`lan_address`] asks the routing table from: a broadcast address in each private block,
+/// most often a home or office network's first. No packet is sent: a UDP socket is only connected.
+const LAN_PROBES: [Ipv4Addr; 3] = [Ipv4Addr::new(192, 168, 255, 255), Ipv4Addr::new(172, 31, 255, 255), Ipv4Addr::new(10, 255, 255, 255)];
+
+/// This machine's address on its local network, when it has one ([`is_local`], not loopback):
+/// the address it would send from towards each private block ([`LAN_PROBES`]), chosen by
+/// [`choose_lan`]. A VPN that routes `10.0.0.0/8` through its tunnel (N4 slice 6: the iPad bound
+/// `10.5.0.2`, a tunnel's, and the Mac could not reach it) no longer wins over the Wi-Fi's
+/// `192.168.x.y`. std can't list interfaces (their names, `utun`, `ipsec`, `wg`, or a
+/// point-to-point flag), so a tunnel whose address is the only one on a private block still
+/// wins; the device script checks the address against the Mac's subnets.
 pub fn lan_address() -> Option<IpAddr> {
-    let sock = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
-    sock.connect(("10.255.255.255", 9)).ok()?;
-    let ip = sock.local_addr().ok()?.ip();
-    (is_local(ip) && !ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+    let found: Vec<(Ipv4Addr, IpAddr)> = LAN_PROBES
+        .iter()
+        .filter_map(|probe| {
+            let sock = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+            sock.connect((*probe, 9)).ok()?;
+            Some((*probe, sock.local_addr().ok()?.ip()))
+        })
+        .collect();
+    choose_lan(&found)
+}
+
+/// Of the addresses found towards each probe (`(probe, local address)`), the local network's:
+/// one inside the block it was asked about (the network is on that block: a route on the link,
+/// not a default route through something else) before one that isn't; then `192.168.0.0/16`,
+/// `172.16.0.0/12`, `10.0.0.0/8` in that order, since a tunnel's address is most often in
+/// `10/8` and a home network's in `192.168/16`; then the first found. None when no address is
+/// local.
+pub fn choose_lan(found: &[(Ipv4Addr, IpAddr)]) -> Option<IpAddr> {
+    let block = |ip: Ipv4Addr| -> u8 {
+        match ip.octets() {
+            [192, 168, ..] => 0,
+            [172, b, ..] if (16..32).contains(&b) => 1,
+            [10, ..] => 2,
+            _ => 3,
+        }
+    };
+    found
+        .iter()
+        .enumerate()
+        .filter(|(_, (_, ip))| is_local(*ip) && !ip.is_loopback() && !ip.is_unspecified())
+        .min_by_key(|(i, (probe, ip))| {
+            let (inside, b) = match ip {
+                IpAddr::V4(v4) => (block(*v4) == block(*probe) && block(*v4) < 3, block(*v4)),
+                IpAddr::V6(_) => (false, 4),
+            };
+            (!inside, b, *i)
+        })
+        .map(|(_, (_, ip))| *ip)
 }
 
 impl Server {
@@ -525,7 +567,7 @@ mod tests {
 #[cfg(test)]
 mod bind_tests {
     use super::*;
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::net::Ipv6Addr;
 
     #[test]
     fn local_means_this_machine_or_its_own_network() {
@@ -538,6 +580,26 @@ mod bind_tests {
         if let Some(ip) = lan_address() {
             assert!(is_local(ip) && !ip.is_loopback());
         }
+    }
+
+    #[test]
+    fn the_local_network_is_chosen_over_a_vpn_tunnel() {
+        let ip = |s: &str| -> IpAddr { s.parse().unwrap() };
+        let [p192, p172, p10] = LAN_PROBES;
+        // N4 slice 6: Wi-Fi on 192.168.1.x and a VPN routing 10/8 (and the default) through 10.5.0.2
+        let vpn = [(p192, ip("192.168.1.23")), (p172, ip("10.5.0.2")), (p10, ip("10.5.0.2"))];
+        assert_eq!(choose_lan(&vpn), Some(ip("192.168.1.23")));
+        // the same with the probes in another order
+        let vpn2 = [(p10, ip("10.5.0.2")), (p192, ip("192.168.1.23"))];
+        assert_eq!(choose_lan(&vpn2), Some(ip("192.168.1.23")));
+        // an office network on 10/8 and nothing else: every probe leaves from it
+        let office = [(p192, ip("10.0.4.7")), (p172, ip("10.0.4.7")), (p10, ip("10.0.4.7"))];
+        assert_eq!(choose_lan(&office), Some(ip("10.0.4.7")));
+        // a network on 172.16/12 beside a tunnel on 10/8
+        assert_eq!(choose_lan(&[(p172, ip("172.20.0.9")), (p10, ip("10.8.0.3"))]), Some(ip("172.20.0.9")));
+        // nothing local (a public address, loopback, unspecified): none
+        assert_eq!(choose_lan(&[(p192, ip("8.8.4.4")), (p10, ip("127.0.0.1")), (p172, ip("0.0.0.0"))]), None);
+        assert_eq!(choose_lan(&[]), None);
     }
 
     #[test]

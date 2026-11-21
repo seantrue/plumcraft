@@ -381,6 +381,18 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
         }
         "app.quit" => quit(h, by),
         "engine.install" | "engine.attach" if h.open_window(id) => {}
+        // a shell without a window of its own for them (the Apple apps, N4 slice 6): the core's
+        // form asks for the address or the repository, then runs the command
+        "engine.install" | "engine.attach" => {
+            if let Err(why) = plumcraft_session::find(id).map_or(Ok(()), |c| (c.enabled)(h.session())) {
+                h.say(why);
+                return;
+            }
+            if let Some(form) = engine_form(id) {
+                let values = form.initial(h.session());
+                raise(h, Kind::Form, form_params(&form, &values, None), by, Cont::new(Then::Form { command: form.command.to_owned() }));
+            }
+        }
         "graph.save" if h.session().path().is_some() => {
             let _ = h.run(id, &json!({}));
         }
@@ -533,6 +545,35 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
 }
 
 /// A form's ask params: `{command, title, intro, fields, submit, values, error?}`.
+/// The forms Engine › Attach… and Install Engine… ask with in a shell that has no window of its
+/// own for them (egui has: [`Host::open_window`]).
+pub fn engine_form(command: &str) -> Option<plumcraft_session::commands::CommandForm> {
+    use plumcraft_session::commands::{CommandForm, FieldKind, FormField};
+    let line = |key, label, hint, required| FormField { key, label, hint, kind: FieldKind::Line, required };
+    match command {
+        "engine.attach" => Some(CommandForm {
+            command: "engine.attach",
+            title: "Attach to an Engine",
+            intro: "Connect to an HTTP engine already running (started with --listen) as a remote UI.",
+            fields: vec![
+                line("url", "Address", "http://host:port", true),
+                FormField { kind: FieldKind::Secret, ..line("token", "Token", "if the engine asks for one", false) },
+            ],
+            submit: "Attach",
+            prefill: None,
+        }),
+        "engine.install" => Some(CommandForm {
+            command: "engine.install",
+            title: "Install Engine",
+            intro: "Download a Python engine from GitHub and install it. It runs the package's code: install only what you trust.",
+            fields: vec![line("repo", "Repository", "owner/repo or https://github.com/owner/repo", true)],
+            submit: "Install",
+            prefill: None,
+        }),
+        _ => None,
+    }
+}
+
 pub fn form_params(form: &plumcraft_session::commands::CommandForm, values: &[String], error: Option<&str>) -> Value {
     use plumcraft_session::commands::FieldKind;
     let fields: Vec<Value> = form
@@ -782,7 +823,7 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
             }
         }
         (Then::Form { command }, Answer::Values(given)) => {
-            let Some(form) = plumcraft_session::commands::form(&command) else { return };
+            let Some(form) = plumcraft_session::commands::form(&command).or_else(|| engine_form(&command)) else { return };
             let values: Vec<String> = form.fields.iter().map(|f| given.get(f.key).and_then(Value::as_str).unwrap_or_default().to_owned()).collect();
             let refused = match form.params(&values) {
                 Err(why) => Some(why),

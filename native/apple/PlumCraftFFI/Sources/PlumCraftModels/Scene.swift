@@ -199,8 +199,28 @@ public struct Windows: Codable, Hashable, Sendable {
     public var settings: String?
     /// The Messages window is open (N4 slice 5).
     public var messages: Bool?
-    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil, messages: Bool? = nil) {
+    /// The Cache Report is open (N4 slice 6): `report.get {window: "cache"}`.
+    public var cache: Bool?
+    /// The graph's Parameters window is open (N4 slice 6): `report.get {window: "params"}`.
+    public var params: Bool?
+    /// The nodes whose value editor is open (N4 slice 6): `report.get {window: "editor", node}`.
+    public var editors: [String]?
+    /// Compare is open (N4 slice 6): `compare.get`.
+    public var compare: Bool?
+    /// Changes when what an open report reads changes: read it again then.
+    public var reports: UInt64?
+    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil, messages: Bool? = nil,
+                cache: Bool? = nil, params: Bool? = nil, editors: [String]? = nil, compare: Bool? = nil, reports: UInt64? = nil) {
         self.parameters = parameters; self.popouts = popouts; self.settings = settings; self.messages = messages
+        self.cache = cache; self.params = params; self.editors = editors; self.compare = compare; self.reports = reports
+    }
+    /// The report windows open, as `report.get`'s keys: `cache`, `params`, `editor:<node>`.
+    public var reportKeys: [String] {
+        var out: [String] = []
+        if cache == true { out.append("cache") }
+        if params == true { out.append("params") }
+        for n in editors ?? [] { out.append("editor:\(n)") }
+        return out
     }
     public var list: [PopoutWindow] { popouts ?? [] }
 }

@@ -116,6 +116,12 @@ fn has_value(s: &Session) -> std::result::Result<(), String> {
     if s.run.panel().and_then(|(_, d)| d).is_some() { Ok(()) } else { Err("nothing is watched yet".into()) }
 }
 
+/// The panel or a pop-out shows a value (`viewer.pin {popout}`).
+fn has_value_or_popout(s: &Session) -> std::result::Result<(), String> {
+    let popped = s.views.popouts.iter().any(|o| s.run.entry(WatchRole::Popout(o.id)).and_then(|(_, d)| d).is_some());
+    if popped { Ok(()) } else { has_value(s) }
+}
+
 fn has_watch(s: &Session) -> std::result::Result<(), String> {
     if s.run.watch.is_empty() { Err("nothing is watched".into()) } else { Ok(()) }
 }
@@ -138,7 +144,14 @@ fn slot_param(p: &Value) -> Result<Option<WatchRole>> {
 /// Keep the panel's value as A or B, and show the compare. A left out: A, or B when A is pinned.
 fn pin(s: &mut Session, p: &Value) -> Result<Value> {
     let role = slot_param(p)?.unwrap_or(if s.run.index_of(WatchRole::PinA).is_some() { WatchRole::PinB } else { WatchRole::PinA });
-    let (w, d) = s.run.panel().ok_or_else(|| SessionError::Params("nothing is watched".into()))?;
+    // a pop-out's value (N4 slice 6: the Apple apps have no Watched panel), else the panel's
+    let (w, d) = match p.get("popout").filter(|v| !v.is_null()) {
+        Some(v) => {
+            let id = v.as_u64().ok_or_else(|| SessionError::Params("\"popout\" must be a pop-out's id".into()))?;
+            s.run.entry(WatchRole::Popout(id)).ok_or_else(|| SessionError::Params(format!("no pop-out {id}")))?
+        }
+        None => s.run.panel().ok_or_else(|| SessionError::Params("nothing is watched".into()))?,
+    };
     let (w, d) = (w.clone(), d.cloned());
     let out = json!({"slot": if role == WatchRole::PinA { "a" } else { "b" }, "node": w.node, "port": w.port, "index": w.index});
     s.run.set_watch(role, Some(w));
@@ -374,8 +387,8 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Pin for Compare",
             menu: &[],
             shortcut: None,
-            params: "{slot?: \"a\" | \"b\"} -> {slot, node, port, index}: keep the Watched panel's value as A or B and show the compare (left out: A, or B when A is pinned). A side not pinned is the panel's value",
-            enabled: has_value,
+            params: "{slot?: \"a\" | \"b\", popout?: id} -> {slot, node, port, index}: keep the Watched panel's value (or pop-out popout's) as A or B and show the compare (left out: A, or B when A is pinned). A side not pinned is the panel's value",
+            enabled: has_value_or_popout,
             run: pin,
             journal: false,
         },
