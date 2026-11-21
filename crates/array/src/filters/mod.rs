@@ -2,9 +2,9 @@
 //! Blur, Median 3×3, Convolve, Custom Convolve, Perona–Malik; Gradient, Sobel Magnitude, Zero
 //! Crossings, Segment Edges, Trace Contours; Rotate and Resize.
 //!
-//! The arithmetic is yapocis's numba kernels ([`kernels`]), its truetrace CPU path ([`trace`]),
+//! The arithmetic is the kernel library's numba kernels ([`kernels`]), its truetrace CPU path ([`trace`]),
 //! virtual_impressionist's `flow` and `core.resize` with Pillow's float resampling ([`resize`]).
-//! Sobel Magnitude and Rotate were yapocis_external GPU kernels, written here plainly from them.
+//! Sobel Magnitude and Rotate were the external kernel library's GPU kernels, written here plainly from them.
 //! Functions of one channel run on each channel of a stack; the result keeps the stack's colour
 //! space and names when the values keep their meaning (a blurred hue is still a hue; a gradient
 //! is not).
@@ -35,7 +35,7 @@ const DIRECTION_TIP: &str = "Along rows (horizontal), columns (vertical), or one
 
 /// The research software's `ANGLE_UNITS`: the angle in multiples of π times this.
 const ANGLE_UNITS: &[(&str, f32)] = &[("turns", 0.5), ("degrees", 180.0), ("radians", std::f32::consts::PI), ("π units", 1.0)];
-const ANGLE_TIP: &str = "Units of the angle output. yapocis gives multiples of π (-1..1, 0 = increasing downward, 0.5 = increasing to the right); degrees, radians and turns are the same angle scaled";
+const ANGLE_TIP: &str = "Units of the angle output. The kernel library gives multiples of π (-1..1, 0 = increasing downward, 0.5 = increasing to the right); degrees, radians and turns are the same angle scaled";
 
 fn angle_in(default: &str) -> plumcraft_proto::catalogue::Port {
     let units: Vec<&str> = ANGLE_UNITS.iter().map(|(u, _)| *u).collect();
@@ -48,7 +48,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.gaussian_blur",
             display: "Gaussian Blur",
             group: FILTERS,
-            description: "Separable Gaussian blur (yapocis convolvesep). Each channel of a stack is blurred. Like yapocis, it leaves a black (0) frame half the kernel wide (4 px at scale 0, 63 px at 7): the edges are not padded.",
+            description: "Separable Gaussian blur (the kernel library's convolvesep). Each channel of a stack is blurred. Like the kernel library, it leaves a black (0) frame half the kernel wide (4 px at scale 0, 63 px at 7): the edges are not padded.",
             inputs: vec![array_in("array", ARRAY_TIP), int_in("scale", 1, 0.0, 7.0, SCALE_TIP)],
             outputs: vec![array_out("blurred", "The blurred array, 0 within half the kernel of the border")],
             run: gaussian_blur,
@@ -66,7 +66,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.convolve",
             display: "Convolve",
             group: FILTERS,
-            description: "One of yapocis's named 1-D kernels along rows and/or columns: windows (hamming, hann, blackman, bartlett), smoothing (box, triangle, binomial), derivatives (deriv1 central difference, deriv2 second difference, sobel, prewitt, edge, savgol), sharpening (sharpen, unsharp) and band-pass (dog). The number is the kernel length. The kernel runs over the flattened rows (or columns), so it carries on from one row's end into the next row's start, and reflects at the array's first and last values (yapocis convolve on the CPU).",
+            description: "One of the kernel library's named 1-D kernels along rows and/or columns: windows (hamming, hann, blackman, bartlett), smoothing (box, triangle, binomial), derivatives (deriv1 central difference, deriv2 second difference, sobel, prewitt, edge, savgol), sharpening (sharpen, unsharp) and band-pass (dog). The number is the kernel length. The kernel runs over the flattened rows (or columns), so it carries on from one row's end into the next row's start, and reflects at the array's first and last values (the kernel library's convolve on the CPU).",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 {
@@ -83,7 +83,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.custom_convolve",
             display: "Custom Convolve",
             group: FILTERS,
-            description: "A 1-D kernel of your own weights along rows and/or columns (yapocis Convolve1D), run as Convolve runs its kernels.",
+            description: "A 1-D kernel of your own weights along rows and/or columns (the kernel library's Convolve1D), run as Convolve runs its kernels.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 string_in("weights", "1, 4, 6, 4, 1", "Kernel weights, comma or space separated (an odd count)"),
@@ -97,7 +97,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.perona_malik",
             display: "Perona–Malik",
             group: FILTERS,
-            description: "Anisotropic (edge-preserving) diffusion (yapocis anisodiff): smooths flat areas, keeps edges. Each channel is mapped to 0-1 for the filter and back. Connect `edges` (e.g. Segment Edges from a SAM2 segmentation) to keep those boundaries: nothing diffuses across them, everything else diffuses as without them (flow.perona_malik).",
+            description: "Anisotropic (edge-preserving) diffusion (the kernel library's anisodiff): smooths flat areas, keeps edges. Each channel is mapped to 0-1 for the filter and back. Connect `edges` (e.g. Segment Edges from a SAM2 segmentation) to keep those boundaries: nothing diffuses across them, everything else diffuses as without them (flow.perona_malik).",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 int_in("iterations", 8, 0.0, 500.0, "Diffusion steps; more = smoother"),
@@ -115,7 +115,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
                     "input",
                     &["map to 0-1", "as is"],
                     "map to 0-1",
-                    "map to 0-1: each channel's own range (kappa then means the same for any array). as is: the values go straight to yapocis anisodiff, as the commands' intensity I() does (kappa on a 0-256 scale only for 0-1 data)",
+                    "map to 0-1: each channel's own range (kappa then means the same for any array). as is: the values go straight to the kernel library's anisodiff, as the commands' intensity I() does (kappa on a 0-256 scale only for 0-1 data)",
                 ),
             ],
             outputs: vec![array_out("diffused", "The diffused array")],
@@ -125,7 +125,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.gradient",
             display: "Gradient",
             group: EDGES,
-            description: "Gradient magnitude and angle by central differences `reach` pixels apart (yapocis gradient; not divided by the distance). A border `reach` wide is 0.",
+            description: "Gradient magnitude and angle by central differences `reach` pixels apart (the kernel library's gradient; not divided by the distance). A border `reach` wide is 0.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 int_in("reach", 3, 1.0, 64.0, "Pixels between the centre and each sample; larger = smoother, broader edges"),
@@ -138,7 +138,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.sobel_magnitude",
             display: "Sobel Magnitude",
             group: EDGES,
-            description: "Gradient magnitude by the Sobel operator (yapocis_external anisodiff_ctrl), unnormalised: up to about 5.7 × the data's range. The border repeats its outermost pixels.",
+            description: "Gradient magnitude by the Sobel operator (the external kernel library's anisodiff_ctrl), unnormalised: up to about 5.7 × the data's range. The border repeats its outermost pixels.",
             inputs: vec![array_in("array", ARRAY_TIP)],
             outputs: vec![array_out("magnitude", "Sobel gradient magnitude")],
             run: sobel_magnitude,
@@ -147,10 +147,10 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.zero_crossings",
             display: "Zero Crossings",
             group: EDGES,
-            description: "1 where the array changes sign between opposite neighbours with enough contrast (yapocis zcs), e.g. on a DoG or a second derivative.",
+            description: "1 where the array changes sign between opposite neighbours with enough contrast (the kernel library's zcs), e.g. on a DoG or a second derivative.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
-                float_in("threshold", 10.0, 0.0, 1e9, "Minimum squared difference across the pixel, in millionths (10 = yapocis's default 1e-5)"),
+                float_in("threshold", 10.0, 0.0, 1e9, "Minimum squared difference across the pixel, in millionths (10 = the kernel library's default 1e-5)"),
             ],
             outputs: vec![array_out("crossings", "1 on zero crossings, 0 elsewhere")],
             run: zero_crossings,
@@ -172,7 +172,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.trace_contours",
             display: "Trace Contours",
             group: EDGES,
-            description: "The outline of a mask as line segments (yapocis truetrace's CPU path: an exact distance transform and marching squares): a table of x0, y0, x1, y1 rows (x = column, y = row), sorted by x0, y0, x1, y1, for Draw Shapes (lines) and the like.",
+            description: "The outline of a mask as line segments (the kernel library's truetrace CPU path: an exact distance transform and marching squares): a table of x0, y0, x1, y1 rows (x = column, y = row), sorted by x0, y0, x1, y1, for Draw Shapes (lines) and the like.",
             inputs: vec![
                 array_in("mask", "One channel; nonzero = inside"),
                 float_in("offset", 0.0, 0.0, 100.0, "Trace this many pixels outside the mask's edge (0 = the edge)"),
@@ -184,7 +184,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.rotate",
             display: "Rotate",
             group: GEOMETRY,
-            description: "Rotates about the centre, nearest-neighbour (yapocis_external rotate). Positive angles turn the picture counter-clockwise.",
+            description: "Rotates about the centre, nearest-neighbour (the external kernel library's rotate). Positive angles turn the picture counter-clockwise.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 float_in("degrees", 15.0, -360.0, 360.0, "The angle; positive turns counter-clockwise"),
@@ -311,7 +311,7 @@ fn direction(i: &Inputs) -> Result<String, NodeError> {
 fn convolve(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     let a = img(i, "array")?;
     let name = s(i, "kernel", "binomial5");
-    let k = conv_kernels::kernel(&name).ok_or_else(|| config(format!("kernel {name:?}: not one of yapocis's named kernels")))?;
+    let k = conv_kernels::kernel(&name).ok_or_else(|| config(format!("kernel {name:?}: not one of the kernel library's named kernels")))?;
     let d = direction(i)?;
     Ok(one("convolved", each(&a, true, |p, h, w| kernels::convolve_rows(p, h, w, &k, &d))?))
 }

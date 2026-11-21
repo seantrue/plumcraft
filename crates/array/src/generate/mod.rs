@@ -4,9 +4,9 @@
 //! Region Outlines, Grid Segments, Segment Average; FFT, Inverse FFT; Draw Shapes, Draw Lines,
 //! Composite.
 //!
-//! Simplex Noise, Mandelbrot, FFT and Draw Shapes/Composite are ported from yapocis's numba
+//! Simplex Noise, Mandelbrot, FFT and Draw Shapes/Composite are ported from the kernel library's numba
 //! kernels (`simplex.py`, `mandelbrot.py`, `fft.py`, `graphics4.py`) without `fastmath`; what
-//! The research software took from yapocis_external (Coordinates, Game of Life, Connected Components, Region
+//! The research software took from the external kernel library (Coordinates, Game of Life, Connected Components, Region
 //! Outlines, Segment Average, Draw Lines) is written here plainly from its description. numpy's
 //! own draws (`np.random.default_rng`) come from npexact, so seeded points are numpy's.
 //!
@@ -45,7 +45,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.coordinates",
             display: "Coordinates",
             group: GENERATE,
-            description: "Each pixel's row and column (yapocis_external xy), for position-dependent effects with Arithmetic: gradients, vignettes, ramps.",
+            description: "Each pixel's row and column (the external kernel library's xy), for position-dependent effects with Arithmetic: gradients, vignettes, ramps.",
             inputs: vec![array_in("like", "Take the size from this array")],
             outputs: vec![array_out("x", "Column index"), array_out("y", "Row index")],
             run: noise::coordinates,
@@ -54,14 +54,14 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.simplex_noise",
             display: "Simplex Noise",
             group: GENERATE,
-            description: "Fractal simplex noise, 0-1 (yapocis simplex): smooth (fBm), turbulence (|noise|, billowy) or ridged (sharp crests). For textures, paper grain, displacement, masks.",
+            description: "Fractal simplex noise, 0-1 (the kernel library's simplex): smooth (fBm), turbulence (|noise|, billowy) or ridged (sharp crests). For textures, paper grain, displacement, masks.",
             inputs: {
                 let mut v = vec![
                     enum_in("kind", &["smooth", "turbulence", "ridged"], "smooth", "smooth (fBm), turbulence (|noise|, billowy) or ridged (sharp crests)"),
                     float_in("persistence", 0.5, 0.05, 1.0, "Amplitude kept per octave: higher = rougher (smooth only)"),
                     float_in("lacunarity", 2.0, 1.1, 4.0, "Frequency gain per octave (smooth only)"),
                     bool_in("tileable", false, "Wrap the noise lattice; not seamless on x or y (smooth only)"),
-                    float_in("cells", 4.0, 0.1, 512.0, "Noise cells across each side (yapocis scale): more = finer"),
+                    float_in("cells", 4.0, 0.1, 512.0, "Noise cells across each side (the kernel library's scale): more = finer"),
                     int_in("octaves", 4, 1.0, 10.0, "Layers of finer detail"),
                     int_in("seed", 0, 0.0, MAX_SEED, "The noise's seed"),
                 ];
@@ -75,7 +75,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.mandelbrot",
             display: "Mandelbrot",
             group: GENERATE,
-            description: "The Mandelbrot set (yapocis mandelbrot, float32 so deep zooms pixelate): each pixel's escape iteration divided by max_iterations, 0 inside the set.",
+            description: "The Mandelbrot set (the kernel library's mandelbrot, float32 so deep zooms pixelate): each pixel's escape iteration divided by max_iterations, 0 inside the set.",
             inputs: {
                 let mut v = vec![
                     float_in("center_x", -0.5, -4.0, 4.0, "The real part at the centre"),
@@ -93,7 +93,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.game_of_life",
             display: "Game of Life",
             group: GENERATE,
-            description: "Conway's Game of Life on a torus (yapocis_external life): live cells (1) with 2 or 3 live neighbours survive, dead cells with 3 come alive.",
+            description: "Conway's Game of Life on a torus (the external kernel library's life): live cells (1) with 2 or 3 live neighbours survive, dead cells with 3 come alive.",
             inputs: vec![
                 int_in("steps", 50, 0.0, 100_000.0, "Generations to run"),
                 array_opt("start", "Starting cells: nonzero = alive (e.g. Binarize of a picture)"),
@@ -109,7 +109,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.connected_components",
             display: "Connected Components",
             group: REGIONS,
-            description: "Labels the 4-connected areas between edges (yapocis_external label kernel, propagated to convergence), numbered 0, 1, 2, ... Edge pixels get their own labels too. Faster than Region Labels for few regions; no single-pixel merging.",
+            description: "Labels the 4-connected areas between edges (the external kernel library's label kernel, propagated to convergence), numbered 0, 1, 2, ... Edge pixels get their own labels too. Faster than Region Labels for few regions; no single-pixel merging.",
             inputs: vec![
                 array_in("edges", "1 on boundaries, 0 inside regions"),
                 int_in(
@@ -127,7 +127,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.region_outlines",
             display: "Region Outlines",
             group: REGIONS,
-            description: "1 on the pixels of each region that touch another region, 0 inside (yapocis_external hollow): outlines of a label map.",
+            description: "1 on the pixels of each region that touch another region, 0 inside (the external kernel library's hollow): outlines of a label map.",
             inputs: vec![array_in("labels", "A label map (one channel; values are rounded to integers)")],
             outputs: vec![array_out("outlines", "1 on region boundaries, 0 inside")],
             run: regions::region_outlines,
@@ -149,7 +149,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.segment_average",
             display: "Segment Average",
             group: REGIONS,
-            description: "Replaces each rectangle of a segments table by its mean or median (yapocis_external averagesegments / applysegments): with Grid Segments, a mosaic. Pixels outside every rectangle keep their values; values are clamped to 0-1.",
+            description: "Replaces each rectangle of a segments table by its mean or median (the external kernel library's averagesegments / applysegments): with Grid Segments, a mosaic. Pixels outside every rectangle keep their values; values are clamped to 0-1.",
             inputs: vec![
                 array_in("array", "Values in 0-1; a stack is done channel by channel"),
                 array_in("segments", "Table of n, x1, y1, x2, y2 (x = column, y = row; n = pixels)"),
@@ -164,7 +164,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.draw_shapes",
             display: "Draw Shapes",
             group: DRAW,
-            description: "Draws a table of shapes onto a canvas, antialiased and blended (yapocis graphics4): lines (x0 y0 x1 y1), rects (corners x0 y0 x1 y1), circles (x y radius), ellipses (x y radius_x radius_y), triangles and mesh triangles (x1 y1 x2 y2 x3 y3; mesh triangles draw shared edges once). x = column, y = row. A colour canvas comes back as RGB, a one-channel one as grey.",
+            description: "Draws a table of shapes onto a canvas, antialiased and blended (the kernel library's graphics4): lines (x0 y0 x1 y1), rects (corners x0 y0 x1 y1), circles (x y radius), ellipses (x y radius_x radius_y), triangles and mesh triangles (x1 y1 x2 y2 x3 y3; mesh triangles draw shared edges once). x = column, y = row. A colour canvas comes back as RGB, a one-channel one as grey.",
             inputs: vec![
                 array_in("canvas", "One channel or a colour stack (Constant for a blank one)"),
                 array_in("shapes", "A table with the columns the shape needs (Table, Trace Contours, Random Points)"),
@@ -182,7 +182,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.draw_lines",
             display: "Draw Lines",
             group: DRAW,
-            description: "Draws a table of lines into one channel: hard 1-pixel Bresenham lines of any value (yapocis_external draw), or antialiased 1-pixel lines (graphicsx; 1 - distance, overwriting).",
+            description: "Draws a table of lines into one channel: hard 1-pixel Bresenham lines of any value (the external kernel library's draw), or antialiased 1-pixel lines (graphicsx; 1 - distance, overwriting).",
             inputs: vec![
                 array_in("canvas", "One channel to draw on (Constant for a blank one)"),
                 array_in("lines", "Table of x0, y0, x1, y1 (x = column, y = row)"),
@@ -196,7 +196,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.composite",
             display: "Composite",
             group: DRAW,
-            description: "Pastes one array onto another at x, y (yapocis graphics4 composite), blended by `alpha` or opacity. Parts outside the canvas are dropped.",
+            description: "Pastes one array onto another at x, y (the kernel library's graphics4 composite), blended by `alpha` or opacity. Parts outside the canvas are dropped.",
             inputs: vec![
                 array_in("canvas", "One channel or a colour stack"),
                 array_in("block", "What to paste (one channel or a colour stack)"),
@@ -212,7 +212,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.draw_text",
             display: "Draw Text",
             group: DRAW,
-            description: "Text onto a canvas, set in a font's outlines and filled antialiased (the research software drew it with yapocis graphics4 and FreeType). With no anchor, x, y is the left end of the text, vertically centred, and a negative position counts back from the right or bottom edge (slice style: x -20 is 20 px from the right). With an anchor (L, C, R across; T, C, B down) the position is an offset from that edge or the centre of the canvas, and the text's own edge or centre is put there. Fonts: Inter, the craft-fonts faces when this build has them, or a font file. One line per line break; no shaping (no ligatures or kerning, Arabic not joined); a character the font lacks is skipped.",
+            description: "Text onto a canvas, set in a font's outlines and filled antialiased (the research software drew it with the kernel library's graphics4 and FreeType). With no anchor, x, y is the left end of the text, vertically centred, and a negative position counts back from the right or bottom edge (slice style: x -20 is 20 px from the right). With an anchor (L, C, R across; T, C, B down) the position is an offset from that edge or the centre of the canvas, and the text's own edge or centre is put there. Fonts: Inter, the craft-fonts faces when this build has them, or a font file. One line per line break; no shaping (no ligatures or kerning, Arabic not joined); a character the font lacks is skipped.",
             inputs: vec![
                 array_in("canvas", "One channel or a colour stack"),
                 string_in("text", "Virtual Impressionist", "The text; a line break starts a new line"),
@@ -277,7 +277,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.fft",
             display: "FFT",
             group: FREQUENCY,
-            description: "The 2-D Fourier transform of each channel (yapocis fft, rows then columns), as magnitude and phase with zero frequency at the centre. Edit the magnitude (Arithmetic with a mask, Gaussian Blur, ...) and Inverse FFT to filter in the frequency domain. View the magnitude in log form. Any size: lengths that aren't powers of 2 use Bluestein's transform.",
+            description: "The 2-D Fourier transform of each channel (the kernel library's fft, rows then columns), as magnitude and phase with zero frequency at the centre. Edit the magnitude (Arithmetic with a mask, Gaussian Blur, ...) and Inverse FFT to filter in the frequency domain. View the magnitude in log form. Any size: lengths that aren't powers of 2 use Bluestein's transform.",
             inputs: vec![array_in("array", ARRAY_TIP)],
             outputs: vec![
                 array_out("magnitude", "Magnitude, zero frequency at the centre"),

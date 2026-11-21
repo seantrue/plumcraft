@@ -1,5 +1,5 @@
 //! Colour (the research software's Convert Color Space and Color Matrix): conversions between the ten spaces
-//! impressionist knows, through RGB ([`plumcraft_engine::color`]), and yapocis colormath's 49
+//! impressionist knows, through RGB ([`plumcraft_engine::color`]), and the kernel library's colormath module's 49
 //! named 3 × 3 matrices ([`matrices`]). XYZ and xyY take any of colormath's RGB working
 //! spaces, not only sRGB D65.
 
@@ -51,7 +51,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.color_matrix",
             display: "Color Matrix",
             group: "Color",
-            description: "A 3 × 3 colour matrix applied to every pixel, as is (yapocis colormath transform; no gamma). Convert Color Space does XYZ and xyY properly, decoding sRGB first; this is the raw matrix, for linear data.",
+            description: "A 3 × 3 colour matrix applied to every pixel, as is (the kernel library's colormath transform; no gamma). Convert Color Space does XYZ and xyY properly, decoding sRGB first; this is the raw matrix, for linear data.",
             inputs: vec![array_in("array", "Three channels"), enum_in("transform", &sorted, "srgb_d65.rgb2xyz", "The named matrix")],
             outputs: vec![array_out("transformed", "The transformed stack")],
             run: color_matrix,
@@ -110,7 +110,7 @@ fn rgb_to(space: &str, working: &str, linearize: bool, planes: &[Vec<f32>]) -> O
         let rgb = if linearize { rgb.map(srgb_decode) } else { rgb };
         let [x, y, z] = apply(m, rgb);
         let v = if space == "xyY" {
-            // colormath (yapocis3 #66): an exact zero sum (black) has x = y = 0, not 0/0.
+            // colormath (the kernel library's #66): an exact zero sum (black) has x = y = 0, not 0/0.
             let sum = x + y + z;
             if sum != 0.0 { [x / sum, y / sum, y] } else { [0.0, 0.0, y] }
         } else {

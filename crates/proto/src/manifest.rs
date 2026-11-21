@@ -105,7 +105,7 @@ restart = "on-crash"
 max_restarts = 5
 
 [env]
-YAPOCIS_PROJECT = "~/workspace/yapocis_external"
+KERNELS_PROJECT = "~/workspace/external-kernels"
 
 [conformance]
 slow = "weather.slow"
@@ -118,7 +118,7 @@ slow = "weather.slow"
         assert_eq!(m.command[0], "uv");
         assert_eq!(m.conformance.slow.as_deref(), Some("weather.slow"));
         assert_eq!(m.demo.as_deref(), Some("examples/demo.json"));
-        assert_eq!(m.env["YAPOCIS_PROJECT"], "~/workspace/yapocis_external");
+        assert_eq!(m.env["KERNELS_PROJECT"], "~/workspace/external-kernels");
     }
 
     #[test]

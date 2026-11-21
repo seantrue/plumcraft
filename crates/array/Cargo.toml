@@ -5,7 +5,7 @@ edition.workspace = true
 repository.workspace = true
 license.workspace = true
 rust-version.workspace = true
-description = "PlumCraft array engine: the research software's general array nodes on the CPU, ported from yapocis's numba kernels with npexact for numpy's own numerics"
+description = "PlumCraft array engine: the research software's general array nodes on the CPU, ported from the kernel library's numba kernels with npexact for numpy's own numerics"
 
 [lints]
 workspace = true
