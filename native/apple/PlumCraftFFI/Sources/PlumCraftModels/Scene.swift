@@ -177,10 +177,20 @@ public struct View: Codable, Hashable, Sendable {
     public var reveal: Reveal?
     /// A name edited in place (`name.edit`, N4 slice 3).
     public var name: NameEdit?
+    /// The latest zoom asked for (`canvas.zoom`, N5 slice 3: the Windows app's zoom keys). The Apple apps
+    /// keep their own ⌘+ ⌘− ⌘0 and don't follow it; decoded so the scene is read whole.
+    public var zoom: ZoomAsk?
     public init(fit: Fit? = nil, palette: Palette? = nil, edit: RowEdit? = nil, select: Bool? = nil, windows: Windows? = nil, name: NameEdit? = nil) {
         self.fit = fit; self.palette = palette; self.edit = edit; self.select = select; self.windows = windows; self.name = name
     }
     public var selectMode: Bool { select ?? false }
+}
+
+/// Zoom the view by `by` or to `to` about its centre, once per `seq` (`canvas.zoom`, N5 slice 3).
+public struct ZoomAsk: Codable, Hashable, Sendable {
+    public var seq: UInt64
+    public var by: Double?
+    public var to: Double?
 }
 
 /// Reveal `node`, whose face is at `rect`, once per `seq`.

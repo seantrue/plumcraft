@@ -126,21 +126,30 @@ public sealed class ValueWindow : Window
         };
     }
 
-    /// <summary>Over its document's window, from its right side: the first four side by side, two by two,
-    /// so each shows; more cascade over them.</summary>
+    /// <summary>Beside its document's window, on the right where that display's work area has room, else
+    /// over the window's right edge; the first four stacked down the side, more cascading over them; always
+    /// inside the work area.</summary>
     public void Place(int k)
     {
         var o = owner.AppWindow.Position;
         var s = owner.AppWindow.Size;
-        int w = 460, h = 330;
+        var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(owner.AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest).WorkArea;
+        int w = Math.Min(460, area.Width), h = Math.Min(330, Math.Max(200, area.Height / 3));
         AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = w, Height = h });
-        var col = k % 2;
-        var row = (k / 2) % 2;
+        var slot = k % 4;
         var extra = k / 4 * 28;
-        var x = Math.Max(0, o.X + s.Width - (w + 20) * (col + 1) + extra);
-        var y = Math.Max(0, o.Y + 120 + (h + 10) * row + extra);
+        var right = o.X + s.Width + 8;
+        var x = right + w <= area.X + area.Width ? right : o.X + s.Width - w - 16;
+        x += extra;
+        var y = o.Y + 40 + slot * (h / 2 + 24) + extra;
+        x = Math.Clamp(x, area.X, Math.Max(area.X, area.X + area.Width - w));
+        y = Math.Clamp(y, area.Y, Math.Max(area.Y, area.Y + area.Height - h));
         AppWindow.Move(new Windows.Graphics.PointInt32 { X = x, Y = y });
+        Placed = (x, y, w, h);
     }
+
+    /// <summary>Where Place put it (the status file says).</summary>
+    public (int x, int y, int w, int h) Placed { get; private set; }
 
     public void CloseFromCore()
     {
@@ -226,7 +235,7 @@ public sealed class ValueWindow : Window
                 break;
             default:
                 body.Children.Clear();
-                body.Children.Add(new TextBlock { Text = $"PlumCraft for Windows has no {(viewer.Length > 0 ? viewer : "viewer")} viewer yet.\n{v.Summary}", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
+                body.Children.Add(new TextBlock { Text = $"{CoreHost.AppName} for Windows has no {(viewer.Length > 0 ? viewer : "viewer")} viewer yet.\n{v.Summary}", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
                 break;
         }
     }

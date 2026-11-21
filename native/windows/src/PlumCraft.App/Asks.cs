@@ -60,7 +60,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
                 AskWord.ClipboardSet => ClipboardSet(a.Params),
                 AskWord.ClipboardGet => await ClipboardGet(),
                 AskWord.OpenExternal => await OpenExternal(a.Params),
-                AskWord.Share => Jsonv.Object(("error", Jsonv.Of("Sharing isn't available yet in PlumCraft for Windows."))),
+                AskWord.Share => Jsonv.Object(("error", Jsonv.Of($"Sharing isn't available yet in {CoreHost.AppName} for Windows."))),
                 AskWord.Screenshot => await Screenshot(a.Params),
                 _ => (JsonElement?)null,
             };
@@ -174,7 +174,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
         var p = a.Params;
         var kind = p.Get("kind").Str();
         var answers = p.Get("answers") is { ValueKind: JsonValueKind.Array } arr ? arr.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.String ? x.GetString() ?? "" : "").Where(s => s.Length > 0).ToList() : ["cancel"];
-        var d = Dialog(a, p.Get("title").Str() ?? "PlumCraft");
+        var d = Dialog(a, p.Get("title").Str() ?? CoreHost.AppName);
         var text = p.Get("text").Str() ?? "";
         var detail = Detail(p);
         d.Content = new TextBlock { Text = detail.Length > 0 ? text + "\n\n" + detail : text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
@@ -196,7 +196,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
     async Task<JsonElement?> TextAsk(Ask a)
     {
         var p = a.Params;
-        var d = Dialog(a, p.Get("title").Str() ?? "PlumCraft");
+        var d = Dialog(a, p.Get("title").Str() ?? CoreHost.AppName);
         var box = new TextBox { Text = p.Get("text").Str() ?? "", PlaceholderText = p.Get("placeholder").Str() ?? "", Header = p.Get("label").Str(), MinWidth = 320 };
         var panel = new StackPanel { Spacing = 8 };
         panel.Children.Add(box);
@@ -213,7 +213,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
     async Task<JsonElement?> Form(Ask a)
     {
         var p = a.Params;
-        var d = Dialog(a, p.Get("title").Str() ?? "PlumCraft");
+        var d = Dialog(a, p.Get("title").Str() ?? CoreHost.AppName);
         var panel = new StackPanel { Spacing = 10, MinWidth = 360 };
         if (p.Get("intro").Str() is { Length: > 0 } intro) panel.Children.Add(new TextBlock { Text = intro, TextWrapping = TextWrapping.Wrap });
         if (p.Get("error").Str() is { Length: > 0 } err) panel.Children.Add(new InfoBar { Severity = InfoBarSeverity.Error, Message = err, IsOpen = true, IsClosable = false });

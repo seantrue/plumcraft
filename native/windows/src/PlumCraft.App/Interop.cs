@@ -68,6 +68,12 @@ public static unsafe class Interop
 
     public static uint DoubleClickMs => GetDoubleClickTime();
 
+    [DllImport("user32.dll")]
+    static extern int GetSystemMetrics(int index);
+
+    /// <summary>The system's double-click rectangle (SM_CXDOUBLECLK, SM_CYDOUBLECLK), in pixels.</summary>
+    public static (int w, int h) DoubleClickSize => (GetSystemMetrics(36), GetSystemMetrics(37));
+
     public static (int hr, DwmTimingInfo info) DwmTiming()
     {
         var t = new DwmTimingInfo { cbSize = (uint)Marshal.SizeOf<DwmTimingInfo>() };
