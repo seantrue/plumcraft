@@ -18,6 +18,12 @@ use serde_json::{Value, json};
 /// The C ABI headless, on a core whose engine is `engine` (`text` unless named).
 struct Abi(Client, &'static str);
 
+/// A config's `dirs` naming the suite's engines folder (B71: the case about manifests), never
+/// the person's own.
+fn engines() -> Value {
+    json!({"engines": conformance::suite_engines_folder()})
+}
+
 fn floats(v: &Value) -> Vec<f32> {
     v.as_array().into_iter().flatten().map(|x| x.as_f64().map_or(f32::NAN, |f| f as f32)).collect()
 }
@@ -89,9 +95,10 @@ impl Driver for Abi {
         }
         Ok(())
     }
-    /// The engine it was opened on, and `media.get` (the C ABI serves it).
+    /// The engine it was opened on, `media.get` (the C ABI serves it), and the suite's engines
+    /// folder (every core here is opened with it, [`engines`]).
     fn has(&self, capability: &str) -> bool {
-        capability == "media" || capability.strip_prefix("engine:") == Some(self.1)
+        capability == "media" || capability == "manifests" || capability.strip_prefix("engine:") == Some(self.1)
     }
     /// Wait for the core's wake (at most 50 ms), then poll it.
     fn pause(&mut self) {
@@ -120,7 +127,7 @@ impl Driver for Abi {
 
 #[test]
 fn the_suite_passes_through_the_c_abi() {
-    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance")})), "text");
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance"), "dirs": engines()})), "text");
     let out = conformance::run_all(&mut d).unwrap();
     let all = out.iter().all(|o| o.error.is_none());
     assert!(all, "{}", conformance::summary(&d.name(), &out));
@@ -143,7 +150,7 @@ fn the_suite_passes_through_the_c_abi() {
 /// editing half leaves behind.
 #[test]
 fn the_read_half_passes_alone_through_the_c_abi() {
-    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-read")})), "text");
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-read"), "dirs": engines()})), "text");
     let out = conformance::run_half(&mut d, conformance::Half::Read).unwrap();
     assert!(out.iter().all(|o| o.error.is_none()), "{}", conformance::summary(&d.name(), &out));
     assert!(out.len() >= 10, "{}", out.len());
@@ -153,7 +160,7 @@ fn the_read_half_passes_alone_through_the_c_abi() {
 /// The cases for the array engine's values (a picture), on a core opened on it.
 #[test]
 fn the_array_cases_pass_through_the_c_abi() {
-    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-array"), "engine": "array"})), "array");
+    let mut d = Abi(Client::open(&json!({"store_root": store_root("conformance-array"), "engine": "array", "dirs": engines()})), "array");
     let cases: Vec<Value> =
         conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:array")))).collect();
     assert!(!cases.is_empty());
@@ -196,9 +203,10 @@ impl Driver for Port {
         let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
         if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
     }
-    /// The text engine (the core's default); the port doesn't serve `media.get`.
+    /// The text engine (the core's default) and the suite's engines folder; the port doesn't
+    /// serve `media.get`.
     fn has(&self, capability: &str) -> bool {
-        capability == "engine:text"
+        capability == "engine:text" || capability == "manifests"
     }
     /// A script on a socket has no wake to wait for: a moment before it asks again.
     fn pause(&mut self) {
@@ -210,7 +218,7 @@ impl Driver for Port {
 fn the_suite_passes_over_the_control_port() {
     let dir = plumcraft_scratch::dir("ffi-conformance-port");
     let token_file = dir.join("token");
-    let mut c = Client::open(&json!({"store_root": store_root("conformance-port"), "control": {"port": 0, "token_file": token_file}}));
+    let mut c = Client::open(&json!({"store_root": store_root("conformance-port"), "control": {"port": 0, "token_file": token_file}, "dirs": engines()}));
     let port = c.call("core.control", json!({}))["result"]["port"].as_u64().expect("a control port");
     let token = std::fs::read_to_string(&token_file).unwrap().trim().to_owned();
     let stream = TcpStream::connect(("127.0.0.1", u16::try_from(port).unwrap())).unwrap();
