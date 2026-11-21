@@ -17,7 +17,7 @@ Everything is in `native/apple/CanvasSpike/`. Nothing else in the repo was chang
 
 | Path | What |
 |---|---|
-| `project.yml` | XcodeGen project. Two apps: `CanvasSpikeMac` (macOS 15) and `CanvasSpikePad` (iPadOS 18, iPad only, team 78DGVG7MYU, automatic signing). Swift 6, strict concurrency, no third-party dependencies. |
+| `project.yml` | XcodeGen project. Two apps: `CanvasSpikeMac` (macOS 15) and `CanvasSpikePad` (iPadOS 18, iPad only, automatic signing with the maintainer's team, from `PLUMCRAFT_TEAM_ID`). Swift 6, strict concurrency, no third-party dependencies. |
 | `CanvasKit/` | The Swift package both apps share. |
 | `CanvasKit/Sources/CanvasKit/FakeScene.swift` | A deterministic scene (SplitMix64) laid out in layered columns (about √N × 1.1 columns). Each node has a title, 2 to 6 port rows with captions and coloured pins, an inline widget row on about 40% of nodes, and a ~128 px generated preview on about 20%. About 30% of nodes carry a run state. Wires are cubic beziers that run 1 to 3 columns forward. |
 | `CanvasKit/Sources/CanvasKit/Face.swift` | The shell measures each face (size and pin anchors, plan 5.2) and draws it with Core Graphics and Core Text. It is pure code with no state, so faces can be rasterised on any thread. |
@@ -184,7 +184,7 @@ Simulator frame timing is not representative of a device: it renders through the
 
 ### 3.7 Physical iPad (iPad Pro 11-inch, M4, iPad16,3, J717AP)
 
-`./bench.sh device` built and signed the app with team 78DGVG7MYU (automatic provisioning worked), installed it, ran it with no human input and copied the JSON back. Results: `device-500.json` (4 s phases) and `device-2000.json` (3 s phases).
+`./bench.sh device` built and signed the app with the maintainer's team (automatic provisioning worked), installed it, ran it with no human input and copied the JSON back. Results: `device-500.json` (4 s phases) and `device-2000.json` (3 s phases).
 
 **The display link ran at 60 Hz, not 120.** `UIScreen.maximumFramesPerSecond` reported 120 and the link asked for `preferredFrameRateRange` up to 120, but every interval in every phase was 16.67 ms. That is why the "Dropped" column in `device-*.json` counts every frame: it counts against 120 Hz. Measured against 60 Hz, no phase missed a frame: p99 and max were 16.67 to 16.71 ms everywhere, at both sizes.
 
