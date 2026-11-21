@@ -55,6 +55,24 @@ fn json_value(d: &Display, media: &MediaService) -> Result<Value, String> {
     serde_json::from_slice(&b.bytes).map_err(|e| format!("not JSON: {e}"))
 }
 
+/// A text value carried whole in the display (no `full`): its value, else its excerpt when the
+/// excerpt is the whole text (a short text comes that way, with neither `value` nor `full`; found
+/// by B42's test: such a text exported and copied as nothing).
+fn inline_text(d: &Display) -> Result<String, String> {
+    if let Some(t) = d.value.as_ref().and_then(Value::as_str) {
+        return Ok(t.to_owned());
+    }
+    let whole = d.renditions.iter().find_map(|r| match r {
+        plumcraft_proto::display::Rendition::Excerpt { text, offset: 0, total_chars, .. } if text.chars().count() as u64 == *total_chars => Some(text.clone()),
+        _ => None,
+    });
+    match whole {
+        Some(t) => Ok(t),
+        None if d.value.is_none() && d.renditions.is_empty() => Ok(String::new()),
+        None => Err("this text's bytes aren't at hand: run again".into()),
+    }
+}
+
 fn csv_field(s: &str, sep: char) -> String {
     if s.contains([sep, '"', '\n', '\r']) { format!("\"{}\"", s.replace('"', "\"\"")) } else { s.to_owned() }
 }
@@ -101,7 +119,7 @@ pub fn copy_text(session: &Session, media: &MediaService, params: &Value) -> Res
         Media::Scalar => d.value.as_ref().map(crate::widget_text::value_text).unwrap_or_default(),
         Media::Text => match &d.full {
             Some(_) => String::from_utf8_lossy(&bytes(&d, media)?.bytes).into_owned(),
-            None => d.value.as_ref().and_then(Value::as_str).unwrap_or_default().to_owned(),
+            None => inline_text(&d)?,
         },
         Media::Table => table_text(&table_of(&d, media)?, '\t', MAX_COPY_ROWS),
         Media::Vector => String::from_utf8_lossy(&bytes(&d, media)?.bytes).into_owned(),
@@ -174,7 +192,7 @@ pub fn file_bytes(d: &Display, media: &MediaService) -> Result<(Vec<u8>, &'stati
         Media::Table => Ok((table_text(&table_of(d, media)?, ',', usize::MAX).into_bytes(), "csv")),
         Media::Scalar => Ok((d.value.as_ref().map(crate::widget_text::value_text).unwrap_or_default().into_bytes(), "txt")),
         Media::Tree if d.full.is_none() => Ok((serde_json::to_vec_pretty(&json_value(d, media)?).unwrap_or_default(), "json")),
-        Media::Text if d.full.is_none() => Ok((d.value.as_ref().and_then(Value::as_str).unwrap_or_default().as_bytes().to_vec(), "txt")),
+        Media::Text if d.full.is_none() => Ok((inline_text(d)?.into_bytes(), "txt")),
         Media::Audio => {
             let b = bytes(d, media)?;
             let (rate, ch) = match d.full.as_ref().map(|f| &f.meta.form) {
@@ -237,6 +255,19 @@ mod tests {
         let n = npy("<f4", &[2, 3], &[0u8; 24]);
         assert_eq!(&n[..6], b"\x93NUMPY");
         assert_eq!((n.len() - 24) % 64, 0);
+    }
+
+    #[test]
+    fn a_short_text_carried_in_its_excerpt_is_taken_out_whole() {
+        let mut d: Display =
+            serde_json::from_value(json!({"media": "text", "renditions": [{"kind": "excerpt", "text": "CORGI", "offset": 0, "total_chars": 5, "lines": 1}]}))
+                .unwrap();
+        assert_eq!(inline_text(&d).unwrap(), "CORGI");
+        // a part of a longer text is not the text
+        d.renditions = serde_json::from_value(json!([{"kind": "excerpt", "text": "COR", "offset": 0, "total_chars": 5, "lines": 1}])).unwrap();
+        assert!(inline_text(&d).is_err());
+        d.value = Some(json!("whole"));
+        assert_eq!(inline_text(&d).unwrap(), "whole");
     }
 
     #[test]

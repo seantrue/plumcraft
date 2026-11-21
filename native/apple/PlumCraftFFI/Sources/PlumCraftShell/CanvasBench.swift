@@ -25,6 +25,8 @@ public struct BenchOptions: Sendable {
     public var nodes = 500
     public var wires = 800
     public var phaseSeconds = 4.0
+    /// Draw no wires (`--hide-wires`): the faces' share of a hitch trace alone.
+    public var hideWires = false
 
     public init(out: String) { self.out = out }
 }
@@ -111,6 +113,8 @@ public final class CanvasBench: NSObject {
             let v = make(model)
             // PLUMCRAFT_NO_CULL=1: the canvas as slice 3 had it, for a comparison
             v.canvas.culling = ProcessInfo.processInfo.environment["PLUMCRAFT_NO_CULL"] != "1"
+            v.canvas.wiresHidden = options.hideWires
+            put("wires_hidden", .bool(options.hideWires))
             view = v
             v.canvas.onDrawn = { [weak self] s in self?.drawn(s) }
             model.start()
@@ -132,6 +136,12 @@ public final class CanvasBench: NSObject {
             put("memory_mb_end", .double(physFootprintMB()))
             put("face_pictures_mb", .double(Double(v.canvas.pictureBytes) / 1_048_576))
             put("screen_scale", .double(Double(v.canvas.screenScale)))
+            // the view the phases ran in (the N4 device gate: two device runs a day apart differed
+            // by how much of the graph was on screen and at what raster scale, not by the code):
+            // compare runs only with the same view
+            let vs = v.canvas.viewSize
+            put("view_points", .array([.double(Double(vs.width)), .double(Double(vs.height))]))
+            put("orientation", .string(vs.width >= vs.height ? "landscape" : "portrait"))
             put("max_fps", .int(Int64(maxFPS())))
             return finish(nil)
         } catch {
@@ -176,7 +186,10 @@ public final class CanvasBench: NSObject {
         let late = intervals.filter { $0 > expected * 1.5 }.count
         put("phase_" + name, ["frames": .int(Int64(intervals.count)), "interval_ms": stats(intervals), "late_frames": .int(Int64(late)),
                               "visible_faces_redrawn": .int(Int64(v.canvas.settle())),
-                              "hidden_layers": .int(Int64(v.canvas.hiddenCount)), "culling": .bool(v.canvas.culling)])
+                              "hidden_layers": .int(Int64(v.canvas.hiddenCount)), "culling": .bool(v.canvas.culling),
+                              "zoom_end": .double(Double(v.canvas.viewport.zoom)),
+                              "raster_scale_end": .double(Double(v.canvas.rasterScale(forZoom: v.canvas.viewport.zoom))),
+                              "face_pictures_mb": .double(Double(v.canvas.pictureBytes) / 1_048_576)])
         // let the settle land before the next phase
         _ = await waitDrawn(.seconds(2)) { _ in v.canvas.idle }
     }

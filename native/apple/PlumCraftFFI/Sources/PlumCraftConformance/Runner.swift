@@ -178,6 +178,23 @@ public enum Conformance {
                 reply = await d.call(method, p)
             }
         }
+        // a condition that must stay so for a while (`holds`, `for`; B43)
+        if let holds = s.object?["holds"] {
+            let span = min(max(s["for"].double ?? 1, 0), 10)
+            let start = ContinuousClock.now
+            let end = start + .milliseconds(Int64(span * 1000))
+            while true {
+                do {
+                    try expect(reply, holds, vars)
+                } catch {
+                    let t = ContinuousClock.now - start
+                    throw ConformanceError("\(method) \(p): didn't stay so (\(t) in): \(error)")
+                }
+                if ContinuousClock.now >= end { break }
+                await d.pause()
+                reply = await d.call(method, p)
+            }
+        }
         let wantOk = s["ok"].bool ?? true
         if (reply["ok"] == true) != wantOk {
             throw ConformanceError("\(method) \(p): wanted ok \(wantOk), got \(short(reply))")

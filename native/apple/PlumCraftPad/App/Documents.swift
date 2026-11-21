@@ -53,6 +53,21 @@ enum Samples {
         }
     }
 
+    /// A fresh copy of bundled sample `name` in scratch, for a scripted launch (`--scratch-state`
+    /// with `--open-sample`): every document autosaves, so a UI test opening the copy in Documents
+    /// edited it for the next run (the device gate: the tests failed on a second run in the same
+    /// container, and on a device the container stays) and changed the person's samples.
+    static func scratchCopy(_ name: String) -> URL? {
+        let fm = FileManager.default
+        guard let src = Bundle.main.url(forResource: "Samples", withExtension: nil)?.appendingPathComponent(name + ".json"),
+              fm.fileExists(atPath: src.path) else { return nil }
+        let dir = CoreHost.dirs.scratch.appendingPathComponent("samples", isDirectory: true)
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let to = dir.appendingPathComponent(name + ".json")
+        try? fm.removeItem(at: to)
+        return (try? fm.copyItem(at: src, to: to)) != nil ? to : nil
+    }
+
     /// The sample to open on the first launch, once.
     static func firstLaunch() -> URL? {
         if UserDefaults.standard.bool(forKey: firstKey) { return nil }
@@ -190,6 +205,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         browser = b
         w.rootViewController = b
         w.makeKeyAndVisible()
+        #if DEBUG
+        StatusElement.shared.install(in: ws)
+        #endif
         if let why = CoreHost.openError {
             let a = UIAlertController(title: "PlumCraft couldn't start its core", message: why, preferredStyle: .alert)
             b.present(a, animated: false)
@@ -200,7 +218,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         if first, let p = o.open.first {
             b.open(URL(fileURLWithPath: p), then: o.then)
         } else if first, let n = o.sample {
-            b.open(Samples.folder.appendingPathComponent(n + ".json"), then: o.then)
+            let fresh = o.scratchState ? Samples.scratchCopy(n) : nil
+            b.open(fresh ?? Samples.folder.appendingPathComponent(n + ".json"), then: o.then)
         } else if let ctx = connectionOptions.urlContexts.first {
             b.open(ctx.url)
         } else if !o.scratchState, let act = session.stateRestorationActivity, let (url, view) = Self.restored(act) {

@@ -344,7 +344,15 @@ pub fn control(d: &mut Document, p: &Value) -> Result<Value, String> {
         (Some(_), Some(_)) => return Err("give path or scratch, not both".into()),
         (Some(Value::String(s)), None) if !s.trim().is_empty() && s.len() <= 4096 && !s.contains('\0') => Some(PathBuf::from(s)),
         (None, Some(Value::String(n))) if !n.is_empty() && n.len() <= 128 && !n.contains(['/', '\\', '\0']) && !n.starts_with('.') => {
-            Some(plumcraft_scratch::dir("autosave").join(n))
+            // the shell's scratch folder when it gave one (B42: never a folder it didn't give)
+            Some(match &d.scratch {
+                Some(dir) => {
+                    let dir = dir.join("autosave");
+                    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+                    dir.join(n)
+                }
+                None => plumcraft_scratch::dir("autosave").join(n),
+            })
         }
         (None | Some(Value::Null), None | Some(Value::Null)) => None,
         _ => return Err("path must be a file's path, scratch a file name".into()),

@@ -160,6 +160,11 @@ pub struct Gesture {
     /// The hit distance, graph units (default 12).
     #[serde(default)]
     pub slop: Option<f64>,
+    /// The view's zoom, screen points a graph unit (default 1, held to 0.01 to 100): a scrub's
+    /// speed (N4 slice 2, contract 8.13). The core took it before the schema said so (found by
+    /// the Windows kit, the N4 device gate).
+    #[serde(default)]
+    pub zoom: Option<f64>,
 }
 
 /// What a gesture ran: one per command, in order.

@@ -20,6 +20,24 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — N4's device gate: B42, B43, B44, UI tests on a device, and the hitches examined (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** After the first runs on the maintainer's iPad: fix the two device-only failures, make the UI tests able to run on a device, look into the 500-node hitches (the maintainer: "These hitches seem borderline significant (168ms is perceptible)"), and give the controller one command for a device pass. Also two maintainer decisions from the cards: hide Testing kinds from the palette, and the schema's missing `zoom` found by the Windows kit. The agent was forbidden the physical devices.
+
+**B42, the cause.** The C ABI core never read `dirs.caches` or `dirs.scratch` from the shell's configuration; exports and open-in-app copies went under `HOME/.cache`, and on iOS `HOME` is the container's root, which a device app may not write. Now they go under the directories the shell gives, and the `HOME`-derived defaults use `Library/…` on iOS. A new Rust test reruns its own binary with `HOME` read-only; with the fix reverted it fails. In the simulator, with the container root made read-only, slice 6's build fails the step the iPad failed and this branch passes.
+
+**B43, the cause.** In the iPad shell: the core opened and closed sheets faster than UIKit's transitions, so a sheet being dismissed took the next ones with it and the shell reported them closed. Reproduced in the simulator 6 rounds in 20 with the app launched as the device script launches it; 0 in 20 after every core-driven presentation went through one ordered queue. The new conformance case catches it only some of the time.
+
+**B44, found by the agent.** The UI tests failed on any second run in one container, because autosave wrote each test's edits into the sample the next run opened (and into a person's own samples). A scripted launch now opens a fresh scratch copy.
+
+**Also:** the UI tests read status from an accessibility element on a device; the device and bench scripts never read an old result and stop when the iPad is locked; Testing kinds are hidden from the palette in every shell and still addable by id; `zoom` is in the schema's `Gesture`. About 680 lines changed in 34 files and three new files. Conformance is 52 cases.
+
+**The hitches: not shown to be a regression, and not fixed.** In the simulator every build from slice 3 on draws identical faces. The "slice 3" device baseline had about 73 MB of face pictures and 413 faces culled while panning, where every other 500-node run had about 121 MB and 160 to 180 culled: it had less of the graph on screen, which points to orientation or window size. The controller's comparison of one trace against one did not control for that. Only the device can settle it; the bench now records view size, orientation and zoom.
+
+**Defects in the agent's own work, caught by it:** after the B42 change its first Mac conformance run wrote one export into the maintainer's real `~/Library/Caches/com.plumcraft.mac` and appended to `~/Library/Logs/PlumCraft/plumcraft.log` (the export was removed; a scripted launch now keeps caches and log in scratch); an xcframework left without its macOS slice by a partial rebuild; two bash empty-array errors; a test that expected Save As to work on the text engine; a relative path mishandled in the bench script.
+
+**Not verified:** everything on the device. Save As could not be made to fail off-device.
+
 ### 2026-11-21 — N5 becomes Windows: a WinUI 3 spike, and the first runs of slice 6 on the iPad (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **The maintainer's decisions.** "Let's swap a windows implementation for the Kotlin implementation. I have a good Windows VM, but the Kotlin test environment is not great." Then: "C#, WinUI 3", "Android is deferred not cancelled", egui stays the Windows editor until the new shell passes the suite, and the go-ahead for N5 and for installing the .NET tools on the VM. The maintainer also pointed the controller at the earlier notes on reaching the VM, which the controller had not found.

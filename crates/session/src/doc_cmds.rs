@@ -183,12 +183,13 @@ impl DocApps {
     }
 }
 
-/// `<cache>/plumcraft/open`: `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows, else
+/// `<cache>/plumcraft/open`: `~/Library/Caches` on macOS and iOS (an iOS app may not write at
+/// its container's root, B42; a shell gives `dirs.caches` anyway), `%LOCALAPPDATA%` on Windows, else
 /// `$XDG_CACHE_HOME` or `~/.cache`.
 pub fn default_root() -> PathBuf {
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let home = env("HOME").or_else(|| env("USERPROFILE")).unwrap_or_else(std::env::temp_dir);
-    let cache = if cfg!(target_os = "macos") {
+    let cache = if cfg!(any(target_os = "macos", target_os = "ios")) {
         home.join("Library/Caches")
     } else if cfg!(windows) {
         env("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local"))

@@ -109,7 +109,8 @@ pub fn path_for(name: &str) -> Option<PathBuf> {
         return Some(PathBuf::from(p));
     }
     let home = home_dir()?;
-    Some(if cfg!(target_os = "macos") {
+    // an Apple app writes inside its container's Library, never at its root (B42)
+    Some(if cfg!(any(target_os = "macos", target_os = "ios")) {
         home.join("Library/Application Support").join(name).join("prefs.json")
     } else {
         std::env::var_os("XDG_CONFIG_HOME").filter(|p| !p.is_empty()).map_or_else(|| home.join(".config"), PathBuf::from).join(name).join("prefs.json")

@@ -151,6 +151,11 @@ public final class LayerCanvas {
     /// kept, so a face coming into view shows at once. Recomputed when the view has moved a
     /// quarter of itself since the last time.
     public var culling = true
+    /// The wires not drawn (the bench's `--hide-wires`, the N4 device gate: on the iPad's hitch
+    /// trace it tells the wires' cost from the faces'). Never set by the apps.
+    public var wiresHidden = false {
+        didSet { wireRoot.isHidden = wiresHidden }
+    }
     public private(set) var culledFor: CGRect?
     public private(set) var hiddenCount = 0
     let cullMargin: CGFloat = 0.5

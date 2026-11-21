@@ -710,7 +710,7 @@ fn add_tree(catalog: &SchemaReply, center: Option<[f32; 2]>) -> Vec<Item> {
     }
     let several = catalog.nodes.iter().flat_map(|d| d.engines.iter()).collect::<std::collections::BTreeSet<_>>().len() > 1;
     let mut root = Tree::default();
-    for def in &catalog.nodes {
+    for def in catalog.nodes.iter().filter(|d| crate::palette::offered(d)) {
         let mut at = &mut root;
         if several {
             let branch = match def.engines.as_slice() {
@@ -1441,6 +1441,17 @@ mod tests {
 
     fn find<'a>(items: &'a [Item], id: &str) -> Option<&'a Item> {
         items.iter().flat_map(Item::walk).find(|i| i.id == id)
+    }
+
+    #[test]
+    fn node_add_offers_no_testing_kind() {
+        // the maintainer, 2026-11-21, card 31 B: "hide Testing kinds from the palette"
+        let c = plumcraft_text::engine().schema();
+        let tree = add_tree(&c, None);
+        let kinds: Vec<&str> = tree.iter().flat_map(Item::walk).filter_map(|i| i.params.as_ref()?.get("kind")?.as_str()).collect();
+        assert!(kinds.contains(&"text.upper"), "{kinds:?}");
+        assert!(!kinds.contains(&"text.widgets") && !kinds.contains(&"text.slow"), "{kinds:?}");
+        assert!(find(&tree, "node.add:/Text/Testing").is_none(), "an empty Testing submenu");
     }
 
     #[test]
