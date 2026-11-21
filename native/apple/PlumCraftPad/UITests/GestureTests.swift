@@ -353,10 +353,33 @@ final class GestureTests: XCTestCase {
         XCTAssertTrue(count.waitForExistence(timeout: 10), "the hidden count's field")
         shot("n4s3-ui-parameters")
         count.tap()
-        count.clearAndType("5\n")
+        count.clearAndType("5")
+        // B60: what the popover looks like while the keyboard is up (a device's software
+        // keyboard; the simulator's when no hardware keyboard is connected)
+        shot("n4s3-ui-count-typing")
+        count.typeText("\n")
         wait("count set while hidden") { ($0["undo"] as? String) == "Set Value" }
-        // shown on the face, where its value is the one set
-        app.buttons["face.count"].tap()
+        shot("n4s3-ui-count-set")
+        // shown on the face, where its value is the one set. B60: on the iPad this tap found no
+        // `face.count` at once after the value was set (the simulator always did): wait for it as
+        // every other step waits, look for it in the list both ways if it isn't there, and say
+        // what the app showed when it can't be found
+        let face = app.buttons["face.count"]
+        if !face.waitForExistence(timeout: 10) || !face.isHittable {
+            let list = app.tables.firstMatch
+            for swipe in [{ list.swipeDown() }, { list.swipeUp() }, { list.swipeUp() }] where !(face.exists && face.isHittable) {
+                swipe()
+                _ = face.waitForExistence(timeout: 2)
+            }
+        }
+        if !(face.exists && face.isHittable) {
+            shot("b60-face-count-missing")
+            let tree = XCTAttachment(string: app.debugDescription)
+            tree.name = "b60-element-tree"
+            tree.lifetime = .keepAlways
+            add(tree)
+        }
+        face.tap()
         wait("count on the face, at 5") { w in
             let list = ((w["rows"] as? [String: Any])?["w"] as? [Any]) ?? []
             return list.contains { (($0 as? [String: Any])?["key"] as? String) == "count" && (($0 as? [String: Any])?["value"] as? String) == "5" }

@@ -220,8 +220,9 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
             return abs(p.x - out.at.x) < 0.01 && abs(p.y - out.at.y) < 0.01
         })
         let w = try #require(model.wires.items.first)
-        let wl = try #require(canvas.wireLayer(nid: w.nid))
-        #expect(wl.frame.insetBy(dx: -1, dy: -1).contains(CGPoint(x: w.path[0].x, y: w.path[0].y)))
+        // the wire as drawn follows it: its box holds the path's start, and a tile draws it
+        #expect(await until { canvas.wireBox(nid: w.nid)?.contains(CGPoint(x: w.path[0].x, y: w.path[0].y)) == true && canvas.idle })
+        #expect(canvas.wireShown(nid: w.nid))
         // a typed hit on the drawn pin finds the pin
         let pa = try #require(canvas.pinPoint(face: a, output: true, pin: 0))
         let h = link.hit(Point(Double(pa.x), Double(pa.y)), slop: 4)
@@ -350,7 +351,7 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         #expect(canvas.faceLayer(nid: farNid)?.isHidden == true, "20,000 units off is hidden")
         #expect(canvas.faceLayer(nid: nearNid)?.isHidden == false)
         // the wire reaches into view: kept
-        #expect(canvas.wireLayer(nid: model.wires.order[0])?.isHidden == false)
+        #expect(await until { canvas.idle && canvas.wireShown(nid: model.wires.order[0]) })
         // pan to it: shown at once, its picture kept
         let picture = canvas.faceLayer(nid: farNid)?.contents
         canvas.setViewport(Viewport(pan: CGPoint(x: -20_000 + 100, y: 100), zoom: 1))

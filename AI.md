@@ -20,6 +20,21 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The iPad's wire hitches: cause found, wires drawn as tiles, not yet confirmed on the device (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "These hitches seem borderline significant (168ms is perceptible)", and chose to fix them before N4's gate closes.
+
+**The device evidence (controller, on the maintainer's iPad).** A bisect across five builds at 500 nodes and 800 wires showed the same hitching in every build since N3 slice 3 (about 155 ms of hitch a second panning), and none at all with wires hidden. So it was never a regression, and the controller's earlier report that slice 6 had made it worse was a comparison between runs with different amounts of graph on screen.
+
+**Cause (agent).** One shape layer per wire, as the N0 spike drew them. The spike's test graph wired nodes to near neighbours; the real bench graph wires across the whole graph, so nearly every layer covered much of the view and was blended again each frame. Stroke width and joins made no difference; drawing only the short wires removed the cost.
+
+**Fix (agent).** Wires are drawn into tile pictures on workers, redrawn at the settled zoom; wires being moved get their own clipped layer. The old drawing stays behind a bench switch for an A/B on the device. Measured on the Mac with a new offscreen bench (no Instruments): 148 to 690 ms of late frames a second in the moving phases before, 0 after. Pictures compared pixel by pixel are identical except at fitted zoom, where crossings read slightly heavier (0.6% of drawn pixels).
+
+**Defects in the agent's own work, caught by its pixel tests:** seams between tiles; heavier wires at some zooms; 80 MB of stale tile pictures after zooming in.
+
+**B60.** One iPad UI test failed on the device (Show on Face not found after typing in the parameters popover). It did not reproduce in a simulator with the software keyboard; no app defect was found; the test now waits for the control and attaches evidence if it is missing. Open until the device says.
+
+**Verified.** `swift test` 87; Mac conformance 53 of 53; Release builds of both apps. **Not verified:** anything on the iPad. The hitches are fixed when a device trace says so.
 ### 2026-11-21 — B73: the Mac app's forms had their labels in the wrong place (Claude Fable 5.2)
 
 **What the maintainer reported:** "The attach dialog is meh", with a picture showing one label clipped and the other above the wrong field.

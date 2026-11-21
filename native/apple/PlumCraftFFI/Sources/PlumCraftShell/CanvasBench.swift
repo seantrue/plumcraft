@@ -27,8 +27,51 @@ public struct BenchOptions: Sendable {
     public var phaseSeconds = 4.0
     /// Draw no wires (`--hide-wires`): the faces' share of a hitch trace alone.
     public var hideWires = false
+    /// No culling (`--no-cull`, as `PLUMCRAFT_NO_CULL=1`): every layer shown.
+    public var noCull = false
+    /// The Mac only (`--offscreen`): no window; the canvas's layer tree is rendered each frame by
+    /// a CARenderer into a Metal texture and timed (Core Animation's own renderer, the work the
+    /// render server does for a window, measured in this process without Instruments). The
+    /// phases then step frame by frame, 120 to a second of theirs, instead of following a display
+    /// link.
+    public var offscreen = false
+    /// The view's size in points (`--bench-view=834x1210`, the iPad Pro 11-inch in portrait) and
+    /// its scale (`--bench-scale=2`), for `--offscreen`.
+    public var view = CGSize(width: 834, height: 1210)
+    public var scale: CGFloat = 2
 
     public init(out: String) { self.out = out }
+
+    /// Take one of the bench's own switches (shared by both apps' parsers, so a new switch needs
+    /// no change to either app's startup): whether `a` was one. Each is one word, so neither
+    /// app's parser takes a value for a file to open.
+    public mutating func take(_ a: String) -> Bool {
+        switch a {
+        case "--hide-wires": hideWires = true
+        case "--no-cull": noCull = true
+        case "--offscreen": offscreen = true
+        default:
+            if a.hasPrefix("--bench-view=") {
+                let wh = a.dropFirst("--bench-view=".count).split(separator: "x").compactMap { Double($0) }
+                if wh.count == 2, wh[0] > 0, wh[1] > 0 { view = CGSize(width: wh[0], height: wh[1]) }
+            } else if a.hasPrefix("--bench-scale="), let s = Double(a.dropFirst("--bench-scale=".count)), s > 0 {
+                scale = CGFloat(s)
+            } else if let w = WireSwitch(rawValue: a) {
+                wireSwitches.insert(w)
+            } else {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Every bench switch in `argv`.
+    public mutating func take(all argv: [String]) {
+        for a in argv { _ = take(a) }
+    }
+
+    /// The canvas's wire switches the run sets (`WireSwitch`, the device pass's bisection).
+    public var wireSwitches: Set<WireSwitch> = []
 }
 
 /// This process's physical footprint, in MB.
@@ -111,10 +154,19 @@ public final class CanvasBench: NSObject {
             let built = ContinuousClock.now
             let model = DocumentModel(core: core, doc: doc)
             let v = make(model)
-            // PLUMCRAFT_NO_CULL=1: the canvas as slice 3 had it, for a comparison
-            v.canvas.culling = ProcessInfo.processInfo.environment["PLUMCRAFT_NO_CULL"] != "1"
+            // PLUMCRAFT_NO_CULL=1 or --no-cull: the canvas as slice 3 had it, for a comparison
+            v.canvas.culling = ProcessInfo.processInfo.environment["PLUMCRAFT_NO_CULL"] != "1" && !options.noCull
             v.canvas.wiresHidden = options.hideWires
+            v.canvas.wireSwitches = options.wireSwitches
             put("wires_hidden", .bool(options.hideWires))
+            put("wire_switches", .array(options.wireSwitches.map(\.rawValue).sorted().map { .string($0) }))
+            put("offscreen", .bool(options.offscreen))
+            #if os(macOS)
+            if options.offscreen {
+                offscreen = OffscreenRenderer(layer: v.canvas.host, size: options.view, scale: options.scale)
+                if offscreen == nil { return finish("--offscreen: no Metal device") }
+            }
+            #endif
             view = v
             v.canvas.onDrawn = { [weak self] s in self?.drawn(s) }
             model.start()
@@ -135,6 +187,8 @@ public final class CanvasBench: NSObject {
             try await oneNode(v, core: core, doc: doc)
             put("memory_mb_end", .double(physFootprintMB()))
             put("face_pictures_mb", .double(Double(v.canvas.pictureBytes) / 1_048_576))
+            put("wire_pictures_mb", .double(Double(v.canvas.wirePictureBytes) / 1_048_576))
+            put("wire_tiles_drawn", .int(Int64(v.canvas.counts.tilesDrawn)))
             put("screen_scale", .double(Double(v.canvas.screenScale)))
             // the view the phases ran in (the N4 device gate: two device runs a day apart differed
             // by how much of the graph was on screen and at what raster scale, not by the code):
@@ -162,9 +216,28 @@ public final class CanvasBench: NSObject {
         lastTs = nil
         let label = "\(options.nodes).\(name)"
         let iv = signposter.beginInterval("phase", "\(label)")
+        var wireSamples: [WireStats] = []
+        #if os(macOS)
+        if let r = offscreen {
+            await offscreenPhase(name, seconds: seconds, renderer: r, step: step, samples: &wireSamples)
+            signposter.endInterval("phase", iv)
+            putWires(name, wireSamples)
+            put("phase_" + name, ["visible_faces_redrawn": .int(Int64(v.canvas.settle())), "hidden_layers": .int(Int64(v.canvas.hiddenCount)),
+                                  "culling": .bool(v.canvas.culling), "zoom_end": .double(Double(v.canvas.viewport.zoom)),
+                                  "raster_scale_end": .double(Double(v.canvas.rasterScale(forZoom: v.canvas.viewport.zoom))),
+                                  "face_pictures_mb": .double(Double(v.canvas.pictureBytes) / 1_048_576),
+                                  "wire_pictures_mb": .double(Double(v.canvas.wirePictureBytes) / 1_048_576),
+                                  "memory_mb": .double(physFootprintMB())])
+            _ = await waitDrawn(.seconds(2)) { _ in v.canvas.idle }
+            return
+        }
+        #endif
         let start = CACurrentMediaTime()
         var done = false
-        tick = { ts in
+        var k = 0
+        tick = { [weak v] ts in
+            k += 1
+            if k % 15 == 1, let v { wireSamples.append(v.canvas.wireStats()) }
             let t = (ts - start) / seconds
             if t >= 1 { done = true; return }
             step(max(t, 0))
@@ -189,10 +262,67 @@ public final class CanvasBench: NSObject {
                               "hidden_layers": .int(Int64(v.canvas.hiddenCount)), "culling": .bool(v.canvas.culling),
                               "zoom_end": .double(Double(v.canvas.viewport.zoom)),
                               "raster_scale_end": .double(Double(v.canvas.rasterScale(forZoom: v.canvas.viewport.zoom))),
-                              "face_pictures_mb": .double(Double(v.canvas.pictureBytes) / 1_048_576)])
+                              "face_pictures_mb": .double(Double(v.canvas.pictureBytes) / 1_048_576),
+                              "wire_pictures_mb": .double(Double(v.canvas.wirePictureBytes) / 1_048_576)])
+        putWires(name, wireSamples)
         // let the settle land before the next phase
         _ = await waitDrawn(.seconds(2)) { _ in v.canvas.idle }
     }
+
+    /// The wires' load over a phase (`wireStats` sampled every 15th frame): means, and the most.
+    func putWires(_ name: String, _ xs: [WireStats]) {
+        guard !xs.isEmpty else { return }
+        let n = Double(xs.count)
+        let r = { (x: Double) in JSONValue.double((x * 100).rounded() / 100) }
+        func mean(_ f: (WireStats) -> Double) -> JSONValue { r(xs.map(f).reduce(0, +) / n) }
+        put("wires_" + name, ["samples": .int(Int64(xs.count)), "layers": mean { Double($0.layers) }, "shown": mean { Double($0.shown) },
+                              "in_view": mean { Double($0.inView) }, "path_elements": mean { Double($0.elements) },
+                              "pictures_in_view": mean { Double($0.tiles) }, "coverage_views": mean(\.coverage),
+                              "coverage_views_max": r(xs.map(\.coverage).max() ?? 0), "largest_view_fraction": r(xs.map(\.largest).max() ?? 0)])
+    }
+
+    #if os(macOS)
+    var offscreen: OffscreenRenderer?
+
+    /// A phase stepped frame by frame (120 to a second of its time), each frame committed and
+    /// rendered by Core Animation into a texture, timed to the GPU's end. A frame whose render
+    /// takes longer than a 120 Hz frame (8.33 ms) is one a render server would deliver late
+    /// ("over_budget"); the excess summed, a second, is the hitch proxy ("late_ms_per_s").
+    func offscreenPhase(_ name: String, seconds: Double, renderer r: OffscreenRenderer, step: (Double) -> Void,
+                        samples: inout [WireStats]) async {
+        guard let v = view else { return }
+        let frames = max(1, Int(seconds * 120))
+        var cpu: [Double] = [], gpu: [Double] = [], total: [Double] = [], commit: [Double] = []
+        // a frame before the phase, so a first render's caches aren't counted in it
+        _ = r.frame()
+        let tiles0 = v.canvas.counts.tilesDrawn
+        for k in 0..<frames {
+            step(Double(k) / Double(frames))
+            let c0 = CACurrentMediaTime()
+            CATransaction.flush()
+            commit.append((CACurrentMediaTime() - c0) * 1000)
+            let f = r.frame()
+            cpu.append(f.cpu)
+            gpu.append(f.gpu)
+            total.append(f.total)
+            if k % 15 == 0 { samples.append(v.canvas.wireStats()) }
+            // the main actor's other work (a cull, a batch of faces) runs between frames, as it
+            // would between a display link's ticks
+            await Task.yield()
+        }
+        let budget = 1000.0 / 120
+        let late = total.filter { $0 > budget }.count
+        let excess = total.reduce(0) { $0 + max(0, $1 - budget) }
+        put("offscreen_" + name, ["frames": .int(Int64(frames)), "render_cpu_ms": stats(cpu), "render_gpu_ms": stats(gpu),
+                                  "render_total_ms": stats(total), "commit_ms": stats(commit), "over_budget": .int(Int64(late)),
+                                  "late_ms_per_s": .double((excess / seconds * 10).rounded() / 10),
+                                  // the frames over budget, by index (when in the phase they came)
+                                  "late_frames_at": .array(total.indices.filter { total[$0] > budget }.prefix(20).map { .int(Int64($0)) }),
+                                  "tiles_drawn": .int(Int64(v.canvas.counts.tilesDrawn - tiles0)),
+                                  "view_points": .array([.double(Double(r.size.width)), .double(Double(r.size.height))]),
+                                  "scale": .double(Double(r.scale))])
+    }
+    #endif
 
     @objc func onTick(_ l: CADisplayLink) {
         if let last = lastTs { intervals.append((l.timestamp - last) * 1000) }
