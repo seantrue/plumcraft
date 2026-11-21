@@ -547,7 +547,17 @@ mod tests {
         let rows = plumcraft_proto::display::Display { media: Media::Tree, value: Some(json!([["a", "b"], [1, 2]])), ..Default::default() };
         assert_eq!(super::super::kinds_for(&rows)[0].id, "table.grid", "rows are a table");
         fn input(display: &plumcraft_proto::display::Display) -> ViewInput<'_> {
-            ViewInput { display, full: None, missing: false, rendition: None, pictures: &[], sheet: &[], offered_views: &[], tools: Default::default() }
+            ViewInput {
+                display,
+                full: None,
+                missing: false,
+                rendition: None,
+                pictures: &[],
+                sheet: &[],
+                offered_views: &[],
+                tools: Default::default(),
+                channel: None,
+            }
         }
         let mut view = Yaml::default();
         view.sync(&egui::Context::default(), &input(&d));

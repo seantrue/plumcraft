@@ -335,7 +335,26 @@ pub struct ImageView {
     numbers: Option<Job<Blob>>,
     /// Compare needs the numbers whether or not the probe does.
     pub want_numbers: bool,
+    /// The channel shown, a pop-out's (`viewer.picture`, the core's); `None`: no picker (the
+    /// Watched panel), all channels.
+    pub channel: Option<Channel>,
+    /// The picture's one channel (or its colour without alpha), made from the decoded picture
+    /// by the core's [`plumcraft_media::raster::isolate`] when that channel is shown.
+    isolated: Option<(Channel, Picture)>,
 }
+
+/// A pop-out picture's channel (`viewer.picture`).
+pub use plumcraft_session::viewer_state::Channel;
+
+/// The channels a picture viewer offers, as `viewer.picture` takes them, and their labels.
+pub const CHANNELS: [(Channel, &str, &str); 6] = [
+    (Channel::Rgba, "rgba", "RGBA"),
+    (Channel::Rgb, "rgb", "RGB"),
+    (Channel::R, "r", "R"),
+    (Channel::G, "g", "G"),
+    (Channel::B, "b", "B"),
+    (Channel::A, "a", "A"),
+];
 
 impl ImageView {
     /// The image's size in its own pixels.
@@ -380,6 +399,35 @@ impl ImageView {
     pub(crate) fn texture(&mut self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
         self.picture.texture(ctx, "plumcraft-watched-image")
     }
+
+    /// The picture as shown: all its channels, or the one the pop-out's channel names.
+    fn shown_texture(&mut self, ctx: &egui::Context) -> Option<egui::TextureHandle> {
+        let Some(c) = self.channel.filter(|c| *c != Channel::Rgba) else { return self.picture.texture(ctx, "plumcraft-watched-image") };
+        let img = self.picture.img.clone()?;
+        if self.isolated.as_ref().is_none_or(|(had, p)| *had != c || p.size() != Some((img.w, img.h))) {
+            let word = CHANNELS.iter().find(|(k, ..)| *k == c).map_or("rgba", |(_, w, _)| *w);
+            let mut p = Picture::blocks();
+            p.set(ctx, "plumcraft-watched-channel", plumcraft_media::raster::isolate(&img, word));
+            self.isolated = Some((c, p));
+        }
+        self.isolated.as_mut().and_then(|(_, p)| p.texture(ctx, "plumcraft-watched-channel"))
+    }
+
+    /// The channel picker: `viewer.picture {channel}` for the pop-out (aimed at it by the pane).
+    fn channel_picker(&mut self, ui: &mut egui::Ui, tokens: &Tokens) {
+        let Some(shown) = self.channel else { return };
+        ui.horizontal(|ui| {
+            ui.label(egui::RichText::new("Channel").small().color(tokens.text_dim));
+            for (c, word, label) in CHANNELS {
+                let r = ui.add(egui::Button::selectable(c == shown, label).small());
+                let name = format!("Channel {label}");
+                r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, c == shown, &name));
+                if r.on_hover_text(format!("viewer.picture {{channel: {word:?}}}")).clicked() && c != shown {
+                    self.tools.asks.push(("viewer.picture", json!({"channel": word})));
+                }
+            }
+        });
+    }
 }
 
 impl MediaViewer for ImageView {
@@ -401,6 +449,7 @@ impl MediaViewer for ImageView {
         if self.key.as_ref() != Some(&key) || (!self.picture.is_some() && self.job.is_none() && self.error.is_none() && full.is_some()) {
             self.key = Some(key);
             self.picture = Picture::blocks();
+            self.isolated = None;
             self.error = None;
             self.source = None;
             self.numbers = None;
@@ -418,7 +467,10 @@ impl MediaViewer for ImageView {
         if let Some(r) = self.job.as_ref().and_then(Job::poll) {
             self.job = None;
             match r {
-                Ok(img) => self.picture.set(ctx, "plumcraft-watched-image", img),
+                Ok(img) => {
+                    self.picture.set(ctx, "plumcraft-watched-image", img);
+                    self.isolated = None;
+                }
                 Err(e) => self.error = Some(e),
             }
         }
@@ -427,9 +479,10 @@ impl MediaViewer for ImageView {
 
     fn ui(&mut self, ui: &mut egui::Ui, tokens: &Tokens) {
         self.tools.asks.extend(crate::picture_tools::zoom_bar(ui));
+        self.channel_picker(ui, tokens);
         self.tools.begin();
         let ctx = ui.ctx().clone();
-        match (self.picture.texture(&ctx, "plumcraft-watched-image"), self.picture.size(), self.grid()) {
+        match (self.shown_texture(&ctx), self.picture.size(), self.grid()) {
             (Some(t), Some((w, h)), Some(grid)) => {
                 let (sw, sh) = (grid.cols, grid.rows);
                 pixel_picture(ui, &mut self.zoom, &mut self.tools, &t, grid, vec2(sw as f32, sh as f32), tokens);
@@ -463,7 +516,7 @@ impl MediaViewer for ImageView {
             "none"
         };
         json!({"kind": "image", "state": state, "size": self.source, "texture": self.picture.size().map(|(w, h)| [w, h]), "error": self.error, "zoom": self.zoom.zoom,
-               "tools": self.tools.inspect()})
+               "channel": self.channel, "isolated": self.isolated.as_ref().map(|(c, _)| *c), "tools": self.tools.inspect()})
     }
 }
 

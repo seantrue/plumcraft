@@ -45,6 +45,7 @@ pub struct Picture(pub ImageView);
 impl Viewer for Picture {
     fn sync(&mut self, ctx: &egui::Context, v: &ViewInput<'_>) {
         self.0.tools.take(v.tools);
+        self.0.channel = v.channel;
         self.0.sync(ctx, Some(v.display), v.full, v.rendition);
     }
 

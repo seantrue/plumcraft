@@ -194,7 +194,9 @@ impl EditorApp {
     fn presents_now(&self, a: &Ask) -> bool {
         match a.kind {
             Kind::FileOpen | Kind::FileSave | Kind::FolderPick => a.by == By::Person,
-            Kind::ClipboardSet | Kind::ClipboardGet | Kind::Share | Kind::OpenExternal | Kind::Form => true,
+            // a share is the person's to see; a script's is the script's to answer (11.2)
+            Kind::Share => a.by == By::Person,
+            Kind::ClipboardSet | Kind::ClipboardGet | Kind::OpenExternal | Kind::Form => true,
             // (this window takes its own screenshots: the core never asks it for one)
             Kind::Prompt | Kind::Text | Kind::Screenshot => false,
         }
@@ -238,8 +240,16 @@ impl EditorApp {
                 };
                 let _ = invoke::answer(self, a.id, &answer);
             }
+            // egui has no share sheet: the file is shown in the file manager, to send from there
             Kind::Share => {
-                let _ = invoke::answer(self, a.id, &json!({"error": "share isn't available here"}));
+                let answer = match path_param(a, "file").or_else(|| path_param(a, "path")) {
+                    Some(file) => match self.dialogs.reveal(&file) {
+                        Ok(notice) => json!({"notice": notice}),
+                        Err(e) => json!({"error": e}),
+                    },
+                    None => json!({"error": "nothing to share"}),
+                };
+                let _ = invoke::answer(self, a.id, &answer);
             }
             Kind::Prompt | Kind::Text | Kind::Screenshot => {}
         }

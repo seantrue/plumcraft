@@ -47,8 +47,10 @@ pub enum PaletteOutcome {
 /// The palette's search box hint (tests and the control channel find it by this label).
 pub const SEARCH_HINT: &str = "Search nodes…";
 
-/// Draw the palette. Escape or a click outside closes it.
-pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex, catalog: &SchemaReply) -> PaletteOutcome {
+/// Draw the palette. Escape or a click outside closes it. The kinds from `own` on are of engines
+/// not started (`plumcraft_editor_core::palette::with_starts`): each says which engine choosing
+/// it starts.
+pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex, catalog: &SchemaReply, own: usize) -> PaletteOutcome {
     let (shown, total) = index.filter_in(&state.query, MAX_SHOWN, |i| state.fits.as_ref().is_none_or(|f| f.contains(&i)));
     let mut outcome = PaletteOutcome::Open;
     let (up, down, enter, escape) = ctx.input_mut(|i| {
@@ -107,11 +109,19 @@ pub fn show(ctx: &egui::Context, state: &mut PaletteState, index: &PaletteIndex,
                         last_category = Some(category);
                     }
                     let selected = row == state.selected;
-                    let r = ui.add(egui::Button::selectable(selected, display_name(def)));
+                    let starts = (i >= own).then(|| def.engines.first()).flatten();
+                    let r = match starts {
+                        Some(e) => ui.add(egui::Button::selectable(selected, format!("{}  · starts the {e} engine", display_name(def)))),
+                        None => ui.add(egui::Button::selectable(selected, display_name(def))),
+                    };
                     if selected && (up || down) {
                         r.scroll_to_me(None);
                     }
                     let r = if def.description.is_empty() { r.on_hover_text(&def.id) } else { r.on_hover_text(format!("{}\n\n{}", def.description, def.id)) };
+                    let r = match starts {
+                        Some(e) => r.on_hover_text(format!("Choosing it starts the {e} engine; the node is added once it has connected.")),
+                        None => r,
+                    };
                     if r.clicked() {
                         outcome = PaletteOutcome::Add(def.id.clone());
                     }

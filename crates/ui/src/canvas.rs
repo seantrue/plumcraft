@@ -59,7 +59,7 @@ pub const WIRE_WIDTH: f32 = 2.5;
 pub const STATUS_SLOT: f32 = 88.0;
 
 // What an input row stands for, and one input row of a node: the core's (N1 slice 8).
-pub use plumcraft_editor_core::rows::{InputRow, RowKind, input_rows};
+pub use plumcraft_editor_core::rows::{InputRow, RowKind, input_rows, shown_rows};
 
 /// What a snarl node stands for.
 #[derive(Debug, Clone, PartialEq)]
@@ -117,10 +117,16 @@ pub struct Canvas {
     fit_tries: u8,
     pub palette: Option<PaletteState>,
     pub palette_index: PaletteIndex,
+    /// The node types the palette lists after the catalogue's own: those of engines not started,
+    /// whose choosing starts that engine (`startable_defs`, set as the palette opens; D3).
+    pub palette_starts: Vec<plumcraft_proto::catalogue::NodeDef>,
     /// The screen rect of the canvas, last frame.
     pub rect: Rect,
     /// Where each pin was drawn last frame (graph coordinates), for hit testing wires.
     pub(crate) pins: PinSink,
+    /// Where the faces' own fields were drawn this frame (graph coordinates): a double click on
+    /// one is the field's (a word selected, a value typed), not a double tap for the core.
+    pub(crate) field_rects: Vec<Rect>,
     pub wire_menu: Option<WireMenu>,
     /// The wire or port under the pointer this frame (no button down, no menu or palette
     /// open), and where: the host shows its value ([`crate::wire_view`]). The first port is
@@ -189,12 +195,14 @@ impl Default for Canvas {
             synced: None,
             edits: EditBuffers::default(),
             node_rects: HashMap::new(),
+            field_rects: Vec::new(),
             to_global: TSTransform::IDENTITY,
             set_transform: None,
             fit_frames: 0,
             fit_tries: 0,
             palette: None,
             palette_index: PaletteIndex::default(),
+            palette_starts: Vec::new(),
             rect: Rect::NOTHING,
             pins: PinSink::default(),
             wire_menu: None,
@@ -310,8 +318,9 @@ impl Canvas {
     /// Rebuild the snarl if the session moved on since the last sync, from the core's scene of
     /// `graph` ([`structure`]): which faces, in what order and view, and which wires between
     /// which pins, drawn by snarl, routed through bend points or through a net's tags (N2 slice
-    /// 3). Each face's rows are still the catalogue's ([`input_rows`]): the widgets edit through
-    /// the catalogue's port, which the scene doesn't carry.
+    /// 3). Each face's rows are the core's shown rows ([`shown_rows`], the scene's own, so pin
+    /// `i` is the scene's row `i`): the widgets edit through the catalogue's port, which the
+    /// scene doesn't carry.
     pub fn sync(&mut self, generation: u64, graph: &Graph, catalog: &SchemaReply) {
         if self.synced == Some(generation) {
             return;
@@ -335,14 +344,11 @@ impl Canvas {
                     let id = NodeId::from(face.id.as_str());
                     let Some(node) = graph.node(&id) else { continue };
                     let def = catalog.node(&node.kind);
-                    let mut inputs = def.map(|d| input_rows(d, &id, graph)).unwrap_or_default();
+                    // the rows the scene shows, in its order (B45): the face's pins index them,
+                    // so a row hidden from the face (`node.face`) is left out here too
+                    let (inputs, tucked) = def.map(|d| shown_rows(d, &id, graph)).unwrap_or_default();
                     let outputs = def.map_or(0, |d| d.outputs.len());
-                    let tucked =
-                        def.map(|d| plumcraft_graph::ports::tucked(d, node, |p| graph.wire_into(&PortRef::new(id.clone(), p)).is_some())).unwrap_or_default();
-                    if !node.all_fields {
-                        inputs.retain(|r| !(r.kind == RowKind::Plain && tucked.contains(&r.key)));
-                    }
-                    CanvasNode { id, kind: node.kind.clone(), inputs, outputs, tucked: tucked.len(), all_fields: node.all_fields, proxy: None }
+                    CanvasNode { id, kind: node.kind.clone(), inputs, outputs, tucked, all_fields: node.all_fields, proxy: None }
                 }
             };
             // collapsed nodes stay so across rebuilds (the view is saved in the graph)
@@ -604,7 +610,12 @@ impl Canvas {
     pub fn show(&mut self, ui: &mut egui::Ui, graph: &Graph, catalog: &SchemaReply, tokens: &Tokens, runs: RunView<'_>) -> Vec<Action> {
         self.rect = ui.max_rect();
         crate::icons::ensure_loaders(ui.ctx());
-        self.palette_index.refresh(catalog);
+        // the palette's catalogue: the engine's, then the kinds of engines not started (an engine
+        // that has connected since the palette opened has its kinds in the catalogue already)
+        self.palette_starts.retain(|d| catalog.node(&d.id).is_none());
+        let starts: Vec<&plumcraft_proto::catalogue::NodeDef> = self.palette_starts.iter().collect();
+        let palette_catalog = plumcraft_editor_core::palette::with_starts(catalog, &starts);
+        self.palette_index.refresh(&palette_catalog);
         let ctx = ui.ctx().clone();
         if ctx.input(|i| i.pointer.primary_pressed()) {
             self.press = self.press.wrapping_add(1);
@@ -683,6 +694,7 @@ impl Canvas {
         let selected_groups = self.selected_groups();
         let mut routed_paths: Vec<(Vec<Pos2>, egui::Color32)> = self.drawn_paths().into_iter().map(|(_, _, path, color)| (path, color)).collect();
         routed_paths.extend(self.net_paths());
+        self.field_rects.clear();
         let mut viewer = NodeViewer {
             graph,
             catalog,
@@ -690,6 +702,7 @@ impl Canvas {
             actions: Vec::new(),
             edits: &mut self.edits,
             node_rects: &mut self.node_rects,
+            field_rects: &mut self.field_rects,
             forced,
             to_global: self.to_global,
             run: runs.run,
@@ -727,15 +740,8 @@ impl Canvas {
         }
         let mut actions = keyed;
         actions.extend(viewer.actions);
-        // A double-click on a node (its frame or header, not a field or button in it, which take
-        // the click themselves) opens its parameters window. egui reports a click within 0.6 s of
-        // the one before last as a triple click and no double, so that counts too.
-        for (sid, n) in self.snarl.nodes_ids_data() {
-            let frame = egui::Id::new(CANVAS_ID).with(("snarl-node", sid)).with("frame");
-            if n.value.proxy.is_none() && ctx.read_response(frame).is_some_and(|r| r.double_clicked() || r.triple_clicked()) {
-                actions.push(("node.parameters", json!({"node": n.value.id})));
-            }
-        }
+        // (A double click on the canvas is the core's to decide, sent as `ui.gesture
+        // {kind: "doubleTap"}` with the clicks: crate::edit_view.)
         // A ⌘-drag moved or dropped wires (crate::edit_view).
         self.reconcile_wires(&ctx, catalog, &mut actions);
         let live: std::collections::HashSet<SnarlId> = self.snarl.nodes_ids_data().map(|(id, _)| id).collect();
@@ -812,23 +818,6 @@ impl Canvas {
                 .filter(|p| ctx.layer_id_at(*p).is_none_or(|l| l.order == egui::Order::Background || l.order == egui::Order::Middle))
                 .and_then(|p| self.wire_at(ui.style(), catalog, p).map(|(a, b)| (a, Some(b), p)))
         });
-        // A double click on a wire pops its value out.
-        // (a click within 0.6 s of the one before last is egui's triple click, not a double)
-        let double = ctx.input(|i| {
-            let b = egui::PointerButton::Primary;
-            if i.pointer.button_double_clicked(b) || i.pointer.button_triple_clicked(b) { i.pointer.interact_pos() } else { None }
-        });
-        if let Some(p) = double
-            && self.wire_menu.is_none()
-            && self.rect.contains(p)
-            && !self.over_node(p)
-            && !self.on_bend_handle(p)
-            && !self.over_net_tag(p)
-            && !self.over_frame_tab(p)
-            && let Some((from, _)) = self.wire_at(ui.style(), catalog, p)
-        {
-            actions.push(("view.popout", json!({"node": from.node, "port": from.port})));
-        }
         // A left click on a port's pin or a wire watches its value: since N2 slice 4 that is the
         // core's meaning of the click, sent as a `ui.gesture` tap (crate::edit_view), which
         // hit-tests the pins and wires this canvas measured.
@@ -889,7 +878,7 @@ impl Canvas {
             ctx.request_repaint();
         }
         if let Some(state) = &mut self.palette {
-            match palette::show(&ctx, state, &self.palette_index, catalog) {
+            match palette::show(&ctx, state, &self.palette_index, &palette_catalog, catalog.nodes.len()) {
                 PaletteOutcome::Open => {}
                 // the palette is the core's state (N3 slice 1): closing it and picking from it are
                 // its commands, so a dropped wire's pick adds the node and the wire as one step
@@ -942,6 +931,8 @@ struct NodeViewer<'a> {
     actions: Vec<Action>,
     edits: &'a mut EditBuffers,
     node_rects: &'a mut HashMap<SnarlId, Rect>,
+    /// Where each face's fields are drawn ([`Canvas::field_rects`]).
+    field_rects: &'a mut Vec<Rect>,
     forced: Option<TSTransform>,
     to_global: TSTransform,
     run: &'a RunState,
@@ -1102,6 +1093,12 @@ impl<'a> NodeViewer<'a> {
         let Some(node) = snarl.get_node(pin.id.node) else { return PinInfo::circle() };
         let Some(row) = node.inputs.get(pin.id.input).cloned() else { return PinInfo::circle() };
         let Some(face) = self.face(node).and_then(|f| f.inputs.get(pin.id.input)) else { return PinInfo::circle() };
+        if face.key != row.key {
+            // the scene and the snarl disagree for a frame (B45): never edit a port by another's
+            // label; the next sync draws the scene's rows
+            pin_label(ui, &face.label, face.hover.as_deref(), PIN_LABEL_WIDTH + CAPTION_WIDTH);
+            return self.pin_of(&face.pin);
+        }
         // a proxy's row stands for a member's port
         let node_id = crate::groups_view::row_node(node, pin.id.input);
         let port = &row.port;
@@ -1148,9 +1145,11 @@ impl<'a> NodeViewer<'a> {
                     let r = caption(ui, rich, label, hover);
                     self.input_menu(&r, &at, port);
                     let key = (node_id.clone(), row.key.clone());
+                    let start = ui.cursor().min;
                     if let Some(value) = widgets::port_widget(ui, port, &key, &current, self.edits, blank) {
                         self.actions.push(("node.set", json!({"node": node_id, "port": row.key, "value": value})));
                     }
+                    self.field_rects.push(Rect::from_min_max(start, ui.min_rect().max));
                 });
             }
             _ => {
@@ -1523,12 +1522,9 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
             let r = ui
                 .add(egui::Label::new(rich).selectable(false).sense(egui::Sense::click()))
                 .on_hover_text("Click to watch this node's output; double-click for its parameters");
+            // (a double click is the core's double tap: crate::edit_view)
             if r.clicked() {
                 self.actions.push(("run.watch", json!({"node": n.id})));
-            }
-            // the title takes the click from the frame, so it answers a double click itself
-            if r.double_clicked() || r.triple_clicked() {
-                self.actions.push(("node.parameters", json!({"node": n.id})));
             }
         } else {
             ui.add(egui::Label::new(rich).selectable(false));

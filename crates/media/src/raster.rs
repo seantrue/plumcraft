@@ -18,6 +18,34 @@ impl Rgba {
     }
 }
 
+/// One channel of a picture as grey, or its colour without alpha: what a picture viewer shows
+/// for `viewer.picture {channel}` (`"rgba"`, `"rgb"`, `"r"`, `"g"`, `"b"`, `"a"`). `rgba`, a
+/// channel it doesn't know, or pixels that don't fill the picture give it back as it is.
+pub fn isolate(img: &Rgba, channel: &str) -> Rgba {
+    let k = match channel {
+        "rgb" => 4,
+        "r" => 0,
+        "g" => 1,
+        "b" => 2,
+        "a" => 3,
+        _ => return img.clone(),
+    };
+    let n = (img.w as usize).checked_mul(img.h as usize).and_then(|n| n.checked_mul(4));
+    if n.is_none_or(|n| img.pixels.len() < n) {
+        return img.clone();
+    }
+    let mut pixels = img.pixels.clone();
+    for px in pixels.as_chunks_mut::<4>().0 {
+        if k == 4 {
+            px[3] = 255;
+        } else {
+            let v = px[k];
+            *px = [v, v, v, 255];
+        }
+    }
+    Rgba { w: img.w, h: img.h, pixels }
+}
+
 /// Shrink to at most `max_side` a side (box filter); smaller pictures are returned as they are.
 pub fn shrink(img: Rgba, max_side: u32) -> Rgba {
     let (w, h) = (img.w as usize, img.h as usize);
@@ -53,6 +81,19 @@ pub fn shrink(img: Rgba, max_side: u32) -> Rgba {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_channel_shows_as_grey_and_rgb_drops_alpha() {
+        let img = Rgba { w: 2, h: 1, pixels: vec![10, 20, 30, 40, 50, 60, 70, 80] };
+        assert_eq!(isolate(&img, "rgba"), img);
+        assert_eq!(isolate(&img, "rgb").pixels, [10, 20, 30, 255, 50, 60, 70, 255]);
+        assert_eq!(isolate(&img, "g").pixels, [20, 20, 20, 255, 60, 60, 60, 255]);
+        assert_eq!(isolate(&img, "a").pixels, [40, 40, 40, 255, 80, 80, 80, 255]);
+        // short pixels, an unknown channel: as it is
+        let short = Rgba { w: 4, h: 4, pixels: vec![1, 2, 3, 4] };
+        assert_eq!(isolate(&short, "r"), short);
+        assert_eq!(isolate(&img, "z"), img);
+    }
 
     #[test]
     fn shrinking_keeps_the_aspect_and_refuses_nothing() {

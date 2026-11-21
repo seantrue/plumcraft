@@ -218,15 +218,8 @@ impl Canvas {
                 {
                     actions.push(("wire.route", json!({"to": drag.to, "via": drag.via})));
                 }
-                // egui counts a click within 0.6 s of the one before last as a triple click and
-                // then reports no double click: either removes the point.
-                if resp.double_clicked() || resp.triple_clicked() {
-                    let mut fewer = r.via.clone();
-                    if k < fewer.len() {
-                        fewer.remove(k);
-                        actions.push(("wire.route", json!({"to": r.to, "via": fewer})));
-                    }
-                }
+                // (a double click removes the point: the core's double tap on a bend, sent with the
+                // canvas's clicks, crate::edit_view)
             }
         }
         // a right-click on a routed wire: the wire menu (snarl doesn't know these wires)

@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The egui editor audited against the native apps, then brought up (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** "Is the egui version at parity?", then "Do the egui audit on yellowfin", then, offered three depths of repair, "Option 2": the wrong-port defect plus the small gaps (palette, double clicks, pop-out actions, Show on Face, Match the System, channel picker), leaving out viewer state, the Watched column, a toolbar and names in place.
+
+**The audit (agent, on the Linux test host, no code changed).** On the floor egui met 79 of 85 rows against 77 for the Mac app; against N4 it lacked several behaviours ruled "the same in every shell". It found B45: with a row hidden from a node's face, egui's rows shifted and an edit on the face changed the wrong port. It drove egui through the headless test harness, since that host has no display, so real windows, dialogs and the clipboard were not checked. One Cancel Run was missed once (B46).
+
+**The repair (a second agent; ~1,500 lines with 21 new tests).** B45 fixed at its cause: egui built rows from its own list while the core's scene dropped hidden ones; it now uses the core's rows, and four new tests failed before and pass after. The palette offers kinds of engines not started; double clicks go to the core's gesture rule and egui's own double-click code is removed; the pop-out bar has Copy, Save As, Share, Pin as A and B, each the existing core command; Show on Face, Match the System, a picture channel picker, and the rename title. B46 did not reproduce in 510 attempts and stays open.
+
+**A defect in the agent's own work, caught by its pictures, that turned out to be the core's.** A double click on an output pin opened the node's parameters and not a pop-out, because the first click's rerun moved the pin from under the second. The core's double-tap rule now hit-tests the second tap as the first was hit. That rule is shared, so the controller rebuilt the Apple framework and reran the Apple checks.
+
+**Limits.** egui has no share sheet, so Share shows the file in the file manager. Dragging a value out of a window is not possible in egui and was not faked. Save As from a pop-out was checked only where the core refuses. A user who never chose a theme now follows the system.
+
+**Verified.** Mac gate 1,562 of 1,563 (the known baseline failure), Python 224; after merging the dev branch, clippy clean, the UI and core tests 570 of 570, `swift test` 81, and the Mac app's conformance suite 31 of 31 read and 21 of 21 edit on the rebuilt framework. The Linux gate ran on the Linux test host before the merge. **Not verified:** anything in a real egui window.
+
+**Controller's mistakes the same afternoon.** The iPad device pass was started twice wrongly: the pass script was not executable, and then the device script failed on a quoting bug (an apostrophe inside a parameter expansion) that nobody had run for real, so the suite step was skipped. Both fixed; the pass then stopped when the iPad locked.
+
 ### 2026-11-21 — N5 slice 2: the Windows app reads and runs (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** N5 is the Windows shell in C# and WinUI 3, on the Composition canvas, with hand-written C# models and no CI (the N4 and N5 cards of 2026-11-21).

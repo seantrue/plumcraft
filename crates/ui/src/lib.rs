@@ -167,7 +167,22 @@ pub trait FileDialogs {
     fn save_theme(&mut self, _name: &str) -> Option<PathBuf> {
         None
     }
+    /// The core's `share` ask, the person's (a value's or the graph's file): egui has no share
+    /// sheet, so the file is shown in the system's file manager, to send from there. The
+    /// notice to say, or why it couldn't.
+    fn reveal(&mut self, _file: &Path) -> Result<String, String> {
+        Err("this editor has no share sheet".into())
+    }
 }
+
+/// What a `share` ask shows the person in egui ([`FileDialogs::reveal`]): the file manager's name.
+pub const REVEALED_IN: &str = if cfg!(target_os = "macos") {
+    "Finder"
+} else if cfg!(target_os = "windows") {
+    "File Explorer"
+} else {
+    "the file manager"
+};
 
 /// The name it had in E1.
 pub use FileDialogs as PathDialogs;
@@ -192,6 +207,28 @@ impl NativeDialogs {
 impl FileDialogs for NativeDialogs {
     fn start_in(&mut self, dir: Option<PathBuf>) {
         self.start = dir;
+    }
+
+    fn reveal(&mut self, file: &Path) -> Result<String, String> {
+        if !file.exists() {
+            return Err(format!("{} isn't there", file.display()));
+        }
+        let mut cmd = if cfg!(target_os = "macos") {
+            let mut c = std::process::Command::new("open");
+            c.arg("-R").arg(file);
+            c
+        } else if cfg!(target_os = "windows") {
+            let mut c = std::process::Command::new("explorer");
+            c.arg(format!("/select,{}", file.display()));
+            c
+        } else {
+            let mut c = std::process::Command::new("xdg-open");
+            c.arg(file.parent().unwrap_or(file));
+            c
+        };
+        // (not waited for: the file manager comes forward on its own)
+        cmd.spawn().map_err(|e| format!("showing {} in {REVEALED_IN}: {e}", file.display()))?;
+        Ok(format!("Shown in {REVEALED_IN}: send it from there"))
     }
 
     fn pick_files(&mut self, hint: &PathHint, current: &str) -> Vec<PathBuf> {
@@ -596,7 +633,13 @@ impl EditorApp {
         let labels = self.prefs.path().map(|p| p.with_file_name("labels.toml"));
         let app = self.doc.session.labels.app.clone();
         self.doc.session.use_labels(app, labels);
-        let name = self.prefs.prefs().theme.as_deref().and_then(theme::by_name).map_or(theme::DEFAULT.name, |t| t.name);
+        // a theme chosen, else Match the System (the core's default, N4 slice 4: a new editor
+        // follows the system's light or dark appearance; a stored choice stays as it is)
+        self.system_dark = ctx.system_theme().map_or(self.system_dark, |t| t == egui::Theme::Dark);
+        let name = match self.prefs.prefs().theme.as_deref() {
+            None | Some(plumcraft_editor_core::settings::SYSTEM) => self.system_theme().name,
+            Some(n) => theme::by_name(n).map_or(theme::DEFAULT.name, |t| t.name),
+        };
         let semibold = self.tokens.semibold;
         self.tokens = Tokens::from(self.prefs.prefs().appearance.resolve(name));
         self.tokens.semibold = semibold;
@@ -640,9 +683,11 @@ impl EditorApp {
     fn pump_theme(&mut self, ctx: &egui::Context) {
         // the system's appearance, for a theme that follows it (N4 slice 4)
         self.system_dark = ctx.system_theme().map_or(self.system_dark, |t| t == egui::Theme::Dark);
-        let following = self.prefs.prefs().theme.as_deref() == Some(plumcraft_editor_core::settings::SYSTEM);
-        let name = match self.doc.session.views.theme_asked.take() {
-            Some(n) => n,
+        // Match the System: chosen, or nothing chosen yet (the core's default)
+        let following = matches!(self.prefs.prefs().theme.as_deref(), None | Some(plumcraft_editor_core::settings::SYSTEM));
+        let asked = self.doc.session.views.theme_asked.take();
+        let name = match &asked {
+            Some(n) => n.clone(),
             // following the system: its appearance changed
             None if following && self.tokens.name != self.system_theme().name => plumcraft_editor_core::settings::SYSTEM.to_owned(),
             None => return,
@@ -650,8 +695,12 @@ impl EditorApp {
         if name == plumcraft_editor_core::settings::SYSTEM {
             let t = self.system_theme();
             self.tokens.name = t.name;
-            self.set_theme(ctx, &t);
-            self.prefs.set_theme(plumcraft_editor_core::settings::SYSTEM);
+            // a choice is kept; following by default writes nothing
+            if asked.is_some() {
+                self.prefs.set_theme(plumcraft_editor_core::settings::SYSTEM);
+            }
+            self.retheme();
+            self.restyle_now(ctx);
             return;
         }
         match theme::by_name(&name) {

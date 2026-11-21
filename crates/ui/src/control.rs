@@ -108,7 +108,12 @@ impl core::Shell for EditorApp {
         };
         let read = if from_disk { self.prefs.path().map(plumcraft_editor_core::prefs::Prefs::load_from) } else { None };
         let prefs = read.as_ref().unwrap_or_else(|| self.prefs.prefs());
-        let chosen = prefs.theme.as_deref().filter(|t| *t == settings::SYSTEM).unwrap_or(self.tokens.name).to_owned();
+        // no theme chosen yet follows the system, as the core's look does (`settings::Look::chosen`)
+        let chosen = match prefs.theme.as_deref() {
+            None | Some(settings::SYSTEM) => settings::SYSTEM,
+            Some(_) => self.tokens.name,
+        }
+        .to_owned();
         let shown = if from_disk { prefs.appearance.resolve(self.tokens.name) } else { plumcraft_editor_core::theme::Tokens::from(&self.tokens) };
         let views = &self.doc.session.views;
         let facts = settings::Facts {

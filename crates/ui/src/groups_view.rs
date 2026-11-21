@@ -168,7 +168,7 @@ pub fn rename_window(ctx: &egui::Context, graph: &Graph) -> Vec<Action> {
     };
     let mut open = true;
     let mut done = false;
-    egui::Window::new(format!("Rename group {}", grp.name))
+    egui::Window::new(format!("Rename “{}”", grp.name))
         .id(rename_window_id().with("window"))
         .collapsible(false)
         .resizable(false)
@@ -471,8 +471,10 @@ impl Canvas {
                     let r = ui.add(egui::Label::new(name).selectable(false).sense(egui::Sense::click()));
                     let label = format!("group {}", grp.name);
                     r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, &label));
+                    // a double click on the band edits its name, as the core's double tap there
+                    // does (the band takes the click from the canvas)
                     if r.double_clicked() {
-                        request_rename(ui.ctx(), gid, &grp.name);
+                        actions.push(("name.edit", json!({"group": gid})));
                     }
                     r.on_hover_text(format!("{summary}\nDouble-click to rename; right-click for its menu"))
                         .context_menu(|ui| group_menu(ui, graph, gid, tokens, &mut actions));

@@ -131,6 +131,12 @@ fn tap_action(p: Pos2, mods: egui::Modifiers, scale: f32) -> Action {
     ("ui.gesture", json!({"kind": "tap", "at": [p.x, p.y], "mods": gesture_mods(mods), "slop": crate::canvas::WIRE_HIT / scale.max(0.05)}))
 }
 
+/// A double click on the canvas at graph point `p`: `ui.gesture {kind: "doubleTap"}`, which the
+/// core decides ("open what it is on", `plumcraft_editor_core::gesture`).
+fn double_tap_action(p: Pos2, mods: egui::Modifiers, scale: f32) -> Action {
+    ("ui.gesture", json!({"kind": "doubleTap", "at": [p.x, p.y], "mods": gesture_mods(mods), "slop": crate::canvas::WIRE_HIT / scale.max(0.05)}))
+}
+
 /// The snarl's wires as graph ports.
 pub(crate) fn snarl_wires(snarl: &Snarl<CanvasNode>, catalog: &SchemaReply) -> Vec<(PortRef, PortRef)> {
     snarl.wires().filter_map(|(out, inp)| Some((crate::canvas::out_port(snarl, catalog, out)?, crate::canvas::in_port(snarl, inp)?))).collect()
@@ -163,7 +169,22 @@ impl Canvas {
         if self.over_frame_tab(p) || self.over_net_tag(p) {
             return out;
         }
-        out.push(tap_action(self.to_global.inverse() * p, mods, self.to_global.scaling));
+        let at = self.to_global.inverse() * p;
+        // A double click is a double tap: what it opens is the core's to decide (N3's card 3,
+        // "the same in every shell": empty canvas the palette, a face its parameters, a
+        // collapsed group the group, a pin, a wire or a preview its value in a pop-out, a bend
+        // point goes). egui counts a click within 0.6 s of the one before last as a triple, and
+        // then no double: that is a double tap too. A double click in a face's field is the
+        // field's (a word selected, a value typed).
+        let double =
+            ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary) || i.pointer.button_triple_clicked(egui::PointerButton::Primary));
+        if double {
+            if !ctx.text_edit_focused() && !self.field_rects.iter().any(|r| r.contains(at)) {
+                out.push(double_tap_action(at, mods, self.to_global.scaling));
+            }
+        } else {
+            out.push(tap_action(at, mods, self.to_global.scaling));
+        }
         // the outline follows once the gesture has run
         ctx.request_repaint();
         out
@@ -518,13 +539,17 @@ impl EditorApp {
                     }
                     None => self.canvas.open_palette(screen),
                 }
+                // the kinds of engines not started, listed after the catalogue's own (N4 slice 1,
+                // D3: the core's `palette.items` lists the same; choosing one starts its engine)
+                let starts: Vec<plumcraft_proto::catalogue::NodeDef> =
+                    plumcraft_session::engine_cmds::startable_defs(&self.doc.session).into_iter().cloned().collect();
                 // opened for a dropped wire (question 8, N3 slice 1): only what takes it is offered
                 let fits = self.doc.palette.as_ref().and_then(|p| p.wire.as_ref()).and_then(|w| w.end()).map(|(end, output)| {
-                    plumcraft_editor_core::palette::fitting(self.doc.session.graph(), self.doc.session.catalog(), &end, output)
-                        .into_iter()
-                        .map(|(i, _)| i)
-                        .collect()
+                    let refs: Vec<&plumcraft_proto::catalogue::NodeDef> = starts.iter().collect();
+                    let catalog = plumcraft_editor_core::palette::with_starts(self.doc.session.catalog(), &refs);
+                    plumcraft_editor_core::palette::fitting(self.doc.session.graph(), &catalog, &end, output).into_iter().map(|(i, _)| i).collect()
                 });
+                self.canvas.palette_starts = starts;
                 if let Some(state) = &mut self.canvas.palette {
                     state.fits = fits;
                 }

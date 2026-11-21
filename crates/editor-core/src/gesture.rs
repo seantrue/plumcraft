@@ -331,7 +331,14 @@ struct DragState {
     /// (N2 slice 4 restarted them at 1 once a drag ended; N3 slice 1 names a drag's moves by its
     /// serial, so two drags must not share one).
     last: u64,
+    /// The last tap: where, what it hit, and when ([`DOUBLE_TAP`]).
+    tap: Option<(Point, Hit, std::time::Instant)>,
 }
+
+/// A double tap within this long of a tap, and as near it as the hit distance, opens what that
+/// tap hit: the first tap may have changed the faces (a watch that runs grows a face, so a pin at
+/// its edge moves), and a double click means what its first click was on.
+pub const DOUBLE_TAP: std::time::Duration = std::time::Duration::from_millis(800);
 
 impl DragCell {
     pub fn get(&self) -> Option<Arc<Drag>> {
@@ -344,6 +351,19 @@ impl DragCell {
             st.last = st.last.max(d.serial);
         }
         st.drag = d.map(Arc::new);
+    }
+
+    /// Keep the last tap's place and hit.
+    fn note_tap(&self, at: Point, h: Hit) {
+        self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner).tap = Some((at, h, std::time::Instant::now()));
+    }
+
+    /// The hit of a tap within [`DOUBLE_TAP`] and `slop` of `at`, taken (a double tap uses it once).
+    fn take_tap(&self, at: Point, slop: f32) -> Option<Hit> {
+        let mut st = self.0.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (p, h, when) = st.tap.take()?;
+        let near = (p.x - at.x).hypot(p.y - at.y) <= slop.max(4.0);
+        (near && when.elapsed() <= DOUBLE_TAP).then_some(h)
     }
 
     /// The serial the next drag begun gets.
@@ -416,6 +436,7 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
     match r.gesture {
         Gesture::Tap { at, mods } => {
             let h = snap.hit(at.x, at.y, r.slop);
+            f.drag.note_tap(at, h);
             p.reply.insert("hit".into(), hit_reply(snap, &h));
             // the header's more-button opens the node's menu, as a context gesture there does
             // (N4 slice 2): no command, the menu in the reply
@@ -432,7 +453,8 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
             }
         }
         Gesture::DoubleTap { at, .. } => {
-            let h = snap.hit(at.x, at.y, r.slop);
+            // what the first tap hit, when it was this double tap's ([`DOUBLE_TAP`])
+            let h = f.drag.take_tap(at, r.slop).unwrap_or_else(|| snap.hit(at.x, at.y, r.slop));
             p.reply.insert("hit".into(), hit_reply(snap, &h));
             // a double tap on a row that can be edited edits it (the first tap opened it)
             match edit_row(snap, &h) {
