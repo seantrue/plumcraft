@@ -43,6 +43,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+### B41. A run setting kept in the preferences is sometimes lost on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
+- Context: `plumcraft-ffi::settings_autosave` `settings_are_the_cores_kept_in_its_prefs_and_every_document_follows_them`, `crates/ffi/tests/settings_autosave.rs:84`, added in N4 slice 4. After `theme.setToken`, `view.animationSpeed {ms: 1000}` and `lifecycle.appearance {dark: true}`, `settings.get {fromDisk: true}` gives Animation speed 500 (the default), not 1000. On the Linux test host it failed 1 of 10 alone at the dev branch before slice 5 and 6 of 10 at slice 5, which did not touch the settings code; it has not failed on the Mac. It may be the test's timing or a setting really lost when a document follows the shared look (`settings::follow` sets the animation speed from the preferences without a guard, unlike the run colours). Not looked into further.
+- Issue: none
+
 ## Fixed
 
 ### B34. `a_save_in_the_app_feeds_the_nodes_downstream_and_runs` fails under the Linux test host's full parallel run
