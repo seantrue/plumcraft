@@ -1,0 +1,12 @@
+// The iPad and iPhone app's signing and versions (research note 24 section 19, "Apple prep").
+//
+// The simulator build is signed ad hoc. A device build is signed by the command line that makes it
+// (device.sh, bench.sh, release.sh), with an identity and a profile already on the Mac; or put the
+// team in Config/Signing.local.xcconfig (untracked; see Signing.local.xcconfig.example).
+#include "Version.xcconfig"
+
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -
+DEVELOPMENT_TEAM = $(PLUMCRAFT_TEAM_ID)
+
+#include? "Signing.local.xcconfig"

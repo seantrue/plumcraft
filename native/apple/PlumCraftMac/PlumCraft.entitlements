@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- The Mac app's entitlements under the hardened runtime: none. Each exception it might have
+     needed (JIT, unsigned executable memory, library validation off, DYLD variables, audio input,
+     Apple Events) was tried away and nothing failed: engines started as programs, the craft apps,
+     shared memory, the loopback control port and audio playback all work without them (research
+     note 24 section 19, Apple prep). Add one here only with the failure that shows it is needed. -->
+<plist version="1.0">
+<dict/>
+</plist>

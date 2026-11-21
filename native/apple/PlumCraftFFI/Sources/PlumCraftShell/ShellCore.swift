@@ -46,6 +46,12 @@ public struct ShellConfig: Sendable {
     public var controlPort: UInt16 = 0
     #endif
 
+    /// The app's marketing version, from its Info.plist (the build's MARKETING_VERSION, which the
+    /// release script takes from the workspace version); "0.0.0" where there is none (a test).
+    public static var bundleVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
     public init(appID: String, appName: String, version: String, storeRoot: String) {
         self.appID = appID; self.appName = appName; self.version = version; self.storeRoot = storeRoot
     }
