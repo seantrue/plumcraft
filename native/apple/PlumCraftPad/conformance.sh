@@ -16,7 +16,7 @@ half="${1:-read}"
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 kit="$here/../PlumCraftFFI"
-bundle=com.plumcraft.pad
+bundle=$(sed -n 's/^PLUMMER_PAD_BUNDLE_ID = //p' "$here/../Config/BundleId.xcconfig")
 sim="${SIM:-$(xcrun simctl list devices booted | grep 'iPad Pro 13-inch (M5)' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')}"
 [ -n "$sim" ] || { echo "no booted iPad Pro 13-inch (M5) simulator (set SIM)"; exit 2; }
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-pad-conformance.XXXXXX")"
@@ -49,7 +49,7 @@ set -e
 [ "$built" = 0 ] || { echo "the app didn't build: stopped"; exit 1; }
 (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q)
 runner="$kit/.build/release/plumcraft-conformance"
-xcrun simctl install "$sim" "$here/build/Build/Products/Release-iphonesimulator/PlumCraftPad.app"
+xcrun simctl install "$sim" "$here/build/Build/Products/Release-iphonesimulator/Plummer.app"
 data="$(xcrun simctl get_app_container "$sim" "$bundle" data)"
 t="$data/tmp/conformance"; rm -rf "$t"; mkdir -p "$t"
 echo '{"version": 1, "nodes": {}, "wires": []}' > "$t/empty.json"

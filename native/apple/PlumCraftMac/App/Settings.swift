@@ -76,7 +76,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
     private func make(_ s: SettingsModel) -> NSWindow {
         let w = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(settings: s)))
-        w.title = "PlumCraft Settings"
+        w.title = "Plummer Settings"
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.tabbingMode = .disallowed
         w.isReleasedWhenClosed = false
@@ -110,7 +110,7 @@ enum AboutPanel {
         Task {
             var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
             if let m = model, let a = try? await m.run("app.about") {
-                options[.applicationName] = a["title"].string ?? "PlumCraft"
+                options[.applicationName] = a["title"].string ?? "Plummer"
                 options[.applicationVersion] = a["version"].string ?? ""
                 let parts = (a["parts"].array ?? []).compactMap { p -> String? in
                     guard let n = p[0].string, let v = p[1].string else { return nil }

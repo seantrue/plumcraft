@@ -38,7 +38,7 @@ final class BenchViewController: UIViewController {
         super.viewDidAppear(animated)
         guard bench == nil else { return }
         UIApplication.shared.isIdleTimerDisabled = true
-        let b = CanvasBench(options: options, subsystem: "com.plumcraft.pad.bench")
+        let b = CanvasBench(options: options, subsystem: AppID.bundle + ".bench")
         bench = b
         b.maxFPS = { [weak self] in self?.view.window?.windowScene?.screen.maximumFramesPerSecond ?? 60 }
         Task { await run(b) }

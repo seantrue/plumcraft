@@ -8,8 +8,9 @@
 #
 # The Mac's picture is used as given (draw the rounded tile and its clear surround into it, as the
 # Mac's icon grid has it). The iOS picture is made opaque over plum (the App Store refuses alpha);
-# iOS rounds its corners itself, so draw it full bleed. The placeholder must be replaced, or approved
-# by the maintainer, before a build goes to anyone.
+# iOS rounds its corners itself, so draw it full bleed. Since 2026-11-21 the apps carry the egui
+# editor's plums (the maintainer: "Use the egui editor's plums, adapted"): make-plum-icons.sh, beside
+# this script, makes them; the placeholder is only what this script does with no picture.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 mac_set="$here/../PlumCraftMac/App/Assets.xcassets/AppIcon.appiconset"

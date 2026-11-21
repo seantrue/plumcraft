@@ -120,6 +120,11 @@ pub struct Config {
     /// What the platform has (`platform`, 4.2). What the config doesn't say it has, it hasn't:
     /// without `platform`, only engines compiled in and engines already running elsewhere.
     pub platform: Capabilities,
+    /// The shell answers the `share` ask (`platform.share`, 4.2). Unlike the engine capabilities
+    /// it is on unless the config says `false`, since every shell built before it shares (the
+    /// Apple apps with their share sheets; the Windows app answers with its reason). False:
+    /// Share… and a pop-out's Share are disabled with the core's reason.
+    pub share: bool,
     /// The control channel (`control: {port, token_file}`, 4.1 and 5.3): serve it on
     /// `127.0.0.1:port` (0 picks a free one) when a port is given. Loopback only, always.
     pub control: Option<ControlConfig>,
@@ -192,6 +197,7 @@ impl Default for Config {
             also: Vec::new(),
             auto: true,
             platform: Capabilities::NONE,
+            share: true,
             control: None,
             media: media_config(None).unwrap_or_default(),
             log_level: None,
@@ -226,6 +232,11 @@ impl Config {
                 Some(_) => return Err("config: engines.auto must be true or false".into()),
             },
             platform: Capabilities::declared(o.get("platform")),
+            share: match o.get("platform").and_then(|p| p.get("share")) {
+                None | Some(Value::Null) => true,
+                Some(Value::Bool(b)) => *b,
+                Some(_) => return Err("config: platform.share must be true or false".into()),
+            },
             control: control_config(o.get("control"))?,
             media: media_config(o.get("media"))?,
             log_level: log_level(o.get("log"))?,
@@ -870,6 +881,7 @@ impl Core {
         let look: SharedLook = Arc::new(Mutex::new(Look::new(store, config.system)));
         let app = config.app.clone();
         let dirs = (config.caches.clone(), config.scratch.clone());
+        let share = config.share;
         let thread_shared = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
             .name("plumcraft-ffi-core".into())
@@ -895,6 +907,7 @@ impl Core {
                     look,
                     app,
                     dirs,
+                    share,
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -1064,6 +1077,8 @@ struct Worker {
     app: AppInfo,
     /// The shell's `dirs.caches` and `dirs.scratch` (B42), given to every document.
     dirs: (Option<PathBuf>, Option<PathBuf>),
+    /// The config's `platform.share`, given to every document.
+    share: bool,
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -1111,6 +1126,7 @@ impl Worker {
         doc.scratch = self.dirs.1.clone();
         plumcraft_editor_core::settings::follow(&mut doc);
         doc.caps = self.launcher.caps;
+        doc.share = self.share;
         doc.set_waker(Some(self.waker.clone()));
         let launcher = self.launcher.clone();
         doc.starter = Some(shared_starter(self.engines.clone(), move |e: &str, m: &str, w: Option<link::Waker>| launcher.connect_ids(e, m, w)));
@@ -2007,6 +2023,14 @@ mod tests {
 
     fn config(json: &str) -> Result<Config, String> {
         Config::parse(json.as_bytes())
+    }
+
+    #[test]
+    fn a_shell_shares_unless_its_config_says_it_cant() {
+        assert!(config("").unwrap().share, "unsaid: the shell shares, as every shell built before did");
+        assert!(config(r#"{"platform": {"subprocess": false}}"#).unwrap().share);
+        assert!(!config(r#"{"platform": {"share": false}}"#).unwrap().share);
+        assert!(config(r#"{"platform": {"share": "no"}}"#).unwrap_err().contains("platform.share"));
     }
 
     #[test]

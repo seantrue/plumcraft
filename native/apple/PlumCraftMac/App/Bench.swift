@@ -18,8 +18,8 @@ final class BenchWindow: NSObject {
         self.options = options
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 900), styleMask: [.titled, .closable, .resizable],
                           backing: .buffered, defer: false)
-        window.title = "PlumCraft: benchmark"
-        bench = CanvasBench(options: options, subsystem: "com.plumcraft.mac.bench")
+        window.title = "Plummer: benchmark"
+        bench = CanvasBench(options: options, subsystem: AppID.bundle + ".bench")
         super.init()
         window.center()
         window.makeKeyAndOrderFront(nil)

@@ -614,7 +614,32 @@ An audit of the egui editor against the floor and against what N3 and N4 gave th
 - **Match the System** in egui's Settings; an egui editor with no theme chosen follows the system, as the core's look does; a stored theme stays.
 - **A picture channel picker** in egui's pop-outs, through `viewer.picture`, drawn with the core's `plumcraft_media::raster::isolate`; only on decoded raster pictures, not on an array's view pictures.
 - **The rename window's title** names the thing once ("Rename “group 1”").
-- **B46** (one Cancel Run not honoured) did not reproduce in 510 cancels at delays from 0 to 1 s (egui by command, by the menu's invoke and through the control dispatcher, a run superseding another, and the C ABI core); left open.
+- **B46** (one Cancel Run not honoured) did not reproduce in 510 cancels at delays from 0 to 1 s (egui by command, by the menu's invoke and through the control dispatcher, a run superseding another, and the C ABI core); left open, then closed by the maintainer (below).
+
+### Decisions after egui's parity work and Apple prep (the maintainer, 2026-11-21)
+
+**egui.** Three questions; the maintainer's answer: "1. Disable 2. Accept. 3. Close".
+
+| Question | Options | The maintainer's answer | Done (branch `native/decisions-1121`) |
+|---|---|---|---|
+| 1. Share in egui shows the file in the file manager, since egui has no share sheet | Keep; or disable | "Disable" | A shell now says whether it has a share sheet (`platform.share`, contract 4.2; on unless said, so the Apple apps and the Windows app are unchanged); egui says it hasn't, and the core disables File › Share…, the toolbar's Share and the pop-out bar's Share… with "Sharing isn't available in this editor" and refuses `value.share` and `graph.share` with it. egui's answer that revealed the file is gone |
+| 2. A user who never chose a theme now follows the system | Accept; or pin Paper for existing preference files | "Accept." | Nothing changed |
+| 3. B46, a Cancel Run missed once and not reproduced in 510 attempts | Close; or rerun the audit's sequence on the Linux test host first | "Close" | B46 moved to "Closed, not reproduced" in `docs/BUGS.md` |
+
+**Apple.** Eight cards, asked as a checklist; the maintainer's answer line: "Apple: 1A; 2B; 3C "New app should be plummer instead of plumcraft"; 4A; 5A; 6A; 7A; 8A". Card 3 was then asked again (the app's name only, the name and the ids, or the ids only): "2, Plummer will be the new base app/platform". On the ids: the controller first proposed one id, `com.plumcraft.plummer`, then `com.plummer.app` after the maintainer's "I'd prefer to get com.plummer...", and the maintainer settled it: "I own swapwizard.com, so how about com.swapwizard.plummer.pad and .mac?"
+
+| Card | Options | The maintainer's answer | Done |
+|---|---|---|---|
+| 1. Export compliance | A: Answer No: exempt (reading a document only); B: Yes, with documentation | 1A | `ITSAppUsesNonExemptEncryption` false in both apps' `project.yml`. The facts behind it are the Apple prep report's section 4 (no TLS, the OS's random numbers only, hashing, and `hayro`'s PDF decryption, which only reads a document); not legal advice |
+| 2. The icon | A: Keep the placeholder for testing; B: Use the egui editor's plums, adapted; C: New artwork | 2B | The Mac's set is the egui editor's `assets/app-icon/plumcraft.png` as it is (the rounded tile on its clear surround); the iOS master is the largest wholly opaque square of the same tile, scaled to 1024 px with no alpha (`native/apple/Icons/full-bleed.swift`, `make-plum-icons.sh`, the master `plums-ios-1024.png`) |
+| 3. Store bundle ids | A: As built (`com.plumcraft.pad`, `com.plumcraft.mac`); B: One id for both; C: Other ids (say which in the note) | 3C, "New app should be plummer instead of plumcraft"; then "2, Plummer will be the new base app/platform"; then "I'd prefer to get com.plummer..."; then "I own swapwizard.com, so how about com.swapwizard.plummer.pad and .mac?" | The native Apple apps are **Plummer** (below), `com.swapwizard.plummer.mac` and `com.swapwizard.plummer.pad`, each set once in `native/apple/Config/BundleId.xcconfig` |
+| 4. The Mac's channel | A: Developer ID only, as built; B: Also a sandboxed Mac App Store edition | 4A | Nothing changed |
+| 5. Engines inside the Mac app | A: All four, as built; B: Fewer | 5A | Nothing changed |
+| 6. Mac architectures | A: Universal, as built; B: Apple silicon only | 6A | Nothing changed |
+| 7. Build numbers | A: UTC time, as built; B: A counter | 7A | Nothing changed |
+| 8. Uploading | A: I'll do the Apple-side setup; tell me when you want it; B: Other | 8A | Nothing sent to Apple; the maintainer is to be told when the Apple-side steps are wanted |
+
+**The native Apple apps are Plummer** (card 3: "Plummer will be the new base app/platform"). The Mac app and the iPad and iPhone app are named Plummer: the bundle's name and display name, `Plummer.app` (the product name, so the Mac's program is `Contents/MacOS/Plummer`), the document type "Plummer Graph", the About title (the shells give the core `app.name`, which `app.about` already uses; the core's own default stays "PlumCraft", shared with the egui editor), the Mac's application menu, alerts, the Settings window's title and messages; the ids are `com.swapwizard.plummer.mac` and `com.swapwizard.plummer.pad`, with the UI tests at `….pad.uitests` and the scenes' activity types, menu identifiers and log subsystems derived from the bundle's own id at run time. The Mac app's caches (`~/Library/Caches/<id>`), logs (`~/Library/Logs/Plummer`), preferences folder (`~/Library/Application Support/Plummer`) and defaults domain follow; the iPad's folders live in a new container and are named `plummer` inside it. The release builds are `Plummer-<version>-<build>-macos.dmg` and `…-ios`. The Xcode projects and targets, the Swift package and modules (`PlumCraftFFI`, `PlumCraftShell`, …), the crates, the repository, the protocol and the egui editor (still PlumCraft, `com.swapwizard.plumcraft`) keep their names. The Windows app's rename is being done in its own slice.
 
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 

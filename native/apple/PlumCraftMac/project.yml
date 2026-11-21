@@ -1,4 +1,4 @@
-# PlumCraft for the Mac (N3 slice 3, docs/research/24-native-shells.md section 18): a document-based
+# Plummer, PlumCraft's native editor for the Mac (N3 slice 3; named Plummer 2026-11-21; docs/research/24-native-shells.md section 18): a document-based
 # AppKit app on the Swift kit (../PlumCraftFFI) and its layer canvas. Generate with
 # `xcodegen generate`; build, run and check with ./run.sh, ./conformance.sh and ./bench.sh.
 # The generated PlumCraftMac.xcodeproj and App/Info.plist are not committed (see .gitignore).
@@ -28,18 +28,23 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleName: PlumCraft
-        CFBundleDisplayName: PlumCraft
+        CFBundleName: Plummer
+        CFBundleDisplayName: Plummer
         # both from the build settings (../Config/Version.xcconfig; the release script passes them)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.developer-tools
+        # export compliance (the maintainer, 2026-11-21, card 1A: "Answer No: exempt (reading a
+        # document only)"): no TLS, only the OS's random numbers, hashing, and hayro's PDF
+        # decryption, which only reads a document (claude-debug/native-n4-apple-prep.md section 4;
+        # not legal advice)
+        ITSAppUsesNonExemptEncryption: false
         NSPrincipalClass: NSApplication
         NSHumanReadableCopyright: ""
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false
         CFBundleDocumentTypes:
-          - CFBundleTypeName: PlumCraft Graph
+          - CFBundleTypeName: Plummer Graph
             CFBundleTypeRole: Viewer
             LSHandlerRank: Alternate
             LSItemContentTypes:
@@ -74,9 +79,9 @@ targets:
         product: PlumCraftShell
     settings:
       base:
-        PRODUCT_NAME: PlumCraft
+        PRODUCT_NAME: Plummer
         PRODUCT_MODULE_NAME: PlumCraftMac
-        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.mac
+        PRODUCT_BUNDLE_IDENTIFIER: $(PLUMMER_MAC_BUNDLE_ID)
         ARCHS: arm64
         DEAD_CODE_STRIPPING: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon

@@ -109,7 +109,9 @@ Found by scanning the imported symbols of the built Mac app, its four engines, t
 
 ## 4. Export compliance (not legal advice)
 
-**These are the facts found in the binaries and the dependency tree, and the usual reading of each. They are not legal advice. The maintainer answers the question; `ITSAppUsesNonExemptEncryption` is not set.**
+**These are the facts found in the binaries and the dependency tree, and the usual reading of each. They are not legal advice. The maintainer answers the question.**
+
+**Answered 2026-11-21:** card 1A, "Answer No: exempt (reading a document only)". `ITSAppUsesNonExemptEncryption: false` is now in both `project.yml` files' `info: properties:` (branch `native/decisions-1121`), and lands in both built Info.plists.
 
 | What | Found | Pulled in by | Used for |
 |---|---|---|---|
@@ -133,7 +135,9 @@ The one-line change for each answer, in both `project.yml` files' `info: propert
 
 Without either, App Store Connect asks the question for each build before it can go to testers. The flag is read only by App Store Connect; the Developer ID Mac build is not asked.
 
-## 5. Icons (a PLACEHOLDER)
+## 5. Icons
+
+**Answered 2026-11-21:** card 2B, "Use the egui editor's plums, adapted". The Mac's set is `assets/app-icon/plumcraft.png` as it is; the iOS master is `native/apple/Icons/plums-ios-1024.png`, the largest wholly opaque centred square of that tile (710 px) scaled to 1024 px with no alpha (`full-bleed.swift`), and `make-plum-icons.sh` makes both sets. What follows describes the placeholder as it was.
 
 Both apps now have an asset catalog with an AppIcon set: ten sizes from 16 to 1024 px on the Mac, one 1024 px opaque picture on iOS (Xcode makes the rest; it builds `AppIcon60x60@2x.png` and `AppIcon76x76@2x~ipad.png` and the `CFBundleIcons` keys). Archives of both build with them.
 
@@ -184,10 +188,10 @@ In order. "Needs Apple" means the step talks to Apple or happens on Apple's web 
 
 | Step | What | Where |
 |---|---|---|
-| 1 | Choose the store bundle ids: the iPad and iPhone app is `com.plumcraft.pad` today, the Mac app `com.plumcraft.mac` (the egui editor's DMG is `com.swapwizard.plumcraft`, also named PlumCraft.app) | Local (decision) |
+| 1 | (Answered 2026-11-21: the apps are Plummer, `com.swapwizard.plummer.mac` and `com.swapwizard.plummer.pad`, set in `Config/BundleId.xcconfig`) Choose the store bundle ids: the iPad and iPhone app is `com.plumcraft.pad` today, the Mac app `com.plumcraft.mac` (the egui editor's DMG is `com.swapwizard.plumcraft`, also named PlumCraft.app) | Local (decision) |
 | 2 | If the ids change, set `PRODUCT_BUNDLE_IDENTIFIER` in both `project.yml` | Local |
-| 3 | Replace or approve the placeholder icon: `native/apple/Icons/make-icons.sh MASTER.png` | Local |
-| 4 | Answer the encryption question (section 4) and add the one line to both `project.yml` | Local (decision) |
+| 3 | (Answered: the egui editor's plums, `Icons/make-plum-icons.sh`) Replace or approve the placeholder icon: `native/apple/Icons/make-icons.sh MASTER.png` | Local |
+| 4 | (Answered: No, exempt; the line is in) Answer the encryption question (section 4) and add the one line to both `project.yml` | Local (decision) |
 | 5 | Register the App ID for the iOS bundle id | Needs Apple |
 | 6 | Make an App Store provisioning profile for it with the Apple Distribution certificate (already in the keychain), download it, and set `PLUMCRAFT_IOS_PROFILE` to its name | Needs Apple |
 | 7 | Create the App Store Connect app record (name, primary language, bundle id, SKU) | Needs Apple |

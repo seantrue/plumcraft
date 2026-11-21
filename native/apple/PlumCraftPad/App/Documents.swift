@@ -24,13 +24,13 @@ final class GraphDocument: UIDocument {
         let v = (contents as? Data).flatMap { try? JSONSerialization.jsonObject(with: $0) }
         guard let o = v as? [String: Any], o["nodes"] != nil else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError,
-                          userInfo: [NSLocalizedDescriptionKey: "It isn't a PlumCraft graph (a JSON object with \"nodes\")."])
+                          userInfo: [NSLocalizedDescriptionKey: "It isn't a Plummer graph (a JSON object with \"nodes\")."])
         }
     }
 
     override func contents(forType typeName: String) throws -> Any {
         throw NSError(domain: NSCocoaErrorDomain, code: NSFileWriteUnknownError,
-                      userInfo: [NSLocalizedDescriptionKey: "PlumCraft's core writes the graph's file itself."])
+                      userInfo: [NSLocalizedDescriptionKey: "Plummer's core writes the graph's file itself."])
     }
 
     override var hasUnsavedChanges: Bool { false }
@@ -132,7 +132,7 @@ final class BrowserViewController: UIDocumentBrowserViewController, @preconcurre
                 guard let self else { return }
                 guard ok else {
                     if scoped { url.stopAccessingSecurityScopedResource() }
-                    self.failed(url, "It couldn't be read, or it isn't a PlumCraft graph.")
+                    self.failed(url, "It couldn't be read, or it isn't a Plummer graph.")
                     return
                 }
                 let g = GraphViewController(document: doc, scoped: scoped, restore: view, then: then)
@@ -171,7 +171,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     var browser: BrowserViewController?
     var bench: BenchViewController?
     static var firstScene = true
-    static let activityType = "com.plumcraft.pad.graph"
+    static let activityType = AppID.bundle + ".graph"
 
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
         guard let ws = scene as? UIWindowScene else { return }
@@ -209,7 +209,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         StatusElement.shared.install(in: ws)
         #endif
         if let why = CoreHost.openError {
-            let a = UIAlertController(title: "PlumCraft couldn't start its core", message: why, preferredStyle: .alert)
+            let a = UIAlertController(title: "Plummer couldn't start its core", message: why, preferredStyle: .alert)
             b.present(a, animated: false)
             return
         }

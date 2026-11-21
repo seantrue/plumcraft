@@ -167,22 +167,7 @@ pub trait FileDialogs {
     fn save_theme(&mut self, _name: &str) -> Option<PathBuf> {
         None
     }
-    /// The core's `share` ask, the person's (a value's or the graph's file): egui has no share
-    /// sheet, so the file is shown in the system's file manager, to send from there. The
-    /// notice to say, or why it couldn't.
-    fn reveal(&mut self, _file: &Path) -> Result<String, String> {
-        Err("this editor has no share sheet".into())
-    }
 }
-
-/// What a `share` ask shows the person in egui ([`FileDialogs::reveal`]): the file manager's name.
-pub const REVEALED_IN: &str = if cfg!(target_os = "macos") {
-    "Finder"
-} else if cfg!(target_os = "windows") {
-    "File Explorer"
-} else {
-    "the file manager"
-};
 
 /// The name it had in E1.
 pub use FileDialogs as PathDialogs;
@@ -207,28 +192,6 @@ impl NativeDialogs {
 impl FileDialogs for NativeDialogs {
     fn start_in(&mut self, dir: Option<PathBuf>) {
         self.start = dir;
-    }
-
-    fn reveal(&mut self, file: &Path) -> Result<String, String> {
-        if !file.exists() {
-            return Err(format!("{} isn't there", file.display()));
-        }
-        let mut cmd = if cfg!(target_os = "macos") {
-            let mut c = std::process::Command::new("open");
-            c.arg("-R").arg(file);
-            c
-        } else if cfg!(target_os = "windows") {
-            let mut c = std::process::Command::new("explorer");
-            c.arg(format!("/select,{}", file.display()));
-            c
-        } else {
-            let mut c = std::process::Command::new("xdg-open");
-            c.arg(file.parent().unwrap_or(file));
-            c
-        };
-        // (not waited for: the file manager comes forward on its own)
-        cmd.spawn().map_err(|e| format!("showing {} in {REVEALED_IN}: {e}", file.display()))?;
-        Ok(format!("Shown in {REVEALED_IN}: send it from there"))
     }
 
     fn pick_files(&mut self, hint: &PathHint, current: &str) -> Vec<PathBuf> {
@@ -495,6 +458,9 @@ impl EditorApp {
         }
         // the session's app starts are asked for, and this window starts them (asks_view)
         let mut doc = Document::with_media(session, plumcraft_media::MediaService::new(media_config()), true);
+        // egui has no share sheet: the core disables Share… and a pop-out's Share with its reason
+        // (the maintainer, 2026-11-21: "Disable")
+        doc.share = false;
         // the canvas draws the document's selection (N2 slice 1)
         canvas.picked = edit_view::Picked::on(doc.selection.clone());
         // an engine compiled in connects in place (slice 3's exception: two kittests pick one
@@ -1186,6 +1152,7 @@ impl EditorApp {
             caps: self.doc.caps,
             editors: value_editors::facts(),
             select_mode: self.doc.select_mode,
+            no_share: !self.doc.share,
         }
     }
 

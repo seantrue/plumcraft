@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The native apps become Plummer; Apple and egui decisions applied (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the egui questions: "1. Disable 2. Accept. 3. Close". On the Apple cards: "Apple: 1A; 2B; 3C "New app should be plummer instead of plumcraft"; 4A; 5A; 6A; 7A; 8A". Asked whether that renamed the name, the ids or both: "2, Plummer will be the new base app/platform". On the ids, after the controller proposed two forms of its own: "I'd prefer to get com.plummer...", then "I own swapwizard.com, so how about com.swapwizard.plummer.pad and .mac?". The name, the ids and the choice of two ids over one are the maintainer's; the controller's two interim proposals were not used.
+
+**Done (agent; 58 files changed, 5 new).** The two Apple apps are Plummer, with each bundle id set in one config file; code identifiers, projects, crates and the egui editor keep their names. The export compliance flag is set to false in both apps, as the maintainer answered. The icon is the egui editor's plums, with a full-bleed opaque master for iOS cut from the same picture by a kept script; no new artwork. Share in egui is refused by the core through a new shell capability, `platform.share` (true when unsaid, so the other shells are unchanged), and egui's show-the-file answer is removed. B46 is closed as not reproduced. The bench scripts give each trace recording its own temp folder and remove it.
+
+**Found, not fixed: B50.** A scripted launch of the Mac app writes AppKit's defaults (window frames) to the real preferences domain despite `--scratch-state`.
+
+**Verified, rerun from scratch after the disk was cleared.** nextest 1,566 of 1,567 (the known baseline failure), Python 224, `swift test` 81, the Mac conformance suite against `Plummer.app` 31 read and 21 edit, Release builds of both apps with no asset warnings, and `release.sh --local` for both, reading back the name, ids, flag, version and icon. The Linux gate ran before the merge. **Not verified:** the bench script change on a device; the C# runner and the iPad with the changed Share step; the App Store export, which needs a profile for the new id.
+
+**The controller's failure that day: the Mac's disk filled.** Every hitch trace recorded on the iPad left a 2 to 8 GB kernel trace in the temp folder, and the controller's bench runs over two days left 15 of them, about 80 GB, unnoticed. The disk reached 126 MB free; a device pass stopped mid-bisect, and two agents' builds and tests from that window had to be discarded and rerun. The maintainer approved the deletion. The agent's first gate attempt and an xcframework build ran with under 5 GB free and were thrown away.
+
+**Agent's own defects, caught by building:** a missing import in an egui test, a wrong trait path in a core test, and build folders left untracked in the worktree.
+
 ### 2026-11-21 — The egui editor audited against the native apps, then brought up (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
 
 **What the maintainer asked.** "Is the egui version at parity?", then "Do the egui audit on yellowfin", then, offered three depths of repair, "Option 2": the wrong-port defect plus the small gaps (palette, double clicks, pop-out actions, Show on Face, Match the System, channel picker), leaving out viewer state, the Watched column, a toolbar and names in place.

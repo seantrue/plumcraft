@@ -80,7 +80,7 @@ enum PadSettings {
                 guard let n = p[0].string, let v = p[1].string else { return nil }
                 return "\(n) \(v)"
             }
-            let view = AboutView(title: a["title"].string ?? "PlumCraft", version: a["version"].string ?? "", parts: parts,
+            let view = AboutView(title: a["title"].string ?? "Plummer", version: a["version"].string ?? "", parts: parts,
                                  engine: a["engine"].string, done: { [weak vc] in vc?.dismiss(animated: true) })
             let host = UIHostingController(rootView: view)
             host.modalPresentationStyle = .formSheet

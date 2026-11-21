@@ -156,7 +156,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             })
             present(alert, for: a)
         case .prompt?:
-            let alert = UIAlertController(title: p["title"].string ?? "PlumCraft", message: p["text"].string, preferredStyle: .alert)
+            let alert = UIAlertController(title: p["title"].string ?? "Plummer", message: p["text"].string, preferredStyle: .alert)
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers.isEmpty ? ["ok"] : answers {
                 let style: UIAlertAction.Style = ans == "cancel" ? .cancel : ans == "discard" ? .destructive : .default
@@ -169,7 +169,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             }
             present(alert, for: a)
         case .text?, .form?:
-            let alert = UIAlertController(title: p["title"].string ?? "PlumCraft",
+            let alert = UIAlertController(title: p["title"].string ?? "Plummer",
                                           message: p["intro"].string ?? p["hint"].string ?? p["label"].string, preferredStyle: .alert)
             var keys: [String] = []
             if a.kind.word == .text {

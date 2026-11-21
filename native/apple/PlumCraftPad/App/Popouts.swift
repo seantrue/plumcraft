@@ -34,7 +34,7 @@ import UIKit
 /// The pop-outs of one graph, kept in step with the core's.
 @MainActor
 final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
-    static let activityType = "com.plumcraft.pad.popout"
+    static let activityType = AppID.bundle + ".popout"
     let model: DocumentModel
     let pictures: Pictures
     weak var host: GraphViewController?

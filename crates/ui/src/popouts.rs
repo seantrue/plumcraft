@@ -69,6 +69,11 @@ impl EditorApp {
         let mut invoked = Vec::new();
         let mut closed = Vec::new();
         let tokens = self.tokens.clone();
+        // the core says whether this shell can share (egui can't: the maintainer's "Disable")
+        let share_refused = plumcraft_editor_core::canvas_cmds::shell_refuses(
+            &plumcraft_editor_core::menu::Facts { no_share: !self.doc.share, ..Default::default() },
+            "value.share",
+        );
         // This frame's focus is known only after the viewports have run; the level follows it a
         // frame later, which a focus change repaints anyway.
         let mut focused = ctx.input(|i| i.viewport().focused.unwrap_or(false));
@@ -90,7 +95,7 @@ impl EditorApp {
                             closed.push(id);
                         }
                         ui.separator();
-                        bar(ui, id, &mut asks, &mut invoked);
+                        bar(ui, id, share_refused, &mut asks, &mut invoked);
                     });
                     asks.extend(pane.full_ui(ui, WatchRole::Popout(id), &tokens));
                 };
@@ -133,10 +138,11 @@ impl EditorApp {
 /// The pop-out's bar (N4 slices 5 and 6, as the Apple apps' viewers have it): Copy, Save As…,
 /// Share…, and Pin as A or B for Compare. Each is the core's command for pop-out `id`: Copy, Save
 /// As… and Share… invoked for the person (`invoked`: the core raises the clipboard, file and
-/// share asks), the pins run (`run`). egui has no share sheet: its answer to the share ask shows
-/// the value's file in the file manager, to send from there ([`crate::FileDialogs::reveal`]). No
-/// drag out: egui and winit can't start a drag of a file out of a window.
-fn bar(ui: &mut egui::Ui, id: u64, run: &mut Vec<crate::canvas::Action>, invoked: &mut Vec<(&'static str, serde_json::Value)>) {
+/// share asks), the pins run (`run`). egui has no share sheet, so it tells the core so
+/// (`Document::share` false) and Share… is drawn disabled with the core's reason (`share_refused`,
+/// [`plumcraft_editor_core::canvas_cmds::shell_refuses`]). No drag out: egui and winit can't start
+/// a drag of a file out of a window.
+fn bar(ui: &mut egui::Ui, id: u64, share_refused: Option<&str>, run: &mut Vec<crate::canvas::Action>, invoked: &mut Vec<(&'static str, serde_json::Value)>) {
     let at = json!({"popout": id});
     if ui.small_button(COPY).on_hover_text("Copy the value (value.copy)").clicked() {
         invoked.push(("value.copy", at.clone()));
@@ -144,8 +150,12 @@ fn bar(ui: &mut egui::Ui, id: u64, run: &mut Vec<crate::canvas::Action>, invoked
     if ui.small_button(SAVE_AS).on_hover_text("Save the value to a file, its recipe included (value.saveAs)").clicked() {
         invoked.push(("value.saveAs", at.clone()));
     }
-    let share = format!("The value as a file of its own, shown in {}, to send from there (value.share)", crate::REVEALED_IN);
-    if ui.small_button(SHARE).on_hover_text(share).clicked() {
+    let share = ui.add_enabled(share_refused.is_none(), egui::Button::new(SHARE).small());
+    let share = match share_refused {
+        Some(why) => share.on_disabled_hover_text(format!("{why} (value.share)")),
+        None => share.on_hover_text("Send the value with the platform's share sheet (value.share)"),
+    };
+    if share.clicked() {
         invoked.push(("value.share", at.clone()));
     }
     for (label, slot) in [(PIN_A, "a"), (PIN_B, "b")] {

@@ -138,7 +138,7 @@ final class AskPresenter {
             onSheet?(a)
         case .prompt?:
             let alert = NSAlert()
-            alert.messageText = p["title"].string ?? "PlumCraft"
+            alert.messageText = p["title"].string ?? "Plummer"
             alert.informativeText = p["text"].string ?? ""
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers { alert.addButton(withTitle: Self.buttonTitle(ans, kind: p["kind"].string)) }
@@ -156,7 +156,7 @@ final class AskPresenter {
             onSheet?(a)
         case .text?, .form?:
             let alert = NSAlert()
-            alert.messageText = p["title"].string ?? "PlumCraft"
+            alert.messageText = p["title"].string ?? "Plummer"
             alert.informativeText = p["intro"].string ?? p["hint"].string ?? p["label"].string ?? ""
             var fields: [(String, NSTextField)] = []
             let stack = NSStackView()

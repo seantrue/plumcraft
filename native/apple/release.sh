@@ -1,5 +1,5 @@
 #!/bin/bash
-# Build the native Apple apps for Apple: a Developer ID, hardened, notarization-ready Mac app in a
+# Build the native Apple apps (Plummer, since 2026-11-21) for Apple: a Developer ID, hardened, notarization-ready Mac app in a
 # DMG, and an App Store .ipa of the iPad and iPhone app for TestFlight. NOTHING here sends anything
 # to Apple: no notarization, no upload, no -allowProvisioningUpdates. The commands that do are
 # printed at the end, for the maintainer to run (research note 24 section 19, Apple prep).
@@ -112,7 +112,7 @@ sign_mac_app() {
 mac() {
   local kind="${PLUMCRAFT_MAC_IDENTITY:-Developer ID Application}" identity
   identity=$(identity_for "$kind") || exit 2
-  local name="PlumCraft-$version-$build-macos"
+  local name="Plummer-$version-$build-macos"
   local archive="$out/$name.xcarchive" export="$out/$name"
   rm -rf "$archive" "$export" "$out/$name.dmg" "$out/$name-engines"
   engines "$out/$name-engines"
@@ -127,8 +127,8 @@ mac() {
   # (with Apple's secure timestamp, or none with --local), so every nested program is signed the
   # same way, which xcodebuild -exportArchive does not promise for programs in Contents/MacOS
   mkdir -p "$export"
-  ditto "$archive/Products/Applications/PlumCraft.app" "$export/PlumCraft.app"
-  local app="$export/PlumCraft.app"
+  ditto "$archive/Products/Applications/Plummer.app" "$export/Plummer.app"
+  local app="$export/Plummer.app"
   sign_mac_app "$app" "$identity"
   codesign --verify --deep --strict --verbose=2 "$app"
   local f ents info
@@ -143,9 +143,9 @@ mac() {
   # the DMG: the app and a link to Applications, signed
   local stage="$out/$name-dmg"
   rm -rf "$stage"; mkdir -p "$stage"
-  ditto "$app" "$stage/PlumCraft.app"
+  ditto "$app" "$stage/Plummer.app"
   ln -s /Applications "$stage/Applications"
-  hdiutil create -quiet -volname "PlumCraft $version" -srcfolder "$stage" -format UDZO -ov "$out/$name.dmg"
+  hdiutil create -quiet -volname "Plummer $version" -srcfolder "$stage" -format UDZO -ov "$out/$name.dmg"
   rm -rf "$stage"
   if [ -n "$local" ]; then codesign --force --sign "$identity" --timestamp=none "$out/$name.dmg"
   else codesign --force --sign "$identity" --timestamp "$out/$name.dmg"; fi
@@ -166,7 +166,7 @@ ios() {
   local dist_identity="${PLUMCRAFT_IOS_DIST_IDENTITY:-Apple Distribution}"
   identity_for "$archive_identity" >/dev/null || exit 2
   [ -n "$local" ] || identity_for "$dist_identity" >/dev/null || exit 2
-  local name="PlumCraft-$version-$build-ios"
+  local name="Plummer-$version-$build-ios"
   local archive="$out/$name.xcarchive" export="$out/$name"
   rm -rf "$archive" "$export"
   (cd "$here/PlumCraftPad" && xcodegen generate --quiet)

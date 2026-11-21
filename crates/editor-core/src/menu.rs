@@ -413,6 +413,9 @@ pub struct Facts {
     pub editors: Vec<(String, String, String)>,
     /// Select mode is on (`canvas.selectMode`, N4 slice 3): View › Select Mode's check mark.
     pub select_mode: bool,
+    /// The shell has no share sheet ([`crate::document::Document::share`] false): File › Share…
+    /// and the toolbar's Share are disabled with the core's reason.
+    pub no_share: bool,
 }
 
 /// The menu bar's titles, in order.
@@ -472,7 +475,7 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
         "File" => {
             // Share… (N4 slice 3) after Save As
             let at = items.iter().position(|i| i.command.as_deref() == Some("graph.saveAs")).map_or(items.len(), |k| k + 1);
-            items.insert(at, share_item(session));
+            items.insert(at, share_item(session, facts));
         }
         "Node" => items.extend(node_items(session, facts)),
         "Run" => {
@@ -581,9 +584,13 @@ fn run_selected_item(session: &Session, facts: &Facts) -> Item {
     }
 }
 
-/// File › Share…: the graph's file to the platform's share sheet, once it has one.
-fn share_item(session: &Session) -> Item {
+/// File › Share…: the graph's file to the platform's share sheet, once it has one, on a shell
+/// that has one.
+fn share_item(session: &Session, facts: &Facts) -> Item {
     let item = Item::new("graph.share", "Share…", Some("graph.share"), None).hover("Send the graph's file with the platform's share sheet");
+    if let Some(why) = crate::canvas_cmds::shell_refuses(facts, "graph.share") {
+        return item.disabled(Some(why.into()));
+    }
     match session.path() {
         Some(_) => item,
         None => item.disabled(Some("save the graph first: Share sends its file".into())),
@@ -625,7 +632,7 @@ pub fn toolbar(session: &Session, facts: &Facts) -> Vec<Item> {
     cancel.label = "Cancel".into();
     let mut select = select_mode_item(facts);
     select.label = "Select".into();
-    let mut share = share_item(session);
+    let mut share = share_item(session, facts);
     share.label = "Share".into();
     vec![
         icon(add, "plus"),

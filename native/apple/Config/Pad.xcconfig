@@ -4,6 +4,7 @@
 // (device.sh, bench.sh, release.sh), with an identity and a profile already on the Mac; or put the
 // team in Config/Signing.local.xcconfig (untracked; see Signing.local.xcconfig.example).
 #include "Version.xcconfig"
+#include "BundleId.xcconfig"
 
 CODE_SIGN_STYLE = Manual
 CODE_SIGN_IDENTITY[sdk=iphonesimulator*] = -

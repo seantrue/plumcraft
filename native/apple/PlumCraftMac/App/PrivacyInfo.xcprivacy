@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- PlumCraft's privacy manifest (the same in the Mac and the iPad and iPhone app). No tracking and
+<!-- Plummer's privacy manifest (the same in the Mac and the iPad and iPhone app). No tracking and
      no data collected: the app talks only to the engines it starts or is pointed at, and, in a debug
      build, to its own test driver; nothing is sent to the developer or anyone else. The required-reason
      APIs are the ones found in the built binaries and the sources (research note 24 section 19,

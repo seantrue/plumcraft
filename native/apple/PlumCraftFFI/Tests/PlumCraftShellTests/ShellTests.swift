@@ -30,7 +30,7 @@ let testEnvironment: Void = {
 
 @Suite struct ShellConfigs {
     @Test func theConfigIsTheContractsShape() {
-        var c = ShellConfig(appID: "com.plumcraft.pad", appName: "PlumCraft", version: "0.7.0", storeRoot: "/s")
+        var c = ShellConfig(appID: "com.swapwizard.plummer.pad", appName: "Plummer", version: "0.7.0", storeRoot: "/s")
         c.dirs = ["caches": "/c", "logs": "/l"]
         c.platform = ["os": "ios", "subprocess": false]
         c.engine = "text"

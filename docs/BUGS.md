@@ -36,19 +36,31 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+### B49. `test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted` fails on the Linux test host while it is busy
+
+- Reported: 2026-11-21
+- Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
+- Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Issue: none
+
+### B50. A scripted launch of the Mac app writes to the person's real defaults domain
+
+- Reported: 2026-11-21
+- Report: found by the before and after check of the decisions branch (`native/decisions-1121`); recorded under the standing "record bugs"
+- Context: the Mac app's conformance runs (`--scratch-state`, scratch store, prefs, caches and logs) left `~/Library/Preferences/com.swapwizard.plummer.mac.plist`, the new id's real defaults file, created at the time of the runs; it holds an empty dictionary. The old id's file, `com.plumcraft.mac.plist`, holds keys such as `NSWindow Frame PlumCraft Pop-Out count.count`, the pop-out windows' remembered frames (`Popouts.swift`'s `setFrameAutosaveName`; the Settings window does the same), which look like they came from earlier scripted runs. So `--scratch-state` keeps the core's files in scratch but not AppKit's defaults. Not fixed: a scripted launch could skip frame autosave names, or run in a defaults suite of its own. Not checked: which call created the empty file.
+- Issue: none
+
+## Closed, not reproduced
+
+Closed without a fix: the maintainer decided they need no more work unless they are seen again.
+
 ### B46. A Cancel Run was not honoured once in the egui editor (unconfirmed)
 
 - Reported: 2026-11-21
 - Report: found by the egui audit; recorded under the standing "record bugs"
 - Context: a 5 s Slow node finished `done` at 5,008 ms after Cancel Run; seven later attempts all cancelled within 2.4 s, and the first run's log was overwritten. Seen once, on the Linux test host. `claude-debug/egui-audit.md`, defect D9.
 - Tried (2026-11-21, egui parity, on the Mac): 510 cancels of a 1.5 s Slow node at delays from 0 to 1,000 ms after `run.start`, nothing cached: 150 in the egui editor (the command and the menu's invoke alternately), 120 with a run already going when `run.start` superseded it (Auto-Run's or another `run.start`), 90 through egui's control dispatcher (`ui.invoke run.cancel`, `ui.waitRun`), and 150 through the C ABI core (`command.run` and `ui.invoke {by: person}`). Every one ended `cancelled`. In the audit's sequence the cancel came after 40 frames, the first GPU picture of that process on a software renderer, `ui.inspect` and `menu.get`; if those took over 5 s, the node had finished before Cancel was sent, which would explain it. Scratch drivers: `claude-debug/egui-parity/b46/`.
-- Issue: none
-
-### B49. `test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted` fails on the Linux test host while it is busy
-
-- Reported: 2026-11-21
-- Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
-- Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Closed: 2026-11-21, not reproduced, by the maintainer ("Close", asked whether to close it or rerun the audit's sequence on the Linux test host first). 510 attempts, every one cancelled; the likely explanation is the one above: the audit's Cancel came after 40 frames, the process's first GPU picture on a software renderer, `ui.inspect` and `menu.get`, and if those took over 5 s the node had already finished before Cancel was sent.
 - Issue: none
 
 ## Fixed
