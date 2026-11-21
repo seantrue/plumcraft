@@ -41,6 +41,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-21
 - Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
 - Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Seen again: 2026-11-21, in the gate for the private-strings branch and then in 6 of 6 runs of the file alone, with the host's load average near 19. The assertion, at `tests/test_persist.py:100`: `assert twice(r, {"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 8_000_000}}) == ("done", 2), "too big"` got `('cached', 1)`: a result meant to be too big to persist was persisted and came back cached. So it is not a timing miss in the test's own waits; whatever decides "too big" gives a different answer while the host is busy. Not looked into further.
 - Issue: none
 
 ### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
