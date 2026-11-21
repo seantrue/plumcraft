@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Windows kit's tests (N5 slice 1): the models against the shared fixtures and the schema, the core
+       through the C ABI (the spike probe's flow), the hot calls, the document model, and the conformance suite
+       through the kit and over a control port. `dotnet test` on the Windows machine, with the core's DLL built. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <Platforms>ARM64;x64</Platforms>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\PlumCraft.Conformance\PlumCraft.Conformance.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- the core, built for this machine (Directory.Build.props finds it under target\, or pass -p:PlumFfiDir=) -->
+    <None Include="$(PlumFfiDir)\plumcraft_ffi.dll" Condition="'$(PlumFfiDir)' != ''" CopyToOutputDirectory="PreserveNewest" Link="plumcraft_ffi.dll" />
+  </ItemGroup>
+</Project>

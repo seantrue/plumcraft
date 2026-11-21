@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The shell conformance suite's runner in C# (docs/shell-interface.md 16.1), with a driver through the kit
+       and one over a core's control port. The cases are crates/editor-core/fixtures/conformance/cases.json,
+       read where they are. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Platforms>ARM64;x64</Platforms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlumCraft.Kit\PlumCraft.Kit.csproj" />
+  </ItemGroup>
+</Project>

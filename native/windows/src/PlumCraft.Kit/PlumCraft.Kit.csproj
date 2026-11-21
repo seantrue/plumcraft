@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The Windows kit (N5 slice 1): the observable document model and the canvas link, below any window.
+       No WinUI here: a shell gives the model its UI thread's SynchronizationContext. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Platforms>ARM64;x64</Platforms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlumCraft.Core\PlumCraft.Core.csproj" />
+    <ProjectReference Include="..\PlumCraft.Models\PlumCraft.Models.csproj" />
+  </ItemGroup>
+</Project>
