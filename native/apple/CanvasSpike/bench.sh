@@ -2,7 +2,8 @@
 # N0(a) canvas spike: build and benchmark. Local runs only (no CI).
 #   ./bench.sh mac [N M]        Mac app, Release, writes ../../../claude-debug/native-n0/mac-N.json
 #   ./bench.sh sim [N M]        iPad Pro 13-inch (M5) simulator (timing not representative)
-#   ./bench.sh device [N M]     a physical iPad (first available one, or DEVICE=<udid>)
+#   ./bench.sh device [N M]     a physical iPad (first available one, or DEVICE=<udid>), signed with
+#                               the team in PLUMCRAFT_TEAM_ID
 #   ./bench.sh trace [N M]      Mac bench under Instruments' Animation Hitches; hitches binned by phase
 #   ./bench.sh shot             a screenshot of the Mac app
 set -euo pipefail
@@ -64,6 +65,7 @@ sim)
   echo "wrote $out/sim-$n.json"
   ;;
 device)
+  : "${PLUMCRAFT_TEAM_ID:?set PLUMCRAFT_TEAM_ID to the signing team id}"
   udid="${DEVICE:-$(xcrun devicectl list devices 2>/dev/null | grep -E 'iPad.*physical' | grep available | head -1 | awk '{for(i=1;i<=NF;i++) if ($i ~ /^[0-9A-F]{8}-[0-9A-F]{16}$/) print $i}')}"
   xcodebuild -project CanvasSpike.xcodeproj -scheme CanvasSpikePad -configuration Release \
     -derivedDataPath build -destination "id=$udid" -allowProvisioningUpdates build -quiet

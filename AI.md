@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The signing team id removed from tracked files (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** Told that the Apple signing team id was in two tracked files of a public repository against their standing rule, the maintainer said "remove the team id".
+
+**How it got there.** AI-written work put it there: the N0 canvas spike's project file and its note (2026-11-19), and for a day a default in the iPad bench script. The controller noticed it only on 2026-11-21, while checking another branch for the same id.
+
+**Done.** The spike's project reads the team from the environment like the other Apple projects, its bench script refuses a device build without it, and the note says "the maintainer's team". `git grep` finds no occurrence. The spike still generates and builds for the Mac. **The id remains in the history of the dev branch and in any clone**; nothing was rewritten, and it was never on `main`. The agent also listed other identifying strings in tracked files (a device id, a host name, home paths, private project names) for the maintainer, changing none.
+
 ### 2026-11-21 — N5 slice 3: the Windows app edits, and is Plummer (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** The slice plan and its cards as before; the no-exceptions rule that every user action is a core command ("Do it. No exceptions to the rule. Unless I change my mind."); and the rename: "New app should be plummer instead of plumcraft", "2, Plummer will be the new base app/platform".
