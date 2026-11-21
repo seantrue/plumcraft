@@ -95,7 +95,7 @@ Settle timeouts 0; the read half takes about 0.7 s. `conformance.sh` checks the 
 
 ### The device
 
-The maintainer's iPad Pro 11-inch (M4), UDID 00008132-001424640C05801C, connected and unlocked. Signed with the team's existing "Apple Development" identity and the profile Xcode already had for it (automatic signing without `-allowProvisioningUpdates`; Xcode's team wildcard profile, which covers this device; nothing was requested from Apple). A first attempt with manual signing was refused by Xcode ("is Xcode managed") before anything was built or installed.
+The maintainer's iPad Pro 11-inch (M4), UDID <UDID>, connected and unlocked. Signed with the team's existing "Apple Development" identity and the profile Xcode already had for it (automatic signing without `-allowProvisioningUpdates`; Xcode's team wildcard profile, which covers this device; nothing was requested from Apple). A first attempt with manual signing was refused by Xcode ("is Xcode managed") before anything was built or installed.
 
 **What was installed and launched, all 2026-11-20:** `PlumCraft` as `com.plumcraft.pad` 0.7.0, installed at 13:17 and reinstalled at 13:18, 13:20 (the build with the core fix), 13:20:47 and 13:24 (`bench.sh` installs before each run). Launches: 13:17 (bench, 500), 13:18 (bench, 2,000), 13:20 (bench, 2,000, core fixed), 13:20:47 (a trace that named the app by its Mac path, which recorded nothing usable), about 13:21 (Animation Hitches trace, 500, by bundle id), 13:24 (trace, 2,000), 13:28 (the N0 spike `com.plumcraft.spike.canvas`, already installed, traced at 500 as a control). Each bench exits by itself when done (exit code 0); the traced runs ended with their recordings. At 13:32 no PlumCraftPad or CanvasSpike process was running on the device (`devicectl device info processes`). The spike and the research software's spike app were left as they were. `com.plumcraft.pad` stays installed on the iPad.
 
@@ -212,8 +212,8 @@ The subagent also saw `prefs::tests::each_application_has_its_own_file` fail whe
 
 ## The maintainer's store, preferences, simulator
 
-- **The store** (`/Volumes/CommonkitStore/store`, top two levels, names, sizes and mtimes): **no difference** between 12:45 and the end (`claude-debug/native-n3/s5-store-before.txt`, `s5-store-after.txt`). The research software's 12:04 writes are before the first listing.
-- **Preferences and trusted files** of the editor, the research software's app and PlumPipe: the same SHA-256 before and after.
+- **The store** (`/Volumes/<store>/store`, top two levels, names, sizes and mtimes): **no difference** between 12:45 and the end (`claude-debug/native-n3/s5-store-before.txt`, `s5-store-after.txt`). The research software's 12:04 writes are before the first listing.
+- **Preferences and trusted files** of the editor, the research software's app and a private batch app: the same SHA-256 before and after.
 - **The iPad app's store** in the simulator was inside its container in every run (checked by `conformance.sh` and the status files).
 - **The simulator:** still booted, appearance light as found, the same 40 apps as before (`s5-sim-apps-before.txt`, `-after.txt`; `com.plumcraft.pad` and its UI-test runner uninstalled at the end). Not erased.
 

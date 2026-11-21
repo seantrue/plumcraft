@@ -26,7 +26,7 @@ Branch `native/n1-media`, working tree only: nothing committed, staged or stashe
   - one line in `kittest_viewer_tools.rs`, so a test waits for the picture it asserts on;
   - additions to `engine_thread.rs`.
 - **Preferences.** The maintainer's `prefs.json` and `trusted.json` are byte-identical before and after.
-- **PlumImpress** checks and passes its editor, recipe and view tests with no source change, thanks to a read-ahead (below).
+- **The research software** checks and passes its editor, recipe and view tests with no source change, thanks to a read-ahead (below).
 - **Memory.** Peak memory rose about 10% on a 500-node graph, whatever the cache budget (numbers below).
 
 ## The cut
@@ -106,7 +106,7 @@ Branch `native/n1-media`, working tree only: nothing committed, staged or stashe
 | `session.docs.resolver` (`doc.open`, `value.open`), set in `lib.rs` `with_link` and `drain_engine` | **Remains in place**, now through `values::docs_resolver` (`MediaService::blocking`: shares what was read; reads in place if not). These commands reply with the copy they made, so moving them changes their replies. `doc.open` refuses remote engines anyway, so only `value.open` on an HTTP engine still fetches on the UI thread. For the asks/`Document` slice |
 | `switchboard.rs` `relinked`: `session.docs.resolver` straight from the connection | Remains: the egui shell overwrites it every frame with the service's. The C ABI core still uses it for `doc.open`/`value.open` on its core thread (not the shell's thread) |
 | FFI `Shared::blob` (`plum_blob`) | Never waits for an engine. It lends bytes already lent, then the local store by handle, then the store by a known reference's locators (a mapping or a read on this machine: no engine, no network; a deflated blob is still inflated in place, about 12 ms for 64 MB). Anything else goes to the service: `PLUM_PENDING`, then the feed's `media` |
-| `Session::connection()` used by application commands (PlumImpress `cmds.rs` `step` reads `s.docs.resolver`) | Remains (application commands are synchronous) |
+| `Session::connection()` used by application commands (the research software's `cmds.rs` `step` reads `s.docs.resolver`) | Remains (application commands are synchronous) |
 
 ## The thread-rule test and frame stalls
 
@@ -276,21 +276,21 @@ Debug build, this M4 Max. Longest frame per phase, `resolve` taking 300 ms (raw:
 
 ## Downstream effects
 
-- **PlumImpress.** I copied it, without `target`, `.git`, `dist` or `claude-debug`, to `claude-debug/native-n1/s6-plumimpress-check/`, with slice 5's `.cargo/config.toml` patch, into the workspace `target/`.
+- **The research software.** I copied it, without `target`, `.git`, `dist` or `claude-debug`, to `claude-debug/native-n1/s6-<app>-check/`, with slice 5's `.cargo/config.toml` patch, into the workspace `target/`.
   - `cargo check --tests` exits 0 with no source change.
   - `editors` (7), `open_recipe` (2) and `views` (5) pass, three runs out of three.
   - Without the read-ahead, 3 of its 7 editor tests failed. Its Curves and Mask editors read `cx.resolve` once when opened and showed "gone, run again" until a later frame.
   - With the read-ahead they pass. The repository itself was not touched.
-- **A source change PlumImpress would want** (none is needed to build): its editors treat `cx.resolve` returning `None` as "gone".
+- **A source change the research software would want** (none is needed to build): its editors treat `cx.resolve` returning `None` as "gone".
   - On an HTTP engine the bytes can take longer than the read-ahead. They then show "the step's picture is gone: run again" or "Preview not available" for that moment. They do retry each frame, so it heals.
   - Proposed: a `Context::pending(&DataRef) -> bool` (or a three-state read) in a later slice, and "reading…" in those two editors.
 - **API changes a downstream crate would see:**
   - **New crate** `plumcraft-media`, re-exported by the core as `plumcraft_editor_core::media`.
   - **New in the core:** `plumcraft_editor_core::values` (`Follow`, `resolver`, `docs_resolver`, `nonblocking`, `read_ahead`, `MAX_READ_AHEAD`).
   - **New on `EditorApp`:** pub field `media_service`, `media_busy()`, `wait_media(timeout)`, `with_media(config)`, and the free function `plumcraft_ui::media_config()`. The private `fulls` field is gone.
-  - **`plumcraft_ui::run_view::ThumbMiss`** gains `Pending`; an exhaustive `match` downstream breaks (PlumImpress has none).
+  - **`plumcraft_ui::run_view::ThumbMiss`** gains `Pending`; an exhaustive `match` downstream breaks (the research software has none).
   - **New on `Thumbs`:** `get_from`, `picture_from` and `peaks_from` (taking a `plumcraft_media::Source`). `get`, `picture` and `peaks` keep their signatures and read in place.
-  - **Signatures that changed** (none is used by PlumImpress):
+  - **Signatures that changed** (none is used by the research software):
     - `Pane::sync`, `CompareView::sync`, and `canvas::RunView.resolve` (now `.source`) take a `&dyn plumcraft_media::Source` in place of the resolve and full closures.
   - **`plumcraft_ui::audio::Spectro::image`** is now the extension trait `SpectroImage`; import it. The audio, `media` and `watched::numbers` items are re-exports at their old paths.
   - **`Watched`** gains a pub `pending` field and `update_from`; `update` is unchanged.

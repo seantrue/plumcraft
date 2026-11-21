@@ -168,7 +168,7 @@ pub fn graph_problems(graph: &Graph, catalog: &SchemaReply) -> BTreeSet<String> 
 /// What an application says about itself: its About window and `--version`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct About {
-    /// The title ("PlumImpress").
+    /// The title ("PlumCraft", or an application's own name).
     pub title: String,
     pub version: String,
     /// What it was built from: a name and its version, in order.

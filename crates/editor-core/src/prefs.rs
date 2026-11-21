@@ -4,7 +4,7 @@
 //!
 //! Each application has its own file, by the name it runs under (`AppConfig.name`):
 //! `~/Library/Application Support/<name>/prefs.json` on macOS and
-//! `$XDG_CONFIG_HOME/<name>/prefs.json` elsewhere. `<NAME>_PREFS` (`PLUMIMPRESS_PREFS`,
+//! `$XDG_CONFIG_HOME/<name>/prefs.json` elsewhere. `<NAME>_PREFS` (`MY_APP_PREFS`,
 //! `PLUMCRAFT_EDITOR_PREFS`) names another.
 //!
 //! The file is input like any other: one that is missing, too big or doesn't parse is the
@@ -329,9 +329,9 @@ mod tests {
 
     #[test]
     fn each_application_has_its_own_file() {
-        let (a, b) = (path_for("plumimpress").unwrap(), path_for("plumcraft-editor").unwrap());
+        let (a, b) = (path_for("another-app").unwrap(), path_for("plumcraft-editor").unwrap());
         assert_ne!(a, b);
-        assert!(a.ends_with("plumimpress/prefs.json"), "{}", a.display());
+        assert!(a.ends_with("another-app/prefs.json"), "{}", a.display());
         assert!(b.ends_with("plumcraft-editor/prefs.json"), "{}", b.display());
     }
 

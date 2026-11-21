@@ -79,7 +79,7 @@ mod tests {
 
     #[test]
     fn the_hash_cell_names_the_algorithm_and_its_source() {
-        assert_eq!(hash_label("md5", "policy file /Volumes/CommonkitStore/store/.policy.json"), "hash md5 · policy file");
+        assert_eq!(hash_label("md5", "policy file /Volumes/Store/store/.policy.json"), "hash md5 · policy file");
         assert_eq!(hash_label("b3", "environment COMMONKIT_HASH"), "hash b3 · environment");
         assert_eq!(hash_label("b3", "default"), "hash b3 · default");
     }

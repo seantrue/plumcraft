@@ -117,7 +117,7 @@ Files: `s6-r{1,2,3}-trace-{100,500}-hitches.md`, `s6-v{1,2}-trace-500-hitches.md
 
 ### The iPad
 
-**Not measured.** At 14:45 the iPad (UDID `00008132-001424640C05801C`) was "available (paired)" over the local network; by 15:21, when the first run tried to install, it was "unavailable" and `devicectl` refused ("The device is not able to fulfill the requested usage assertion requirements", CoreDeviceError 4016), so nothing was installed or launched and the display link's rate was not read. Low Power Mode's state is unknown. The app was built from this branch for the device (release, signed with the existing "Apple Development" identity and the team's profile, automatic signing without provisioning updates, nothing requested from Apple): `native/apple/PlumCraftPad/build-device/Release-iphoneos/PlumCraftPad.app`, and a fresh build with zero warnings (`s6-pad-clean-build-device.log`; its folder removed afterwards). The installed `com.plumcraft.pad` on the iPad is still slice 5's build.
+**Not measured.** At 14:45 the iPad (UDID `<UDID>`) was "available (paired)" over the local network; by 15:21, when the first run tried to install, it was "unavailable" and `devicectl` refused ("The device is not able to fulfill the requested usage assertion requirements", CoreDeviceError 4016), so nothing was installed or launched and the display link's rate was not read. Low Power Mode's state is unknown. The app was built from this branch for the device (release, signed with the existing "Apple Development" identity and the team's profile, automatic signing without provisioning updates, nothing requested from Apple): `native/apple/PlumCraftPad/build-device/Release-iphoneos/PlumCraftPad.app`, and a fresh build with zero warnings (`s6-pad-clean-build-device.log`; its folder removed afterwards). The installed `com.plumcraft.pad` on the iPad is still slice 5's build.
 
 **The one-command recipe** (with the iPad unlocked, awake, Low Power Mode off):
 
@@ -187,8 +187,8 @@ Python (`python/`) was not run: nothing there changed.
 
 ## The maintainer's store, preferences, simulator
 
-- **The store** (`/Volumes/CommonkitStore/store`, top two levels, names, sizes and mtimes, `s5-store-list.sh`): I took no listing at the very start of this stage. Compared with slice 5's last listing (13:32, `s5-store-after.txt`): **no difference** at 15:24 (`s6-store-mid.txt`) and at the end (`s6-store-after.txt`).
-- **Preferences and trusted files** of the editor, the research software's app and PlumPipe: the same SHA-256 as at slice 5's end, at 15:24 and at the end (`s6-prefs-mid.txt`, `s6-prefs-after.txt`).
+- **The store** (`/Volumes/<store>/store`, top two levels, names, sizes and mtimes, `s5-store-list.sh`): I took no listing at the very start of this stage. Compared with slice 5's last listing (13:32, `s5-store-after.txt`): **no difference** at 15:24 (`s6-store-mid.txt`) and at the end (`s6-store-after.txt`).
+- **Preferences and trusted files** of the editor, the research software's app and a private batch app: the same SHA-256 as at slice 5's end, at 15:24 and at the end (`s6-prefs-mid.txt`, `s6-prefs-after.txt`).
 - Every launch, test and script ran with the store, marks, test run, craft root and preferences in scratch (`s4-env.sh`, or the scripts' own), `COMMONKIT_HASH=b3`, `COMMONKIT_STORE_MIN_FREE_GB=2`. `claude-debug/native-n3/s6-try/` was not touched.
 - **The simulator** (iPad Pro 13-inch (M5)): booted as found; `com.plumcraft.pad` was installed by `conformance.sh` and uninstalled at the end, leaving 40 apps as before.
 

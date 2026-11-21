@@ -49,7 +49,7 @@ The scene: node geometry, hit testing, selection and editing gestures, wire rout
 | Peak memory about 10% higher with thumbnails since slice 6, cause unknown | Note 24 section 16 |
 | The in-place spectrogram stalls the editor's thread 35 to 195 ms | Note 24 section 16 |
 | An engine compiled in still connects on the UI thread | Note 24 section 16; needs a wait in two kittests |
-| PlumImpress's editors can show "gone" briefly on an HTTP engine | Note 24 section 16 |
+| The research software's editors can show "gone" briefly on an HTTP engine | Note 24 section 16 |
 | `main`'s CI still fails the eight kittests of B27 | Fixed on the dev branch only; issue #89 open |
 | No iOS or Android device has run the C ABI; JNI only on a host JVM | Note 24 section 15 |
 | `docs/shell-interface.md` is still Draft 1 and behind the code | Each slice's report lists the sections to bring up to date |

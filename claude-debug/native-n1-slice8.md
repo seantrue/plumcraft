@@ -16,7 +16,7 @@ Branch `native/n1-menu`, working tree only (nothing committed). 2026-11-19.
 - **The gate holds:**
   - control replies: 0 differences in 41;
   - tests: the same single failure before and after, under b3 (three final runs) and md5 (two);
-  - the PlumImpress tests pass with no source change.
+  - The research software's tests pass with no source change.
 - **Also:** an unexpected edit to `docs/BUGS.md` appeared during the session (below, first).
 
 ## A file I did not change
@@ -338,19 +338,19 @@ Every real-editor run set `PLUMCRAFT_EDITOR_PREFS` under `claude-debug/native-n1
 
 - `s5_probe.py` sets it under its own output folder;
 - `s8_probe.py` under `s8-probe/run1/`;
-- the PlumImpress tests under `s8-probe/`.
+- The research software's tests under `s8-probe/`.
 
 The only log file written was under the scratch root (`ffi-log/logs`).
 
-## PlumImpress
+## The research software
 
-- **The copy:** `claude-debug/native-n1/s8-plumimpress-check/`, from slice 7's copy (its `.cargo/config.toml` patches every PlumCraft crate to this tree), with PlumImpress's sources re-synced from `../plumimpress` (`62513d7`). The repository was not touched.
+- **The copy:** `claude-debug/native-n1/s8-<app>-check/`, from slice 7's copy (its `.cargo/config.toml` patches every PlumCraft crate to this tree), with the research software's sources re-synced from its checkout (`62513d7`). The repository was not touched.
 - **No source change:** `cargo check --tests` exits 0.
 - **Tests pass:** `editors` 7, `open_recipe` 2, `views` 5, `recipe` 3, `identity` 2, `stored` 5 (`tests-1.log`).
-- **Its menus:** a scratch test in the copy, `apps/plumimpress/tests/s8_menus.rs`, registers PlumImpress's commands and editors.
+- **Its menus:** a scratch test in the copy, `apps/<app>/tests/s8_menus.rs`, registers the research software's commands and editors.
   - It writes the model (`menus/model-bar.json`, 8 menus). Its own items are in their places: File › Clean Up Edit Files and Publish Style to virtimp.com, Group › Export Group and Deliver Group to the Palette.
   - It opens each egui menu and checks that each of the 48 top-level items the model lists is drawn, enabled exactly as the model says (`menus/drawn.txt`).
-- **Not done: a before dump of PlumImpress's menus.** It would need a second build of every PlumCraft crate at the old HEAD, several GB in the one `target/`. The generic before and after dumps cover the mechanism its menus go through: registry items, value-editor items in the node menu.
+- **Not done: a before dump of the research software's menus.** It would need a second build of every PlumCraft crate at the old HEAD, several GB in the one `target/`. The generic before and after dumps cover the mechanism its menus go through: registry items, value-editor items in the node menu.
 
 ## Differences from `docs/shell-interface.md`
 
@@ -422,8 +422,8 @@ From `git diff --numstat` and `wc -l` of the new files.
 - Free space: 41 GB at the start (40 at the baseline), 38 GB at the end.
 - Scratch `claude-debug/native-n1/s8-*` is 377 MB:
   - each run folder's `store` and `craft` were removed after its log was read;
-  - the logs, test lists, dumps, both binaries, the probes' replies and the PlumImpress copy are kept.
-- No extra target directory; PlumImpress built into the workspace `target/`.
+  - the logs, test lists, dumps, both binaries, the probes' replies and the copy of the research software are kept.
+- No extra target directory; the research software built into the workspace `target/`.
 
 ## What the docs should say
 

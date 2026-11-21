@@ -349,7 +349,7 @@ The delta is within run-to-run noise; its upper end is 0.2 ms above slice 3's. G
 ## What I did not verify
 
 - **No native shell** (Swift or Kotlin) called the new export or the changed layout; they are tested from Rust only.
-- **Nothing ran on Linux.** The yellowfin run before merging was not done here.
+- **Nothing ran on Linux.** The run on the Linux test host before merging was not done here.
 - **The egui conformance driver goes through the control dispatcher,** not simulated pointer input. Pointer input reaching `ui.gesture` is covered only by the existing kittests that click (they pass) and by `a_click_is_a_tap_gesture`. No kittest drives a Shift-drag marquee end to end. I did not add one.
 - **Measurements are from one machine** (M4 Max), three runs.
 - **The 9% slower geometry-to-snapshot** at 2,000 nodes was not profiled.

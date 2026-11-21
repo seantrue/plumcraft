@@ -78,7 +78,7 @@ New tests: 21 (5 in `kittest_face_rows`, 6 in `kittest_double_clicks`, 5 in `kit
 
 ## Real locations, before and after
 
-Counted with `claude-debug/egui-parity/realcheck.sh` (files and newest modification): the real store `/Volumes/CommonkitStore/store`, `~/Library/Caches/com.plumcraft.mac`, `~/Library/Logs/PlumCraft`, `~/.cache/plumcraft` (absent both times), `~/Library/Application Support/plumcraft-editor` (egui's real preferences), `~/Library/Preferences/com.plumcraft.mac.plist`, `~/.config/plumcraft`. Before and after are identical (`realcheck-before.txt`, `realcheck-after.txt`). The egui editor was never launched as an app; every picture is the kittest harness's.
+Counted with `claude-debug/egui-parity/realcheck.sh` (files and newest modification): the real store `/Volumes/<store>/store`, `~/Library/Caches/com.plumcraft.mac`, `~/Library/Logs/PlumCraft`, `~/.cache/plumcraft` (absent both times), `~/Library/Application Support/plumcraft-editor` (egui's real preferences), `~/Library/Preferences/com.plumcraft.mac.plist`, `~/.config/plumcraft`. Before and after are identical (`realcheck-before.txt`, `realcheck-after.txt`). The egui editor was never launched as an app; every picture is the kittest harness's.
 
 ## Pictures and what looks wrong in them
 

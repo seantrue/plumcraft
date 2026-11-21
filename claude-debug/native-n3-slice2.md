@@ -253,7 +253,7 @@ The N0 package's 6 XCTest tests became Swift Testing tests. Their checks are kep
 ## What I did not verify
 
 - **iOS:** the kit compiles for a generic iOS device and the simulator. Nothing linked it into an app, and nothing ran on a simulator or device. The x86_64 macOS slice is built and never run.
-- **Linux:** none of it ran there. The Rust change (`crates/ffi/src/core.rs` and its test) passed the Mac gate only. The gate should run on yellowfin before a merge; I did not run it.
+- **Linux:** none of it ran there. The Rust change (`crates/ffi/src/core.rs` and its test) passed the Mac gate only. The gate should run on the Linux test host before a merge; I did not run it.
 - **That typed replies decode off the main actor** follows from `@concurrent`; no test asserts which thread decodes.
 - **The memory numbers** are from the heap's in-use count with the core idle but not stopped. Its idle looks allocate, so they are ranges (one 2,000-node run read −0.3 MB kept).
 - **Budgets on a device:** every number is from one Mac (M4 Max). The iPad's numbers are slice 5's.

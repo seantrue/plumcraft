@@ -16,18 +16,18 @@ Branch `native/n1-launcher`, working tree only (nothing committed, staged or sta
 - **`crates/ffi` starts its engine through the core's `Launcher`.** Its config can now name an engine and hosting (`engines.default`, `engines.mode`) and a `platform`. The C ABI's function list is unchanged.
 - **Core stays toolkit-free.** `scripts/check-core-toolkit-free.sh` prints ok. The core has no dependency cycle.
 - **Tests:** the same single expected failure before and after, under b3 and md5. 1,306 tests before, 1,314 after: 2 moved, 8 new. No existing test file was edited.
-- **Downstream:** a scratch copy of PlumImpress compiles unchanged against this tree.
+- **Downstream:** a scratch copy of the research software compiles unchanged against this tree.
 
 ## The cut, and why
 
 - **What moved:** everything that decides or performs engine starting and switching, but neither draws nor needs an `egui::Context`. A native shell needs all of it.
 - **The state the switch acts on stays in the shell's struct.**
-  - `EditorApp.link`, `.coordinator`, `.engine`, `.installing` and `.last_error` are public fields that the kittests (and PlumImpress) read.
+  - `EditorApp.link`, `.coordinator`, `.engine`, `.installing` and `.last_error` are public fields that the kittests (and the research software) read.
   - So the core's `Switchboard<'a>` borrows them for one operation: session, link, coordinator, state, last error, reloader, installer and installing.
   - It returns `Effects { runs_forgotten, catalog_set: Option<first>, redraw }`, which the shell applies to what it keeps beside the session (the Watched panel's value, thumbnails, the rerun flag, canvas invalidate and fit).
   - This keeps every field path the tests use and moves all of the logic. When N2 gives the core a `Document` owning these parts, `Switchboard` becomes a method set on it.
 - **The connect function is given per call** (`&mut dyn FnMut(&str, &str) -> Result<Link, String>`), not stored in the core.
-  - The egui `Connector` takes an `Option<&egui::Context>`, and PlumImpress builds such closures. So the ui binds its context into a plain closure at each call, and a native shell passes `launcher.connect_ids` with its waker.
+  - The egui `Connector` takes an `Option<&egui::Context>`, and the research software builds such closures. So the ui binds its context into a plain closure at each call, and a native shell passes `launcher.connect_ids` with its waker.
 - **The built-in engines are hard-wired; packs and manifests stay injected.**
   - The built-ins (text, array, craft packs; audio is process-only) do not make the core heavy in toolkit terms, and they cause no cycle.
   - Hard-wiring keeps the `EngineKind::Text`/`Audio`/`Array`/`Craft` enum and its exact rules. The kittests depend on both.
@@ -58,7 +58,7 @@ Branch `native/n1-launcher`, working tree only (nothing committed, staged or sta
 
 | Item | Where | Why |
 |---|---|---|
-| `Connector` (`FnMut(&str, &str, Option<&egui::Context>)`) | `crates/ui/src/engine_view.rs` | It names egui, and PlumImpress constructs it |
+| `Connector` (`FnMut(&str, &str, Option<&egui::Context>)`) | `crates/ui/src/engine_view.rs` | It names egui, and the research software constructs it |
 | `engine_choices_menu`, `attach_window`, `install_window`, `by_engine`, `group_engine`, `scrolling`, `AttachForm`, `InstallForm` | `engine_view.rs` | Drawing, and the forms' widget state |
 | `with_engines`, `with_installer`, `with_reloader`, `with_link` | ui | Builder API on `EditorApp`. `with_link` takes ui's `Link` |
 | `doc_apps`, `has_own_view` | app | Uses `plumcraft_ui::viewers::kinds_for` (the viewer registry is ui's) |
@@ -117,7 +117,7 @@ Capabilities::refuses(kind, mode) -> Option<String>      // the reason, or None
   - `Launcher.caps`, checked in `connect_core` and `connect_ids` before anything starts;
   - `choose_for`, `choices_for`, `Launcher::choices`;
   - `offers(caps) -> Vec<Offer { choice, why_not }>`, which lists every hosting with its reason. This is section 4.2's "listed and disabled with the reason".
-- **The egui menu still shows only the startable hostings,** which on a desktop is all of them. Showing disabled items needs a field on `plumcraft_session::EngineChoice`. Adding one would break downstream struct literals (PlumImpress builds `EngineChoice { … }`), so that is left for the menu-model slice.
+- **The egui menu still shows only the startable hostings,** which on a desktop is all of them. Showing disabled items needs a field on `plumcraft_session::EngineChoice`. Adding one would break downstream struct literals (the research software builds `EngineChoice { … }`), so that is left for the menu-model slice.
 - **No `target_os` cfg** was added anywhere.
 - **Tests** (`engines::tests`):
   - `a_desktop_offers_every_hosting_as_before`: desktop offers equal the old `choices()`.
@@ -162,12 +162,12 @@ Capabilities::refuses(kind, mode) -> Option<String>      // the reason, or None
 - **`EditorApp`:**
   - Every public method keeps its signature: `with_engines`, `with_installer`, `with_reloader`, `with_link(plumcraft_ui::link::Link)`, `pump_engine`, `poll_install`, `clear_engines`, `add_engine`, `remove_engine`, `switch_engine`, `engine_title`, `engine_label`, `engine_short_label` and `set_catalog`.
   - **One type change:** `EditorApp.link` is now `Option<plumcraft_editor_core::link::Link>` (was the ui newtype). `.conn`, `.label`, `.state()` and `.drain()` read the same. Code that names the field's type, or assigns a ui `Link` to it, needs `.into_core()`.
-- **`plumcraft-editor` no longer depends on `plumcraft-engine` and friends.** An application naming `plumcraft_engine::Engine` for `PackEngine.engine` must depend on `plumcraft-engine` itself (PlumImpress already does).
-- **PlumImpress was checked against a scratch copy.**
-  - Its sources were copied to `claude-debug/native-n1/s2-plumimpress-check/`, with slice 1's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree.
+- **`plumcraft-editor` no longer depends on `plumcraft-engine` and friends.** An application naming `plumcraft_engine::Engine` for `PackEngine.engine` must depend on `plumcraft-engine` itself (the research software already does).
+- **The research software was checked against a scratch copy.**
+  - Its sources were copied to `claude-debug/native-n1/s2-<app>-check/`, with slice 1's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree.
   - `cargo check --tests` exits 0, with no source change (log `check.log` there).
   - It uses `engine_view::Connector`, `with_engines`, `with_link` and `h.state().link.as_ref().unwrap().conn`.
-  - `/Users/seant/workspace/plumimpress` was not touched.
+  - The research software's own checkout was not touched.
 
 ## Tests
 
@@ -206,7 +206,7 @@ The CI command, with `COMMONKIT_STORE_MIN_FREE_GB=2` and a fresh run folder each
 
 ## Not moved, and why
 
-- **The Engine menu's drawing,** the Attach and Install windows, and the egui `Connector` type: drawing, egui types, and API that PlumImpress builds.
+- **The Engine menu's drawing,** the Attach and Install windows, and the egui `Connector` type: drawing, egui types, and API that the research software builds.
 - **Demos:** `apps/plumcraft-editor/demos/audio.json` and the several-engine demos stay the app's files (see the table). The core gives each engine's own demo (`EngineKind::own_demo`).
 - **`doc_apps` and `has_own_view`:** they read ui's viewer registry. Moving them needs the viewer registry as data (section 13.1, a later slice).
 - **`drain_engine`, `pump_runs`, `pump_saves` and `with_link`'s first `schema` call:** the runs-off-the-UI-thread slice.
@@ -231,7 +231,7 @@ The CI command, with `COMMONKIT_STORE_MIN_FREE_GB=2` and a fresh run folder each
 | `drain_engine` | `link.state()` (the host's cached state) | Every frame |
 | `resolver()`, `full_reader()`, used by `pump_runs`, `sync_compare`, `wire_view`, `popouts`, the media views | `conn.resolve(r)` (a store read in-process, an HTTP fetch for a remote engine) | Whenever a watched, compared, hovered or popped-out value's bytes are first read |
 | `session.docs.resolver`, used by `doc.open` and `open_cmds` in the session | `conn.resolve(r)` | Open in an app; open a value |
-| `Session::connection()`, used by applications' commands (PlumImpress) | Any call the application makes | Its commands |
+| `Session::connection()`, used by applications' commands (the research software) | Any call the application makes | Its commands |
 | `editor_with` (app) | `launcher.connect` + `schema` | Startup |
 | Control requests (`ui.*`, `command.run`) | Whatever the command runs, synchronously in `drain_control` | Per request |
 

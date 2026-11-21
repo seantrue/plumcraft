@@ -315,6 +315,6 @@ No test failed intermittently.
 ## What I did not verify
 
 - No native shell (Swift or Kotlin) called the new exports. They are tested from Rust through the C ABI only.
-- Nothing ran on Linux. The brief asks for a yellowfin run before merging; it wasn't done here.
+- Nothing ran on Linux. The brief asks for a run on the Linux test host before merging; it wasn't done here.
 - The four-cubic fit was checked on 10 wire shapes, not exhaustively.
 - Measurements are from one machine (M4 Max), mostly single runs of medians.

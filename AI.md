@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — Identifying strings cleaned out of tracked files (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** Shown a list an agent had made of identifying strings in this public repository's tracked files (the Linux host's name, a device id, home paths, private project names, local addresses), and asked whether to clean them in one pass in current files only: "yes clean those in one pass".
+
+**How they got there.** Mostly AI-written notes and ledger entries that named things the project's own rules say to describe generically ("the research software", "the Linux test host"). The rules existed; the agents and the controller did not hold to them, and nothing checked.
+
+**Done (agent; line-local edits in about 60 files).** The host name (62 places), the device id and board ids, home paths, the private project names (over 120 places) and the maintainer's subnet and volume names are replaced by the generic words. The maintainer's quoted words are kept, with only the private token replaced in square brackets (8 quotes). Strings in code that runs were read first: test display data and comments were changed; one functional string in the Mac app's scratch-state guard was left and listed for the maintainer. A new script, `scripts/check-private-strings.sh`, greps tracked files using patterns from an untracked local file, so the check does not itself publish them. It is not in CI.
+
+**Not done.** Git history is untouched: the strings remain in past commits, some reachable from `main`, and in clones. The agent listed the commits for the maintainer to decide.
+
+**Verified.** The check finds no match in the tracked files; nextest 1,569 of 1,570 (the known baseline failure), Python 224, fmt and clippy clean; the Linux gate ran before the merge.
+
 ### 2026-11-21 — B50: scripted Mac launches no longer write the person's recent documents (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked.** "Fix B50", recorded that afternoon as a scripted launch of the Mac app writing to the real defaults domain.
@@ -70,7 +82,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-21 — The egui editor audited against the native apps, then brought up (Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
 
-**What the maintainer asked.** "Is the egui version at parity?", then "Do the egui audit on yellowfin", then, offered three depths of repair, "Option 2": the wrong-port defect plus the small gaps (palette, double clicks, pop-out actions, Show on Face, Match the System, channel picker), leaving out viewer state, the Watched column, a toolbar and names in place.
+**What the maintainer asked.** "Is the egui version at parity?", then "Do the egui audit on [the Linux test host]", then, offered three depths of repair, "Option 2": the wrong-port defect plus the small gaps (palette, double clicks, pop-out actions, Show on Face, Match the System, channel picker), leaving out viewer state, the Watched column, a toolbar and names in place.
 
 **The audit (agent, on the Linux test host, no code changed).** On the floor egui met 79 of 85 rows against 77 for the Mac app; against N4 it lacked several behaviours ruled "the same in every shell". It found B45: with a row hidden from a node's face, egui's rows shifted and an edit on the face changed the wrong port. It drove egui through the headless test harness, since that host has no display, so real windows, dialogs and the clipboard were not checked. One Cancel Run was missed once (B46).
 
@@ -425,13 +437,13 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-19 — B28: the hash gate counted colour codes (Claude Fable 5.2)
 
-**What the maintainer asked for.** "fix B28,29", and "you run tests for Linux on yellowfin."
+**What the maintainer asked for.** "fix B28,29", and "you run tests for Linux on [the Linux test host]."
 
 **What the AI did** (+4 −1 in `scripts/check-hash-gates.sh`). CI sets `CARGO_TERM_COLOR=always`; `cargo tree` then colours the `[build-dependencies]` heading the script cuts at, the cut misses, and two `commonkit` lines are counted. The script now turns colour off and prints the tree when the count is wrong.
 
 **Checked.** With `CARGO_TERM_COLOR=always` the old script fails on the Mac with CI's exact message and the new one passes.
 
-**What the AI had wrong.** It filed this as a Linux failure and looked at the Rust version and the target's dependency set. It was neither: the gate passes on a Linux host (yellowfin) under both Rust versions. One CI run that printed the tree showed the escape codes at once; that print should have been the first step, a day earlier.
+**What the AI had wrong.** It filed this as a Linux failure and looked at the Rust version and the target's dependency set. It was neither: the gate passes on the Linux test host under both Rust versions. One CI run that printed the tree showed the escape codes at once; that print should have been the first step, a day earlier.
 ### 2026-11-19 — N2 slice 1: the selection and the canvas's actions as commands (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "go for N2"; "same arrangement for N2".
@@ -481,9 +493,9 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files). `crates/editor-core/src/menu.rs`, `rows.rs` and `log.rs`; `crates/ui/src/menu_view.rs` draws every menu from the model (`crates/ui` +223 −969); `menu.get`, `log.tail` and `log.write` on the control port and the C ABI (`crates/ffi` +131 −10); `docs/control-protocol.md` for the three methods. 17 new tests (`crates/ui/tests/menu_dump.rs`, `crates/ffi/tests/menus_log.rs`, and in the modules); no existing test edited.
 
-**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,394 of 1,395, the same one failure. 124 menus dumped in eight states before and after: identical. 41 control replies unchanged. The control token is absent from the log, tested three ways. PlumImpress's sources check and its tests pass unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (158), the thread-rule and menu-dump tests, and a `diff -r` of the two menu dumps.
+**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,394 of 1,395, the same one failure. 124 menus dumped in eight states before and after: identical. 41 control replies unchanged. The control token is absent from the log, tested three ways. The research software's sources check and its tests pass unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (158), the thread-rule and menu-dump tests, and a `diff -r` of the two menu dumps.
 
-**What fell short.** The agent's first version checked the menus on every C ABI turn, which doubled a kittest's runtime (it read every craft manifest each time) and made `control_port …driven_over_its_control_port` fail 2 runs in 4; both fixed before hand-back. No before dump of PlumImpress's own menus was taken. The controller's brief cited the wrong contract section for menus (8, not 12), and told the agent to stop if files changed under it; the controller then edited `docs/BUGS.md` itself during the run, and the agent rightly asked.
+**What fell short.** The agent's first version checked the menus on every C ABI turn, which doubled a kittest's runtime (it read every craft manifest each time) and made `control_port …driven_over_its_control_port` fail 2 runs in 4; both fixed before hand-back. No before dump of the research software's own menus was taken. The controller's brief cited the wrong contract section for menus (8, not 12), and told the agent to stop if files changed under it; the controller then edited `docs/BUGS.md` itself during the run, and the agent rightly asked.
 
 **Slice 7 on Linux.** Pull request #105 failed two C ABI tests that three local runs had passed: an extra run in `control_port` (`cached` where `done` was expected), and 56 ms against a 50 ms limit in `switch`. The controller reported slice 7 as passing its gate before the Linux run existed. Not merged; to be fixed with slice 8 on top. The controller's own hold on #101 (for B29) was overtaken by the maintainer's CPM through another agent; #104's run then passed B29's test, so the controller's "not a flake" reading of two failures in a row was wrong too.
 
@@ -493,7 +505,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files: +2,691 −1,052, about 490 of the added lines tests). `crates/editor-core/src/document.rs`: `Document`, its `turn`, `execute` and `close`. `crates/ui` (+412 −679): `EditorApp` holds a `Document` and derefs to it. `crates/ffi` (+475 −356): the core thread holds documents by id and lost its own copies of the run pumping. `apps/plumcraft-editor` (+87 −14): startup records the engine as a switch and opens the graph when the catalogue arrives. `crates/session` (+79 −1): a document id on the session and `commands::current_doc()`. 10 new tests (`crates/ffi/tests/documents.rs`, a startup case in `engine_thread.rs`); no existing test changed.
 
-**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,377 of 1,378, the same one failure. 41 control replies from the real editor unchanged. Launch with an engine that takes 2 s to start: first frame at 264 ms, 2.3 to 2.5 s before. PlumImpress's sources check and its tests pass with no change. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (143), the three thread-rule tests.
+**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,377 of 1,378, the same one failure. 41 control replies from the real editor unchanged. Launch with an engine that takes 2 s to start: first frame at 264 ms, 2.3 to 2.5 s before. The research software's sources check and its tests pass with no change. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (143), the three thread-rule tests.
 
 **What fell short.** Item 4 of the brief is not done: an engine compiled in still connects on the UI thread, because two kittests assert three frames after a click; the agent stopped at the rule against editing them. A process engine's first control reply is about 75 ms later than before. Over the C ABI a failed engine start is no longer `plum_open` returning 0, which is a contract change the brief asked for without saying so. The agent saw slice 6's `values_never_wait_for_an_engine` fail once under load (195 ms against a 150 ms limit) and could not say whether that is new. The agent found 40 GB free where the controller's brief said 70: the controller had not looked since its own extra build folder and three slices of builds.
 
@@ -503,9 +515,9 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Slice 6, by the agent** (`git diff --numstat` and the new files). `crates/media` (1,989 lines, most of it decoders moved from `crates/ui` unchanged): `plumcraft-media`, with a media service that resolves and decodes on two workers, answers ready, pending, missing or failed at once, drops requests nobody wants, and caches within a byte budget. `crates/editor-core/src/values.rs`. `crates/ui` (+518 −551) uploads textures and draws. `crates/ffi` (+275 −36): `plum_blob` never waits; `media.get`. 25 new tests; `scrolling_in_past_the_picture_asks_for_detail_once` gained a wait for the service, its assertion unchanged. The agent's hostile-input sweep found an overflow panic in the existing `shrink` code and fixed it.
 
-**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,366 of 1,367, the same one failure, no flake. 202 decoded outputs byte-identical before and after. Against an engine whose `resolve` takes 300 ms, `resolve` calls on the editor's thread: 13 of 13 before, 0 of 11 after. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (133), the thread-rule tests and the edited kittest.
+**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,366 of 1,367, the same one failure, no flake. 202 decoded outputs byte-identical before and after. Against an engine whose `resolve` takes 300 ms, `resolve` calls on the editor's thread: 13 of 13 before, 0 of 11 after. The research software's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the media, core and FFI tests (133), the thread-rule tests and the edited kittest.
 
-**What fell short in the slice.** Peak memory on a 500-node graph is about 10% higher and nobody knows why (the agent's guess, a second copy of each thumbnail, is unmeasured). PlumImpress's Curves and Mask editors read a picture once when opened and saw "gone" under the new pending state: 3 of its 7 editor tests failed until the agent added a read-ahead; on an HTTP engine they can still show "gone" briefly. The controller's brief asked to move array-to-picture mappings out of the UI; they were never there (the engine SDK has them).
+**What fell short in the slice.** Peak memory on a 500-node graph is about 10% higher and nobody knows why (the agent's guess, a second copy of each thumbnail, is unmeasured). The research software's Curves and Mask editors read a picture once when opened and saw "gone" under the new pending state: 3 of its 7 editor tests failed until the agent added a read-ahead; on an HTTP engine they can still show "gone" briefly. The controller's brief asked to move array-to-picture mappings out of the UI; they were never there (the engine SDK has them).
 
 **B27, by the controller** (+50 −12 in three files). Linux CI runs the newest stable Rust; cargo 1.100 builds test programs in `<profile>/build/<package>/<hash>/out/`, where `engine_binary` did not look. Confirmed with a scratch project under both versions, reproduced on the Mac with `cargo +1.100.0`, fixed with `engines::profile_dir`, and checked there before and after (the FFI switch test and the editor's kittests) and on Linux CI (pull request #100: no failing test). Not checked: the whole suite locally for that commit. The fix is on the dev branch only; `main` still fails.
 
@@ -519,7 +531,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files: about +1,770 −740, some 415 of the added lines tests). `crates/editor-core/src/control.rs` (1,011 lines): the control channel's dispatcher and the core's share of `ui.inspect`, over a `Shell` trait. `crates/ui` (+186 −556) and `crates/ffi` (+190 −179) both call it, and their two ways of holding a reply until an engine switch is done became one. `crates/automation` (+93 −2): a `Server` that closes when dropped, so a C ABI core can open the control port from its config. A `screenshot` ask. `docs/control-protocol.md`: the C ABI section. 6 new tests, among them `crates/ffi/tests/control_port.rs`, which drives a C ABI core over TCP; no existing test file edited.
 
-**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,341 of 1,342, the same one failure. 41 control replies captured from the real editor before the change and after, in nine states, differ in nothing once times, run ids, scratch paths and the canvas transform are masked. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's, FFI's and automation's tests (116), slice 3's thread-rule test and slice 4's kittests; and the checksums of the maintainer's `prefs.json` and `trusted.json`, which match the agent's (the probe was isolated this time).
+**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,341 of 1,342, the same one failure. 41 control replies captured from the real editor before the change and after, in nine states, differ in nothing once times, run ids, scratch paths and the canvas transform are masked. The research software's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's, FFI's and automation's tests (116), slice 3's thread-rule test and slice 4's kittests; and the checksums of the maintainer's `prefs.json` and `trusted.json`, which match the agent's (the probe was isolated this time).
 
 **What fell short, and what was wrong.** The plan and the brief spoke of preserving the editor's logging; there is none to preserve beyond stderr, the status bar and `lastError`, and the contract's log section is unbuilt. `ui.set` and `ui.audio` are refused over the C ABI. The agent edited one sentence of `docs/control-protocol.md` beyond what the brief allowed (the handlers' location, now wrong otherwise); kept. Slices 3 to 5 are stacked on a pull request that is held (#100, B27), so none of this has run on Linux.
 
@@ -529,7 +541,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files). `crates/editor-core/src/asks.rs` (573 lines) and `invoke.rs` (954): the ask queue, and what `EditorApp::invoke` did as a state machine over a small `Host` trait. `crates/ui` (+140 −368, plus `asks_view.rs`, 323): the egui shell answers each kind with the dialogs and windows it had; `FileDialogs` is its adapter. `crates/session/src/doc_cmds.rs` (+16 −1): a launcher hook so app starts become `open.external`. `crates/ffi` (+167 −6): asks in `plum_poll`, `ask.answer` as a request. `docs/control-protocol.md`: `ask.answer`, `asks`, `ui.invoke`'s timing. 16 new tests (`kittest_asks.rs`, `crates/ffi/tests/asks.rs`, and in the two modules); no existing test file edited. The controller wrote `docs/BUGS.md` B27 and B28.
 
-**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,335 of 1,336, the same one failure. The real editor driven over the control channel: Save As answered by script in 17 ms, New over unsaved changes walked through Save. PlumImpress's sources check unchanged and its fake-dialog test passes. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (103), the new kittests and slice 3's thread-rule test.
+**Checked.** By the agent: the suite as CI runs it, twice under b3 and once under md5: 1,335 of 1,336, the same one failure. The real editor driven over the control channel: Save As answered by script in 17 ms, New over unsaved changes walked through Save. The research software's sources check unchanged and its fake-dialog test passes. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (103), the new kittests and slice 3's thread-rule test.
 
 **Defects and shortfalls.** The agent's first probe run named the wrong environment variable and wrote the maintainer's real editor preferences: `dirs.workflow.write` now points into `claude-debug`, and `trusted.json` gained two entries. The agent reported it; the earlier value is not known. One behaviour changed that the gate did not ask for: a failed app start is reported in the status bar a moment later, not as the command's own error. Not built from the contract's section 11: streamed saves, stored grants, a `doc` field, rename as a `text` ask. The agent added `by` (person or script) to every ask, which the contract does not have.
 
@@ -541,7 +553,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files: +1,789 −158, about 620 of it tests). `crates/editor-core/src/worker.rs`, `EngineWorker`: one ordered thread a document for runs, cancels, releases and engine switches, its results drained by the owner on its own thread. The switchboard split into `begin`, `Work` and `finish`. The egui editor (`crates/ui`, +327 −34) sends through it and parks a control request that switches until the switch is done; the C ABI's core (`crates/ffi`, +176 −26) uses the same worker and now performs `engine.*`. `crates/ui/tests/engine_thread.rs` fails if the editor's thread calls or starts an engine; it fails on the tree before this slice. 6 new tests.
 
-**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,319 of 1,320 each time, the same one failure, no flake. Longest frame (debug): a switch to a process engine 190 to 244 ms before, 3 to 6 ms after; 2.2 s to 10 ms with an engine that takes 2 s to start. The real editor driven over the control channel: a switch replied after 465 ms while a second connection's `ui.inspect` was answered nine times, the slowest in 18 ms. PlumImpress's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (91), and the thread-rule test.
+**Checked.** By the agent: the suite as CI runs it, three times under b3 and once under md5: 1,319 of 1,320 each time, the same one failure, no flake. Longest frame (debug): a switch to a process engine 190 to 244 ms before, 3 to 6 ms after; 2.2 s to 10 ms with an engine that takes 2 s to start. The real editor driven over the control channel: a switch replied after 465 ms while a second connection's `ui.inspect` was answered nine times, the slowest in 18 ms. The research software's sources check unchanged. Rerun by the controller: fmt, clippy, both gate scripts, the core's and FFI's tests (91), and the thread-rule test.
 
 **What fell short.** Two of the brief's five items are not done. Startup still waits for the first catalogue before the window: `with_link` promises it, and thirteen test files read it at once. `resolve` is still called on the UI thread (thumbnails, Watched, compare, pop-outs, `plum_blob`); it blocks only for an HTTP engine. And the rule has an exception the agent chose: an engine compiled in still connects on the UI thread, about 3 ms, to leave two kittests unedited. **One existing test was edited:** `attach_connects_to_a_running_http_engine` now waits for the attach instead of three frames. That is a visible change, small and for the better (the Attach button says "Connecting…" where the window froze), in a stage whose gate was "no user-visible change"; it is written into `docs/control-protocol.md` (`engine.pending`).
 
@@ -551,7 +563,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (`git diff --numstat` and the new files). Moved starting, hosting, connecting, switching and installing engines out of `apps/plumcraft-editor` (+44 −1,121) and `crates/ui` (+103 −355) into `plumcraft-editor-core`: `engines.rs`, `switchboard.rs`, `install.rs`, `headless.rs` (~1,980 lines, mostly moved). New: `Capabilities {subprocess, craft_apps, python}`, which the hosting rules consult, with tests that a platform without subprocesses is offered only in-process engines, a running HTTP engine and attach, every other hosting listed with its reason. `crates/ffi` (+118 −38) starts its engine through the core's `Launcher` and reads `engines.default`, `engines.mode` and `platform` from its config. 8 new tests; no existing test file edited.
 
-**Checked.** By the agent, as CI runs them, under b3 and md5: 1,313 of 1,314, the one failure the same as before. Python 224. A copy of PlumImpress's sources checks against the tree unchanged. Rerun by the controller: fmt, clippy `-D warnings`, both gate scripts, the core's and the FFI's tests (86).
+**Checked.** By the agent, as CI runs them, under b3 and md5: 1,313 of 1,314, the one failure the same as before. Python 224. A copy of the research software's sources checks against the tree unchanged. Rerun by the controller: fmt, clippy `-D warnings`, both gate scripts, the core's and the FFI's tests (86).
 
 **What fell short, and what was wrong.** The controller's brief asked again for windowless use without egui; the commands are now a core module that links none, but `plumcraft-editor` is one executable with the window, so the brief's aim was not reachable by moving code. The brief's "in-process and HTTP hostings" was loose: an HTTP engine the editor starts is a subprocess too, and the agent read it that way. `engine.*` commands sent over the C ABI are recorded and not performed. The core now carries the array engine's image and PDF decoders into every build, the phone's included.
 
@@ -563,7 +575,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the AI did** (the agent's `git diff --numstat` plus the new files). `crates/editor-core` (~4,040 lines, about 3,300 of them moved from `crates/ui` with only type renames; `crates/ui/src` −3,303 +384): preferences, appearance, the run animation, the YAML formatter, theme tokens as data, the probe and difference maths, wire-path geometry, the palette's index, the run's text formatters and `Link`, which wakes a `Waker` (a closure) instead of an egui context. Plain `Color`, `Point` and `Rect` in the core, converted in `crates/ui/src/plain.rs` (114). `plumcraft-ui` re-exports the old paths. `plumcraft-ffi` dropped its own pump for the core's (+29 −37). `scripts/check-core-toolkit-free.sh` and one step in CI's Linux `gate` job. 9 new tests; 63 moved with their code; no existing test file edited.
 
-**Checked.** By the agent, as CI runs them, before and after, under b3 and md5: 1,296 of 1,297, then 1,305 of 1,306, the one failure in all four `hidden_params_match_the_baseline` (the craft apps installed on this Mac), so that failure is on the untouched tree too. Python 224 passed. A copy of PlumImpress's sources checks against this tree with no change. Rerun by the controller: fmt, clippy `-D warnings`, the new gate, the core's 67 tests.
+**Checked.** By the agent, as CI runs them, before and after, under b3 and md5: 1,296 of 1,297, then 1,305 of 1,306, the one failure in all four `hidden_params_match_the_baseline` (the craft apps installed on this Mac), so that failure is on the untouched tree too. Python 224 passed. A copy of the research software's sources checks against this tree with no change. Rerun by the controller: fmt, clippy `-D warnings`, the new gate, the core's 67 tests.
 
 **What fell short.** The slice was to stop windowless use from building egui. It doesn't: `headless.rs` uses the core's pump now, but it and `Launcher` live in the windowed `plumcraft-editor` crate, so `plumcraft-editor run`, `check`, `tidy` and `nodes` still link egui. The controller's plan had it as a small change to one file; it is a slice of its own. The ui's token table is now written twice (it must hand out `&mut Color32`), held together by a parity test.
 
@@ -594,7 +606,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **What the maintainer asked:** "Go for 1,2,3": #94 and #95 merged (the maintainer's `--admin`, past the known editor-kittest failures of #89), then 0.7.0 and the SDK 0.2.0, layer 1 of plum's hash-facade plan.
 
-**What the AI did:** bumped the workspace and its pinned crates from 0.6.1 to 0.7.0 (`Cargo.toml`, `crates/array`, `crates/engine`, `Cargo.lock`), the Python text twin's `__version__` and its golden schema salt to 0.7.0, and the SDK (`python/pyproject.toml`, `uv.lock`) from 0.1.2 to 0.2.0 (it already needs `pyuncommonkit>=0.2.0`). `plumcraft-engine new` now writes `plumcraft-engine>=0.2,<0.3` (`new.py`, its tests and three goldens), and the CHANGELOG names the break for engines made before. Gate on the Mac, isolated from the real stores by plum's environment builder under `HASH=md5`: 1,286 Rust tests and 224 Python tests passed, clippy `-D warnings`, `cargo fmt --check` and ruff clean. ~60 lines changed, all versions and text. Crates and SDK only, as 0.6.0: no installers, which build on yellowfin and its Windows VM.
+**What the AI did:** bumped the workspace and its pinned crates from 0.6.1 to 0.7.0 (`Cargo.toml`, `crates/array`, `crates/engine`, `Cargo.lock`), the Python text twin's `__version__` and its golden schema salt to 0.7.0, and the SDK (`python/pyproject.toml`, `uv.lock`) from 0.1.2 to 0.2.0 (it already needs `pyuncommonkit>=0.2.0`). `plumcraft-engine new` now writes `plumcraft-engine>=0.2,<0.3` (`new.py`, its tests and three goldens), and the CHANGELOG names the break for engines made before. Gate on the Mac, isolated from the real stores by plum's environment builder under `HASH=md5`: 1,286 Rust tests and 224 Python tests passed, clippy `-D warnings`, `cargo fmt --check` and ruff clean. ~60 lines changed, all versions and text. Crates and SDK only, as 0.6.0: no installers, which build on the Linux test host and its Windows VM.
 
 ### 2026-11-12 — One hash algorithm per process, through commonkit's hash facade (#91, #92, #93) (Claude Opus 5.5)
 
@@ -624,7 +636,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-12 — #86: an engine's status line, in two-line status cells (Claude Opus 5.5)
 
-**What the maintainer decided:** for plumimpress #23 ("can't tell which GPU is in use"; "status bar. I think it shows in the iOS app"), an engine's status as a fixed segment after the engine label, width-capped with the full text on hover, filed as #86, with the note "Status window is very over crowded. Consider starting to stack some cells vertically or use sub/super scripts". Of three layouts the AI sketched (two rows, two-line cells, one shorter row), the maintainer chose "D17 B", two-line cells, then "go GPU".
+**What the maintainer decided:** for the research software's issue #23 ("can't tell which GPU is in use"; "status bar. I think it shows in the iOS app"), an engine's status as a fixed segment after the engine label, width-capped with the full text on hover, filed as #86, with the note "Status window is very over crowded. Consider starting to stack some cells vertically or use sub/super scripts". Of three layouts the AI sketched (two rows, two-line cells, one shorter row), the maintainer chose "D17 B", two-line cells, then "go GPU".
 
 **What the AI did:**
 
@@ -635,7 +647,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects, caught before any commit:** two in the new tests, both by running them: a helper named `app` shadowed by a variable of the same name, and the layout test looked up the document by its bare name, while a graph with unsaved changes shows `Untitled •`. A first query for the run's time matched any label containing " s"; it now matches only a number followed by " s" (kittest gives a label's text as its `value` here).
 
-**Not checked:** the standalone PlumCraft editor was not run; the layout was seen only in PlumImpress's kittest window (wgpu-rendered, 900 and 1400 points), where the document name is drawn in the light theme's text colour on the dark panel, nearly invisible. That was so before this change (the same `tokens.text` label).
+**Not checked:** the standalone PlumCraft editor was not run; the layout was seen only in the research software's kittest window (wgpu-rendered, 900 and 1400 points), where the document name is drawn in the light theme's text colour on the dark panel, nearly invisible. That was so before this change (the same `tokens.text` label).
 
 **Lines** (measured, `git diff --numstat` plus the two new files): ~140 in `crates/ui/src` (81 added, 21 removed in `lib.rs`; 60 in `status_cell.rs`), ~40 in proto and session, ~175 test, ~15 in updated tests, ~5 docs.
 
@@ -823,7 +835,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 - **The version:** found that 0.6.0 had gone out (crates only) since the last release it made, and that only #66 had landed after it, with no public API change. So a patch: 0.6.1.
 - **The bump:** the workspace and the Python text twin to 0.6.1; CHANGELOG, STATUS.
-- **The release:** the gate, a release PR, `cargo publish --workspace` from `main`, then `packaging/release.sh --upload --publish`. That run is its own gate. It builds and notarizes two DMGs, builds Linux on yellowfin and Windows on `win11-dev`, tags `plumcraft-v0.6.1`, and publishes the release as Latest.
+- **The release:** the gate, a release PR, `cargo publish --workspace` from `main`, then `packaging/release.sh --upload --publish`. That run is its own gate. It builds and notarizes two DMGs, builds Linux on the Linux test host and Windows on `win11-dev`, tags `plumcraft-v0.6.1`, and publishes the release as Latest.
 
 ### 2026-11-10 — The wire menu labels every use of an output, not one wire (Claude Opus 5.5)
 
@@ -835,7 +847,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-08 — Release 0.6.0, crates only (Claude Opus 5.5)
 
-**What the maintainer asked:** "go for 1,2,3", the second step being PlumCraft's command forms merged and released to crates.io, so PlumImpress's Publish Style dialog builds from its pinned crates.
+**What the maintainer asked:** "go for 1,2,3", the second step being PlumCraft's command forms merged and released to crates.io, so the research software's Publish Style dialog builds from its pinned crates.
 
 **What the AI did:**
 
@@ -846,7 +858,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-08 — Command forms (Claude Opus 5.5)
 
-**What the maintainer asked for:** "Add the dialog", for PlumImpress's File › Publish Style to virtimp.com, whose id, name, description, site and token a menu can't work out. PlumImpress's rule puts what any application could use here, so the dialog is a generic seam rather than PlumImpress's own window.
+**What the maintainer asked for:** "Add the dialog", for the research software's File › Publish Style to virtimp.com, whose id, name, description, site and token a menu can't work out. The research software's rule puts what any application could use here, so the dialog is a generic seam rather than the research software's own window.
 
 **What the AI did:**
 
@@ -857,15 +869,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects in AI-written code, caught by the tests and the compiler:** `CommandForm` first derived `PartialEq` over its prefill function pointer (a compiler warning; dropped). The first UI test shared a record of calls across tests running in parallel, and matched a refusal's text exactly where the session prefixes it ("bad parameters: …") and the status bar shows it too; the tests now check their own calls and the window's error.
 
-**Checked:** the new tests, and the whole suite with clippy and fmt (below). PlumImpress's form, drawn offscreen through this checkout, was looked at.
+**Checked:** the new tests, and the whole suite with clippy and fmt (below). The research software's form, drawn offscreen through this checkout, was looked at.
 
 ### 2026-11-07 — B19 recorded: a popout should stay on top (Claude Opus 5.5)
 
-The maintainer reported, from a PlumImpress session, "bug: popout shoud stay on top while main window is being edited". Recorded as B19 in `docs/BUGS.md` with the report verbatim and the popout code's location (`crates/ui/src/popouts.rs`). Nothing was investigated or fixed, and no issue was filed.
+The maintainer reported, from a session of the research software, "bug: popout shoud stay on top while main window is being edited". Recorded as B19 in `docs/BUGS.md` with the report verbatim and the popout code's location (`crates/ui/src/popouts.rs`). Nothing was investigated or fixed, and no issue was filed.
 
 ### 2026-11-06 — The array engine's Simplex and Stretch follow yapocis's device kernels (Claude Opus 5.5)
 
-PlumImpress is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with yapocis's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in Yapocis3 (`29f8403`), and the ports here follow it.
+The research software is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with yapocis's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in Yapocis3 (`29f8403`), and the ports here follow it.
 
 - **Simplex Noise ("Option 1"):** `hash_int` now wraps in 32 bits, as the device kernels' `int` does. In numba's 64-bit ints it picked a different gradient at about half the lattice points, so the noise only correlated 0.5–0.7 with Impressionist's. The node's non-square layout was already the kernels' (row/rows, column/columns), and the numba port now has it too.
 - **Stretch ("Clamp is the right answer"):** `kernels::stretch` now clamps each value to the input range before mapping it onto low..high, in float32 in the kernel's order. It used to map in float64 without clamping, so manual and percentile ranges let values out of low..high.
@@ -880,7 +892,7 @@ The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/ref
 
 **What the AI did:**
 
-- **Installers:** started the shut-off `win11-dev` VM on yellowfin, and ran `release.sh` with the notary profile from the tagged commit, without `--upload`. Its gate passed: 1,197 Rust and 218 Python tests. Then it published the six images and checksums with `gh release create` on the existing tag, as Latest, and shut the VM off.
+- **Installers:** started the shut-off `win11-dev` VM on the Linux test host, and ran `release.sh` with the notary profile from the tagged commit, without `--upload`. Its gate passed: 1,197 Rust and 218 Python tests. Then it published the six images and checksums with `gh release create` on the existing tag, as Latest, and shut the VM off.
 - **`packaging/release.sh`** (~20 lines): `--upload` reuses an existing tag when only docs, `packaging/` or `.github/` changed since it, and uploads to its release.
 - **`ci.yml`:** changes to `packaging/` alone skip CI.
 
@@ -1033,7 +1045,7 @@ The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/ref
 
 ### 2026-11-06 — Status bar messages: chips by severity, cut-off marker, the Messages window (Claude Opus 5.5)
 
-**What the maintainer asked:** looking at PlumPipe's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)". Then "CPM".
+**What the maintainer asked:** looking at a private batch app's window: "The status line is just too small. Make it clickable to show full text, and add annotation to show when there is text not shown. Also, red text is inappropriate. Go for a background that varies by severity (with default text color)". Then "CPM".
 
 **What the AI did:**
 
@@ -1048,7 +1060,7 @@ The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/ref
 **Defects in AI-written code, caught by tests and by looking:**
 
 - **The window shut at once.** The first wiring of the window as a command never stayed open, because running any command cleared `last_error`, the very message it was opened to show. Caught by the kittest.
-- **Errors hidden behind information.** In PlumPipe's window, an error was hidden behind "more…" while an information chip took the room. Caught by looking at the screenshot, and fixed by ordering the messages by severity.
+- **Errors hidden behind information.** In a private batch app's window, an error was hidden behind "more…" while an information chip took the room. Caught by looking at the screenshot, and fixed by ordering the messages by severity.
 - **Wrong check in a test.** A test meant to check that a long message was cut off checked the accessibility label. That label carries the full text, so the check couldn't work, and it was replaced.
 
 ### 2026-11-06 — Release 0.3.1, crates only (Claude Opus 5.5)
@@ -1228,7 +1240,7 @@ The AI's first diagnosis, "too short a 5 s wait", is recorded as wrong in `docs/
 
 - **The kernel:** the Mandelbrot kernel (`crates/array/src/generate/noise.rs`) now calls `npexact::complex::Mul::array_default()` and `mul_c64`. They replace the local `numpy_complex_fma()` that B5's fix had added (29 lines removed, 4 added). The two compute the same arithmetic.
 - **npexact found more than the issue asked for:** numpy scalars, which go through compiled C, are not fused on x86-64. npexact's `Mul::scalar_default()` covers that; the kernel only needs the array rule.
-- **Checked:** the golden test (`mandelbrot_matches_numba`) passes on the M4 Max and on yellowfin. The full gate passes locally.
+- **Checked:** the golden test (`mandelbrot_matches_numba`) passes on the M4 Max and on the Linux test host. The full gate passes locally.
 - **Records:** `docs/BUGS.md` moves B6 to Fixed and adds B11 (#33), and `docs/STATUS.md` notes the change.
 
 ### 2026-11-05 — "Impression", not "painting" (Claude Opus 5.5)
@@ -1301,19 +1313,19 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 
 ### 2026-11-05 — The first Linux CI run's failures: Mandelbrot on x86-64, generic fonts, and a full runner disk (Claude Opus 5.5)
 
-**What the maintainer asked:** after the first `--no-fail-fast` run failed 15 Rust tests and 1 Python test, "Go for 2,3-5": Mesa for the rendering tests, then record and fix the rest. Before that: "Record mandelbrot test data on yellowfin", and for the fix, "In PlumCraft, but remember as bug for future fix in npexact".
+**What the maintainer asked:** after the first `--no-fail-fast` run failed 15 Rust tests and 1 Python test, "Go for 2,3-5": Mesa for the rendering tests, then record and fix the rest. Before that: "Record mandelbrot test data on [the Linux test host]", and for the fix, "In PlumCraft, but remember as bug for future fix in npexact".
 
-**What the AI did:** each failure was reproduced on yellowfin (x86-64 Ubuntu) from a scratch copy, so the cause was known before anything changed.
+**What the AI did:** each failure was reproduced on the Linux test host (x86-64 Ubuntu) from a scratch copy, so the cause was known before anything changed.
 
-- **Mandelbrot on x86-64 (B5, #27; `crates/array/src/generate/noise.rs`, ~27 LOC):** the kernel fused its complex multiply only on aarch64, by borrowing `npexact::random::Contraction::host_default()`. That rule is decided at compile time and fits numpy.random's compiled C. numpy's complex64 multiply is a SIMD loop picked at run time, and it fuses on x86-64 too when the CPU has FMA3 and AVX2: a probe of 200,000 products matched the fused model 100% of the time on both machines, against 71% for the unfused one. The new `numpy_complex_fma()` follows numpy. The test passes on the Mac and on yellowfin. The rule belongs in npexact (B6).
+- **Mandelbrot on x86-64 (B5, #27; `crates/array/src/generate/noise.rs`, ~27 LOC):** the kernel fused its complex multiply only on aarch64, by borrowing `npexact::random::Contraction::host_default()`. That rule is decided at compile time and fits numpy.random's compiled C. numpy's complex64 multiply is a SIMD loop picked at run time, and it fuses on x86-64 too when the CPU has FMA3 and AVX2: a probe of 200,000 products matched the fused model 100% of the time on both machines, against 71% for the unfused one. The new `numpy_complex_fma()` follows numpy. The test passes on the Mac and on the Linux test host. The rule belongs in npexact (B6).
 - **SVG generic fonts (B8; `crates/svg/src/lib.rs`, ~63 LOC):** fontdb takes the generic families from fontconfig on Linux, but nothing checks that the family it names is installed. `installed_generics` points any generic family naming a missing family at an installed one. A new test recreates the runner's case, every generic naming a missing family.
-- **A full runner disk (B7, B9):** the three editor audio tests that time out and the Python `test_large_json_crosses_as_a_blob` have one cause. commonkit's store declines to publish with under 8 GB free, and after the workspace's build the runner has less. A fresh store root with `COMMONKIT_STORE_MIN_FREE_GB=100000` reproduced all four failures on yellowfin; a missing sound card (`ALSA_CARD=NoSuchCard`) and 4 CPUs did not. CI now sets the floor to 2 GB.
+- **A full runner disk (B7, B9):** the three editor audio tests that time out and the Python `test_large_json_crosses_as_a_blob` have one cause. commonkit's store declines to publish with under 8 GB free, and after the workspace's build the runner has less. A fresh store root with `COMMONKIT_STORE_MIN_FREE_GB=100000` reproduced all four failures on the Linux test host; a missing sound card (`ALSA_CARD=NoSuchCard`) and 4 CPUs did not. CI now sets the floor to 2 GB.
 - **No GPU (10 rendering kittests):** CI installs Mesa's software Vulkan (lavapipe).
 
 **Defects in AI-written work:**
 
-- **The first diagnosis of B5 was wrong.** The AI wrote, in `docs/BUGS.md` and in issue #27, that the golden was arm64-only and that x86-64 needed its own. The yellowfin recording the maintainer asked for disproved this, since the goldens were identical. The issue was retitled and given a correction comment, and the entry rewritten.
-- **The B8 fix is a likely cause, not a reproduced one.** yellowfin's fontconfig names an installed family, so the runner's case was only recreated in a test. The test's failure message now names the resolved family, in case the next CI run disagrees.
+- **The first diagnosis of B5 was wrong.** The AI wrote, in `docs/BUGS.md` and in issue #27, that the golden was arm64-only and that x86-64 needed its own. The recording on the Linux test host the maintainer asked for disproved this, since the goldens were identical. The issue was retitled and given a correction comment, and the entry rewritten.
+- **The B8 fix is a likely cause, not a reproduced one.** the Linux test host's fontconfig names an installed family, so the runner's case was only recreated in a test. The test's failure message now names the resolved family, in case the next CI run disagrees.
 
 **Not yet run:** the full gate, and CI on these changes.
 
@@ -1336,7 +1348,7 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 
 ### 2026-11-04 — Release 0.2.2, and the Python SDK 0.1.2 (Claude Opus 5.5)
 
-**What the maintainer asked:** "prepare the crates.io and PyPI releases", then "CPM, publish crates and PyPI, then the installers". The point is to get the Windows binding to the engines that can't take it from a checkout: PlumImpress (crates `=0.2.1`), and engines generated outside a checkout (PyPI's SDK 0.1.1).
+**What the maintainer asked:** "prepare the crates.io and PyPI releases", then "CPM, publish crates and PyPI, then the installers". The point is to get the Windows binding to the engines that can't take it from a checkout: the research software (crates `=0.2.1`), and engines generated outside a checkout (PyPI's SDK 0.1.1).
 
 **What the AI did:**
 
@@ -1360,7 +1372,7 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
   - the installed CLI ran the demo compiled in, as a process over loopback TCP, and over HTTP;
   - the installed editor opened on the RDP desktop with no console;
   - the silent uninstall left nothing, and PATH was otherwise unchanged;
-  - `release.sh --skip-gate --windows-host win11-dev --windows-jump yellowfin.lan` made the DMG, the setup program, the zip and `SHA256SUMS`, run in a scratch clone with a throwaway commit, since the script refuses a dirty tree.
+  - `release.sh --skip-gate --windows-host win11-dev --windows-jump $LINUX_HOST` made the DMG, the setup program, the zip and `SHA256SUMS`, run in a scratch clone with a throwaway commit, since the script refuses a dirty tree.
 - **Engines from the desktop.** The maintainer's report traced to `manifest_folder()` reading only `HOME`. Windows doesn't set `HOME` for a desktop program, though SSH sessions have it, which is why the model's own runs never saw it. Eight places read `HOME` directly; they now use `plumcraft_proto::programs::home` and `expand_home`, which fall back to `USERPROFILE`, and the Python SDK's `files._expand` matches.
 - **Old SDKs named.** The OpenCV engine pinned the SDK to PlumCraft `3995cb7`, from before the port. The host now recognises the `AF_UNIX` `AttributeError` in an engine's stderr, and the banner says to reinstall it or update its pin (`known_cause`, with a test). The three public engines were re-pinned to `81dd28f` in their own repos. A fresh install from GitHub on `win11-dev` then got the new SDK.
 
@@ -1376,7 +1388,7 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 
 ### 2026-11-04 — PlumCraft on Windows (Claude Opus 5.5)
 
-**What the maintainer asked:** "You can build plumcraft on Windows. See yellowfin ~/sysadmin/docs/windows-dev-vm-runbook.md". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."
+**What the maintainer asked:** "You can build plumcraft on Windows. See [the Linux test host] ~/sysadmin/docs/windows-dev-vm-runbook.md". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."
 
 **What the AI did** (~830 lines added and ~160 removed, over 40 files, plus `.gitattributes`):
 
@@ -1474,7 +1486,7 @@ The maintainer: "CPM, publish to crates.io", then "0.2.0 for all", then "CPM, sw
   - Show the slot "at the end of the text"; "we need to capture the value/parameters for the graph, not just the slot".
 
   These became `docs/research/21-document-choices.md`, which is a design only.
-- **A model clean-up, in another part of the stack:** "Look through the models in /Volumes/DotCache …", then the removals the maintainer named. The report is `claude-debug/dotcache-models.md`.
+- **A model clean-up, in another part of the stack:** "Look through the models in /Volumes/[a cache volume] …", then the removals the maintainer named. The report is `claude-debug/dotcache-models.md`.
 
 **What the AI did.** Four worktree agents did items 1–4. The coordinating session merged them by hand and did the rest.
 
@@ -1626,11 +1638,11 @@ The maintainer said "Publish npexact", and the AI published 0.1.1 from yapocis-r
 
 The maintainer asked first to "assess the gap between npexact and all of numpy". That assessment is `claude-debug/npexact-numpy-gap.md`. Then they asked: "Move the hand-ported behaviours into npexact, record fixtures on Linux and test."
 
-**What the AI did.** `plumcraft-array` had copied 15 families of numpy behaviour into its own code. They now live in npexact (yapocis-rs PR #8), held to fixtures numpy recorded on the M4 Max and on yellowfin's Xeon (Yapocis3 PR #72). The engine calls them through its existing function names, so its nodes and tests didn't change. The PlumCraft side is a net deletion: ~60 LOC added and ~180 removed across `math/kernels.rs`, `filters/kernels.rs`, `filters/trace.rs`, `generate/{fft,noise,regions}.rs` and `colour/mod.rs`. `Cargo.toml` patches `npexact` to the merged yapocis-rs commit until the next release is on crates.io. Notes: `claude-debug/npexact-ports-linux.md`.
+**What the AI did.** `plumcraft-array` had copied 15 families of numpy behaviour into its own code. They now live in npexact (yapocis-rs PR #8), held to fixtures numpy recorded on the M4 Max and on the Linux test host's Xeon (Yapocis3 PR #72). The engine calls them through its existing function names, so its nodes and tests didn't change. The PlumCraft side is a net deletion: ~60 LOC added and ~180 removed across `math/kernels.rs`, `filters/kernels.rs`, `filters/trace.rs`, `generate/{fft,noise,regions}.rs` and `colour/mod.rs`. `Cargo.toml` patches `npexact` to the merged yapocis-rs commit until the next release is on crates.io. Notes: `claude-debug/npexact-ports-linux.md`.
 
 **Defect in AI-written PlumCraft code, caught by the new fixtures:** `clip(v, 0, None)` returned `-0` for `-0`, but numpy gives `+0`. The move fixes it. The x86 fixtures also caught two npexact bugs, `quantile` and `sin`/`cos` on x86-64, which yapocis-rs's `AI.md` records.
 
-**Investigated, not caused by this work:** on yellowfin, `mandelbrot_matches_numba` fails at 9 points. Unmodified code fails the same way: the references come from the Mac's numba, which fuses the complex multiply, and x86 doesn't. The test was left alone.
+**Investigated, not caused by this work:** on the Linux test host, `mandelbrot_matches_numba` fails at 9 points. Unmodified code fails the same way: the references come from the Mac's numba, which fuses the complex multiply, and x86 doesn't. The test was left alone.
 
 **Left in PlumCraft:**
 
@@ -1643,7 +1655,7 @@ The maintainer asked first to "assess the gap between npexact and all of numpy".
 - clippy with `-D warnings` and fmt: clean.
 - pytest: 208 passed. ruff: clean.
 
-Those runs used the local path patch. After the patch moved to the git `rev`, `plumcraft-array`'s 52 tests were run again and passed. On yellowfin, `plumcraft-array` had 51 passed and 1 failed (the Mandelbrot test above).
+Those runs used the local path patch. After the patch moved to the git `rev`, `plumcraft-array`'s 52 tests were run again and passed. On the Linux test host, `plumcraft-array` had 51 passed and 1 failed (the Mandelbrot test above).
 
 ### 2026-11-03 — Engine › Install Engine…, and the public engines in the README (Claude Opus 5.5)
 
@@ -1837,7 +1849,7 @@ Gate on the final tree: Rust 1,037 passed, 0 failed, 3 ignored; Python 208 passe
 - **The audit missed private recipes.** Each of the seven rendered plums in `plums/` held its full style recipe in a JPEG comment. The audit for a public repository had searched text and called the images clean of concern. Found when a case-insensitive search of source and config listed the JPEGs as binary matches. The comments are gone, and each image decodes to the same pixels (compared by hash).
 - **The rename wrote "an research-shaped"** in `cli.py`, caught by a grep. A candidate path in a craft test became nonsense, caught the same way, and was removed.
 
-**Checks:** Rust 1,030 passed, 3 ignored; Python 207 passed; clippy, fmt and ruff clean; `plumimpress` type-checks.
+**Checks:** Rust 1,030 passed, 3 ignored; Python 207 passed; clippy, fmt and ruff clean; the research software type-checks.
 
 ### 2026-11-01 — Ready for a public repository: a shorter README, private material out, dual licence, and the security review's fixes (Claude Opus 5.5)
 

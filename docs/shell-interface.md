@@ -111,7 +111,7 @@ These are plan section 3's rules, made normative.
 
 | Field | Meaning |
 |---|---|
-| `app` | The application's identity: the window title's name (today `EditorApp::app_title`, `crates/ui/src/lib.rs:499`), About, the prefs file's name, log lines. An application of the editor (PlumImpress) gives its own |
+| `app` | The application's identity: the window title's name (today `EditorApp::app_title`, `crates/ui/src/lib.rs:499`), About, the prefs file's name, log lines. An application of the editor (the research software) gives its own |
 | `dirs.documents` | Where documents live by default; a file ask starts here when no folder was remembered |
 | `dirs.caches` | Copies for opening in apps (today `~/Library/Caches/plumcraft/open`), decoded rasters spilled to disk |
 | `dirs.store` | The commonkit store root (`COMMONKIT_STORE_ROOT`). MUST be given on iOS, where the default is `/dev/shm` (plan 2.2) |
@@ -156,7 +156,7 @@ Unknown fields are ignored. A path outside `dirs` is never written by the core e
 | `pointer` | No hover: section 8.10 lists what hover does today and what replaces it |
 | `keyboard` | Shortcuts are still in the menu model; the shell may not show them |
 | `hover` | As `pointer`, for a stylus or trackpad that hovers without a pointer |
-| `pencil` | Reserved for PlumImpress's mask painter (plan 5.5) |
+| `pencil` | Reserved for the research software's mask painter (plan 5.5) |
 | `max_picture_px` | Sent to engines as a hint (a run's `limits`), and caps `px` (section 10.4). Replaces the spike's 1280 px cap |
 | `share` | The shell has no share sheet: `graph.share` (File › Share…, the toolbar's Share) and `value.share` (a pop-out's Share) are disabled with the core's reason "Sharing isn't available in this editor", in `menu.get`, `command.list` and the toolbar, and refused with it when run or invoked (`… is not available: …`); no `share` ask is raised. **Unlike the others it is true when unsaid** (built 2026-11-21) |
 
@@ -1239,7 +1239,7 @@ Each with the answer recommended.
 
 1. **`ui.invoke` and blocking dialogs.** Today `ui.invoke graph.open` replies only when the native dialog closes (`docs/control-protocol.md`). With asks it can reply at once with the ask in `asks`, or wait until the ask is answered. *Recommended:* reply at once, with the ask; a script answers it with `ask.answer`. Under egui today a script could not answer the dialog anyway, so nothing a script relies on is lost.
 2. **New canvas commands and `command.list`.** N1's gate is byte-for-byte replies; adding `selection.*`, `canvas.*`, `net.select`, `viewer.size` changes `command.list`. *Recommended:* register them in N2, behind `commands.canvas`, and update the probes' expectations then.
-3. **Hooks have no document.** `Hooks` are `fn()` (`commands.rs:42-59`); with two documents an application's overlays can't tell them apart. *Recommended:* N1 adds a `DocId` argument; PlumImpress's hooks are changed with it.
+3. **Hooks have no document.** `Hooks` are `fn()` (`commands.rs:42-59`); with two documents an application's overlays can't tell them apart. *Recommended:* N1 adds a `DocId` argument; the research software's hooks are changed with it.
 4. **Transient shell state in `ui.inspect`.** `canvas.editing`, `popups.anyPopup`, the rename window and the palette are UI state today. *Recommended:* the palette becomes core state (its index and search are logic, plan 4.1); rename is a `text` ask; `editing` and `anyPopup` come from `ui.report`. *The palette is core state since N3 slice 1* (12.7); the rest is not built.
 5. **Viewer-local state.** Grid format, table sort, text wrap and find, PDF page and array log scale are egui-local and not commands (13.2). *Recommended:* make each a command so scripts and every shell share them; keep only per-frame state (mesh camera during a drag, pan) shell-local.
 6. **Audio on mobile.** *Recommended:* the core keeps cpal (it supports CoreAudio on iOS and AAudio on Android); the shell owns the audio session category, interruptions and focus, and tells the core to stop on an interruption.

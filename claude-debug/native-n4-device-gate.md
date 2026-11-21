@@ -170,7 +170,7 @@ These are fixed in the tracked `native/apple/PlumCraftPad/bench.sh`:
 
 ## Store, preferences, processes, simulators
 
-- **The real store.** Every stage sourced `claude-debug/native-n4/s6-env.sh`, which refuses an unset store or one under `/Volumes/CommonkitStore`; the s7 scripts and the Python probes check again themselves. The before and after listings (`s7-store-before.txt`, `s7-store-after.txt`) are identical, and nothing in the store was modified today in either.
+- **The real store.** Every stage sourced `claude-debug/native-n4/s6-env.sh`, which refuses an unset store or one under `/Volumes/<store>`; the s7 scripts and the Python probes check again themselves. The before and after listings (`s7-store-before.txt`, `s7-store-after.txt`) are identical, and nothing in the store was modified today in either.
 - **Preferences.** `prefs.json`, `trusted.json` and `com.plumcraft.mac.plist` have the same checksums before and after.
 - **Writes outside scratch:**
   - the source tree and its `target/`;

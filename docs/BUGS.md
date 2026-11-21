@@ -41,6 +41,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-21
 - Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
 - Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Seen again: 2026-11-21, in the gate for the private-strings branch and then in 6 of 6 runs of the file alone, with the host's load average near 19. The assertion, at `tests/test_persist.py:100`: `assert twice(r, {"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 8_000_000}}) == ("done", 2), "too big"` got `('cached', 1)`: a result meant to be too big to persist was persisted and came back cached. So it is not a timing miss in the test's own waits; whatever decides "too big" gives a different answer while the host is busy. Not looked into further.
 - Issue: none
 
 ### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
@@ -84,7 +85,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 ### B45. In the egui editor, hiding a row from a node's face shifts the rows, and an edit on the face changes the wrong port
 
 - Reported: 2026-11-21
-- Report: found by the egui audit the maintainer asked for ("Do the egui audit on yellowfin"); recorded under the standing "record bugs"
+- Report: found by the egui audit the maintainer asked for ("Do the egui audit on [the Linux test host]"); recorded under the standing "record bugs"
 - Context: the dev branch at `057ed2d`, on the Linux test host through the kittest harness. Add "Every widget", then `node.face {port: "count", shown: false}`: the labels, fields and pins no longer line up, and dragging the field beside "amount" changed `count` from 3 to 4. The same with Replace's `find` hidden. Graphs saved by the Apple apps can carry this state (Show on Face). Steps and pictures: `claude-debug/egui-audit.md`, defect D1. The audit's other findings in egui (D3 to D8: the palette not offering kinds of engines not started, viewers not following the core's viewer state, no rows reported to the core, no Match the System, double clicks not following the core's rule, a repeated word in the rename window's title) are gaps listed there, not recorded here one by one.
 - Cause: egui built each face's rows from `input_rows` less the fields its choice tucks away, while the core's scene (which egui draws labels and pins from) also leaves out the rows `node.face` hides (`rows::shown_rows`). With a row hidden, egui's pin `i` took the scene's row `i` for its label and the catalogue's row `i` for its field, so every row after the hidden one was off by one.
 - Fixed: 2026-11-21, branch `native/egui-parity`: egui builds its rows with `shown_rows` (`crates/ui/src/canvas.rs`), so pin `i` is the scene's row `i`; a row whose key isn't the scene's for that pin draws no field (no edit by another port's label). Verified by `crates/ui/tests/kittest_face_rows.rs`: a drag beside "amount" with `count` hidden on Every widget changes `amount` and not `count`; a check box beside "flag" changes `flag`; typing beside "with" with `find` hidden on Replace changes `with` and not `find`; wires into rows before and after the hidden one land on their ports; a graph opened with two rows hidden draws and edits right; and Show on Face in egui's parameters window hides and shows a row. Each failed before the fix (the rows check) and passes after. Pictures: `claude-debug/egui-parity/shots/{before,after}/b45-*.png`.
@@ -346,7 +347,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 - Reported: 2026-11-07
 - Report: "popout shoud stay on top while main window is being edited"
-- Context: reported from a PlumImpress session (PlumImpress runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
+- Context: reported from a session of the research software (the research software runs PlumCraft's editor); popouts are `crates/ui/src/popouts.rs`. Clicking into the main window to edit puts it in front of the popout.
 - Issue: none
 - Cause: pop-outs were ordinary windows (`WindowLevel::Normal`), so a click into the main window ordered it in front of them. Reproduced in the real editor (`claude-debug/b19_popout_on_top_probe.py`): after raising and clicking the main window, it was listed in front of the pop-out.
 - Fix: while one of the editor's windows (the main one or a pop-out) has focus, every pop-out is `AlwaysOnTop`; when another application takes the focus they go back to `Normal`, so they don't float over other programs (`crates/ui/src/popouts.rs`). `ui.inspect` gives each pop-out's `on_top`. The probe: the pop-out stays in front (the floating level, layer 3) after the main window is clicked, drops to layer 0 with Finder in front, and floats again when the editor returns.
@@ -381,7 +382,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 - Reported: 2026-11-06
 - Report: "ports should hover reveal the available value even if no wire is connected, click should watch the port value"
-- Context: the node canvas (`crates/ui/src/canvas.rs`), seen while working in PlumPipe's window on PlumCraft 0.4.0. Today a node's output is watched by clicking the node's title, which watches its default output (`run.watch {node, port?}`).
+- Context: the node canvas (`crates/ui/src/canvas.rs`), seen while working in a private batch app's window on PlumCraft 0.4.0. Today a node's output is watched by clicking the node's title, which watches its default output (`run.watch {node, port?}`).
 - Issue: #49
 - Fixed: 2026-11-06, PR #52
 
@@ -427,7 +428,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
 - Issue: seantrue/yapocis-rs#10
 - Fixed in npexact: 2026-11-05, seantrue/yapocis-rs#11 (`5a51589`), with the recorder in seantrue/yapocis3#74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
-- Fixed in PlumCraft: 2026-11-05, branch `fix/b6-npexact-complex`. The Mandelbrot kernel calls `npexact::complex::Mul::array_default()` and `mul_c64` (npexact 0.1.2) in place of its own `numpy_complex_fma()`; the golden test passes on the M4 Max and on yellowfin.
+- Fixed in PlumCraft: 2026-11-05, branch `fix/b6-npexact-complex`. The Mandelbrot kernel calls `npexact::complex::Mul::array_default()` and `mul_c64` (npexact 0.1.2) in place of its own `numpy_complex_fma()`; the golden test passes on the M4 Max and on the Linux test host.
 
 ### B4. No built-in viewer for XML files
 
@@ -451,9 +452,9 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-05
 - Report: "fix test data" (on the first Linux CI run failing `mandelbrot_matches_numba`)
 - Context: CI run https://github.com/seantrue/plumcraft/actions/runs/42081191424 (PR #25, ubuntu-latest, x86_64): `crates/array/tests/generate.rs:85`, "mandelbrot 33×21: 9 of 693 pixels differ, max error 9.5e-1"; the 40×30 case matched. Cargo stopped at this test binary, so the rest of the Rust tests and the Python tests didn't run.
-- First diagnosis, wrong: that the golden was arm64-only and x86-64 needed its own. On the maintainer's "Record mandelbrot test data on yellowfin", the golden recorded on yellowfin (x86-64, same numpy 2.5.3 and numba 0.68.0, identical numba kernel) matched the committed arm64 one in every pixel of all three cases (`claude-debug/mandelbrot_golden_host.py`).
+- First diagnosis, wrong: that the golden was arm64-only and x86-64 needed its own. On the maintainer's "Record mandelbrot test data on [the Linux test host]", the golden recorded on the Linux test host (x86-64, same numpy 2.5.3 and numba 0.68.0, identical numba kernel) matched the committed arm64 one in every pixel of all three cases (`claude-debug/mandelbrot_golden_host.py`).
 - Cause: numpy's complex64 multiply fuses its multiply-adds on any CPU numpy dispatches its AVX2/FMA3 loop to, not just on arm64. `claude-debug/complex64_fma_probe.py` matched a fused model on 100% of 200,000 products on both machines and an unfused one on 71%. The kernel (`crates/array/src/generate/noise.rs:163`) picks fusion with `npexact::random::Contraction::host_default()`, a compile-time rule (fused on aarch64, plain elsewhere) that fits numpy.random's compiled C, not the runtime-dispatched SIMD loop. So on x86-64 it runs plain while numpy fuses. The test data is right; the kernel is wrong on x86-64.
-- Fix: fuse when numpy's loop would: aarch64, or x86-64 with FMA3 and AVX2 at run time. The rule may belong in npexact, beside `Contraction`. yellowfin and the CI runners both have FMA3 and AVX2.
+- Fix: fuse when numpy's loop would: aarch64, or x86-64 with FMA3 and AVX2 at run time. The rule may belong in npexact, beside `Contraction`. The Linux test host and the CI runners both have FMA3 and AVX2.
 - Issue: #27
 - Fixed: 2026-11-05, PR #25 (`ba68b25`); #27 closed
 
@@ -462,7 +463,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-05
 - Report: found by the first Linux CI run with `--no-fail-fast` (run https://github.com/seantrue/plumcraft/actions/runs/42083352370); the maintainer asked to record and fix it ("Go for 2,3-5")
 - Context: `apps/plumcraft-editor/src/lib.rs` `tests::audio_kittest`: `play_without_an_output_says_so_and_does_not_panic`, `a_1khz_tone_peaks_in_its_spectrogram_bin` and `the_audio_demo_runs_with_waveforms_and_an_audio_view` each panic at `lib.rs:2084` ("timed out waiting for the watched audio", "… the tone's spectrogram", "… the watched audio and its spectrogram") after 30 s. ALSA on the runner finds no sound card. The first test is meant to pass with no output device.
-- Cause, found on yellowfin: not the missing sound card (`ALSA_CARD=NoSuchCard` passes, as does 4 CPUs) but the runner's disk. commonkit's store declines to publish when the disk has under `MIN_FREE_GB` (8 GB) free, and after the workspace's build the runner has less, so the watched audio never arrives. With a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`, yellowfin times out the same three tests the same way. Same cause as B9.
+- Cause, found on the Linux test host: not the missing sound card (`ALSA_CARD=NoSuchCard` passes, as does 4 CPUs) but the runner's disk. commonkit's store declines to publish when the disk has under `MIN_FREE_GB` (8 GB) free, and after the workspace's build the runner has less, so the watched audio never arrives. With a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`, the Linux test host times out the same three tests the same way. Same cause as B9.
 - Fix: CI sets `COMMONKIT_STORE_MIN_FREE_GB=2` for the job. The store behaves as designed; that the editor waits rather than saying the value is unavailable may be worth a look.
 - Issue: none
 - Fixed: 2026-11-05, PR #25 (`ba68b25`), the CI floor
@@ -472,7 +473,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-05
 - Report: as B7 ("Go for 2,3-5")
 - Context: `crates/svg/src/lib.rs:169` `text_is_drawn_with_the_systems_fonts`: "0 inked pixels" on ubuntu-latest, although `fonts()` found fonts (the test returns early when there are none). The label is `<text font-family="sans-serif">Plum</text>`; on the Mac it draws.
-- Cause, likely: fontdb takes the generic families from fontconfig on Linux (on yellowfin `sans-serif` is FreeSans, installed, so it passes there), and nothing checks that the family it names is installed. Where it isn't, the label matches no face and isn't drawn. Not reproduced off the runner; the next CI run's failure message names the family if this is wrong.
+- Cause, likely: fontdb takes the generic families from fontconfig on Linux (on the Linux test host `sans-serif` is FreeSans, installed, so it passes there), and nothing checks that the family it names is installed. Where it isn't, the label matches no face and isn't drawn. Not reproduced off the runner; the next CI run's failure message names the family if this is wrong.
 - Fix: `installed_generics` in `crates/svg/src/lib.rs` points each generic family that names a missing family at an installed one, with a test that sets them all to a missing family.
 - Issue: none
 - Fixed: 2026-11-05, PR #25 (`ba68b25`); the next Linux CI run passed it
@@ -482,7 +483,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-05
 - Report: as B7 ("Go for 2,3-5")
 - Context: `python/tests/test_audio.py:69` `test_large_json_crosses_as_a_blob`: `assert ('opaque' == 'blob')` at line 77 on ubuntu-latest; 217 of 218 Python tests pass there, and all pass on the Mac.
-- Cause: the same as B7. The store declines the large JSON because the runner's disk is under commonkit's 8 GB floor, so `Plane` reports it `opaque` (`python/src/plumcraft_engine/data.py:239`). Reproduced on yellowfin with a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`; without the raised floor it passes.
+- Cause: the same as B7. The store declines the large JSON because the runner's disk is under commonkit's 8 GB floor, so `Plane` reports it `opaque` (`python/src/plumcraft_engine/data.py:239`). Reproduced on the Linux test host with a fresh store root and `COMMONKIT_STORE_MIN_FREE_GB=100000`; without the raised floor it passes.
 - Fix: as B7.
 - Issue: none
 - Fixed: 2026-11-05, PR #25 (`ba68b25`), the CI floor

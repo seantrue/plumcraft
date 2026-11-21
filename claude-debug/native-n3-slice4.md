@@ -286,14 +286,14 @@ What I'd look at next, untested:
 
 ## The maintainer's store, preferences and trusted files
 
-- **Preferences and trusted files: unchanged.** SHA-256 of `prefs.json` and `trusted.json` for `plumcraft-editor`, `plumimpress` and `plumpipe` are the same before and after (`claude-debug/native-n3/s4-prefs-before.txt`, `s4-prefs-after.txt`).
-- **The store (`/Volumes/CommonkitStore/store`): changed during the slice, and I believe not by me.**
+- **Preferences and trusted files: unchanged.** SHA-256 of `prefs.json` and `trusted.json` for `plumcraft-editor`, the research software's app and a private batch app are the same before and after (`claude-debug/native-n3/s4-prefs-before.txt`, `s4-prefs-after.txt`).
+- **The store (`/Volumes/<store>/store`): changed during the slice, and I believe not by me.**
   - Its listing differs (`s4-store-before.txt`, `s4-store-after.txt`): 91 files were written between 12:04 and 12:08. They are 10 MB `.npy` arrays under the keyspaces `vimparr`, `vimptup2` and `vimptup3`, plus `.usage.json`.
   - Those keyspaces are the research software's. PlumCraft's engines write `plumarr` and `plummemo` (checked in my scratch stores), and no `plum*` keyspace in the real store changed.
   - My arrays were at most 320 × 240.
   - Every launch, test and script I ran set `COMMONKIT_STORE_ROOT` and `COMMONKIT_MARK_DIR` to scratch, and the app now refuses a scripted launch otherwise.
   - Two Python processes were running on the machine. I can't prove the writer; please check what ran on the research software at 12:04.
-- **A hazard found and fixed:** the login shell here exports `COMMONKIT_STORE_ROOT=/Volumes/CommonkitStore/store`, which wins over a config's `store_root`. Before this slice the kit's `swift test` set only preferences and passed `store_root`, so **earlier slices' `swift test` runs most likely used the maintainer's real store**. Every test target now overwrites the store, marks, test-run and craft-root variables with scratch paths.
+- **A hazard found and fixed:** the login shell here exports `COMMONKIT_STORE_ROOT=/Volumes/<store>/store`, which wins over a config's `store_root`. Before this slice the kit's `swift test` set only preferences and passed `store_root`, so **earlier slices' `swift test` runs most likely used the maintainer's real store**. Every test target now overwrites the store, marks, test-run and craft-root variables with scratch paths.
 
 ## Final `pgrep`
 
@@ -367,5 +367,5 @@ All are under `claude-debug/native-n3/s4-shots/`, of the app's own windows (`scr
 - **Open With and Reveal in Finder** through `open.external`: built, not exercised.
 - **`form` and `text` sheets:** built; no command in this app's reach raised one in my runs, because rename items need text asks the core raises from context menus I did not choose.
 - **The hitch budget on a quiet machine.**
-- **Linux:** the Rust changes ran on the Mac only; the controller runs them on yellowfin.
+- **Linux:** the Rust changes ran on the Mac only; the controller runs them on the Linux test host.
 - **Who wrote the research software's files into the real store at 12:04 to 12:08.**

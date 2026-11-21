@@ -167,7 +167,7 @@ def located(a, where):
 def test_a_blob_another_engine_keyed_its_own_way_is_read_by_its_path():
     root = pathlib.Path(scratch.mkdtemp("bind-"))
     a = np.arange(12, dtype="<f4").reshape(2, 2, 3)
-    # under a form of its own: its handle finds nothing here, as with PlumImpress's `impcarr`
+    # under a form of its own: its handle finds nothing here, as with the research software's `impcarr`
     ref = located(a, root / "impcarr" / "ab" / "x.npy")
     assert data.read_blob(str(root), ref["ref"]["handle"]) is None
     got = bind.to_value(str(root), "array", ref)

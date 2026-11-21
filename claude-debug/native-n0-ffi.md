@@ -21,7 +21,7 @@
 | JVM | OpenJDK 26.0.2 (Homebrew), Gradle 9.7.1 wrapper, Kotlin 2.4.21, kotlinx-serialization 1.12.0, JUnit 4.13.2 |
 | iOS simulator | iPhone 17 Pro, iOS 26.5 (arm64 simulator slice) |
 | Android | NDK 30.0.16248370 (Homebrew android-commandlinetools), API 29 target; emulator AVD `pursuit_api35` (Android 15, google_apis, arm64-v8a), headless |
-| Store | commonkit, hash b3 (the policy file at `/Volumes/CommonkitStore/store/.policy.json`); each test core has its own `store_root` under the scratch root |
+| Store | commonkit, hash b3 (the policy file at `/Volumes/<store>/store/.policy.json`); each test core has its own `store_root` under the scratch root |
 
 ## What exists and where
 

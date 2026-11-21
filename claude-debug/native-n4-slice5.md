@@ -125,7 +125,7 @@ No `only:` mark was needed; the new cases that need an engine say so with `needs
 
 ## Store and preferences
 
-Every script of this slice starts by sourcing `claude-debug/native-n4/s5-env.sh`, which refuses to go on when `COMMONKIT_STORE_ROOT` is unset or under `/Volumes/CommonkitStore`; the Python stages check it themselves too. Listings: `claude-debug/native-n4/s5-store-before.txt` and `-after.txt`; checksums `s5-prefs-before.txt` and `-after.txt`.
+Every script of this slice starts by sourcing `claude-debug/native-n4/s5-env.sh`, which refuses to go on when `COMMONKIT_STORE_ROOT` is unset or under `/Volumes/<store>`; the Python stages check it themselves too. Listings: `claude-debug/native-n4/s5-store-before.txt` and `-after.txt`; checksums `s5-prefs-before.txt` and `-after.txt`.
 
 - **Preferences and trusted files:** unchanged (`prefs.json`, `trusted.json`, `com.plumcraft.mac.plist` checksums identical).
 - **The real store:** nothing was added. Things were removed: at 21:56 `.hello` lost its eight `e-*.nonce` files and `plummemo/ea/` went (slice 4's leftovers, which the maintainer was to decide on), and at 22:14 `plumz/5a/` and one entry under `plummemo/ab/` went. None of this slice's processes pointed at the real store (each launch had a scratch root, checked); the maintainer's three PlumCraft apps, which use the real store, were running throughout, and the removal of slice 4's leftovers looks like someone's cleanup. Reported, not explained further.

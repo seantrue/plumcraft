@@ -185,7 +185,7 @@ Release builds on the M4 Max (120 Hz). The scene is `spike.scene`, real text nod
 ## Defects introduced and caught
 
 1. **AppKit opened the `YES` of `-ApplePersistenceIgnoreState YES` as a document.** It raised a modal "The document "YES" could not be opened" on the maintainer's screen and stalled two early launches (the first took 19.8 s to its first frame; the maintainer dismissed the dialog). Caught by the maintainer. Replaced by the app's own `--scratch-state`, which sets the same default from inside.
-2. **One early launch used the maintainer's commonkit store** (`/Volumes/CommonkitStore/store`): `COMMONKIT_STORE_ROOT` in the environment wins over the config's `store_root`. Seen in the app's log line "policy file /Volumes/CommonkitStore/store/.policy.json". That launch opened a graph and ran nothing, so I expect nothing was written there, but I didn't check. Every script now sets `COMMONKIT_STORE_ROOT` and `COMMONKIT_MARK_DIR` to scratch.
+2. **One early launch used the maintainer's commonkit store** (`/Volumes/<store>/store`): `COMMONKIT_STORE_ROOT` in the environment wins over the config's `store_root`. Seen in the app's log line "policy file /Volumes/<store>/store/.policy.json". That launch opened a graph and ran nothing, so I expect nothing was written there, but I didn't check. Every script now sets `COMMONKIT_STORE_ROOT` and `COMMONKIT_MARK_DIR` to scratch.
 3. **Net tags, frame tabs and group bands were invisible:** their layers had no bounds. Caught by the first screenshot.
 4. **Tag text was cut ("Lo…"):** a monospaced 12-point font is wider than the core's 6.6-a-character estimate. Now proportional, with a smaller inset. Caught by a screenshot.
 5. **Translucent tags let a wire show through.** Now filled opaque. Caught by a screenshot.
@@ -224,5 +224,5 @@ Release builds on the M4 Max (120 Hz). The scene is `spike.scene`, real text nod
 - **Real hands on the trackpad.** Momentum, the rubber band's feel, pinch, smart zoom, Space-drag, middle drag, hover, the marquee and face drags as the recognisers see them were not exercised by a person or a UI test. The canvas arithmetic behind them is unit-tested; the conformance suite drives the core over the port, not the recognisers. File › Open's panel, Open Recent, a drop on a window and the Dock icon were not exercised; LaunchServices opening two files was.
 - **The hitch budget on a quiet machine** (above).
 - **iOS:** the canvas target compiles for device and simulator; nothing ran there.
-- **Linux:** the Rust change ran on the Mac only; the controller runs it on yellowfin.
+- **Linux:** the Rust change ran on the Mac only; the controller runs it on the Linux test host.
 - **Whether the one early launch wrote anything** to the maintainer's commonkit store (defect 2).

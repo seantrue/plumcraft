@@ -1,6 +1,6 @@
 # OpenCV engine review
 
-*2026-11-20. The repository reviewed is `/Users/seant/workspace/opencv-engine` (remote `seantrue/plumcraft-opencv-engine`), at `a0fd881` on `main`. Nothing was changed there. The tests ran in a copy at `claude-debug/opencv-review/repo`, with a scratch commonkit store and `COMMONKIT_HASH=b3`.*
+*2026-11-20. The repository reviewed is `~/workspace/opencv-engine` (remote `seantrue/plumcraft-opencv-engine`), at `a0fd881` on `main`. Nothing was changed there. The tests ran in a copy at `claude-debug/opencv-review/repo`, with a scratch commonkit store and `COMMONKIT_HASH=b3`.*
 
 ## Verdict
 
