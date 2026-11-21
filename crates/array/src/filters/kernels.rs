@@ -1,5 +1,5 @@
-//! The filters' arithmetic on one plane (H × W values, C order), ported from yapocis's numba
-//! kernels (`yapocis3/src/yapocis/kernels/numbax`) as plain loops: no fast-math, so no
+//! The filters' arithmetic on one plane (H × W values, C order), ported from the kernel library's numba
+//! kernels (`kernels/numbax`) as plain loops: no fast-math, so no
 //! reassociation and no fused multiply-adds, and every machine gets the same bits. The types
 //! are numba's: where a kernel accumulates in float64 (a Python float meeting a float32), so
 //! does the port. Every index is checked (`get`), so no input can make a kernel panic.
@@ -45,7 +45,7 @@ fn conv_rows_apart(p: &[f32], h: usize, w: usize, taps: &[f32]) -> Vec<f32> {
     out
 }
 
-/// yapocis `Gaussian.gauss_image` on the numba backend: `gauss<n>_h` (down the columns) then
+/// The kernel library's `Gaussian.gauss_image` on the numba backend: `gauss<n>_h` (down the columns) then
 /// `gauss<n>_v` (along the rows, the same kernel on the transpose). Both passes zero their
 /// edges, so the result has a 0 frame half the kernel wide.
 pub fn gauss_image(p: &[f32], h: usize, w: usize, weights: &[f64]) -> Vec<f32> {
@@ -192,7 +192,7 @@ pub fn nan_min(p: &[f32]) -> f32 {
     npexact::extrema::min_f32(p).unwrap_or(f32::INFINITY)
 }
 
-/// yapocis `Anisodiff.anisodiff_n` (`filterImageN`) of one plane: scaled by 256 unless its
+/// The kernel library's `Anisodiff.anisodiff_n` (`filterImageN`) of one plane: scaled by 256 unless its
 /// maximum is above 1, `n` steps, divided by 256 (whether or not it was scaled, as there).
 pub fn anisodiff_n(p: &[f32], h: usize, w: usize, n: usize, kappa: f64, step: f64) -> Vec<f32> {
     let mut a: Vec<f32> = if nan_max(p) > 1.0 { p.to_vec() } else { p.iter().map(|v| v * 256.0).collect() };
@@ -269,7 +269,7 @@ fn sign(v: f32) -> f32 {
     npexact::elementwise::sign_f32(v)
 }
 
-/// yapocis `zcs1` (numba backend, numpy): 1 where the squared differences across the pixel,
+/// The kernel library's `zcs1` (numba backend, numpy): 1 where the squared differences across the pixel,
 /// (below - above)² + (right - left)² in float32, exceed `threshold` (a float32 under NumPy 2's
 /// rules) and the sign differs between opposite neighbours; the plane's edges repeat.
 pub fn zcs(p: &[f32], h: usize, w: usize, threshold: f32) -> Vec<f32> {
@@ -296,7 +296,7 @@ pub fn zcs(p: &[f32], h: usize, w: usize, threshold: f32) -> Vec<f32> {
 
 // ---------- Sobel Magnitude ----------
 
-/// yapocis_external's `gradient_magnitude`: unnormalised 3 × 3 Sobel, neighbours clamped at
+/// The external kernel library's `gradient_magnitude`: unnormalised 3 × 3 Sobel, neighbours clamped at
 /// the border, in float32 evaluated left to right.
 pub fn sobel(p: &[f32], h: usize, w: usize) -> Vec<f32> {
     let mut out = vec![0.0f32; h * w];
@@ -350,7 +350,7 @@ pub fn rotated_size(h: usize, w: usize, degrees: f64) -> (f64, f64) {
     (((hf * t.cos()).abs() + (wf * t.sin()).abs() - 1e-6).ceil(), ((wf * t.cos()).abs() + (hf * t.sin()).abs() - 1e-6).ceil())
 }
 
-/// yapocis_external's `rotateImage`: each destination pixel's offset from the destination
+/// The external kernel library's `rotateImage`: each destination pixel's offset from the destination
 /// centre (integer halves) is rotated (float32) and added to the source centre, and the
 /// nearest source pixel copied; pixels that map outside keep `background`.
 pub fn rotate(p: &[f32], h: usize, w: usize, out_h: usize, out_w: usize, degrees: f64, background: f32) -> Vec<f32> {

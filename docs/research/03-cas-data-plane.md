@@ -7,8 +7,8 @@ Date: 2026-10-27. Branch `generic-base-research`. Builds on `docs/research/flocr
 | Question | Decision |
 |---|---|
 | What is a handle | An algorithm-tagged content digest plus a digest recipe: `md5:nd1:<32 hex>`, `b3:raw:<64 hex>`. Always shipped with typed metadata (`BlobMeta`) and zero or more locators |
-| Which hash | MD5 is the default on one machine and for alexandria/commonkit interop. BLAKE3 is required wherever bytes cross a trust boundary (a shared remote CAS, more than one client). Both are first-class in v1; the engine declares which it accepts |
-| What is hashed | Two recipes. `nd1`: the research software's existing array digest (dtype string, shape repr, C-order bytes), specified exactly so Rust reproduces it. `raw`: the bytes of a file, which is what alexandria's item md5 is |
+| Which hash | MD5 is the default on one machine and for archive-project/commonkit interop. BLAKE3 is required wherever bytes cross a trust boundary (a shared remote CAS, more than one client). Both are first-class in v1; the engine declares which it accepts |
+| What is hashed | Two recipes. `nd1`: the research software's existing array digest (dtype string, shape repr, C-order bytes), specified exactly so Rust reproduces it. `raw`: the bytes of a file, which is what the archive project's item md5 is |
 | Single system | The engine publishes to the commonkit store; the UI mmaps by path; arrays never travel in messages. The in-process engine skips the filesystem and hands `Arc` buffers through the same `BlobStore` trait |
 | Remote | `has` / `want` negotiation by handle, upload only what is missing, results fetched lazily by handle, previews and tiles as derived, content-addressed blobs so a remote run stays interactive |
 | Checkpoint reuse | A memo record maps a memo key to output handles. Memo key = hash of node kind, node version, engine code salt, canonical params and input identities. Two lookups: a plan key (Merkle over upstream keys, known before running) and a content key (over input handles, known after) |
@@ -25,8 +25,8 @@ Date: 2026-10-27. Branch `generic-base-research`. Builds on `docs/research/flocr
 | `research-shm` | `crates/shm/src/lib.rs`, `npy.rs`, `map.rs` | Strict key parse; mmap; `.npy` v1/v2/v3 header parse; torn file → `Ok(None)`; oversize file → error; zero-copy `f32`/`f64` views | Keep as the L0 reader. Generalise from "parse a commonkit key" to "resolve a locator" |
 | Python publish | `python/src/research_engine/publish.py` | `md5(dtype.str + repr(shape) + bytes)`; scheme `impc:v1` forms `plumarr`, `impcprev`, variant `c`; falls back to `~/Library/Caches/research/arrays/<form>/<d[:2]>/<d>.npy` when commonkit declines | This digest becomes recipe `nd1`. The fallback becomes the durable tier |
 | Executor memo | `python/src/research_engine/executor.py:670` | `sha1(json.dumps([kind, version, plain, identity], sort_keys, default=_jsonable))`; identity = upstream memo + port (+ slice): a Merkle chain; RAM LRU of 1.5 GB | Right shape. Two weaknesses: `default=repr` is Python-specific (a Rust engine cannot reproduce it), and the chain never reuses a result across two graphs that produce the same input bytes |
-| The research software checkpoints | `../research/src/research/core/checkpoint_store.py` | Scheme `research:v1`; digest slot = picture md5; variant = sha1 of (method, args, salt); salt = settings digest + `code_version()` (sha1 over package, yapocis, kernels); the research software's native engine keeps its own salt (`rust:research-0.1.0+<code digest>`, `docs/shared-renderer-plan.md`) | Engine build salt already exists in both engines; the base adopts it as `engine.salt` |
-| alexandria CAS | `../alexandria/alexandria/storage/cas.py`, `materialize.py` | `<url_base><md5[:2]>/<md5>.<ext>`, md5 of file bytes is the item pk; any UPath backend (`file://`, `rclone://a remote server/...`, `s3://`); idempotent `store`; `verify()` rehashes; derivatives under `derivatives/<key>`; negative-lookup memo (remote misses cost about 285 ms); remote reads materialise into a digest-keyed local cache, so hits are unconditional | The remote store is this model: a `url_base`, sharded digests, idempotent put, derivatives, a miss memo. There is no has/want upload negotiation in alexandria (it hashes after upload), so that part is new |
+| The research software checkpoints | `../research/src/research/core/checkpoint_store.py` | Scheme `research:v1`; digest slot = picture md5; variant = sha1 of (method, args, salt); salt = settings digest + `code_version()` (sha1 over package, the kernel library, kernels); the research software's native engine keeps its own salt (`rust:research-0.1.0+<code digest>`, `docs/shared-renderer-plan.md`) | Engine build salt already exists in both engines; the base adopts it as `engine.salt` |
+| The archive project's CAS | the archive project's `storage/cas.py`, `materialize.py` | `<url_base><md5[:2]>/<md5>.<ext>`, md5 of file bytes is the item pk; any UPath backend (`file://`, `rclone://a remote server/...`, `s3://`); idempotent `store`; `verify()` rehashes; derivatives under `derivatives/<key>`; negative-lookup memo (remote misses cost about 285 ms); remote reads materialise into a digest-keyed local cache, so hits are unconditional | The remote store is this model: a `url_base`, sharded digests, idempotent put, derivatives, a miss memo. There is no has/want upload negotiation in the archive project (it hashes after upload), so that part is new |
 
 ## 3. The model
 
@@ -86,15 +86,15 @@ Rules:
 
 The argument, honestly put:
 
-- **For MD5:** commonkit's key slot, the research software's checkpoint store, the research software's `publish.digest`, alexandria's item pks and its whole rclone CAS on a remote server are MD5. A source the maintainer already has in alexandria is addressable with no rehash. One machine and one user cannot attack themselves, and accidental MD5 collisions are not a practical concern.
+- **For MD5:** commonkit's key slot, the research software's checkpoint store, the research software's `publish.digest`, the archive project's item pks and its whole rclone CAS on a remote server are MD5. A source the maintainer already has in the archive project is addressable with no rehash. One machine and one user cannot attack themselves, and accidental MD5 collisions are not a practical concern.
 - **Against MD5:** chosen-prefix collisions are cheap. On a CAS that several clients write, a client can upload a crafted blob whose MD5 equals another user's future input and poison their results. Server-side rehashing does not help: the collision is real. It is also not fast: one core manages very roughly 0.6–0.8 GB/s, so a 24-megapixel float32 RGB intermediate (about 290 MB) costs several hundred milliseconds to name, and the research software names every published array. (Measure on the development machine before relying on these figures; `claude-debug/hash_bench_*` would be the place.)
 - **For BLAKE3:** collision-resistant, and multi-threaded and SIMD-fast (several GB/s on Apple Silicon), so it is cheaper than MD5 for large arrays. Pure-Rust crate and a Python wheel.
 - **SHA-256:** collision-resistant and universal, but slower than both on large inputs without hardware help. No reason to prefer it here except an external standard requiring it.
 
 So: **algorithm-tagged handles, both algorithms in v1.**
 
-1. Single system: MD5 by default, so commonkit keys, the research software checkpoints and alexandria items line up with no conversion. An engine may choose BLAKE3 for large arrays to cut hashing time; it then publishes under a BLAKE3 commonkit scheme whose 32-hex digest slot holds the first 128 bits (a BLAKE3 truncation keeps its collision resistance at 64-bit security, which is ample for one store), with the full 256-bit digest in the handle.
-2. Remote: the server requires `b3` for anything a client uploads into a shared namespace. It keeps an alias index `md5 → b3` populated only from bytes it hashed itself, so a client can still ask "do you have alexandria item `md5:raw:…`?" and get back a `b3` handle. A single-tenant remote (the maintainer's a remote server) may accept MD5 by configuration.
+1. Single system: MD5 by default, so commonkit keys, the research software checkpoints and archive-project items line up with no conversion. An engine may choose BLAKE3 for large arrays to cut hashing time; it then publishes under a BLAKE3 commonkit scheme whose 32-hex digest slot holds the first 128 bits (a BLAKE3 truncation keeps its collision resistance at 64-bit security, which is ample for one store), with the full 256-bit digest in the handle.
+2. Remote: the server requires `b3` for anything a client uploads into a shared namespace. It keeps an alias index `md5 → b3` populated only from bytes it hashed itself, so a client can still ask "do you have archive-project item `md5:raw:…`?" and get back a `b3` handle. A single-tenant remote (the maintainer's a remote server) may accept MD5 by configuration.
 3. The engine declares `data_plane.algos: ["md5", "b3"]` in its Schema reply and the UI uses the first it also supports.
 
 ## 5. Digest recipes, exactly
@@ -107,7 +107,7 @@ Both engines must produce the same handle for the same value, so the recipes are
 2. Python's tuple repr of the shape as ASCII: `()` for 0-d, `(5,)` for 1-d, `(812, 808, 3)` otherwise (`", "` separator, trailing comma only for one element).
 3. The C-order element bytes.
 
-**`raw`:** the bytes as stored, nothing else. This is alexandria's item digest. Text is hashed as its UTF-8 bytes; JSON as the bytes written (writers use RFC 8785 canonical JSON when the value is meant to dedupe).
+**`raw`:** the bytes as stored, nothing else. This is the archive project's item digest. Text is hashed as its UTF-8 bytes; JSON as the bytes written (writers use RFC 8785 canonical JSON when the value is meant to dedupe).
 
 A `.npy` file's own bytes are deliberately **not** the array identity: numpy pads the header differently across versions (the shm tests note numpy 2.x pads to 128 bytes), so the same array would get two names.
 
@@ -118,7 +118,7 @@ Every kind is stored as something mmap-able, and every kind has a preview the UI
 | Kind | Stored as | Recipe | Thumb (node, about 160 px) | Inspect preview | Full access |
 |---|---|---|---|---|---|
 | Array (image, field, table) | `.npy` | `nd1` | rgba8 `.npy`, as today | rgba8 ≤ 640 px plus histograms, channel ranges | mmap; tiles and regions remotely |
-| Image (encoded source file) | the file | `raw` | rgba8 `.npy` | rgba8 ≤ 640 px | decoded on demand into the `pixels` commonkit domain (`pixels:v3:pil:<md5>:o1`), which alexandria's workers may already hold |
+| Image (encoded source file) | the file | `raw` | rgba8 `.npy` | rgba8 ≤ 640 px | decoded on demand into the `pixels` commonkit domain (`pixels:v3:pil:<md5>:o1`), which the archive project's workers may already hold |
 | Text | UTF-8 bytes | `raw` | first lines as a `Text` summary in the record (plain JSON, it is not an array) | first 64 KiB, line count, encoding verdict | byte or line ranges |
 | JSON | canonical JSON bytes | `raw` | top-level keys and sizes | pretty-printed, depth- and length-limited | ranges; a JSON-pointer query endpoint remotely |
 | Audio | `(frames, channels)` int16 or float32 `.npy`, with `sample_rate` in meta | `nd1` | peaks: `(buckets, channels, 2)` min/max `.npy`, 512 buckets | peaks at 4096 buckets plus a spectrogram as rgba8 | mmap; frame ranges remotely; a playback buffer by range |
@@ -128,9 +128,9 @@ Every kind is stored as something mmap-able, and every kind has a preview the UI
 **Non-`.npy` blobs in commonkit.** commonkit stores, gates and reaps only `.npy`. Two ways in:
 
 - **Now, with no change:** store bytes as a 1-d `|u1` array. A 128-byte header buys mmap, admission, atomic publish and the reaper for free; `Locator::Path { offset }` lets a tool read the payload in place.
-- **Later, fixed at source (golden rule 7):** propose a commonkit `raw` segment kind (`{digest}.{variant}.bin` plus a tiny header sidecar, reaped like `.npy`) so ffmpeg, a browser or an artcraft app can open the file as itself. Until then, `materialize` copies the payload out once into the durable tier under `<shard>/<digest>.<ext>`, alexandria's layout.
+- **Later, fixed at source (golden rule 7):** propose a commonkit `raw` segment kind (`{digest}.{variant}.bin` plus a tiny header sidecar, reaped like `.npy`) so ffmpeg, a browser or an artcraft app can open the file as itself. Until then, `materialize` copies the payload out once into the durable tier under `<shard>/<digest>.<ext>`, the archive project's layout.
 
-Derivatives (thumbs, previews, peaks, tiles, rasterisations) are themselves blobs with their own handles. Their identity is a **derivation key**: `hash(source handle, derivative spec, deriver version)`, as alexandria names `derivatives/<key>`. That makes a remote preview cacheable forever by URL and lets two clients share it.
+Derivatives (thumbs, previews, peaks, tiles, rasterisations) are themselves blobs with their own handles. Their identity is a **derivation key**: `hash(source handle, derivative spec, deriver version)`, as the archive project names `derivatives/<key>`. That makes a remote preview cacheable forever by URL and lets two clients share it.
 
 ## 7. Single system: zero-copy resolution
 
@@ -201,7 +201,7 @@ A **memo record** separates "what was computed" from "where the bytes are":
 ["flo-memo-v1", kind, node_version, engine_salt, device_class_or_null, params, inputs]
 ```
 
-- `engine_salt` is the engine's declared code digest (Python: the research software's `code_version()` over the package, yapocis and kernels; Rust: `rust:research-0.1.0+<build.rs digest>`). A build whose code differs never reads another's results.
+- `engine_salt` is the engine's declared code digest (Python: the research software's `code_version()` over the package, the kernel library and kernels; Rust: `rust:research-0.1.0+<build.rs digest>`). A build whose code differs never reads another's results.
 - `device_class` is present only when the node declares `device_sensitive` (OpenCL kernels whose bits differ by GPU). An engine that attests bit-exactness across devices omits it, and only then are results shared across machines.
 - `params` are the resolved non-wired values. Canonical JSON replaces `json.dumps(default=repr)`: floats in shortest round-trip form, which Rust (`ryu`) and Python (`repr`) both produce; non-JSON values are refused, never `repr`'d. Provenance is excluded, as rule 8 of `docs/engine-contract.md` requires.
 - `inputs` maps each port to an identity (below), including any wire slice.
@@ -226,7 +226,7 @@ The executor tries the plan key, then the content key. A hit on either writes th
 | T0 executor RAM | engine process | recent `NodeResult`s by memo key (today 1.5 GB LRU) | LRU by bytes |
 | T1 commonkit | `~/Library/Caches/commonkit/store`, `/dev/shm/commonkit` | everything published for the UI, in flight | commonkit's reaper: TTL 900 s, budget, free-space floor. Unchanged |
 | T2 durable local CAS | `~/Library/Caches/<app>/cas/<shard>/<digest>.<ext>` plus `memo/<shard>/<memo>.json` | pinned values, memo records, materialised raw blobs, downloads the user saved | budgeted LRU (default 20 GB), never touching pins or leases |
-| T3 remote CAS | a `url_base` as alexandria's (`file://`, `rclone://a remote server/…`, `s3://`) | uploaded sources, results, derivatives, memo records | mark-and-sweep from roots, after a grace period |
+| T3 remote CAS | a `url_base` as the archive project's (`file://`, `rclone://a remote server/…`, `s3://`) | uploaded sources, results, derivatives, memo records | mark-and-sweep from roots, after a grace period |
 
 **Pins and roots.**
 
@@ -256,7 +256,7 @@ Engine replies, status records, memo records, workflow files, `.npy` headers, do
 | SVG | `resvg`/`usvg` with external resources disabled, no `<image href>` to files or URLs, element and depth limits, raster size cap |
 | Text and JSON | UTF-8 validated (lossy display, never trusted for paths); JSON depth ≤ 64 and size caps before parse |
 | Audio | Sample rate 1–768,000, channels 1–64, frames by `checked_mul` against size |
-| Local store | Written only by atomic rename; scrub on demand (`data.verify`, as alexandria's `verify()`) rehashes T2 and reports corruption as a state, never a panic |
+| Local store | Written only by atomic rename; scrub on demand (`data.verify`, as the archive project's `verify()`) rehashes T2 and reports corruption as a state, never a panic |
 
 ## 12. The four engine kinds on one data plane
 
@@ -292,7 +292,7 @@ Engine replies, status records, memo records, workflow files, `.npy` headers, do
 
 ## 15. Open questions for the maintainer
 
-1. Should a remote engine on a remote server write results into alexandria's existing rclone CAS (one `url_base`, shared derivatives) or into its own root? Sharing gives free reuse of decoded pixels and thumbs; separating keeps alexandria's GC simple.
+1. Should a remote engine on a remote server write results into the archive project's existing rclone CAS (one `url_base`, shared derivatives) or into its own root? Sharing gives free reuse of decoded pixels and thumbs; separating keeps the archive project's GC simple.
 2. Is a 10-minute lease and 20 GB T2 default right for the development machine, given unified memory and the 2 GB commonkit budget on macOS?
 3. Is cross-device sharing of the research software results wanted? It needs an attestation that OpenCL output is bit-identical on the M4 and on a remote server; until then results are `machine` scope.
 4. Upload policy for big sources: hash the whole file first (one extra read) or stream-hash during upload and accept wasted bandwidth when the server turns out to have it? The design above hashes first.

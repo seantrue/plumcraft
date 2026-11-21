@@ -19,7 +19,7 @@ That is what it was built for, and it does that well: every function cites the n
 
 ## What npexact is
 
-Source: `yapocis-rs/crates/npexact`, 0.1.0 on crates.io, no dependencies. About 4,300 lines, 2,700 of them the ziggurat tables.
+Source: the Rust kernel library's `crates/npexact`, 0.1.0 on crates.io, no dependencies. About 4,300 lines, 2,700 of them the ziggurat tables.
 
 | Module | numpy equivalent | Public functions |
 |---|---|---|

@@ -16,7 +16,7 @@ Decision D3 (`docs/plan.md`) made MD5 the default handle digest and said: "Measu
   - Profile `Store::publish_array` and its read path (`crates/store`), to confirm hashing is the cost.
   - Add commonkit's BLAKE3 key helper, which D3 held back "only if D3's measurement favours BLAKE3".
   - Let the store and both SDKs publish large arrays under `b3`, using the data plane's algorithm negotiation (`data_plane.algos`, note 03).
-  - Keep MD5 where interop needs it: alexandria items and the research checkpoints.
+  - Keep MD5 where interop needs it: archive-project items and the research checkpoints.
   - Re-measure.
 - **Also worth weighing** (note 03, storage tiers): no hashing until a handle is needed, with a derivation-addressed `drv` handle standing in. An in-memory fast path between two in-process engines would skip the store for a crossing, but helps only in-process engines.
 

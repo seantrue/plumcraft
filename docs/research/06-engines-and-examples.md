@@ -91,7 +91,7 @@ Every value that isn't small JSON travels as a `DataRef`:
 
 - **Checkpoint reuse:**
   - The SDK executors key their memo by a *derivation id*: `md5(kind, node_version, canonical params JSON, input md5s, slice spec)`. The Python executor's `_memo` already hashes kind, version, plain values and identity.
-  - An engine with a persistent CAS keeps a `derivation → output DataRefs` table (alexandria-style MD5 store, sharded `ab/<md5>`). A re-run after an edit, after a restart, or from another UI computes nothing for an unchanged prefix of the graph.
+  - An engine with a persistent CAS keeps a `derivation → output DataRefs` table (archive-project-style MD5 store, sharded `ab/<md5>`). A re-run after an edit, after a restart, or from another UI computes nothing for an unchanged prefix of the graph.
   - Such nodes report `cached`, as nodes cut by commonkit do today.
 - **The `save` op on a remote engine:** the engine can't write the user's path. The host sends `save` without `path`; the engine replies `{"ok":true, "files":[{"name","blob":DataRef}]}`; the host `blob.get`s and writes locally. Locally, `path` is passed through as today.
 - **Raw blobs:** commonkit is `.npy`-only today. Text, SVG, WAV exports and vector documents need raw blobs under the same key and path scheme (`{root}/{form}/{md5[:2]}/{md5}.{variant}.<ext>`). That is a small commonkit change, proposed at source (golden rule 7) and owned by the CAS note.
@@ -204,7 +204,7 @@ Every value that isn't small JSON travels as a `DataRef`:
 - **Adaptations, all inside the host:**
   - `hello` is synthesised from the `Schema` reply (`engine.plugin_export` → `capabilities.ops`);
   - the data plane is shm when the UI and the fleet share the commonkit store (the development machine today);
-  - for a fleet on a remote server, the fleet publishes to its CAS (the rclone CAS alexandria already uses), and the host fetches through a small pipekit `Blob` service (`has`/`get`/`put` by md5) or through the HTTP blob endpoints of mode 3. AMQP bodies stay small.
+  - for a fleet on a remote server, the fleet publishes to its CAS (the rclone CAS the archive project already uses), and the host fetches through a small pipekit `Blob` service (`has`/`get`/`put` by md5) or through the HTTP blob endpoints of mode 3. AMQP bodies stay small.
 - **Lifecycle:** today's: broker reachability with `Backoff`, consumer checks every 3 s (`EngineDown{queues}`), `pipectl up research.yml` as the hint. The hint and the system name move into the engine manifest (`mode = "pipekit"`, `broker`, `system`, `up = "cd python && uv run pipectl up research.yml"`).
 - **Python side:** `service.py` splits into the transport-neutral `Engine` handler (`schema()`, `run(req, emit, cancelled)`, `op()`) and a pipekit front end. `Plan.process_item` becomes about ten lines that call the handler with `self.status` and `self.cancelled`. The other two front ends (`socket`, `http`) host the same handler, so the VI engine can also run in mode 2 or 3 (for example on a remote server with no broker).
 
@@ -533,7 +533,7 @@ The research software's gates (tests, exactness 12/12) run green at every step, 
 
 ## 8. Open questions for the other notes
 
-1. **The CAS digest** (CAS note): md5 of the *stored blob bytes* (alexandria's rule) or today's `publish.digest` (dtype + shape + raw bytes)? This note assumes blob bytes for CAS handles, with commonkit keys free to keep their own digest. One rule for both would be simpler.
+1. **The CAS digest** (CAS note): md5 of the *stored blob bytes* (the archive project's rule) or today's `publish.digest` (dtype + shape + raw bytes)? This note assumes blob bytes for CAS handles, with commonkit keys free to keep their own digest. One rule for both would be simpler.
 2. **Raw (non-`.npy`) blobs in commonkit:** needed for text, SVG and documents. The change goes to commonkit at source.
 3. **Multi-engine graphs** (OpenCV → VectorCraft → VI in one workflow): DataRefs with md5 make an engine boundary a CAS hand-off. Is this v1 (the graph is partitioned per engine by the UI's run state) or later? This note assumes one engine per workflow in v1, with a workflow `engine` field, as FloCraft proposed.
 4. **The executor's source of truth:** with the Rust SDK executor, `research_graph`'s executor and the Python executor all implementing one semantics, the shared conformance corpus must be authoritative. Where should it live? This note proposes the base repo's `conformance/` directory.

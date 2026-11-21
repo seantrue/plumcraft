@@ -89,7 +89,7 @@ The display never carries bulk data, as today. It carries **handles** (the trans
 ```
 
 - **Resolution order in the UI:** `path` (mmap, single system) → `key` (commonkit, mapped to a path as `crates/shm` does now) → local CAS cache (`~/Library/Caches/<app>/cas/<md5>`) → `url` (download into the CAS cache; HTTP Range for slices when `range` is true) → ask the engine for a derivative.
-- **The CAS digest is the texture and derivative cache key.** `TextureCache` keys by `cas` rather than path, so a cached node (same md5) never re-uploads, and a remote result already downloaded is never fetched twice. The md5 rule is commonkit's (dtype + shape + bytes) for arrays and alexandria's (plain bytes) for files; the handle says which (`"cas": "md5:"` vs `"cas": "md5npy:"`), so the UI can verify what it downloaded.
+- **The CAS digest is the texture and derivative cache key.** `TextureCache` keys by `cas` rather than path, so a cached node (same md5) never re-uploads, and a remote result already downloaded is never fetched twice. The md5 rule is commonkit's (dtype + shape + bytes) for arrays and the archive project's (plain bytes) for files; the handle says which (`"cas": "md5:"` vs `"cas": "md5npy:"`), so the UI can verify what it downloaded.
 - **Full data is lazy.** Thumbs and the viewer-size rendition are always fetched; the full handle only when a feature needs it (probe, diff, playback, 1:1 zoom). A remote engine's viewer stays usable on thumbs and renditions alone.
 - **Remote probe without download:** when the full handle is remote and large, probe and diff go to the engine as derivative requests (`probe` returns a few numbers; `diff` returns a rendition plus statistics). Results are exact either way: the engine reads the stored values.
 

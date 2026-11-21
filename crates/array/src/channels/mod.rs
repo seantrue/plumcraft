@@ -188,7 +188,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.frame",
             display: "Frame",
             group: "Utilities",
-            description: "Sets a margin around the array to one value and its outermost pixels to another (yapocis set_frame), as the commands seal edge maps before labelling regions. Each channel of a stack is framed.",
+            description: "Sets a margin around the array to one value and its outermost pixels to another (the kernel library's set_frame), as the commands seal edge maps before labelling regions. Each channel of a stack is framed.",
             inputs: vec![
                 array_in("array", "An array"),
                 int_in("margin", 0, 0.0, 4096.0, "Width in pixels of the band set to margin_value (0 = none)"),
@@ -202,7 +202,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.crop_to_multiple",
             display: "Crop to Multiple",
             group: "Utilities",
-            description: "Crops height and width down to multiples of a number (yapocis align_image), as Load Image does with 4.",
+            description: "Crops height and width down to multiples of a number (the kernel library's align_image), as Load Image does with 4.",
             inputs: vec![array_in("array", "An array"), int_in("multiple", 4, 1.0, 1024.0, "The multiple")],
             outputs: vec![array_out("cropped", "The cropped array")],
             run: crop_to_multiple,
@@ -473,7 +473,7 @@ fn constant(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     Ok(one("constant", Img::filled(h, w, c, value)))
 }
 
-/// Set a band `width` wide round each side of a plane to `value` (yapocis `set_margin`).
+/// Set a band `width` wide round each side of a plane to `value` (the kernel library's `set_margin`).
 pub fn set_margin(p: &mut [f32], h: usize, w: usize, width: usize, value: f32) {
     for y in 0..h {
         for x in 0..w {
