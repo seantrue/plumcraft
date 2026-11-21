@@ -38,6 +38,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Not verified:** everything on the device. Save As could not be made to fail off-device.
 
+### 2026-11-21 — N5 slice 1: the Windows kit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** Slice 1 of the Windows shell, as the spike's plan had it (note 24 section 20.7): the spike's `PlumCraft.Core` grown into a kit that mirrors the Swift one, gated on the maintainer's Windows ARM64 virtual machine. The maintainer's answers the same day settled what it rests on: hand-written C# models, unpackaged, `core.symlinks true` on Windows checkouts, Composition for the canvas to come.
+
+**Built (agent; about 5,300 lines in 30 files under `native/windows/`, no Rust changed).** Five projects: Models (the contract's types with `System.Text.Json` source generation, decoding the shared fixtures strictly), Core (a pump handing each subscriber a parsed feed, typed requests, refusals carrying the core's code), Kit (`DocumentModel` applying deltas by nid on one synchronization context; `CanvasLink` for geometry, hits, gestures and wire paths), Conformance (the suite's runner in C#, with a driver through the kit and one over a control port) and an xUnit test project. `unsafe` is confined to `Native.cs` and `PlumCore.cs`'s pointer methods.
+
+**Gate, all on the VM:** `dotnet test` 34 of 34 in four runs; the conformance suite through the kit headless 51 of 51 (46 on a text-engine core, 5 on an array-engine core), the same count as the C ABI's own Rust driver, which also passes there; 46 of 46 over a control port. The Linux gate was not rerun, since no Rust or Python changed.
+
+**Defects in the agent's own work, caught by its builds and tests:** the source generator set a missing init-only property to null, so a menu with no `items` crashed and defaulted fields lost their defaults (two of the first run's 33 tests failed on it); an enum named `Half` clashing with `System.Half`; a `--` inside an XML comment; a possibly-null dereference in a test. It also fixed a spike defect: `WirePaths` could return a count larger than its buffer.
+
+**Found, not fixed:** the schema's `Gesture` has no `zoom` field though the core has taken one since N4 slice 2.
+
+**Not done:** the spike's window still uses its own scene model; no C# command-line runner; no models yet for settings, reports, compare or viewer data.
+
+**The VM's disk, by the controller.** The maintainer: "Consider halting the Windows VM, growing the disk image in MacOS, and the disk inside Windows, and then continuing", then "yes" to installing qemu with Homebrew and "120GB". After the agent finished: a clean shutdown, a copy-on-write backup of the image, `qemu-img resize` to 120 GB, and inside Windows the recovery environment disabled, the old recovery partition removed, C: extended and a recovery partition recreated at the end. C: is 118.7 GB with 67.9 free; Windows restarted healthy with recovery enabled. One scare of the controller's own making: the script printed nothing, because PowerShell's storage output carries NUL bytes and `grep` then treats it as binary; the work had succeeded.
+
 ### 2026-11-21 — N5 becomes Windows: a WinUI 3 spike, and the first runs of slice 6 on the iPad (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **The maintainer's decisions.** "Let's swap a windows implementation for the Kotlin implementation. I have a good Windows VM, but the Kotlin test environment is not great." Then: "C#, WinUI 3", "Android is deferred not cancelled", egui stays the Windows editor until the new shell passes the suite, and the go-ahead for N5 and for installing the .NET tools on the VM. The maintainer also pointed the controller at the earlier notes on reaching the VM, which the controller had not found.

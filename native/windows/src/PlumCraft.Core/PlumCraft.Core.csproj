@@ -1,11 +1,12 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The core through the C ABI (crates/ffi): P/Invoke, the pump, the hot calls. No UI. -->
+  <!-- The core through the C ABI (crates/ffi): P/Invoke, the pump, the feed, the hot calls. No UI. The only
+       project with `unsafe` code (Native.cs and PlumCore.cs's pointer methods). -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Platforms>ARM64;x64</Platforms>
   </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlumCraft.Models\PlumCraft.Models.csproj" />
+  </ItemGroup>
 </Project>

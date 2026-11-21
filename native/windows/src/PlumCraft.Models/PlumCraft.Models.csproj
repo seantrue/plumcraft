@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The contract's types (docs/shell-interface.md, crates/editor-core/schema/shell1.json), hand-written with
+       System.Text.Json source generation. Pure C#: no core, no UI, no pointers. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+  </PropertyGroup>
+</Project>
