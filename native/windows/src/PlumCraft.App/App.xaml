@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- N5 spike: the WinUI 3 application; the window is built in code (MainWindow.cs). -->
+<!-- PlumCraft for Windows: the application. Its windows are built in code (DocWindow.cs, Popouts.cs). -->
 <Application
-    x:Class="PlumCraft.CanvasSpike.App"
+    x:Class="PlumCraft.App.App"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>

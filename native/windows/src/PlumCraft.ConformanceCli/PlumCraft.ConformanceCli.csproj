@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The conformance suite (docs/shell-interface.md 16.1) against a running shell's control port, from
+       C#: the counterpart of the Swift kit's plumcraft-conformance, with the same flags, and `call` for a
+       script's single request. It speaks JSON lines to the port, so it loads no core. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>plumcraft-conformance</AssemblyName>
+    <TargetFramework>net10.0</TargetFramework>
+    <Platforms>ARM64;x64</Platforms>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlumCraft.Conformance\PlumCraft.Conformance.csproj" />
+  </ItemGroup>
+</Project>

@@ -20,6 +20,36 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — N5 slice 2: the Windows app reads and runs (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** N5 is the Windows shell in C# and WinUI 3, on the Composition canvas, with hand-written C# models and no CI (the N4 and N5 cards of 2026-11-21).
+
+**Built (agent; ~4,500 lines of C# added, the spike's ~1,500 removed; no Rust changed).** `native/windows/src/PlumCraft.App`: a window per document, with the menu bar, toolbar and context menus from the core's menu model; a Composition canvas with faces laid out and drawn on workers, wires as shape visuals, culling, and the run wash as compositor animations; asks answered natively; a window per pop-out with picture, text and scalar viewers; light and dark from the system. `PlumCraft.ConformanceCli` is a C# runner for the suite. The canvas spike is removed, its bench kept as the app's `--bench`.
+
+**Gate, on the Windows 11 ARM64 VM.** The read half of the conformance suite passes against the app: 30 of 30 from the C# runner and 31 of 31 from the Swift runner on the Mac over a forwarded port (the Mac reads a case list one case newer). The edit half also passes over the port, 21 of 21. `dotnet test` 34 of 34. The x64 build passes the read half under emulation. At 500 nodes, launch to first frame is about 0.8 s and a one-node change reaches the screen in about 16 ms, one frame at the VM's 64 Hz; the VM draws in software, so these compare approaches and do not judge the budget.
+
+**Defects in the agent's own work, caught by building and running:** a high-contrast subscription that threw so the core never opened; an API newer than the Windows 10 floor; drawing into a Composition surface from a worker; icons never drawn or drawn too large; the canvas drawing over the menus; an empty graph never reaching its first frame; a fit lost before the view had a size; pop-outs stacked on each other; two menus sharing an Alt key; a doubled window title; a probe that left the app running and locked the next build.
+
+**Left wrong, for the next slice.** New, Open, Exit, the close button, About and the zoom keys are done in the shell and not by core commands, which the maintainer's rule does not allow; slice 3 moves them. The prompt says "quit" when one window closes. The canvas cannot take keyboard focus.
+
+**Not verified.** Injected mouse clicks and drags did not arrive after the VM restarted, so clicking was driven through the app's handlers and no person has clicked through it. The VM stopped without explanation during the first input probe; every number above is from after it came back. Nothing was tried on Windows 10 or on a machine with a GPU.
+
+### 2026-11-21 — N4: both Apple builds prepared, nothing sent (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**The maintainer's decisions.** On sending builds to Apple: "Prepare everything, then ask again before each upload". On export compliance: check the binaries and report before setting the flag.
+
+**Prepared (agent; no Rust changed).** The Mac app runs under the hardened runtime with no entitlements, each exception shown to be unneeded. `native/apple/release.sh` builds a universal Mac archive signed by hand with Developer ID into a DMG and an iOS archive with an App Store export, prints the notarization and upload commands and runs neither; `--local` uses no network. Privacy manifests are in both bundles, with the required-reason APIs found in the binaries. Versions come from the workspace and a build number from the command line. Both apps have a placeholder icon the maintainer must replace or approve.
+
+**B47, found and fixed.** A Mac app built for distribution carried no engine programs, so on another Mac the audio engine and process hosting would have failed; the engines are now built for both architectures, signed and put inside the app. **B48:** `build-xcframework.sh` ignored `CARGO_TARGET_DIR`. (The agent numbered these B45 and B46, which the controller had already used that hour for the egui audit's findings in another checkout; renumbered here.)
+
+**Encryption, as facts for the maintainer and not legal advice:** no TLS anywhere (engines speak plain HTTP), hashing only in commonkit, the system's random numbers, and one bundled decryptor, the PDF reader's AES and RC4 for opening encrypted PDFs. The flag is not set.
+
+**Verified locally:** the conformance suite 52 of 52 on three builds including the final exported Developer ID app with the engines inside; engines started as separate processes from inside that app and ran a graph; `codesign --verify --deep --strict` passes; `spctl` rejects with "Unnotarized Developer ID", as expected. `swift test` 81 pass. The Linux gate was not rerun, since no Rust or Python changed.
+
+**Defects in the agent's own work, caught by it:** signature checks piped into `grep -q` failing falsely under `pipefail`; the signing identity chosen by a team id in a certificate's display name; a privacy manifest draft declaring an API the binaries do not use.
+
+**Not verified:** the App Store export (no App Store profile on this Mac); audio through the app itself under the hardened runtime (a probe signed the same way played); anything that needs Apple.
+
 ### 2026-11-21 — N4's device gate: B42, B43, B44, UI tests on a device, and the hitches examined (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** After the first runs on the maintainer's iPad: fix the two device-only failures, make the UI tests able to run on a device, look into the 500-node hitches (the maintainer: "These hitches seem borderline significant (168ms is perceptible)"), and give the controller one command for a device pass. Also two maintainer decisions from the cards: hide Testing kinds from the palette, and the schema's missing `zoom` found by the Windows kit. The agent was forbidden the physical devices.

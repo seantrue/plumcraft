@@ -1,10 +1,11 @@
-// What the spike asks Windows about the display and the GPU: the refresh rate (EnumDisplaySettings
-// and DWM's timing), DWM's frame counters, and the DXGI adapters (is it WARP, a software
-// rasteriser, or a real GPU). Spike code.
+// What the app asks Windows itself (the app's only `unsafe` code: the DXGI vtable calls): the
+// display's refresh rate (EnumDisplaySettings, for the core's frame_ms), DWM's frame counters, the DXGI
+// adapters (WARP, a software rasteriser, or a real GPU: the budgets' caveat), and the double-click time.
+// From the N5 spike.
 
 using System.Runtime.InteropServices;
 
-namespace PlumCraft.CanvasSpike;
+namespace PlumCraft.App;
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct DwmTimingInfo
@@ -61,6 +62,11 @@ public static unsafe class Interop
     static extern uint GetDpiForWindow(IntPtr hwnd);
 
     public static uint Dpi(IntPtr hwnd) => GetDpiForWindow(hwnd);
+
+    [DllImport("user32.dll")]
+    static extern uint GetDoubleClickTime();
+
+    public static uint DoubleClickMs => GetDoubleClickTime();
 
     public static (int hr, DwmTimingInfo info) DwmTiming()
     {

@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- release.sh ios --local: the same archive exported for development with the team's profiles
+     already on this Mac (automatic signing; xcodebuild is not given -allowProvisioningUpdates, so it
+     asks Apple for nothing), to check the export path without an App Store profile. Not for TestFlight. -->
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>debugging</string>
+	<key>destination</key>
+	<string>export</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<key>teamID</key>
+	<string>@TEAM@</string>
+</dict>
+</plist>

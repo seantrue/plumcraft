@@ -7,14 +7,15 @@
 #   MAC_TARGETS=aarch64-apple-darwin PLATFORMS=macos ...     # just this Mac's architecture
 #
 # Least disk: release without debug info, into the workspace's own target/ (one directory per
-# target triple, which cargo makes anyway), no other target directory. The static library holds
+# target triple, which cargo makes anyway), or CARGO_TARGET_DIR when set (a git worktree points it
+# at the main checkout's target/ instead of filling one of its own). The static library holds
 # the session and both in-process engines (text and array; the Swift kit's tests open a core on
 # each); the xcframework's headers are crates/ffi/include. The Swift kit that uses it is the
 # package beside this script (native/apple/PlumCraftFFI: swift build && swift test).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-target_dir="$root/target"
+target_dir="${CARGO_TARGET_DIR:-$root/target}"
 out="$here/PlumCraftFFI/PlumCraftFFI.xcframework"
 headers="$root/crates/ffi/include"
 platforms="${PLATFORMS:-macos ios ios-sim}"

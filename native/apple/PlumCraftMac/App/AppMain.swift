@@ -142,7 +142,7 @@ enum CoreHost {
         let logs = scratch.map { $0.appendingPathComponent("mac-logs").path }
             ?? (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Logs/PlumCraft").path
         // the config (contract 4.1) and the start are the kit's, shared with the iPad app
-        var config = ShellConfig(appID: id, appName: "PlumCraft", version: "0.7.0", storeRoot: store)
+        var config = ShellConfig(appID: id, appName: "PlumCraft", version: ShellConfig.bundleVersion, storeRoot: store)
         // the app's own preferences (the core keeps every setting there, N4 slice 4);
         // PLUMCRAFT_EDITOR_PREFS, which every script sets to scratch, wins in the core
         let prefs = (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)

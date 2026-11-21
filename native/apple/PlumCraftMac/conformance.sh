@@ -5,6 +5,7 @@
 # run the cases over the port, quit the app by its PID. Local runs only (no macOS CI).
 #
 #   native/apple/PlumCraftMac/conformance.sh [read|edit|all]      (default read)
+#   APP=path/PlumCraft.app native/apple/PlumCraftMac/conformance.sh all    (that app, not a fresh build)
 #
 # Prints a CASE line per case and "N of M cases passed, K skipped"; exits non-zero when one failed.
 set -euo pipefail
@@ -27,15 +28,21 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
   PLUMCRAFT_CRAFT_ROOT="$scratch/craft"
 
 cd "$here"
-command -v xcodegen >/dev/null && xcodegen generate --quiet
-# DERIVED: another build folder (a copy of the app running from build/ is left alone)
-derived="${DERIVED:-build}"
-timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
-  -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet
+# APP: an app already built and signed (an exported Developer ID build, say), run as it is
+if [ -n "${APP:-}" ]; then
+  app="$APP/Contents/MacOS/PlumCraft"
+  [ -x "$app" ] || { echo "no app at $APP"; exit 2; }
+else
+  command -v xcodegen >/dev/null && xcodegen generate --quiet
+  # DERIVED: another build folder (a copy of the app running from build/ is left alone)
+  derived="${DERIVED:-build}"
+  timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
+    -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet
+  case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
+  app="$derived/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
+fi
 (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q)
 runner="$kit/.build/release/plumcraft-conformance"
-case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
-app="$derived/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
 
 run_on() {
 status="$scratch/status-$1.json"; rm -f "$status"
