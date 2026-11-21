@@ -78,6 +78,7 @@ pub mod rename_view;
 pub use plumcraft_editor_core::run_anim;
 pub mod run_view;
 pub mod settings_view;
+pub mod shown;
 pub mod slice_view;
 pub mod status_cell;
 pub mod status_msgs;
@@ -343,6 +344,8 @@ pub struct EditorApp {
     pub(crate) restyle: bool,
     /// The Settings window's own state (what isn't a setting).
     pub(crate) settings_ui: settings_view::SettingsUi,
+    /// The system's appearance is dark (egui's `system_theme`), for Match the System.
+    pub(crate) system_dark: bool,
     /// What the application's hooks show this frame ([`app_hooks`]).
     pub app: app_hooks::AppShown,
     /// The Watched panel's display of the application's value for the watched node, which
@@ -469,6 +472,7 @@ impl EditorApp {
             tokens: theme::DEFAULT,
             restyle: false,
             settings_ui: settings_view::SettingsUi::default(),
+            system_dark: false,
             app: app_hooks::AppShown::default(),
             app_display: None,
             watched: Watched::default(),
@@ -634,7 +638,22 @@ impl EditorApp {
 
     /// Apply a theme asked for by `view.theme`.
     fn pump_theme(&mut self, ctx: &egui::Context) {
-        let Some(name) = self.doc.session.views.theme_asked.take() else { return };
+        // the system's appearance, for a theme that follows it (N4 slice 4)
+        self.system_dark = ctx.system_theme().map_or(self.system_dark, |t| t == egui::Theme::Dark);
+        let following = self.prefs.prefs().theme.as_deref() == Some(plumcraft_editor_core::settings::SYSTEM);
+        let name = match self.doc.session.views.theme_asked.take() {
+            Some(n) => n,
+            // following the system: its appearance changed
+            None if following && self.tokens.name != self.system_theme().name => plumcraft_editor_core::settings::SYSTEM.to_owned(),
+            None => return,
+        };
+        if name == plumcraft_editor_core::settings::SYSTEM {
+            let t = self.system_theme();
+            self.tokens.name = t.name;
+            self.set_theme(ctx, &t);
+            self.prefs.set_theme(plumcraft_editor_core::settings::SYSTEM);
+            return;
+        }
         match theme::by_name(&name) {
             Some(t) => {
                 self.tokens.name = t.name;
@@ -642,6 +661,12 @@ impl EditorApp {
             }
             None => self.doc.last_error = Some(format!("no theme called {name:?}")),
         }
+    }
+
+    /// The built-in theme Match the System shows now: Dusk in dark mode, else Paper.
+    fn system_theme(&self) -> Tokens {
+        let name = if self.system_dark { "dusk" } else { "paper" };
+        theme::by_name(name).unwrap_or_else(|| self.tokens.clone())
     }
 
     /// Install the theme, fonts and icon loaders on a context (call once at startup).
@@ -1388,12 +1413,13 @@ impl EditorApp {
         self.doc.build_scene(&tokens, self.shown_anim(), &self.app.texts, &value_editors::scene_editors())
     }
 
-    /// The faces the canvas draws this frame, by id ([`plumcraft_editor_core::scene::faces`]).
-    fn scene_faces(&self) -> std::collections::HashMap<String, plumcraft_editor_core::scene::Face> {
-        let tokens = plumcraft_editor_core::theme::Tokens::from(&self.tokens);
-        let editors = value_editors::scene_editors();
-        let inputs = self.doc.scene_inputs(&tokens, self.shown_anim(), &self.app.texts, &editors);
-        plumcraft_editor_core::scene::faces(&inputs).into_iter().map(|f| (f.id.clone(), f)).collect()
+    /// The faces the canvas draws this frame, by id, with the scene's frames and wires
+    /// ([`plumcraft_editor_core::scene::build`]): faces where they are shown (pushed out of each
+    /// other's way), frames grown round them, wires along the core's routes (N4 slice 4).
+    fn scene_shown(&self) -> (std::collections::HashMap<String, plumcraft_editor_core::scene::Face>, plumcraft_editor_core::scene::Scene) {
+        let mut scene = self.scene_now();
+        let faces = std::mem::take(&mut scene.nodes).into_iter().map(|f| (f.id.clone(), f)).collect();
+        (faces, scene)
     }
 
     /// Tell the core what the canvas measured (`geometry.set`'s, in process): only what changed
@@ -1468,7 +1494,7 @@ impl EditorApp {
         let frame = egui::Frame::new().fill(self.tokens.canvas);
         let source = self.source();
         // what the faces show is the core's scene (N2 slice 2)
-        let faces = self.scene_faces();
+        let (faces, scene) = self.scene_shown();
         let runs = RunView {
             run: &self.doc.session.run,
             thumbs: &mut self.thumbs,
@@ -1477,6 +1503,8 @@ impl EditorApp {
             recent_apps: &self.doc.session.docs.recent_apps,
             anim: (!self.doc.session.views.run_colors_off || self.doc.run_anim.is_replay()).then_some(&self.doc.run_anim),
             faces: &faces,
+            frames: &scene.frames,
+            wires: &scene.wires,
         };
         let actions = egui::CentralPanel::default()
             .frame(frame)

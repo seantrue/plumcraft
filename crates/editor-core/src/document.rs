@@ -226,6 +226,18 @@ pub struct Document {
     pub close_asked: bool,
     /// The folders each kind of file ask last used, for a shell that keeps none (in memory).
     pub folders: prefs::Store,
+    /// Saving the document by itself (`document.open {autosave: true}`, N4 slice 4).
+    pub autosave: crate::autosave::Autosave,
+    /// The look a core shares among its documents (preferences, theme, the system's appearance;
+    /// the C ABI's, N4 slice 4): settings commands are carried out on it, and the scenes are built
+    /// in its tokens. None: the shell keeps its own (the egui editor), or none (tests).
+    pub look: Option<crate::settings::SharedLook>,
+    /// The look's generation this document last took ([`crate::settings::follow`]).
+    pub look_seen: u64,
+    /// Watching a port pops its value out (N4 slice 4: a shell with no Watched panel, the Apple
+    /// apps, where a watch with no window showed nothing): `run.watch {node, port}` from a tap on
+    /// a pin or a Watch menu item ends with the value in a pop-out, brought forward if open.
+    pub watch_pops_out: bool,
     /// What the shell must redo, gathered from the switchboard until the turn hands it over.
     effects: Effects,
     /// Waiting for the first engine.
@@ -333,6 +345,10 @@ impl Document {
             waker: None,
             close_asked: false,
             folders: prefs::Store::default(),
+            autosave: crate::autosave::Autosave::default(),
+            look: None,
+            look_seen: 0,
+            watch_pops_out: false,
             effects: Effects::default(),
             startup: None,
             own_runs: VecDeque::new(),
@@ -811,6 +827,14 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.forget_gone();
     }
     h.after_command(id, &v);
+    if id == "run.watch" && h.doc().watch_pops_out && params.get("port").and_then(Value::as_str).is_some() {
+        // no Watched panel here: the value is shown in its pop-out (opened, or brought forward)
+        let mut p = json!({"node": params.get("node").cloned().unwrap_or(Value::Null), "port": params["port"].clone()});
+        if let Some(i) = params.get("index").filter(|i| !i.is_null()) {
+            p["index"] = i.clone();
+        }
+        let _ = h.run("view.popout", &p);
+    }
     if id == "run.watch" {
         // only what this node needs: a click to look at it runs nothing downstream
         if h.doc().enabled("run.start") {
@@ -1005,6 +1029,10 @@ pub fn pump<H: Holder>(h: &mut H) -> Turn {
         t.again(HELD_OUTBOX);
     }
     pump_saves(h, &mut t);
+    // the document saved by itself once a change has settled (N4 slice 4)
+    if let Some(again) = crate::autosave::tick(h.doc_mut(), now) {
+        t.again(again);
+    }
     // a value arriving from the media service's workers wakes the shell, and what no turn asks
     // for any more is dropped before it is read
     h.doc().media_service.frame();
@@ -1232,7 +1260,14 @@ impl Shell for Document {
     /// `theme.get`: the tokens of the theme the scenes are built in.
     fn theme_tokens(&self) -> Option<Value> {
         let t = self.scene_theme();
-        Some(control::theme_reply(t.name, &t))
+        let mut v = control::theme_reply(t.name, &t);
+        if let Some(look) = &self.look {
+            let l = crate::settings::lock(look);
+            v["chosen"] = json!(l.chosen());
+            v["system"] = l.system.json();
+            v["gen"] = json!(l.generation());
+        }
+        Some(v)
     }
     fn scene_published(&mut self) -> Option<&mut crate::scene::Published> {
         Some(&mut self.scene)
@@ -1283,7 +1318,13 @@ impl Document {
         ((!self.session.views.run_colors_off || self.run_anim.is_replay()) && self.run_anim.is_active(now)).then_some(&self.run_anim)
     }
 
+    /// The tokens this document's scenes are built in: the shared look's ([`crate::settings::Look::tokens`],
+    /// the theme chosen or the system's, with the person's changes and the system's
+    /// accessibility settings), else (no look) the theme `view.theme {name}` last named.
     pub fn scene_theme(&self) -> crate::theme::Tokens {
+        if let Some(look) = &self.look {
+            return crate::settings::lock(look).tokens();
+        }
         self.session.views.theme_asked.as_deref().and_then(crate::theme::by_name).unwrap_or(crate::theme::DEFAULT)
     }
 
@@ -1454,7 +1495,14 @@ impl Holder for Document {
     }
     /// No canvas is drawn here: fit, the palette and reveal are refused, as `ui.set` is.
     fn shell_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
-        if crate::canvas_cmds::is_shells(id) { Err(control::not_here(id)) } else { Ok(v) }
+        if crate::canvas_cmds::is_shells(id) {
+            return Err(control::not_here(id));
+        }
+        // a core with a shared look carries the settings commands out itself (N4 slice 4)
+        match self.look.clone() {
+            Some(look) => crate::settings::after_command(self, &look, id, v),
+            None => Ok(v),
+        }
     }
     fn note_engine_asked(&mut self, asked: bool) {
         self.engine_asked = asked;

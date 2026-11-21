@@ -263,9 +263,10 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         popouts = pops
         let params = ParametersPopover(model: model, canvasView: v)
         parameters = params
-        model.onWindows = { [weak pops, weak params] w in
+        model.onWindows = { [weak pops, weak params, weak model, weak self] w in
             pops?.follow(w)
             params?.params.follow(w)
+            if let model { SettingsWindow.shared.follow(w.settings, model: model, over: self?.window) }
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks

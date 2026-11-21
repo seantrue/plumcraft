@@ -166,6 +166,9 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
         if w.blank || w.value.isNull { return "" }
         if w.kind.word == .number, let d = w.value.double {
             if w.int { return String(Int64(d.rounded())) }
+            // the core's text: at the decimals the value needs, so typing over it loses nothing,
+            // and a slider's float noise never shows (N4 slice 4)
+            if let t = w.text { return t }
             // the whole value, not the face's rounding: typing over it loses nothing
             return w.value.text
         }

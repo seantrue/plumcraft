@@ -74,8 +74,9 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     private func make(_ menus: [MenuItem]) -> NSMenu {
         let bar = NSMenu()
         let app = submenu(bar, appName)
-        let about = app.addItem(withTitle: "About \(appName)", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
-        about.target = NSApp
+        // the standard panel with the core's versions (app.about, N4 slice 4)
+        let about = app.addItem(withTitle: "About \(appName)", action: #selector(about(_:)), keyEquivalent: "")
+        about.target = self
         app.addItem(.separator())
         // Settings… from the model's preferences item, at its shortcut (⌘,)
         if let (key, it) = find(role: .preferences) {
@@ -302,6 +303,10 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         return it.enabled
     }
 
+    @objc func about(_ sender: Any?) {
+        AboutPanel.show(model: source, over: source.flatMap { GraphWindowController.of($0)?.window })
+    }
+
     @objc func run(_ sender: NSMenuItem) {
         guard let it = modelItem(sender), let model = source else { return }
         dispatch(it, model: model)
@@ -318,6 +323,12 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         }
         if command == "app.quit" {
             NSApp.terminate(nil)
+            return
+        }
+        // Settings… (⌘,) runs the core's app.settings like any item: the window follows the
+        // core's view.windows.settings (N4 slice 4)
+        if command == "app.about" {
+            AboutPanel.show(model: model, over: window?.window)
             return
         }
         if command == "canvas.palette", it.params == nil, let v = window?.canvasView {

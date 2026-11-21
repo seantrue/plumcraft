@@ -11,6 +11,10 @@ use crate::{Result, Session, SessionError};
 
 /// The Settings window's tabs.
 pub const TABS: &[&str] = &["appearance", "engines", "cache"];
+/// Every section `app.settings {tab}` may open: the egui window's tabs, and the sections of the
+/// settings model a native shell shows (N4 slice 4; the egui window shows its Appearance tab for
+/// the ones it doesn't have).
+pub const SECTIONS: &[&str] = &["appearance", "colours", "families", "files", "running", "engines", "cache"];
 /// The text sizes the editor takes, in points (the editor's `theme::TEXT_SIZES`).
 pub const TEXT_SIZES: std::ops::RangeInclusive<f64> = 11.0..=18.0;
 /// The UI zooms it takes (`theme::ZOOMS`).
@@ -70,7 +74,7 @@ fn theme_param(p: &Value) -> Result<()> {
 /// `app.settings {tab?, open?}`: open (or close) the Settings window, on a tab.
 fn settings(s: &mut Session, p: &Value) -> Result<Value> {
     let tab = match opt_str_param(p, "tab")? {
-        Some(t) => Some(*TABS.iter().find(|x| **x == t).ok_or_else(|| SessionError::Params(format!("\"tab\" must be one of {}", TABS.join(", "))))?),
+        Some(t) => Some(*SECTIONS.iter().find(|x| **x == t).ok_or_else(|| SessionError::Params(format!("\"tab\" must be one of {}", SECTIONS.join(", "))))?),
         None => None,
     };
     let open = match p.get("open") {
@@ -143,7 +147,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Settings…",
             menu: &["File"],
             shortcut: Some("Cmd+Comma"),
-            params: "{tab?: appearance | engines | cache, open?: bool (default true)} -> {open, tab, theme, themes: [{name, label}], appearance: {textSize, zoom, overrides, fruits, families}, autoEngines, cacheReport}: the Settings window: Appearance (theme, text size, zoom, colours, fruits, theme files), Engines (Pick Engines Automatically), Cache (the Cache Report)",
+            params: "{tab?: appearance | colours | families | files | running | engines | cache, open?: bool (default true)} -> {open, tab, theme, themes: [{name, label}], appearance: {textSize, zoom, overrides, fruits, families}, autoEngines, cacheReport}: the Settings window: Appearance (theme, text size, zoom, colours, fruits, theme files), Engines (Pick Engines Automatically), Cache (the Cache Report)",
             enabled: always,
             run: settings,
             journal: false,
@@ -195,7 +199,7 @@ mod tests {
         assert_eq!(s.execute("app.settings", &json!({"tab": "cache"})).unwrap()["tab"], "cache");
         assert_eq!(s.execute("app.settings", &json!({})).unwrap()["tab"], "cache", "it stays on its tab");
         assert_eq!(s.execute("app.settings", &json!({"open": false})).unwrap(), json!({"open": false, "tab": null}));
-        for bad in [json!({"tab": "colours"}), json!({"tab": 3}), json!({"open": "yes"})] {
+        for bad in [json!({"tab": "palettes"}), json!({"tab": 3}), json!({"open": "yes"})] {
             assert!(s.execute("app.settings", &bad).is_err(), "{bad}");
         }
     }

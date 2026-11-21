@@ -486,7 +486,6 @@ impl Canvas {
                 match (crate::menu_view::action(&item), item.id.as_str()) {
                     (Some(a), _) => actions.push(a),
                     (None, "canvas.reveal") => jump = true,
-                    (None, "rename.net") => self.nets.edit = Some(NameEdit::new(NameFor::Rename(menu.net.clone()), menu.net.name.clone(), menu.screen_pos)),
                     (None, "wire.unlabelAll") => {
                         for w in graph.net_wires(&menu.net) {
                             actions.push(("wire.unlabel", json!({"to": w.to})));

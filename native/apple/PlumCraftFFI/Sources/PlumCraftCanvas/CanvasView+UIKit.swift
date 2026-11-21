@@ -202,18 +202,37 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
 
     // MARK: Following the system's appearance
 
-    /// Paper in light, Dusk in dark (plan 5.5's "follow the system"), as on the Mac.
+    /// The system's appearance, told to the core (`lifecycle.appearance`, N4 slice 4), as on the
+    /// Mac: Match the System follows light and dark; Increase Contrast and Reduce Transparency
+    /// change the tokens.
     public var followsAppearance = true
-    var themeAsked: String?
+    var appearanceTold: JSONValue?
+    var accessibilityObservers: [NSObjectProtocol] = []
+
+    /// What the system's appearance is now, as `lifecycle.appearance` takes it.
+    public var appearanceNow: JSONValue {
+        ["dark": .bool(traitCollection.userInterfaceStyle == .dark),
+         "contrast": (UIAccessibility.isDarkerSystemColorsEnabled || traitCollection.accessibilityContrast == .high) ? "more" : "normal",
+         "reduceMotion": .bool(UIAccessibility.isReduceMotionEnabled),
+         "reduceTransparency": .bool(UIAccessibility.isReduceTransparencyEnabled)]
+    }
 
     public func followAppearance() {
         guard followsAppearance else { return }
-        let name = traitCollection.userInterfaceStyle == .dark ? "dusk" : "paper"
-        if name == themeAsked { return }
-        themeAsked = name
+        if accessibilityObservers.isEmpty {
+            for n in [UIAccessibility.darkerSystemColorsStatusDidChangeNotification, UIAccessibility.reduceMotionStatusDidChangeNotification,
+                      UIAccessibility.reduceTransparencyStatusDidChangeNotification] {
+                accessibilityObservers.append(NotificationCenter.default.addObserver(forName: n, object: nil, queue: .main) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.followAppearance() }
+                })
+            }
+        }
+        let now = appearanceNow
+        if let told = appearanceTold, told.same(now) { return }
+        appearanceTold = now
         let model = self.model
         Task {
-            _ = try? await model.run("view.theme", ["name": .string(name)])
+            _ = try? await model.core.request("lifecycle.appearance", now)
             await model.refreshTheme()
         }
     }

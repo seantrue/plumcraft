@@ -398,6 +398,7 @@ mod tests {
             soft_max: None,
             step: if int { Some(1.0) } else { None },
             decimals: if int { None } else { Some(2) },
+            text: None,
             int,
             choices: Vec::new(),
             path_mode: None,

@@ -92,6 +92,14 @@ targets:
         DEAD_CODE_STRIPPING: YES
         "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
         CODE_SIGN_STYLE: Manual
+      # debug builds only (N4 slice 4, decision 10): the control port may listen on the local
+      # network so the conformance suite runs on the device, and iOS asks the person first with
+      # this text (merged into the Info.plist). A release build has no such key and never binds
+      # beyond loopback.
+      configs:
+        Debug:
+          GENERATE_INFOPLIST_FILE: YES
+          INFOPLIST_KEY_NSLocalNetworkUsageDescription: A debug build of PlumCraft lets its test suite drive it from a Mac on this network.
   # the platform's recognisers driven by XCUITest in the simulator (real taps, long presses, pinches
   # and drags through UIKit, which the conformance suite over the port doesn't reach)
   PlumCraftPadUITests:

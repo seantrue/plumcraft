@@ -169,6 +169,10 @@ pub enum Then {
     ThemeImport,
     /// `theme.export {path}`.
     ThemeExport,
+    /// `graph.saveCopy {path}` (Save a Copy…, N4 slice 4).
+    SaveCopy,
+    /// `graph.move {folder}` (Move…, N4 slice 4).
+    Move,
     /// A command's form: run `command` with the fields.
     Form { command: String },
     /// `edit.paste` the clipboard's text.
@@ -376,6 +380,26 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
         }
         "graph.save" | "graph.saveAs" => {
             ask_save_workflow(h, by, None);
+        }
+        // Save a Copy… and Move… (N4 slice 4): where, then the command
+        "graph.saveCopy" => {
+            let current = h.session().path().map(Path::to_path_buf);
+            let stem = current.as_deref().and_then(Path::file_stem).and_then(|n| n.to_str()).unwrap_or("untitled").to_owned();
+            let params = json!({"purpose": "copy", "title": "Save a Copy", "kinds": [{"label": "Workflow", "extensions": [WORKFLOW_EXT]}],
+                                "name": format!("{stem} copy.json"), "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+            raise(h, Kind::FileSave, params, by, Cont { then: Then::SaveCopy, remember: Some(prefs::keys::WORKFLOW_WRITE) });
+        }
+        "graph.move" => {
+            if h.session().path().is_none() {
+                h.say("save the graph first: it has no file yet".into());
+            } else {
+                let params = json!({"purpose": "move", "title": "Move To", "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+                raise(h, Kind::FolderPick, params, by, Cont { then: Then::Move, remember: Some(prefs::keys::WORKFLOW_WRITE) });
+            }
+        }
+        // Settings › Import… and Export… (N4 slice 4: a native shell's settings ask for the file)
+        "theme.import" | "theme.export" => {
+            theme_file(h, id == "theme.import", by);
         }
         "graph.bundle" => {
             let current = h.session().path().map(Path::to_path_buf);
@@ -714,6 +738,16 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
         (Then::ThemeExport, a) => {
             if let Some(p) = path(&a) {
                 let _ = h.run("theme.export", &json!({"path": p.display().to_string()}));
+            }
+        }
+        (Then::SaveCopy, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.saveCopy", &json!({"path": p.display().to_string()}));
+            }
+        }
+        (Then::Move, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.move", &json!({"folder": p.display().to_string()}));
             }
         }
         (Then::Form { command }, Answer::Values(given)) => {

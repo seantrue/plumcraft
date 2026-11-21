@@ -200,6 +200,9 @@ public final class DocumentModel {
     /// Called when the document's windows changed (`view.windows`: the parameters inspector and
     /// the pop-outs; N4 slice 3), after `onView`.
     @ObservationIgnored public var onWindows: ((Windows) -> Void)?
+    /// The core's look changed (the feed's `prefs`, N4 slice 4): settings shown read them again.
+    @ObservationIgnored public var onPrefs: (() -> Void)?
+    @ObservationIgnored private var prefsGen: UInt64?
     /// Called when the toolbar's buttons changed (the core's toolbar model, N4 slice 3).
     @ObservationIgnored public var onToolbar: (([MenuItem]) -> Void)?
     /// Called when a name editor opened, moved or closed (`view.name`, N4 slice 3).
@@ -286,6 +289,14 @@ public final class DocumentModel {
                 if let st = DocumentState(c), st.gen >= state.gen, st != state {
                     state = st
                     onState?(st)
+                }
+            case .prefs?:
+                // a setting, the theme or the system's appearance changed (N4 slice 4): the
+                // tokens again, and whoever shows the settings
+                if c.gen != prefsGen {
+                    prefsGen = c.gen
+                    Task { await refreshTheme() }
+                    onPrefs?()
                 }
             case nil:
                 break  // a domain this kit doesn't know: skipped

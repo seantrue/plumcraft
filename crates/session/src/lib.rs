@@ -211,6 +211,10 @@ pub struct Session {
     path: Option<PathBuf>,
     /// Changed since it was opened or saved.
     dirty: bool,
+    /// Bumped by every change that makes the graph dirty (an edit, a move, a change that isn't an
+    /// undo step such as Show on Face, undo, redo): what an autosave compares, so a save taken of
+    /// one state never marks a later one saved ([`Session::changes`], N4 slice 4).
+    changes: u64,
     /// Run state: per-node results, staleness, auto-run, requests for the engine.
     pub run: RunState,
     /// The host has a connected engine (runs are offered only then).
@@ -283,6 +287,7 @@ impl Session {
             generation: 0,
             path: None,
             dirty: false,
+            changes: 0,
             run: RunState::for_new_graph(),
             connected: false,
             engines: Engines::default(),
@@ -425,6 +430,31 @@ impl Session {
     /// Has the graph changed since it was opened or saved?
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// How many changes have made the graph dirty, ever: it rises with each one, so an autosave
+    /// knows whether the graph it wrote is still the graph (N4 slice 4).
+    pub fn changes(&self) -> u64 {
+        self.changes
+    }
+
+    /// The graph as of change `as_of` was written to `path` by an autosave: the document's file is
+    /// `path` from now on, and it is clean unless it has changed since (then it stays dirty, and
+    /// the next save takes the later change). True when it is clean.
+    pub fn mark_autosaved(&mut self, path: PathBuf, as_of: u64) -> bool {
+        self.path = Some(path);
+        if self.changes == as_of {
+            self.dirty = false;
+            self.remember_saved();
+        }
+        !self.dirty
+    }
+
+    /// The document's file is `path` from now on, as it is (an autosave given a file before
+    /// anything was written to it): dirty, so the next save writes it.
+    pub fn relocate(&mut self, path: PathBuf) {
+        self.path = Some(path);
+        self.touch();
     }
 
     /// The workflow file this graph was opened from or last saved to.
@@ -606,7 +636,7 @@ impl Session {
         });
         match result {
             Ok(v) => {
-                self.dirty = true;
+                self.touch();
                 self.push_undo(label.to_owned(), before);
                 self.redo.clear();
                 Ok(v)
@@ -642,7 +672,7 @@ impl Session {
         let joined = self.last_move.as_ref().is_some_and(|m| Some(m.step) == top && self.redo.is_empty() && m.joins(&items, drag, now));
         if joined {
             let v = f(&mut self.graph)?;
-            self.dirty = true;
+            self.touch();
             if let Some(m) = &mut self.last_move {
                 m.at = now;
             }
@@ -666,7 +696,13 @@ impl Session {
     }
 
     pub(crate) fn mark_dirty(&mut self) {
+        self.touch();
+    }
+
+    /// Dirty, and one change more.
+    fn touch(&mut self) {
         self.dirty = true;
+        self.changes = self.changes.wrapping_add(1);
     }
 
     /// The graph was written to, or read from, `path`.
@@ -721,7 +757,7 @@ impl Session {
         let Some(prev) = self.undo.pop() else { return false };
         let current = std::mem::replace(&mut self.graph, prev.graph);
         self.redo.push(Snapshot { label: prev.label, graph: current, serial: prev.serial });
-        self.dirty = true;
+        self.touch();
         true
     }
 
@@ -731,7 +767,7 @@ impl Session {
         let current = std::mem::replace(&mut self.graph, next.graph);
         // a step redone is a new step: a move after it doesn't join it
         self.push_undo(next.label, current);
-        self.dirty = true;
+        self.touch();
         true
     }
 }

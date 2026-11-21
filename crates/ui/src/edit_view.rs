@@ -35,6 +35,8 @@
 //! `edit.cut`, one undo step. Align, Distribute and Frame Selection take selected collapsed groups as the one
 //! node they are on the canvas.
 
+use std::collections::HashMap;
+
 use egui::{Pos2, Rect};
 use egui_snarl::{NodeId as SnarlId, Snarl};
 use plumcraft_editor_core::selection::{Mode, Selection, SelectionCell};
@@ -273,6 +275,11 @@ impl Canvas {
     /// The node dragged is the one under the pointer when the button went down
     /// ([`Canvas::drag_anchor`]), not the one under the press point now: after the first frame
     /// of a drag it has left that point.
+    ///
+    /// A face is moved from where it is shown, which a push may have moved from its node's
+    /// position (N4 slice 4, [`crate::shown`]): a node moved is one snarl has away from where the
+    /// canvas put it, and the move names the shown place plus the drag, as the core's own
+    /// gestures do.
     pub(crate) fn drag_moves(&mut self, ctx: &egui::Context, graph: &Graph) -> Vec<Action> {
         if ctx.input(|i| i.pointer.primary_pressed()) {
             let origin = ctx.input(|i| i.pointer.press_origin()).map(|p| self.to_global.inverse() * p);
@@ -284,11 +291,12 @@ impl Canvas {
         let moved: Vec<Moved> = self
             .snarl
             .nodes_pos_ids()
-            .filter_map(|(_, pos, n)| {
-                let was = match &n.proxy {
+            .filter_map(|(sid, pos, n)| {
+                let own = match &n.proxy {
                     Some(p) => graph.group(&p.group)?.pos,
                     None => graph.node(&n.id)?.pos,
                 };
+                let was = self.placed_at(sid).map_or(own, |p| [p.x, p.y]);
                 let now = [pos.x, pos.y];
                 (now != was).then(|| (n.id.clone(), n.proxy.as_ref().map(|p| p.group.clone()), now, was))
             })
@@ -327,6 +335,10 @@ impl Canvas {
             return one(nodes, groups);
         }
         let delta = [now[0] - was[0], now[1] - was[1]];
+        // each from where it is shown: a face's place on the canvas, else the graph's
+        let placed: HashMap<&str, [f32; 2]> =
+            self.snarl.nodes_ids_data().filter_map(|(sid, n)| self.placed_at(sid).map(|p| (n.value.id.0.as_str(), [p.x, p.y]))).collect();
+        let shown = |face: &str, own: [f32; 2]| placed.get(face).copied().unwrap_or(own);
         let by = |p: [f32; 2]| [p[0] + delta[0], p[1] + delta[1]];
         // The selected groups' members move with their group, not again on their own.
         let carried: std::collections::BTreeSet<NodeId> = self.picked.groups().iter().flat_map(|g| graph.group_members(g)).collect();
@@ -335,10 +347,15 @@ impl Canvas {
             .groups()
             .iter()
             .filter(|g| !self.picked.groups().iter().any(|outer| outer != *g && graph.group_subtree(outer).contains(*g)))
-            .filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(grp.pos)))))
+            .filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(shown(&crate::groups_view::proxy_node_id(g).0, grp.pos))))))
             .collect();
-        let nodes: serde_json::Map<String, Value> =
-            self.picked.nodes().iter().filter(|n| !carried.contains(*n)).filter_map(|n| graph.node(n).map(|g| (n.0.clone(), json!(by(g.pos))))).collect();
+        let nodes: serde_json::Map<String, Value> = self
+            .picked
+            .nodes()
+            .iter()
+            .filter(|n| !carried.contains(*n))
+            .filter_map(|n| graph.node(n).map(|g| (n.0.clone(), json!(by(shown(&n.0, g.pos))))))
+            .collect();
         one(nodes, groups)
     }
 

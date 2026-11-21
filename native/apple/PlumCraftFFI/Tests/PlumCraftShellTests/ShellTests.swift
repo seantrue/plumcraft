@@ -121,8 +121,11 @@ let testEnvironment: Void = {
     }
 
     @Test func unbuiltCommandsSaySo() throws {
-        let it = try item(#"[{"id":"s","label":"Settings…","command":"app.settings","enabled":true}]"#)[0]
-        #expect(ShellCommands.notBuilt(it) == "Settings isn't available yet in this app (Settings).")
+        let it = try item(#"[{"id":"m","label":"Messages","command":"view.messages","enabled":true}]"#)[0]
+        #expect(ShellCommands.notBuilt(it) == "Messages isn't available yet in this app (the Messages window).")
+        // built in N4 slice 4: Settings and About
+        #expect(ShellCommands.unbuilt["app.settings"] == nil)
+        #expect(ShellCommands.unbuilt["app.about"] == nil)
         let run = try item(#"[{"id":"r","label":"Run","command":"run.start","enabled":true}]"#)[0]
         #expect(ShellCommands.notBuilt(run) == nil)
         // built in N4 slice 3: the parameters inspector and pop-outs

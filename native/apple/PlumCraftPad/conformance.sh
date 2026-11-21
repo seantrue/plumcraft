@@ -40,8 +40,13 @@ if [ "$half" = gestures ]; then
     -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|TEST (SUCCEEDED|FAILED)'
   exit "${PIPESTATUS[0]}"
 fi
+# a build that fails stops here (N4 slice 4: it used to go on, and ran the app installed before)
+set +e
 timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Release \
-  -derivedDataPath build -destination "id=$sim" build -quiet 2>&1 | grep -v 'appintentsmetadataprocessor' || true
+  -derivedDataPath build -destination "id=$sim" build -quiet 2>&1 | grep -v 'appintentsmetadataprocessor'
+built=${PIPESTATUS[0]}
+set -e
+[ "$built" = 0 ] || { echo "the app didn't build: stopped"; exit 1; }
 (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q)
 runner="$kit/.build/release/plumcraft-conformance"
 xcrun simctl install "$sim" "$here/build/Build/Products/Release-iphonesimulator/PlumCraftPad.app"

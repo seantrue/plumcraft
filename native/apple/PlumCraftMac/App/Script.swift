@@ -97,6 +97,9 @@ struct Script {
         case "end-sheet":
             if let w = window.window, let s = w.attachedSheet { w.endSheet(s, returnCode: .cancel) }
             Status.shared.set("sheet", .null)
+        case "about":
+            // the About panel, ordered as a scripted launch orders windows (N4 slice 4)
+            AboutPanel.show(model: window.canvasView?.model, over: window.window)
         case "theme" where parts.count >= 2:
             NSApp.appearance = NSAppearance(named: parts[1] == "dark" ? .darkAqua : .aqua)
         case "quit":

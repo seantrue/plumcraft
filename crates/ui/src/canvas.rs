@@ -168,6 +168,17 @@ pub struct Canvas {
     /// Rises with every arrow key pressed (not its repeats): what names a nudge's moves, so a
     /// held key is one undo step (N3 slice 1).
     pub(crate) nudge_press: u64,
+    /// Where the canvas last put each node: the scene's place for its face, which a push may
+    /// have moved from the graph's ([`crate::shown`], N4 slice 4).
+    pub(crate) shown_at: HashMap<SnarlId, Pos2>,
+    /// Frames' sizes as the scene shows them, grown round members pushed, by frame id.
+    pub(crate) frame_sizes: HashMap<String, [f32; 2]>,
+    /// The wires between pins with neither bend points nor a net ([`crate::shown::Plain`]).
+    pub(crate) plain: Vec<crate::shown::Plain>,
+    /// The plain wires taken out of the snarl because they run backward, by input.
+    pub(crate) backward_out: std::collections::HashSet<PortRef>,
+    /// Those wires, along the core's route, which the canvas draws itself.
+    pub(crate) backward: Vec<crate::shown::Backward>,
 }
 
 impl Default for Canvas {
@@ -204,6 +215,11 @@ impl Default for Canvas {
             marquee_from: None,
             press: 0,
             nudge_press: 0,
+            shown_at: HashMap::new(),
+            frame_sizes: HashMap::new(),
+            plain: Vec::new(),
+            backward_out: std::collections::HashSet::new(),
+            backward: Vec::new(),
         }
     }
 }
@@ -225,8 +241,12 @@ pub struct RunView<'a> {
     /// The latest run's replay ([`crate::run_anim`]); `None` when run colours are off.
     pub anim: Option<&'a crate::run_anim::RunAnim>,
     /// The faces as the core's scene has them, by id (N2 slice 2): their words, colours, rows,
-    /// previews and footers.
+    /// previews and footers, and where they are shown (N4 slice 4).
     pub faces: &'a HashMap<String, Face>,
+    /// The scene's frames, at the sizes they are shown (grown round members pushed).
+    pub frames: &'a [plumcraft_editor_core::scene::Frame],
+    /// The scene's wires, with the paths the core routes and hit-tests.
+    pub wires: &'a [plumcraft_editor_core::scene::Wire],
 }
 
 // (the tests' names for what the core now words: N2 slice 2)
@@ -335,6 +355,7 @@ impl Canvas {
         let uses: HashMap<&PortRef, [i32; 2]> = scene.nets.iter().flat_map(|n| n.uses.iter().map(|u| (&u.to, u.at))).collect();
         let mut routed = Vec::new();
         let mut labelled = Vec::new();
+        let mut plain = Vec::new();
         for w in &scene.wires {
             let (Some(&a), Some(&b)) = (ids.get(w.from_face.as_str()), ids.get(w.to_face.as_str())) else { continue };
             let pins = |sid: SnarlId| snarl.get_node(sid).map(|n| (n.outputs, n.inputs.len()));
@@ -360,10 +381,16 @@ impl Canvas {
                 }
                 _ => {
                     snarl.connect(from, to);
+                    plain.push(crate::shown::Plain { out: from, inp: to, from: w.from.clone(), to: w.to.clone(), color });
                 }
             }
         }
         self.nets.rebuild(graph, labelled);
+        // every plain wire is snarl's again until the scene says it runs backward (crate::shown)
+        self.plain = plain;
+        self.backward_out.clear();
+        self.backward.clear();
+        self.shown_at = snarl.nodes_pos_ids().map(|(sid, pos, _)| (sid, pos)).collect();
         // (a bend point being dragged stays so until the drag ends, whatever rebuilds the snarl)
         self.routed = routed;
         self.built_wires = crate::edit_view::snarl_wires(&snarl, catalog);
@@ -607,6 +634,8 @@ impl Canvas {
             }
         }
 
+        // faces where the scene shows them, frames grown, backward wires routed (crate::shown)
+        self.follow_scene(&ctx, crate::shown::SceneShown { faces: runs.faces, frames: runs.frames, wires: runs.wires });
         let fit_now = self.fit_frames > 0;
         let mut rects: Vec<Rect> = self
             .snarl
@@ -618,7 +647,7 @@ impl Canvas {
         let node_count = rects.len();
         // Fit takes in the frames too (outside an entered group).
         if self.focus.is_none() {
-            rects.extend(crate::frame_view::frame_rects(graph));
+            rects.extend(crate::frame_view::frame_rects(graph, &self.frame_sizes));
         }
         let mut forced = self.set_transform.take().or_else(|| if fit_now { fit_transform(&rects, self.rect) } else { None });
         if fit_now {
@@ -652,7 +681,7 @@ impl Canvas {
 
         let selected = self.selection();
         let selected_groups = self.selected_groups();
-        let mut routed_paths: Vec<(Vec<Pos2>, egui::Color32)> = self.routed_paths().into_iter().map(|(_, path, color)| (path, color)).collect();
+        let mut routed_paths: Vec<(Vec<Pos2>, egui::Color32)> = self.drawn_paths().into_iter().map(|(_, _, path, color)| (path, color)).collect();
         routed_paths.extend(self.net_paths());
         let mut viewer = NodeViewer {
             graph,
@@ -676,8 +705,8 @@ impl Canvas {
             selected_groups,
             canvas_requests: Vec::new(),
             group_frames: &self.group_frames,
+            frame_sizes: &self.frame_sizes,
             routed_paths,
-            name_request: None,
             dropped_wire: None,
             anim: runs.anim,
             now: std::time::Instant::now(),
@@ -688,9 +717,6 @@ impl Canvas {
         let wire_clicked = viewer.wire_clicked.take();
         let port_label_hovered = viewer.port_hovered.take();
         let canvas_requests = std::mem::take(&mut viewer.canvas_requests);
-        if let Some(edit) = viewer.name_request.take() {
-            self.nets.edit = Some(edit);
-        }
         // a new wire dropped on empty canvas opens the palette there, for kinds that take it
         if let Some(wire) = viewer.dropped_wire.take()
             && let Some(p) = ctx.input(|i| i.pointer.interact_pos())
@@ -936,10 +962,11 @@ struct NodeViewer<'a> {
     canvas_requests: Vec<crate::groups_view::CanvasRequest>,
     /// Open groups' frames to paint under the nodes.
     group_frames: &'a [crate::groups_view::GroupFrame],
-    /// Wires with bend points, to paint under the nodes ([`crate::wire_route`]).
+    /// Frames' sizes as shown ([`crate::shown`]).
+    frame_sizes: &'a HashMap<String, [f32; 2]>,
+    /// Wires with bend points, to paint under the nodes ([`crate::wire_route`]); and those the
+    /// core routes backward round the faces ([`crate::shown`]).
     routed_paths: Vec<(Vec<Pos2>, egui::Color32)>,
-    /// A name editor an input's menu asked for this frame (name or rename a named port).
-    name_request: Option<crate::net_view::NameEdit>,
     /// A new wire dropped on empty canvas, from egui-snarl (`has_dropped_wire_menu`): the end
     /// that stays, as `canvas.palette`'s `wire` (question 8, N3 slice 1).
     dropped_wire: Option<Value>,
@@ -1012,29 +1039,19 @@ impl<'a> NodeViewer<'a> {
         ui.label(egui::RichText::new(format!("{} →", n.name)).monospace().small().color(paint(&n.paint, tokens))).on_hover_text(&n.hover);
     }
 
-    /// An input's right-click menu: name it, or rename or unname its name (the core's menu model).
+    /// An input's right-click menu: name it, or rename or unname its name (the core's menu model;
+    /// naming and renaming are `name.edit`, which opens the name editor: N4 slice 3).
     fn input_menu(&mut self, r: &egui::Response, at: &PortRef, _port: &Port) {
-        let pos = r.rect.left_bottom();
-        let mut request = None;
         // a caption only senses hover; its menu needs the secondary click
         let r = r.interact(egui::Sense::click());
         r.context_menu(|ui| {
             let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
             let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &menu_view::Context::Input { port: at.clone() });
             let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }) else { return };
-            let name = item.params.as_ref().and_then(|p| p.get("name")).and_then(serde_json::Value::as_str).map(str::to_owned);
-            match (menu_view::action(&item), item.id.as_str(), name) {
-                (Some(a), ..) => self.actions.push(a),
-                (None, "rename.port", Some(name)) => {
-                    request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name, pos))
-                }
-                (None, "name.port", _) => request = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::Port(at.clone()), at.port.clone(), pos)),
-                _ => {}
+            if let Some(a) = menu_view::action(&item) {
+                self.actions.push(a);
             }
         });
-        if let Some(edit) = request {
-            self.name_request = Some(edit);
-        }
     }
 
     fn track(&self, info: PinInfo, key: PinKey) -> TrackedPin {
@@ -1592,7 +1609,7 @@ impl SnarlViewer<CanvasNode> for NodeViewer<'_> {
         if let Some(background) = background {
             background.draw(viewport, snarl_style, style, painter);
         }
-        crate::frame_view::paint_frames(painter, self.graph, self.tokens);
+        crate::frame_view::paint_frames(painter, self.graph, self.frame_sizes, self.tokens);
         crate::groups_view::paint_group_frames(painter, self.group_frames, self.tokens);
         // wires with bend points, under the nodes as snarl's are, and as wide: the painter is in
         // graph units, so the zoom scales the stroke as it does snarl's (crate::wire_route)

@@ -113,11 +113,13 @@ public final class CanvasView: NSView, NSMenuItemValidation {
 
     // MARK: Following the system's appearance
 
-    /// Paper in light mode, Dusk in dark (plan 5.5's "follow the system"): the core builds the
-    /// scene in the theme named (`view.theme`), and the canvas redraws when `theme.get` answers.
-    /// Not kept between runs; the egui editor's own theme setting is untouched.
+    /// The system's appearance, told to the core (`lifecycle.appearance`, N4 slice 4): a theme
+    /// that matches the system shows Paper in light mode and Dusk in dark, and Increase Contrast
+    /// and Reduce Transparency change its tokens; the canvas redraws when `theme.get` answers
+    /// (the feed's `prefs`). The theme itself is the core's setting (Settings › Theme).
     public var followsAppearance = true
-    var themeAsked: String?
+    var appearanceTold: JSONValue?
+    var accessibilityObserver: NSObjectProtocol?
 
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
@@ -126,18 +128,31 @@ public final class CanvasView: NSView, NSMenuItemValidation {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        if accessibilityObserver == nil {
+            accessibilityObserver = NSWorkspace.shared.notificationCenter.addObserver(
+                forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
+            ) { [weak self] _ in MainActor.assumeIsolated { self?.followAppearance() } }
+        }
         followAppearance()
     }
 
-    public func followAppearance() {
-        guard followsAppearance else { return }
+    /// What the system's appearance is now, as `lifecycle.appearance` takes it.
+    public var appearanceNow: JSONValue {
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let name = dark ? "dusk" : "paper"
-        if name == themeAsked { return }
-        themeAsked = name
+        let ws = NSWorkspace.shared
+        return ["dark": .bool(dark), "contrast": ws.accessibilityDisplayShouldIncreaseContrast ? "more" : "normal",
+                "reduceMotion": .bool(ws.accessibilityDisplayShouldReduceMotion),
+                "reduceTransparency": .bool(ws.accessibilityDisplayShouldReduceTransparency)]
+    }
+
+    public func followAppearance() {
+        guard followsAppearance, window != nil else { return }
+        let now = appearanceNow
+        if let told = appearanceTold, told.same(now) { return }
+        appearanceTold = now
         let model = self.model
         Task {
-            _ = try? await model.run("view.theme", ["name": .string(name)])
+            _ = try? await model.core.request("lifecycle.appearance", now)
             await model.refreshTheme()
         }
     }

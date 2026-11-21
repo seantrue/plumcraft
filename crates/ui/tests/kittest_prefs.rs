@@ -129,9 +129,10 @@ fn an_unknown_theme_in_the_file_is_ignored_and_a_command_for_one_is_said() {
     std::fs::write(&file, r#"{"theme": "neon"}"#).unwrap();
     let (mut h, _) = editor(&file);
     assert_eq!(h.state().tokens.name, theme::DEFAULT.name);
-    h.state_mut().run("view.theme", &json!({"name": "neon"})).unwrap();
+    // the command for one is refused with the reason (N4 slice 4: as the core's look refuses it)
+    let e = h.state_mut().try_run("view.theme", &json!({"name": "neon"})).unwrap_err();
+    assert!(e.contains("no theme"), "{e}");
     h.run_steps(3);
-    assert!(h.state().last_error.as_deref().unwrap_or_default().contains("no theme"), "{:?}", h.state().last_error);
     assert_eq!(h.state().tokens.name, theme::DEFAULT.name);
 }
 

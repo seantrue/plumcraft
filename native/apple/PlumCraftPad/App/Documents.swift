@@ -224,6 +224,10 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidEnterBackground(_ scene: UIScene) {
         CoreHost.say("info", "scene in the background")
+        // what autosave hasn't written yet is written now, within the time the system allows
+        // (contract 4.4's lifecycle.background, N4 slice 4): a field being edited commits first
+        browser?.graph?.view.endEditing(true)
+        CoreHost.flushForBackground()
     }
 
     // MARK: State restoration

@@ -15,6 +15,8 @@
 //! held when it began, so a frame dragged over a node doesn't collect it (the research software's asks again
 //! at every step); retitling uses [`crate::rename_view`].
 
+use std::collections::HashMap;
+
 use egui::{Color32, Pos2, Rect, Vec2};
 use plumcraft_graph::{Frame, FrameId, Graph};
 use serde_json::{Value, json};
@@ -36,20 +38,24 @@ fn tint(frame: &Frame, tokens: &Tokens) -> Color32 {
     frame.color.as_deref().and_then(parse_hex).unwrap_or(tokens.accent)
 }
 
-fn rect_of(frame: &Frame) -> Rect {
-    Rect::from_min_size(Pos2::new(frame.pos[0], frame.pos[1]), Vec2::new(frame.size[0], frame.size[1]))
+/// A frame's rect as shown: at its position, its size the scene's (`sizes`, grown round members
+/// a push moved: N4 slice 4), else its own.
+fn rect_of(id: &FrameId, frame: &Frame, sizes: &HashMap<String, [f32; 2]>) -> Rect {
+    let size = sizes.get(&id.0).copied().unwrap_or(frame.size);
+    Rect::from_min_size(Pos2::new(frame.pos[0], frame.pos[1]), Vec2::new(size[0], size[1]))
 }
 
-/// The frames' rects in graph coordinates (Fit takes them in).
-pub fn frame_rects(graph: &Graph) -> impl Iterator<Item = Rect> + '_ {
-    graph.frames.values().map(rect_of)
+/// The frames' rects in graph coordinates, as shown (Fit takes them in).
+pub fn frame_rects<'a>(graph: &'a Graph, sizes: &'a HashMap<String, [f32; 2]>) -> impl Iterator<Item = Rect> + 'a {
+    graph.frames.iter().map(|(id, f)| rect_of(id, f, sizes))
 }
 
-/// Paint the frames with snarl's background painter (graph coordinates, under the nodes).
-pub fn paint_frames(painter: &egui::Painter, graph: &Graph, tokens: &Tokens) {
+/// Paint the frames with snarl's background painter (graph coordinates, under the nodes), at the
+/// sizes they are shown.
+pub fn paint_frames(painter: &egui::Painter, graph: &Graph, sizes: &HashMap<String, [f32; 2]>, tokens: &Tokens) {
     let radius = f32::from(tokens.radius) * 2.0;
-    for frame in graph.frames.values() {
-        let r = rect_of(frame);
+    for (id, frame) in &graph.frames {
+        let r = rect_of(id, frame, sizes);
         let c = tint(frame, tokens);
         painter.rect_filled(r, radius, c.gamma_multiply(0.08));
         painter.rect_stroke(r, radius, egui::Stroke::new(1.0, c.gamma_multiply(0.6)), egui::StrokeKind::Inside);
@@ -72,7 +78,8 @@ impl Canvas {
             return actions;
         }
         for (id, frame) in &graph.frames {
-            let screen = Rect::from_min_max(t * rect_of(frame).min, t * rect_of(frame).max);
+            let shown = rect_of(id, frame, &self.frame_sizes);
+            let screen = Rect::from_min_max(t * shown.min, t * shown.max);
             if !screen.intersects(self.rect) {
                 continue;
             }

@@ -94,6 +94,37 @@ impl core::Shell for EditorApp {
     fn scene_published(&mut self) -> Option<&mut plumcraft_editor_core::scene::Published> {
         Some(&mut self.doc.scene)
     }
+    /// `settings.get {fromDisk?}` (N4 slice 4): this window's settings as the core's model, the
+    /// one a native shell renders, so a script reads the same items here.
+    fn settings_model(&mut self, params: &Value) -> Option<Result<Value, String>> {
+        use plumcraft_editor_core::settings;
+        if let Err(e) = core::check_fields(params, &["fromDisk"]) {
+            return Some(Err(e));
+        }
+        let from_disk = match params.get("fromDisk") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Some(Err("fromDisk must be true or false".into())),
+        };
+        let read = if from_disk { self.prefs.path().map(plumcraft_editor_core::prefs::Prefs::load_from) } else { None };
+        let prefs = read.as_ref().unwrap_or_else(|| self.prefs.prefs());
+        let chosen = prefs.theme.as_deref().filter(|t| *t == settings::SYSTEM).unwrap_or(self.tokens.name).to_owned();
+        let shown = if from_disk { prefs.appearance.resolve(self.tokens.name) } else { plumcraft_editor_core::theme::Tokens::from(&self.tokens) };
+        let views = &self.doc.session.views;
+        let facts = settings::Facts {
+            ui_zoom: true,
+            auto_engines: self.doc.session.engines.auto,
+            run_colors: prefs.run_colors.unwrap_or(!views.run_colors_off),
+            anim_ms: if from_disk { prefs.anim_ms.unwrap_or(500) } else { views.anim_ms() },
+            cache_report: views.cache_report,
+        };
+        let system = settings::System { dark: self.system_dark, ..settings::System::default() };
+        let mut v = settings::model(prefs, &chosen, &shown, &system, self.doc.session.generation(), self.doc.session.catalog(), &facts);
+        if from_disk {
+            v["persisted"] = serde_json::json!(self.prefs.path().is_some());
+        }
+        Some(Ok(v))
+    }
     fn view(&self) -> View<'_> {
         View {
             link: self.doc.link.as_ref(),

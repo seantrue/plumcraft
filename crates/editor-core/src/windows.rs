@@ -32,11 +32,16 @@ pub struct Windows {
     /// The pop-outs open, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub popouts: Vec<PopoutWindow>,
+    /// The Settings window is open, on this section (`app.settings {tab?, open?}`, N4 slice 4):
+    /// a native shell shows its own settings window or sheet while it is, and closes it with
+    /// `app.settings {open: false}`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub settings: Option<String>,
 }
 
 impl Windows {
     pub fn is_empty(&self) -> bool {
-        self.parameters.is_none() && self.popouts.is_empty()
+        self.parameters.is_none() && self.popouts.is_empty() && self.settings.is_none()
     }
 }
 
@@ -92,7 +97,7 @@ pub fn of(session: &Session) -> Windows {
             })
         })
         .collect();
-    Windows { parameters, popouts }
+    Windows { parameters, popouts, settings: session.views.settings.clone() }
 }
 
 /// `popout.get {id}`: a pop-out's value, as `ui.inspect`'s `watched` has the panel's

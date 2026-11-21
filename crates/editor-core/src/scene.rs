@@ -486,6 +486,10 @@ pub struct Widget {
     pub step: Option<f64>,
     /// FLOAT: the decimals shown ([`widget_text::float_decimals`]).
     pub decimals: Option<usize>,
+    /// A number as every shell shows it (N4 slice 4: an INT whole, a FLOAT at `decimals`;
+    /// [`widget_text::number_text`]): on the face, in the inspector and while scrubbing.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     pub int: bool,
     pub choices: Vec<Choice>,
     /// `path`: `open`, `save`, `dir`, `files`.
@@ -1521,6 +1525,7 @@ pub fn widget(port: &Port, current: &Value) -> Widget {
         soft_max: port.soft_max,
         step: port.step,
         decimals: None,
+        text: None,
         int: false,
         choices: Vec::new(),
         path_mode: None,
@@ -1548,11 +1553,14 @@ pub fn widget(port: &Port, current: &Value) -> Widget {
         match port.ty.as_str() {
             scalars::FLOAT => {
                 w.kind = "number".into();
-                w.decimals = Some(widget_text::float_decimals(port, current));
+                let d = widget_text::float_decimals(port, current);
+                w.decimals = Some(d);
+                w.text = Some(widget_text::number_text(current, false, d));
             }
             scalars::INT => {
                 w.kind = "number".into();
                 w.int = true;
+                w.text = Some(widget_text::number_text(current, true, 0));
             }
             scalars::BOOL => w.kind = "toggle".into(),
             _ if port.widget.as_deref() == Some(hints::MULTILINE) => w.kind = "multiline".into(),

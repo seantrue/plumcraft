@@ -9,7 +9,7 @@
 //! [`REPLY_DEADLINE`].
 
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{TcpListener, TcpStream};
+use std::net::{IpAddr, TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -217,13 +217,47 @@ pub struct Server {
     listener: Option<JoinHandle<()>>,
 }
 
+/// Is `ip` on this machine or its local network (loopback, a private IPv4 range, link-local, an
+/// IPv6 unique-local address)? A control port bound beyond loopback serves only these peers.
+pub fn is_local(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80 || v6.to_ipv4_mapped().is_some_and(|v4| is_local(IpAddr::V4(v4)))
+        }
+    }
+}
+
+/// This machine's address on its local network: the one it would send from (no packet is
+/// sent: a UDP socket is only connected), when that address is a local one ([`is_local`]) and
+/// not loopback. None without a local network.
+pub fn lan_address() -> Option<IpAddr> {
+    let sock = std::net::UdpSocket::bind(("0.0.0.0", 0)).ok()?;
+    sock.connect(("10.255.255.255", 9)).ok()?;
+    let ip = sock.local_addr().ok()?.ip();
+    (is_local(ip) && !ip.is_loopback() && !ip.is_unspecified()).then_some(ip)
+}
+
 impl Server {
     /// Start serving on `127.0.0.1:port` (0 picks a free one); requests arrive on the returned
     /// receiver, and `wake` is called after each is queued.
     pub fn start(port: u16, token: String, wake: Arc<dyn Fn() + Send + Sync>) -> Result<(Server, Receiver<ControlRequest>), ControlError> {
-        let listener = TcpListener::bind(("127.0.0.1", port)).map_err(|e| ControlError::Io(format!("cannot listen on 127.0.0.1:{port}: {e}")))?;
+        Server::start_on(IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), port, token, wake)
+    }
+
+    /// Start serving on `ip:port`. Beyond loopback (N4 slice 4: a debug build on a device, so the
+    /// conformance suite can drive it) a connection from a peer that isn't on the local network
+    /// ([`is_local`]) is closed at once, before it is read; every connection must still
+    /// authenticate first with the token. The caller decides whether a bind beyond loopback is
+    /// allowed at all (the C ABI's core refuses one without an explicit debug flag and a
+    /// pre-shared token).
+    pub fn start_on(ip: IpAddr, port: u16, token: String, wake: Arc<dyn Fn() + Send + Sync>) -> Result<(Server, Receiver<ControlRequest>), ControlError> {
+        let at = std::net::SocketAddr::new(ip, port);
+        let listener = TcpListener::bind(at).map_err(|e| ControlError::Io(format!("cannot listen on {at}: {e}")))?;
         let bound = listener.local_addr().map(|a| a.port()).unwrap_or(port);
-        listener.set_nonblocking(true).map_err(|e| ControlError::Io(format!("cannot listen on 127.0.0.1:{bound}: {e}")))?;
+        listener.set_nonblocking(true).map_err(|e| ControlError::Io(format!("cannot listen on {ip}:{bound}: {e}")))?;
+        let loopback = ip.is_loopback();
         let (tx, rx) = channel::<ControlRequest>();
         let stop = Arc::new(AtomicBool::new(false));
         let conns: Arc<Mutex<Vec<(u64, TcpStream)>>> = Arc::default();
@@ -234,7 +268,12 @@ impl Server {
                 let (active, next) = (Arc::new(AtomicUsize::new(0)), AtomicU64::new(0));
                 while !stop2.load(Ordering::Acquire) {
                     let mut stream = match listener.accept() {
-                        Ok((s, _)) => s,
+                        // beyond loopback, only the local network's peers are served at all
+                        Ok((s, peer)) if loopback || is_local(peer.ip()) => s,
+                        Ok((s, _)) => {
+                            let _ = s.shutdown(std::net::Shutdown::Both);
+                            continue;
+                        }
                         Err(_) => {
                             std::thread::sleep(ACCEPT_POLL);
                             continue;
@@ -480,5 +519,42 @@ mod tests {
         let _s = TcpStream::connect(addr).unwrap();
         assert!(server.join().unwrap() < Duration::from_secs(3));
         assert!(rx.try_recv().is_err());
+    }
+}
+
+#[cfg(test)]
+mod bind_tests {
+    use super::*;
+    use std::net::{Ipv4Addr, Ipv6Addr};
+
+    #[test]
+    fn local_means_this_machine_or_its_own_network() {
+        for ip in ["127.0.0.1", "10.0.0.5", "172.16.1.1", "192.168.1.20", "169.254.3.4", "::1", "fd12::1", "fe80::1", "::ffff:192.168.0.2"] {
+            assert!(is_local(ip.parse().unwrap()), "{ip}");
+        }
+        for ip in ["8.8.8.8", "1.1.1.1", "172.32.0.1", "2001:4860::8888", "::ffff:8.8.8.8", "0.0.0.0"] {
+            assert!(!is_local(ip.parse().unwrap()), "{ip}");
+        }
+        if let Some(ip) = lan_address() {
+            assert!(is_local(ip) && !ip.is_loopback());
+        }
+    }
+
+    #[test]
+    fn a_server_on_another_address_still_wants_the_token() {
+        // IPv6 loopback: an address other than 127.0.0.1 that never leaves this machine
+        let ip = IpAddr::V6(Ipv6Addr::LOCALHOST);
+        let token = generate_token();
+        let Ok((srv, _rx)) = Server::start_on(ip, 0, token.clone(), Arc::new(|| {})) else {
+            // a host without IPv6 loopback: nothing to show here
+            return;
+        };
+        let mut s = TcpStream::connect((ip, srv.port())).unwrap();
+        let mut r = BufReader::new(s.try_clone().unwrap());
+        writeln!(s, "{}", json!({"id": 1, "method": "auth", "params": {"token": "0".repeat(64)}})).unwrap();
+        let mut line = String::new();
+        r.read_line(&mut line).unwrap();
+        assert!(line.contains("authentication required"), "{line}");
+        let _ = Ipv4Addr::LOCALHOST;
     }
 }

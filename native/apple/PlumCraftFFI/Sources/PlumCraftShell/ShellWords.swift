@@ -22,8 +22,8 @@ public enum ShellCommands {
     /// Commands whose effect is UI these apps don't have yet: choosing one says so, without
     /// running it (it would open state nothing shows). Command id to what is missing.
     public static let unbuilt: [String: String] = [
-        // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout)
-        "app.settings": "Settings", "app.about": "PlumCraft's own About window",
+        // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout);
+        // slice 4 Settings (app.settings) and About (app.about)
         "node.editor": "value editors", "view.messages": "the Messages window",
         "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window",
         "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",

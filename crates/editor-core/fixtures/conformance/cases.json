@@ -738,6 +738,430 @@
         {"call": "menu.get", "expect": {"/result/menus": {"$deep": {"command": "graph.share", "enabled": false}}}},
         {"call": "command.run", "params": {"command": "canvas.selectMode", "params": {"on": "yes"}}, "ok": false}
       ]
+    },
+    {
+      "name": "settings are the core's: a setting set is read back, kept, and reset",
+      "about": "N4 slice 4: settings.get is the model a shell renders (sections, items, kinds, values, the command each is set through); view.animationSpeed and theme.setToken change it, it is read back, and on a shell whose core keeps a preferences file (prefs) what that file holds now has it (what a reopen reads); then both are reset",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "app.settings", "params": {"tab": "colours"}}, "expect": {"/result/open": true, "/result/tab": "colours"}},
+        {"call": "scene.get", "expect": {"/result/view/windows/settings": "colours"}},
+        {"call": "command.run", "params": {"command": "app.settings", "params": {"open": false}}},
+        {"call": "scene.get", "expect": {"/result/view/windows/settings": {"$exists": false}}},
+        {
+          "call": "settings.get",
+          "expect": {
+            "/result/sections/0/id": "appearance",
+            "/result/sections": {
+              "$find": {
+                "where": {
+                  "id": "appearance"
+                },
+                "want": {
+                  "/items/0/command": "view.theme",
+                  "/items/0/kind": "choice"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.animationSpeed",
+            "params": {
+              "ms": 1000
+            }
+          }
+        },
+        {
+          "call": "settings.get",
+          "expect": {
+            "/result/sections": {
+              "$find": {
+                "where": {
+                  "id": "running"
+                },
+                "want": {
+                  "/items/1/value": 1000
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "theme.setToken",
+            "params": {
+              "token": "accent",
+              "color": "#123456"
+            }
+          }
+        },
+        {
+          "call": "settings.get",
+          "expect": {
+            "/result/sections": {
+              "$find": {
+                "where": {
+                  "id": "colours"
+                },
+                "want": {
+                  "/items": {
+                    "$find": {
+                      "where": {
+                        "id": "token.accent"
+                      },
+                      "want": {
+                        "/value": "#123456",
+                        "/changed": true
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "settings.get",
+          "params": {
+            "fromDisk": true
+          },
+          "only": "prefs",
+          "expect": {
+            "/result/persisted": true,
+            "/result/sections": {
+              "$find": {
+                "where": {
+                  "id": "running"
+                },
+                "want": {
+                  "/items/1/value": 1000
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "theme.setToken",
+            "params": {
+              "token": "accent",
+              "color": null
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.animationSpeed",
+            "params": {
+              "ms": null
+            }
+          }
+        },
+        {
+          "call": "settings.get",
+          "expect": {
+            "/result/sections": {
+              "$find": {
+                "where": {
+                  "id": "colours"
+                },
+                "want": {
+                  "/items": {
+                    "$find": {
+                      "where": {
+                        "id": "token.accent"
+                      },
+                      "want": {
+                        "/changed": false
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "a theme chosen is the scene's, and Match the System is one of the built-in themes",
+      "about": "N4 slice 4: view.theme changes the theme every scene is built in; theme.get says which and has every token the scene names; system shows Paper or Dusk by the system's appearance; back to Paper, then Match the System again (the default), so a shell's kept preferences are left as they were",
+      "half": "read",
+      "steps": [
+        {"call": "command.run", "params": {"command": "frame.add", "params": {"title": "Themed", "pos": [0, 0], "size": [200, 120]}}},
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.theme",
+            "params": {
+              "name": "dusk"
+            }
+          }
+        },
+        {
+          "call": "theme.get",
+          "until": {
+            "/result/name": "dusk"
+          },
+          "timeout": 10
+        },
+        {"call": "scene.get", "save": {"scene": "/result"}},
+        {"call": "theme.get", "save": {"theme": "/result"}, "expect": {"/result/name": "dusk"}},
+        {"check": "tokensResolved", "scene": "$scene", "theme": "$theme"},
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.theme",
+            "params": {
+              "name": "system"
+            }
+          }
+        },
+        {
+          "call": "theme.get",
+          "until": {
+            "/result/name": {
+              "$one": [
+                "paper",
+                "dusk"
+              ]
+            }
+          },
+          "timeout": 10
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.theme",
+            "params": {
+              "name": "chartreuse"
+            }
+          },
+          "ok": false
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.theme",
+            "params": {
+              "name": "paper"
+            }
+          }
+        },
+        {
+          "call": "theme.get",
+          "until": {
+            "/result/name": "paper"
+          },
+          "timeout": 10
+        },
+        {"call": "command.run", "params": {"command": "view.theme", "params": {"name": "system"}}, "expect": {"/result/theme": "system"}}
+      ]
+    },
+    {
+      "name": "an autosaved document saves itself once a change settles, and a failure is reported",
+      "about": "N4 slice 4 (contract 4.4): document.autosave turns autosave on with a file in the core's scratch folder; a frame added is on disk once it settles (the file read back matches the graph, the document clean); a file that can't be written is reported failed with its reason and the document stays dirty; then off",
+      "half": "edit",
+      "steps": [
+        {
+          "call": "document.autosave",
+          "params": {
+            "on": true,
+            "scratch": "conformance-autosave.json"
+          },
+          "expect": {
+            "/result/on": true
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "frame.add",
+            "params": {
+              "title": "Kept",
+              "pos": [
+                0,
+                0
+              ],
+              "size": [
+                200,
+                120
+              ]
+            }
+          }
+        },
+        {
+          "call": "document.autosave",
+          "params": {},
+          "until": {
+            "/result/state": "saved"
+          },
+          "timeout": 30,
+          "expect": {
+            "/result/dirty": false,
+            "/result/disk/matches": true
+          }
+        },
+        {
+          "call": "document.autosave",
+          "params": {
+            "path": "/plumcraft-nowhere/autosave.json"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "frame.add",
+            "params": {
+              "title": "Lost",
+              "pos": [
+                300,
+                0
+              ],
+              "size": [
+                200,
+                120
+              ]
+            }
+          }
+        },
+        {
+          "call": "document.autosave",
+          "params": {},
+          "until": {
+            "/result/state": "failed"
+          },
+          "timeout": 30,
+          "expect": {
+            "/result/dirty": true,
+            "/result/error": {
+              "$exists": true
+            }
+          }
+        },
+        {
+          "call": "document.autosave",
+          "params": {
+            "on": false
+          },
+          "expect": {
+            "/result/state": "off"
+          }
+        }
+      ]
+    },
+    {
+      "name": "the control port asks for its token, whatever address it listens on",
+      "about": "N4 slice 4: a driver over the control port (on a device, the local network's) opens a second connection and is refused with a wrong token, and a request sent before authenticating is refused too; the connection the suite runs on authenticated with the pre-shared token",
+      "half": "read",
+      "steps": [
+        {
+          "check": "authRefused",
+          "only": "port"
+        },
+        {
+          "call": "graph.get",
+          "expect": {
+            "/ok": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "a number shows the same text everywhere: an INT whole, a FLOAT at the decimals its port gives",
+      "about": "N4 slice 4 (the maintainer: \"precision should be set to something sensible\"): a FLOAT set to a slider's 0.30000000000000004 shows 0.30 (its port's two decimals, not the float's noise) in the parameters inspector and on the face, and an INT set to 6.7 is 7 and shows 7, never decimals; the scene and parameters.get carry the text so every shell shows the same",
+      "half": "edit",
+      "needs": [
+        "engine:text"
+      ],
+      "steps": [
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "text.widgets",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "n": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "row.set",
+            "params": {
+              "node": "$n",
+              "port": "amount",
+              "value": 0.30000000000000004
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "row.set",
+            "params": {
+              "node": "$n",
+              "port": "count",
+              "value": 6.7
+            }
+          }
+        },
+        {
+          "call": "parameters.get",
+          "params": {
+            "node": "$n"
+          },
+          "expect": {
+            "/result": {
+              "$deep": {
+                "kind": "number",
+                "decimals": 2,
+                "text": "0.30"
+              }
+            }
+          }
+        },
+        {
+          "call": "parameters.get",
+          "params": {
+            "node": "$n"
+          },
+          "expect": {
+            "/result": {
+              "$deep": {
+                "kind": "number",
+                "int": true,
+                "text": "7",
+                "value": 7
+              }
+            }
+          }
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/nodes": {
+              "$deep": {
+                "kind": "number",
+                "text": "0.30"
+              }
+            }
+          }
+        }
+      ]
     }
   ]
 }

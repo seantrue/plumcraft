@@ -62,6 +62,7 @@ use plumcraft_editor_core::engines::{Capabilities, EMPTY_WORKFLOW, EngineKind, L
 use plumcraft_editor_core::geometry::{FaceGeometry, Report, Snapshot};
 use plumcraft_editor_core::invoke;
 use plumcraft_editor_core::link;
+use plumcraft_editor_core::settings::{Look, SharedLook};
 use plumcraft_editor_core::switchboard;
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_host::Connection;
@@ -129,6 +130,34 @@ pub struct Config {
     pub log_level: Option<plumcraft_editor_core::log::Level>,
     /// Where the log file goes (`dirs.logs`, or `log: {dir}`): `plumcraft.log` there, bounded.
     pub log_dir: Option<PathBuf>,
+    /// The preferences file (N4 slice 4): `PLUMCRAFT_EDITOR_PREFS` when it is set (scripts and
+    /// the iPad app point it at scratch or the container), else `dirs.prefs/prefs.json`; none:
+    /// kept in memory for the core's life.
+    pub prefs: Option<PathBuf>,
+    /// The system's appearance at start (`display.dark`, `display.contrast`,
+    /// `display.reduce_motion`, `display.reduce_transparency`); `lifecycle.appearance` changes it.
+    pub system: plumcraft_editor_core::settings::System,
+    /// The application, for About (`app: {name, version, build}`).
+    pub app: AppInfo,
+}
+
+/// The application, as the config names it (contract 4.1's `app`).
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct AppInfo {
+    pub name: Option<String>,
+    pub version: Option<String>,
+    pub build: Option<String>,
+}
+
+/// Where the control channel listens (N4 slice 4).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Bind {
+    /// `127.0.0.1`, as always (the default).
+    Loopback,
+    /// The device's address on its local network (`lan`).
+    Lan,
+    /// An address named.
+    At(std::net::IpAddr),
 }
 
 /// Where the control channel listens, and its token's file (none: a fresh token, printed to
@@ -137,6 +166,13 @@ pub struct Config {
 pub struct ControlConfig {
     pub port: u16,
     pub token_file: Option<PathBuf>,
+    /// A pre-shared token (`control.token`, 64 hex), never printed: what a port beyond loopback
+    /// is opened with when there is no token file.
+    pub token: Option<String>,
+    /// Where it listens (`control.bind`: `loopback`, the default; `lan`; or an address). Anything
+    /// but loopback needs `control.network_debug: true`, which only a debug build of a shell
+    /// sets, and a pre-shared token.
+    pub bind: Bind,
 }
 
 impl Default for Config {
@@ -154,6 +190,9 @@ impl Default for Config {
             media: media_config(None).unwrap_or_default(),
             log_level: None,
             log_dir: None,
+            prefs: None,
+            system: plumcraft_editor_core::settings::System::default(),
+            app: AppInfo::default(),
         }
     }
 }
@@ -183,6 +222,13 @@ impl Config {
             media: media_config(o.get("media"))?,
             log_level: log_level(o.get("log"))?,
             log_dir: log_dir(o)?,
+            prefs: prefs_path(o)?,
+            system: display_system(o.get("display"))?,
+            app: AppInfo {
+                name: o.get("app").and_then(|a| a.get("name")).and_then(Value::as_str).map(|s| s.chars().take(128).collect()),
+                version: o.get("app").and_then(|a| a.get("version")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
+                build: o.get("app").and_then(|a| a.get("build")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
+            },
         })
     }
 
@@ -257,7 +303,70 @@ fn control_config(v: Option<&Value>) -> Result<Option<ControlConfig>, String> {
         Some(Value::String(f)) if !f.trim().is_empty() && !f.contains('\0') => Some(PathBuf::from(f)),
         Some(_) => return Err("config: control.token_file must be a file path".into()),
     };
-    Ok(Some(ControlConfig { port, token_file }))
+    let token = match o.get("token") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(t)) if server::validate_token(t).is_ok() => Some(t.to_ascii_lowercase()),
+        Some(_) => return Err("config: control.token must be 64 hexadecimal characters".into()),
+    };
+    let bind = match o.get("bind") {
+        None | Some(Value::Null) => Bind::Loopback,
+        Some(Value::String(b)) if b == "loopback" => Bind::Loopback,
+        Some(Value::String(b)) if b == "lan" => Bind::Lan,
+        Some(Value::String(b)) => match b.parse::<std::net::IpAddr>() {
+            Ok(std::net::IpAddr::V4(v4)) if v4 == std::net::Ipv4Addr::LOCALHOST => Bind::Loopback,
+            Ok(ip) if ip.is_unspecified() => return Err("config: control.bind must name one address, not every one".into()),
+            Ok(ip) if !server::is_local(ip) => return Err(format!("config: control.bind {ip} isn't on this machine's local network")),
+            Ok(ip) => Bind::At(ip),
+            Err(_) => return Err("config: control.bind must be \"loopback\", \"lan\" or an address".into()),
+        },
+        Some(_) => return Err("config: control.bind must be \"loopback\", \"lan\" or an address".into()),
+    };
+    let debug = match o.get("network_debug") {
+        None | Some(Value::Null) => false,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("config: control.network_debug must be true or false".into()),
+    };
+    if bind != Bind::Loopback {
+        // the port drives the whole app: beyond loopback only for a debug build, and only with a
+        // token the client was given (N4 slice 4, decision 10)
+        if !debug {
+            return Err(
+                "config: control.bind beyond loopback is for debug builds only: it needs control.network_debug, which a release build never sets".into()
+            );
+        }
+        if token.is_none() && token_file.is_none() {
+            return Err("config: control.bind beyond loopback needs a pre-shared token (control.token or control.token_file)".into());
+        }
+    }
+    Ok(Some(ControlConfig { port, token_file, token, bind }))
+}
+
+/// The preferences file: `PLUMCRAFT_EDITOR_PREFS` when set, else `dirs.prefs/prefs.json`, else none.
+fn prefs_path(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, String> {
+    if let Some(p) = std::env::var_os("PLUMCRAFT_EDITOR_PREFS").filter(|p| !p.is_empty()) {
+        return Ok(Some(PathBuf::from(p)));
+    }
+    match o.get("dirs").and_then(|d| d.get("prefs")) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d).join("prefs.json"))),
+        Some(_) => Err("config: dirs.prefs must be a folder's path".into()),
+    }
+}
+
+/// `display.{dark, contrast, reduce_motion, reduce_transparency}`: the system's appearance at start.
+fn display_system(v: Option<&Value>) -> Result<plumcraft_editor_core::settings::System, String> {
+    let Some(d) = v.and_then(Value::as_object) else { return Ok(plumcraft_editor_core::settings::System::default()) };
+    let flag = |k: &str| match d.get(k) {
+        None | Some(Value::Null) => Ok(false),
+        Some(Value::Bool(b)) => Ok(*b),
+        Some(_) => Err(format!("config: display.{k} must be true or false")),
+    };
+    Ok(plumcraft_editor_core::settings::System {
+        dark: flag("dark")?,
+        more_contrast: matches!(d.get("contrast").and_then(Value::as_str), Some("more")),
+        reduce_motion: flag("reduce_motion")?,
+        reduce_transparency: flag("reduce_transparency")?,
+    })
 }
 
 /// `log: {level}`: the log's level, if given.
@@ -717,24 +826,38 @@ impl Core {
         let (control_server, control_rx, control_token_file) = match &config.control {
             None => (None, None, None),
             Some(c) => {
-                let token = server::server_token(c.token_file.as_deref()).map_err(|e| format!("control token: {e}"))?;
+                let token = match &c.token {
+                    Some(t) => t.clone(),
+                    None => server::server_token(c.token_file.as_deref()).map_err(|e| format!("control token: {e}"))?,
+                };
+                let ip = match c.bind {
+                    Bind::Loopback => std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+                    Bind::At(ip) => ip,
+                    Bind::Lan => server::lan_address().ok_or("config: control.bind lan: this device has no address on a local network")?,
+                };
                 let to_core = tx.clone();
                 let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
                     let _ = to_core.send(Msg::Control);
                 });
-                let (srv, rx) = server::Server::start(c.port, token.clone(), wake).map_err(|e| e.to_string())?;
+                let (srv, rx) = server::Server::start_on(ip, c.port, token.clone(), wake).map_err(|e| e.to_string())?;
                 // the token is printed on stderr, as the desktop editor's --control prints it, and
-                // never kept in the log
+                // never kept in the log; a pre-shared one is never printed
                 plumcraft_editor_core::log::redact(&token);
                 let say = |line: &str| plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Info, "ffi", line);
-                say(&format!("plumcraft: control channel on 127.0.0.1:{}", srv.port()));
-                match &c.token_file {
-                    Some(p) => say(&format!("plumcraft: control token in {}", p.display())),
-                    None => say(&format!("plumcraft: control token: {token}")),
+                say(&format!("plumcraft: control channel on {}", std::net::SocketAddr::new(ip, srv.port())));
+                match (&c.token, &c.token_file) {
+                    (Some(_), _) => say("plumcraft: control token as given"),
+                    (None, Some(p)) => say(&format!("plumcraft: control token in {}", p.display())),
+                    (None, None) => say(&format!("plumcraft: control token: {token}")),
                 };
-                (Some(srv), Some(rx), c.token_file.clone())
+                (Some((srv, ip)), Some(rx), c.token_file.clone())
             }
         };
+        // the look every document shares: the preferences (in their file when the config names
+        // one), the theme and the system's appearance (N4 slice 4)
+        let store = config.prefs.clone().map_or_else(plumcraft_editor_core::prefs::Store::default, plumcraft_editor_core::prefs::Store::at);
+        let look: SharedLook = Arc::new(Mutex::new(Look::new(store, config.system)));
+        let app = config.app.clone();
         let thread_shared = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
             .name("plumcraft-ffi-core".into())
@@ -757,6 +880,8 @@ impl Core {
                     log_seen: plumcraft_editor_core::log::last_seq(),
                     menus_at: Instant::now(),
                     scene_at: Instant::now(),
+                    look,
+                    app,
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -839,6 +964,9 @@ enum Held {
 /// The most requests held for one document while its engine connects.
 const MAX_HELD: usize = 256;
 
+/// The longest closing or backgrounding waits for an autosave being written.
+const FLUSH_WAIT: Duration = Duration::from_secs(10);
+
 /// The longest a request adding a node waits for the engine that offers its kind to connect
 /// (decision 8C: engines start as the graph comes to use them).
 const ENGINE_WAIT: Duration = Duration::from_secs(30);
@@ -882,6 +1010,8 @@ struct Doc {
     /// dirty, undo and redo, last error; N3 slice 4), and its generation.
     told: Value,
     told_gen: u64,
+    /// The look's generation last told the shell (`changed`, domain `prefs`, N4 slice 4).
+    prefs_told: u64,
 }
 
 /// The core thread's state: its documents, by id, and what they share.
@@ -905,8 +1035,9 @@ struct Worker {
     /// The control channel's requests (declared before its server, so they drop first and a
     /// connection waiting on one is answered at once).
     control_rx: Option<Receiver<ControlRequest>>,
-    /// The control server; dropping it (the core closing) closes the port and its connections.
-    control_server: Option<server::Server>,
+    /// The control server and the address it listens on; dropping it (the core closing) closes
+    /// the port and its connections.
+    control_server: Option<(server::Server, std::net::IpAddr)>,
     control_token_file: Option<PathBuf>,
     /// The newest log entry the shell was told of (the feed's `log`).
     log_seen: u64,
@@ -914,6 +1045,10 @@ struct Worker {
     menus_at: Instant,
     /// When the documents' scenes were last looked at (`note_scene`).
     scene_at: Instant,
+    /// The look every document shares (N4 slice 4).
+    look: SharedLook,
+    /// The application, for About.
+    app: AppInfo,
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -936,7 +1071,24 @@ impl Worker {
         let (target, extras) = self.engines_for(&session, &opening);
         session.engines.current = Some(target.clone());
         session.engines.can_attach = true;
+        session.about = plumcraft_session::About {
+            title: self.app.name.clone().unwrap_or_else(|| "PlumCraft".into()),
+            version: self.app.version.clone().unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
+            parts: [
+                self.app.build.clone().map(|b| ("Build".to_owned(), b)),
+                Some(("Editor core".to_owned(), env!("CARGO_PKG_VERSION").to_owned())),
+                Some(("Shell interface".to_owned(), plumcraft_editor_core::scene::SHELL.to_string())),
+                Some(("C ABI".to_owned(), crate::PLUM_ABI_VERSION.to_string())),
+            ]
+            .into_iter()
+            .flatten()
+            .collect(),
+        };
         let mut doc = Document::with_media(session, self.shared.media.clone(), false);
+        doc.look = Some(Arc::clone(&self.look));
+        // the Apple apps have no Watched panel: a watch pops its value out (N4 slice 4)
+        doc.watch_pops_out = true;
+        plumcraft_editor_core::settings::follow(&mut doc);
         doc.caps = self.launcher.caps;
         doc.set_waker(Some(self.waker.clone()));
         let launcher = self.launcher.clone();
@@ -960,6 +1112,7 @@ impl Worker {
                 menus_watched: false,
                 told: Value::Null,
                 told_gen: 0,
+                prefs_told: 0,
             },
         );
         id
@@ -1095,8 +1248,12 @@ impl Worker {
                 self.shared.waker.wake();
             }
         }
-        // the documents close: runs cancelled and engines stopped on their workers, not here
+        // the documents close: what autosave hasn't written yet is written first (no edit is lost
+        // on quit), then runs cancelled and engines stopped on their workers, not here
         for (_, mut d) in std::mem::take(&mut self.docs) {
+            if let Err(e) = plumcraft_editor_core::autosave::flush(&mut d.doc, FLUSH_WAIT) {
+                plumcraft_editor_core::log::warn("autosave", &format!("closing: {e}"));
+            }
             for h in std::mem::take(&mut d.held) {
                 self.refuse(h, "the core closed");
             }
@@ -1132,7 +1289,8 @@ impl Worker {
         }
         let s = &d.doc.session;
         let now = json!({"title": control::window_title(s, &Shell::view(&d.doc)), "document": control::document_name(s, &d.doc.document),
-                         "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error});
+                         "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error,
+                         "autosave": d.doc.autosave.status()});
         if now == d.told {
             return;
         }
@@ -1243,6 +1401,18 @@ impl Worker {
                 if d.doc.close_asked {
                     self.close_doc(id);
                     continue;
+                }
+                // the look changed (a setting, the theme, the system's appearance): the document
+                // takes it, and the shell hears (domain `prefs`) so it reads the theme and the
+                // settings again; the scene follows at its next look
+                plumcraft_editor_core::settings::follow(&mut d.doc);
+                let g = plumcraft_editor_core::settings::lock(&self.look).generation();
+                if d.ready && g != d.prefs_told {
+                    d.prefs_told = g;
+                    let mut o = lock(&self.shared.outbox);
+                    let mine = format!("{{\"doc\":{id},\"domain\":\"prefs\"");
+                    o.changed.retain(|c| !c.starts_with(&mine));
+                    o.changed.push(json!({"doc": id, "domain": "prefs", "gen": g}).to_string());
                 }
             }
             self.note_document(id);
@@ -1436,7 +1606,7 @@ impl Worker {
             "ping" => Ok(json!({"pong": true})),
             // where the control channel listens, if it does
             "core.control" => Ok(match &self.control_server {
-                Some(srv) => json!({"port": srv.port(), "tokenFile": self.control_token_file}),
+                Some((srv, ip)) => json!({"port": srv.port(), "tokenFile": self.control_token_file, "bind": ip.to_string(), "loopback": ip.is_loopback()}),
                 None => json!({"port": null}),
             }),
             "spike.stats" => Ok(self.stats()),
@@ -1455,6 +1625,11 @@ impl Worker {
                 None => Err("spike.slowResolve needs {ms}".into()),
             },
             "document.open" => self.document_open(&params),
+            // the shell's life (contract 4.4, N4 slice 4)
+            "lifecycle.background" => Ok(self.background()),
+            "lifecycle.foreground" => control::check_fields(&params, &[]).map(|()| json!({})),
+            "lifecycle.memory" => self.memory(&params),
+            "lifecycle.appearance" => self.appearance(&params),
             "document.list" => Ok(self.document_list()),
             "document.close" => {
                 // the document named in params (as the contract has it), or in the request
@@ -1526,7 +1701,12 @@ impl Worker {
     /// `document.open {demo?, path?}`: a new document on the config's engine (one compiled in is
     /// shared), replying at once with its id; requests for it are held until its engine is there.
     fn document_open(&mut self, p: &Value) -> Result<Value, String> {
-        control::check_fields(p, &["demo", "path"])?;
+        control::check_fields(p, &["demo", "path", "autosave"])?;
+        let autosave = match p.get("autosave") {
+            None | Some(Value::Null) => false,
+            Some(Value::Bool(b)) => *b,
+            Some(_) => return Err("autosave must be a boolean".into()),
+        };
         let demo = match p.get("demo") {
             None | Some(Value::Null) => false,
             Some(Value::Bool(b)) => *b,
@@ -1544,8 +1724,52 @@ impl Worker {
             (None, false) => Opening::Nothing,
         };
         let id = self.open_doc(opening);
+        if let Some(d) = self.docs.get_mut(&id) {
+            d.doc.autosave.set_on(autosave);
+        }
         let title = self.docs.get(&id).map(|d| control::window_title(&d.doc.session, &Shell::view(&d.doc))).unwrap_or_default();
-        Ok(json!({"doc": id, "title": title}))
+        Ok(json!({"doc": id, "title": title, "autosave": autosave}))
+    }
+
+    /// `lifecycle.background {}`: every autosaved document written now, waiting for a save in
+    /// flight (the shell holds the system's background time meanwhile): `{saved: [doc], failed:
+    /// [{doc, error}]}`. Runs go on; a shell whose platform suspends cancels them itself when its
+    /// time runs out (`run.cancel`).
+    fn background(&mut self) -> Value {
+        let (mut saved, mut failed) = (Vec::new(), Vec::new());
+        for (id, d) in &mut self.docs {
+            if !d.doc.autosave.is_on() {
+                continue;
+            }
+            match plumcraft_editor_core::autosave::flush(&mut d.doc, FLUSH_WAIT) {
+                Ok(_) => saved.push(json!(id)),
+                Err(e) => failed.push(json!({"doc": id, "error": e})),
+            }
+        }
+        json!({"saved": saved, "failed": failed})
+    }
+
+    /// `lifecycle.memory {level: "low" | "critical"}`: the media service's decoded values not in
+    /// use dropped (both levels: the core keeps no thumbnails of its own beyond them).
+    fn memory(&mut self, p: &Value) -> Result<Value, String> {
+        control::check_fields(p, &["level"])?;
+        let level = match p.get("level").and_then(Value::as_str) {
+            Some(l @ ("low" | "critical")) => l.to_owned(),
+            _ => return Err("level must be \"low\" or \"critical\"".into()),
+        };
+        let before = self.shared.media.stats().json();
+        self.shared.media.drop_caches();
+        Ok(json!({"level": level, "before": before, "after": self.shared.media.stats().json()}))
+    }
+
+    /// `lifecycle.appearance {dark?, contrast?, reduceMotion?, reduceTransparency?}`: the system's
+    /// appearance changed; a theme that follows the system follows it, and every document's
+    /// shell hears (domain `prefs`).
+    fn appearance(&mut self, p: &Value) -> Result<Value, String> {
+        let mut l = plumcraft_editor_core::settings::lock(&self.look);
+        let system = l.system.with(p)?;
+        let changed = l.set_system(system);
+        Ok(json!({"changed": changed, "chosen": l.chosen(), "shown": l.shown(), "system": l.system.json(), "gen": l.generation()}))
     }
 
     /// `document.list {}`: every open document.
@@ -1575,7 +1799,9 @@ impl Worker {
             Some(_) => return Err("discard must be a boolean".into()),
         };
         let Some(d) = self.docs.get_mut(&doc) else { return Err(format!("no document {doc} is open")) };
-        if discard {
+        // an autosaved document is saved as it closes; only a failed save asks (N4 slice 4)
+        let saved = !discard && d.doc.autosave.is_on() && plumcraft_editor_core::autosave::flush(&mut d.doc, FLUSH_WAIT).is_ok_and(|clean| clean);
+        if discard || saved {
             d.doc.close_asked = true;
         } else {
             invoke::quit(&mut d.doc, By::Script);
