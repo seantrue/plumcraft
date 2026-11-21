@@ -2,15 +2,22 @@
 // column in favor of just the popout window"). The core keeps which values are popped out (the
 // scene's `view.windows.popouts`); here each is shown as the system allows:
 //
-//   a window of its own   where the graph's scene isn't full screen (Stage Manager, windowed
-//                          apps, Split View, an external display): a scene per value, requested
-//                          with its pop-out as the activity, titled with the node and port, closed
-//                          with the window's own controls (`view.close`) or by the core
-//   a sheet               where the graph's scene is full screen (or a new scene is refused): one
-//                          value at a time, with medium and large detents; another value opened
+//   a sheet (the default)  over the graph, with medium and large detents, the graph still in
+//                          sight above it at medium: one value at a time; another value opened
 //                          takes its place (the one it replaces is closed in the core, so what is
-//                          on screen is what the core has); swiped down or Done is `view.close`;
-//                          "Open in New Window" asks for a scene for it
+//                          on screen is what the core has); Done (closing at once) or a swipe
+//                          down is `view.close`
+//   a window of its own   only when the person asks for one ("Open in New Window" in the
+//                          sheet's bar): a scene per value, titled with the node and port, with a
+//                          Close button in its own bar that destroys the scene at once and brings
+//                          the graph's scene back to the front (`view.close`); the window's own
+//                          controls close it too
+//
+// N4 slice 5, the maintainer: "No way to close popout or get back to the main canvas". Slice 3
+// opened a scene of its own for every value whenever the graph's scene wasn't full screen, which
+// on iPadOS 26's windowed apps is always; the system showed it maximised over the graph, and
+// closing it left the graph's scene behind other windows. The sheet is now the default
+// (slice 3's decision 3, answered by the maintainer's use), and a scene only on request.
 //
 // The viewers, plan 8's first three: `picture` (zoomable; Fit and 1:1 are the core's
 // `viewer.zoom`, a double tap toggles them), `text.plain` (Wrap, Monospaced and Show All are the
@@ -21,6 +28,7 @@ import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
 import PlumCraftShell
+import SwiftUI
 import UIKit
 
 /// The pop-outs of one graph, kept in step with the core's.
@@ -34,6 +42,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
     private(set) var models: [UInt64: PopoutModel] = [:]
     /// The pop-outs shown in scenes of their own, by id.
     var scenes: [UInt64: UISceneSession] = [:]
+    /// The pop-outs the person asked to see in a window of their own.
+    private var asWindow: Set<UInt64> = []
     /// The one shown in a sheet.
     private(set) var sheet: (id: UInt64, nav: UINavigationController, vc: PopoutViewController)?
     var onChange: (() -> Void)?
@@ -65,22 +75,35 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         onChange?()
     }
 
-    /// Does the graph's scene leave room for another window (not full screen)?
-    var windowed: Bool {
-        guard let scene = host?.view.window?.windowScene else { return false }
-        return !scene.isFullScreen
-    }
-
     private func present(_ m: PopoutModel) {
-        if windowed {
+        if asWindow.contains(m.id) {
             openScene(m.id)
         } else {
             showSheet(m)
         }
     }
 
+    /// The graph's own scene to the front again (a pop-out's window closed over it).
+    func bringGraphForward() {
+        guard let s = host?.view.window?.windowScene?.session else { return }
+        UIApplication.shared.activateSceneSession(for: UISceneSessionActivationRequest(session: s, userActivity: nil, options: nil)) { _ in }
+    }
+
+    /// The person closed a pop-out's window with its Close button: gone at once, the graph in
+    /// front, and the core told.
+    func closeWindow(_ id: UInt64) {
+        if let s = scenes.removeValue(forKey: id) {
+            UIApplication.shared.requestSceneSessionDestruction(s, options: nil) { _ in }
+        }
+        asWindow.remove(id)
+        bringGraphForward()
+        Task { await models[id]?.close() }
+        onChange?()
+    }
+
     func openScene(_ id: UInt64) {
         guard let doc = model.doc, let m = models[id] else { return }
+        asWindow.insert(id)
         let a = NSUserActivity(activityType: Self.activityType)
         a.userInfo = ["doc": doc, "id": id]
         a.title = m.window.title
@@ -88,7 +111,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         UIApplication.shared.activateSceneSession(for: req) { [weak self] error in
             // refused (a system that won't open another window now): a sheet instead
             CoreHost.say("warn", "a pop-out's window was refused: \(error.localizedDescription)")
-            if let self, let m = self.models[id] { self.showSheet(m) }
+            if let self, let m = self.models[id] {
+                self.asWindow.remove(id)
+                self.showSheet(m)
+            }
         }
     }
 
@@ -103,10 +129,17 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         if sheet?.id == m.id { return }
         let vc = PopoutViewController(popout: m, pictures: pictures)
+        vc.box.onDescribe = { [weak self] in self?.onChange?() }
         vc.navigationItem.title = m.window.title
-        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak m] _ in
-            guard let m else { return }
+        // Done closes at once, whatever the core is doing; the core is told after
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self, weak m] _ in
+            guard let self, let m else { return }
+            if let s = sheet, s.id == m.id {
+                sheet = nil
+                s.nav.dismiss(animated: !CoreHost.options.scratchState)
+            }
             Task { await m.close() }
+            onChange?()
         })
         vc.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "popout-done"
         let more = UIAction(title: "Open in New Window", image: UIImage(systemName: "macwindow.badge.plus")) { [weak self] _ in
@@ -118,6 +151,8 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         vc.navigationItem.leftBarButtonItem = UIBarButtonItem(image: UIImage(systemName: "macwindow.badge.plus"), primaryAction: more)
         vc.navigationItem.leftBarButtonItem?.accessibilityLabel = "Open in New Window"
         let nav = UINavigationController(rootViewController: vc)
+        // opaque: a value is read, not seen through (iPadOS 26 draws a partial sheet as glass)
+        nav.view.backgroundColor = .systemBackground
         nav.modalPresentationStyle = .pageSheet
         if let sp = nav.sheetPresentationController {
             sp.detents = [.medium(), .large()]
@@ -142,8 +177,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
 
     private func closeFromCore(_ id: UInt64) {
         models[id] = nil
+        asWindow.remove(id)
         if let s = scenes.removeValue(forKey: id) {
             UIApplication.shared.requestSceneSessionDestruction(s, options: nil) { _ in }
+            bringGraphForward()
         }
         if let s = sheet, s.id == id {
             sheet = nil
@@ -170,7 +207,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         .array(models.values.sorted { $0.id < $1.id }.map { m in
             var o: [String: JSONValue] = ["id": .uint(m.id), "title": .string(m.window.title), "viewer": m.value?.viewer.map(JSONValue.string) ?? .null,
                                           "shown": .string(scenes[m.id] != nil ? "scene" : (sheet?.id == m.id ? "sheet" : "none"))]
-            if sheet?.id == m.id, let vc = sheet?.vc { o.merge(vc.describe) { a, _ in a } }
+            if sheet?.id == m.id, let vc = sheet?.vc {
+                o.merge(vc.describe) { a, _ in a }
+                o.merge(vc.box.describe) { a, _ in a }
+            }
             return .object(o)
         })
     }
@@ -208,10 +248,11 @@ final class PopoutSceneDelegate: UIResponder, UIWindowSceneDelegate {
         let vc = PopoutViewController(popout: m, pictures: pops.pictures)
         vc.navigationItem.title = m.window.title
         let nav = UINavigationController(rootViewController: vc)
-        // its own close, as the sheet's Done (the window's controls close it too)
-        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .close, primaryAction: UIAction { [weak m] _ in
-            guard let m else { return }
-            Task { await m.close() }
+        // its own Close, as the sheet's Done (the window's controls close it too): the scene goes
+        // at once and the graph's comes back to the front
+        vc.navigationItem.rightBarButtonItem = UIBarButtonItem(title: "Close", primaryAction: UIAction { [weak pops, weak m] _ in
+            guard let pops, let m else { return }
+            pops.closeWindow(m.id)
         })
         vc.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "popout-done"
         w.rootViewController = nav
@@ -227,6 +268,7 @@ final class PopoutSceneDelegate: UIResponder, UIWindowSceneDelegate {
         // the person closed the window (or the core did, which removed it first)
         if pops.scenes.removeValue(forKey: m.id) != nil {
             Task { await m.close() }
+            pops.bringGraphForward()
         }
         pops.onChange?()
     }
@@ -245,11 +287,15 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     private weak var imageScroll: UIScrollView?
     private var restyle: (() -> Void)?
     /// What it shows now, for scripts (`--status-file`).
-    private(set) var describe: [String: JSONValue] = [:]
+    private(set) var describe: [String: JSONValue] = [:] { didSet { box.onDescribe?() } }
+    /// The shared viewers' state (N4 slice 5): tables, outlines, grids, sound, bytes, items.
+    let box: ViewerBox
+    private var hosted: UIHostingController<ViewerView>?
 
     init(popout: PopoutModel, pictures: Pictures) {
         self.popout = popout
         self.pictures = pictures
+        box = ViewerBox(popout: popout, pictures: pictures, muted: CoreHost.options.scratchState || CoreHost.options.statusFile != nil)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -259,6 +305,7 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
+        body.backgroundColor = .systemBackground
         summaryLabel.font = .preferredFont(forTextStyle: .footnote)
         summaryLabel.adjustsFontForContentSizeCategory = true
         summaryLabel.textColor = .secondaryLabel
@@ -287,17 +334,44 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
         if let v = popout.value { show(v) }
     }
 
+    override func present(_ vc: UIViewController, animated: Bool, completion: (() -> Void)? = nil) {
+        PopoverAnchor.ensure(vc, in: view)
+        super.present(vc, animated: animated, completion: completion)
+    }
+
     /// Show `v`, the core's value and the viewer's state.
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
+        box.value = v
+        navigationItem.title = v.title ?? popout.window.title
+        if ViewerBox.handles(v), !(v.viewer == "array.pictures" && (v.views?.count ?? 0) <= 1), v.error == nil || v.error == .null {
+            // a viewer the apps share: SwiftUI follows the value itself
+            shown = v
+            summaryLabel.text = ValueText.summary(v.watched)
+            describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port)]
+            if hosted == nil || current !== hosted?.view {
+                current?.removeFromSuperview()
+                restyle = nil
+                let h = UIHostingController(rootView: ViewerView(box: box))
+                h.view.backgroundColor = .systemBackground
+                addChild(h)
+                hosted = h
+                put(h.view)
+                h.didMove(toParent: self)
+            }
+            return
+        }
         let same = shown.map { $0.data == v.data && $0.picture == v.picture && $0.excerpt == v.excerpt && $0.value == v.value && $0.viewer == v.viewer } ?? false
         shown = v
         navigationItem.title = v.title ?? popout.window.title
         view.window?.windowScene?.title = navigationItem.title
         let w = v.watched
         summaryLabel.text = ValueText.summary(w)
+        let kept = describe
         describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port),
                     "mono": .bool(v.text?.mono ?? false), "wrap": .bool(v.text?.wrap ?? true), "fit": v.fit.map(JSONValue.string) ?? .null]
+        // what the viewer drew stays said while only its state changes (the picture loaded, a reading)
+        if same { for (key, x) in kept where describe[key] == nil { describe[key] = x } }
         if same, current != nil {
             restyle?()
             return
@@ -311,14 +385,38 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
             return
         }
         switch v.viewer {
-        case "picture"?: put(pictureView(v))
-        case "text.plain"?: put(textView(v))
-        case "scalar"?: put(scalarView(v))
+        case "picture"?, "svg"?, "array.pictures"?: put(withBar(pictureView(v)))
+        case "text.plain"?: put(withBar(textView(v)))
+        case "scalar"?: put(withBar(scalarView(v)))
         case nil: put(message(v.summary == nil ? "Run the graph to see this value." : "No value yet."))
         case let other?:
             put(message("\(other): no viewer yet in this app."))
             describe["unavailable"] = .string(other)
         }
+    }
+
+    /// The bar every viewer has (View As, Copy, Share, Save As) over a viewer of this app's own.
+    private func withBar(_ content: UIView) -> UIView {
+        let box = UIView()
+        let h = UIHostingController(rootView: BarHost(box: self.box))
+        guard let hv = h.view else { return content }
+        hv.backgroundColor = .clear
+        addChild(h)
+        for x in [hv, content] {
+            x.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(x)
+        }
+        NSLayoutConstraint.activate([
+            hv.topAnchor.constraint(equalTo: box.topAnchor),
+            hv.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            hv.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            content.topAnchor.constraint(equalTo: hv.bottomAnchor, constant: 2),
+            content.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+        ])
+        h.didMove(toParent: self)
+        return box
     }
 
     private func put(_ v: UIView) {
@@ -392,16 +490,20 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
         let box = UIView()
         let scroll = UIScrollView()
         scroll.backgroundColor = .tertiarySystemBackground
-        scroll.minimumZoomScale = 0.1
-        scroll.maximumZoomScale = 16
+        scroll.minimumZoomScale = 0.05
+        scroll.maximumZoomScale = 64
         scroll.delegate = self
         let image = UIImageView()
         image.contentMode = .scaleToFill
         image.layer.magnificationFilter = .nearest
+        image.isUserInteractionEnabled = true
         scroll.addSubview(image)
         imageView = image
         imageScroll = scroll
         let info = small("")
+        let reading = small("")
+        reading.textColor = .label
+        reading.accessibilityIdentifier = "popout-reading"
         // Fit and 1:1, the core's (`viewer.zoom`)
         let zoom = UISegmentedControl(items: ["Fit", "1:1"])
         zoom.selectedSegmentIndex = v.fit == "1:1" ? 1 : 0
@@ -411,37 +513,122 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
             Task { await p.zoom(to) }
         }, for: .valueChanged)
         zoom.accessibilityIdentifier = "popout-zoom"
-        layout(box, bar: bar([info, zoom]), content: scroll)
+        // the channel shown, the core's (`viewer.picture`): a pull-down of the channels
+        let channel = UIButton(configuration: .borderless())
+        channel.showsMenuAsPrimaryAction = true
+        channel.changesSelectionAsPrimaryAction = true
+        let current = v.state?["picture"]["channel"].string ?? "rgba"
+        channel.menu = UIMenu(children: PictureSource.channels.map { id, label in
+            UIAction(title: label, state: id == current ? .on : .off) { _ in Task { await p.command("viewer.picture", ["channel": .string(id)]) } }
+        })
+        channel.accessibilityIdentifier = "popout-channel"
+        channel.isHidden = v.viewer == "svg"
+        let column = UIStackView(arrangedSubviews: [bar([info, channel, zoom]), reading])
+        column.axis = .vertical
+        column.spacing = 2
+        layout(box, bar: column, content: scroll)
         let double = UITapGestureRecognizer(target: self, action: #selector(togglePictureZoom(_:)))
         double.numberOfTapsRequired = 2
         scroll.addGestureRecognizer(double)
-        restyle = { [weak self, weak zoom] in
-            zoom?.selectedSegmentIndex = self?.shown?.fit == "1:1" ? 1 : 0
-            self?.applyZoom()
-        }
-        let w = v.watched
-        guard let pic = w.picture, let handle = pic.handle else {
+        guard let first = PictureSource.of(v) else {
             info.text = "no picture"
             return box
         }
-        info.text = "\(pic.w) × \(pic.h) · rgba8\(w.media.map { " · \($0)" } ?? "") · loading…"
-        describe["picture"] = ["w": .uint(UInt64(pic.w)), "h": .uint(UInt64(pic.h)), "loaded": false]
+        let ps = PicState(src: first, shown: (Int(v.picture?.w ?? 0), Int(v.picture?.h ?? 0)))
+        objc_setAssociatedObject(scroll, &PicState.key, ps, .OBJC_ASSOCIATION_RETAIN)
         let pics = pictures
+        ps.set = { [weak image, weak self, weak ps] (img: CGImage) in
+            ps?.original = img
+            let c = self?.shown?.state?["picture"]["channel"].string ?? "rgba"
+            Task.detached(priority: .userInitiated) {
+                let shown = PictureSource.isolate(img, channel: c) ?? img
+                await MainActor.run { image?.image = UIImage(cgImage: shown, scale: 1, orientation: .up) }
+            }
+        }
+        restyle = { [weak self, weak zoom] in
+            zoom?.selectedSegmentIndex = self?.shown?.fit == "1:1" ? 1 : 0
+            if let img = ps.original { ps.set?(img) }
+            self?.describe["channel"] = .string(self?.shown?.state?["picture"]["channel"].string ?? "rgba")
+            self?.applyZoom()
+        }
+        // a tap reads the value's own numbers there (the core's, never the 8-bit picture's) and
+        // pins the probe (`viewer.probe`)
+        if v.viewer != "svg" {
+            let tap = UITapGestureRecognizer(target: nil, action: nil)
+            tap.require(toFail: double)
+            let probe = ProbeTap { [weak self, weak image] g in
+                guard let image else { return }
+                let pt = g.location(in: image)
+                let fw = image.bounds.width, fh = image.bounds.height
+                guard fw > 0, fh > 0, let px = PictureSource.pixel(x: Double(pt.x / fw) * Double(ps.shown.w), y: Double(pt.y / fh) * Double(ps.shown.h), shown: ps.shown, full: ps.src.full) else { return }
+                Task {
+                    _ = try? await p.model.run("viewer.probe", ["popout": .uint(p.id), "row": .uint(px.row), "col": .uint(px.col)])
+                    let r = await p.data("probe", ["row": .uint(px.row), "col": .uint(px.col)], timeout: .seconds(5))
+                    reading.text = "row \(px.row), col \(px.col)  " + (r["text"].string ?? r["unavailable"].string ?? r["error"].string ?? "")
+                    self?.describe["reading"] = r
+                }
+            }
+            tap.addTarget(probe, action: #selector(ProbeTap.fire(_:)))
+            objc_setAssociatedObject(image, &ProbeTap.key, probe, .OBJC_ASSOCIATION_RETAIN)
+            image.addGestureRecognizer(tap)
+        }
+        // zoomed in past the picture's own pixels: more detail, once (egui's "scrolling in past
+        // the picture asks for detail"): a picture file decoded larger, an SVG drawn larger, an
+        // array's larger rendition from the core (`viewer.zoom {to: "detail"}`)
+        let media = v.media ?? ""
+        pastPixels = { [weak self, weak scroll, weak image] in
+            guard let scroll, let image, !ps.sharpened, ps.shown.w > 0 else { return }
+            guard scroll.zoomScale * (self?.view.window?.screen.scale ?? 2) > 1.01 else { return }
+            if let sharper = ps.src.sharper(than: max(ps.shown.w, ps.shown.h), v: v) {
+                ps.sharpened = true
+                info.text = (info.text ?? "") + " · reading more detail…"
+                Task {
+                    if let got = await pics.load(sharper.handle, want: sharper.want, px: sharper.px) {
+                        let ratio = CGFloat(ps.shown.w) / CGFloat(max(got.width, 1))
+                        ps.src = PictureSource(handle: sharper.handle, want: sharper.want, px: sharper.px, full: ps.src.full)
+                        ps.shown = (got.width, got.height)
+                        let z = scroll.zoomScale
+                        scroll.zoomScale = 1
+                        image.frame = CGRect(x: 0, y: 0, width: got.width, height: got.height)
+                        scroll.contentSize = image.frame.size
+                        scroll.zoomScale = z * ratio
+                        ps.set?(got.image)
+                        info.text = "\(got.width) × \(got.height) px · detail"
+                        self?.describe["detail"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height))]
+                    }
+                }
+            } else if media == "ndarray", let full = ps.src.full, max(full.w, full.h) > max(ps.shown.w, ps.shown.h) {
+                ps.sharpened = true
+                info.text = (info.text ?? "") + " · asking for detail…"
+                self?.describe["detail"] = "asked"
+                Task { await p.zoom("detail") }
+            }
+        }
+        info.text = "\(ps.shown.w) × \(ps.shown.h) · loading…"
+        describe["picture"] = ["w": .uint(UInt64(ps.shown.w)), "h": .uint(UInt64(ps.shown.h)), "loaded": false]
         Task { [weak self] in
-            guard let got = await pics.load(handle) else {
-                info.text = "\(pic.w) × \(pic.h) · rgba8 · \(pics.failures[handle] ?? "couldn't load")"
+            guard let got = await pics.load(ps.src.handle, want: ps.src.want, px: ps.src.px) else {
+                info.text = pics.failures[ps.src.handle] ?? "couldn't load"
+                self?.describe["failed"] = .string(pics.failures[ps.src.handle] ?? "couldn't load")
                 return
             }
-            image.image = UIImage(cgImage: got.image, scale: 1, orientation: .up)
+            ps.shown = (got.width, got.height)
             image.frame = CGRect(x: 0, y: 0, width: got.width, height: got.height)
             scroll.contentSize = image.frame.size
-            info.text = "\(got.width) × \(got.height) px · rgba8\(w.media.map { " · \($0)" } ?? "")"
+            ps.set?(got.image)
+            image.image = UIImage(cgImage: got.image, scale: 1, orientation: .up)
+            info.text = "\(got.width) × \(got.height) px\(ps.src.full.map { " of \($0.w) × \($0.h)" } ?? "") · \(ps.src.want == "svg" ? "SVG" : (v.media ?? "picture"))"
             self?.view.layoutIfNeeded()
             self?.applyZoom()
             self?.describe["picture"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height)), "loaded": true]
         }
         return box
     }
+
+    /// Called when a pinch ends past the picture's own pixels.
+    private var pastPixels: (() -> Void)?
+
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { pastPixels?() }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
     func scrollViewDidZoom(_ scrollView: UIScrollView) { centrePicture() }
@@ -577,5 +764,65 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
         ])
         describe["scalar"] = .string(text)
         return box
+    }
+}
+
+/// A tap's action as a closure.
+@MainActor
+final class ProbeTap: NSObject {
+    nonisolated(unsafe) static var key: UInt8 = 0
+    let f: (UITapGestureRecognizer) -> Void
+    init(_ f: @escaping (UITapGestureRecognizer) -> Void) { self.f = f }
+    @objc func fire(_ g: UITapGestureRecognizer) { f(g) }
+}
+
+/// The viewers' bar for the value the box holds now.
+struct BarHost: SwiftUI.View {
+    @Bindable var box: ViewerBox
+    var body: some SwiftUI.View {
+        if let v = box.value { ViewerBar(box: box, value: v) }
+    }
+}
+
+/// The Messages sheet (N4 slice 5): the status bar's messages in full, open while the core's
+/// `view.windows.messages` is; Done or a swipe down closes it in the core too.
+@MainActor
+final class PadMessages: NSObject, UIAdaptivePresentationControllerDelegate {
+    let messages: MessagesModel
+    weak var host: GraphViewController?
+    private var sheet: UIViewController?
+
+    init(model: DocumentModel) {
+        messages = MessagesModel(model: model)
+    }
+
+    func follow(_ open: Bool) {
+        if open, sheet == nil, let host {
+            let h = UIHostingController(rootView: MessagesView(messages: messages, done: { [weak self] in self?.closed() }))
+            h.modalPresentationStyle = .formSheet
+            h.presentationController?.delegate = self
+            h.view.accessibilityIdentifier = "messages"
+            sheet = h
+            host.presentReplacing(h)
+        } else if !open, let s = sheet {
+            sheet = nil
+            s.dismiss(animated: !CoreHost.options.scratchState)
+        }
+    }
+
+    /// Done: closed at once, the core told after.
+    func closed() {
+        if let s = sheet {
+            sheet = nil
+            s.dismiss(animated: true)
+        }
+        let m = messages
+        Task { await m.close() }
+    }
+
+    func presentationControllerDidDismiss(_ pc: UIPresentationController) {
+        sheet = nil
+        let m = messages
+        Task { await m.close() }
     }
 }

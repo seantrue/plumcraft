@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N4 slice 5: the remaining viewers, and a pop-out nobody could close (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** A viewer for every core type in both Swift apps, in pop-outs, using the platform's own controls ("Egui is a functional minimum, not an aesthetic maximum"), every viewer action a core command, each tested along the path a person's tap takes.
+
+**The maintainer found a defect by using slice 4's iPad build:** "No way to close popout or get back to the main canvas". Slice 3 opened each pop-out as a scene of its own whenever the graph was not full screen, which on a windowed iPadOS is always, so the value covered the graph with no way back. The conformance case for pop-outs passed throughout, because a script can close what a person cannot. The sheet is now the default on the iPad, with Done; a window only on request.
+
+**What the agent did (~2,400 lines of Rust and ~2,100 of Swift added, tests included).** Viewers for tables (a native table, sorted and paged by the core), JSON (YAML and an outline), audio (play, seek, loop, level, waveform and spectrogram made on the core's workers), pictures (channels, a readout of real values, detail on zoom), arrays, SVG, lists, bytes and pack values; ten viewer and value commands and two read methods in the core; a Messages window; Copy, Share and Save As from a viewer; two array-engine nodes, Array to Audio and its inverse. The spectrogram moved off the editor's thread in egui too (bug B36). Eight new conformance cases, 49 in all; both apps pass 49 of 49 and the iPad UI tests open and close each viewer by tapping.
+
+**Defects in the agent's work, caught by its own runs.** A status entry lost whenever a viewer's state changed; a 64-column picture read as 64 audio channels; a see-through sheet; a playhead that did not move. **One not root-caused:** the iPad app crashed twice in the suite on an unanchored popover; the agent added a guard and a log, and the final run passed. The controller, looking at the pictures, saw the dark iPad sheet still showing the graph through it and a table laid out off-centre; both are carried to slice 6.
+
+**Not done.** Compare, Cache Report, the graph's Parameters window and value editors; drag out of a viewer; a Mac dark set of pictures (the display slept).
+
+**Not verified.** Audible playback in either app (scripted runs never open the audio device). Anything by a person's hand.
+
+**Device measurements (the controller, with the maintainer at the iPad).** The conformance suite ran on a physical iPad for the first time: 41 of 41 on slice 4's debug build. The controller needed five attempts for the device work, two of them avoidable: its script waited five minutes on an address behind the iPad's VPN that it could have rejected at once, and it asked the maintainer for one setting at a time (unlock, VPN, Low Power Mode, Limit Frame Rate) instead of listing them. At 120 Hz, on slice 3's release build: launch 0.15 to 0.3 s, a one-node change 4 to 7 ms through the kit and about 18 ms through the feed, no late frames by the app's count; the system's trace shows hitches at 500 nodes (10 ms per second panning, 29 dragging) where the N0 spike has none, so that part of N3's gate is still not met.
+
+**Missed by the controller in slice 4.** A settings test added in slice 4 fails on the Linux test host about one run in ten (six in ten after this slice, which did not touch that code). Slice 4's gate there passed once and the controller merged on that; this slice's run caught it. Recorded as B41, not yet fixed. Two known intermittent failures (B38, B39) also showed in the full run and passed alone.
+
+**The real store.** With the maintainer's word ("clean store", then "Remove and clean"), the controller removed what slice 4's Python stage had written there by mistake. The agent's list of nine files had missed two more from the same minute; the controller found them by searching the store by time afterwards.
+
 ### 2026-11-20 — N4 slice 4: settings, themes, autosave, the network port, and two defects the maintainer found (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** Settings and themes in both Swift apps, autosave in the core for the iPad, a network control port for debug builds, the suite on the device, and the egui editor catching up with the core's display rules. Asked whether text typed in the palette's search field must be core state, the maintainer said "leave as is."

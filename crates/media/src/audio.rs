@@ -33,8 +33,8 @@ pub const SPEC_HOP: usize = 256;
 pub const SPEC_MAX_FRAMES: usize = 2048;
 /// The dB range the ramp spans, below the loudest cell.
 pub const SPEC_RANGE_DB: f32 = 90.0;
-/// Clips with more samples than this have their spectrogram computed off the UI thread
-/// (about 50 ms of work and more).
+/// About 50 ms of spectrogram work and more (a clip's samples). Since N4 slice 5 (B36) every
+/// spectrogram is made off the shell's thread whatever its size; kept for callers that size work.
 pub const SPEC_SYNC_SAMPLES: usize = 1 << 20;
 
 // ---------- peaks ----------
@@ -181,6 +181,79 @@ impl Clip {
     }
 }
 
+/// A clip's samples where they are: an interleaved (frames, channels) `<f4` blob's bytes, read a
+/// frame at a time (a waveform or a spectrogram of an hour of sound copies nothing).
+#[derive(Debug, Clone, Copy)]
+pub struct Samples<'a> {
+    bytes: &'a [u8],
+    pub channels: usize,
+    pub frames: usize,
+    pub rate: u32,
+}
+
+impl<'a> Samples<'a> {
+    /// Checked as [`Clip::from_blob`] checks.
+    pub fn of(b: &'a Blob, rate: u32) -> Result<Samples<'a>, String> {
+        if b.dtype != "<f4" {
+            return Err(format!("dtype {}, not <f4", b.dtype));
+        }
+        let [frames, ch] = b.shape.as_slice() else { return Err(format!("shape {:?}, not (frames, channels)", b.shape)) };
+        if *ch == 0 || *ch > MAX_CHANNELS as u64 {
+            return Err(format!("{ch} channels"));
+        }
+        if !(1..=1_000_000).contains(&rate) {
+            return Err(format!("sample rate {rate}"));
+        }
+        if frames.checked_mul(*ch).and_then(|n| n.checked_mul(4)) != Some(b.bytes.len() as u64) {
+            return Err(format!("{} bytes for shape {:?}", b.bytes.len(), b.shape));
+        }
+        Ok(Samples { bytes: &b.bytes, channels: *ch as usize, frames: *frames as usize, rate })
+    }
+
+    /// Channel `c` of frame `f` (0 past the end, or not finite).
+    pub fn get(&self, f: usize, c: usize) -> f32 {
+        let i = (f * self.channels + c) * 4;
+        match self.bytes.get(i..i + 4).and_then(|b| <[u8; 4]>::try_from(b).ok()) {
+            Some(b) => {
+                let v = f32::from_le_bytes(b);
+                if v.is_finite() { v } else { 0.0 }
+            }
+            None => 0.0,
+        }
+    }
+
+    /// The channels' mean at frame `f`.
+    pub fn mono(&self, f: usize) -> f32 {
+        (0..self.channels).map(|c| self.get(f, c)).sum::<f32>() / self.channels.max(1) as f32
+    }
+
+    pub fn seconds(&self) -> f64 {
+        self.frames as f64 / f64::from(self.rate.max(1))
+    }
+
+    /// A waveform's overview at `bins` columns a channel (at most [`MAX_PEAK_BINS`]).
+    pub fn peaks(&self, bins: usize) -> Peaks {
+        let bins = bins.clamp(1, MAX_PEAK_BINS as usize);
+        let mut data = vec![[0.0f32, 0.0f32]; self.channels * bins];
+        if self.frames > 0 {
+            for b in 0..bins {
+                let (lo, hi) = (b * self.frames / bins, ((b + 1) * self.frames / bins).max(b * self.frames / bins + 1).min(self.frames));
+                for c in 0..self.channels {
+                    let mut mm = [f32::INFINITY, f32::NEG_INFINITY];
+                    for f in lo..hi {
+                        let v = self.get(f, c);
+                        mm = [mm[0].min(v), mm[1].max(v)];
+                    }
+                    if let Some(d) = data.get_mut(c * bins + b) {
+                        *d = if mm[0] <= mm[1] { mm } else { [0.0, 0.0] };
+                    }
+                }
+            }
+        }
+        Peaks { channels: self.channels, bins, data }
+    }
+}
+
 /// Linear resampling of interleaved stereo from `from` Hz to `to` Hz (at most `max_frames`
 /// frames out). The same rate is a copy.
 pub fn resample_linear(stereo: &[f32], from: u32, to: u32, max_frames: usize) -> Vec<f32> {
@@ -272,15 +345,38 @@ impl Spectro {
     }
 }
 
+/// A spectrogram's colours, quiet to loud (an inferno-like ramp, legible in light and dark): a
+/// position 0..1 (clamped) to straight-alpha RGBA.
+pub fn ramp(t: f32) -> [u8; 4] {
+    const STOPS: [[f32; 3]; 6] = [[0.0, 0.0, 4.0], [40.0, 11.0, 84.0], [120.0, 28.0, 109.0], [187.0, 55.0, 84.0], [249.0, 142.0, 9.0], [252.0, 255.0, 164.0]];
+    let t = if t.is_finite() { t.clamp(0.0, 1.0) } else { 0.0 } * (STOPS.len() - 1) as f32;
+    let i = (t.floor() as usize).min(STOPS.len() - 2);
+    let f = t - i as f32;
+    let (a, b) = (STOPS[i], STOPS[i + 1]);
+    let c = |k: usize| (a[k] + (b[k] - a[k]) * f).round().clamp(0.0, 255.0) as u8;
+    [c(0), c(1), c(2), 255]
+}
+
 /// The spectrogram of `mono` at `rate`: Hann window, `fft`-point FFT, hop `hop` (longer when
 /// more than `max_frames` frames would be needed). Shorter than one window: zero-padded.
 #[cfg(feature = "spectrogram")]
 pub fn spectrogram(mono: &[f32], rate: u32, fft: usize, hop: usize, max_frames: usize) -> Spectro {
+    spectrogram_with(mono.len(), &|i| mono.get(i).copied().unwrap_or(0.0), rate, fft, hop, max_frames)
+}
+
+/// [`spectrogram`] of a clip's samples where they are (no copy of an hour of sound).
+#[cfg(feature = "spectrogram")]
+pub fn spectrogram_of(s: &Samples<'_>, fft: usize, hop: usize, max_frames: usize) -> Spectro {
+    spectrogram_with(s.frames, &|i| s.mono(i), s.rate, fft, hop, max_frames)
+}
+
+#[cfg(feature = "spectrogram")]
+fn spectrogram_with(len: usize, sample: &dyn Fn(usize) -> f32, rate: u32, fft: usize, hop: usize, max_frames: usize) -> Spectro {
     use rustfft::FftPlanner;
     use rustfft::num_complex::Complex;
     let fft = fft.clamp(16, 1 << 16);
     let max_frames = max_frames.max(2);
-    let span = mono.len().saturating_sub(fft);
+    let span = len.saturating_sub(fft);
     let mut hop = hop.max(1);
     if span / hop + 1 > max_frames {
         hop = span.div_ceil(max_frames - 1).max(1);
@@ -297,7 +393,8 @@ pub fn spectrogram(mono: &[f32], rate: u32, fft: usize, hop: usize, max_frames: 
     for f in 0..frames {
         let start = f * hop;
         for (i, (c, w)) in buf.iter_mut().zip(&window).enumerate() {
-            let s = mono.get(start + i).copied().filter(|s| s.is_finite()).unwrap_or(0.0);
+            let s = if start + i < len { sample(start + i) } else { 0.0 };
+            let s = if s.is_finite() { s } else { 0.0 };
             *c = Complex::new(s * w, 0.0);
         }
         plan.process_with_scratch(&mut buf, &mut scratch);

@@ -30,6 +30,7 @@ pub mod raster;
 pub mod service;
 #[cfg(feature = "svg")]
 pub mod svg;
+pub mod table;
 
 pub use raster::Rgba;
-pub use service::{Blocking, Config, Fetch, Made, MediaService, Source, Want};
+pub use service::{Blocking, Config, Fetch, Made, MediaService, Source, Want, derived_key, parse_derived};

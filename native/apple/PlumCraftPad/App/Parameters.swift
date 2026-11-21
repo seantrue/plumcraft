@@ -59,6 +59,13 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
         l.navigationItem.title = r.title
         l.navigationItem.rightBarButtonItem = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
             guard let self else { return }
+            // closes at once, whatever the core is doing; the core is told after
+            if let n = nav {
+                closingFromCore = true
+                nav = nil
+                list = nil
+                n.dismiss(animated: true)
+            }
             Task { await self.params.close() }
         })
         l.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "parameters-done"

@@ -41,6 +41,7 @@ pub mod settings_cmds;
 pub mod trust;
 pub mod view_cmds;
 pub mod viewer_cmds;
+pub mod viewer_state;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};

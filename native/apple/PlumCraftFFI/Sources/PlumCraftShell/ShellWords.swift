@@ -24,7 +24,8 @@ public enum ShellCommands {
     public static let unbuilt: [String: String] = [
         // N4 slice 3 built the parameters inspector (node.parameters) and pop-outs (view.popout);
         // slice 4 Settings (app.settings) and About (app.about)
-        "node.editor": "value editors", "view.messages": "the Messages window",
+        // N4 slice 5 the Messages window (view.messages)
+        "node.editor": "value editors",
         "run.cacheReport": "the Cache Report", "view.params": "the graph's Parameters window",
         "engine.attach": "Attach…", "engine.install": "Install Engine…", "view.compare": "Compare",
     ]

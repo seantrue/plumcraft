@@ -51,7 +51,7 @@ pub fn engine() -> Engine {
         salt: plumcraft_engine::salt(&format!("rs:plumcraft-array+{version}"), &plumcraft_engine::code_digest!()),
         ..Default::default()
     };
-    let mut e = Engine::new(info).with_wire_type(core_types::array()).with_svg().with_wire_type(core_types::image());
+    let mut e = Engine::new(info).with_wire_type(core_types::array()).with_svg().with_wire_type(core_types::image()).with_wire_type(core_types::audio());
     // PDF, as the craft packs declare it, so their exports cross into Rasterize PDF
     e = e.with_wire_type(WireType { id: "PDF".into(), media: Media::Bytes, ..Default::default() });
     // and video (FilmCraft's exports), into Video to Array

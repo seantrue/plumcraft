@@ -113,19 +113,8 @@ pub fn nonblocking(media: &MediaService) -> impl Fn(&DataRef) -> Option<Blob> + 
 /// test there holds the two to the same first choice for these media. A value no viewer here takes
 /// is `hex`.
 pub fn default_viewer(d: &plumcraft_proto::display::Display) -> &'static str {
-    use plumcraft_proto::catalogue::Media;
-    match d.media {
-        Media::Image => "picture",
-        Media::Vector => "svg",
-        Media::Doc => "doc",
-        Media::Ndarray => "array.pictures",
-        Media::Audio => "audio",
-        Media::Table => "table.grid",
-        Media::Text => "text.plain",
-        Media::Scalar => "scalar",
-        Media::Tree => "yaml",
-        _ => "hex",
-    }
+    // N4 slice 5: the first the core's registry offers (`viewers::offered`, egui's order)
+    crate::viewers::offered(d).first().map_or("hex", |(id, _)| id)
 }
 
 /// The Watched panel's value as the core has it (`ui.inspect`'s `watched` on a shell with no

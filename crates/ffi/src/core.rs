@@ -512,34 +512,12 @@ impl Lease {
 
 /// What a `derive:` key (`docs/shell-interface.md` 10.2) or a plain handle asks for.
 pub fn parse_key(key: &str) -> Option<(String, Want)> {
-    let Some(rest) = key.strip_prefix("derive:") else { return Some((key.to_owned(), Want::Bytes)) };
-    let (kind, rest) = rest.split_once(':')?;
-    let px = |r: &str| -> Option<(String, u32)> {
-        let (h, px) = r.rsplit_once('@')?;
-        let px = px.parse::<u32>().ok().filter(|p| (1..=plumcraft_media::decode::MAX_TEXTURE_SIDE).contains(p))?;
-        Some((h.to_owned(), px))
-    };
-    let (handle, want) = match kind {
-        "rgba" => (rest.to_owned(), Want::Rendition),
-        "peaks" => (rest.to_owned(), Want::Peaks),
-        "numbers" => (rest.to_owned(), Want::Numbers),
-        "image" => px(rest).map(|(h, p)| (h, Want::Picture(p)))?,
-        "svg" => px(rest).map(|(h, p)| (h, Want::Svg(p)))?,
-        _ => return None,
-    };
-    (!handle.is_empty()).then_some((handle, want))
+    plumcraft_media::parse_derived(key)
 }
 
 /// The key `plum_blob` lends `want` of `handle` by.
 pub fn key_for(handle: &str, want: Want) -> String {
-    match want {
-        Want::Bytes => handle.to_owned(),
-        Want::Rendition => format!("derive:rgba:{handle}"),
-        Want::Peaks => format!("derive:peaks:{handle}"),
-        Want::Numbers => format!("derive:numbers:{handle}"),
-        Want::Picture(px) => format!("derive:image:{handle}@{px}"),
-        Want::Svg(px) => format!("derive:svg:{handle}@{px}"),
-    }
+    plumcraft_media::derived_key(handle, want)
 }
 
 /// A fetch as `media.get` replies and `plum_poll`'s `media` reports it.
@@ -564,6 +542,16 @@ fn describe(handle: &str, want: Want, f: &Fetch<Made>) -> Value {
             v["channels"] = json!(p.channels);
             v["bins"] = json!(p.bins);
         }
+        Fetch::Ready(Made::Table(t)) => {
+            v["format"] = json!("table");
+            v["rows"] = json!(t.rows);
+            v["columns"] = json!(t.columns.len());
+        }
+        Fetch::Ready(Made::Order(o)) => {
+            v["format"] = json!("order");
+            v["len"] = json!(o.len() * 4);
+        }
+        Fetch::Ready(Made::Json(_)) => v["format"] = json!("json"),
         Fetch::Failed(why) => v["reason"] = json!(why),
         Fetch::Pending | Fetch::Missing => {}
     }
@@ -713,6 +701,10 @@ impl Shared {
             Fetch::Ready(Made::Bytes(b)) => Ok(if want == Want::Bytes { Lease::Blob(self.lend(&handle, b)) } else { Lease::Blob(b) }),
             Fetch::Ready(Made::Picture(p)) => Ok(Lease::Picture(p)),
             Fetch::Ready(Made::Peaks(p)) => Ok(Lease::Bytes(Arc::new(p.data.iter().flat_map(|[a, b]| [a.to_le_bytes(), b.to_le_bytes()]).flatten().collect()))),
+            // the order of a table's rows, as little-endian u32s
+            Fetch::Ready(Made::Order(o)) => Ok(Lease::Bytes(Arc::new(o.iter().flat_map(|i| i.to_le_bytes()).collect()))),
+            // a table or a tree is read through `viewer.data`, never lent as bytes
+            Fetch::Ready(Made::Table(_) | Made::Json(_)) => Err(crate::PLUM_ERR_ARG),
             Fetch::Pending => Err(crate::PLUM_PENDING),
             Fetch::Missing => Err(crate::PLUM_ERR_MISSING),
             Fetch::Failed(_) => Err(crate::PLUM_ERR_UNREADABLE),
@@ -1836,7 +1828,9 @@ impl Worker {
             "image" => Want::Picture(px),
             "svg" => Want::Svg(px),
             "numbers" => Want::Numbers,
-            other => return Err(format!("want {other:?}: one of bytes, rgba, peaks, image, svg, numbers")),
+            "waveform" => Want::Waveform(px),
+            "spectrogram" => Want::Spectrogram,
+            other => return Err(format!("want {other:?}: one of bytes, rgba, peaks, image, svg, numbers, waveform, spectrogram")),
         };
         let r = self.shared.reference(handle).map_err(|_| format!("{handle:?} is not a value this core has seen, nor a handle"))?;
         Ok(describe(handle, want, &self.shared.media.get(&r, want)))

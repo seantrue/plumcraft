@@ -572,6 +572,46 @@ public struct PopoutValue: Codable, Hashable, Sendable {
     public var text: TextView?
     /// The whole-view zoom asked for: "fit", "1:1", or nil (fit).
     public var fit: String?
+    // N4 slice 5: the viewer's state and what it needs beyond the value
+    /// The viewer's state, the core's (`viewer.table`, `viewer.tree`, `viewer.audio`,
+    /// `viewer.picture`, `viewer.grid`, `viewer.hex`): `{table, tree, audio, picture, grid, hex}`.
+    public var state: JSONValue?
+    /// The viewers offered for the value, its default first.
+    public var viewers: [OfferedViewer]?
+    /// The wire type (`TABLE`, `AUDIO`, `x.pack…`).
+    public var type: String?
+    /// A list's length and the item shown.
+    public var items: UInt64?
+    public var index: Int64?
+    /// The full value's form (`{kind: "audio", sample_rate, channels, frames}`, an array's shape…).
+    public var form: JSONValue?
+    /// The full value's size in bytes, its media type and handle.
+    public var bytes: UInt64?
+    public var mediaType: String?
+    public var handle: String?
+    /// An array's channel statistics (`[{name, min, max, nan}]`, numbers as the core's text).
+    public var stats: JSONValue?
+    /// An array's pictures, one per view (`[{ref, caption, w, h}]`).
+    public var views: [ViewPicture]?
+    /// A sound's waveform overview (`{ref, bins, channels}`).
+    public var peaks: JSONValue?
+    /// A list's items (`[{index, label, summary, thumb?: {ref, w, h}}]`).
+    public var sheet: JSONValue?
+
+    public struct OfferedViewer: Codable, Hashable, Sendable {
+        public var id: String
+        public var label: String
+        /// The Apple shells draw it (else the engine's picture stands in, contract 13.3).
+        public var native: Bool?
+    }
+
+    public struct ViewPicture: Codable, Hashable, Sendable {
+        public var ref: JSONValue
+        public var caption: String?
+        public var w: UInt32
+        public var h: UInt32
+        public var handle: String? { ref["handle"].string }
+    }
 
     public struct TextView: Codable, Hashable, Sendable {
         public var wrap: Bool

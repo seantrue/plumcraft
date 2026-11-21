@@ -20,6 +20,7 @@
 // background never comes forward).
 
 import AppKit
+import SwiftUI
 import PlumCraft
 import PlumCraftCanvas
 import PlumCraftKit
@@ -52,6 +53,7 @@ final class PopoutWindows {
                 self?.onChange?()
             }
             open[p.id] = c
+            c.content.box.onDescribe = { [weak self] in self?.onChange?() }
             c.show(over: documentWindow, raise: true)
             c.popout.refresh()
         }
@@ -69,6 +71,7 @@ final class PopoutWindows {
     var describe: JSONValue {
         .array(open.values.sorted { $0.popout.id < $1.popout.id }.map { c in
             var o = c.content.describe
+            o.merge(c.content.box.describe) { a, _ in a }
             o["id"] = .uint(c.popout.id)
             o["window"] = .int(Int64(c.window?.windowNumber ?? 0))
             o["title"] = .string(c.window?.title ?? "")
@@ -88,6 +91,8 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
     let content: PopoutViewController
     var onClosed: (() -> Void)?
     private var closingFromCore = false
+    /// The document's window, put back in front when the person closes this one.
+    private weak var over: NSWindow?
 
     init(popout: PopoutModel, pictures: Pictures) {
         self.popout = popout
@@ -132,6 +137,7 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
     /// never in front of another app's (no activation, no keyboard taken).
     func show(over doc: NSWindow?, raise: Bool) {
         guard let w = window else { return }
+        over = doc
         if NSApp.isActive && !CoreHost.options.scratchState {
             w.makeKeyAndOrderFront(nil)
         } else if let doc, doc.isVisible {
@@ -153,6 +159,8 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
             // the person closed it: the core's pop-out goes too
             let p = popout
             Task { await p.close() }
+            // the graph's window comes back to the front for the person at it
+            if NSApp.isActive, !CoreHost.options.scratchState, let doc = over, doc.isVisible { doc.makeKeyAndOrderFront(nil) }
         }
         onClosed?()
     }
@@ -170,11 +178,15 @@ final class PopoutViewController: NSViewController {
     private var fullText: [String: String] = [:]
     private var magnification: (() -> Void)?
     /// What the window shows now, for scripts (`--status-file`).
-    private(set) var describe: [String: JSONValue] = [:]
+    private(set) var describe: [String: JSONValue] = [:] { didSet { box.onDescribe?() } }
+    /// The shared viewers' state (N4 slice 5): tables, outlines, grids, sound, bytes, items.
+    let box: ViewerBox
+    private var hosted: NSHostingView<ViewerView>?
 
     init(popout: PopoutModel, pictures: Pictures) {
         self.popout = popout
         self.pictures = pictures
+        box = ViewerBox(popout: popout, pictures: pictures, muted: CoreHost.options.scratchState || CoreHost.options.statusFile != nil)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -207,12 +219,31 @@ final class PopoutViewController: NSViewController {
     /// Show `v`, the core's value and the viewer's state.
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
+        box.value = v
+        if ViewerBox.handles(v), !(v.viewer == "array.pictures" && (v.views?.count ?? 0) <= 1), v.error == nil || v.error == .null {
+            // a viewer the apps share: SwiftUI follows the value itself
+            shown = v
+            summaryLabel.stringValue = ValueText.summary(v.watched)
+            describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port)]
+            if hosted == nil || current !== hosted {
+                current?.removeFromSuperview()
+                restyle = nil
+                magnification = nil
+                let h = NSHostingView(rootView: ViewerView(box: box))
+                hosted = h
+                put(h)
+            }
+            return
+        }
         let same = shown.map { $0.data == v.data && $0.picture == v.picture && $0.excerpt == v.excerpt && $0.value == v.value && $0.viewer == v.viewer } ?? false
         shown = v
         let w = v.watched
         summaryLabel.stringValue = ValueText.summary(w)
+        let kept = describe
         describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port),
                     "mono": .bool(v.text?.mono ?? false), "wrap": .bool(v.text?.wrap ?? true), "fit": v.fit.map(JSONValue.string) ?? .null]
+        // what the viewer drew stays said while only its state changes (the picture loaded, a reading)
+        if same { for (key, x) in kept where describe[key] == nil { describe[key] = x } }
         if same, current != nil {
             // only the viewer's state changed: follow it in place
             restyle?()
@@ -229,14 +260,34 @@ final class PopoutViewController: NSViewController {
             return
         }
         switch v.viewer {
-        case "picture"?: put(pictureView(v))
-        case "text.plain"?: put(textView(v))
-        case "scalar"?: put(scalarView(v))
+        case "picture"?, "svg"?, "array.pictures"?: put(withBar(pictureView(v)))
+        case "text.plain"?: put(withBar(textView(v)))
+        case "scalar"?: put(withBar(scalarView(v)))
         case nil: put(message(v.summary == nil ? "Run the graph to see this value." : "No value yet."))
         case let other?:
             put(message("\(other): no viewer yet in this app."))
             describe["unavailable"] = .string(other)
         }
+    }
+
+    /// The bar every viewer has (View As, Copy, Share, Save As) over a viewer of this app's own.
+    private func withBar(_ content: NSView) -> NSView {
+        let box = NSView()
+        let bar = NSHostingView(rootView: BarHost(box: self.box))
+        for x in [bar, content] {
+            x.translatesAutoresizingMaskIntoConstraints = false
+            box.addSubview(x)
+        }
+        NSLayoutConstraint.activate([
+            bar.topAnchor.constraint(equalTo: box.topAnchor),
+            bar.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            bar.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            content.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 2),
+            content.leadingAnchor.constraint(equalTo: box.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: box.trailingAnchor),
+            content.bottomAnchor.constraint(equalTo: box.bottomAnchor),
+        ])
+        return box
     }
 
     private var restyle: (() -> Void)?
@@ -302,65 +353,157 @@ final class PopoutViewController: NSViewController {
         let scroll = NSScrollView()
         scroll.contentView = CenteringClipView()
         scroll.allowsMagnification = true
-        scroll.minMagnification = 0.1
-        scroll.maxMagnification = 16
+        scroll.minMagnification = 0.05
+        scroll.maxMagnification = 64
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = true
         scroll.drawsBackground = true
         scroll.backgroundColor = .underPageBackgroundColor
-        let image = NSImageView()
-        image.imageScaling = .scaleNone
+        let image = ProbeImageView()
+        image.imageScaling = .scaleAxesIndependently
         image.imageAlignment = .alignCenter
         scroll.documentView = image
         let info = NSTextField(labelWithString: "")
         info.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
         info.textColor = .secondaryLabelColor
+        info.lineBreakMode = .byTruncatingTail
+        info.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        let reading = NSTextField(labelWithString: "")
+        reading.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+        reading.lineBreakMode = .byTruncatingTail
+        reading.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        // the channel shown is the core's (`viewer.picture`)
+        let channel = NSPopUpButton(frame: .zero, pullsDown: false)
+        channel.controlSize = .small
+        for (_, label) in PictureSource.channels { channel.addItem(withTitle: label) }
+        channel.isHidden = v.viewer == "svg"
         // Fit and 1:1 are the core's (`viewer.zoom`), a segmented control as Preview's
         let zoom = NSSegmentedControl(labels: ["Fit", "1:1"], trackingMode: .selectOne, target: nil, action: nil)
         zoom.controlSize = .small
         zoom.setToolTip("Fit the picture to the window", forSegment: 0)
         zoom.setToolTip("One pixel of the picture to one of the screen", forSegment: 1)
-        layout(box, bar: bar([info, NSView(), zoom]), content: scroll)
-        let w = v.watched
-        guard let pic = w.picture, let handle = pic.handle else {
+        let column = NSStackView(views: [bar([info, NSView(), channel, zoom]), bar([reading])])
+        column.orientation = .vertical
+        column.alignment = .leading
+        column.spacing = 2
+        layout(box, bar: column, content: scroll)
+        guard let first = PictureSource.of(v) else {
             info.stringValue = "no picture"
             return box
         }
-        info.stringValue = "\(pic.w) × \(pic.h) · rgba8\(w.media.map { " · \($0)" } ?? "") · loading…"
+        let p = popout
+        let ps = PicState(src: first, shown: (Int(v.picture?.w ?? 0), Int(v.picture?.h ?? 0)))
+        objc_setAssociatedObject(scroll, &PicState.key, ps, .OBJC_ASSOCIATION_RETAIN)
+        let pics = pictures
+        let media = v.media ?? ""
         let apply = { [weak self, weak scroll, weak image, weak zoom] in
-            guard let scroll, let size = image?.image?.size, size.width > 0 else { return }
+            guard let scroll, let image, ps.shown.w > 0 else { return }
             let one = self?.shown?.fit == "1:1"
             zoom?.selectedSegment = one ? 1 : 0
+            // the picture is laid out at the value's own size, so 1:1 is a pixel of the value
+            let f = ps.src.full ?? ps.shown
+            image.frame = NSRect(x: 0, y: 0, width: f.w, height: f.h)
             if one {
                 scroll.magnification = 1
             } else {
-                // fit the window, a small picture enlarged too (at most 8×), as the iPad's
-                let s = min(scroll.contentSize.width / size.width, scroll.contentSize.height / size.height)
+                let s = min(scroll.contentSize.width / CGFloat(f.w), scroll.contentSize.height / CGFloat(f.h))
                 scroll.magnification = max(min(s, 8), scroll.minMagnification)
             }
         }
         magnification = apply
         zoom.selectedSegment = v.fit == "1:1" ? 1 : 0
-        let p = popout
+        ps.set = { [weak image, weak channel, weak self, weak ps] (img: CGImage) in
+            ps?.original = img
+            let c = self?.shown?.state?["picture"]["channel"].string ?? "rgba"
+            channel?.selectItem(at: PictureSource.channels.firstIndex { $0.0 == c } ?? 0)
+            Task.detached(priority: .userInitiated) {
+                let shown = PictureSource.isolate(img, channel: c) ?? img
+                await MainActor.run { image?.image = NSImage(cgImage: shown, size: NSSize(width: img.width, height: img.height)) }
+            }
+        }
+        restyle = { [weak self] in
+            guard let img = ps.original else { return }
+            ps.set?(img)
+            self?.describe["channel"] = .string(self?.shown?.state?["picture"]["channel"].string ?? "rgba")
+        }
         let pick = ClosureTarget { [weak zoom] in
             let to = zoom?.selectedSegment == 1 ? "1:1" : "fit"
             Task { await p.zoom(to) }
         }
         zoom.target = pick
         zoom.action = #selector(ClosureTarget.fire)
-        objc_setAssociatedObject(box, &ClosureTarget.key, [pick], .OBJC_ASSOCIATION_RETAIN)
-        describe["picture"] = ["w": .uint(UInt64(pic.w)), "h": .uint(UInt64(pic.h)), "loaded": false]
-        let pics = pictures
+        let chosen = ClosureTarget { [weak channel] in
+            let i = channel?.indexOfSelectedItem ?? 0
+            Task { await p.command("viewer.picture", ["channel": .string(PictureSource.channels[max(0, min(i, PictureSource.channels.count - 1))].0)]) }
+        }
+        channel.target = chosen
+        channel.action = #selector(ClosureTarget.fire)
+        objc_setAssociatedObject(box, &ClosureTarget.key, [pick, chosen], .OBJC_ASSOCIATION_RETAIN)
+        // the readout: the value's own numbers under the pointer, read by the core (never from
+        // the 8-bit picture); a click pins the probe (`viewer.probe`)
+        let pixelAt = { (pt: NSPoint) -> (row: UInt64, col: UInt64)? in
+            let f = ps.src.full ?? ps.shown
+            // the view is flipped neither way: AppKit's y runs up
+            return PictureSource.pixel(x: Double(pt.x) / Double(f.w) * Double(ps.shown.w), y: Double(CGFloat(f.h) - pt.y) / Double(f.h) * Double(ps.shown.h),
+                                       shown: ps.shown, full: ps.src.full)
+        }
+        if v.viewer != "svg" {
+            image.onMove = { [weak self] pt in
+                guard let px = pixelAt(pt), Date().timeIntervalSince(ps.lastAsk) > 0.05 else { return }
+                ps.lastAsk = Date()
+                Task {
+                    let r = await p.data("probe", ["row": .uint(px.row), "col": .uint(px.col)], timeout: .seconds(5))
+                    reading.stringValue = "row \(px.row), col \(px.col)  " + (r["text"].string ?? r["unavailable"].string ?? r["error"].string ?? "")
+                    self?.describe["reading"] = r
+                }
+            }
+            image.onClick = { pt in
+                guard let px = pixelAt(pt) else { return }
+                Task { _ = try? await p.model.run("viewer.probe", ["popout": .uint(p.id), "row": .uint(px.row), "col": .uint(px.col)]) }
+            }
+        }
+        // zoomed in past the picture's own pixels: more detail is asked for, once (egui's
+        // "scrolling in past the picture asks for detail"): a picture file decoded larger, an SVG
+        // drawn larger, an array's larger rendition from the core (`viewer.zoom {to: "detail"}`)
+        NotificationCenter.default.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scroll, queue: .main) { [weak self, weak scroll] _ in
+            MainActor.assumeIsolated {
+                guard let scroll, !ps.sharpened, ps.shown.w > 0 else { return }
+                let f = ps.src.full ?? ps.shown
+                let screenPerShown = scroll.magnification * CGFloat(f.w) / CGFloat(ps.shown.w) * (scroll.window?.backingScaleFactor ?? 2)
+                guard screenPerShown > 1.01 else { return }
+                if let sharper = ps.src.sharper(than: max(ps.shown.w, ps.shown.h), v: v) {
+                    ps.sharpened = true
+                    info.stringValue += " · reading more detail…"
+                    Task {
+                        if let got = await pics.load(sharper.handle, want: sharper.want, px: sharper.px) {
+                            ps.src = PictureSource(handle: sharper.handle, want: sharper.want, px: sharper.px, full: ps.src.full)
+                            ps.shown = (got.width, got.height)
+                            ps.set?(got.image)
+                            info.stringValue = "\(got.width) × \(got.height) px · \(sharper.want == "svg" ? "drawn" : "decoded") · detail"
+                            self?.describe["detail"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height))]
+                        }
+                    }
+                } else if media == "ndarray", let full = ps.src.full, max(full.w, full.h) > max(ps.shown.w, ps.shown.h) {
+                    ps.sharpened = true
+                    info.stringValue += " · asking for detail…"
+                    self?.describe["detail"] = "asked"
+                    Task { await p.zoom("detail") }
+                }
+            }
+        }
+        info.stringValue = "\(ps.shown.w) × \(ps.shown.h) · loading…"
+        describe["picture"] = ["w": .uint(UInt64(ps.shown.w)), "h": .uint(UInt64(ps.shown.h)), "loaded": false]
         Task { [weak self] in
             // decoded on a worker (Pictures); only setting it here
-            guard let got = await pics.load(handle) else {
-                info.stringValue = "\(pic.w) × \(pic.h) · rgba8 · \(pics.failures[handle] ?? "couldn't load")"
+            guard let got = await pics.load(ps.src.handle, want: ps.src.want, px: ps.src.px) else {
+                info.stringValue = "\(pics.failures[ps.src.handle] ?? "couldn't load")"
+                self?.describe["failed"] = .string(pics.failures[ps.src.handle] ?? "couldn't load")
                 return
             }
-            let img = NSImage(cgImage: got.image, size: NSSize(width: got.width, height: got.height))
-            image.image = img
-            image.frame = NSRect(origin: .zero, size: img.size)
-            info.stringValue = "\(got.width) × \(got.height) px · rgba8\(w.media.map { " · \($0)" } ?? "")"
+            ps.shown = (got.width, got.height)
+            ps.set?(got.image)
+            let f = ps.src.full
+            info.stringValue = "\(got.width) × \(got.height) px\(f.map { " of \($0.w) × \($0.h)" } ?? "") · \(ps.src.want == "svg" ? "SVG" : (v.media ?? "picture"))"
             apply()
             self?.describe["picture"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height)), "loaded": true]
         }
@@ -477,6 +620,31 @@ final class PopoutViewController: NSViewController {
     }
 }
 
+/// A picture view that says where the pointer is and where a click falls (the readout, the
+/// pinned probe), in its own coordinates.
+final class ProbeImageView: NSImageView {
+    var onMove: ((NSPoint) -> Void)?
+    var onClick: ((NSPoint) -> Void)?
+    private var area: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let a = area { removeTrackingArea(a) }
+        let a = NSTrackingArea(rect: bounds, options: [.mouseMoved, .activeInKeyWindow, .inVisibleRect], owner: self, userInfo: nil)
+        addTrackingArea(a)
+        area = a
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onMove?(convert(event.locationInWindow, from: nil))
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1 { onClick?(convert(event.locationInWindow, from: nil)) }
+        super.mouseDown(with: event)
+    }
+}
+
 /// Keeps a picture smaller than the view in its middle, as Preview does.
 final class CenteringClipView: NSClipView {
     override func constrainBoundsRect(_ proposed: NSRect) -> NSRect {
@@ -496,4 +664,62 @@ final class ClosureTarget: NSObject {
     let f: () -> Void
     init(_ f: @escaping () -> Void) { self.f = f }
     @objc func fire() { f() }
+}
+
+/// The viewers' bar for the value the box holds now.
+struct BarHost: SwiftUI.View {
+    @Bindable var box: ViewerBox
+    var body: some SwiftUI.View {
+        if let v = box.value { ViewerBar(box: box, value: v) }
+    }
+}
+
+/// The Messages window (N4 slice 5): the status bar's messages in full, open while the core's
+/// `view.windows.messages` is (`view.messages`); its close button closes it in the core too.
+@MainActor
+final class MessagesWindow: NSObject, NSWindowDelegate {
+    let messages: MessagesModel
+    private(set) var window: NSWindow?
+    private var closingFromCore = false
+
+    init(model: DocumentModel) {
+        messages = MessagesModel(model: model)
+    }
+
+    func follow(_ open: Bool, over doc: NSWindow?) {
+        if open, window == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 460, height: 320), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            w.title = "Messages"
+            w.contentView = NSHostingView(rootView: MessagesView(messages: messages))
+            w.isReleasedWhenClosed = false
+            w.collectionBehavior.insert(.fullScreenAuxiliary)
+            w.delegate = self
+            w.center()
+            window = w
+            // in front for the person at the app; else just above the document's window
+            if NSApp.isActive && !CoreHost.options.scratchState {
+                w.makeKeyAndOrderFront(nil)
+            } else if let doc, doc.isVisible {
+                w.order(.above, relativeTo: doc.windowNumber)
+            } else {
+                w.orderBack(nil)
+            }
+        } else if !open, let w = window {
+            closingFromCore = true
+            w.close()
+            closingFromCore = false
+        }
+    }
+
+    func windowWillClose(_ n: Notification) {
+        if !closingFromCore {
+            let m = messages
+            Task { await m.close() }
+        }
+        window = nil
+    }
+
+    var describe: JSONValue {
+        ["open": .bool(window != nil), "window": .int(Int64(window?.windowNumber ?? 0)), "count": .uint(UInt64(messages.messages.count))]
+    }
 }

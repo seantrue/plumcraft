@@ -76,7 +76,15 @@ fn hostile_blobs_never_panic_a_decoder() {
         let _ = numbers(&b);
         for rate in [0, 1, 8000, u32::MAX] {
             let _ = Clip::from_blob(&b, rate);
+            // N4 slice 5: a sound read where it is, for its waveform and spectrogram
+            if let Ok(s) = plumcraft_media::audio::Samples::of(&b, rate) {
+                let _ = s.peaks(usize::MAX);
+                let _ = s.peaks(0);
+                #[cfg(feature = "spectrogram")]
+                let _ = plumcraft_media::audio::spectrogram_of(&s, 1024, 256, 64);
+            }
         }
+        let _ = plumcraft_media::table::Table::from_bytes(&b.bytes);
     }
     // a torn picture shrinks to nothing worse than itself
     let _ = shrink(Rgba { w: u32::MAX, h: u32::MAX, pixels: vec![1; 16] }, 2);
@@ -97,6 +105,7 @@ fn hostile_files_never_panic_a_decoder() {
         let _ = picture_size(&f);
         assert!(decode_picture(&f, 64).is_err(), "{:?}", String::from_utf8_lossy(&f[..f.len().min(16)]));
         let _ = decode_numbers(&f);
+        assert!(plumcraft_media::table::Table::from_bytes(&f).is_err(), "not a table");
         assert!(t.elapsed() < Duration::from_secs(5), "a header's claim was believed");
         #[cfg(feature = "svg")]
         for long in [1e9, f32::NAN] {
@@ -113,6 +122,40 @@ fn hostile_files_never_panic_a_decoder() {
     for v in [vec![], vec![f32::NAN; 5000], vec![f32::INFINITY; 2000], vec![1e38; 4096]] {
         let s = spectrogram(&v, 0, 0, 0, 0);
         let _ = s.rgba(&|t| [(t * 255.0) as u8, 0, 0, 255]);
+    }
+}
+
+/// N4 slice 5: tables and the keys shells borrow by are hostile input too.
+#[test]
+fn hostile_tables_and_keys_are_refused() {
+    let deep = format!("{}{}", "[".repeat(100_000), "]".repeat(100_000));
+    let cases: Vec<Vec<u8>> = vec![
+        deep.into_bytes(),
+        br#"{"columns": [{"name": 1, "values": []}]}"#.to_vec(),
+        br#"{"columns": [{"values": [1e999]}]}"#.to_vec(),
+        br#"[[], [1], "x"]"#.to_vec(),
+        format!("{{\"columns\": [{}]}}", vec![r#"{"values": []}"#; 5000].join(",")).into_bytes(),
+        b"{\"columns\": [{\"values\": [\"\xff\xfe\"]}]}".to_vec(),
+    ];
+    for c in &cases {
+        let _ = plumcraft_media::table::Table::from_bytes(c);
+    }
+    assert!(plumcraft_media::table::Table::from_bytes(&cases[4]).is_err(), "too many columns");
+    for k in [
+        "",
+        "derive:",
+        "derive:x:y",
+        "derive:sorted:h@",
+        "derive:sorted:h@9x",
+        "derive:sorted:h@99999999a",
+        "derive:waveform:h@0",
+        "derive:image:@5",
+        "derive:table:",
+    ] {
+        assert!(plumcraft_media::parse_derived(k).is_none_or(|(h, _)| !h.is_empty()), "{k}");
+    }
+    for w in [Want::Sorted(3, true), Want::Waveform(800), Want::Spectrogram, Want::Table, Want::Json, Want::Picture(512)] {
+        assert_eq!(plumcraft_media::parse_derived(&plumcraft_media::derived_key("md5:raw:ab", w)), Some(("md5:raw:ab".to_owned(), w)));
     }
 }
 
@@ -133,7 +176,23 @@ fn hostile_references_are_answered_by_the_service() {
         Form::Image { width: u32::MAX, height: 0 },
         Form::default(),
     ];
-    let wants = [Want::Bytes, Want::Rendition, Want::Peaks, Want::Picture(0), Want::Picture(u32::MAX), Want::Svg(u32::MAX), Want::Numbers];
+    let wants = [
+        Want::Bytes,
+        Want::Rendition,
+        Want::Peaks,
+        Want::Picture(0),
+        Want::Picture(u32::MAX),
+        Want::Svg(u32::MAX),
+        Want::Numbers,
+        // N4 slice 5's viewers
+        Want::Waveform(0),
+        Want::Waveform(u32::MAX),
+        Want::Spectrogram,
+        Want::Table,
+        Want::Sorted(u16::MAX, true),
+        Want::Sorted(0, false),
+        Want::Json,
+    ];
     let mut refs = Vec::new();
     for (i, form) in forms.iter().enumerate() {
         for k in 0..n {

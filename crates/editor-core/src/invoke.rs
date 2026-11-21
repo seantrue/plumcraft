@@ -353,6 +353,12 @@ fn ask_save_workflow(h: &mut impl Host, by: By, after: Option<AfterDiscard>) -> 
 /// command's form, file asks for open and save, a prompt before unsaved changes are dropped,
 /// the selection for node commands.
 pub fn invoke(h: &mut impl Host, id: &str, by: By) {
+    invoke_with(h, id, &Value::Null, by);
+}
+
+/// [`invoke`] with the command's own parameters (`ui.invoke {command, params}`, N4 slice 5: a
+/// pop-out's Copy, Share… and Save As… name the pop-out).
+pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
     // a command with a form asks for its params first
     if let Some(form) = plumcraft_session::commands::form(id) {
         if let Err(why) = plumcraft_session::find(id).map_or(Ok(()), |c| (c.enabled)(h.session())) {
@@ -449,6 +455,31 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
                 let _ = h.run("selection.clear", &Value::Null);
             }
         }
+        // a pop-out's value out of the editor (N4 slice 5)
+        "value.copy" => match h.run(id, params) {
+            Ok(r) => {
+                let text = r.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+                copy(h, &text, "text", by);
+            }
+            Err(e) => h.say(e),
+        },
+        "value.share" => match h.run(id, params) {
+            Ok(r) => {
+                raise(h, Kind::Share, r, by, Cont::new(Then::Notice));
+            }
+            Err(e) => h.say(e),
+        },
+        "value.saveAs" => {
+            let pid = params.get("popout").and_then(Value::as_u64);
+            let target =
+                pid.and_then(|p| h.session().run.entry(plumcraft_session::run::WatchRole::Popout(p)).map(|(w, _)| (w.node.clone(), w.port.clone(), w.index)));
+            match target {
+                Some((node, port, index)) => {
+                    save_result(h, json!({"node": node, "port": port, "index": index}), by);
+                }
+                None => h.say("Save Value As… needs a pop-out".into()),
+            }
+        }
         // File › Share… (N4 slice 3): the graph's file to the platform's share sheet
         "graph.share" => match h.run(id, &json!({})) {
             Ok(r) => {
@@ -496,7 +527,7 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
             }
         }
         _ => {
-            let _ = h.run(id, &Value::Null);
+            let _ = h.run(id, params);
         }
     }
 }

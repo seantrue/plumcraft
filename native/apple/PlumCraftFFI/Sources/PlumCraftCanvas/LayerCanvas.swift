@@ -638,6 +638,11 @@ public final class LayerCanvas {
     /// A face's rgba8 preview: a sublayer whose contents come from the media service, made on a
     /// worker (`Pictures`), once per handle. Faded while the scene says so.
     func updatePreview(_ e: FaceEntry) {
+        // a sound's waveform (N4 slice 5): the engine's peaks, drawn once on a worker
+        if case .peaks(let pk)? = e.face.preview, let r = e.layout?.preview, let handle = Pictures.handle(of: pk.handle) {
+            updateWaveform(e, pk, r, handle)
+            return
+        }
         guard case .rgba8(let p)? = e.face.preview, let r = e.layout?.preview, let handle = Pictures.handle(of: p.handle) else {
             e.preview?.removeFromSuperlayer()
             e.preview = nil
@@ -673,6 +678,78 @@ public final class LayerCanvas {
             l.contents = got.image
             CATransaction.commit()
         }
+    }
+
+    /// A face's waveform thumbnail: the peaks rendition (min and max a column, a lane a channel)
+    /// lent by the core, drawn into a picture on a worker in the theme's waveform colours.
+    private func updateWaveform(_ e: FaceEntry, _ pk: PlumCraftModels.Preview.Peaks, _ r: CGRect, _ handle: String) {
+        let pv = e.preview ?? {
+            let l = CALayer()
+            l.anchorPoint = .zero
+            l.contentsGravity = .resize
+            l.cornerRadius = 3
+            l.masksToBounds = true
+            e.layer.addSublayer(l)
+            e.preview = l
+            return l
+        }()
+        pv.frame = r.offsetBy(dx: FaceMetrics.margin, dy: FaceMetrics.margin)
+        pv.opacity = pk.faded ? 0.45 : 1
+        let key = "peaks|\(handle)|\(colors.name)"
+        if e.previewKey == key { return }
+        e.previewKey = key
+        if let got = pictures.cached(key) {
+            pv.contents = got.image
+            return
+        }
+        pv.contents = nil
+        let nid = e.nid
+        let (fg, bg) = (colors.token("waveform", RGBA(47, 163, 154, 255)), colors.token("waveform_bg", RGBA(236, 240, 238, 255)))
+        let scale = 2
+        let (w, h) = (max(1, Int(r.width) * scale), max(1, Int(r.height) * scale))
+        Task { [weak self] in
+            guard let self, let (note, data) = await pictures.lend(handle, want: "peaks") else { return }
+            let ch = max(1, Int(note.channels ?? 1)), bins = Int(note.bins ?? 0)
+            let made = await Task.detached(priority: .utility) { () -> LoadedPicture? in
+                LayerCanvas.drawWaveform(data, channels: ch, bins: bins, w: w, h: h, fg: fg, bg: bg)
+            }.value
+            guard let made, let e = faces[nid], e.previewKey == key, let l = e.preview else { return }
+            pictures.keep(key, made)
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            l.contents = made.image
+            CATransaction.commit()
+        }
+    }
+
+    /// Peaks (`<f4` min and max, channel-major) as a picture: a lane a channel, at most four.
+    nonisolated static func drawWaveform(_ data: Data, channels: Int, bins: Int, w: Int, h: Int, fg: CGColor, bg: CGColor) -> LoadedPicture? {
+        guard bins > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
+              let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)
+        else { return nil }
+        ctx.setFillColor(bg)
+        ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
+        ctx.setStrokeColor(fg)
+        ctx.setLineWidth(max(1, CGFloat(w) / CGFloat(bins)))
+        let lanes = min(channels, 4)
+        let lh = CGFloat(h) / CGFloat(lanes)
+        data.withUnsafeBytes { raw in
+            let f = raw.bindMemory(to: Float32.self)
+            for c in 0..<lanes {
+                let mid = lh * (CGFloat(c) + 0.5)
+                for b in 0..<bins {
+                    let k = (c * bins + b) * 2
+                    guard k + 1 < f.count else { break }
+                    let lo = CGFloat(max(-1, min(1, f[k].isFinite ? f[k] : 0))), hi = CGFloat(max(-1, min(1, f[k + 1].isFinite ? f[k + 1] : 0)))
+                    let x = (CGFloat(b) + 0.5) / CGFloat(bins) * CGFloat(w)
+                    ctx.move(to: CGPoint(x: x, y: mid + lo * lh / 2))
+                    ctx.addLine(to: CGPoint(x: x, y: mid + hi * lh / 2 + 0.5))
+                }
+            }
+        }
+        ctx.strokePath()
+        guard let img = ctx.makeImage() else { return nil }
+        return LoadedPicture(image: img, width: w, height: h)
     }
 
     // MARK: - Culling

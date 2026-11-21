@@ -463,10 +463,14 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             Err(e) => err(e),
         },
         "ui.invoke" => {
-            if let Err(e) = check_fields(params, &["command"]) {
+            if let Err(e) = check_fields(params, &["command", "params"]) {
                 return err(e);
             }
             let Some(id) = params.get("command").and_then(Value::as_str) else { return err("command must be a command id") };
+            let cparams = params.get("params").cloned().unwrap_or(Value::Null);
+            if !(cparams.is_null() || cparams.is_object()) {
+                return err("params must be an object");
+            }
             let (id, enabled) = match (plumcraft_session::find(id), crate::canvas_cmds::find(id)) {
                 (Some(spec), _) => (spec.id, (spec.enabled)(s.session())),
                 (None, Some(c)) => (c.id, (c.enabled)(s.session())),
@@ -480,7 +484,7 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             // the shell invoked it for them: the reply comes at once, with the ask in `asks`
             // (ask.answer)
             let by = s.invoke_by();
-            invoke::invoke(s, id, by);
+            invoke::invoke_with(s, id, &cparams, by);
             s.presented();
             s.redraw();
             let mut out = inspect(s);
@@ -649,6 +653,22 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         "popout.get" => match crate::windows::popout_json(s.session(), params) {
             Ok(v) => ok(v),
             Err(e) => err(e),
+        },
+        // the status bar's messages in full, for the Messages window (N4 slice 5)
+        "messages.get" => match s.document_mut() {
+            Some(d) => match crate::windows::messages_json(&d.session, d.last_error.as_deref(), params) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            None => err(not_here(method)),
+        },
+        // a page of what a pop-out's viewer shows, read on the media service's workers (N4 slice 5)
+        "viewer.data" => match s.document_mut() {
+            Some(d) => match crate::viewers::data(&d.session, &d.media_service, params) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            None => err(not_here(method)),
         },
         // the colours the scene names by token (N2 slice 4, question 13)
         "theme.get" => match s.theme_tokens() {

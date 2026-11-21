@@ -121,8 +121,10 @@ let testEnvironment: Void = {
     }
 
     @Test func unbuiltCommandsSaySo() throws {
-        let it = try item(#"[{"id":"m","label":"Messages","command":"view.messages","enabled":true}]"#)[0]
-        #expect(ShellCommands.notBuilt(it) == "Messages isn't available yet in this app (the Messages window).")
+        let it = try item(#"[{"id":"e","label":"Edit Value…","command":"node.editor","enabled":true}]"#)[0]
+        #expect(ShellCommands.notBuilt(it) == "Edit Value isn't available yet in this app (value editors).")
+        // built in N4 slice 5: the Messages window
+        #expect(ShellCommands.unbuilt["view.messages"] == nil)
         // built in N4 slice 4: Settings and About
         #expect(ShellCommands.unbuilt["app.settings"] == nil)
         #expect(ShellCommands.unbuilt["app.about"] == nil)

@@ -353,6 +353,59 @@ final class GestureTests: XCTestCase {
         shot("n4s3-ui-popout")
         done.tap()
         wait("the pop-out closed") { (($0["popouts"] as? [[String: Any]]) ?? []).isEmpty }
+        // N4 slice 5 (the maintainer: "No way to close popout or get back to the main canvas"): the
+        // graph is in front and takes a tap again: a tap on a face selects it
+        let n5 = try XCTUnwrap(((window()["points"] as? [String: Any])?["n5"] as? [String: Any])?["title"] as? [Double])
+        at(n5).tap()
+        wait("the graph takes a tap after the pop-out closed") { ($0["selection"] as? [String])?.contains("n5") == true }
+    }
+
+    /// N4 slice 5: every viewer by the path a person's finger takes: a double tap on each value's
+    /// output pin pops it out (a sheet over the graph, the graph in sight above it), the viewer
+    /// draws it, Done closes it at once, and the graph takes a tap again.
+    @MainActor
+    func testEveryViewerByATap() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
+        try? FileManager.default.removeItem(atPath: statusPath)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--then", "zoom:0.7:snd"]
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        func at(_ p: [Double]) -> XCUICoordinate { origin.withOffset(CGVector(dx: p[0], dy: p[1])) }
+        // (node, the viewer it opens in, what the viewer says once it has drawn it)
+        let kinds: [(String, String, String)] = [
+            ("tab", "table.grid", "table"), ("js", "yaml", "yaml"), ("img", "picture", "picture"),
+            ("snd", "audio", "audio"), ("m", "array.pictures", "picture|pictures"), ("svg", "svg", "picture"),
+        ]
+        for (node, viewer, drawn) in kinds {
+            let out = try XCTUnwrap((((window()["points"] as? [String: Any])?[node] as? [String: Any])?["out"] as? [[Double]])?.first, node)
+            at(out).doubleTap()
+            // a double tap the system took as two taps (the sheet just gone) is tried once more
+            let deadline = Date().addingTimeInterval(8)
+            while Date() < deadline, ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            if ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { at(out).doubleTap() }
+            let popped = wait("\(node) popped out in \(viewer)", timeout: 120) { w in
+                guard let p = (w["popouts"] as? [[String: Any]])?.first else { return false }
+                return (p["shown"] as? String) == "sheet" && (p["viewer"] as? String) == viewer && drawn.split(separator: "|").contains { p[String($0)] != nil }
+            }
+            if !popped {
+                let pops = (try? JSONSerialization.data(withJSONObject: window()["popouts"] ?? [], options: [.fragmentsAllowed])).map { String(decoding: $0, as: UTF8.self) } ?? "?"
+                XCTFail("\(node): the pop-outs were \(pops.prefix(800))")
+            }
+            let done = app.buttons["popout-done"]
+            XCTAssertTrue(done.waitForExistence(timeout: 10), "\(node): the sheet's Done")
+            shot("n4s5-ui-\(viewer)")
+            done.tap()
+            wait("\(node)'s pop-out closed") { (($0["popouts"] as? [[String: Any]]) ?? []).isEmpty }
+            let title = try XCTUnwrap(((window()["points"] as? [String: Any])?[node] as? [String: Any])?["title"] as? [Double])
+            at(title).tap()
+            wait("the graph takes a tap after \(node)'s pop-out") { ($0["selection"] as? [String]) == [node] }
+        }
     }
 }
 

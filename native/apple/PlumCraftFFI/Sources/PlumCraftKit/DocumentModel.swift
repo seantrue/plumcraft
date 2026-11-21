@@ -550,10 +550,11 @@ public final class DocumentModel {
         return r
     }
 
-    /// `ui.invoke {command}`: the command as a menu would run it (it may raise asks).
+    /// `ui.invoke {command, params?}`: the command as a menu would run it (it may raise asks).
     @discardableResult
-    public func invoke(_ command: String, person: Bool = false) async throws -> JSONValue {
+    public func invoke(_ command: String, params: JSONValue? = nil, person: Bool = false) async throws -> JSONValue {
         var p: [String: JSONValue] = ["command": .string(command)]
+        if let params { p["params"] = params }
         if person { p["by"] = "person" }
         let r = try await core.request("ui.invoke", .object(p), doc: requestDoc)
         afterOwnRequest()

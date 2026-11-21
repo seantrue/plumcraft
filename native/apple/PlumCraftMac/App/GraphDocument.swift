@@ -126,6 +126,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     /// The pop-out windows and the parameters inspector (N4 slice 3), following the core's.
     var popouts: PopoutWindows?
     var parameters: ParametersPopover?
+    var messagesWindow: MessagesWindow?
     /// The way back out of an entered group: Graph › outer › inner (the scene's focus path).
     let crumbs = NSPathControl()
     /// The path control's material, following the appearance as the toolbar's does.
@@ -263,9 +264,12 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         popouts = pops
         let params = ParametersPopover(model: model, canvasView: v)
         parameters = params
-        model.onWindows = { [weak pops, weak params, weak model, weak self] w in
+        let msgs = MessagesWindow(model: model)
+        messagesWindow = msgs
+        model.onWindows = { [weak pops, weak params, weak model, weak self, weak msgs] w in
             pops?.follow(w)
             params?.params.follow(w)
+            msgs?.follow(w.messages ?? false, over: self?.window)
             if let model { SettingsWindow.shared.follow(w.settings, model: model, over: self?.window) }
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
@@ -622,6 +626,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         }
         if let p = popouts { s["popouts"] = p.describe }
         if let p = parameters { s["parameters"] = p.describe }
+        if let m = messagesWindow { s["messages"] = m.describe }
         if let n = canvasView?.nameField.field { s["nameField"] = ["text": .string(n.stringValue), "window": .int(Int64(n.window?.windowNumber ?? 0))] }
         s["toolbar"] = .array(coreIdentifiers().map { id in
             let it = toolItems[id.rawValue]
