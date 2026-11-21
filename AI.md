@@ -34,7 +34,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Not done, or not verified.** The popover crash's cause was reasoned from two crash logs, not reproduced. No Mac pictures: the display was asleep and `screencapture` failed. Compare does not draw the exact difference, and its footnote names the egui editor to the person reading it. Text size was removed from the Apple apps' Settings, not built. Install Engine… stays disabled over the C ABI. A scripted-only race can leave a stale value sheet under Compare on the iPad; the controller saw it in `pad-compare-split-dark.png`, where the split view also draws the two values' names on top of each other. The tunnel-versus-LAN choice cannot list interfaces in standard Rust, so a tunnel that is the only private address still wins. Nothing here has run on a physical iPad or iPhone.
 
-**Controller.** Checked the real store (no file newer than the cleanup), the processes (only the maintainer's four), and the pictures; moved B36 and B41 to Fixed in `docs/BUGS.md`; ran the Linux gate.
+**Controller.** Checked the real store (no file newer than the cleanup), the processes (only the maintainer's four), and the pictures; moved B36 and B41 to Fixed in `docs/BUGS.md`; ran the Linux gate at `e8a051b`: 1,535 of 1,537 with B38 and the known local baseline test failing, B37 failing in the Python suite, everything else passing; then the settings test file 100 times there, 100 passed (6 of 10 failed before the fix).
 
 ### 2026-11-20 — N4 slice 5: the remaining viewers, and a pop-out nobody could close (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
