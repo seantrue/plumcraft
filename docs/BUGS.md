@@ -44,6 +44,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Tried (2026-11-21, egui parity, on the Mac): 510 cancels of a 1.5 s Slow node at delays from 0 to 1,000 ms after `run.start`, nothing cached: 150 in the egui editor (the command and the menu's invoke alternately), 120 with a run already going when `run.start` superseded it (Auto-Run's or another `run.start`), 90 through egui's control dispatcher (`ui.invoke run.cancel`, `ui.waitRun`), and 150 through the C ABI core (`command.run` and `ui.invoke {by: person}`). Every one ended `cancelled`. In the audit's sequence the cancel came after 40 frames, the first GPU picture of that process on a software renderer, `ui.inspect` and `menu.get`; if those took over 5 s, the node had finished before Cancel was sent, which would explain it. Scratch drivers: `claude-debug/egui-parity/b46/`.
 - Issue: none
 
+### B49. `test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted` fails on the Linux test host while it is busy
+
+- Reported: 2026-11-21
+- Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
+- Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Issue: none
+
 ## Fixed
 
 ### B45. In the egui editor, hiding a row from a node's face shifts the rows, and an edit on the face changes the wrong port
