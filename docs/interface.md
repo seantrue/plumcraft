@@ -1099,12 +1099,12 @@ demo = "examples/demo.json"   # opened when this engine is chosen with no workfl
 slow = "research.slow"            # a node that takes `seconds`, for the cancel and off-the-run-path cases
 ```
 
-Found in the app bundle, `~/.config/plumcraft/engines/*.toml`, or `--engine-manifest`. In-process engines are listed by the app crate (no link-time registry).
+Found in the app bundle, `~/.config/plumcraft/engines/*.toml`, or `--engine-manifest`. In-process engines are listed by the app crate (no link-time registry). The engines folder is the same for every editor (the egui editor, the native apps), so an engine registered by one is offered by all; `$PLUMCRAFT_ENGINE_FOLDER` names another (scripts and tests point it at scratch), and a native shell's config may name one (`dirs.engines`, `docs/shell-interface.md` 4.1). The editors' Install Engine… runs `uv tool install --reinstall git+URL`, then `register --folder <engines folder>` on each command uv installed (B71: the editor core's, in every shell where the platform can start programs and has Python).
 
 - **Parsing** (`plumcraft_proto::manifest`): at most 64 KiB; hostile input, never a panic; unknown keys are ignored. `id` is a lower-case letter, then lower-case letters, digits and `_`, at most 32. An empty `command`, a `mode` outside the closed set, or a bad `id` is an error.
 - **Resolving** (`plumcraft_host::manifest`):
   - `~` is expanded. `cwd`, `demo`, `token_file` and a `command` path are relative to the manifest's real directory, so a link in the config folder points back at the project. `cwd` defaults to `.`.
-  - A bare program in `command` is looked up in `$PLUMCRAFT_UV` (for `uv`), PATH, then `~/.local/bin`, `~/.cargo/bin` and `/opt/homebrew/bin`, because an app started from the desktop doesn't have the shell's PATH. A miss is an error with `hint`.
+  - A bare program in `command` is looked up in `$PLUMCRAFT_UV` (for `uv`), PATH, the login shell's PATH (asked once, when not started from a terminal), then `~/bin`, `~/.local/bin`, `~/.cargo/bin`, `/opt/homebrew/bin` and `/usr/local/bin`, because an app started from the desktop doesn't have the shell's PATH. A miss is an error with `hint`.
   - `url` without a `command` attaches to a running engine; `token_file` holds its token.
   - **Installed engines write their own.** `register` writes `~/.config/plumcraft/engines/<id>.toml`. `unregister` removes it, but only a manifest `register` wrote. A checkout links its own manifest there instead (`scripts/install`), which `register` leaves alone unless `--force`.
     - **Python:** an SDK engine's console script has the two commands. The manifest runs `command = [<its python>, "-m", <package>]`, and its `demo` is the package's `examples/demo.json`.

@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
+
+- Reported: 2026-11-21
+- Report: found by the controller checking B71: `engine.switch` to an engine whose program exits immediately (its Python module is not installed) got no reply for 30 s as a process; over HTTP the same engine failed in 0.2 s with "the engine exited before listening".
+- Context: `crates/editor-core`, the process start of an engine a manifest names.
+- Issue: none
+
 ### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -69,6 +76,13 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Fixed: 2026-11-21
 - Issue: none
 
+### B71. The native apps can't install an engine and don't offer the engines installed
+
+- Reported: 2026-11-21
+- Report: the maintainer, on first using the Mac app (Plummer) by hand: "Install engine is greyed out, no engines available. WTF?" They had been told twice that the Mac build could install an engine; it could not.
+- Context: Engine › Install Engine… was disabled in Plummer with "this editor can't install engines", and the Engine menu offered none of the engines in `~/.config/plumcraft/engines` (DuckDB and OpenCV, installed with the egui editor). Below the floor: the egui editor installs and offers them.
+- Cause: the installer, the manifest reader and the decision to offer installing were in the editor core already (since N1 slice 2), but only the egui application wired them: `apps/plumcraft-editor` called `load_manifests` at start, gave the document a Reloader and an Installer, and `EditorApp::with_installer` set `can_install`; the egui shell's own frame loop followed the install (`poll_install`). The C ABI's core did none of these: it never read the engines folder, had no Reloader (so Reload Engine List did nothing but say "this editor has no engine manifests to read"), no Installer, and never set `can_install`, whatever the platform declared. A test asserted the refusal (`attach_asks_with_the_cores_form_and_install_is_refused_here`). So whether a shell could install was decided by which shell it was, not by the platform: a breach of "the shell decides nothing".
+- Fixed: 2026-11-21, branch `fix/b71-native-engines`: the core wires it for every shell. `Launcher` gains `folder` (the engines folder: `dirs.engines`, else `$PLUMCRAFT_ENGINE_FOLDER`, else `~/.config/plumcraft/engines`, the folder every editor shares) and `uv`; `Launcher::load_manifests`, `reloader` and `install_setup`; `Document::offer_installs` gives a document the Reloader and, where `install::refusal(caps)` allows (the platform declares `subprocess` and `python`), the installer, else disables Install Engine… with the reason ("This device can't install engines: it can't start programs" on the iPad). The C ABI's core reads the manifests on its thread at start (`engines.manifests` and the folder) and offers each document what any document read again (`Document::follow_manifests`). `control::step` follows the install, in every shell. The installer is whole in the core (`install::install_engine`): uv found as a manifest's is (the login shell's PATH and the usual folders, since an app from the Finder has none; a miss says where it looked), `register --folder <engines folder>`, each step in a process group of its own with the search PATH and a 30-minute limit, what it is doing (with uv's latest line) as `engine.installing`/`installStatus` and the `document` domain's `installing`, and `engine.install.cancel` (Engine › Cancel Install), new, which stops it and what it started. The egui shell lost its own Reloader and install loop (`EditorApp::with_launcher` takes the core's). Plummer shows "Installing an engine…" in its engine cell while one runs. Verified by: core tests with a stand-in uv (install, register into the folder given, uv's failure, cancel within 5 s, a step past its limit, uv missing), the C ABI tests (a desktop platform's manifests offered from the start, Install Engine…'s form, an install, a second document offered it, a cancelled install; the iPad's platform refused with the reason and an attached manifest engine still offered; bad config fields refused), two new conformance cases on every driver (the core's document, the C ABI and its port, egui, the Swift kit and its port, the Mac app: 55 of 55), and a real install through an ad hoc signed, hardened Plummer launched as the Finder would (a bare environment), on scratch: `seantrue/plumcraft-duckdb-engine` installed and registered in 7.7 s, started as a process (a Homebrew Python, a separate process, so library validation doesn't apply), and a SQL Query node gave 42 (`claude-debug/native-engines-install.md`).
 ### B70. The Mac app could not make a new graph: File › New did nothing, and a launch showed only the Open panel
 
 - Reported: 2026-11-21

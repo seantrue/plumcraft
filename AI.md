@@ -29,6 +29,19 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Fix (controller, ~20 lines in `Asks.swift`).** A grid: each label beside its field, right-aligned on the baseline, sized to fit.
 
 **Verified.** The same grid drawn in a system alert to a picture; Mac conformance 53 of 53. **Not verified:** in the app's own sheet, which only a person has seen.
+### 2026-11-21 — B71: the native apps could not install an engine or offer installed ones (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported**, in the Mac app: "Install engine is greyed out, no engines available. WTF?" Then, on learning why no test had noticed: "How are the text and array engines getting attached for testing?" They are not attached: every test of a native app ran the two engines compiled into it.
+
+**The controller's failures.** It told the maintainer twice that the Mac build could install an engine, from the command list, without checking the command was enabled. It reported the Mac app's floor as met when no test had used an engine outside the app. The gap was known at N4 slice 6 (a test asserted "install is refused here") and was not raised.
+
+**Cause.** The installer and the manifest reader were in the core, but only the egui app wired them up: read the manifests at startup, supplied the installer, allowed installing, followed an install. The C ABI core did none of it.
+
+**Fix (agent, about 1,150 lines over 33 files).** The wiring is the core's: the engines folder, reading manifests at launch and on reload, whether installing is offered (by the platform's declared `subprocess` and `python`, with a reason a person can read where not), the installer (finds uv through the login shell's PATH, since an app started from the Finder has none), following and cancelling an install (new command `engine.install.cancel`). egui uses the same path. Two conformance cases use an engine from a manifest folder.
+
+**Verified.** Agent: nextest 1,577 of 1,578 (the known baseline failure); Python 224; `swift test` 81; Mac conformance 55 of 55; one real install of a public engine through a hardened-runtime build started bare as the Finder would, in scratch, then a node run on it. Controller, after merging the dev branch: Mac conformance 55 of 55, and a scratch launch with a copy of the maintainer's two engine registrations: both offered; one starts as a process and over HTTP; the other fails because its registration names a module that is not installed (the engine's own fault), and as a process that failure took 30 s to report instead of at once (B72).
+
+**Not verified.** By a person; the sheet a menu pick shows; a notarized build; a Mac with no uv or no Python; the iPad app; Windows (its install stays disabled until it declares Python).
 
 ### 2026-11-21 — Second pass over private names, and a scratch guard that names no volume (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

@@ -542,10 +542,14 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             if !e.connected && e.ready { ("Engine down", .systemRed) }
             else if !e.connected { ("Engines starting…", .systemOrange) }
             else { ("Engines ready", .systemGreen) }
-        engineLabel.stringValue = text
-        engineDot.layer?.backgroundColor = color.cgColor
-        engineLabel.toolTip = [e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: "\n")
-        Status.shared.set("engine", ["connected": .bool(e.connected), "ready": .bool(e.ready), "label": .string(e.label), "shown": .string(text)])
+        // an engine install under way (B71): said here while it runs, what it is doing on hover
+        // (the core's words; Engine › Cancel Install stops it)
+        let installing = canvasView?.model.state.installing
+        engineLabel.stringValue = installing == nil ? text : "Installing an engine…"
+        engineDot.layer?.backgroundColor = (installing == nil ? color : .systemOrange).cgColor
+        engineLabel.toolTip = [installing?.status ?? installing?.repo, e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: "\n")
+        Status.shared.set("engine", ["connected": .bool(e.connected), "ready": .bool(e.ready), "label": .string(e.label), "shown": .string(engineLabel.stringValue),
+                                     "installing": installing.map { .string($0.status ?? $0.repo) } ?? .null])
         window?.toolbar?.validateVisibleItems()
     }
 

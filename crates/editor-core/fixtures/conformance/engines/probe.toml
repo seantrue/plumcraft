@@ -1,0 +1,8 @@
+# The conformance suite's engines folder (B71): a driver with the `manifests` capability points its
+# engines folder here (dirs.engines, PLUMCRAFT_ENGINE_FOLDER or Launcher::folder), and the case
+# "an engine a manifest names is offered" finds this engine in engine.list and the Engine menu. It
+# is an engine already running elsewhere (attached, so every platform lists it); nothing starts it.
+id = "probe"
+name = "Conformance Probe"
+mode = "http"
+url = "http://127.0.0.1:9"

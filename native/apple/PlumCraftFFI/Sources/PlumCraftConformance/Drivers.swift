@@ -119,9 +119,13 @@ public final class KitDriver: ConformanceDriver {
         return .object(v)
     }
 
-    /// Its engine, and `media.get` (the C ABI serves it).
+    /// What else the core it drives has: `manifests` when its config's `dirs.engines` is the
+    /// suite's engines folder (B71).
+    public var also: Set<String> = []
+
+    /// Its engine, and `media.get` (the C ABI serves it), and `also`.
     public func has(_ capability: String) -> Bool {
-        capability == "media" || capability == "engine:\(engine)"
+        capability == "media" || capability == "engine:\(engine)" || also.contains(capability)
     }
 
     /// The next feed batch the model sees, or 50 ms.
@@ -221,10 +225,15 @@ public final class PortDriver: ConformanceDriver {
 
     /// The engines the core has; the port doesn't serve `media.get`; an app's canvas measures its
     /// rows' widgets and header parts (`rows`).
+    /// What else the app or core has (`--has`): `manifests` when its engines folder is the
+    /// suite's (B71: `PLUMCRAFT_ENGINE_FOLDER`, or a config's `dirs.engines`).
+    public var also: Set<String> = []
+
     public func has(_ capability: String) -> Bool {
         if capability == "rows" { return !reports }
         if capability == "port" { return true }
         if capability == "prefs" { return prefs }
+        if also.contains(capability) { return true }
         return capability.hasPrefix("engine:") && engines.contains(String(capability.dropFirst(7)))
     }
 
