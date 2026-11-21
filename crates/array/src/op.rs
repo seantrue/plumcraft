@@ -223,6 +223,9 @@ fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {
             vec![Converts { output: Some("frames".into()), ..Converts::new(&ty, ARRAY, false).to_shape(VIDEO) }]
         }
         // any value as its bytes: Convert's last resort (B15, #50), a 1-D uint8 series
+        // a sound's samples (frames, channels), and back: each the other's inverse (N4 slice 5)
+        "array.to_audio" => vec![Converts::new(ARRAY, plumcraft_proto::catalogue::core_types::AUDIO, true).from_shape(plumcraft_proto::convert::SERIES)],
+        "array.from_audio" => vec![Converts::new(plumcraft_proto::catalogue::core_types::AUDIO, ARRAY, true).to_shape(plumcraft_proto::convert::SERIES)],
         "array.to_bytes" => vec![Converts::new(plumcraft_proto::convert::ANY, ARRAY, false).to_shape(plumcraft_proto::convert::SERIES)],
         "array.array_to_mp4" | "array.array_to_mov" | "array.array_to_gif" => {
             let ty = id.rsplit('_').next().unwrap_or("").to_ascii_uppercase();

@@ -37,11 +37,16 @@ pub struct Windows {
     /// `app.settings {open: false}`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub settings: Option<String>,
+    /// The Messages window is open (`view.messages`, N4 slice 5): a native shell shows the
+    /// status bar's messages in full (`messages.get`) in a window or sheet of its own, and closes it
+    /// with `view.messages {open: false}`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub messages: bool,
 }
 
 impl Windows {
     pub fn is_empty(&self) -> bool {
-        self.parameters.is_none() && self.popouts.is_empty() && self.settings.is_none()
+        self.parameters.is_none() && self.popouts.is_empty() && self.settings.is_none() && !self.messages
     }
 }
 
@@ -84,6 +89,7 @@ pub fn of(session: &Session) -> Windows {
             let mut h = std::collections::hash_map::DefaultHasher::new();
             serde_json::to_string(&d).unwrap_or_default().hash(&mut h);
             serde_json::to_string(&o.text).unwrap_or_default().hash(&mut h);
+            serde_json::to_string(&o.state).unwrap_or_default().hash(&mut h);
             format!("{:?}{:?}", o.fit, o.viewer).hash(&mut h);
             Some(PopoutWindow {
                 id: o.id,
@@ -97,13 +103,16 @@ pub fn of(session: &Session) -> Windows {
             })
         })
         .collect();
-    Windows { parameters, popouts, settings: session.views.settings.clone() }
+    Windows { parameters, popouts, settings: session.views.settings.clone(), messages: session.views.messages }
 }
 
 /// `popout.get {id}`: a pop-out's value, as `ui.inspect`'s `watched` has the panel's
 /// ([`crate::values::value_json`]), with its window's state: `{id, node, port, index, title,
 /// viewer, summary, media, value?, data?, picture?, excerpt?, error?, text: {wrap, mono, all},
-/// fit: "fit" | "1:1" | null}`.
+/// fit: "fit" | "1:1" | null}`, and since N4 slice 5 `state` (the viewer's: a table's sort and
+/// page, an outline's open members, play, a channel), `viewers` offered, `type`, `items`,
+/// `index`, `form`, `bytes`, `mediaType`, `handle`, `stats`, `views`, `peaks` and `sheet`
+/// ([`crate::viewers::popout_extra`]).
 pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
     crate::control::check_fields(params, &["id"])?;
     let id = params.get("id").and_then(Value::as_u64).ok_or("id must be a pop-out's id")?;
@@ -119,6 +128,9 @@ pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
         v["stamp"] = json!(win.stamp);
     }
     v["text"] = serde_json::to_value(o.text).unwrap_or(Value::Null);
+    for (k, x) in crate::viewers::popout_extra(d, &o.state) {
+        v[k] = x;
+    }
     v["fit"] = match o.fit {
         Some(plumcraft_session::viewer_cmds::Zoom::Fit) => json!("fit"),
         Some(plumcraft_session::viewer_cmds::Zoom::OneToOne) => json!("1:1"),
@@ -230,4 +242,24 @@ pub fn parameters_json(session: &Session, inputs: &Inputs<'_>, params: &Value) -
         "count": rows.len(),
         "hidden": hidden,
     }))
+}
+
+/// `messages.get {}` (N4 slice 5): the status bar's messages in full, as the Messages window shows
+/// them: `{open, messages: [{tone: "info" | "warn" | "error", text, detail?}]}`, the run's errors
+/// first, then the run's failure, the application's line, a save's outcome and the last thing that
+/// went wrong (`control::status_messages`).
+pub fn messages_json(session: &Session, last_error: Option<&str>, params: &Value) -> Result<Value, String> {
+    crate::control::check_fields(params, &[])?;
+    let list: Vec<Value> = crate::control::status_messages(session, last_error, None)
+        .into_iter()
+        .map(|m| {
+            let tone = match m.tone {
+                plumcraft_session::commands::Tone::Info => "info",
+                plumcraft_session::commands::Tone::Warn => "warn",
+                plumcraft_session::commands::Tone::Error => "error",
+            };
+            json!({"tone": tone, "text": m.text, "detail": m.detail})
+        })
+        .collect();
+    Ok(json!({"open": session.views.messages, "messages": list}))
 }

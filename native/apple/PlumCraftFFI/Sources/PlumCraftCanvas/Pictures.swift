@@ -50,30 +50,57 @@ public final class Pictures {
 
     /// The rgba8 picture `handle` names: made on a worker, cached by handle. Nil when the core
     /// can't give it (the reason is in `failures`), or it didn't come within `timeout`.
-    public func load(_ handle: String, timeout: Duration = .seconds(30)) async -> LoadedPicture? {
-        if let p = cached(handle) { return p }
-        if let t = loading[handle] { return await t.value }
+    /// `want`: `rgba` (an engine's rendition), `image` (a picture file decoded at most `px` a side),
+    /// `svg` (drawn `px` on its long side) or `spectrogram` (a sound's, N4 slice 5); the cache's key
+    /// is the derived key, so each is kept apart.
+    public func load(_ handle: String, want: String = "rgba", px: Int? = nil, timeout: Duration = .seconds(30)) async -> LoadedPicture? {
+        let key = want == "rgba" ? handle : "\(want)@\(px ?? 0)|\(handle)"
+        if let p = cached(key) { return p }
+        if let t = loading[key] { return await t.value }
         let t = Task { [weak self] () -> LoadedPicture? in
             guard let self else { return nil }
-            return await self.fetch(handle, timeout: timeout)
+            return await self.fetch(handle, want: want, px: px, failKey: key, timeout: timeout)
         }
-        loading[handle] = t
+        loading[key] = t
         let p = await t.value
-        loading[handle] = nil
+        loading[key] = nil
         if let p {
-            put(handle, p)
-            failures[handle] = nil
+            put(key, p)
+            failures[key] = nil
+            if key != handle { failures[handle] = nil }
+        } else if key != handle {
+            failures[handle] = failures[key]
         }
         return p
     }
 
-    private func fetch(_ handle: String, timeout: Duration) async -> LoadedPicture? {
+    /// The bytes `want` of `handle` names, lent by the core without a copy, once ready (a sound's
+    /// samples, its waveform's peaks): the note says their shape. Nil (with the reason in
+    /// `failures`) when the core can't give them.
+    public func lend(_ handle: String, want: String = "bytes", px: Int? = nil, timeout: Duration = .seconds(60)) async -> (MediaNote, Data)? {
+        guard let note = await ready(handle, want: want, px: px, failKey: handle, timeout: timeout) else { return nil }
         let core = model.core
+        let key = note.key
+        let got = await Task.detached(priority: .userInitiated) { () -> Data? in
+            guard case .ready(let blob)? = try? core.blob(key) else { return nil }
+            return blob.data
+        }.value
+        guard let got else {
+            failures[handle] = "the bytes went before they were read"
+            return nil
+        }
+        return (note, got)
+    }
+
+    private func ready(_ handle: String, want: String, px: Int?, failKey: String, timeout: Duration) async -> MediaNote? {
+        let core = model.core
+        var p: [String: JSONValue] = ["handle": .string(handle), "want": .string(want)]
+        if let px { p["px"] = .uint(UInt64(max(1, min(px, 4096)))) }
         let note: MediaNote
         do {
-            note = try await core.request(MediaNote.self, "media.get", ["handle": .string(handle), "want": "rgba"], doc: model.requestDoc)
+            note = try await core.request(MediaNote.self, "media.get", .object(p), doc: model.requestDoc)
         } catch {
-            failures[handle] = "\(error)"
+            failures[failKey] = "\(error)"
             return nil
         }
         var latest = note
@@ -83,13 +110,43 @@ public final class Pictures {
                 self.model.media[key].map { $0.status.word != .pending } ?? false
             }
             guard ok, let m = model.media[key] else {
-                failures[handle] = "the picture didn't come in time"
+                failures[failKey] = "the value didn't come in time"
+                return nil
+            }
+            latest = m
+        }
+        guard latest.status.word == .ready else {
+            failures[failKey] = latest.reason ?? "the value is \(latest.status)"
+            return nil
+        }
+        return latest
+    }
+
+    private func fetch(_ handle: String, want: String, px: Int?, failKey: String, timeout: Duration) async -> LoadedPicture? {
+        let core = model.core
+        let note: MediaNote
+        do {
+            var p: [String: JSONValue] = ["handle": .string(handle), "want": .string(want)]
+            if let px { p["px"] = .uint(UInt64(max(1, min(px, 4096)))) }
+            note = try await core.request(MediaNote.self, "media.get", .object(p), doc: model.requestDoc)
+        } catch {
+            failures[failKey] = "\(error)"
+            return nil
+        }
+        var latest = note
+        if latest.status.word == .pending {
+            let key = note.key
+            let ok = await model.wait(timeout: timeout) {
+                self.model.media[key].map { $0.status.word != .pending } ?? false
+            }
+            guard ok, let m = model.media[key] else {
+                failures[failKey] = "the picture didn't come in time"
                 return nil
             }
             latest = m
         }
         guard latest.status.word == .ready, let w = latest.w, let h = latest.h, w > 0, h > 0 else {
-            failures[handle] = latest.reason ?? "the picture is \(latest.status)"
+            failures[failKey] = latest.reason ?? "the picture is \(latest.status)"
             return nil
         }
         let key = latest.key
@@ -109,7 +166,7 @@ public final class Pictures {
         switch made {
         case .success(let p): return p
         case .failure(let e):
-            failures[handle] = e.description
+            failures[failKey] = e.description
             return nil
         }
     }
@@ -144,6 +201,11 @@ public final class Pictures {
             order.removeFirst()
             total -= cache.removeValue(forKey: first)?.bytes ?? 0
         }
+    }
+
+    /// Keep a picture made here (a face's waveform), under its own key.
+    public func keep(_ key: String, _ p: LoadedPicture) {
+        put(key, p)
     }
 
     /// Drop everything kept (a memory warning).

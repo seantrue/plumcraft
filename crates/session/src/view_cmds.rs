@@ -42,6 +42,9 @@ pub struct Popout {
     /// The last whole-view zoom asked for (`viewer.zoom {to: "fit" | "1:1"}`): a picture viewer
     /// keeps showing it that way until another is asked for.
     pub fit: Option<crate::viewer_cmds::Zoom>,
+    /// Its viewer's state: a table's sort and page, an outline's open members, play, a channel
+    /// (`viewer_state`, N4 slice 5).
+    pub state: crate::viewer_state::ViewerState,
 }
 
 /// How a text or scalar viewer shows its value (`viewer.text`, `docs/shell-interface.md` 13.2;
@@ -178,7 +181,7 @@ fn popout(s: &mut Session, p: &Value) -> Result<Value> {
     }
     s.views.next = s.views.next.saturating_add(1);
     let id = s.views.next;
-    s.views.popouts.push(Popout { id, viewer, tools: Tools::default(), raised: 0, text: TextView::default(), fit: None });
+    s.views.popouts.push(Popout { id, viewer, tools: Tools::default(), raised: 0, text: TextView::default(), fit: None, state: Default::default() });
     let mut out = json!({"id": id, "node": w.node, "port": w.port, "index": w.index});
     s.run.set_watch(WatchRole::Popout(id), Some(w));
     out["run_id"] = json!(refresh(s));

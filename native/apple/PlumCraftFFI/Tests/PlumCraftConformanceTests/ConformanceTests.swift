@@ -59,7 +59,8 @@ func log(_ driver: String, _ out: [Outcome]) {
         #expect(out.allSatisfy { $0.error == nil }, "\(Conformance.summary(d.name, out))")
         #expect(out.count == cases.filter { $0["half"] == "read" }.count && out.count >= 12)
         let skipped = out.filter { $0.skipped != nil }.map(\.name)
-        #expect(skipped == ["a watched picture arrives as picture"], "only the array engine's case is skipped: \(skipped)")
+        let arrays = cases.filter { $0["half"] == "read" && $0["needs"].array?.contains("engine:array") == true }.compactMap { $0["name"].string }
+        #expect(skipped == arrays && arrays.count >= 5, "only the array engine's cases are skipped: \(skipped)")
         // the document model kept up with every case's scene
         let full = try await core.request(Scene.self, "scene.get")
         #expect(await d.model.wait { d.model.gen == full.gen })
@@ -92,7 +93,8 @@ func log(_ driver: String, _ out: [Outcome]) {
         log(d.name, out)
         #expect(out.allSatisfy { $0.error == nil }, "\(Conformance.summary(d.name, out))")
         let skipped = out.filter { $0.skipped != nil }.map(\.name)
-        #expect(skipped == ["a watched picture arrives as picture"], "\(skipped)")
+        let arrays = cases.filter { $0["half"] == "read" && $0["needs"].array?.contains("engine:array") == true }.compactMap { $0["name"].string }
+        #expect(skipped == arrays, "\(skipped)")
     }
 
     /// Not N3's gate, but the kit's typed calls (geometry, drag moves) behind every case.

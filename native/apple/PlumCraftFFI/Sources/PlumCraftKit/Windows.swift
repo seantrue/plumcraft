@@ -244,6 +244,65 @@ public final class PopoutModel {
     public func close() async {
         _ = try? await model.run("view.close", ["id": .uint(id)])
     }
+
+    // MARK: N4 slice 5: every viewer's controls are the core's commands
+
+    /// A viewer command on this pop-out (`viewer.table`, `viewer.tree`, `viewer.audio`,
+    /// `viewer.picture`, `viewer.grid`, `viewer.hex`, `view.viewer`, `run.item`, `viewer.sheet`):
+    /// its params with the pop-out's id; read again after. The reply, or nil when refused.
+    @discardableResult
+    public func command(_ id: String, _ params: [String: JSONValue] = [:]) async -> JSONValue? {
+        var p = params
+        p["popout"] = .uint(self.id)
+        let r = try? await model.run(id, .object(p))
+        refresh()
+        return r
+    }
+
+    /// Show the value in another of the viewers offered (`view.viewer`).
+    public func choose(viewer: String?) async {
+        var p: [String: JSONValue] = ["popout": .uint(id)]
+        p["viewer"] = viewer.map(JSONValue.string) ?? .null
+        _ = try? await model.run("view.viewer", .object(p))
+        refresh()
+    }
+
+    /// A page of what the viewer shows (`viewer.data {popout, part, …}`), read by the core on its
+    /// media workers: waits (off the main thread's work: the feed's `media` names what it waits
+    /// for) until it is ready, failed, or `timeout` passes. `{status, …}`.
+    public func data(_ part: String, _ extra: [String: JSONValue] = [:], timeout: Duration = .seconds(60)) async -> JSONValue {
+        var p = extra
+        p["popout"] = .uint(id)
+        p["part"] = .string(part)
+        let deadline = ContinuousClock.now + timeout
+        while true {
+            let r: JSONValue
+            do {
+                r = try await model.core.request("viewer.data", .object(p), doc: model.requestDoc)
+            } catch {
+                return ["status": "failed", "error": .string("\(error)")]
+            }
+            guard r["status"].string == "pending", let key = r["wait"].string else { return r }
+            let left = deadline - ContinuousClock.now
+            if left <= .zero { return ["status": "failed", "error": "the value took too long to read"] }
+            // asked again at least every second: a value with no handle has no note to wait for
+            _ = await model.wait(timeout: min(left, .seconds(1))) { self.model.media[key].map { $0.status.word != .pending } ?? false }
+        }
+    }
+
+    /// Copy, Share… or Save As… for the person at it (`ui.invoke {command: value.copy |
+    /// value.share | value.saveAs, params: {popout, …}, by: person}`): the core raises the ask.
+    public func takeOut(_ command: String, _ extra: [String: JSONValue] = [:]) async {
+        var p = extra
+        p["popout"] = .uint(id)
+        _ = try? await model.invoke(command, params: .object(p), person: true)
+    }
+
+    /// The value written to a file of its own (`value.export`), for a drag out: its path.
+    public func exportFile() async -> String? {
+        let r = try? await model.run("value.export", ["popout": .uint(id)])
+        return r?["file"].string
+    }
 }
 
 /// The pop-outs a document has, by id, kept in step with the core: a platform's window manager

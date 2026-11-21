@@ -127,7 +127,15 @@ fn the_suite_passes_through_the_c_abi() {
     assert!(out.len() >= 15);
     // every case runs here but the ones for another engine's values
     let skipped: Vec<&str> = out.iter().filter(|o| o.skipped.is_some()).map(|o| o.name.as_str()).collect();
-    assert_eq!(skipped, ["a watched picture arrives as picture"], "{}", conformance::summary(&d.name(), &out));
+    // the array engine's cases run on a core opened on it (below)
+    let arrays: Vec<String> = conformance::cases()
+        .unwrap()
+        .into_iter()
+        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array"))))
+        .filter_map(|c| c["name"].as_str().map(str::to_owned))
+        .collect();
+    assert!(arrays.len() >= 5);
+    assert_eq!(skipped, arrays.iter().map(String::as_str).collect::<Vec<_>>(), "{}", conformance::summary(&d.name(), &out));
     d.0.close();
 }
 

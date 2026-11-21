@@ -55,6 +55,7 @@ use serde_json::{Value, json};
 use crate::audio::{self, Peaks};
 use crate::decode;
 use crate::raster::Rgba;
+use crate::table::Table;
 
 /// A value's bytes through the engine link (the connection's `resolve`). It may block (an HTTP
 /// fetch): the service only ever calls it on a worker, or in [`MediaService::blocking`].
@@ -78,6 +79,16 @@ pub enum Want {
     Svg(u32),
     /// A picture file's own numbers, its bit depth kept (the probe and compare read them).
     Numbers,
+    /// A sound's waveform at so many columns, from its full samples (N4 slice 5).
+    Waveform(u32),
+    /// A sound's spectrogram as a picture, from its full samples (N4 slice 5).
+    Spectrogram,
+    /// A TABLE (or rows) read into columns (N4 slice 5).
+    Table,
+    /// A table's rows sorted by a column (index, largest first): a permutation (N4 slice 5).
+    Sorted(u16, bool),
+    /// A JSON value parsed, for an outline (N4 slice 5).
+    Json,
 }
 
 impl Want {
@@ -90,12 +101,17 @@ impl Want {
             Want::Picture(px) => format!("image@{px}"),
             Want::Svg(px) => format!("svg@{px}"),
             Want::Numbers => "numbers".into(),
+            Want::Waveform(bins) => format!("waveform@{bins}"),
+            Want::Spectrogram => "spectrogram".into(),
+            Want::Table => "table".into(),
+            Want::Sorted(c, desc) => format!("sorted@{c}{}", if desc { "d" } else { "a" }),
+            Want::Json => "json".into(),
         }
     }
 
     /// Whether it is made from the value's full bytes (and so shares them with [`Want::Bytes`]).
     fn reads_full(self) -> bool {
-        matches!(self, Want::Bytes | Want::Picture(_) | Want::Svg(_) | Want::Numbers)
+        matches!(self, Want::Bytes | Want::Picture(_) | Want::Svg(_) | Want::Numbers | Want::Waveform(_) | Want::Spectrogram | Want::Table | Want::Json)
     }
 }
 
@@ -107,6 +123,12 @@ pub enum Made {
     /// A picture ([`Want::Rendition`], [`Want::Picture`], [`Want::Svg`]).
     Picture(Arc<Rgba>),
     Peaks(Arc<Peaks>),
+    /// A table's columns ([`Want::Table`]).
+    Table(Arc<Table>),
+    /// A sort order ([`Want::Sorted`]).
+    Order(Arc<Vec<u32>>),
+    /// A JSON value ([`Want::Json`]), and the bytes it was read from.
+    Json(Arc<Value>),
 }
 
 impl Made {
@@ -116,6 +138,10 @@ impl Made {
             Made::Bytes(b) => b.bytes.len() + 64,
             Made::Picture(p) => p.bytes() + 32,
             Made::Peaks(p) => p.bytes(),
+            Made::Table(t) => t.bytes(),
+            Made::Order(o) => o.len() * 4 + 32,
+            // a parsed tree is several times its text: counted as such
+            Made::Json(v) => json_bytes(v),
         }
     }
 }
@@ -170,6 +196,15 @@ impl Fetch<Made> {
     }
     pub fn peaks(self) -> Fetch<Arc<Peaks>> {
         self.and(|m| if let Made::Peaks(p) = m { Some(p) } else { None })
+    }
+    pub fn table(self) -> Fetch<Arc<Table>> {
+        self.and(|m| if let Made::Table(t) = m { Some(t) } else { None })
+    }
+    pub fn order(self) -> Fetch<Arc<Vec<u32>>> {
+        self.and(|m| if let Made::Order(o) = m { Some(o) } else { None })
+    }
+    pub fn json(self) -> Fetch<Arc<Value>> {
+        self.and(|m| if let Made::Json(v) = m { Some(v) } else { None })
     }
     fn and<U>(self, f: impl FnOnce(Made) -> Option<U>) -> Fetch<U> {
         match self {
@@ -528,7 +563,7 @@ impl MediaService {
         // a value (a remote engine without `blob.range`), so on a worker.
         if want == Want::Peaks && inline_len(r).is_some_and(|n| n <= st.config.inline_max) {
             drop(st);
-            let made = make(r, want, None, None);
+            let made = make(r, want, None, None, None);
             let fetch = settle(made);
             let mut st = lock(&inner.st);
             st.stats.inline += 1;
@@ -602,7 +637,8 @@ impl MediaService {
             (st.resolver.clone(), shared_bytes(&st, &key_of(r)))
         };
         let Some(resolver) = resolver else { return Fetch::Missing };
-        let fetch = settle(make(r, want, Some(&resolver), have));
+        let table = shared_table(&lock(&self.inner().st), &key_of(r), want);
+        let fetch = settle(make(r, want, Some(&resolver), have, table));
         let key = (key_of(r), want);
         let mut st = lock(&self.inner().st);
         st.stats.resolves += 1;
@@ -674,7 +710,7 @@ pub struct Blocking<'a>(pub &'a dyn Fn(&DataRef) -> Option<Blob>);
 
 impl Source for Blocking<'_> {
     fn fetch(&self, r: &DataRef, want: Want) -> Fetch<Made> {
-        settle(make_with(r, want, self.0, None))
+        settle(make_with(r, want, self.0, None, None))
     }
 }
 
@@ -693,6 +729,17 @@ fn settle(o: Outcome) -> Fetch<Made> {
     }
 }
 
+/// A table already read for `key`, for a sort of it.
+fn shared_table(st: &St, key: &str, want: Want) -> Option<Arc<Table>> {
+    if !matches!(want, Want::Sorted(..)) {
+        return None;
+    }
+    match st.entries.get(&(key.to_owned(), Want::Table)) {
+        Some(Entry { state: State::Done(Made::Table(t)), .. }) => Some(Arc::clone(t)),
+        _ => None,
+    }
+}
+
 /// Bytes for `key` already held: a cached [`Want::Bytes`] result, or a live copy.
 fn shared_bytes(st: &St, key: &str) -> Option<Arc<Blob>> {
     if let Some(Entry { state: State::Done(Made::Bytes(b)), .. }) = st.entries.get(&(key.to_owned(), Want::Bytes)) {
@@ -701,16 +748,16 @@ fn shared_bytes(st: &St, key: &str) -> Option<Arc<Blob>> {
     st.live.get(key).and_then(Weak::upgrade)
 }
 
-fn make(r: &DataRef, want: Want, resolver: Option<&Resolve>, have: Option<Arc<Blob>>) -> Outcome {
+fn make(r: &DataRef, want: Want, resolver: Option<&Resolve>, have: Option<Arc<Blob>>, table: Option<Arc<Table>>) -> Outcome {
     match resolver {
-        Some(f) => make_with(r, want, &|d: &DataRef| f(d), have),
-        None => make_with(r, want, &|_: &DataRef| None, have),
+        Some(f) => make_with(r, want, &|d: &DataRef| f(d), have, table),
+        None => make_with(r, want, &|_: &DataRef| None, have, table),
     }
 }
 
 /// Read (through `resolve`: the connection reads inline bytes itself, and may refuse a value)
 /// and make `want` of `r`.
-fn make_with(r: &DataRef, want: Want, resolve: &dyn Fn(&DataRef) -> Option<Blob>, have: Option<Arc<Blob>>) -> Outcome {
+fn make_with(r: &DataRef, want: Want, resolve: &dyn Fn(&DataRef) -> Option<Blob>, have: Option<Arc<Blob>>, table: Option<Arc<Table>>) -> Outcome {
     let read = |r: &DataRef| -> Option<Arc<Blob>> {
         if let Some(b) = have.clone() {
             return Some(b);
@@ -747,7 +794,133 @@ fn make_with(r: &DataRef, want: Want, resolve: &dyn Fn(&DataRef) -> Option<Blob>
                 Outcome::Failed("SVG needs the `svg` feature".into())
             }
         },
+        Want::Waveform(bins) => match read(r) {
+            None => Outcome::Missing,
+            Some(b) => audio::Samples::of(&b, rate_of(r))
+                .map_or_else(Outcome::Failed, |s| Outcome::Made(Made::Peaks(Arc::new(s.peaks(usize::try_from(bins).unwrap_or(1)))))),
+        },
+        Want::Spectrogram => match read(r) {
+            None => Outcome::Missing,
+            #[cfg(feature = "spectrogram")]
+            Some(b) => audio::Samples::of(&b, rate_of(r)).map_or_else(Outcome::Failed, |s| {
+                let sp = audio::spectrogram_of(&s, audio::SPEC_FFT, audio::SPEC_HOP, audio::SPEC_MAX_FRAMES);
+                Outcome::Made(Made::Picture(Arc::new(sp.rgba(&audio::ramp))))
+            }),
+            #[cfg(not(feature = "spectrogram"))]
+            Some(_) => Outcome::Failed("a spectrogram needs the `spectrogram` feature".into()),
+        },
+        Want::Table => match read(r) {
+            None => Outcome::Missing,
+            Some(b) => Table::from_bytes(&b.bytes).map_or_else(Outcome::Failed, |t| Outcome::Made(Made::Table(Arc::new(t)))),
+        },
+        Want::Sorted(c, desc) => {
+            let t = match table {
+                Some(t) => t,
+                None => match read(r).map(|b| Table::from_bytes(&b.bytes)) {
+                    None => return Outcome::Missing,
+                    Some(Err(e)) => return Outcome::Failed(e),
+                    Some(Ok(t)) => Arc::new(t),
+                },
+            };
+            Outcome::Made(Made::Order(Arc::new(t.order(usize::from(c), desc))))
+        }
+        Want::Json => match read(r) {
+            None => Outcome::Missing,
+            Some(b) if b.bytes.len() > MAX_JSON_BYTES => {
+                Outcome::Failed(format!("{} MiB is more than an outline reads ({} MiB): see it as text", b.bytes.len() >> 20, MAX_JSON_BYTES >> 20))
+            }
+            Some(b) => {
+                serde_json::from_slice::<Value>(&b.bytes).map_or_else(|e| Outcome::Failed(format!("not JSON: {e}")), |v| Outcome::Made(Made::Json(Arc::new(v))))
+            }
+        },
     }
+}
+
+/// The key a shell borrows `want` of `handle` by (`plum_blob`, `media.get`'s `key`,
+/// `docs/shell-interface.md` 10.2): the handle itself for its bytes, else a `derive:` key.
+pub fn derived_key(handle: &str, want: Want) -> String {
+    match want {
+        Want::Bytes => handle.to_owned(),
+        Want::Rendition => format!("derive:rgba:{handle}"),
+        Want::Peaks => format!("derive:peaks:{handle}"),
+        Want::Numbers => format!("derive:numbers:{handle}"),
+        Want::Picture(px) => format!("derive:image:{handle}@{px}"),
+        Want::Svg(px) => format!("derive:svg:{handle}@{px}"),
+        Want::Waveform(bins) => format!("derive:waveform:{handle}@{bins}"),
+        Want::Spectrogram => format!("derive:spectrogram:{handle}"),
+        Want::Table => format!("derive:table:{handle}"),
+        Want::Sorted(c, desc) => format!("derive:sorted:{handle}@{c}{}", if desc { 'd' } else { 'a' }),
+        Want::Json => format!("derive:json:{handle}"),
+    }
+}
+
+/// What a `derive:` key (or a plain handle: its bytes) asks for; `None` for one malformed.
+pub fn parse_derived(key: &str) -> Option<(String, Want)> {
+    let Some(rest) = key.strip_prefix("derive:") else { return (!key.is_empty()).then(|| (key.to_owned(), Want::Bytes)) };
+    let (kind, rest) = rest.split_once(':')?;
+    let at = |r: &str| -> Option<(String, String)> { r.rsplit_once('@').map(|(h, n)| (h.to_owned(), n.to_owned())) };
+    let px = |r: &str| -> Option<(String, u32)> {
+        let (h, n) = at(r)?;
+        Some((h, n.parse::<u32>().ok().filter(|p| (1..=decode::MAX_TEXTURE_SIDE).contains(p))?))
+    };
+    let (handle, want) = match kind {
+        "rgba" => (rest.to_owned(), Want::Rendition),
+        "peaks" => (rest.to_owned(), Want::Peaks),
+        "numbers" => (rest.to_owned(), Want::Numbers),
+        "spectrogram" => (rest.to_owned(), Want::Spectrogram),
+        "table" => (rest.to_owned(), Want::Table),
+        "json" => (rest.to_owned(), Want::Json),
+        "image" => px(rest).map(|(h, p)| (h, Want::Picture(p)))?,
+        "svg" => px(rest).map(|(h, p)| (h, Want::Svg(p)))?,
+        "waveform" => {
+            let (h, n) = at(rest)?;
+            (h, Want::Waveform(n.parse::<u32>().ok().filter(|b| (1..=audio::MAX_PEAK_BINS as u32).contains(b))?))
+        }
+        "sorted" => {
+            let (h, n) = at(rest)?;
+            let desc = match n.chars().last()? {
+                'a' => false,
+                'd' => true,
+                _ => return None,
+            };
+            (h, Want::Sorted(n.get(..n.len() - 1)?.parse::<u16>().ok()?, desc))
+        }
+        _ => return None,
+    };
+    (!handle.is_empty()).then_some((handle, want))
+}
+
+/// The most bytes of JSON parsed for an outline.
+pub const MAX_JSON_BYTES: usize = 64 << 20;
+
+/// A sound's sample rate, from its reference.
+fn rate_of(r: &DataRef) -> u32 {
+    match &r.meta.form {
+        plumcraft_proto::data::Form::Audio { sample_rate, .. } => *sample_rate,
+        _ => 0,
+    }
+}
+
+/// About the bytes a parsed JSON value holds (walked to a bounded depth and count).
+fn json_bytes(v: &Value) -> usize {
+    fn walk(v: &Value, n: &mut usize, depth: usize) {
+        *n += 48;
+        if depth > 64 || *n > (1 << 40) {
+            return;
+        }
+        match v {
+            Value::String(s) => *n += s.len(),
+            Value::Array(a) => a.iter().for_each(|c| walk(c, n, depth + 1)),
+            Value::Object(o) => o.iter().for_each(|(k, c)| {
+                *n += k.len() + 32;
+                walk(c, n, depth + 1);
+            }),
+            _ => {}
+        }
+    }
+    let mut n = 0;
+    walk(v, &mut n, 0);
+    n
 }
 
 /// Keep what a request came to. `taken`: its asker has it already.
@@ -820,7 +993,7 @@ fn work_loop(inner: &Arc<Inner>) {
 /// Wait for one request and make it. `None` once stopped.
 fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
     let mut st = lock(&inner.st);
-    let (key, r, epoch, resolver, have) = loop {
+    let (key, r, epoch, resolver, have, table) = loop {
         if st.stop {
             return None;
         }
@@ -832,7 +1005,8 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
             continue;
         };
         let (frame, keep, now_epoch) = (st.frame, st.config.keep_frames, st.epoch);
-        let have = if key.1.reads_full() { shared_bytes(&st, &key.0) } else { None };
+        let have = if key.1.reads_full() || matches!(key.1, Want::Sorted(..)) { shared_bytes(&st, &key.0) } else { None };
+        let table = shared_table(&st, &key.0, key.1);
         let resolver = st.resolver.clone();
         let Some(e) = st.entries.get_mut(&key) else { continue };
         // settled in place since it was queued (`blocking`), or a second queuing of a request
@@ -847,10 +1021,11 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
             continue;
         }
         e.state = State::Working;
-        break (key, e.r.clone(), e.epoch, resolver, have);
+        break (key, e.r.clone(), e.epoch, resolver, have, table);
     };
     drop(st);
-    let made = catch_unwind(AssertUnwindSafe(|| make(&r, key.1, resolver.as_ref(), have))).unwrap_or_else(|_| Outcome::Failed("the decoder stopped".into()));
+    let made =
+        catch_unwind(AssertUnwindSafe(|| make(&r, key.1, resolver.as_ref(), have, table))).unwrap_or_else(|_| Outcome::Failed("the decoder stopped".into()));
     let fetch = settle(made);
     let mut st = lock(&inner.st);
     st.stats.resolves += 1;

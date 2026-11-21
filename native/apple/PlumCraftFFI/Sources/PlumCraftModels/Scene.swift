@@ -197,8 +197,10 @@ public struct Windows: Codable, Hashable, Sendable {
     public var popouts: [PopoutWindow]?
     /// The Settings window is open on this section (N4 slice 4).
     public var settings: String?
-    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil) {
-        self.parameters = parameters; self.popouts = popouts; self.settings = settings
+    /// The Messages window is open (N4 slice 5).
+    public var messages: Bool?
+    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil, messages: Bool? = nil) {
+        self.parameters = parameters; self.popouts = popouts; self.settings = settings; self.messages = messages
     }
     public var list: [PopoutWindow] { popouts ?? [] }
 }

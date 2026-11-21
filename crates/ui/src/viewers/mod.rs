@@ -423,4 +423,44 @@ mod tests {
             assert_eq!(ours, Some(plumcraft_editor_core::values::default_viewer(&d)), "{media:?}");
         }
     }
+
+    /// N4 slice 5: the core's registry (`plumcraft_editor_core::viewers::offered`) offers what this
+    /// one does, in its order (SVG's source as text is the core's addition), for every medium and
+    /// for rows, a list with a sheet, and a value with its full bytes.
+    #[test]
+    fn the_cores_registry_offers_what_this_one_does() {
+        use plumcraft_proto::data::DataRef;
+        let all = [
+            Media::Image,
+            Media::Vector,
+            Media::Doc,
+            Media::Ndarray,
+            Media::Audio,
+            Media::Table,
+            Media::Text,
+            Media::Scalar,
+            Media::Tree,
+            Media::Bytes,
+            Media::Mesh,
+            Media::Composite,
+            Media::Sequence,
+        ];
+        for media in all {
+            for full in [false, true] {
+                for value in [None, Some(serde_json::json!([[1, 2], [3, 4]])), Some(serde_json::json!({"a": 1}))] {
+                    let mut d = Display { media, value, ..Default::default() };
+                    if full {
+                        d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
+                    }
+                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| !matches!(*id, "mesh" | "array.plot")).collect();
+                    let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d)
+                        .into_iter()
+                        .map(|(id, _)| id)
+                        .filter(|id| !(media == Media::Vector && *id == "text.plain"))
+                        .collect();
+                    assert_eq!(ours, core, "{media:?} full {full} {:?}", d.value);
+                }
+            }
+        }
+    }
 }

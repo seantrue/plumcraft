@@ -32,8 +32,8 @@ use plumcraft_store::Blob;
 use serde_json::{Value, json};
 
 pub use plumcraft_media::audio::{
-    Clip, MAX_CHANNELS, MAX_INLINE_B64, MAX_PEAK_BINS, Peaks, SPEC_FFT, SPEC_HOP, SPEC_MAX_FRAMES, SPEC_RANGE_DB, SPEC_SYNC_SAMPLES, Spectro, decode_inline,
-    resample_linear, spectrogram,
+    Clip, MAX_CHANNELS, MAX_INLINE_B64, MAX_PEAK_BINS, Peaks, SPEC_FFT, SPEC_HOP, SPEC_MAX_FRAMES, SPEC_RANGE_DB, Spectro, decode_inline, resample_linear,
+    spectrogram,
 };
 
 use crate::playback::Player;
@@ -156,11 +156,9 @@ impl AudioView {
                 let work = move || {
                     let _ = tx.send(spectrogram(&clip.mono(), clip.rate, SPEC_FFT, SPEC_HOP, SPEC_MAX_FRAMES));
                 };
-                if self.clip.as_ref().is_some_and(|c| c.samples.len() > SPEC_SYNC_SAMPLES) {
-                    let _ = std::thread::Builder::new().name("plumcraft-spectrogram".into()).spawn(work);
-                } else {
-                    work();
-                }
+                // always on a thread of its own (B36, N4 slice 5): a short clip's took 80 ms and
+                // more of the editor's frame when it was made in place
+                let _ = std::thread::Builder::new().name("plumcraft-spectrogram".into()).spawn(work);
                 self.spectro = SpectroState::Pending(rx);
             }
             Err(e) => self.clip_error = Some(e),

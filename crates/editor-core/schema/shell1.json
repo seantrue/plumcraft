@@ -3092,6 +3092,10 @@
     "Windows": {
       "description": "The document's windows, in the scene's `view.windows`.",
       "properties": {
+        "messages": {
+          "description": "The Messages window is open (`view.messages`, N4 slice 5): a native shell shows the\nstatus bar's messages in full (`messages.get`) in a window or sheet of its own, and closes it\nwith `view.messages {open: false}`.",
+          "type": "boolean"
+        },
         "parameters": {
           "description": "The node the parameters inspector is open on.",
           "type": [

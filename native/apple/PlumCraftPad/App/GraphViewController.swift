@@ -263,6 +263,14 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     /// Present `vc` from the graph, whatever the graph shows now giving way first (one
     /// presentation at a time: the palette, the parameters, a pop-out's sheet).
+    /// Every presentation from the graph: a popover that reaches UIKit with no anchor (UIKit then
+    /// throws, and the app ends: seen twice in N4 slice 5's conformance runs, the presenter not
+    /// found) is anchored at the middle of the graph instead, and said.
+    override func present(_ vc: UIViewController, animated: Bool, completion: (() -> Void)? = nil) {
+        PopoverAnchor.ensure(vc, in: view)
+        super.present(vc, animated: animated, completion: completion)
+    }
+
     func presentReplacing(_ vc: UIViewController) {
         if let other = presentedViewController, other !== vc {
             other.dismiss(animated: false) { [weak self] in self?.present(vc, animated: true) }
@@ -402,10 +410,14 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         let sheet = PadSettingsSheet(model: model)
         sheet.host = self
         settingsSheet = sheet
-        model.onWindows = { [weak pops, weak params, weak sheet] w in
+        let msgs = PadMessages(model: model)
+        msgs.host = self
+        messagesSheet = msgs
+        model.onWindows = { [weak pops, weak params, weak sheet, weak msgs] w in
             pops?.follow(w)
             params?.params.follow(w)
             sheet?.follow(w.settings)
+            msgs?.follow(w.messages ?? false)
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks
@@ -582,6 +594,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var failureSaid: String?
     /// The settings sheet, following the core's `view.windows.settings` (N4 slice 4).
     var settingsSheet: PadSettingsSheet?
+    /// The Messages sheet, following the core's `view.windows.messages` (N4 slice 5).
+    var messagesSheet: PadMessages?
 
     var shownZoom = -1
     var viewportReport: Task<Void, Never>?
@@ -970,5 +984,17 @@ extension GraphViewController: UINavigationItemRenameDelegate {
                 self?.showTitle()
             }
         }
+    }
+}
+
+/// A popover always has an anchor (N4 slice 5).
+@MainActor
+enum PopoverAnchor {
+    static func ensure(_ vc: UIViewController, in view: UIView) {
+        guard vc.modalPresentationStyle == .popover, let p = vc.popoverPresentationController,
+              p.sourceView == nil, p.barButtonItem == nil, p.sourceItem == nil else { return }
+        p.sourceView = view
+        p.sourceRect = CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1)
+        CoreHost.say("warn", "a popover (\(type(of: vc))) came with no anchor: shown from the middle of the graph")
     }
 }

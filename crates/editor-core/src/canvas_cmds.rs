@@ -64,7 +64,48 @@ pub fn run_selected_reason(s: &Session, selected: usize) -> Option<String> {
     (selected == 0).then(|| "select nodes to run what they need".to_owned())
 }
 
+/// A pop-out is open (the value commands act on one).
+fn has_popout(s: &Session) -> Result<(), String> {
+    if s.views.popouts.is_empty() { Err("no pop-out is open".into()) } else { Ok(()) }
+}
+
 const COMMANDS: &[CanvasCommand] = &[
+    CanvasCommand {
+        id: "value.copy",
+        label: "Copy Value",
+        menu: &[],
+        shortcut: None,
+        params: "{popout, pointer?} -> {text, kind} (N4 slice 5: a pop-out's value as text: a scalar's text, a text whole, JSON pretty or the member at pointer, a table as tab-separated rows; invoked, raises the clipboard.set ask with it)",
+        enabled: has_popout,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "value.export",
+        label: "Export Value",
+        menu: &[],
+        shortcut: None,
+        params: "{popout} -> {file, name, bytes} (N4 slice 5: a pop-out's value written to a file of its own under the editor's cache, to drag out: a picture's own file, SVG, text, JSON, a table as CSV, a sound as a float WAV, an array as .npy)",
+        enabled: has_popout,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "value.share",
+        label: "Share Value…",
+        menu: &[],
+        shortcut: None,
+        params: "{popout} -> {file, subject} (N4 slice 5: value.export's file; invoked, raises the share ask with it)",
+        enabled: has_popout,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "value.saveAs",
+        label: "Save Value As…",
+        menu: &[],
+        shortcut: None,
+        params: "{popout, path} -> run.save's reply (N4 slice 5: the engine writes the pop-out's value, its recipe included, by the extension; invoked, raises run.save's file.save ask, purpose result)",
+        enabled: has_popout,
+        shell: false,
+    },
     CanvasCommand {
         id: "selection.set",
         label: "Select",
@@ -727,6 +768,20 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             };
             d.select_mode = on;
             Ok(json!({"on": on}))
+        }
+        "value.copy" => crate::export::copy_text(&d.session, &d.media_service, params),
+        "value.export" => crate::export::export(&d.session, &d.media_service, params),
+        "value.share" => {
+            let r = crate::export::export(&d.session, &d.media_service, params)?;
+            Ok(json!({"file": r["file"], "subject": r["name"]}))
+        }
+        "value.saveAs" => {
+            check_fields(params, &["popout", "path"])?;
+            let id = params.get("popout").and_then(Value::as_u64).ok_or("popout must be a pop-out's id")?;
+            let path = params.get("path").and_then(Value::as_str).ok_or("path: where to save (invoke Save Value As… to ask)")?;
+            let (w, _) = d.session.run.entry(plumcraft_session::run::WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
+            let p = json!({"node": w.node, "port": w.port, "index": w.index, "path": path});
+            d.session.execute("run.save", &p).map_err(|e| e.to_string())
         }
         "graph.share" => {
             check_fields(params, &[])?;
