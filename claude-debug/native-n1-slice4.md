@@ -25,7 +25,7 @@ Branch `native/n1-asks`, working tree only: nothing committed, staged or stashed
   - **No existing test file was edited.**
   - Python: 224 passed under md5 and b3; ruff is clean.
   - Gates: fmt, clippy, the hash gates and the toolkit-free gate are all clean.
-- **PlumImpress** (scratch copy) checks with no source change, and its `open_recipe` test, which installs fake `FileDialogs`, passes.
+- **The research software** (scratch copy) checks with no source change, and its `open_recipe` test, which installs fake `FileDialogs`, passes.
 - **One mishap to fix by hand: my first probe run wrote to the maintainer's real editor preferences.** See "Driving the real editor".
 
 ## The ask model as built
@@ -112,7 +112,7 @@ In the FFI, `ui.invoke` and `ask.answer` park on `SwitchWait` (with a new `asks`
 | `share` | `{error: "share isn't available here"}` | The same |
 | `text` | Not raised | |
 
-`FileDialogs` is unchanged (its docs now say it is how this shell answers file asks), so the five test files and PlumImpress test that install fakes compile and pass as they are. A shell with deferred pickers needs nothing like the spike's `waiting()`, `take_answer()` or `SendTo`: it leaves the ask open and calls `ask.answer` (Rust: `EditorApp::answer_ask`; C: the `ask.answer` request) when its picker returns.
+`FileDialogs` is unchanged (its docs now say it is how this shell answers file asks), so the five test files and the research software's test that install fakes compile and pass as they are. A shell with deferred pickers needs nothing like the spike's `waiting()`, `take_answer()` or `SendTo`: it leaves the ask open and calls `ask.answer` (Rust: `EditorApp::answer_ask`; C: the `ask.answer` request) when its picker returns.
 
 ## `ui_asks`, the clipboard and other apps
 
@@ -230,7 +230,7 @@ None. Every existing file under `crates/*/tests`, `apps/*/tests` and every `#[cf
 
 - **What went wrong:** the first run set `PLUMCRAFT_PREFS` instead of the editor's own variable, `PLUMCRAFT_EDITOR_PREFS`. So the editor used the real `~/Library/Application Support/plumcraft-editor/prefs.json`.
 - **What changed there:**
-  - `dirs.workflow.write` became `/Users/seant/workspace/plumcraft/claude-debug/native-n1/s4-probe`. I don't know what it was before, so I left it; the maintainer may want to reset or remove that key.
+  - `dirs.workflow.write` became `~/workspace/plumcraft/claude-debug/native-n1/s4-probe`. I don't know what it was before, so I left it; the maintainer may want to reset or remove that key.
   - `trusted.json` beside it gained entries for the two workflows the probe saved.
 - **The fix:**
   - The probe now sets `PLUMCRAFT_EDITOR_PREFS`.
@@ -239,10 +239,10 @@ None. Every existing file under `crates/*/tests`, `apps/*/tests` and every `#[cf
 
 ## Downstream effects
 
-**PlumImpress.** Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s4-plumimpress-check/`, with slice 3's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree.
+**The research software.** Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s4-<app>-check/`, with slice 3's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree.
 
 - `cargo check --tests` exits 0 with no source change.
-- `cargo test -p plumimpress --test open_recipe`, which installs fake `FileDialogs` and opens through File › Open and Save Result, passes 2 of 2.
+- `cargo test -p <app> --test open_recipe`, which installs fake `FileDialogs` and opens through File › Open and Save Result, passes 2 of 2.
 - The repository was not touched.
 
 **API changes a downstream application would see:**

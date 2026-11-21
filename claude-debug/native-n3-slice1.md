@@ -253,7 +253,7 @@ On the egui editor's control port, the C ABI's `plum_request` and the C ABI's co
 
 ## What I did not verify
 
-- **Nothing ran on Linux** (yellowfin) in this slice.
+- **Nothing ran on Linux** (the Linux test host) in this slice.
 - **No native shell** called the new methods or commands; they are tested from Rust and through egui.
 - **The Swift package's tests** cover N0's calls only; it calls none of N2's or N3's surface.
 - **No iOS build was run on a device or simulator;** only the iOS static libraries were built.

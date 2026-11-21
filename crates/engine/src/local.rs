@@ -193,7 +193,7 @@ mod tests {
             assert_eq!(Endpoint::parse(s).unwrap().locator(), s);
         }
         assert_eq!(Endpoint::parse("/tmp/x/e.sock").unwrap(), Endpoint::Unix("/tmp/x/e.sock".into()));
-        assert!(Endpoint::parse("tcp:192.168.2.5:80").unwrap_err().contains("loopback"));
+        assert!(Endpoint::parse("tcp:192.0.2.5:80").unwrap_err().contains("loopback"));
         assert!(Endpoint::parse("tcp:nonsense").is_err());
         assert!(Endpoint::parse("unix:").is_err());
     }

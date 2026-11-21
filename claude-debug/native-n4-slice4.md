@@ -4,7 +4,7 @@ Branch `native/n4-settings` (from `feat/native-n0` with N3 and N4 slices 1 to 3)
 
 ## First: what this slice did that it should not have
 
-**My gate run wrote into the maintainer's real store.** The gate script I wrote (`claude-debug/native-n4/s4-gate.sh`) set the scratch environment for cargo but not for the Python stage. Python ran between 20:57:12 and 20:58:05 with the login shell's `COMMONKIT_STORE_ROOT=/Volumes/CommonkitStore/store`. The suite's own guard stopped one test (`test_hash_is_what_was_asked`: "COMMONKIT_TEST_RUN is unset"), but others wrote:
+**My gate run wrote into the maintainer's real store.** The gate script I wrote (`claude-debug/native-n4/s4-gate.sh`) set the scratch environment for cargo but not for the Python stage. Python ran between 20:57:12 and 20:58:05 with the login shell's `COMMONKIT_STORE_ROOT=/Volumes/<store>/store`. The suite's own guard stopped one test (`test_hash_is_what_was_asked`: "COMMONKIT_TEST_RUN is unset"), but others wrote:
 
 - eight handshake nonces in `.hello/` (`e-22174-*` five, `e-22404-*`, `e-22416-*`, `e-22450-*`), 64 bytes each, from test processes that have exited;
 - one new folder `plummemo/ea` holding one memo entry, `ead979a3…bfb.c.npy` (258 bytes).
@@ -238,7 +238,7 @@ The five new cases are: settings (the window opened and closed through the core,
 
 **Preferences and defaults** (checksums before in `claude-debug/native-n4/s4-prefs-before.txt`, after in `s4-prefs-after.txt`):
 
-- The egui editor's, PlumImpress's and PlumPipe's `prefs.json` and `trusted.json`, PlumImpress's `virtimp.json`, and the `com.swapwizard.*` plists: identical.
+- The egui editor's, the research software's and a private batch app's `prefs.json` and `trusted.json`, the research software's `virtimp.json`, and the `com.swapwizard.*` plists: identical.
 - `com.plumcraft.mac` changed by one key, `NSNavPanelExpandedSizeForOpenMode` (the Open panel's size), written at 20:32:08. That is before my first Mac launch (about 20:46), and a scripted launch never shows an Open panel (`--no-open-panel`), so it was the maintainer's own app.
 - `~/Library/Application Support/PlumCraft/` (the new Mac app's own preferences) does not exist: no launch of mine used it.
 - The simulator app's preferences lived in its container, which is uninstalled.

@@ -7,7 +7,7 @@ Branch `native/n1-core-crate`, working tree only (nothing committed, staged or s
 - New crate `crates/editor-core` (`plumcraft-editor-core`, 0.7.0, MIT OR Apache-2.0, the crate-level clippy denies, workspace lints, licence files, a `[workspace.dependencies]` entry like its siblings). It depends only on `plumcraft-host`, `-proto`, `-session`, `-store`, `serde`, `serde_json`.
 - Toolkit-free, proved by `cargo tree` and held by a new gate, `scripts/check-core-toolkit-free.sh`, wired into CI's Linux `gate` job beside the hash gates (no other CI change).
 - Moved: prefs, appearance, run animation, JSON-as-YAML, theme tokens as data, probe, diff, dtype, the raster type, bent-wire geometry, the palette index, run texts, and the event pump (`Link`), now woken by a `Waker`.
-- `plumcraft-ui` re-exports everything at the old paths. The downstream PlumImpress app compiles unchanged against this tree (`cargo check --tests`, exit 0).
+- `plumcraft-ui` re-exports everything at the old paths. The research software's downstream app compiles unchanged against this tree (`cargo check --tests`, exit 0).
 - `headless.rs` and `plumcraft-ffi` now use the core's `Link`.
 - Tests: the same single expected failure before and after, under both hashes. 1,297 tests ran before and 1,306 after: 63 moved and 9 are new.
 
@@ -77,7 +77,7 @@ The egui shell builds one with `plumcraft_ui::link::repaint_waker(ctx)`. The FFI
   2. `media::Rgba::image()` is a trait method: `use plumcraft_ui::media::RgbaImage`.
   3. `plumcraft_ui::link::Link` is a tuple newtype around the core's. Field and method access work through `Deref`; anything naming its private fields never compiled anyway.
   4. `theme::Text` and `theme::Check` are the core's types, with the same variants and fields.
-- **Checked on PlumImpress** (the private downstream; it uses `link::Link`, `theme::Tokens` fields, `value_editors`, `engine_view::Connector`, `run_view::rgba_image`, `offscreen::render`, `viewers::viewable`). A copy of its sources in `claude-debug/native-n1/plumimpress-check/` was built with a scratch `.cargo/config.toml` patching every `plumcraft-*` crate to this tree. `cargo check --tests` exits 0, with no source change. Its repository was not touched.
+- **Checked on the research software** (the private downstream; it uses `link::Link`, `theme::Tokens` fields, `value_editors`, `engine_view::Connector`, `run_view::rgba_image`, `offscreen::render`, `viewers::viewable`). A copy of its sources in `claude-debug/native-n1/<app>-check/` was built with a scratch `.cargo/config.toml` patching every `plumcraft-*` crate to this tree. `cargo check --tests` exits 0, with no source change. Its repository was not touched.
 
 ## `cargo tree` evidence
 
@@ -173,7 +173,7 @@ The biggest single file is `crates/ui/src/theme.rs` (+289 −675, now 655 lines)
 
 **`docs/STATUS.md`:** a line under the native editors item, for example:
 
-> N1 slice 1 (branch `native/n1-core-crate`): `plumcraft-editor-core` cut from `plumcraft-ui` with no user-visible change. It holds prefs, appearance, themes as data (plain `Color`), run animation, run texts, bent-wire geometry, the palette index, probe, diff, dtype, raster, YAML, and the event pump `Link` with a `Waker`. The ui re-exports every moved item at its old path, and PlumImpress compiles unchanged. `headless.rs` and `plumcraft-ffi` use the core's `Link`. `scripts/check-core-toolkit-free.sh` gates the core in CI. 1,306 Rust tests: the one expected failure (`params_coverage`, installed craft apps) under both hashes.
+> N1 slice 1 (branch `native/n1-core-crate`): `plumcraft-editor-core` cut from `plumcraft-ui` with no user-visible change. It holds prefs, appearance, themes as data (plain `Color`), run animation, run texts, bent-wire geometry, the palette index, probe, diff, dtype, raster, YAML, and the event pump `Link` with a `Waker`. The ui re-exports every moved item at its old path, and the research software compiles unchanged. `headless.rs` and `plumcraft-ffi` use the core's `Link`. `scripts/check-core-toolkit-free.sh` gates the core in CI. 1,306 Rust tests: the one expected failure (`params_coverage`, installed craft apps) under both hashes.
 
 **`docs/research/24-native-shells.md`:**
 

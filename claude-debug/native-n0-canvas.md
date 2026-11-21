@@ -57,7 +57,7 @@ Everything runs locally; nothing touches CI. Run from `native/apple/CanvasSpike/
 | Mac, 2,000 nodes | `MODES=perWire,batched ./bench.sh mac 2000 3200` | `mac-2000.json` |
 | Mac, compositor hitches (Instruments) | `PHASE_SECONDS=3 MODES=perWire,perWireLoose ./bench.sh trace 500 800` (or `2000 3200`) | `canvas-mac-N-MODE.trace`, `canvas-mac-N-MODE-hitches.md` |
 | iPad simulator | `PHASE_SECONDS=3 ./bench.sh sim 500 800` | `sim-500.json` |
-| Physical iPad | `DEVICE=00008132-001424640C05801C ./bench.sh device 500 800` (iPad unlocked) | `device-500.json` |
+| Physical iPad | `DEVICE=<UDID> ./bench.sh device 500 800` (iPad unlocked) | `device-500.json` |
 | Screenshots | `./bench.sh shot` | `mac-window-zoomfit.png`, `mac-window-zoom1.png` |
 | Tables | `python3 claude-debug/native_n0_summarize.py claude-debug/native-n0/mac-500.json` | Markdown |
 
@@ -86,7 +86,7 @@ Two notes on the tooling:
 
 | | Mac | iPad simulator | Physical iPad |
 |---|---|---|---|
-| Hardware | MacBook Pro, Apple M4 Max (Mac16,6), 16 cores, built-in Liquid Retina XDR | iPad Pro 13-inch (M5) simulator on the same Mac | iPad Pro 11-inch (M4), iPad16,3 |
+| Hardware | MacBook Pro, Apple M4 Max, 16 cores, built-in Liquid Retina XDR | iPad Pro 13-inch (M5) simulator on the same Mac | iPad Pro 11-inch (M4) |
 | Refresh measured | 120 Hz (CADisplayLink 8.33 ms; `maximumFramesPerSecond` 120) | 60 Hz (`maximumFramesPerSecond` 60) | 60 Hz actually delivered (16.67 ms) although `maximumFramesPerSecond` is 120 |
 | Load during runs | The final numbers below were taken at load 1.5 to 3. The earlier runs were at load 4 to 7, with other agents running an Android emulator and Rust builds. | Same Mac | n/a |
 
@@ -182,7 +182,7 @@ Interactively, settling after a zoom redraws about 10 to 30 visible faces in 14 
 
 Simulator frame timing is not representative of a device: it renders through the Mac's GPU, caps at 60 Hz here, and does not model iPad memory or thermals. It is reported only as "runs correctly".
 
-### 3.7 Physical iPad (iPad Pro 11-inch, M4, iPad16,3, J717AP)
+### 3.7 Physical iPad (iPad Pro 11-inch, M4)
 
 `./bench.sh device` built and signed the app with the maintainer's team (automatic provisioning worked), installed it, ran it with no human input and copied the JSON back. Results: `device-500.json` (4 s phases) and `device-2000.json` (3 s phases).
 
@@ -276,6 +276,6 @@ So the 2,000-node bend (section 3.3) and the level-of-detail work in recommendat
 
 ## 8. Needs the maintainer
 
-- **The iPad's 120 Hz.** Check that Low Power Mode is off, and Settings › Accessibility › Motion › Limit Frame Rate is off. Then rerun `DEVICE=00008132-001424640C05801C ./bench.sh device 500 800` from `native/apple/CanvasSpike/`, with the iPad unlocked and awake. `refresh_hz_max` in the JSON is the screen's maximum; `link_duration_ms_p50` in each phase is what was actually delivered.
+- **The iPad's 120 Hz.** Check that Low Power Mode is off, and Settings › Accessibility › Motion › Limit Frame Rate is off. Then rerun `DEVICE=<UDID> ./bench.sh device 500 800` from `native/apple/CanvasSpike/`, with the iPad unlocked and awake. `refresh_hz_max` in the JSON is the screen's maximum; `link_duration_ms_p50` in each phase is what was actually delivered.
 - **iPad compositor hitches.** Record the device run in Instruments: Animation Hitches with Points of Interest, target "Sean's iPad", app CanvasSpikePad, arguments `--bench bench-500.json --phase-seconds 3`.
 - **Large trace bundles.** `claude-debug/native-n0/canvas-mac-500.trace` is 15 GB, from a stalled recording, and the other `.trace` bundles are 0.4 to 0.9 GB each. The exported tables (`*-hitches.xml`, `*-os-signpost.xml`, `*-hitches.md`) hold the numbers. I left the bundles in place under the "don't delete in claude-debug" rule; delete them if you want the space.

@@ -1,5 +1,5 @@
 //! What VectorCraft keeps of a set of strokes between `vc.open` and `vc.export_svg`, simplified or
-//! not: PlumImpress's From SVG is built on this (note 18, section 3). Skipped without
+//! not: the research software's From SVG is built on this (note 18, section 3). Skipped without
 //! `vectorcraft-cli`.
 
 mod common;

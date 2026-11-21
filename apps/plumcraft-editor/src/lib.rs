@@ -1,6 +1,6 @@
 //! PlumCraft's node editor, as a library: [`run`] with an [`AppConfig`] is the application, so
 //! another can be built on it with its own name, compiled-in engines, commands and viewers
-//! (PlumImpress is one). Engine manifests and crafts work there as here. `plumcraft-editor` is the
+//! (the research software's app is one). Engine manifests and crafts work there as here. `plumcraft-editor` is the
 //! default configuration.
 //!
 //! It opens a workflow on a node canvas, connects

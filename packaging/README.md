@@ -83,6 +83,6 @@ Without `--upload`, nothing leaves the machine. With it, the script pushes the t
 and makes a draft GitHub release to read over. `--publish` skips the draft. `--linux-host` needs
 a Rust toolchain and the Linux packages above on that host, and `--windows-host` what Windows
 needs above, with OpenSSH. `--windows-jump` reaches a Windows VM through the machine that hosts
-it: for yellowfin's, `--windows-host win11-dev --windows-jump yellowfin.lan`.
+it: for one on a Linux host, `--windows-host win11-dev --windows-jump $LINUX_HOST`.
 
 Crates and the Python SDK release separately. `vVERSION` tags are the SDK's.

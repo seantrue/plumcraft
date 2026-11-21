@@ -15,6 +15,8 @@ docs/**/*.pdf
 # local, not part of the project
 /.idea/
 /synesthesia.png
+# the private strings check's real patterns (scripts/check-private-strings.sh)
+/scripts/private-strings.local
 
 # release images (packaging/)
 /dist/

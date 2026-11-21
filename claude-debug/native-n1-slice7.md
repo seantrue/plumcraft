@@ -14,7 +14,7 @@ Branch `native/n1-document`, working tree only (nothing committed, staged or sta
 - **The gate:**
   - **Tests:** the same single expected failure before and after, in three b3 runs and one md5 run. There are 1,378 tests against 1,368: 10 new, none gone. One existing test file gained one test (sanctioned); none was otherwise edited.
   - **Control replies:** 41 control replies from the real editor, before and after, differ in nothing. The first capture showed a window-focus artefact, explained below.
-  - **PlumImpress** builds and passes its editor, recipe, view, identity and stored tests with no source change.
+  - **The research software** builds and passes its editor, recipe, view, identity and stored tests with no source change.
   - **Your preferences:** your `prefs.json` and `trusted.json` are untouched.
 
 ## `Document`'s design
@@ -51,7 +51,7 @@ Branch `native/n1-document`, working tree only (nothing committed, staged or sta
 
 - **Ids.** `document::next_id()` is a process-wide counter that never reuses a number. `Session::doc_id()` carries it.
 - **Hooks (decision 3), additive.** `before`/`after` already receive the session, so they read `session.doc_id()`. The hooks without a session (`node_overlays`, `wire_marks`, `status`, `status_tone`, `hold_runs`) can ask `plumcraft_session::commands::current_doc()`. That is a thread-local the core sets around a document's commands and turn (`with_doc`) and the egui shell sets around its frame.
-- **Why not a new argument.** Changing the `fn()` signatures would break `crates/ui/tests/kittest_app_hooks.rs` and `crates/session/tests/app_hooks.rs` (which the brief forbids editing) and PlumImpress's `impress-ui::hooks()`. Decision 3 said PlumImpress would change with it; the additive route needs no change, and a signature change can follow when you say so.
+- **Why not a new argument.** Changing the `fn()` signatures would break `crates/ui/tests/kittest_app_hooks.rs` and `crates/session/tests/app_hooks.rs` (which the brief forbids editing) and the research software's `impress-ui::hooks()`. Decision 3 said the research software would change with it; the additive route needs no change, and a signature change can follow when you say so.
 - **Asks (`doc`).** Each raised ask in the C ABI feed is `{ask, doc, kind, modal, by, params}`. `asksEnded` items stay `{ask, ended}`: `crates/ffi/tests/asks.rs` compares them for exact equality. `ui.inspect`'s `asks` gains nothing, so control replies stay byte-identical.
 - **Ask ids** are per document. `ask.answer` addresses the request's `doc`, else the first document.
 - **The C ABI core** holds `BTreeMap<DocId, Doc>`, each `{Document, ready, held requests, engine generation}`.
@@ -172,7 +172,7 @@ The CI command, `COMMONKIT_STORE_MIN_FREE_GB=2`, a fresh run folder each (`claud
 
 1. **`crates/ui/tests/engine_thread.rs`:** one test appended, `startup_never_calls_an_engine_on_the_editors_thread`, the startup case the brief asked for. No existing line changed (`git diff`: 47 additions, 0 deletions).
 
-No other existing test file was edited. `crates/ffi/tests/documents.rs` is new, and so are the unit tests in `crates/editor-core/src/document.rs`. Every existing kittest, FFI test and PlumImpress test compiles unchanged thanks to the `Deref`.
+No other existing test file was edited. `crates/ffi/tests/documents.rs` is new, and so are the unit tests in `crates/editor-core/src/document.rs`. Every existing kittest, FFI test and the research software test compiles unchanged thanks to the `Deref`.
 
 ## Preferences
 
@@ -189,13 +189,13 @@ How each real-editor run was isolated:
 - `s5_probe.py` sets it under its own output folder in `claude-debug/native-n1/`.
 - `s3_probe.py` sets none, so I ran it with `PLUMCRAFT_EDITOR_PREFS` exported to `s7-probe/`.
 
-## Downstream: PlumImpress
+## Downstream: the research software
 
-- **How it was checked.** I copied it to `claude-debug/native-n1/s7-plumimpress-check/` (without `target`, `.git`, `dist` or `claude-debug`), with the patch file of earlier slices plus `plumcraft-media`, built into the workspace `target/`. The repository itself was not touched.
+- **How it was checked.** I copied it to `claude-debug/native-n1/s7-<app>-check/` (without `target`, `.git`, `dist` or `claude-debug`), with the patch file of earlier slices plus `plumcraft-media`, built into the workspace `target/`. The repository itself was not touched.
 - `cargo check --tests` exits 0 with **no source change**.
 - **Tests:** `editors` 7, `open_recipe` 2, `views` 5, `recipe` 3, `identity` 2 and `stored` 5 pass (`tests-1.log`, `tests-2.log`).
-- **How its fields stay reachable: decided as fields, through `Deref`.** `EditorApp` derefs to its `Document`, so `.session`, `.link`, `.coordinator`, `.engine`, `.installing`, `.last_error`, `.asks`, `.document`, `.convert_offer`, `.media_service` and `.switching` read and write as before. Field access auto-derefs, and every existing test and PlumImpress compiled unchanged.
-- **The one thing this costs.** Code that borrows a moved field and an `EditorApp` field mutably in one expression no longer compiles. Inside `crates/ui` I wrote `self.doc.session` for that reason; no test and nothing in PlumImpress does it.
+- **How its fields stay reachable: decided as fields, through `Deref`.** `EditorApp` derefs to its `Document`, so `.session`, `.link`, `.coordinator`, `.engine`, `.installing`, `.last_error`, `.asks`, `.document`, `.convert_offer`, `.media_service` and `.switching` read and write as before. Field access auto-derefs, and every existing test and the research software compiled unchanged.
+- **The one thing this costs.** Code that borrows a moved field and an `EditorApp` field mutably in one expression no longer compiles. Inside `crates/ui` I wrote `self.doc.session` for that reason; no test and nothing in the research software does it.
 - **API a downstream crate would notice:**
   - `EditorApp.connector` is gone: `with_engines` turns the `Connector` into the document's `starter`.
   - New on `EditorApp`: `doc`, `start_engines`, `wake_with`, `on_ready` (`OnReady`), and `trace_startup()`.
@@ -247,7 +247,7 @@ From `git diff --numstat`, plus the two new files.
 
 - 40 GB free at the start (not the 70 GB the brief expected), 36 GB at the end.
 - `claude-debug/native-n1/s7-*` is about 1.3 GB (four final run folders of 172 MB each, their stores removed).
-- `target/` is 89 GB. No extra target directory was made; PlumImpress built into the workspace `target/`.
+- `target/` is 89 GB. No extra target directory was made; the research software built into the workspace `target/`.
 
 ## What the docs should say
 

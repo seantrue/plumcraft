@@ -10,7 +10,7 @@ Branch `native/n1-off-ui-thread`, working tree only (nothing committed, staged o
   - Runs, releases and cancels go to the worker.
   - A switch made inside a frame goes to the worker, and the title and status bar say "connecting".
   - A control request that switches (`command.run`, `ui.invoke`, `ui.prompt`) replies once the switch is done, so `docs/control-protocol.md`'s "switch before they reply" still holds.
-  - Callers outside a frame (tests, scripts, PlumImpress) still get the outcome when `try_run` returns. They wait for the worker.
+  - Callers outside a frame (tests, scripts, the research software) still get the outcome when `try_run` returns. They wait for the worker.
 - **The FFI's core thread uses the same worker.** `plum_request` of a run never blocks it, and `engine.*` commands over the C ABI are now performed. Each replies once its switch is done.
 - **Stalls on the main thread** (debug build, longest frame):
   - Switching text to process mode: from 190 to 244 ms down to 3 to 6 ms.
@@ -84,7 +84,7 @@ Branch `native/n1-off-ui-thread`, working tree only (nothing committed, staged o
 | `resolve`: thumbnails, pictures, peaks | `crates/ui/src/run_view.rs:92`, `:109`, `:130` (through `audio.rs:142`) | Stays (item 4). The bytes are resolved on the UI thread; only decoding is on a `Job` |
 | `resolve`: full values | `crates/ui/src/watched.rs:46-52` (`Fulls::read`), reached from `lib.rs` `full_reader`, used by `watched.update`, `panel_pane.sync`, `sync_media`, `sync_compare`, `popouts.rs:60`, `value_editors` (`lib.rs` `value_editor_windows`), `wire_view` | Stays (item 4) |
 | `session.docs.resolver` | Set in `lib.rs` `with_link` and `drain_engine`, and in `switchboard.rs` `relinked`; used by `plumcraft_session` `doc_cmds` (`doc.open`) and `open_cmds` | Stays (item 4) |
-| `Session::connection()`, used by an application's commands (PlumImpress `app.askEngine` and others) | The application's | Stays: application commands are synchronous today |
+| `Session::connection()`, used by an application's commands (the research software's `app.askEngine` and others) | The application's | Stays: application commands are synchronous today |
 | `EditorApp::switch_engine`, `add_engine`, `remove_engine` (public API) | `engine_view.rs` | Unchanged and synchronous, on the caller's thread. Nothing in a frame calls them. They are the API for scripts and tests |
 | FFI: `run`, `graph.release`, `run.cancel` | `crates/ffi/src/core.rs` `send_outgoing` | Worker |
 | FFI: `engine.*` | Recorded, never performed | Performed: begun on the core thread, waiting part on the worker, reply when done |
@@ -94,7 +94,7 @@ Branch `native/n1-off-ui-thread`, working tree only (nothing committed, staged o
 
 ### Item 3, startup: not done, and what blocks it
 
-- **`EditorApp::with_link` promises the catalogue is set when it returns.** It is a builder that nine kittest files and four PlumImpress test files call, then read the catalogue at once (nodes, labels, `run.start` enabled).
+- **`EditorApp::with_link` promises the catalogue is set when it returns.** It is a builder that nine kittest files and four of the research software's test files call, then read the catalogue at once (nodes, labels, `run.start` enabled).
 - **`editor_with` builds the session around the catalogue it has just read.**
   - `Session::with_graph(catalog, graph)`, or `graph.open` against it, computes the graph's problems and titles against that catalogue. So do `last_error`'s "opened with N problems" and the first fit (`catalog_changed(first)`).
   - Opening against an empty catalogue and setting the real one later would change `lastError`, and possibly the undo history and fit, for anything that reads them early.
@@ -217,12 +217,12 @@ No file in `crates/*/tests` or `apps/*/tests` was edited; the three test files t
 
 ## Downstream apps
 
-- **`/Users/seant/workspace/plumimpress`:**
-  - Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s3-plumimpress-check/`, with slice 2's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree, and the workspace's own `target/`.
+- **The research software's checkout:**
+  - Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s3-<app>-check/`, with slice 2's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree, and the workspace's own `target/`.
   - `cargo check --tests` exits 0 with no source change (`check.log` there).
   - The repository itself was not touched.
 - **What a downstream app would notice:**
-  - `plumcraft_ui::engine_view::Connector` is now `+ Send`: it is called on the engine worker. PlumImpress's connectors (capturing `Arc`s and paths) compile as they are. One capturing an `Rc` would not.
+  - `plumcraft_ui::engine_view::Connector` is now `+ Send`: it is called on the engine worker. The research software's connectors (capturing `Arc`s and paths) compile as they are. One capturing an `Rc` would not.
   - `EditorApp::connector` is `None` while a switch is in flight (the connector travels with the job and comes back).
   - New on `EditorApp`: `engine_busy()` and `wait_engines(timeout)`. `pump_engine()` keeps its signature but no longer waits.
   - `try_run`, `run` and `control_now` called outside a frame behave as before (they wait). Inside a frame (menus, shortcuts, `ui.*`), a switch that waits for I/O returns the command's own result and finishes later.
@@ -283,7 +283,7 @@ From `git diff --numstat`, plus the untracked files.
   - **Section 10's "Launch to a usable window" row:** not met yet (item 3).
 - **`docs/shell-interface.md`:**
   - **Section 5.4:** today's line ("`pump_runs` calls `conn.call("run")` on the UI thread … which N1 moves off it") is done. Engine calls go to `plumcraft_editor_core::worker::EngineWorker`, in order per document.
-  - **Section 5.1:** `call` may still be used for engine methods by in-process Rust callers outside a frame; it waits on the worker, as tests and PlumImpress do. The UI thread uses the request-and-reply path.
+  - **Section 5.1:** `call` may still be used for engine methods by in-process Rust callers outside a frame; it waits on the worker, as tests and the research software do. The UI thread uses the request-and-reply path.
   - **Section 5.2:** `engine.*` over the C ABI replies once the switch is done.
   - **Section 3.1 rule 6:** note the one exception kept in the egui shell: engines compiled in connect on the UI thread. Either accept it by name, with its budget, or schedule its removal.
   - **Section 10.1:** `plum_blob` still resolves on the caller's thread.

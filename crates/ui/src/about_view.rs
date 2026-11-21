@@ -1,10 +1,10 @@
 //! The About window (`app.about`, Help › About): what the application is, what it was built from,
 //! and what the connected engine says of itself. All of it comes from the application and the
-//! catalogue, so PlumImpress's revisions are its own and core names none.
+//! catalogue, so an application's revisions are its own and core names none.
 
 use plumcraft_session::Session;
 
-/// The window's title: `About PlumImpress`.
+/// The window's title: `About <title>`.
 pub fn title(s: &Session) -> String {
     format!("About {}", s.about.title)
 }

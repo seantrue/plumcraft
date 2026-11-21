@@ -229,7 +229,7 @@ In order. "Needs Apple" means the step talks to Apple or happens on Apple's web 
 
 ## The maintainer's store, caches, logs and preferences
 
-Every scripted launch used `claude-debug/native-n4/s8-env.sh` (slice 6's scratch environment, refusing an unset store or one under `/Volumes/CommonkitStore`) and `--scratch-state`, never activated, quit by the PID it was given. Before and after (`s8-snapshot.sh`): the store's top level, `~/Library/Caches/com.plumcraft.mac`, `~/Library/Logs/PlumCraft` and `~/Library/Preferences/com.plumcraft.mac.plist` had the same modification times and entries, and no file under them was newer than the marker made before the first launch. No `PlumCraft` process other than the ones started here was signalled. Nothing in the main checkout, its `build-device` folders or `claude-debug/native-n4/s7-*` was touched; no simulator or device was used.
+Every scripted launch used `claude-debug/native-n4/s8-env.sh` (slice 6's scratch environment, refusing an unset store or one under `/Volumes/<store>`) and `--scratch-state`, never activated, quit by the PID it was given. Before and after (`s8-snapshot.sh`): the store's top level, `~/Library/Caches/com.plumcraft.mac`, `~/Library/Logs/PlumCraft` and `~/Library/Preferences/com.plumcraft.mac.plist` had the same modification times and entries, and no file under them was newer than the marker made before the first launch. No `PlumCraft` process other than the ones started here was signalled. Nothing in the main checkout, its `build-device` folders or `claude-debug/native-n4/s7-*` was touched; no simulator or device was used.
 
 ## Defects
 

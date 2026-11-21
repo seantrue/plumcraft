@@ -22,7 +22,7 @@ Branch `native/n1-control`, working tree only: nothing committed, staged or stas
   - Python: 224 passed under md5 and b3; ruff is clean.
   - Gates: fmt, clippy, the hash gates and the toolkit-free gate are all clean.
 - **Downstream and prefs:**
-  - PlumImpress (scratch copy) checks with no source change, and its `open_recipe` test passes.
+  - The research software (scratch copy) checks with no source change, and its `open_recipe` test passes.
   - The maintainer's real `prefs.json` and `trusted.json` are byte-identical before and after.
 
 ## The dispatcher and the shell trait
@@ -294,11 +294,11 @@ The records are `claude-debug/native-n1/s5-userprefs-before.txt` and `s5-userpre
 
 ## Downstream effects
 
-**PlumImpress.**
+**The research software.**
 
-- Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s5-plumimpress-check/`, with slice 4's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree. It built into the workspace's own `target/`.
+- Copied without `target`, `.git`, `dist` or `claude-debug` to `claude-debug/native-n1/s5-<app>-check/`, with slice 4's `.cargo/config.toml` patching every `plumcraft-*` crate to this tree. It built into the workspace's own `target/`.
 - `cargo check --tests` exits 0 with no source change, re-checked after touching both `control.rs` files.
-- `cargo test -p plumimpress --test open_recipe` passes 2 of 2.
+- `cargo test -p <app> --test open_recipe` passes 2 of 2.
 - The repository was not touched. It has uncommitted changes of its own, which I left alone.
 
 **API changes a downstream application would see:**
@@ -307,7 +307,7 @@ The records are `claude-debug/native-n1/s5-userprefs-before.txt` and `s5-userpre
   - `plumcraft_editor_core::control`: `Shell`, `Driver`, `View`, `Parked`, `ShotRequest`, `handle`, `now`, `inspect`, `inspect_core`, `tick`, `settle`, `step`, `engines_now`, `wait_engines`, `engine_busy`, `ask_screenshot`, `command_rows`, `status_messages`, `Msg`, `banner_text`, `engine_status`, `window_title`, `document_name`, `frames_inspect`, `run_anim_inspect`, `engine_inspect`, `short_path`, `APP_TITLE`, `UNTITLED`, `SHOT_WAIT`.
   - `plumcraft_automation::server::Server`.
 - **Changed:**
-  - `asks::Kind` gains `Screenshot`, and `Kind::ALL` has 11. An exhaustive `match` on `Kind` downstream breaks; PlumImpress has none.
+  - `asks::Kind` gains `Screenshot`, and `Kind::ALL` has 11. An exhaustive `match` on `Kind` downstream breaks; the research software has none.
   - `asks::Answer` gains `Shot`.
   - `plumcraft_ui::control::ControlState` has a new pub field `parked`. It lost the private `waits` and `next_token`. `pending()` also counts replies parked on a switch.
   - `plumcraft_ui::control::{Reply, ok, err, WAIT_RUN_MAX_S, default_screenshot_path}` are re-exports of the core's, at the same paths.
