@@ -98,7 +98,7 @@ enum PadMenus {
                 // iPadOS's Help keeps its search; the model's About has no window here yet
                 break
             default:
-                let id = UIMenu.Identifier("com.plumcraft.pad.menu.\(top.id.isEmpty ? "\(k)" : top.id)")
+                let id = UIMenu.Identifier(AppID.bundle + ".menu.\(top.id.isEmpty ? "\(k)" : top.id)")
                 let m = UIMenu(title: top.label, identifier: id, children: children)
                 builder.insertSibling(m, afterMenu: after)
                 after = id

@@ -1,4 +1,4 @@
-// PlumCraft for the Mac: a document-based AppKit app. One core per process (the Swift kit's
+// Plummer (PlumCraft's native editor) for the Mac: a document-based AppKit app. One core per process (the Swift kit's
 // PlumCore, in-process through the C ABI), one core document per window (decision 8), each window
 // a GraphDocument showing its graph on the layer canvas.
 //
@@ -107,6 +107,12 @@ struct Options {
     }
 }
 
+/// The app's bundle id, as the bundle carries it (set in one place, Config/BundleId.xcconfig);
+/// the ids derived from it (log subsystems) follow it.
+enum AppID {
+    static let bundle = Bundle.main.bundleIdentifier ?? "com.swapwizard.plummer.mac"
+}
+
 /// The process's one core, opened at launch and closed at quit.
 @MainActor
 enum CoreHost {
@@ -118,7 +124,7 @@ enum CoreHost {
     /// logs it instead, so no dialog stalls a run with nobody at the Mac.
     static func present(_ error: Error) {
         if options.scratchState {
-            FileHandle.standardError.write(Data("PlumCraft: \(error.localizedDescription)\n".utf8))
+            FileHandle.standardError.write(Data("Plummer: \(error.localizedDescription)\n".utf8))
         } else {
             NSApp.presentError(error)
         }
@@ -128,7 +134,7 @@ enum CoreHost {
 
     static func open() {
         let fm = FileManager.default
-        let id = Bundle.main.bundleIdentifier ?? "com.plumcraft.mac"
+        let id = AppID.bundle
         // a scripted launch (--scratch-state) keeps its caches and log beside the scratch marks it
         // must be given, not in the person's Library: since the core writes exports under
         // dirs.caches (B42, the N4 device gate) a scripted export would land there
@@ -140,13 +146,13 @@ enum CoreHost {
         let store = options.storeRoot ?? caches.appendingPathComponent("store").path
         try? fm.createDirectory(atPath: store, withIntermediateDirectories: true)
         let logs = scratch.map { $0.appendingPathComponent("mac-logs").path }
-            ?? (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Logs/PlumCraft").path
+            ?? (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Logs/Plummer").path
         // the config (contract 4.1) and the start are the kit's, shared with the iPad app
-        var config = ShellConfig(appID: id, appName: "PlumCraft", version: ShellConfig.bundleVersion, storeRoot: store)
+        var config = ShellConfig(appID: id, appName: "Plummer", version: ShellConfig.bundleVersion, storeRoot: store)
         // the app's own preferences (the core keeps every setting there, N4 slice 4);
         // PLUMCRAFT_EDITOR_PREFS, which every script sets to scratch, wins in the core
         let prefs = (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
-            .appendingPathComponent("PlumCraft").path
+            .appendingPathComponent("Plummer").path
         config.dirs = ["caches": caches.path, "logs": logs, "prefs": prefs]
         config.dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         config.moreContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
@@ -167,7 +173,7 @@ enum CoreHost {
             config.controlPort = options.controlPort
             #else
             // a release build never listens beyond loopback (decision 10)
-            FileHandle.standardError.write(Data("PlumCraft: --control-bind \(bind) refused: a release build keeps the control port on loopback\n".utf8))
+            FileHandle.standardError.write(Data("Plummer: --control-bind \(bind) refused: a release build keeps the control port on loopback\n".utf8))
             Status.shared.set("controlBindRefused", .string(bind))
             #endif
         }
@@ -207,7 +213,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if CoreHost.options.scratchState, let why = Self.scratchRefusal() {
             // loud, and no dialog: a scripted launch that would reach the Mac's own store stops here
-            FileHandle.standardError.write(Data("PlumCraft: \(why)\n".utf8))
+            FileHandle.standardError.write(Data("Plummer: \(why)\n".utf8))
             exit(3)
         }
         if let f = CoreHost.options.dumpMenus {
@@ -254,11 +260,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ note: Notification) {
         if let why = CoreHost.openError {
             if CoreHost.options.scratchState {
-                FileHandle.standardError.write(Data("PlumCraft couldn't start its core: \(why)\n".utf8))
+                FileHandle.standardError.write(Data("Plummer couldn't start its core: \(why)\n".utf8))
                 exit(4)
             }
             let a = NSAlert()
-            a.messageText = "PlumCraft couldn't start its core"
+            a.messageText = "Plummer couldn't start its core"
             a.informativeText = why
             a.runModal()
             NSApp.terminate(nil)

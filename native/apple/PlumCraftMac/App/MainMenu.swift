@@ -26,7 +26,7 @@ final class ModelRef: NSObject {
 @MainActor
 final class MenuBar: NSObject, NSMenuItemValidation {
     static let shared = MenuBar()
-    let appName = "PlumCraft"
+    let appName = "Plummer"
     /// The model's items by their place in the bar ("2/5"), as last fetched.
     private var items: [String: MenuItem] = [:]
     private var shape = ""

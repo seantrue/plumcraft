@@ -649,7 +649,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         // a failed save is said once, without a dialog; the title keeps saying it until a save works
         let failure = model?.state.autosave.state == "failed" ? model?.state.autosave.error : nil
         if let f = failure, f != failureSaid {
-            say("Couldn't save \(name): \(f). PlumCraft keeps trying; your changes are kept here meanwhile.")
+            say("Couldn't save \(name): \(f). Plummer keeps trying; your changes are kept here meanwhile.")
         }
         failureSaid = failure
     }

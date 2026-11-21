@@ -272,6 +272,11 @@ pub struct Document {
     closed: bool,
     /// What the platform can start (the Engine menu lists what it can't, disabled with why).
     pub caps: crate::engines::Capabilities,
+    /// The shell answers the `share` ask with a share sheet (`platform.share`, contract 4.2;
+    /// true unless the shell says it can't). False: Share… and a pop-out's Share are disabled
+    /// with [`crate::canvas_cmds::SHARE_UNAVAILABLE`] and refused when run (the egui editor,
+    /// after N4: the maintainer's "Disable").
+    pub share: bool,
     /// The menu bar's generation (`menu.get`'s `gen`), up when what it holds changed.
     pub menus: crate::menu::Revision,
     /// What is selected on the canvas ([`crate::selection`]); changed only by the canvas
@@ -386,6 +391,7 @@ impl Document {
             engine_asked: false,
             closed: false,
             caps: crate::engines::Capabilities::DESKTOP,
+            share: true,
             menus: crate::menu::Revision::default(),
             selection: crate::selection::SelectionCell::default(),
             focus: None,
@@ -1326,6 +1332,7 @@ impl Shell for Document {
             live: self.link.is_some(),
             caps: self.caps,
             select_mode: self.select_mode,
+            no_share: !self.share,
             ..crate::menu::Facts::default()
         }
     }

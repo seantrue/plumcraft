@@ -85,10 +85,10 @@ pub fn default_screenshot_path(token: u64) -> PathBuf {
 }
 
 /// The command table as `command.list` rows.
-pub fn command_rows(session: &Session) -> Value {
+pub fn command_rows(session: &Session, facts: &crate::menu::Facts) -> Value {
     let mut rows: Vec<Value> = plumcraft_session::command_specs().iter().map(|c| plumcraft_session::commands::list_entry(session, c)).collect();
-    // the canvas's commands (N2 slice 1), after the registry's
-    rows.extend(crate::canvas_cmds::commands().iter().map(|c| crate::canvas_cmds::list_entry(session, c)));
+    // the canvas's commands (N2 slice 1), after the registry's, with what this shell can't do
+    rows.extend(crate::canvas_cmds::commands().iter().map(|c| crate::canvas_cmds::list_entry(session, facts, c)));
     json!(rows)
 }
 
@@ -452,7 +452,7 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 Err(e) => err(e),
             }
         }
-        "command.list" | "engine.commands" => ok(command_rows(s.session())),
+        "command.list" | "engine.commands" => ok(command_rows(s.session(), &s.menu_facts())),
         "graph.get" => ok(serde_json::to_value(s.session().graph()).unwrap_or(Value::Null)),
         "ui.inspect" => ok(inspect(s)),
         "ui.audio" => match s.ui_audio(params) {
@@ -473,7 +473,9 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             }
             let (id, enabled) = match (plumcraft_session::find(id), crate::canvas_cmds::find(id)) {
                 (Some(spec), _) => (spec.id, (spec.enabled)(s.session())),
-                (None, Some(c)) => (c.id, (c.enabled)(s.session())),
+                (None, Some(c)) => {
+                    (c.id, crate::canvas_cmds::shell_refuses(&s.menu_facts(), c.id).map_or_else(|| (c.enabled)(s.session()), |why| Err(why.to_owned())))
+                }
                 (None, None) => return err(format!("unknown command {:?}", id.chars().take(64).collect::<String>())),
             };
             if let Err(why) = enabled {

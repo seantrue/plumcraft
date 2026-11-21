@@ -8,7 +8,7 @@
 #                                  build, sign with the team's development identity and the profile
 #                                  Xcode already has for it (automatic signing without
 #                                  -allowProvisioningUpdates: nothing is requested), install as
-#                                  com.plumcraft.pad, launch the run, copy its JSON back, and make sure
+#                                  the app's bundle id (Config/BundleId.xcconfig), launch the run, copy its JSON back, and make sure
 #                                  it has quit
 #   ./bench.sh trace-device [N M]  the same under Instruments' Animation Hitches on the device, hitches
 #                                  binned by phase (hitches.py)
@@ -16,7 +16,7 @@
 #                                  control
 #
 # BENCH_EXTRA adds bench arguments (--hide-wires: no wires drawn, the faces' share of a trace).
-# APP=<path to a built PlumCraftPad.app> runs that app instead of building this checkout (a device
+# APP=<path to a built Plummer.app> runs that app instead of building this checkout (a device
 # app for device and trace-device, a simulator app for sim). OUT names the results' folder (default
 # claude-debug/native-n3), PREFIX their names' start (default s5): OUT/PREFIX-pad-<where>-N.json and,
 # for a trace, OUT/PREFIX-<app>-device-trace-N-hitches.md beside its exported tables and xctrace log.
@@ -30,7 +30,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 out="${OUT:-$root/claude-debug/native-n3}"; mkdir -p "$out"; out="$(cd "$out" && pwd)"
 what="${1:-sim}"; n="${2:-500}"; m="${3:-800}"; secs="${PHASE_SECONDS:-4}"; p="${PREFIX:-s5}"
-bundle=com.plumcraft.pad
+bundle=$(sed -n 's/^PLUMMER_PAD_BUNDLE_ID = //p' "$here/../Config/BundleId.xcconfig")
 team="${TEAM:-}"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-pad-bench.XXXXXX")"
 sim=""; dev=""
@@ -43,7 +43,7 @@ cleanup() {
 import json
 for q in json.load(open('$scratch/ps.json'))['result']['runningProcesses']:
     e = q.get('executable','')
-    if e.endswith('/PlumCraftPad.app/PlumCraftPad') or e.endswith('/CanvasSpikePad.app/CanvasSpikePad'): print(q['processIdentifier'])" 2>/dev/null || true)
+    if e.endswith('/Plummer.app/Plummer') or e.endswith('/CanvasSpikePad.app/CanvasSpikePad'): print(q['processIdentifier'])" 2>/dev/null || true)
     for q in $pid; do
       timeout 60 xcrun devicectl device process terminate --device "$dev" --pid "$q" >/dev/null 2>&1 && echo "quit a bench app on the device ($q)"
     done
@@ -67,18 +67,36 @@ locked() { grep -qE 'BSErrorCodeDescription = Locked|could not be, unlocked|devi
 # binned by phase into NAME-hitches.md. xctrace's own output goes to NAME-xctrace.log and the two
 # exported tables beside it (NAME-os-signpost.xml, NAME-hitches.xml). The recording stops when the
 # app exits (each bench exits once done), or at 120 s. A trace with no phases is not a result.
+#
+# xctrace writes a raw kernel trace (instruments*.ktrace, 2 to 8 GB) into TMPDIR and leaves it there
+# when a save stalls; on 2026-11-21 fifteen of them filled the Mac's disk. So each recording gets a
+# folder of its own under this run's scratch, given to xctrace alone as TMPDIR, and removed (with
+# the trace) once the tables are exported, or by the EXIT trap on a failure, a time limit or ^C; and
+# no recording starts with less than MIN_FREE_GB (15) free where the scratch is.
+min_free_gb="${MIN_FREE_GB:-15}"
+free_gb() { df -Pk "$1" | awk 'NR == 2 { print int($4 / 1048576) }'; }
 trace_device() {
   local b="$1" proc="$2" name="$3"; shift 3
-  local t="$scratch/$name.trace"
+  local free
+  free=$(free_gb "$scratch")
+  if [ "$free" -lt "$min_free_gb" ]; then
+    echo "only $free GB free on the scratch's disk: a trace needs $min_free_gb GB (xctrace's raw trace runs to 8 GB); not started"
+    exit 6
+  fi
+  # one folder per recording, short, under the scratch the trap removes
+  local xt; xt="$(mktemp -d "$scratch/x.XXXX")"
+  local t="$xt/t.trace"
   rm -f "$out/$name-hitches.md" "$out/$name-os-signpost.xml" "$out/$name-hitches.xml" "$out/$name-xctrace.log"
-  timeout 400 xcrun xctrace record --device "$dev" --template 'Animation Hitches' --instrument 'Points of Interest' \
+  TMPDIR="$xt/" timeout 400 xcrun xctrace record --device "$dev" --template 'Animation Hitches' --instrument 'Points of Interest' \
     --time-limit 120s --output "$t" --launch -- "$b" "$@" > "$out/$name-xctrace.log" 2>&1 || echo "xctrace record: exit $?" >> "$out/$name-xctrace.log"
   if locked "$out/$name-xctrace.log"; then echo "the iPad is locked: the trace didn't launch (unlock it; Auto-Lock to Never)"; exit 5; fi
   [ -d "$t" ] || { echo "no trace was saved ($out/$name-xctrace.log)"; exit 4; }
   for s in os-signpost hitches; do
-    timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" \
+    TMPDIR="$xt/" timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" \
       > "$out/$name-$s.xml" 2>> "$out/$name-xctrace.log" || echo "xctrace export $s: exit $?" >> "$out/$name-xctrace.log"
   done
+  # the trace and any raw kernel trace xctrace left: gone now the tables are out
+  rm -rf "$xt"
   python3 "$here/hitches.py" "$proc" "$out/$name-os-signpost.xml" "$out/$name-hitches.xml" | tee "$out/$name-hitches.md"
   grep -q '^| [^P-][^|]* | [0-9]' "$out/$name-hitches.md" || { echo "the trace has no phases: not a result"; exit 4; }
 }
@@ -91,7 +109,7 @@ sim)
   if [ -z "$app" ]; then
     timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Release -derivedDataPath build \
       -destination "id=$sim" build -quiet 2>&1 | grep -v 'appintentsmetadataprocessor\|DVTProvisioning' || true
-    app=build/Build/Products/Release-iphonesimulator/PlumCraftPad.app
+    app=build/Build/Products/Release-iphonesimulator/Plummer.app
   fi
   xcrun simctl install "$sim" "$app"
   dest="$out/$p-pad-sim-$n.json"; rm -f "$dest"
@@ -109,7 +127,7 @@ device|trace-device)
       SYMROOT="$here/build-device" OBJROOT="$here/build-device/obj" \
       CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" CODE_SIGN_IDENTITY="Apple Development" \
       build -quiet 2>&1 | grep -v 'appintentsmetadataprocessor\|DVTProvisioning' || true
-    app="$here/build-device/Release-iphoneos/PlumCraftPad.app"
+    app="$here/build-device/Release-iphoneos/Plummer.app"
   fi
   [ -d "$app" ] || { echo "no device app at $app (the build failed: signing?)"; exit 1; }
   timeout 300 xcrun devicectl device install app --device "$dev" "$app" >"$scratch/install.log" 2>&1 || { cat "$scratch/install.log"; exit 4; }
@@ -126,7 +144,7 @@ device|trace-device)
       --source "Documents/$result" --destination "$dest" >/dev/null 2>&1 || { echo "this run left no result ($result): none read"; exit 4; }
     echo "wrote $dest"
   else
-    trace_device "$bundle" PlumCraft "$p-pad-device-trace-$n" "${args[@]}"
+    trace_device "$bundle" Plummer "$p-pad-device-trace-$n" "${args[@]}"
   fi ;;
 trace-spike-device)
   # the N0 spike (com.plumcraft.spike.canvas, installed at N0 and left as it is) under the same

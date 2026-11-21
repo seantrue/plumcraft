@@ -4,7 +4,7 @@
 #   DEVICE=<udid> TEAM=<team id> native/apple/PlumCraftPad/device.sh [conformance|ui|all]   (default all)
 # OUT names the folder for logs and copies (default: a new one under $TMPDIR).
 #
-# conformance: this branch's DEBUG build of com.plumcraft.pad (signed automatically with the
+# conformance: this branch's DEBUG build of the app (its id in Config/BundleId.xcconfig; signed automatically with the
 #   team's existing identity and profile; no -allowProvisioningUpdates, nothing asked of Apple),
 #   installed over the one there, launched with its control port on the iPad's local-network
 #   address (--control-bind lan) with a fresh pre-shared token from the launch arguments, on an
@@ -40,7 +40,7 @@ kit="$root/native/apple/PlumCraftFFI"
 team="${TEAM:?set TEAM to the signing team id}"
 dev="${DEVICE:-$(xcrun devicectl list devices 2>/dev/null | grep -E 'iPad.*physical' | grep -E 'available|connected' | head -1 | grep -oE '[0-9A-F]{8}-[0-9A-F]{16}')}"
 [ -n "$dev" ] || { echo "no iPad connected: set DEVICE to its UDID (xcrun devicectl list devices)"; exit 2; }
-bundle=com.plumcraft.pad
+bundle=$(sed -n 's/^PLUMMER_PAD_BUNDLE_ID = //p' "$here/../Config/BundleId.xcconfig")
 port="${CONTROL_PORT:-47811}"
 out="${OUT:-$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-device.XXXXXX")}"; mkdir -p "$out"; echo "logs in $out"
 check="$here/subnet-check.sh"
@@ -62,7 +62,7 @@ conformance() {
     SYMROOT="$pad/build-device" OBJROOT="$pad/build-device/obj" \
     CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" CODE_SIGN_IDENTITY="Apple Development" build >"$out/build.log" 2>&1 \
     || { grep -E 'error:' "$out/build.log" | sort -u; echo "the device build failed (signing?): stopped"; return 1; }
-  app="$pad/build-device/Debug-iphoneos/PlumCraftPad.app"
+  app="$pad/build-device/Debug-iphoneos/Plummer.app"
   /usr/libexec/PlistBuddy -c "Print :NSLocalNetworkUsageDescription" "$app/Info.plist" || { echo "the debug build lacks its local-network text"; return 1; }
   (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q) || return 1
   timeout 300 xcrun devicectl device install app --device "$dev" "$app" >"$out/install.log" 2>&1 || { cat "$out/install.log"; return 1; }
@@ -120,7 +120,7 @@ ui() {
     echo "UI automation was refused: Settings > Developer > Enable UI Automation on the iPad, then run again"; code=6
   fi
   [ -d "$result" ] && xcrun xcresulttool export attachments --path "$result" --output-path "$out" >/dev/null 2>&1 || true
-  timeout 60 xcrun devicectl device uninstall app --device "$dev" com.plumcraft.pad.uitests.xctrunner >/dev/null 2>&1 || true
+  timeout 60 xcrun devicectl device uninstall app --device "$dev" "$bundle.uitests.xctrunner" >/dev/null 2>&1 || true
   return "$code"
 }
 

@@ -17,7 +17,7 @@ derived="${DERIVED:-build}"
 case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
 timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
   -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet 2>&1 | grep -v 'DVTProvisioning\|IDERunDestination' || true
-app="$derived/Build/Products/Release/PlumCraft.app/Contents/MacOS/PlumCraft"
+app="$derived/Build/Products/Release/Plummer.app/Contents/MacOS/Plummer"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-mac-bench.XXXXXX")"
 # a copy left running (a time limit, ^C) is quit by the PID it wrote
 cleanup() {
@@ -47,35 +47,46 @@ run)
   timeout 300 ${wrap[@]+"${wrap[@]}"} "$app" "${args[@]}" | grep -v '^BENCH ' || true
   echo "wrote $out/$p-bench-$n.json" ;;
 trace)
-  t="$scratch/trace-$n.trace"; marker="$scratch/marker"; touch "$marker"
-  before=" $(pgrep -x PlumCraft | tr '\n' ' ' || true) "
+  # xctrace writes a raw kernel trace (instruments*.ktrace, 2 to 8 GB) into TMPDIR and leaves it when
+  # a save stalls (on 2026-11-21 fifteen of them filled the disk): the recording gets a folder of
+  # its own under the scratch, given to xctrace alone as TMPDIR, removed with the scratch by the
+  # EXIT trap (a failure, a time limit, ^C) or once the tables are out; and no recording starts
+  # with less than MIN_FREE_GB (15) free where the scratch is.
+  free=$(df -Pk "$scratch" | awk 'NR == 2 { print int($4 / 1048576) }')
+  if [ "$free" -lt "${MIN_FREE_GB:-15}" ]; then
+    echo "only $free GB free on the scratch's disk: a trace needs ${MIN_FREE_GB:-15} GB (xctrace's raw trace runs to 8 GB); not started"
+    exit 6
+  fi
+  xt="$(mktemp -d "$scratch/x.XXXX")"
+  t="$xt/t.trace"; marker="$scratch/marker"; touch "$marker"
+  before=" $(pgrep -x Plummer | tr '\n' ' ' || true) "
   args[1]="$out/$p-bench-$n-traced.json"
-  timeout 300 xcrun xctrace record --template 'Animation Hitches' --instrument 'Points of Interest' \
+  TMPDIR="$xt/" timeout 300 xcrun xctrace record --template 'Animation Hitches' --instrument 'Points of Interest' \
     --time-limit 90s --output "$t" --launch -- "$app" "${args[@]}" | grep -v '^BENCH ' || true
   # xctrace may leave a copy behind, stopped before it ran a line (so it wrote no pid): any process
-  # named PlumCraft (by exact name, never by command text) that wasn't there before the trace and
+  # named Plummer (by exact name, never by command text) that wasn't there before the trace and
   # runs this build's binary is ours. So is one stopped (state T) that runs another build of this
-  # checkout: the system can resolve the tracer's extra launch to the newest PlumCraft.app it knows
+  # checkout: the system can resolve the tracer's extra launch to the newest Plummer.app it knows
   # (the budget stage found two left by a clean build's bundle). A copy someone starts meanwhile
   # runs, so it isn't stopped.
-  for pid in $(pgrep -x PlumCraft || true); do
+  for pid in $(pgrep -x Plummer || true); do
     case " $before " in *" $pid "*) continue ;; esac
     comm="$(ps -o comm= -p "$pid" 2>/dev/null)"; state="$(ps -o stat= -p "$pid" 2>/dev/null)"
     case "$comm" in
       "$app") ;;
-      "$root"/*/PlumCraft.app/Contents/MacOS/PlumCraft) case "$state" in T*) ;; *) continue ;; esac ;;
+      "$root"/*/Plummer.app/Contents/MacOS/Plummer) case "$state" in T*) ;; *) continue ;; esac ;;
       *) continue ;;
     esac
     kill -9 "$pid" 2>/dev/null && echo "cleared a copy the tracer left ($pid)"
   done
-  # a stalled save leaves its raw kernel trace in $TMPDIR: remove this run's
-  find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'instruments*.ktrace' -newer "$marker" -delete 2>/dev/null || true
   for s in os-signpost hitches; do
-    xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" > "$scratch/$s.xml" || true
+    TMPDIR="$xt/" timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" > "$scratch/$s.xml" || true
   done
+  # the trace and any raw kernel trace xctrace left in its folder: gone now the tables are out
+  rm -rf "$xt"
   # the exports are kept beside the table (a trace with no phases says why), read by s6-hitches.py,
   # which reads every table of an export (s3-hitches.py read only the fullest)
   for s in os-signpost hitches; do cp "$scratch/$s.xml" "$out/$p-trace-$n-$s.xml" 2>/dev/null || true; done
-  python3 "$out/s6-hitches.py" PlumCraft "$scratch/os-signpost.xml" "$scratch/hitches.xml" | tee "$out/$p-trace-$n-hitches.md" ;;
+  python3 "$out/s6-hitches.py" Plummer "$scratch/os-signpost.xml" "$scratch/hitches.xml" | tee "$out/$p-trace-$n-hitches.md" ;;
 *) echo "usage: $0 run|trace [nodes wires]"; exit 2 ;;
 esac

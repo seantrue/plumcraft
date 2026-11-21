@@ -1,4 +1,4 @@
-# PlumCraft for the iPad (N3 slice 5, docs/research/24-native-shells.md section 18): a
+# Plummer, PlumCraft's native editor for the iPad and iPhone (N3 slice 5; named Plummer 2026-11-21; docs/research/24-native-shells.md section 18): a
 # document-based UIKit app on the Swift kit (../PlumCraftFFI) and its layer canvas, sharing the
 # kit's shell pieces (PlumCraftShell) with the Mac app. Generate with `xcodegen generate`; build,
 # check and measure with ./conformance.sh and ./bench.sh.
@@ -36,12 +36,17 @@ targets:
     info:
       path: App/Info.plist
       properties:
-        CFBundleName: PlumCraft
-        CFBundleDisplayName: PlumCraft
+        CFBundleName: Plummer
+        CFBundleDisplayName: Plummer
         # both from the build settings (../Config/Version.xcconfig; the release script passes them)
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSApplicationCategoryType: public.app-category.developer-tools
+        # export compliance (the maintainer, 2026-11-21, card 1A: "Answer No: exempt (reading a
+        # document only)"): no TLS, only the OS's random numbers, hashing, and hayro's PDF
+        # decryption, which only reads a document (claude-debug/native-n4-apple-prep.md section 4;
+        # not legal advice)
+        ITSAppUsesNonExemptEncryption: false
         UILaunchScreen: {}
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: true
@@ -64,15 +69,15 @@ targets:
         UIApplicationSupportsIndirectInputEvents: true
         # the scene's restoration activity (the graph shown and its view)
         NSUserActivityTypes:
-          - com.plumcraft.pad.graph
+          - $(PLUMMER_PAD_BUNDLE_ID).graph
           # a pop-out's own window (N4 slice 3)
-          - com.plumcraft.pad.popout
+          - $(PLUMMER_PAD_BUNDLE_ID).popout
         # the system's document browser, Files, open in place
         UISupportsDocumentBrowser: true
         LSSupportsOpeningDocumentsInPlace: true
         UIFileSharingEnabled: true
         CFBundleDocumentTypes:
-          - CFBundleTypeName: PlumCraft Graph
+          - CFBundleTypeName: Plummer Graph
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:
@@ -94,9 +99,9 @@ targets:
         product: PlumCraftShell
     settings:
       base:
-        PRODUCT_NAME: PlumCraftPad
+        PRODUCT_NAME: Plummer
         PRODUCT_MODULE_NAME: PlumCraftPad
-        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad
+        PRODUCT_BUNDLE_IDENTIFIER: $(PLUMMER_PAD_BUNDLE_ID)
         # the iPad and, since N4 slice 6, the iPhone: one app, a compact layout in compact width
         TARGETED_DEVICE_FAMILY: "1,2"
         ARCHS: arm64
@@ -109,7 +114,7 @@ targets:
       configs:
         Debug:
           GENERATE_INFOPLIST_FILE: YES
-          INFOPLIST_KEY_NSLocalNetworkUsageDescription: A debug build of PlumCraft lets its test suite drive it from a Mac on this network.
+          INFOPLIST_KEY_NSLocalNetworkUsageDescription: A debug build of Plummer lets its test suite drive it from a Mac on this network.
   # the platform's recognisers driven by XCUITest in the simulator (real taps, long presses, pinches
   # and drags through UIKit, which the conformance suite over the port doesn't reach)
   PlumCraftPadUITests:
@@ -119,9 +124,13 @@ targets:
       - path: UITests
     dependencies:
       - target: PlumCraftPad
+    # the app's bundle id, for its own (../Config/BundleId.xcconfig)
+    configFiles:
+      Debug: ../Config/BundleId.xcconfig
+      Release: ../Config/BundleId.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.pad.uitests
+        PRODUCT_BUNDLE_IDENTIFIER: $(PLUMMER_PAD_BUNDLE_ID).uitests
         TARGETED_DEVICE_FAMILY: "1,2"
         GENERATE_INFOPLIST_FILE: YES
         TEST_TARGET_NAME: PlumCraftPad

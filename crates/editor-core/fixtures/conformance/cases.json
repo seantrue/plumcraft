@@ -724,7 +724,7 @@
     },
     {
       "name": "Select mode and Share are the core's commands, and the toolbar's state is the core's",
-      "about": "N4 slice 3 (golden rule 4, the maintainer: 'No exceptions to the rule'): canvas.selectMode toggles the core's Select mode (the scene's view.select, View › Select Mode's check); graph.share is File › Share…, disabled with the reason until the graph has a file; menu.get's toolbar context gives every toolbar button with its label, icon, enabled state and check from the core",
+      "about": "N4 slice 3 (golden rule 4, the maintainer: 'No exceptions to the rule'): canvas.selectMode toggles the core's Select mode (the scene's view.select, View › Select Mode's check); graph.share is File › Share…, disabled with the reason until the graph has a file (or, in a shell that declares no share sheet, the egui editor since 2026-11-21, with the core's 'Sharing isn't available in this editor'); menu.get's toolbar context gives every toolbar button with its label, icon, enabled state and check from the core",
       "half": "read",
       "steps": [
         {"call": "command.run", "params": {"command": "canvas.selectMode", "params": {}}, "expect": {"/result/on": true}},
@@ -733,7 +733,7 @@
         {"call": "menu.get", "expect": {"/result/menus": {"$deep": {"command": "canvas.selectMode", "checked": true}}}},
         {"call": "command.run", "params": {"command": "canvas.selectMode", "params": {"on": false}}, "expect": {"/result/on": false}},
         {"call": "scene.get", "expect": {"/result/view/select": {"$exists": false}}},
-        {"call": "menu.get", "params": {"context": {"kind": "toolbar"}}, "expect": {"/result/items": {"$find": {"where": {"command": "graph.share"}, "want": {"/enabled": false, "/reason": "save the graph first: Share sends its file"}}}}},
+        {"call": "menu.get", "params": {"context": {"kind": "toolbar"}}, "expect": {"/result/items": {"$find": {"where": {"command": "graph.share"}, "want": {"/enabled": false, "/reason": {"$one": ["save the graph first: Share sends its file", "Sharing isn't available in this editor"]}}}}}},
         {"call": "menu.get", "params": {"context": {"kind": "toolbar"}}, "expect": {"/result/items": {"$find": {"where": {"command": "canvas.fit"}, "want": {"/enabled": true, "/label": "Fit"}}}}},
         {"call": "menu.get", "expect": {"/result/menus": {"$deep": {"command": "graph.share", "enabled": false}}}},
         {"call": "command.run", "params": {"command": "canvas.selectMode", "params": {"on": "yes"}}, "ok": false}

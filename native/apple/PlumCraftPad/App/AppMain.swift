@@ -1,4 +1,4 @@
-// PlumCraft for the iPad: a document-based UIKit app. One core per process (the Swift kit's
+// Plummer (PlumCraft's native editor) for the iPad: a document-based UIKit app. One core per process (the Swift kit's
 // PlumCore, in-process through the C ABI, both built-in engines in it, each document starting the
 // ones its graph uses), one core document per open
 // graph, each scene a document browser that presents its graph on the layer canvas (decision 8:
@@ -116,11 +116,11 @@ struct Options {
 struct Dirs {
     let home = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     var documents: URL { home.appendingPathComponent("Documents", isDirectory: true) }
-    var caches: URL { home.appendingPathComponent("Library/Caches/plumcraft", isDirectory: true) }
+    var caches: URL { home.appendingPathComponent("Library/Caches/plummer", isDirectory: true) }
     var store: URL { home.appendingPathComponent("Library/Caches/commonkit/store", isDirectory: true) }
-    var scratch: URL { home.appendingPathComponent("tmp/plumcraft", isDirectory: true) }
-    var prefs: URL { home.appendingPathComponent("Library/Application Support/plumcraft", isDirectory: true) }
-    var logs: URL { home.appendingPathComponent("Library/Logs/plumcraft", isDirectory: true) }
+    var scratch: URL { home.appendingPathComponent("tmp/plummer", isDirectory: true) }
+    var prefs: URL { home.appendingPathComponent("Library/Application Support/plummer", isDirectory: true) }
+    var logs: URL { home.appendingPathComponent("Library/Logs/plummer", isDirectory: true) }
 
     /// Whether `path` is inside the container.
     func inside(_ path: String) -> Bool {
@@ -188,6 +188,12 @@ final class BackgroundTask: @unchecked Sendable {
     var id = UIBackgroundTaskIdentifier.invalid
 }
 
+/// The app's bundle id, as the bundle carries it (set in one place, Config/BundleId.xcconfig);
+/// the ids derived from it (activity types, menu identifiers, log subsystems) follow it.
+enum AppID {
+    static let bundle = Bundle.main.bundleIdentifier ?? "com.swapwizard.plummer.pad"
+}
+
 /// The process's one core.
 @MainActor
 enum CoreHost {
@@ -197,7 +203,7 @@ enum CoreHost {
     static var ready: Task<UInt64?, Never>?
     static var log: UnifiedLog?
     static let dirs = Dirs()
-    static let logger = Logger(subsystem: "com.plumcraft.pad", category: "app")
+    static let logger = Logger(subsystem: AppID.bundle, category: "app")
 
     /// A line for the unified log and the core's (`log.write`).
     static func say(_ level: String, _ message: String) {
@@ -209,7 +215,7 @@ enum CoreHost {
     static func flushForBackground() {
         guard let core else { return }
         let box = BackgroundTask()
-        box.id = UIApplication.shared.beginBackgroundTask(withName: "PlumCraft autosave") {
+        box.id = UIApplication.shared.beginBackgroundTask(withName: "Plummer autosave") {
             // the system's time ran out: give it back (called on the main thread)
             MainActor.assumeIsolated { UIApplication.shared.endBackgroundTask(box.id) }
         }
@@ -244,7 +250,7 @@ enum CoreHost {
         setenv("PLUMCRAFT_EDITOR_PREFS", d.prefs.appendingPathComponent("prefs.json").path, 1)
         setenv("COMMONKIT_HASH", "b3", 0)
         setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
-        var config = ShellConfig(appID: Bundle.main.bundleIdentifier ?? "com.plumcraft.pad", appName: "PlumCraft", version: ShellConfig.bundleVersion, storeRoot: store)
+        var config = ShellConfig(appID: AppID.bundle, appName: "Plummer", version: ShellConfig.bundleVersion, storeRoot: store)
         config.dirs = ["documents": d.documents.path, "caches": d.caches.path, "scratch": d.scratch.path, "prefs": d.prefs.path, "logs": d.logs.path]
         // contract 4.2: no programs, no craft apps, no Python; in-process engines only
         config.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false, "multi_window": true,
@@ -274,7 +280,7 @@ enum CoreHost {
         do {
             let (c, r) = try ShellCore.open(config)
             core = c
-            let l = UnifiedLog(core: c, subsystem: "com.plumcraft.pad")
+            let l = UnifiedLog(core: c, subsystem: AppID.bundle)
             l.start()
             log = l
             ready = Task {
@@ -289,7 +295,7 @@ enum CoreHost {
                     if let b = info["bind"].string { say("info", "control port on \(b):\(info["port"].uint64 ?? 0)") }
                 }
             }
-            say("info", "PlumCraft started: store \(store), engines \(([options.engine] + options.also).joined(separator: ", "))")
+            say("info", "Plummer started: store \(store), engines \(([options.engine] + options.also).joined(separator: ", "))")
         } catch {
             openError = "\(error)"
             logger.error("couldn't start the core: \(error, privacy: .public)")

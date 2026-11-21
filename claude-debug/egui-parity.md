@@ -97,9 +97,11 @@ What looks wrong: the palette opened by a double click on empty canvas, with no 
 
 ## Decisions for the maintainer
 
-1. Share in egui: keep "show the file in Finder or the file manager" as egui's answer to the `share` ask, or leave Share disabled in egui with a reason the core gives (which would need a shell capability the core reads, not built).
+**Answered 2026-11-21** (asked as three questions, 1, 5 and 6 below): "1. Disable 2. Accept. 3. Close". So: Share is disabled in egui by the core (`platform.share`; egui declares no share sheet and no longer shows the file in the file manager); a new egui editor with no stored theme follows the system, accepted as is, nothing pinned; B46 is closed as not reproduced (`docs/BUGS.md`, "Closed, not reproduced"). Decisions 2, 3 and 4 were not asked. Record: note 24, "egui after N4".
+
+1. Share in egui: keep "show the file in Finder or the file manager" as egui's answer to the `share` ask, or leave Share disabled in egui with a reason the core gives (which would need a shell capability the core reads, not built). **Answered: "Disable"** (built: `platform.share`).
 2. The C ABI core holds a whole request while an engine starts; egui's document now holds just the add (`Document::hold_adds`). Move the C ABI core onto the document's hold too, so there is one mechanism (needs an xcframework rebuild and the Apple checks)?
 3. The double-tap rule now uses the first tap's hit within 0.8 s: keep it for every shell (it changes the Apple apps at their next core build), or limit it to egui?
 4. The channel picker covers decoded raster pictures only; also give arrays' view pictures a channel (egui would need their pixels on the CPU)?
-5. A new egui editor with no stored theme now follows the system: an existing user who never chose a theme on a Mac in dark mode will see Dusk where they saw Paper. Acceptable, or store Paper for existing preference files that have no theme?
-6. Close B46 as not reproducible, or keep it open for a run on the Linux test host with the audit's exact sequence?
+5. A new egui editor with no stored theme now follows the system: an existing user who never chose a theme on a Mac in dark mode will see Dusk where they saw Paper. Acceptable, or store Paper for existing preference files that have no theme? **Answered: "Accept."**
+6. Close B46 as not reproducible, or keep it open for a run on the Linux test host with the audit's exact sequence? **Answered: "Close."**

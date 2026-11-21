@@ -50,6 +50,19 @@ fn has_file(s: &Session) -> Result<(), String> {
     if s.path().is_some() { Ok(()) } else { Err("save the graph first: Share sends its file".into()) }
 }
 
+/// Why Share… and a pop-out's Share are disabled in a shell with no share sheet
+/// ([`crate::document::Document::share`] false, the config's `platform.share: false`).
+pub const SHARE_UNAVAILABLE: &str = "Sharing isn't available in this editor";
+
+/// The share commands, which need a shell that answers the `share` ask.
+const SHARE_COMMANDS: &[&str] = &["value.share", "graph.share"];
+
+/// Why this shell can't carry out `id` at all, beside the command's own rule: a share command on
+/// a shell with no share sheet. The core's answer, so every shell shows it the same way.
+pub fn shell_refuses(facts: &crate::menu::Facts, id: &str) -> Option<&'static str> {
+    (facts.no_share && SHARE_COMMANDS.contains(&id)).then_some(SHARE_UNAVAILABLE)
+}
+
 /// `run.start`'s own rule (an engine connected, a graph to run), for Run Selected; that something
 /// is selected is checked when it runs, and by the menu model's item ([`run_selected_reason`]).
 fn can_run(s: &Session) -> Result<(), String> {
@@ -321,8 +334,8 @@ pub fn is_shells(id: &str) -> bool {
 }
 
 /// A `command.list` row, the same shape as a registry command's.
-pub fn list_entry(s: &Session, c: &CanvasCommand) -> Value {
-    let reason = (c.enabled)(s).err();
+pub fn list_entry(s: &Session, facts: &crate::menu::Facts, c: &CanvasCommand) -> Value {
+    let reason = shell_refuses(facts, c.id).map(str::to_owned).or_else(|| (c.enabled)(s).err());
     json!({"id": c.id, "label": c.label, "menu": c.menu, "shortcut": c.shortcut, "params": c.params, "enabled": reason.is_none(), "disabledReason": reason})
 }
 
@@ -528,6 +541,9 @@ fn reveal(d: &mut crate::document::Document, node: &str) -> Value {
 
 /// Run canvas command `c` (see the module docs): its core part, then the shell's.
 pub fn execute<H: Holder>(h: &mut H, c: &CanvasCommand, params: &Value) -> Result<Value, String> {
+    if !h.doc().share && SHARE_COMMANDS.contains(&c.id) {
+        return Err(format!("{} is not available: {SHARE_UNAVAILABLE}", c.id));
+    }
     (c.enabled)(h.session()).map_err(|why| format!("{} is not available: {why}", c.id))?;
     let v = core_part(h, c.id, params)?;
     h.shell_command(c.id, v)
@@ -887,6 +903,26 @@ mod tests {
         let ask = d.asks.first(Kind::Share).expect("a share ask").clone();
         assert_eq!(ask.params["file"], json!(path));
         assert_eq!(ask.by, crate::asks::By::Person);
+    }
+
+    #[test]
+    fn a_shell_without_a_share_sheet_has_share_refused_with_the_cores_reason() {
+        let (mut d, _a, _b) = doc();
+        let path = plumcraft_scratch::dir("share-off").join("shared.json");
+        execute(&mut d, "graph.saveAs", &json!({"path": path})).unwrap();
+        d.share = false;
+        let e = execute(&mut d, "graph.share", &json!({})).unwrap_err();
+        assert_eq!(e, format!("graph.share is not available: {SHARE_UNAVAILABLE}"));
+        invoke::invoke(&mut d, "graph.share", crate::asks::By::Person);
+        assert!(d.asks.first(Kind::Share).is_none(), "no share ask is raised");
+        let facts = crate::control::Shell::menu_facts(&d);
+        let item = crate::menu::bar_menu(&d.session, &facts, "File");
+        let share = item.walk().into_iter().find(|i| i.command.as_deref() == Some("graph.share")).cloned().expect("File › Share…");
+        assert!(!share.enabled);
+        assert_eq!(share.reason.as_deref(), Some(SHARE_UNAVAILABLE));
+        // a shell that shares (the default) is as before
+        d.share = true;
+        assert_eq!(execute(&mut d, "graph.share", &json!({})).unwrap()["file"], json!(path));
     }
 
     #[test]

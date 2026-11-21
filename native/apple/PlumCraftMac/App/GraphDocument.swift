@@ -33,7 +33,7 @@ final class GraphDocument: NSDocument {
         let v = try? JSONSerialization.jsonObject(with: data)
         guard let o = v as? [String: Any], o["nodes"] != nil else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError,
-                          userInfo: [NSLocalizedFailureReasonErrorKey: "It isn't a PlumCraft graph (a JSON object with \"nodes\")."])
+                          userInfo: [NSLocalizedFailureReasonErrorKey: "It isn't a Plummer graph (a JSON object with \"nodes\")."])
         }
     }
 
@@ -240,7 +240,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     func attach(_ model: DocumentModel, doc: UInt64, opened: ContinuousClock.Instant) {
         let v = CanvasView(model: model, frame: container.bounds)
         v.autoresizingMask = [.width, .height]
-        v.onError = { NSLog("PlumCraft: %@", $0) }
+        v.onError = { NSLog("Plummer: %@", $0) }
         placeholder.removeFromSuperview()
         container.addSubview(v, positioned: .below, relativeTo: crumbsBox)
         canvasView = v

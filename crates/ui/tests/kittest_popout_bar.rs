@@ -1,8 +1,8 @@
 //! The pop-out's bar (the audit's third gap): Copy, Save As…, Share… and Pin as A or B, each the
 //! core's command for that pop-out, dispatched by id (`value.copy`, `value.saveAs`, `value.share`
 //! invoked for the person; `viewer.pin {slot, popout}`), none of them carried out by egui. egui
-//! has no share sheet: it answers the core's `share` ask by showing the value's file in the file
-//! manager (a fake here, so no test starts Finder).
+//! has no share sheet, so it tells the core so and the core disables Share with its reason (the
+//! maintainer, 2026-11-21: "Disable").
 
 mod common;
 
@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use common::{add, session, shot};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use plumcraft_engine::host::Host;
 use plumcraft_host::{Connection, InProc};
 use plumcraft_proto::catalogue::SaveFormat;
@@ -24,11 +24,9 @@ use serde_json::json;
 #[derive(Default, Clone)]
 struct Seen {
     saves: Arc<Mutex<Vec<PathBuf>>>,
-    revealed: Arc<Mutex<Vec<PathBuf>>>,
 }
 
-/// Dialogs that record what they were asked: the save dialog is cancelled; a share shows the
-/// file (recorded, nothing started).
+/// Dialogs that record what they were asked: the save dialog is cancelled.
 struct Fake(Seen);
 
 impl FileDialogs for Fake {
@@ -38,10 +36,6 @@ impl FileDialogs for Fake {
     fn save_output(&mut self, _formats: &[SaveFormat], suggested: &Path) -> Option<PathBuf> {
         self.0.saves.lock().unwrap().push(suggested.to_path_buf());
         None
-    }
-    fn reveal(&mut self, file: &Path) -> Result<String, String> {
-        self.0.revealed.lock().unwrap().push(file.to_path_buf());
-        Ok("Shown in the fake file manager".into())
     }
 }
 
@@ -110,13 +104,33 @@ fn save_as_goes_through_the_cores_save() {
 }
 
 #[test]
-fn share_shows_the_values_file_and_says_so() {
-    let (mut h, seen, _) = rig();
+fn share_is_disabled_because_the_core_says_this_editor_cant_share() {
+    let (mut h, _, id) = rig();
+    let reason = plumcraft_editor_core::canvas_cmds::SHARE_UNAVAILABLE;
+    // the bar's Share is drawn disabled, and a click on it does nothing
+    let share = h.get_by_label(popouts::SHARE);
+    assert!(share.accesskit_node().is_disabled(), "Share is disabled in egui");
     click(&mut h, popouts::SHARE);
-    let revealed = seen.revealed.lock().unwrap().clone();
-    assert_eq!(revealed.len(), 1, "the share ask was answered: {revealed:?}");
-    let text = std::fs::read_to_string(&revealed[0]).expect("value.export's file");
-    assert_eq!(text, "THE CORGI NAPS", "the value's own file (the text in full)");
+    assert!(h.state().doc.asks.first(plumcraft_editor_core::asks::Kind::Share).is_none(), "no share ask");
+    // the reason is the core's: command.list, the File menu and the toolbar say it
+    let ctx = h.ctx.clone();
+    let rows = h.state_mut().control_now(&ctx, "command.list", &json!({}));
+    let row = |id: &str| rows["result"].as_array().unwrap().iter().find(|r| r["id"] == json!(id)).cloned().unwrap();
+    for cmd in ["value.share", "graph.share"] {
+        assert_eq!(row(cmd)["enabled"], json!(false), "{cmd}");
+        assert_eq!(row(cmd)["disabledReason"], json!(reason), "{cmd}");
+    }
+    let menu = h.state_mut().control_now(&ctx, "menu.get", &json!({}));
+    let text = menu.to_string();
+    assert!(text.contains(reason), "File › Share… is disabled with the core's reason");
+    // a script invoking value.share is refused with that reason, and nothing is shared
+    let r = h.state_mut().control_now(&ctx, "ui.invoke", &json!({"command": "value.share", "params": {"popout": id}}));
+    assert_eq!(r["ok"], json!(false), "{r}");
+    assert_eq!(r["error"], json!(format!("value.share is not available: {reason}")), "{r}");
+    // and run directly, as the C ABI's command.run would
+    let r = h.state_mut().try_run("value.share", &json!({"popout": id}));
+    assert_eq!(r.unwrap_err(), format!("value.share is not available: {reason}"));
+    assert!(h.state().doc.asks.first(plumcraft_editor_core::asks::Kind::Share).is_none());
 }
 
 #[test]

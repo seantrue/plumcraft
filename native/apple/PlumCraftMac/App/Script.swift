@@ -119,7 +119,7 @@ struct Script {
         default:
             // the editing gestures' steps, shared with the iPad (N4 slice 1)
             if await !CanvasSteps(canvas: v.canvas, drag: v.drag, palette: v.palette, rows: v.rowEditor, field: v.fieldEditor).run(parts) {
-                NSLog("PlumCraft: --then: unknown step %@", step)
+                NSLog("Plummer: --then: unknown step %@", step)
             }
         }
     }
