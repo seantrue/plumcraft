@@ -38,6 +38,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Not verified:** everything on the device. Save As could not be made to fail off-device.
 
+**Controller.** The Linux gate at `145ff5c` (this branch with the dev branch merged in): 1,541 of 1,542, the one failure the known local baseline test; Python 224 passed.
+
 ### 2026-11-21 — N5 slice 1: the Windows kit (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** Slice 1 of the Windows shell, as the spike's plan had it (note 24 section 20.7): the spike's `PlumCraft.Core` grown into a kit that mirrors the Swift one, gated on the maintainer's Windows ARM64 virtual machine. The maintainer's answers the same day settled what it rests on: hand-written C# models, unpackaged, `core.symlinks true` on Windows checkouts, Composition for the canvas to come.
