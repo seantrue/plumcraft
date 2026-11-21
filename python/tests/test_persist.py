@@ -1,13 +1,19 @@
 """Persisted memo records (spec 14.5), as `crates/engine/tests/persist.rs`: a slow node's result
 survives the engine (a fresh memo, the same store) as `cached`; a fast one, a `cache: never` one,
 one too big to be worth writing and one whose time was setup are not persisted; `cache: always`
-is; a reaped value or a hostile record is a miss that recomputes, never an error."""
+is; a reaped value or a hostile record is a miss that recomputes, never an error.
+
+Whether a result is too big is weighed against the node's measured work (spec 14.5), so a test of
+it can't use the wall clock: on a host whose memory is fragmented, the kernel's compaction when
+numpy faults in a fresh 8 MB array (numpy asks for huge pages) has taken over 150 ms (B49). Those
+tests run on `VirtualClock`, where a node's work is exactly the time it sleeps."""
 
 import json
 import os
 import time
 
 import numpy as np
+import pytest
 import scratch
 from commonkit import digest as ck_digest
 
@@ -25,7 +31,7 @@ class Slow(Node):
 
     def run(self, inputs, cx):
         self.runs += 1
-        time.sleep(inputs["ms"] / 1000)
+        exec.time.sleep(inputs["ms"] / 1000)  # the virtual clock's, when a test uses one
         cx.setup_took(inputs["setup"] / 1000)
         n = inputs["n"]
         text = (json.dumps({"n": n}) + " ") * 20_000
@@ -41,6 +47,31 @@ class Slow(Node):
 #: A digest of this process's length that names nothing, and an nd1 handle of it.
 ZERO = "0" * len(ck_digest.raw(b""))
 ZERO_ND1 = f"{ck_digest.current()}:nd1:{ZERO}"
+
+
+class VirtualClock:
+    """The executor's `time` module with a clock that moves only when a node sleeps on it, so the
+    work it measures is the node's `ms`, whatever else the machine is doing."""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += max(0.0, seconds)
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+
+@pytest.fixture
+def virtual_clock(monkeypatch):
+    clock = VirtualClock()
+    monkeypatch.setattr(exec, "time", clock)
+    return clock
+
 
 def root() -> str:
     return scratch.mkdtemp("persist-")
@@ -92,7 +123,7 @@ def test_a_slow_result_survives_a_restart_whole():
     assert slow.runs == 2
 
 
-def test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted():
+def test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted(virtual_clock):
     r = root()
     assert twice(r, {"kind": "t.slow", "values": {"n": 1}}) == ("done", 2), "fast"
     assert twice(r, {"kind": "t.slow", "values": {"n": 2, "ms": 60}, "cache": "never"}) == ("done", 2), "never"
@@ -101,6 +132,17 @@ def test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted():
     assert twice(r, {"kind": "t.slow", "values": {"n": 5, "ms": 60, "setup": 60}}) == ("done", 2), "setup"
     assert twice(r, {"kind": "t.slow", "values": {"n": 6}, "cache": "always"}) == ("cached", 1), "always"
     assert twice(r, {"kind": "t.slow", "values": {"n": 8}, "cache": ["junk"]}) == ("done", 2), "junk is auto"
+
+
+def test_too_big_is_weighed_against_the_work_measured(virtual_clock):
+    """B49: about 8.2 MB of outputs costs ~82 ms to write and read back at the rule's 200 MB/s, so
+    60 ms of work isn't worth persisting, and the 96.8 ms a run measured on a busy host is."""
+    r = root()
+    assert twice(r, {"kind": "t.slow", "values": {"n": 10, "ms": 60, "big": 8_000_000}}) == ("done", 2), "60 ms: too big"
+    a, _, _ = engine(r)
+    busy = run(a, r, {"kind": "t.slow", "values": {"n": 11, "ms": 97, "big": 8_000_000}})["nodes"]["n"]
+    assert busy["memo"]["computed_ms"] == pytest.approx(97.0), "the work is what the node slept"
+    assert twice(r, {"kind": "t.slow", "values": {"n": 12, "ms": 97, "big": 8_000_000}}) == ("cached", 1), "97 ms: worth it"
 
 
 def test_a_reaped_value_or_a_hostile_record_is_a_miss_that_recomputes():

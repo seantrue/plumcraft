@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — B49: the persist test's too-big case pinned to a virtual clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** "Fix B49": the Python test of what isn't persisted failed on the Linux test host while it was busy, with a too-big result coming back cached.
+
+**Cause (agent's investigation).** The test, not the executor. The size rule weighs a result against the node's wall-clock work, and the too-big case left it 22 ms of room (81.8 ms limit, 60 ms sleep). Faulting in the node's 8 MB numpy array, which numpy marks for huge pages, stalled for up to 157 ms while the kernel compacted fragmented memory; probes showed the stall only with numpy's huge-page advice on, and the measured work at 87.6 to 122.8 ms in failing runs against 62 to 72 ms in passing ones. The load average was a proxy for fragmented memory: the test failed with the load at 1.6 and passed at 25. Ruled out: the sleep (always 60.1 ms), the text output, any rate measured at run time (the rate is a constant).
+
+**Fix (agent; `python/tests/test_persist.py`, ~45 LOC).** The not-persisted test runs on a virtual clock patched into the executor's `time`, so a node's work is exactly what it sleeps; a new test pins the work either side of the limit (60 ms not persisted, 97 ms persisted). No SDK code changed. B37, the Rust twin, got a note, not a fix.
+
+**Verified, on the Linux test host.** With an injected 40 ms stall on large `np.full`, the old file failed 3 of 3 with the host quiet and the new one passed 3 of 3. Under a self-made load (CPU spinners and memory churners), old 6 of 10 failed, new 30 of 30 passed, full Python suite 225 of 225; quiet, new 30 of 30 and the suite 225 of 225. `ruff check` clean. No Rust was built or run.
 ### 2026-11-21 — B70: the Mac app could not make a new graph (Claude Fable 5.2)
 
 **What the maintainer reported**, on first opening the Mac build: "I can't create a new graph? Only open an old one?" Offered an untitled graph at launch or a button on the Open panel, they chose "1".
