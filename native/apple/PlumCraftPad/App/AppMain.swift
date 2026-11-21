@@ -47,6 +47,9 @@ struct Options {
     var sample: String?
     var controlTokenFile: String?
     var statusFile: String?
+    /// `--status-element` (debug builds): the status also in an accessibility element, which a UI
+    /// test reads on a device, where its runner can't read the app's files (the N4 device gate).
+    var statusElement = false
     var storeRoot: String?
     var scratchState = false
     var appearance: String?
@@ -76,6 +79,7 @@ struct Options {
             case "--open-sample": if let n = next() { o.sample = n }
             case "--control-token-file": o.controlTokenFile = next()
             case "--status-file": o.statusFile = next()
+            case "--status-element": o.statusElement = true
             case "--store-root": o.storeRoot = next()
             case "--scratch-state": o.scratchState = true
             case "--appearance": o.appearance = next()
@@ -98,6 +102,7 @@ struct Options {
             case "--nodes": b?.nodes = next().flatMap(Int.init) ?? 500
             case "--wires": b?.wires = next().flatMap(Int.init) ?? 800
             case "--phase-seconds": b?.phaseSeconds = next().flatMap(Double.init) ?? 4
+            case "--hide-wires": b?.hideWires = true
             default: break  // the system's own arguments (-NSDoubleLocalizedStrings YES, …)
             }
             k += 1
@@ -124,6 +129,58 @@ struct Dirs {
         return p == h || p.hasPrefix(h.hasSuffix("/") ? h : h + "/")
     }
 }
+
+#if DEBUG
+/// The status as an accessibility element (`--status-element`, debug builds only): a UI test on
+/// a device reads it with `XCUIApplication().descendants(matching: .any)["plumcraft-status"]`,
+/// since the test runner's sandbox can't see the app's container there (in the simulator both
+/// share the Mac's files and the tests read `--status-file`). It lives in a window of its own
+/// above every sheet, a point square, untouchable and all but transparent, so a presented sheet
+/// (which hides what is under it from accessibility) never hides it; one per process, in the
+/// first scene. The value is the status file's text, whole.
+@MainActor
+final class StatusElement {
+    static let shared = StatusElement()
+    private var window: UIWindow?
+    private let view = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+    private var text = "{}"
+
+    func start() {
+        view.isAccessibilityElement = true
+        view.accessibilityIdentifier = "plumcraft-status"
+        view.accessibilityLabel = "status"
+        view.backgroundColor = UIColor.black.withAlphaComponent(0.02)
+        StatusFile.shared.mirror = { t in
+            // the status is written on the main thread; anything else is moved there
+            if Thread.isMainThread {
+                MainActor.assumeIsolated { StatusElement.shared.set(t) }
+            } else {
+                DispatchQueue.main.async { MainActor.assumeIsolated { StatusElement.shared.set(t) } }
+            }
+        }
+    }
+
+    private func set(_ t: String) {
+        text = t
+        view.accessibilityValue = t
+    }
+
+    /// In the first scene, once it has a window.
+    func install(in scene: UIWindowScene) {
+        guard window == nil, StatusFile.shared.mirror != nil else { return }
+        let w = UIWindow(windowScene: scene)
+        w.windowLevel = .alert + 10
+        w.isUserInteractionEnabled = false
+        w.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
+        let vc = UIViewController()
+        vc.view = view
+        w.rootViewController = vc
+        w.isHidden = false
+        view.accessibilityValue = text
+        window = w
+    }
+}
+#endif
 
 /// A background task's identifier, set once it is begun and read by its expiry handler.
 final class BackgroundTask: @unchecked Sendable {
@@ -249,6 +306,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             f.hasPrefix("/") ? f : FileManager.default.temporaryDirectory.appendingPathComponent(f).path
         }
         StatusFile.shared.notePid()
+        #if DEBUG
+        if CoreHost.options.statusElement { StatusElement.shared.start() }
+        #endif
         CoreHost.open()
         return true
     }

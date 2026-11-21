@@ -139,6 +139,12 @@ pub struct Config {
     pub system: plumcraft_editor_core::settings::System,
     /// The application, for About (`app: {name, version, build}`).
     pub app: AppInfo,
+    /// `dirs.caches` and `dirs.scratch` (B42): where the core writes the files it names itself
+    /// (copies opened in apps and values exported under `caches/open`, autosave's scratch files
+    /// under `scratch`). None: the platform's defaults, which a shell on iOS must not rely on
+    /// (an iOS app may write only inside its container's folders, never at its root).
+    pub caches: Option<PathBuf>,
+    pub scratch: Option<PathBuf>,
 }
 
 /// The application, as the config names it (contract 4.1's `app`).
@@ -193,6 +199,8 @@ impl Default for Config {
             prefs: None,
             system: plumcraft_editor_core::settings::System::default(),
             app: AppInfo::default(),
+            caches: None,
+            scratch: None,
         }
     }
 }
@@ -229,6 +237,8 @@ impl Config {
                 version: o.get("app").and_then(|a| a.get("version")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
                 build: o.get("app").and_then(|a| a.get("build")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
             },
+            caches: dir_of(o, "caches")?,
+            scratch: dir_of(o, "scratch")?,
         })
     }
 
@@ -350,6 +360,15 @@ fn prefs_path(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, Str
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d).join("prefs.json"))),
         Some(_) => Err("config: dirs.prefs must be a folder's path".into()),
+    }
+}
+
+/// `dirs.<key>`: a folder's path, if given.
+fn dir_of(o: &serde_json::Map<String, Value>, key: &str) -> Result<Option<PathBuf>, String> {
+    match o.get("dirs").and_then(|d| d.get(key)) {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d))),
+        Some(_) => Err(format!("config: dirs.{key} must be a folder's path")),
     }
 }
 
@@ -850,6 +869,7 @@ impl Core {
         let store = config.prefs.clone().map_or_else(plumcraft_editor_core::prefs::Store::default, plumcraft_editor_core::prefs::Store::at);
         let look: SharedLook = Arc::new(Mutex::new(Look::new(store, config.system)));
         let app = config.app.clone();
+        let dirs = (config.caches.clone(), config.scratch.clone());
         let thread_shared = Arc::clone(&shared);
         let thread = std::thread::Builder::new()
             .name("plumcraft-ffi-core".into())
@@ -874,6 +894,7 @@ impl Core {
                     scene_at: Instant::now(),
                     look,
                     app,
+                    dirs,
                 };
                 worker.open_doc(demo.map_or(Opening::Nothing, |g| Opening::Edit("Open Demo".into(), g)));
                 worker.run(&rx);
@@ -1041,6 +1062,8 @@ struct Worker {
     look: SharedLook,
     /// The application, for About.
     app: AppInfo,
+    /// The shell's `dirs.caches` and `dirs.scratch` (B42), given to every document.
+    dirs: (Option<PathBuf>, Option<PathBuf>),
 }
 
 /// A refusal with the contract's `code` (`docs/shell-interface.md` 6.1).
@@ -1063,6 +1086,11 @@ impl Worker {
         let (target, extras) = self.engines_for(&session, &opening);
         session.engines.current = Some(target.clone());
         session.engines.can_attach = true;
+        // copies for apps and exported values in the shell's caches, never a folder derived from
+        // HOME (B42: an iOS app may not write at its container's root)
+        if let Some(caches) = &self.dirs.0 {
+            session.docs.root = caches.join("open");
+        }
         session.about = plumcraft_session::About {
             title: self.app.name.clone().unwrap_or_else(|| "PlumCraft".into()),
             version: self.app.version.clone().unwrap_or_else(|| env!("CARGO_PKG_VERSION").into()),
@@ -1080,6 +1108,7 @@ impl Worker {
         doc.look = Some(Arc::clone(&self.look));
         // the Apple apps have no Watched panel: a watch pops its value out (N4 slice 4)
         doc.watch_pops_out = true;
+        doc.scratch = self.dirs.1.clone();
         plumcraft_editor_core::settings::follow(&mut doc);
         doc.caps = self.launcher.caps;
         doc.set_waker(Some(self.waker.clone()));

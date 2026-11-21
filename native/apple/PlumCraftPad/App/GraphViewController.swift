@@ -322,12 +322,13 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     }
 
     func presentReplacing(_ vc: UIViewController) {
-        // one still being presented is replaced once its presentation has run: dismissing it
-        // before then leaves UIKit a transition with no anchor (the unanchored-popover crash)
-        if let other = presentedViewController, other !== vc, other.isBeingPresented, let tc = other.transitionCoordinator {
-            tc.animate(alongsideTransition: nil) { [weak self] _ in self?.presentReplacing(vc) }
-            return
-        }
+        // one still being presented (or dismissed) is replaced once its transition has run:
+        // dismissing it before then leaves UIKit a transition with no anchor (the
+        // unanchored-popover crash), and presenting over it loses the new one with it (B43)
+        Presentations.whenSettled(from: self) { [weak self] in self?.replace(with: vc) }
+    }
+
+    private func replace(with vc: UIViewController) {
         if let other = presentedViewController, other !== vc {
             coreWindows?.willBeReplaced(other)
             other.dismiss(animated: false) { [weak self] in self?.present(vc, animated: true) }
@@ -666,7 +667,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     /// The view moved: say so to scripts at most every 100 ms (UI tests read it).
     func viewportChanged() {
-        guard viewportReport == nil, StatusFile.shared.path != nil else { return }
+        guard viewportReport == nil, StatusFile.shared.active else { return }
         viewportReport = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(100))
             self?.viewportReport = nil
@@ -1063,5 +1064,59 @@ enum PopoverAnchor {
         let params = (view.next as? GraphViewController)?.parameters
         let which = params?.nav === vc ? (params?.configured == ObjectIdentifier(p) ? "the inspector, its own popover controller" : "the inspector, a new popover controller") : "\(type(of: vc))"
         CoreHost.say("warn", "a popover (\(which)) came with no anchor: shown from the middle of the graph")
+    }
+}
+
+/// The core's windows and sheets change faster than UIKit's transitions run (a script, the
+/// conformance suite, a slow device): a sheet presented over one whose dismissal hasn't begun
+/// goes with it, and a dismissal asked for while a presentation is still running is lost, so the
+/// shell then told the core a window it had just opened was closed (B43, the graph's Parameters
+/// window on the iPad). Every presentation change the core drives goes through here: one at a
+/// time, in order, each once no presentation from `root` is mid-transition.
+@MainActor
+enum Presentations {
+    private static var queue: [(root: () -> UIViewController?, run: () -> Void)] = []
+    private static var waiting = false
+
+    /// Run `f` once nothing presented from `root` (or over it) is being presented or dismissed,
+    /// after every change asked for before it.
+    static func whenSettled(from root: UIViewController, _ f: @escaping () -> Void) {
+        queue.append(({ [weak root] in root }, f))
+        drain()
+    }
+
+    /// Whether a presentation change is waiting or running (scripts and tests read it).
+    static var busy: Bool { waiting || !queue.isEmpty }
+
+    private static func inTransition(_ root: UIViewController) -> UIViewControllerTransitionCoordinator? {
+        var v: UIViewController? = root.presentedViewController
+        while let x = v {
+            if x.isBeingPresented || x.isBeingDismissed, let tc = x.transitionCoordinator { return tc }
+            v = x.presentedViewController
+        }
+        return nil
+    }
+
+    private static func drain() {
+        guard !waiting else { return }
+        while let next = queue.first {
+            guard let root = next.root() else {
+                queue.removeFirst()
+                continue
+            }
+            if let tc = inTransition(root) {
+                waiting = true
+                tc.animate(alongsideTransition: nil) { _ in
+                    // after UIKit has finished the transition's own bookkeeping
+                    DispatchQueue.main.async {
+                        waiting = false
+                        drain()
+                    }
+                }
+                return
+            }
+            queue.removeFirst()
+            next.run()
+        }
     }
 }

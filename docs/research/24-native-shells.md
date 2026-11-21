@@ -557,6 +557,49 @@ N4 is not closed: its last two parts go to Apple, which only the maintainer does
 
 **On the maintainer's iPad after slice 6 (2026-11-21, the dev branch at `9b90500`).** The suite over the network: 49 of 51 in 38 s; the two failures are the device's alone (B42: `value.export` can't write its folder; B43: the graph's Parameters window not reported open). The UI tests can't run on a device as written: they read the app's status from a file, which the test runner's sandbox can't see. Budgets at 120 Hz, three runs each: launch to first frame 114 to 118 ms at 100 nodes and 215 to 221 ms at 500; a one-node change about 3.7 ms in the kit (6.8 ms at 500) and about 18 ms through the feed; no late frames by the app's count. The system's hitch trace is clean at 100 nodes; at 500 it shows 117.8 ms of hitch a second panning, 168.9 panning with a fit, 84.0 zooming and 11.5 dragging, against 10.4, 22.9, 3.5 and 29.2 on slice 3's build the night before. One trace against one, and the spike's control trace at 500 was malformed, so not yet a confirmed regression. Earlier 60 Hz readings that day were Low Power Mode, not the iPhone device family slice 6 added (an iPad-only build of the same code also ran at 120 Hz). The maintainer on these hitches: "These hitches seem borderline significant (168ms is perceptible)"; confirming and fixing them is part of closing N4's gate, replacing "not currently worth the time" for this case.
 
+**Getting the device gate ready (2026-11-21, branch `native/n4-device-gate`, nothing run on a device).** **B42 fixed at source:** the C ABI core never took the shell's `dirs.caches` or `dirs.scratch`, so on iOS values exported (and copies opened in apps) went under `HOME/.cache`, the container's root, which a device app may not write; the core now writes copies and exports under `dirs.caches/open` and autosave's scratch files under `dirs.scratch`, and the defaults that derive from `HOME` use `Library/…` on iOS as on macOS. A test runs the C ABI with `HOME` read-only and every `dirs` root writable and takes values out every way the apps do; in the iPad simulator with its container's root made read-only, slice 6's build fails the iPad's step and this branch passes the whole suite. **B43 fixed in the iPad shell:** sheets the core opens and closes came faster than UIKit's transitions (the Messages window closed just before the Cache Report and Parameters opened), a sheet presented over one about to go went with it, and the shell told the core it was closed; reproduced in the simulator (6 of 20 rounds), and every presentation change the core drives now goes through one ordered queue (`Presentations.whenSettled`; 0 of 20). The suite gains a case and a step form, `holds` (a condition that must stay so for a time). **The UI tests read the app's status on a device** from the debug build's status element (`--status-element`: the status JSON as an accessibility value, in a window above every sheet), since the runner can't see the app's files there; in the simulator they still read the file, and both ways pass there. They also failed on any second run in one container, since every document autosaves and a scripted launch opened the sample in Documents (B44): with `--scratch-state` a sample now opens as a fresh copy in scratch, and the Mac app keeps a scripted launch's caches and log in scratch. `device.sh` uses a status file and a result bundle of each run's own, stops when the iPad refuses a launch because it is locked, and says it needs Auto-Lock off, power and Enable UI Automation; `bench.sh` never reads an earlier run's result (each run's file has its own name and the app removes older ones). **The 500-node hitches are not a regression of slices 4 to 6:** in one simulator, every build from slice 3 to this branch draws the same faces (173.7 MB of face pictures, the same layers culled in every phase); on the device, slice 3's low numbers came from a run with 73 MB of face pictures and 413 faces culled while panning, where every other 500-node run on the iPad, N3's included, had 121 MB and 160 to 180, so less of the graph was on screen; and N3's build in that configuration hitched more than slice 6's (136.7, 341.4, 116.8 and 30.3 ms a second). What the hitches cost stays to be found on the device; the bench now records its view, the fitted zoom and raster scale, and can draw no wires (`--hide-wires`) to tell the wires' share from the faces'. `claude-debug/native-n4/s7-device-pass.sh` does the device pass in one command (the suite, the UI tests, the budgets, two hitch traces on each prebuilt Release build of slices 3 to 6 and this branch with the spike's control, the faces alone, and the iPad turned). Testing kinds (`text.widgets`, `text.slow`) are no longer offered in the palette or Node › Add (card 31 B); `node.add` still adds them. Report: `claude-debug/native-n4-device-gate.md`.
+
+### N4's decisions (asked 2026-11-21 as cards, with the Windows spike's)
+
+Thirty-four cards. The maintainer's answer line: "1A; 2A; 3A; 4A; 5A; 6C; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15B; 16A; 17A; 18A; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29A; 30A; 31B; 32A; 33A; 34A". No notes were added.
+
+| Card | Decided |
+|---|---|
+| 1. What comes next | Finish N4's gate first, then ask about N5. (Asked before N5 became Windows and was given its go-ahead the same day; how the two fit is put back to the maintainer.) |
+| 2. Sending builds to Apple | Prepare everything, then ask again before each upload |
+| 3. Export compliance | Check the binaries and report before setting the flag |
+| 4. Windows: the canvas | Composition visuals |
+| 5. Windows: the symlinks | Windows checkouts set `core.symlinks true`, a recorded step |
+| 6. Windows: frame budgets | Deferred to N5's gate |
+| 7. Windows: packaging | Unpackaged through the slices, MSIX at N5's gate |
+| 8. Windows: the C# models | Hand-written, as Swift's were |
+| 9. Windows: supported versions | Windows 10 1809 and later, ARM64 and x64 |
+| 10. Windows: CI | None for the Windows shell |
+| 11. N5's arrangement | The same as N1 to N4 |
+| 12. Hitches at 500 nodes on the iPad | Fix before N4's gate closes |
+| 13. One app for iPad and iPhone | One app for both, as built (no bundle id given) |
+| 14. Text size in the Apple apps | Leave it out |
+| 15. Compare's exact difference | Later, after N5 |
+| 16. Value editors | JSON until N6, as built |
+| 17. Sheets over sheets on the iPad | Stack them, as built |
+| 18. JSON values | YAML first, as built |
+| 19. Array to Audio and Audio to Array | Keep them in the array engine |
+| 20. The Mac app's preferences file | Its own file, as built |
+| 21. Autosave during a run | Wait for the run to end, as built |
+| 22. Settings on the iPad | A sheet with the gear, as built |
+| 23. Pop-outs when a graph is reopened | Not saved, as built |
+| 24. Show on Face and undo | Not an undo step, as built |
+| 25. A promoted parameter's doc and range | Later |
+| 26. Select mode on the Mac's toolbar | Left out, as built |
+| 27. Nodes that grow into a neighbour | The view-only push, as built |
+| 28. Frames and the push | The frame grows, as built |
+| 29. Editing when zoomed far out | The floating editor, as built |
+| 30. Wires that run backward | Straight runs with rounded corners, as built |
+| 31. The 'Every widget' test node | Hide Testing kinds from the palette |
+| 32. The touch marquee | Select mode, with the Pencil and a pointer directly, as built |
+| 33. The three-finger tap | Redo, system gestures off on the graph, as built |
+| 34. A pointer on the iPad | A marquee, like the Mac, as built |
+
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 
 The first piece of N5 as the maintainer changed it (the note under section 12): a native Windows shell in C# and WinUI 3 on the same core, playing the part N0 played for the Apple apps. Branch `native/n5-spike`, code in `native/windows/` (its README says what is spike and what is meant to stay). Report: `claude-debug/native-n5-spike.md`. Machine: the maintainer's Windows 11 Pro ARM64 virtual machine (UTM on the Mac, 4 cores, 8 GB, build 26200), .NET SDK 10.0.404, Windows App SDK 2.6.5, Win2D 1.4.0. No Rust in the workspace changed.

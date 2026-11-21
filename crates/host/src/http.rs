@@ -62,7 +62,7 @@ impl Default for HttpOptions {
 /// The UI's durable CAS root.
 pub fn default_cas() -> PathBuf {
     let home = plumcraft_proto::programs::home().unwrap_or_else(std::env::temp_dir);
-    if cfg!(target_os = "macos") { home.join("Library/Caches/plumcraft/cas") } else { home.join(".cache/plumcraft/cas") }
+    if cfg!(any(target_os = "macos", target_os = "ios")) { home.join("Library/Caches/plumcraft/cas") } else { home.join(".cache/plumcraft/cas") }
 }
 
 fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {

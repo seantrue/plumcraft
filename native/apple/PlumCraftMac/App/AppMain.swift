@@ -129,11 +129,18 @@ enum CoreHost {
     static func open() {
         let fm = FileManager.default
         let id = Bundle.main.bundleIdentifier ?? "com.plumcraft.mac"
-        let caches = (fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent(id)
+        // a scripted launch (--scratch-state) keeps its caches and log beside the scratch marks it
+        // must be given, not in the person's Library: since the core writes exports under
+        // dirs.caches (B42, the N4 device gate) a scripted export would land there
+        let scratch = options.scratchState
+            ? ProcessInfo.processInfo.environment["COMMONKIT_MARK_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).deletingLastPathComponent() }
+            : nil
+        let caches = scratch.map { $0.appendingPathComponent("mac-caches").appendingPathComponent(id) }
+            ?? (fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent(id)
         let store = options.storeRoot ?? caches.appendingPathComponent("store").path
         try? fm.createDirectory(atPath: store, withIntermediateDirectories: true)
-        let logs = (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
-            .appendingPathComponent("Logs/PlumCraft").path
+        let logs = scratch.map { $0.appendingPathComponent("mac-logs").path }
+            ?? (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Logs/PlumCraft").path
         // the config (contract 4.1) and the start are the kit's, shared with the iPad app
         var config = ShellConfig(appID: id, appName: "PlumCraft", version: "0.7.0", storeRoot: store)
         // the app's own preferences (the core keeps every setting there, N4 slice 4);

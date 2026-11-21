@@ -13,6 +13,11 @@
 //! on empty canvas offers only the kinds with a port that takes it ([`fitting`], by
 //! `Graph::input_for_new` and `Graph::output_for_new`: the types and list-ness `wire.connect`
 //! checks), and [`items`] is what `palette.items` lists, for a shell that draws the popup.
+//!
+//! **Testing kinds** (the maintainer, 2026-11-21, card 31 B: "hide Testing kinds from the
+//! palette"): a kind in a `Testing` category (the text engines' Every widget and Slow) is not
+//! offered to a person, in the palette or the Node › Add menu of any shell ([`offered`]); it is
+//! still added by id (`node.add`), as the conformance cases and tests do.
 
 use plumcraft_graph::{Graph, PortRef};
 use plumcraft_proto::catalogue::{NodeDef, SchemaReply};
@@ -28,13 +33,23 @@ pub struct PaletteIndex {
     key: (String, usize, String, String),
     /// Per node: (lower-case haystack, category path, display name), in catalogue order.
     entries: Vec<(String, String, String)>,
-    /// Node indices sorted by (category path, display name).
+    /// The indices of the nodes a person is offered ([`offered`]), sorted by (category path,
+    /// display name): a Testing kind is indexed but never listed.
     order: Vec<usize>,
 }
 
 /// The display name of a node type (its id when it has none).
 pub fn display_name(def: &NodeDef) -> &str {
     if def.display.is_empty() { &def.id } else { &def.display }
+}
+
+/// The category whose kinds are never offered to a person to add.
+pub const TESTING: &str = "Testing";
+
+/// Whether a person is offered `def` to add (the palette, Node › Add): not a kind in a
+/// [`TESTING`] category, at any depth of its path.
+pub fn offered(def: &NodeDef) -> bool {
+    !def.category.iter().any(|c| c == TESTING)
 }
 
 /// A category path as shown (`Text › Testing`); `Other` when empty.
@@ -60,7 +75,7 @@ impl PaletteIndex {
                 (format!("{} {} {}", display, d.id, d.category.join(" ")).to_lowercase(), category, display)
             })
             .collect();
-        let mut order: Vec<usize> = (0..self.entries.len()).collect();
+        let mut order: Vec<usize> = (0..self.entries.len()).filter(|&i| catalog.nodes.get(i).is_some_and(offered)).collect();
         order.sort_by(|&a, &b| {
             let (ea, eb) = (self.entries.get(a), self.entries.get(b));
             ea.map(|e| (&e.1, e.2.to_lowercase())).cmp(&eb.map(|e| (&e.1, e.2.to_lowercase())))
@@ -200,15 +215,14 @@ mod tests {
         let mut index = PaletteIndex::default();
         index.refresh(&c);
         let (all, total) = index.filter("", 100);
-        assert_eq!(total, 5);
-        // Sorted by category path, then name.
-        assert_eq!(names(&c, &all), ["bare", "table.sort", "text.lower", "text.upper", "text.slow"]);
+        assert_eq!(total, 4);
+        // Sorted by category path, then name; the Testing kind (text.slow) is never listed
+        assert_eq!(names(&c, &all), ["bare", "table.sort", "text.lower", "text.upper"]);
         assert_eq!(names(&c, &index.filter("UPPER", 100).0), ["text.upper"]);
-        assert_eq!(names(&c, &index.filter("text.", 100).0), ["text.lower", "text.upper", "text.slow"]);
-        assert_eq!(names(&c, &index.filter("text testing", 100).0), ["text.slow"]);
+        assert_eq!(names(&c, &index.filter("text.", 100).0), ["text.lower", "text.upper"]);
         assert_eq!(index.filter("nothing like it", 100), (vec![], 0));
         let (capped, total) = index.filter("", 2);
-        assert_eq!((capped.len(), total), (2, 5));
+        assert_eq!((capped.len(), total), (2, 4));
     }
 
     #[test]
@@ -218,7 +232,7 @@ mod tests {
         let mut c2 = catalog();
         c2.nodes.truncate(2);
         index.refresh(&c2);
-        assert_eq!(index.filter("", 10).1, 2);
+        assert_eq!(index.filter("", 10).1, 1, "text.slow, the second, is a Testing kind");
         assert_eq!(category_path(&c2.nodes[1]), "Text › Testing");
         assert_eq!(category_path(&NodeDef::default()), "Other");
         // the same size and digest, other nodes (an engine switched): rebuilt
@@ -228,6 +242,31 @@ mod tests {
         index.refresh(&catalog());
         index.refresh(&c3);
         assert_eq!(names(&c3, &index.filter("shout", 10).0), ["text.shout"]);
+    }
+
+    /// The maintainer's decision (2026-11-21, card 31 B): a Testing kind is not offered by
+    /// `palette.items` for any query or dropped wire, nor by the Node › Add menu, but `node.add`
+    /// by id still adds it.
+    #[test]
+    fn testing_kinds_are_not_offered_but_are_added_by_id() {
+        let text = plumcraft_text::engine().schema();
+        let testing: Vec<&str> = text.nodes.iter().filter(|d| !offered(d)).map(|d| d.id.as_str()).collect();
+        assert!(testing.contains(&"text.widgets") && testing.contains(&"text.slow"), "{testing:?}");
+        let g = Graph::new();
+        for q in ["", "slow", "every widget", "testing", "text.widgets"] {
+            let r = items(&g, &text, &[], None, &json!({"query": q})).unwrap();
+            let kinds: Vec<&str> = r["items"].as_array().unwrap().iter().filter_map(|i| i["kind"].as_str()).collect();
+            assert!(kinds.iter().all(|k| !testing.contains(k)), "{q:?} offered {kinds:?}");
+        }
+        assert!(items(&g, &text, &[], None, &json!({"query": "upper"})).unwrap()["total"].as_u64().unwrap() >= 1);
+        // the same from an engine not started (`starts`)
+        let starts: Vec<&NodeDef> = text.nodes.iter().collect();
+        let r = items(&g, &SchemaReply::default(), &starts, None, &json!({"query": "slow"})).unwrap();
+        assert_eq!(r["total"], 0, "{r}");
+        // added by id all the same
+        let mut s = plumcraft_session::Session::new(text.clone());
+        let n = s.execute("node.add", &json!({"kind": "text.widgets", "pos": [0, 0]})).unwrap();
+        assert!(n["id"].is_string(), "{n}");
     }
 
     /// Thousands of types, filtered on every keystroke: well under a frame.

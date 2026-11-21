@@ -27,7 +27,10 @@
 //!   pointer}, until?: {pointer: want}, timeout?: seconds}`: one control request; `pointer` is a
 //!   JSON pointer into the reply `{ok, result | error}`. With `until` the request is sent again
 //!   (the driver settling between, [`Driver::pause`]) until the reply matches, or `timeout`
-//!   (default 30) seconds pass: a condition waited on, never a fixed time;
+//!   (default 30) seconds pass: a condition waited on, never a fixed time; with `holds:
+//!   {pointer: want}` (and `for?: seconds`, default 1, at most 10) the request is sent again,
+//!   the driver settling between, for that long and every reply must match: a condition that
+//!   must stay so (B43: a window the shell closed by itself a moment after it opened);
 //! - `{gesture: params, …}`: `ui.gesture` with these params, as `call`;
 //! - `{geometry: faces}`: report these faces' measurements (`geometry.set`'s `faces`); a driver
 //!   whose shell measures its own faces ignores it ([`Driver::reports`]);
@@ -222,6 +225,18 @@ fn step(d: &mut dyn Driver, vars: &mut Map<String, Value>, s: &Value) -> Result<
         while let Err(e) = expect(&reply, Some(until), vars) {
             if t0.elapsed() > limit {
                 return Err(format!("{method} {params}: not so in {limit:?}: {e}"));
+            }
+            d.pause();
+            reply = d.call(&method, params.clone());
+        }
+    }
+    if let Some(holds) = s.get("holds") {
+        let span = std::time::Duration::from_secs_f64(s.get("for").and_then(Value::as_f64).unwrap_or(1.0).clamp(0.0, 10.0));
+        let t0 = std::time::Instant::now();
+        loop {
+            expect(&reply, Some(holds), vars).map_err(|e| format!("{method} {params}: didn't stay so ({:.2} s in): {e}", t0.elapsed().as_secs_f64()))?;
+            if t0.elapsed() >= span {
+                break;
             }
             d.pause();
             reply = d.call(&method, params.clone());
@@ -521,6 +536,7 @@ mod tests {
             (json!({"call": "graph.get", "expect": {"/result/nodes/$a/nothing": 1}}), "got nothing"),
             (json!({"gesture": {"kind": "tap", "at": {"$locate": {"node": "n404"}}}}), "geometry.locate"),
             (json!({"call": "scene.get", "save": {"x": "/nope"}}), "nothing at"),
+            (json!({"call": "scene.get", "holds": {"/result/view/windows/params": true}, "for": 0.1}), "didn't stay so"),
         ] {
             let case = json!({"name": "wrong", "about": "-", "steps": [add.clone(), bad.clone()]});
             let o = run_case(&mut d, &case);

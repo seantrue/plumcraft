@@ -26,9 +26,9 @@ final class PadSettingsSheet: NSObject, UIAdaptivePresentationControllerDelegate
         if let tab {
             if sheet == nil { present() }
             settings?.tab = tab
-        } else if let sh = sheet {
+        } else if let sh = sheet, let host {
             sheet = nil
-            sh.dismiss(animated: !CoreHost.options.scratchState)
+            Presentations.whenSettled(from: host) { sh.dismiss(animated: !CoreHost.options.scratchState) }
         }
     }
 
@@ -47,7 +47,10 @@ final class PadSettingsSheet: NSObject, UIAdaptivePresentationControllerDelegate
             await s.refresh()
             StatusFile.shared.set("settings", ["sections": .array(s.sections.map { .string($0.id) }), "chosen": .string(s.chosen), "shown": .string(s.shown)])
         }
-        (vc.presentedViewController ?? vc).present(h, animated: !CoreHost.options.scratchState)
+        Presentations.whenSettled(from: vc) { [weak self, weak vc] in
+            guard let self, let vc, self.sheet === h else { return }
+            (vc.presentedViewController ?? vc).present(h, animated: !CoreHost.options.scratchState)
+        }
     }
 
     /// Done, or a swipe down: the core's window closes too.

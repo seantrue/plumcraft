@@ -188,10 +188,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
             UIApplication.shared.requestSceneSessionDestruction(s, options: nil) { _ in }
             bringGraphForward()
         }
-        if let s = sheet, s.id == id {
+        if let s = sheet, s.id == id, let host {
             sheet = nil
-            host?.coreWindows?.willBeReplaced(s.nav)
-            (s.nav.presentingViewController ?? s.nav).dismiss(animated: true)
+            host.coreWindows?.willBeReplaced(s.nav)
+            Presentations.whenSettled(from: host) { (s.nav.presentingViewController ?? s.nav).dismiss(animated: true) }
         }
     }
 
@@ -303,7 +303,7 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     init(popout: PopoutModel, pictures: Pictures) {
         self.popout = popout
         self.pictures = pictures
-        box = ViewerBox(popout: popout, pictures: pictures, muted: CoreHost.options.scratchState || CoreHost.options.statusFile != nil)
+        box = ViewerBox(popout: popout, pictures: pictures, muted: CoreHost.options.scratchState || CoreHost.options.statusFile != nil || CoreHost.options.statusElement)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -820,9 +820,10 @@ final class PadMessages: NSObject, UIAdaptivePresentationControllerDelegate {
             h.view.accessibilityIdentifier = "messages"
             sheet = h
             host.presentReplacing(h)
-        } else if !open, let s = sheet {
+        } else if !open, let s = sheet, let host {
             sheet = nil
-            s.dismiss(animated: !CoreHost.options.scratchState)
+            // once its presentation has run (a dismissal asked for before then is lost, B43)
+            Presentations.whenSettled(from: host) { s.dismiss(animated: !CoreHost.options.scratchState) }
         }
     }
 
@@ -856,6 +857,9 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
     private var reports: [String: ReportModel] = [:]
     private var compare: CompareModel?
     private(set) var shown: (key: String, vc: UIViewController)?
+    /// The sheet shown has been presented (its presentation ran): only then does its having no
+    /// presenter mean something took it away (B43: one waiting to be presented has none yet).
+    private var presented = false
 
     init(model: DocumentModel, pictures: Pictures) {
         self.model = model
@@ -864,7 +868,7 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
 
     func follow(_ w: Windows) {
         // ours went with something under it (dismissed by another presentation): closed in the core
-        if let s = shown, s.vc.presentingViewController == nil, !s.vc.isBeingPresented {
+        if let s = shown, presented, s.vc.presentingViewController == nil, !s.vc.isBeingPresented {
             shown = nil
             tellClosed(s.key)
         }
@@ -875,9 +879,9 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
         if !keys.contains("compare") { compare = nil }
         for (_, r) in reports { r.follow(w.reports) }
         compare?.follow(w.reports)
-        if let s = shown, !keys.contains(s.key) {
+        if let s = shown, !keys.contains(s.key), let host {
             shown = nil
-            s.vc.dismiss(animated: !CoreHost.options.scratchState)
+            Presentations.whenSettled(from: host) { s.vc.dismiss(animated: !CoreHost.options.scratchState) }
         }
         if let k = added.last { show(k, stamp: w.reports) }
         host?.reportNow()
@@ -905,13 +909,28 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
         }
         vc.presentationController?.delegate = self
         vc.view.accessibilityIdentifier = "core-\(key)"
-        if let s = shown, s.vc.presentingViewController != nil { s.vc.dismiss(animated: false) }
+        let old = shown
         shown = (key, vc)
-        // over what is shown now (Settings, a value's sheet), as a window over another on the Mac;
-        // closing it shows that again
-        var top: UIViewController = host
-        while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
-        top.present(vc, animated: !CoreHost.options.scratchState)
+        presented = false
+        // one change at a time, once UIKit's transitions have run (B43): the one replaced goes
+        // first, then this one over what is shown then (Settings, a value's sheet), as a window
+        // over another on the Mac; closing it shows that again
+        Presentations.whenSettled(from: host) { [weak self, weak host] in
+            guard let self, let host else { return }
+            if let o = old, o.vc !== vc, o.vc.presentingViewController != nil { o.vc.dismiss(animated: false) }
+            // still wanted: the core may have closed it, or another replaced it, while it waited
+            guard let s = self.shown, s.vc === vc else { return }
+            Presentations.whenSettled(from: host) { [weak self, weak host] in
+                guard let self, let host, let s = self.shown, s.vc === vc else { return }
+                var top: UIViewController = host
+                while let p = top.presentedViewController, !p.isBeingDismissed { top = p }
+                top.present(vc, animated: !CoreHost.options.scratchState) { [weak self] in
+                    guard let self, let s = self.shown, s.vc === vc else { return }
+                    self.presented = true
+                    self.host?.reportNow()
+                }
+            }
+        }
     }
 
     /// Done: closed at once, the core told after.

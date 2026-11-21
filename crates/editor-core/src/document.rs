@@ -238,6 +238,10 @@ pub struct Document {
     /// apps, where a watch with no window showed nothing): `run.watch {node, port}` from a tap on
     /// a pin or a Watch menu item ends with the value in a pop-out, brought forward if open.
     pub watch_pops_out: bool,
+    /// The shell's scratch folder (`dirs.scratch`, B42): where the core puts a temporary file it
+    /// names itself (`document.autosave {scratch}`). None: the process's scratch root
+    /// (`plumcraft_scratch`), as on a desktop.
+    pub scratch: Option<PathBuf>,
     /// What the shell must redo, gathered from the switchboard until the turn hands it over.
     effects: Effects,
     /// Waiting for the first engine.
@@ -349,6 +353,7 @@ impl Document {
             look: None,
             look_seen: 0,
             watch_pops_out: false,
+            scratch: None,
             effects: Effects::default(),
             startup: None,
             own_runs: VecDeque::new(),

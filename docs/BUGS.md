@@ -36,12 +36,24 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+## Fixed
+
+### B44. The iPad UI tests fail on a second run in the same app container
+
+- Reported: 2026-11-21
+- Report: found while getting the device gate ready (the maintainer's standing instruction to record bugs found in gate runs)
+- Context: `testInlineEdits` and `testWindowsAndNames` timed out ("its undo name", "count set while hidden") whenever the app had run them before without being reinstalled, reading the status from the file or from the new status element alike; on a device, where the container stays, they would fail every time after the first.
+- Cause: every document the iPad app opens autosaves (N4 slice 4), and a scripted launch's `--open-sample` opened the copy in Documents/Samples, so a test's edits were saved into the sample the next run opened, and into the person's samples.
+- Fixed: 2026-11-21, the N4 device gate: with `--scratch-state`, `--open-sample` opens a fresh copy of the bundled sample in scratch (`Samples.scratchCopy`). Verified in the iPad simulator by running the five UI tests three times in one container (file, element, file). Still for the device: `device.sh ui`.
+
 ### B42. Exporting a value fails on a physical iPad: the export folder can't be written
 
 - Reported: 2026-11-21
 - Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
 - Context: the conformance suite on the maintainer's iPad (debug build of the dev branch at `9b90500`), case "an array popped out by a person is a picture, and its numbers a grid paged by the core", step 13: `value.export {popout}` answers `<app container>/.cache/plumcraft/open/export/<pid>-<n>: Operation not permitted (os error 1)`. The core writes exports under `.cache` at the container's root, which an iOS app may not write; the simulator allows it, so the case passes there. Share, Save As and Drag Out use the same file, so they are expected to fail on the device too (not tried by hand).
 - Issue: none
+- Cause: the C ABI core never took the shell's `dirs.caches` (nor `dirs.scratch`): copies for apps and exported values went under the session's default, `HOME/.cache/plumcraft/open` on iOS (the desktop rule, `XDG_CACHE_HOME` or `~/.cache`, since iOS isn't `macos` to `cfg!`). On iOS `HOME` is the app's container, whose root a device app may not write; the simulator allows it, so every test there passed.
+- Fixed: 2026-11-21, the N4 device gate (branch `native/n4-device-gate`): the core takes `dirs.caches` and `dirs.scratch` from the config (`plumcraft_ffi::core::Config::{caches, scratch}`): copies and exports go to `caches/open`, autosave's scratch files to `scratch/autosave`; the defaults that derive from `HOME` (open copies, the craft root, the HTTP host's CAS, preferences) use `Library/…` on iOS as on macOS. Found on the way: a short text (carried in its excerpt, with neither `value` nor `full`) exported and copied as nothing; fixed. Tests: `plumcraft-ffi::dirs` runs itself again with `HOME` read-only and every `dirs` root writable and takes values out every way the apps do (export, Share, the graph's Share, autosave in scratch and in the document's file, the open-value cache's root); it fails without the fix ("copies for apps go to …/home/Library/Caches/plumcraft/open"). In the iPad simulator with its data container's root made read-only (`chmod 555`, as a device has it): slice 6's build failed the same step as the iPad ("…/.cache/plumcraft/open/export…"), this branch's passed the whole suite, 52 of 52 (`claude-debug/native-n4/s7-b42-sim.sh`). Save As goes through the engine to the path the shell's ask gave (Documents) and the compiled-in engines save no formats, so it was not taken. Still for the device: the suite's export step on the iPad.
 
 ### B43. The graph's Parameters window is not reported open on a physical iPad
 
@@ -49,8 +61,8 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
 - Context: the same run, case "the Cache Report and the graph's Parameters window are the core's: opened, read, edited and closed", step 11: `scene.get` has no `view.windows.params` where the case wants `true`. Passes on the Mac and in both simulators. One run only; whether it is timing on the slower debug build or a real difference is not looked into.
 - Issue: none
-
-## Fixed
+- Cause: the iPad shell's, not the core's or the case's. Sheets the core opens and closes arrive faster than UIKit's transitions run (a script, the suite, a slow device). The Messages window (the case before this one in the suite) was dismissed while its presentation was still running, and the Cache Report was then presented over it; when the Messages sheet went it took the Cache Report and the Parameters sheet over that with it, and the shell, seeing them gone, told the core both were closed. Reproduced in the iPad simulator, launched as `device.sh` launches the app (Debug, `--scratch-state`): Messages opened and closed, then the Cache Report and Parameters opened at once, Parameters closed by itself within 0.11 s in 6 of 20 rounds (`claude-debug/native-n4/s7-b43-probe.py --messages`); the case alone looped 30 times never failed, which is why it passed everywhere but the device.
+- Fixed: 2026-11-21, the N4 device gate: every presentation change the core drives on the iPad (core windows, Messages, Settings, a value's sheet replaced or closed) goes through one queue, `Presentations.whenSettled`, one at a time, in order, once nothing presented is mid-transition; a core window counts as closed by something else only after its own presentation has run. After it: 0 of 20 rounds of the probe, the case 30 of 30. New conformance case "windows opened as another closes stay open: the shell never closes what the core opened" with a new step form, `holds` (a condition that must stay so `for` a time, in both runners); it did not fail on slice 6's build in its one run there, so it catches the defect only some of the time. Still for the device: the suite on the iPad.
 
 ### B41. A run setting kept in the preferences is sometimes lost on the Linux test host
 

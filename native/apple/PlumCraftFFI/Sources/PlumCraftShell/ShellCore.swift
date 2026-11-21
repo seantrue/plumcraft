@@ -105,6 +105,11 @@ public final class StatusFile {
     public static let shared = StatusFile()
     /// Where it is written; nil: nowhere.
     public var path: String?
+    /// Also handed, whole, to this (the iPad's debug status element, which a UI test on a device
+    /// reads through accessibility: its runner can't see the app's files there).
+    public var mirror: ((String) -> Void)?
+    /// Whether anything reads it.
+    public var active: Bool { path != nil || mirror != nil }
     private var state: [String: JSONValue] = ["pid": .int(Int64(ProcessInfo.processInfo.processIdentifier))]
     private var windows: [UInt64: JSONValue] = [:]
 
@@ -126,10 +131,12 @@ public final class StatusFile {
     }
 
     private func write() {
-        guard let path else { return }
+        guard active else { return }
         var s = state
         s["windows"] = .array(windows.keys.sorted().compactMap { windows[$0] })
-        try? JSONValue.object(s).serialized().write(to: URL(fileURLWithPath: path), options: .atomic)
+        let data = JSONValue.object(s).serialized()
+        if let path { try? data.write(to: URL(fileURLWithPath: path), options: .atomic) }
+        if let mirror { mirror(String(decoding: data, as: UTF8.self)) }
     }
 
     /// Append this process's pid to `<path>.pids` (a tracer may start more than one copy), so a

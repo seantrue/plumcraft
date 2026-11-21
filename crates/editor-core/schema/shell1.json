@@ -1003,6 +1003,15 @@
             "array",
             "null"
           ]
+        },
+        "zoom": {
+          "default": null,
+          "description": "The view's zoom, screen points a graph unit (default 1, held to 0.01 to 100): a scrub's\nspeed (N4 slice 2, contract 8.13). The core took it before the schema said so (found by\nthe Windows kit, the N4 device gate).",
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
         }
       },
       "required": [

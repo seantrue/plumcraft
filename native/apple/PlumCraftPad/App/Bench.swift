@@ -18,6 +18,13 @@ final class BenchViewController: UIViewController {
     init(options: BenchOptions) {
         var o = options
         if !o.out.hasPrefix("/") { o.out = CoreHost.dirs.documents.appendingPathComponent(o.out).path }
+        // an earlier run's results go first, so a script that reads after a launch the system
+        // refused (a locked iPad) finds nothing rather than an old run's numbers (the N4 device gate)
+        let fm = FileManager.default
+        let docs = CoreHost.dirs.documents
+        for f in (try? fm.contentsOfDirectory(atPath: docs.path)) ?? [] where f.hasPrefix("bench-") && f.hasSuffix(".json") {
+            try? fm.removeItem(at: docs.appendingPathComponent(f))
+        }
         self.options = o
         super.init(nibName: nil, bundle: nil)
     }

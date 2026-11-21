@@ -5,20 +5,59 @@
 // step) and a two-finger tap undoes it, a three-finger tap redoes it; a drag from an output pin
 // dropped on empty canvas opens the palette filtered to what takes the wire, and a tap on a row
 // adds and connects (one undo step); Select mode makes a one-finger drag a marquee; a two-finger
-// double tap tidies; the toolbar's Fit fits. What the app did is read from its status file
-// (`--status-file`), whose path the runner gets as PLUMCRAFT_STATUS (TEST_RUNNER_PLUMCRAFT_STATUS
-// for xcodebuild); screenshots go to PLUMCRAFT_SHOTS when it is set. Local runs only (no macOS
-// CI): conformance.sh gestures.
+// double tap tidies; the toolbar's Fit fits. What the app did is read from its status: in the
+// simulator from its status file (`--status-file`), whose path the runner gets as
+// PLUMCRAFT_STATUS (TEST_RUNNER_PLUMCRAFT_STATUS for xcodebuild), since runner and app share the
+// Mac's files there; on a device, where the runner's sandbox can't see the app's container, from
+// the debug build's status element (`--status-element`: the same JSON as an accessibility value,
+// N4 device gate). PLUMCRAFT_STATUS_VIA=element or file chooses either anywhere. Screenshots go to
+// PLUMCRAFT_SHOTS when it is set. Local runs only (no macOS CI): conformance.sh gestures, and
+// device.sh ui on an iPad.
 
 import XCTest
 
 final class GestureTests: XCTestCase {
     var statusPath = ""
+    /// Read the status from the app's accessibility element, not a file (on a device).
+    var viaElement = false
+    weak var launched: XCUIApplication?
+
+    /// The status file's path, and whether the status is read from the element instead.
+    func statusFilePath(_ env: [String: String]) -> String {
+        #if targetEnvironment(simulator)
+        let onDevice = false
+        #else
+        let onDevice = true
+        #endif
+        switch env["PLUMCRAFT_STATUS_VIA"] {
+        case "element"?: viaElement = true
+        case "file"?: viaElement = false
+        default: viaElement = onDevice && env["PLUMCRAFT_STATUS"] == nil
+        }
+        let p = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
+        if !viaElement { try? FileManager.default.removeItem(atPath: p) }
+        return p
+    }
+
+    /// The launch arguments with `--status-file <path>` made `--status-element` when the status
+    /// is read from the element.
+    func adoptStatus(_ app: XCUIApplication) {
+        launched = app
+        guard viaElement, let k = app.launchArguments.firstIndex(of: "--status-file"), k + 1 < app.launchArguments.count else { return }
+        app.launchArguments.replaceSubrange(k...(k + 1), with: ["--status-element"])
+    }
 
     /// The app's status as JSON (empty until written).
     func status() -> [String: Any] {
-        guard let d = FileManager.default.contents(atPath: statusPath),
-              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [:] }
+        let data: Data?
+        if viaElement {
+            guard let app = launched else { return [:] }
+            let e = app.descendants(matching: .any).matching(identifier: "plumcraft-status").firstMatch
+            data = e.exists ? (e.value as? String).map { Data($0.utf8) } : nil
+        } else {
+            data = FileManager.default.contents(atPath: statusPath)
+        }
+        guard let d = data, let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return [:] }
         return o
     }
 
@@ -52,10 +91,10 @@ final class GestureTests: XCTestCase {
     @MainActor
     func testTouchGestures() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
-        try? FileManager.default.removeItem(atPath: statusPath)
+        statusPath = statusFilePath(env)
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Showcase", "--status-file", statusPath, "--then", "zoom:1:swap"]
+        adoptStatus(app)
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready, centred on Replace", timeout: 60) { ($0["ready"] as? Bool) == true && abs((($0["zoom"] as? Double) ?? 0) - 1) < 0.01 }
@@ -210,10 +249,10 @@ final class GestureTests: XCTestCase {
     @MainActor
     func testInlineEdits() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
-        try? FileManager.default.removeItem(atPath: statusPath)
+        statusPath = statusFilePath(env)
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--then", "zoom:1.5:w"]
+        adoptStatus(app)
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready, at 1.5", timeout: 60) { ($0["ready"] as? Bool) == true && abs((($0["zoom"] as? Double) ?? 0) - 1.5) < 0.01 && $0["rows"] != nil }
@@ -292,10 +331,10 @@ final class GestureTests: XCTestCase {
     @MainActor
     func testWindowsAndNames() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
-        try? FileManager.default.removeItem(atPath: statusPath)
+        statusPath = statusFilePath(env)
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Windows and Names", "--status-file", statusPath, "--then", "zoom:1:w"]
+        adoptStatus(app)
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
@@ -366,10 +405,10 @@ final class GestureTests: XCTestCase {
     @MainActor
     func testEveryViewerByATap() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
-        try? FileManager.default.removeItem(atPath: statusPath)
+        statusPath = statusFilePath(env)
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--then", "zoom:0.7:snd"]
+        adoptStatus(app)
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
@@ -425,10 +464,10 @@ extension GestureTests {
     @MainActor
     func testCompactWindowsByATap() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
-        try? FileManager.default.removeItem(atPath: statusPath)
+        statusPath = statusFilePath(env)
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--width-class", "compact", "--then", "zoom:0.7:tab"]
+        adoptStatus(app)
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
