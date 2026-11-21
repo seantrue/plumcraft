@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
+
+- Reported: 2026-11-21
+- Report: found by the controller checking B71: `engine.switch` to an engine whose program exits immediately (its Python module is not installed) got no reply for 30 s as a process; over HTTP the same engine failed in 0.2 s with "the engine exited before listening".
+- Context: `crates/editor-core`, the process start of an engine a manifest names.
+- Issue: none
+
 ### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
 
 - Reported: 2026-11-20
