@@ -36,6 +36,20 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+### B42. Exporting a value fails on a physical iPad: the export folder can't be written
+
+- Reported: 2026-11-21
+- Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
+- Context: the conformance suite on the maintainer's iPad (debug build of the dev branch at `9b90500`), case "an array popped out by a person is a picture, and its numbers a grid paged by the core", step 13: `value.export {popout}` answers `<app container>/.cache/plumcraft/open/export/<pid>-<n>: Operation not permitted (os error 1)`. The core writes exports under `.cache` at the container's root, which an iOS app may not write; the simulator allows it, so the case passes there. Share, Save As and Drag Out use the same file, so they are expected to fail on the device too (not tried by hand).
+- Issue: none
+
+### B43. The graph's Parameters window is not reported open on a physical iPad
+
+- Reported: 2026-11-21
+- Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
+- Context: the same run, case "the Cache Report and the graph's Parameters window are the core's: opened, read, edited and closed", step 11: `scene.get` has no `view.windows.params` where the case wants `true`. Passes on the Mac and in both simulators. One run only; whether it is timing on the slower debug build or a real difference is not looked into.
+- Issue: none
+
 ## Fixed
 
 ### B41. A run setting kept in the preferences is sometimes lost on the Linux test host

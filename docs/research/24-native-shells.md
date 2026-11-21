@@ -316,6 +316,8 @@ Milestone N. Each stage ends at something that runs and a gate.
 | **N5. Android** | The Kotlin kit and app on the same core: tablet, then phone | The whole suite on an emulator and a device |
 | **N6. PlumImpress on the shells** | Its curves and mask editors in Swift and Kotlin; its openers and Send To through the asks. The spike branches and the winit patch are retired | Its own floor walk |
 
+**N5 changed (the maintainer, 2026-11-21):** "Let's swap a windows implementation for the Kotlin implementation. I have a good Windows VM, but the Kotlin test environment is not great." N5 is now a native Windows shell on the same core; the Android shell written in the table above is not the next stage. Answered the same day: the toolkit is "C#, WinUI 3"; "Android is deferred not cancelled."; egui stays the Windows editor until the new shell passes the suite, then stays for Linux ("yes"). The test machine is the maintainer's Windows 11 ARM64 virtual machine on the Mac, so the first target is `aarch64-pc-windows-msvc`. Still open: what N6 writes its editors in beside Swift.
+
 N1 is the largest piece of Rust and changes nothing a user sees, so it goes in slices behind the existing tests: the waker and pump; runs off the UI thread; preferences and themes as data; the asks under `invoke`; the control methods; the media crate; the menu model. egui stays the editor on Linux and Windows throughout, and on the Mac until N4's gate.
 
 ## 13. Risks
@@ -552,3 +554,118 @@ Section 12's gate for N4, part by part (2026-11-20):
 
 N4 is not closed: its last two parts go to Apple, which only the maintainer does.
 
+
+**On the maintainer's iPad after slice 6 (2026-11-21, the dev branch at `9b90500`).** The suite over the network: 49 of 51 in 38 s; the two failures are the device's alone (B42: `value.export` can't write its folder; B43: the graph's Parameters window not reported open). The UI tests can't run on a device as written: they read the app's status from a file, which the test runner's sandbox can't see. Budgets at 120 Hz, three runs each: launch to first frame 114 to 118 ms at 100 nodes and 215 to 221 ms at 500; a one-node change about 3.7 ms in the kit (6.8 ms at 500) and about 18 ms through the feed; no late frames by the app's count. The system's hitch trace is clean at 100 nodes; at 500 it shows 117.8 ms of hitch a second panning, 168.9 panning with a fit, 84.0 zooming and 11.5 dragging, against 10.4, 22.9, 3.5 and 29.2 on slice 3's build the night before. One trace against one, and the spike's control trace at 500 was malformed, so not yet a confirmed regression. Earlier 60 Hz readings that day were Low Power Mode, not the iPhone device family slice 6 added (an iPad-only build of the same code also ran at 120 Hz). The maintainer on these hitches: "These hitches seem borderline significant (168ms is perceptible)"; confirming and fixing them is part of closing N4's gate, replacing "not currently worth the time" for this case.
+
+## 20. N5 (Windows): what the spike found (2026-11-21)
+
+The first piece of N5 as the maintainer changed it (the note under section 12): a native Windows shell in C# and WinUI 3 on the same core, playing the part N0 played for the Apple apps. Branch `native/n5-spike`, code in `native/windows/` (its README says what is spike and what is meant to stay). Report: `claude-debug/native-n5-spike.md`. Machine: the maintainer's Windows 11 Pro ARM64 virtual machine (UTM on the Mac, 4 cores, 8 GB, build 26200), .NET SDK 10.0.404, Windows App SDK 2.6.5, Win2D 1.4.0. No Rust in the workspace changed.
+
+### 20.1 The core through the C ABI (works unchanged)
+
+- **`plumcraft-ffi` builds for `aarch64-pc-windows-msvc` as it is:** a 26 MB DLL, release, no debug info, in about 3 minutes cold on the VM, 1.24 GB of target directory. No warning. **One thing in the repository breaks a Windows checkout:** its 45 symlinks (`digest.rs` in five engine crates, the Inter font and its licence under `crates/array`, the licence files, an icon) come out as text files with Git for Windows' default `core.symlinks false`, and `plumcraft-craft`'s build script fails (`include!("digest.rs")` reads `../engine/digest.rs` as Rust). With `core.symlinks true` before checkout (an administrator or Developer Mode) everything builds. The array engine's `include_bytes!` of the font would have compiled the path as the font and failed only at run time.
+- **C# calls it through P/Invoke** (`LibraryImport`, the wake an `[UnmanagedCallersOnly]` function that only sets an event, one pump thread that polls): N0's flow passes on the first try. Open, `command.list` (164 commands), a four-node graph built, run on the in-process text engine, 15 `node.status` events and `run.reply` through the feed, the 64 MB value borrowed twice with one pointer and two tokens, the lease outliving the core, no leases left. Every struct's size matches the header's natural alignment (`plum_hit` 56 bytes, `plum_face` 80, `plum_drag` 96).
+
+| What (medians, release) | Windows VM, C# | Mac M4 Max (15.1) |
+|---|---|---|
+| Request to reply, `ping` | 27 µs | 7 µs Rust, 24 to 52 µs Swift |
+| `graph.get`, 500 nodes, 800 wires (93 KB) | 4.6 ms | 1.5 ms |
+| `graph.get`, 2,000 nodes, 3,200 wires (378 KB) | 18 ms | 6 ms |
+| `scene.get` whole, 500 nodes (1.27 MB), parsed by `System.Text.Json` | 68 ms | 18 ms in the core (8.12) |
+| `scene.get` whole, 2,000 nodes (5.1 MB) | 263 ms | 76 ms in the core |
+| `plum_hit_test` at 500 and 2,000 nodes | 0.58 and 2.5 µs | 0.45 and 1.7 µs |
+| Borrow a 64 MiB blob stored plain | 41 µs | 59 µs |
+
+The VM is about three times slower than the Mac at the core's own work; the boundary costs nothing worth naming.
+
+### 20.2 Drawing the scene in WinUI 3 (Composition recommended)
+
+The spike's window follows the scene by delta (`scene.get {since}` on each `scene` change in the feed), lays each changed face out with DirectWrite, reports it typed (`plum_geometry_set`, plus `geometry.parts` for the title and the more-button), and draws it one of three ways, chosen at launch:
+
+- **Win2D immediate mode:** one `CanvasControl`, every visible face (a cached `CanvasCommandList`) and wire (a cached `CanvasGeometry`) drawn each frame under the view's transform.
+- **Composition:** a `SpriteVisual` per face whose picture is drawn once into a `CompositionDrawingSurface` with Win2D, a `ShapeVisual` per wire with its bounds tight round it, all under one `ContainerVisual` whose transform is the view: Apple's layer canvas (15.2), on Windows' compositor.
+- **Plain XAML:** a `Canvas` per face of `Border`s, `TextBlock`s and shapes, a `Path` per wire, under one transformed `Canvas`.
+
+Each run drives, for 4 s each with no hand on the input: nothing (the machine's own cadence), a pan at zoom 1, a pan with the whole graph in view, a zoom between the fit and 1.5, and a face dragged through the core (`ui.gesture` drag, `plum_gesture_move` and `plum_wire_paths` every frame, one `edit.move` at the end, then undone). Frames are `CompositionTarget.Rendering`'s; "late" is an interval over 1.5 display periods. Medians of three runs (XAML: one):
+
+| 500 nodes, 800 wires | Idle | Pan | Pan, whole graph | Zoom | Drag | App CPU (pan / whole graph) |
+|---|---|---|---|---|---|---|
+| Composition | 58 fps, 18 ms/s late | 56 fps, 47 | 54 fps, 85 | 53 fps, 81 | 56 fps, 51 | 0.60 / 0.77 s a second |
+| Win2D | 58 fps, 16 | 58 fps, 4 | **37 fps, 486** | 56 fps, 95 | 58 fps, 2 | 0.86 / **2.62** s a second |
+| XAML | 46 fps, 1,076 | **2 fps** | **1 fps** | **1 fps** | 14 fps | 3.1 GB working set |
+
+At 100 nodes Composition and Win2D both hold 57 to 58 fps in every phase (under 25 ms a second late); XAML falls to 6 to 31 fps.
+
+- **Recommended: Composition.** Its cost follows what changes, not what is on screen: the whole graph in view costs it no more than a pan, at a third of Win2D's CPU. Win2D is a little smoother panning a zoomed-in view but redraws every face each frame and falls to 37 fps with all 500 in view; it would need the culling and simpler zoomed-out face that 15.2 put off. Plain XAML is out: thousands of elements, seconds a frame and gigabytes at 500 nodes.
+- **In WinUI 3 the compositor is in the app's process** (the Windows App SDK's lifted Composition), so its work shows as the app's CPU, not `dwm.exe`'s. On this VM that work is WARP's software rasteriser.
+- **Not built:** faces drawn again at the zoom's scale after a zoom settles (they are rasterised at 1×, so soft above zoom 1), the run wash and progress as sublayers, culling. All are as the Apple canvas did them.
+
+### 20.3 Budgets, and how far this VM can be trusted
+
+| Budget (section 10) | Composition, 100 / 500 nodes | Met? |
+|---|---|---|
+| Launch to first frame | 0.42 / 0.63 s (the .NET start included; core open to first frame 0.16 / 0.38 s) | Yes, under 1 s |
+| A one-node change to its face on screen (`node.set`, its delta, layout, report, drawn) | 17.4 / 17.1 ms p50, at most 20 ms at 500 (one run's 124 ms at 100) | About one frame; the 16 ms budget is the next frame on a 64 Hz display |
+| Pan, zoom, drag every display frame | 53 to 58 fps on a 64 Hz display, 13 to 85 ms a second late | Not met, and not measurable here (below) |
+| Main thread stall over 100 ms | None seen in Composition runs (the canvas's UI-thread work per frame: under 0.1 ms) | Yes |
+
+- **The display:** UTM's VirtIO GPU through a display-only driver, 1280 × 909 at 96 DPI, **64 Hz** (`EnumDisplaySettings` and DWM agree). WMI reports "1 Hz", which is wrong.
+- **The adapter:** DXGI lists only **"Microsoft Basic Render Driver"** (vendor 0x1414, device 0x8c), as hardware and as software: WARP. Every pixel the compositor, Win2D and DirectWrite make is the CPU's. So the frame numbers are a floor for comparing approaches on this machine, not a verdict on the budget: even an idle window's `Rendering` events come at about 58 a second, with 2 to 18 ms a second late, before the canvas does anything. DWM's composition timing counters (`DwmGetCompositionTimingInfo`) answer but do not advance here, so they say nothing.
+- **To judge the frame budget** needs a Windows machine with a GPU (an x64 PC, or ARM64 hardware), and the measure there should be PresentMon or Windows Performance Analyzer's present events, the counterpart of Instruments' hitches (15.2).
+
+### 20.4 Text
+
+The shell measures with DirectWrite through Win2D's `CanvasTextLayout` (the system face, Segoe UI Variable), lays the face out with the Swift kit's constants (header 28, rows 22, widths 140 to 440), and feeds the measurements back as the Apple shells do: `plum_geometry_set` (size, header, pins in row order, each input row's widget rect) and `geometry.parts`. At 500 nodes the first layout measured 507 distinct strings in 6 to 7 ms and laid out every face in 10 to 13 ms; reporting them took 3 ms. The core's wire paths and hit tests then follow the measured faces: the conformance suite's geometry cases pass against it (20.5). Text is drawn by the same DirectWrite in all three renderers, so what is drawn and what is reported agree.
+
+### 20.5 Driving and testing
+
+- **Launching from SSH:** a window started from an SSH session runs in session 0, which nobody sees. The scripts start it through a one-shot scheduled task with an Interactive logon on the signed-in desktop (`claude-debug/native-n5/ps/launch.ps1`), wait on a status file it writes (its PID, its control port), and stop it by that PID. Screenshots are taken the same way inside the VM (`ps/shot.ps1`, GDI's screen copy, which sees what DWM composed under WARP); the window is put at the top left and above others (`--top`) because the desktop is shared.
+- **The conformance suite from the Mac:** the app opens its core with `control: {port: 0, token_file}` (loopback), the Mac forwards a local port to it over SSH (`ssh -L`), and the unchanged Swift runner runs against it with `--measured` (the app measures its own faces): **the read half 30 of 30, the edit half 21 of 21, no skips, no settle timeouts**, in about 10 s each (`claude-debug/native-n5/conform.sh`). The first read run failed one case, "the more-button opens the node's menu", because the spike neither drew a more-button nor reported its part; it does both now. A bind on the VM's LAN address (`network_debug`, 4.1) would also do, through the Windows firewall; the tunnel needs neither.
+- **Packaged or not:** the spike is unpackaged with the Windows App SDK carried in its folder (`WindowsPackageType None`, `WindowsAppSDKSelfContained`): it builds with the .NET SDK alone (no Visual Studio workload, no MSIX tooling, no certificate) and runs from its folder, which is what SSH-driven tests want. MSIX (identity, file associations, clean install and update, Store) is a packaging step for the end of N5, not something the shell's code depends on.
+- **UI tests:** UI Automation sees the window, its content bridge and the XAML `TextBlock`, **and nothing of the canvas**: Composition visuals have no automation peers. A UI-test runner (FlaUI over UIA3 in a `dotnet test` project, or Appium's Windows driver; WinAppDriver has not been actively developed for years) can drive the chrome as it is; the canvas needs an automation peer per face, with its ports as children and its commands as actions (section 5.4's accessibility plan), which serves screen readers too. Not built.
+
+### 20.6 Input
+
+WinUI 3 delivers every pointer as a `PointerRoutedEventArgs` with `PointerDeviceType` (Mouse, Touch, Pen, Touchpad), pressure, tilt, barrel and eraser, contact or hover, and wheel deltas (`IsHorizontalMouseWheel`, Ctrl in `KeyModifiers`); `GestureRecognizer` and the `Tapped`, `DoubleTapped`, `RightTapped`, `Holding` and manipulation events give recognised gestures; `ContextRequested` covers right click, Shift+F10 and a touch hold; an `InteractionTracker` with a `VisualInteractionSource` gives compositor-driven pan and pinch with inertia from touch and a precision touchpad. Probed on the VM by injection inside the console session (`ps/inject.ps1`: `SendInput` for the mouse, `CreateSyntheticPointerDevice` and `InjectSyntheticPointerInput` for touch and pen):
+
+| Delivered | Seen | Sent to the core as | The core made it |
+|---|---|---|---|
+| Mouse click on empty canvas | pressed, released | `ui.gesture` tap | `selection.clear` |
+| Mouse drag of a face's header | pressed, released (the moves between, made with `SetCursorPos`, did not arrive) | drag begin, end | one `edit.move`, "gesture:2" |
+| Wheel, Ctrl+wheel, horizontal wheel | ±120, `Control`, `IsHorizontalMouseWheel` | nothing (the view's) | |
+| Touch tap and one-finger drag | Touch, pressure 0.5, moves in contact | tap; drag | `selection.clear`; a marquee (a touch shell pans there instead, 5.5) |
+| Pen hover, press, drag, lift | Pen, 6 hover moves out of contact, pressure rising from 0.59, tilt (20, −10) | drag | a marquee |
+
+| The core's gesture | WinUI source |
+|---|---|
+| `tap`, `doubleTap` | `Tapped`, `DoubleTapped`, or pointer press and release within a slop |
+| `context`, `longPress` | `ContextRequested` (right click, Shift+F10, touch hold), `Holding` |
+| `drag` (begin, `plum_gesture_move`, end, cancel) | Pointer pressed, moved, released with capture; `PointerCanceled` and `PointerCaptureLost` cancel |
+| `marquee` | A pen drag, or a drag in Select mode |
+| Pan and zoom (the view's, never the core's) | Wheel and Ctrl+wheel; precision touchpad and touch through an `InteractionTracker` (or manipulation events) |
+
+Not checked: a precision touchpad (no API synthesises one, and UTM gives none) and pinch; the touch keyboard; ink (WinUI 3's ink support was not looked at).
+
+### 20.7 N5 in slices
+
+Modelled on N3 and N4 (sections 18 and 19), each slice's gate taken on the Windows VM, with frames judged on a machine with a GPU once one is chosen.
+
+| Slice | What | Gate on the VM |
+|---|---|---|
+| 1. The Windows kit | `PlumCraft.Core` grown into the kit: models for the contract (`crates/editor-core/schema/shell1.json`), decoding the shared fixtures (`scene/full.json`, `delta.json`); an observable document model applying deltas by nid; the canvas link (geometry, gestures, the hot calls); the conformance runner ported to C# with a driver through the kit and one over a port; `dotnet test` | The whole suite through the kit headless on the VM; the kit's tests; the probe's flow as tests |
+| 2. Read and run | The Composition canvas (a visual per face drawn on a worker, a shape visual per wire, faces drawn again after a zoom settles, culling, the run wash), pan and zoom (wheel, `InteractionTracker`), a window per document, the menu bar and accelerators from `menu.get`, context menus, the asks (pickers, `ContentDialog`, clipboard, `Launcher`), run, watch, `picture`, `text.plain`, `scalar`, the theme following the system | The read half against the app from the C# runner on the VM and the Swift runner from the Mac; launch under 1 s and a one-node change within a frame at 500 nodes |
+| 3. Editing | Every gesture of 5.5's Windows column, the palette, inline editors over the row (`TextBox`, `NumberBox`, `ComboBox`, `ColorPicker`), Select mode, nudges | The edit half against the app; an input probe by injection for mouse, touch and pen |
+| 4. Windows of the core | Parameters, groups, frames, nets, names in place, pop-out windows, settings and themes, the viewers in section 8's order | The whole suite against the app |
+| 5. Documents, packaging and N5's gate | Files and recent documents, autosave decided, an automation peer per face, a FlaUI UI-test project, MSIX or an installer, the floor walk | The whole suite; the floor's list walked; budgets on a machine with a GPU; then egui's place on Windows decided (it stays for Linux) |
+
+**Shared with the Swift kit:** the contract and its schema; the conformance cases (`cases.json`) and fixtures, decoded by C# tests as by Swift; the face's constants and layout rules; the bench's phases. The Swift runner already drives a Windows app over a port, so the suite needs no second runner to gate slice 2; the C# runner is for the VM on its own and for the kit's headless half. Whether the C# models are written by hand (as Swift's were) or generated from `shell1.json` is a decision below.
+
+### 20.8 Decisions the spike raises
+
+1. **The symlinks:** Windows checkouts set `core.symlinks true` (as this one did; a recorded step), or the repository replaces its 45 symlinks (the digest file by a path `include!`, the font by a copy) so a default Git for Windows checkout builds. The crates that use them are published, which is why they are symlinks.
+2. **The canvas:** Composition (recommended) or Win2D immediate mode with culling and a simpler zoomed-out face.
+3. **Where frame budgets are judged:** this VM can't (WARP, 64 Hz); a Windows machine with a GPU, ARM64 or x64, measured with PresentMon.
+4. **Packaging:** unpackaged and self-contained through N5's slices (recommended), MSIX at the gate; or MSIX from the start.
+5. **The C# models:** hand-written with `System.Text.Json` source generation, as Swift's were (recommended), or generated from `shell1.json`.
+6. **Supported Windows:** Windows 10 1809 and later (the Windows App SDK's floor) or Windows 11 only; ARM64 and x64 both (the DLL builds for both targets; only ARM64 was built here).
+7. **CI:** none added. A Linux job can't build WinUI; the C# kit's pure parts (models, the runner) could build and test on Linux .NET if wanted later.
