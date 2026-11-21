@@ -109,6 +109,8 @@ final class ParametersViewController: NSViewController, NSTextFieldDelegate {
     private(set) var fields: [String: NSView] = [:]
     private var targets: [ClosureTarget] = []
     private var editing = false
+    /// A slider is being dragged: its field follows; the rows aren't rebuilt under it.
+    private var sliding = false
 
     init(params: ParametersModel) {
         self.params = params
@@ -177,9 +179,9 @@ final class ParametersViewController: NSViewController, NSTextFieldDelegate {
 
     func show(_ r: ParametersReply) {
         _ = view
-        // a field being typed into isn't pulled out from under the person: the rows come again
-        // once it commits
-        if editing, reply?.node == r.node {
+        // a field being typed into, or a slider being dragged, isn't pulled out from under the
+        // person: the rows come again once it commits
+        if editing || sliding, reply?.node == r.node {
             reply = r
             return
         }
@@ -313,15 +315,19 @@ final class ParametersViewController: NSViewController, NSTextFieldDelegate {
             let lo = w.softMin ?? w.min ?? 0
             let hi = w.softMax ?? w.max ?? 1
             let s = NSSlider(value: w.value.double ?? lo, minValue: lo, maxValue: max(hi, lo + 1e-9), target: nil, action: nil)
-            s.isContinuous = false
+            // continuous: the field beside it follows the drag; the value is set once, when the
+            // drag ends (one undo step), held to the decimals the core shows (N4 slice 4)
+            s.isContinuous = true
             if w.int { s.numberOfTickMarks = Int(min(max(hi - lo + 1, 2), 21)); s.allowsTickMarkValuesOnly = hi - lo <= 20 }
             let f = textField(p, w)
             f.widthAnchor.constraint(equalToConstant: 64).isActive = true
-            s.target = target { [weak s, weak f] in
+            s.target = target { [weak s, weak f, weak self] in
                 guard let s else { return }
-                let v: JSONValue = w.int ? .int(Int64(s.doubleValue.rounded())) : .double(s.doubleValue)
-                f?.stringValue = w.int ? String(Int64(s.doubleValue.rounded())) : String(format: "%.\(w.decimals ?? 3)g", s.doubleValue)
-                Task { await params.set(port: key, value: v) }
+                let v = SliderValue.of(s.doubleValue, w)
+                f?.stringValue = CanvasDrag.numberText(v.double ?? s.doubleValue, w)
+                let dragging = NSApp.currentEvent.map { $0.type == .leftMouseDragged || $0.type == .leftMouseDown } ?? false
+                self?.sliding = dragging
+                if !dragging { Task { await params.set(port: key, value: v) } }
             }
             s.action = #selector(ClosureTarget.fire)
             s.setAccessibilityIdentifier("slider.\(key)")

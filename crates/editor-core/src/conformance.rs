@@ -495,6 +495,12 @@ mod tests {
         fn reports(&self) -> bool {
             true
         }
+        /// Waiting on a condition (`until`): the document's turn, as a shell's frame takes it
+        /// (an autosave's quiet time ends there), then a moment.
+        fn pause(&mut self) {
+            crate::document::turn(&mut self.0);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
             let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
             if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
@@ -527,6 +533,9 @@ mod tests {
     fn the_suite_passes_on_the_cores_own_document() {
         let session = plumcraft_session::Session::new(plumcraft_text::engine().schema());
         let mut d = DocDriver(crate::document::Document::new(session));
+        // a look of its own, in memory, as the C ABI's core gives its documents (N4 slice 4)
+        d.0.look =
+            Some(std::sync::Arc::new(std::sync::Mutex::new(crate::settings::Look::new(crate::prefs::Store::default(), crate::settings::System::default()))));
         let out = run_all(&mut d).unwrap();
         assert!(out.iter().all(|o| o.error.is_none()), "{}", summary(&d.name(), &out));
         let steps: usize = out.iter().map(|o| o.steps).sum();

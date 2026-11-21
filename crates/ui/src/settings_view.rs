@@ -50,6 +50,17 @@ impl EditorApp {
     /// After a command ran: carry out what it left for the window (the look), and fill in
     /// `app.settings`'s reply. Anything else passes `v` through.
     pub(crate) fn window_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
+        // a theme's name is checked as the core's look checks it (N4 slice 4: `system` follows
+        // the system's appearance); the theme changes at the next frame
+        if id == "view.theme"
+            && let Some(name) = self.doc.session.views.theme_asked.as_deref()
+            && name != plumcraft_editor_core::settings::SYSTEM
+            && theme::by_name(name).is_none()
+        {
+            let name = name.chars().take(64).collect::<String>();
+            self.doc.session.views.theme_asked = None;
+            return Err(format!("no theme called {name:?}; there are system, paper, pewter, dusk"));
+        }
         // the canvas's commands: what the core keeps, shown; what only the view does, done
         self.follow_core();
         self.canvas_command(id, &v);

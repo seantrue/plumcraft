@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N4 slice 4: settings, themes, autosave, the network port, and two defects the maintainer found (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** Settings and themes in both Swift apps, autosave in the core for the iPad, a network control port for debug builds, the suite on the device, and the egui editor catching up with the core's display rules. Asked whether text typed in the palette's search field must be core state, the maintainer said "leave as is."
+
+**The maintainer found two defects by using slice 3's Mac build:** "popout does not show" ("No watcher popout at all"), and "sliders should update the values, and precision should be set to something sensible" ("Sliders live update on the node, but not on the parameters popout for the node"). The first was a hole in slice 3: with the Watched column removed, a click on a pin and every Watch menu item only watched, and nothing showed the value. Slice 3's tests and the controller's review missed it because pop-outs were only ever opened by scripts asking for one directly.
+
+**What the agent did (~2,800 lines of Rust and ~1,240 of Swift added, tests included).** Watching now opens the pop-out in the core, for shells with no Watched panel. Number text is decided in the core (an INT whole, a FLOAT at its step's decimals) and carried in the scene; the inspector follows its own sliders and changes made elsewhere. A settings model in the core, drawn as a Settings window on the Mac and a sheet on the iPad; an About panel. Themes follow the system, with Increase Contrast, Reduce Transparency and Reduce Motion honoured through tokens. Autosave in the core: after a quiet second, never during a run, atomic, retried on failure without a modal, flushed on backgrounding and close; the iPad opens every graph with it and drops Save. The control port can bind to the local network only with a debug flag and a token, and a release build refuses. A subagent made egui draw pushed faces, grown frames and routed backward wires. Five new conformance cases, 41 in all; both apps pass 41 of 41 in the simulator and on the Mac.
+
+**Defects in the agent's work.** Its gate script set the scratch store for cargo but not for its Python stage, so for about a minute the Python suite ran against the maintainer's real commonkit store and wrote eight handshake files and one 258-byte memo entry. The agent reported it and deleted nothing. A build failure that the iPad conformance script ignored, so it ran the old app; a document saved at once without quiet time; a theme left chosen in kept prefs. All caught by the agent's own runs.
+
+**Not done.** The suite and the budgets on the iPad: the new debug build was installed, and the one launch was refused because the device was locked. Device Release was not built.
+
+**Not verified.** With the Mac app active: that a click on a pin now brings a pop-out forward (the fix is tested through the core and by a scripted picture, not by a person), the Settings window, About. Anything on the iPad in the hand. The controller reran the schema test that had failed in the agent's gate run; it passes.
+
 ### 2026-11-20 — N4 slice 3: parameters, groups, frames, nets and pop-out windows (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** Parameters, groups, frames, nets and named ports in both Swift apps, and the maintainer's N3 exit decision on the Watched panel: "Eliminate the side column in favor of just the popout window." Also the maintainer's "No exceptions to the rule": the controller told the agent to undo slice 2's contract exemption for the iPad's Select mode and Share, and to audit every user action. The maintainer typed into slice 2's Mac build by hand: "Input is good."

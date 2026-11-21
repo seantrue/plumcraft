@@ -22,14 +22,44 @@ pub fn decimals_of(v: &Value) -> usize {
     }
 }
 
-/// Decimals to show for a FLOAT port: the port's `decimals`, but never fewer than its default
-/// (or its current value) has, so a value is never rounded away (the research software's mosaic `tilesize`
-/// 0.375).
+/// The most decimals a value is shown with because of its own digits.
+pub const MOST_NEEDED: usize = 6;
+
+/// The decimals a number needs, read as a person reads it (N4 slice 4): the fewest, at most
+/// [`MOST_NEEDED`], that give it back to within a part in 10^9, so a slider's `0.30000000000000004`
+/// needs 1 and `0.375` needs 3. Not a number: 0.
+pub fn needed_decimals(v: &Value) -> usize {
+    let Some(x) = v.as_f64().filter(|x| x.is_finite()) else { return 0 };
+    let tol = 1e-9 * x.abs().max(1.0);
+    (0..=MOST_NEEDED)
+        .find(|d| {
+            let m = 10f64.powi(*d as i32);
+            ((x * m).round() / m - x).abs() <= tol
+        })
+        .unwrap_or(MOST_NEEDED)
+}
+
+/// Decimals to show for a FLOAT port (the egui sheet's, the scene's and every shell's, N4 slice
+/// 4): the port's `decimals`, its `step`'s (a step of 0.01 shows 2), and never fewer than its
+/// default as written, or its current value needs ([`needed_decimals`]), so a value is never
+/// rounded away (the research software's mosaic `tilesize` 0.375) and float noise never shows.
+/// One at least when nothing says.
 pub fn float_decimals(port: &Port, current: &Value) -> usize {
     let declared = port.decimals.map_or(0, |d| d.min(12) as usize);
-    let floor = decimals_of(&port.default).max(decimals_of(current));
-    let d = declared.max(floor);
-    if port.decimals.is_none() && d == 0 { 1 } else { d.min(12) }
+    let step = port.step.map_or(0, |s| needed_decimals(&Value::from(s)));
+    let floor = decimals_of(&port.default).min(12).max(needed_decimals(current));
+    let d = declared.max(step).max(floor);
+    if port.decimals.is_none() && port.step.is_none() && d == 0 { 1 } else { d.min(12) }
+}
+
+/// A number as shown (N4 slice 4): an INT whole, never with decimals; a FLOAT with `decimals`;
+/// blank as [`BLANK`].
+pub fn number_text(v: &Value, int: bool, decimals: usize) -> String {
+    match v.as_f64() {
+        None => BLANK.into(),
+        Some(x) if int => format!("{}", x.round() as i64),
+        Some(x) => format!("{x:.decimals$}"),
+    }
 }
 
 /// Text for a value as shown read-only.
@@ -96,5 +126,23 @@ pub fn typed_tip(ty: &str, tip: Option<&str>) -> String {
     match tip.filter(|t| !t.is_empty()) {
         Some(t) => format!("Type: {ty}\n{t}"),
         None => format!("Type: {ty}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn numbers_show_what_a_person_reads() {
+        use serde_json::json;
+        assert_eq!(super::needed_decimals(&json!(0.30000000000000004)), 1);
+        assert_eq!(super::needed_decimals(&json!(0.375)), 3);
+        assert_eq!(super::needed_decimals(&json!(1.0 / 3.0)), super::MOST_NEEDED);
+        assert_eq!(super::needed_decimals(&json!(7)), 0);
+        let p = |v: serde_json::Value| serde_json::from_value::<plumcraft_proto::catalogue::Port>(v).unwrap();
+        let amount = p(json!({"name": "amount", "type": "FLOAT", "default": 0.5, "step": 0.01}));
+        assert_eq!(super::float_decimals(&amount, &json!(0.30000000000000004)), 2, "the step's, not the noise's");
+        assert_eq!(super::number_text(&json!(0.30000000000000004), false, 2), "0.30");
+        assert_eq!(super::number_text(&json!(6.7), true, 0), "7", "an INT never shows decimals");
+        assert_eq!(super::number_text(&json!(null), false, 2), super::BLANK);
     }
 }

@@ -140,6 +140,11 @@ public enum Conformance {
             return
         }
         if let name = s["check"].string {
+            if name == "authRefused" {
+                guard let p = d as? PortDriver else { throw ConformanceError("authRefused needs a driver over the control port") }
+                try await p.authRefused()
+                return
+            }
             try check(name, subst(s, vars))
             return
         }

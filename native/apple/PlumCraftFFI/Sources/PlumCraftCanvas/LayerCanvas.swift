@@ -26,6 +26,11 @@ import PlumCraft
 import PlumCraftKit
 import PlumCraftModels
 import QuartzCore
+#if canImport(AppKit)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// The canvas transform: `screen = graph · zoom + pan` (contract 6.3, `ui.viewport`).
 public struct Viewport: Equatable, Sendable {
@@ -572,7 +577,8 @@ public final class LayerCanvas {
             if let b = fadeBegin, fadeGen == model.anim.generation, shown != .running, shown != .waiting {
                 fade(w, from: amount, begin: b)
             }
-            if shown == .running {
+            // Reduce Motion: a running face holds its wash rather than pulsing (N4 slice 4)
+            if shown == .running, !Self.reduceMotion {
                 let a = CABasicAnimation(keyPath: "opacity")
                 a.fromValue = 0.28
                 a.toValue = 0.56
@@ -1375,5 +1381,16 @@ public final class LayerCanvas {
         }
         host.render(in: ctx)
         return ctx.makeImage()
+    }
+}
+
+extension LayerCanvas {
+    /// The system's Reduce Motion.
+    static var reduceMotion: Bool {
+        #if canImport(AppKit)
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        #else
+        UIAccessibility.isReduceMotionEnabled
+        #endif
     }
 }

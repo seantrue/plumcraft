@@ -17,6 +17,12 @@ fn pos(h: &Harness<'static, EditorApp>, id: &str) -> [f32; 2] {
     h.state().session.graph().node(&NodeId::from(id)).unwrap().pos
 }
 
+/// Where the scene shows a face (`id`, or `group:<id>` for a collapsed group): a face pushed out
+/// of another's way is shown, and dragged from, away from its node's position (N4 slice 4).
+fn shown(h: &Harness<'static, EditorApp>, id: &str) -> [f32; 2] {
+    h.state().scene_now().nodes.iter().find(|f| f.id == id).map(|f| f.pos).expect("a face")
+}
+
 /// A point on a node's header (left of its title), on screen.
 fn header(h: &Harness<'static, EditorApp>, id: &str) -> egui::Pos2 {
     let r = h.state().canvas.node_rects_by_id().into_iter().find(|(n, _)| n.0 == id).map(|(_, r)| r).expect("drawn");
@@ -52,11 +58,14 @@ fn dragging_one_pasted_node_moves_every_pasted_node() {
     let new: Vec<String> = h.state().canvas.picked.nodes().iter().map(|n| n.0.clone()).collect();
     assert_eq!(new.len(), 2);
     let before: Vec<[f32; 2]> = new.iter().map(|n| pos(&h, n)).collect();
+    // (the copies overlap the originals, so they are shown pushed out of the way, and move
+    // from there)
+    let shown_before: Vec<[f32; 2]> = new.iter().map(|n| shown(&h, n)).collect();
     let (a0, b0) = (pos(&h, &a), pos(&h, &b));
     // drag the second copy: both copies move by the same offset
     let from = header(&h, &new[1]);
     drag(&mut h, from, egui::vec2(60.0, 120.0));
-    moved_by(&h, &new, &before, egui::vec2(60.0, 120.0));
+    moved_by(&h, &new, &shown_before, egui::vec2(60.0, 120.0));
     assert_eq!((pos(&h, &a), pos(&h, &b)), (a0, b0), "the originals stay");
     // the drag is one undo step, over the many frames it moved in (N3 slice 1: moves are undo
     // steps); undo takes it back, then the paste; redo brings the paste again
@@ -97,7 +106,8 @@ fn dragging_one_duplicated_node_moves_every_copy() {
     let new = ids(&h);
     assert_eq!(new.len(), 2);
     assert!(!new.contains(&a) && !new.contains(&b), "the copies are selected");
-    let before: Vec<[f32; 2]> = new.iter().map(|n| pos(&h, n)).collect();
+    // (shown pushed off the originals they overlap, and moved from there)
+    let before: Vec<[f32; 2]> = new.iter().map(|n| shown(&h, n)).collect();
     let from = header(&h, &new[0]);
     drag(&mut h, from, egui::vec2(-40.0, 150.0));
     moved_by(&h, &new, &before, egui::vec2(-40.0, 150.0));
@@ -162,8 +172,11 @@ fn a_selected_collapsed_group_moves_with_the_dragged_selection() {
 fn expands_where_moved(h: &mut Harness<'static, EditorApp>, g: &str) {
     assert!(group(h, g).collapsed);
     let members: Vec<String> = h.state().session.graph().group_members(&GroupId::from(g)).iter().map(|n| n.0.clone()).collect();
-    let before: Vec<[f32; 2]> = members.iter().map(|n| pos(h, n)).collect();
     let g0 = group(h, g).pos;
+    // the group's node moves from where it is shown (pushed out of another's way, it may be
+    // shown off its own position), its members with it
+    let s0 = shown(h, &format!("group:{g}"));
+    let before: Vec<[f32; 2]> = members.iter().map(|n| pos(h, n)).map(|p| [p[0] + s0[0] - g0[0], p[1] + s0[1] - g0[1]]).collect();
     let from = header(h, &format!("group:{g}"));
     drag(h, from, egui::vec2(150.0, 200.0));
     moved_by(h, &members, &before, egui::vec2(150.0, 200.0));

@@ -23,8 +23,12 @@ func run() async -> Int32 {
     var engines: Set<String> = []
     while let e = value("--engine") { engines.insert(e) }
     let measured = args.contains("--measured")
+    // the app's core keeps its preferences in a file (every app launched by the scripts does);
+    // --no-prefs for one that doesn't
+    let prefs = !args.contains("--no-prefs")
+    let host = value("--host") ?? "127.0.0.1"
     guard let portText = value("--port"), let port = UInt16(portText), let tokenFile = value("--token-file"), let casesPath = value("--cases") else {
-        FileHandle.standardError.write(Data("usage: plumcraft-conformance --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--case NAME] [--needing CAPABILITY]\n".utf8))
+        FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--case NAME] [--needing CAPABILITY]\n".utf8))
         return 2
     }
     let doc = value("--doc").flatMap(UInt64.init)
@@ -37,7 +41,7 @@ func run() async -> Int32 {
         var cases = try Conformance.cases(at: URL(fileURLWithPath: casesPath))
         if let only { cases = cases.filter { $0["name"].string == only } }
         if let needing { cases = cases.filter { ($0["needs"].array ?? []).contains { $0.string == needing } } }
-        let d = try await PortDriver(port: port, token: token, reports: !measured, doc: doc, engines: engines.isEmpty ? ["text"] : engines)
+        let d = try await PortDriver(host: host, port: port, token: token, reports: !measured, doc: doc, engines: engines.isEmpty ? ["text"] : engines, prefs: prefs)
         defer { d.close() }
         let t0 = ContinuousClock.now
         let out = await Conformance.run(d, cases: cases, half: half)

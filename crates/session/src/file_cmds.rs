@@ -264,6 +264,102 @@ fn graph_info(s: &mut Session, _: &Value) -> Result<Value> {
     Ok(out)
 }
 
+/// `graph.saveCopy {path}`: the graph written to `path`, the document's own file and its dirty
+/// state as they were (iPadOS's Save a Copy; N4 slice 4). Relative path inputs are written
+/// re-anchored to the copy's folder, so the copy reads the same files.
+fn graph_save_copy(s: &mut Session, p: &Value) -> Result<Value> {
+    let path = path_param(p, "path")?;
+    if s.path() == Some(path.as_path()) {
+        return Err(SessionError::Params("a copy can't be written over the graph's own file: use graph.save".into()));
+    }
+    let old = crate::paths::base_folder(s.path());
+    let graph = match (old, path.parent().map(Path::to_path_buf)) {
+        (Some(old), Some(new)) => crate::paths::rebase_paths(s.graph(), s.catalog(), &old, &new),
+        _ => s.graph().clone(),
+    };
+    write_atomic(&path, &graph.to_json()?)?;
+    let mut out = summary(s);
+    out["copy"] = json!(path.display().to_string());
+    Ok(out)
+}
+
+/// A name for a copy of `path` beside it that isn't taken: "Name copy.json", "Name copy 2.json", …
+fn copy_name(path: &Path) -> Option<PathBuf> {
+    let stem = path.file_stem()?.to_string_lossy().into_owned();
+    let ext = path.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let dir = path.parent()?;
+    (1..=999).map(|n| if n == 1 { format!("{stem} copy{ext}") } else { format!("{stem} copy {n}{ext}") }).map(|n| dir.join(n)).find(|p| !p.exists())
+}
+
+/// `graph.duplicate {}`: a copy of the graph beside its file, named as iPadOS and the Finder name
+/// copies ("Name copy.json"); the document stays on its own file (N4 slice 4).
+fn graph_duplicate(s: &mut Session, _: &Value) -> Result<Value> {
+    let path = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
+    let to = copy_name(&path).ok_or_else(|| file_err("duplicate", &path, "no free name beside it"))?;
+    write_atomic(&to, &s.graph().to_json()?)?;
+    let mut out = summary(s);
+    out["copy"] = json!(to.display().to_string());
+    Ok(out)
+}
+
+/// Move the graph's file to `to` (the same folder for a rename): renamed on disk when it can be,
+/// else written there and the old file removed, so an unsaved change goes with it. Refused over
+/// a file that is already there.
+fn move_file(s: &mut Session, to: PathBuf) -> Result<Value> {
+    let from = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
+    if to == from {
+        return Ok(summary(s));
+    }
+    if to.exists() {
+        return Err(file_err("move to", &to, "a file of that name is there already"));
+    }
+    if std::fs::rename(&from, &to).is_err() {
+        // another volume or provider: write the graph there, then let the old file go
+        write_atomic(&to, &s.graph().to_json()?)?;
+        let _ = std::fs::remove_file(&from);
+    }
+    let was_dirty = s.is_dirty();
+    s.mark_saved(to);
+    if was_dirty {
+        s.mark_dirty();
+    }
+    Ok(summary(s))
+}
+
+/// The longest file name `graph.rename` takes.
+const MAX_FILE_NAME: usize = 255;
+
+/// `graph.rename {name}`: the graph's file renamed in its folder (`.json` added when the name has
+/// no extension); its unsaved changes are still unsaved (N4 slice 4).
+fn graph_rename(s: &mut Session, p: &Value) -> Result<Value> {
+    let name = str_param(p, "name")?.trim();
+    if name.is_empty() || name.len() > MAX_FILE_NAME || name.contains(['/', '\\', '\0', ':']) || name.starts_with('.') {
+        return Err(SessionError::Params("\"name\" must be a file name, without a folder".into()));
+    }
+    let from = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
+    let mut file = name.to_owned();
+    if Path::new(name).extension().is_none() {
+        file.push_str(".json");
+    }
+    let to = from.parent().map_or_else(|| PathBuf::from(&file), |d| d.join(&file));
+    move_file(s, to)
+}
+
+/// `graph.move {folder}`: the graph's file moved into `folder`, keeping its name (N4 slice 4).
+fn graph_move(s: &mut Session, p: &Value) -> Result<Value> {
+    let folder = path_param(p, "folder")?;
+    if !folder.is_dir() {
+        return Err(file_err("move into", &folder, "no such folder"));
+    }
+    let from = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
+    let name = from.file_name().ok_or_else(|| file_err("move", &from, "no file name"))?;
+    move_file(s, folder.join(name))
+}
+
+fn has_file(s: &Session) -> std::result::Result<(), String> {
+    if s.path().is_none() { Err("save the graph first: it has no file yet".into()) } else { Ok(()) }
+}
+
 pub(crate) fn specs() -> Vec<CommandSpec> {
     vec![
         CommandSpec {
@@ -294,6 +390,46 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{path} -> {path, dirty, nodes, wires, undo, redo} (relative path inputs are re-anchored to the new folder: an undo step when any changes)",
             enabled: always,
             run: graph_save_as,
+            journal: true,
+        },
+        CommandSpec {
+            id: "graph.saveCopy",
+            label: "Save a Copy…",
+            menu: &[],
+            shortcut: None,
+            params: "{path} -> {path, dirty, nodes, wires, undo, redo, copy} (the graph written to path; the document keeps its own file and stays as dirty as it was; relative path inputs re-anchored to the copy's folder)",
+            enabled: always,
+            run: graph_save_copy,
+            journal: true,
+        },
+        CommandSpec {
+            id: "graph.duplicate",
+            label: "Duplicate",
+            menu: &[],
+            shortcut: None,
+            params: "{} -> {path, dirty, nodes, wires, undo, redo, copy} (a copy beside the graph's file, \"Name copy.json\"; the document stays on its own file)",
+            enabled: has_file,
+            run: graph_duplicate,
+            journal: true,
+        },
+        CommandSpec {
+            id: "graph.rename",
+            label: "Rename…",
+            menu: &[],
+            shortcut: None,
+            params: "{name} -> {path, dirty, nodes, wires, undo, redo} (the graph's file renamed in its folder, .json added when the name has none; refused over a file already there; unsaved changes stay unsaved)",
+            enabled: has_file,
+            run: graph_rename,
+            journal: true,
+        },
+        CommandSpec {
+            id: "graph.move",
+            label: "Move…",
+            menu: &[],
+            shortcut: None,
+            params: "{folder} -> {path, dirty, nodes, wires, undo, redo} (the graph's file moved into folder, keeping its name; refused over a file already there)",
+            enabled: has_file,
+            run: graph_move,
             journal: true,
         },
         CommandSpec {
@@ -357,4 +493,87 @@ pub(crate) fn quit_specs() -> Vec<CommandSpec> {
         run: app_quit,
         journal: false,
     }]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A session with one node, saved at `dir/name`.
+    fn saved(dir: &Path, name: &str) -> Session {
+        let mut s = Session::default();
+        s.execute("node.add", &json!({"id": "a", "kind": "core.convert"})).ok();
+        s.execute("graph.saveAs", &json!({"path": dir.join(name)})).unwrap();
+        s
+    }
+
+    #[test]
+    fn a_copy_leaves_the_document_on_its_own_file_and_as_dirty_as_it_was() {
+        let dir = plumcraft_scratch::dir("file-cmds-copy");
+        let mut s = saved(&dir, "g.json");
+        s.mark_dirty();
+        let r = s.execute("graph.saveCopy", &json!({"path": dir.join("other.json")})).unwrap();
+        assert_eq!(r["copy"], json!(dir.join("other.json").display().to_string()));
+        assert_eq!(s.path(), Some(dir.join("g.json").as_path()));
+        assert!(s.is_dirty(), "a copy doesn't save the document");
+        assert!(s.execute("graph.saveCopy", &json!({"path": dir.join("g.json")})).is_err(), "not over its own file");
+        let d = s.execute("graph.duplicate", &json!({})).unwrap();
+        assert_eq!(d["copy"], json!(dir.join("g copy.json").display().to_string()));
+        let d2 = s.execute("graph.duplicate", &json!({})).unwrap();
+        assert_eq!(d2["copy"], json!(dir.join("g copy 2.json").display().to_string()));
+        assert!(Graph::from_json(&std::fs::read_to_string(dir.join("g copy.json")).unwrap()).is_ok());
+    }
+
+    #[test]
+    fn rename_and_move_take_the_file_and_keep_unsaved_changes_unsaved() {
+        let dir = plumcraft_scratch::dir("file-cmds-rename");
+        let _ = std::fs::remove_file(dir.join("renamed.json"));
+        let mut s = saved(&dir, "first.json");
+        assert!(!s.is_dirty());
+        s.execute("graph.rename", &json!({"name": "renamed"})).unwrap();
+        assert_eq!(s.path(), Some(dir.join("renamed.json").as_path()));
+        assert!(!dir.join("first.json").exists() && dir.join("renamed.json").exists());
+        assert!(!s.is_dirty());
+        for bad in [json!({"name": "a/b"}), json!({"name": ""}), json!({"name": ".hidden"}), json!({"name": 3})] {
+            assert!(s.execute("graph.rename", &bad).is_err(), "{bad}");
+        }
+        // a name already taken is refused, and nothing moves
+        std::fs::write(dir.join("taken.json"), "{}").unwrap();
+        assert!(s.execute("graph.rename", &json!({"name": "taken.json"})).is_err());
+        assert_eq!(s.path(), Some(dir.join("renamed.json").as_path()));
+        // moved with an unsaved change: still unsaved there
+        let into = dir.join("sub");
+        std::fs::create_dir_all(&into).unwrap();
+        let _ = std::fs::remove_file(into.join("renamed.json"));
+        s.mark_dirty();
+        s.execute("graph.move", &json!({"folder": into})).unwrap();
+        assert_eq!(s.path(), Some(into.join("renamed.json").as_path()));
+        assert!(s.is_dirty());
+        assert!(s.execute("graph.move", &json!({"folder": dir.join("no-such-folder")})).is_err());
+        // a graph with no file has nothing to rename, move or duplicate
+        let mut fresh = Session::default();
+        for (id, p) in [("graph.rename", json!({"name": "x"})), ("graph.move", json!({"folder": dir})), ("graph.duplicate", json!({}))] {
+            assert!(fresh.execute(id, &p).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn every_change_that_dirties_counts_and_an_autosave_of_an_older_one_leaves_it_dirty() {
+        let dir = plumcraft_scratch::dir("file-cmds-changes");
+        let mut s = saved(&dir, "c.json");
+        let before = s.changes();
+        s.edit("Edit", |g, _| {
+            g.meta.insert("note".into(), json!("changed"));
+            Ok(())
+        })
+        .unwrap();
+        let as_of = s.changes();
+        assert!(as_of > before && s.is_dirty());
+        s.mark_dirty();
+        assert!(!s.mark_autosaved(dir.join("c.json"), as_of), "changed again since: still dirty");
+        assert!(s.mark_autosaved(dir.join("c.json"), s.changes()));
+        assert!(!s.is_dirty());
+        s.relocate(dir.join("elsewhere.json"));
+        assert!(s.is_dirty() && s.path() == Some(dir.join("elsewhere.json").as_path()));
+    }
 }

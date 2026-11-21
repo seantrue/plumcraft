@@ -152,10 +152,23 @@ public final class PortDriver: ConformanceDriver {
     /// Settles that ran out of time (the app never measured every face), for the report.
     public private(set) var settleTimeouts = 0
 
-    /// Connect to `127.0.0.1:port` and authenticate with `token`.
-    public init(port: UInt16, token: String, following model: DocumentModel? = nil, reports: Bool = true,
-                doc: UInt64? = nil, engines: Set<String> = ["text"]) async throws {
-        conn = try await LineConnection(port: port)
+    /// Where it connects, and the token it was given (a second connection checks the port asks
+    /// for it: `authRefused`, N4 slice 4).
+    public let host: String
+    public let port: UInt16
+    private let token: String
+    /// The app's core keeps its preferences in a file (`settings.get {fromDisk}` says so).
+    public let prefs: Bool
+
+    /// Connect to `host:port` (loopback by default; a device's debug build on the local network,
+    /// N4 slice 4) and authenticate with `token`.
+    public init(host: String = "127.0.0.1", port: UInt16, token: String, following model: DocumentModel? = nil, reports: Bool = true,
+                doc: UInt64? = nil, engines: Set<String> = ["text"], prefs: Bool = false) async throws {
+        conn = try await LineConnection(host: host, port: port)
+        self.host = host
+        self.port = port
+        self.token = token
+        self.prefs = prefs
         self.model = model
         self.reports = reports
         self.doc = doc
@@ -210,6 +223,8 @@ public final class PortDriver: ConformanceDriver {
     /// rows' widgets and header parts (`rows`).
     public func has(_ capability: String) -> Bool {
         if capability == "rows" { return !reports }
+        if capability == "port" { return true }
+        if capability == "prefs" { return prefs }
         return capability.hasPrefix("engine:") && engines.contains(String(capability.dropFirst(7)))
     }
 
@@ -223,6 +238,20 @@ public final class PortDriver: ConformanceDriver {
     }
 
     public func close() { conn.close() }
+
+    /// The port asks for its token (N4 slice 4): a second connection with a wrong token is
+    /// refused, and so is a request sent before authenticating.
+    public func authRefused() async throws {
+        let wrong = String(token.reversed().map { $0 == "0" ? "1" : "0" })
+        let a = try await LineConnection(host: host, port: port)
+        defer { a.close() }
+        let r = try await a.send(["id": 1, "method": "auth", "params": ["token": .string(wrong)]])
+        guard r["ok"] == false, r["error"].string == "authentication required" else { throw ConformanceError("a wrong token was taken: \(r)") }
+        let b = try await LineConnection(host: host, port: port)
+        defer { b.close() }
+        let g = try await b.send(["id": 2, "method": "graph.get", "params": [:]])
+        guard g["ok"] == false, g["error"].string == "authentication required" else { throw ConformanceError("a request before auth was served: \(g)") }
+    }
 }
 
 /// JSON lines over a loopback TCP connection (Network.framework).
@@ -236,9 +265,9 @@ final class LineConnection: Sendable {
         var data = Data()
     }
 
-    init(port: UInt16) async throws {
+    init(host: String = "127.0.0.1", port: UInt16) async throws {
         guard let p = NWEndpoint.Port(rawValue: port) else { throw ConformanceError("bad port \(port)") }
-        conn = NWConnection(host: "127.0.0.1", port: p, using: .tcp)
+        conn = NWConnection(host: NWEndpoint.Host(host), port: p, using: .tcp)
         let c = conn
         let q = queue
         try await withCheckedThrowingContinuation { (k: CheckedContinuation<Void, Error>) in

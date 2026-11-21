@@ -72,6 +72,11 @@ final class PopoutWindows {
             o["id"] = .uint(c.popout.id)
             o["window"] = .int(Int64(c.window?.windowNumber ?? 0))
             o["title"] = .string(c.window?.title ?? "")
+            o["visible"] = .bool(c.window?.isVisible ?? false)
+            if let w = c.window {
+                o["onScreen"] = .bool(NSScreen.screens.contains { $0.visibleFrame.intersects(w.frame) })
+                o["level"] = .int(Int64(w.level.rawValue))
+            }
             return .object(o)
         })
     }
@@ -94,6 +99,9 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
         w.setContentSize(NSSize(width: 520, height: 440))
         w.minSize = NSSize(width: 260, height: 200)
         w.tabbingMode = .disallowed
+        // shown over a document window in full screen too (an ordinary window goes to another
+        // Space there, where no one sees it: N4 slice 4)
+        w.collectionBehavior.insert(.fullScreenAuxiliary)
         w.isReleasedWhenClosed = false
         super.init(window: w)
         w.delegate = self
@@ -105,6 +113,10 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
             w.center()
         } else {
             if !w.setFrameUsingName(key) { w.center() }
+            // a frame remembered on a display that is gone (or mostly off every screen) would put
+            // the window where no one sees it (N4 slice 4: "popout does not show")
+            let onScreen = NSScreen.screens.contains { $0.visibleFrame.intersection(w.frame).width >= 120 && $0.visibleFrame.intersection(w.frame).height >= 80 }
+            if !onScreen { w.center() }
             w.setFrameAutosaveName(key)
         }
         popout.onChange = { [weak self] v in

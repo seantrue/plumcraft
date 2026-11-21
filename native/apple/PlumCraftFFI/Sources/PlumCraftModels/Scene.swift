@@ -195,7 +195,11 @@ public struct Windows: Codable, Hashable, Sendable {
     /// The node the parameters inspector is open on.
     public var parameters: String?
     public var popouts: [PopoutWindow]?
-    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil) { self.parameters = parameters; self.popouts = popouts }
+    /// The Settings window is open on this section (N4 slice 4).
+    public var settings: String?
+    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil) {
+        self.parameters = parameters; self.popouts = popouts; self.settings = settings
+    }
     public var list: [PopoutWindow] { popouts ?? [] }
 }
 
@@ -450,6 +454,8 @@ public struct Widget: Codable, Hashable, Sendable {
     public var softMax: Double?
     public var step: Double?
     public var decimals: Int?
+    /// A number as every shell shows it (the core's, N4 slice 4).
+    public var text: String?
     public var int: Bool
     public var choices: [Choice]
     public var pathMode: String?
@@ -470,6 +476,7 @@ public struct Widget: Codable, Hashable, Sendable {
         softMax = try c.decodeIfPresent(Double.self, forKey: .softMax)
         step = try c.decodeIfPresent(Double.self, forKey: .step)
         decimals = try c.decodeIfPresent(Int.self, forKey: .decimals)
+        text = try c.decodeIfPresent(String.self, forKey: .text)
         int = try c.decode(Bool.self, forKey: .int)
         choices = try c.decode([Choice].self, forKey: .choices)
         pathMode = try c.decodeIfPresent(String.self, forKey: .pathMode)

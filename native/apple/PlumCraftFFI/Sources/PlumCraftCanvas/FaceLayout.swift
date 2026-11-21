@@ -326,8 +326,10 @@ extension FaceLayout {
         if w.blank || w.value.isNull { return "blank" }
         switch w.kind.word {
         case .number?:
+            // the core's text (N4 slice 4): an INT whole, a FLOAT at its decimals
+            if let t = w.text { return t }
             guard let d = w.value.double else { return w.value.text }
-            if w.int, let i = w.value.int64 { return String(i) }
+            if w.int { return String(Int64(d.rounded())) }
             let places = max(0, min(w.decimals ?? 3, 8))
             return String(format: "%.\(places)f", d)
         case .choice?:

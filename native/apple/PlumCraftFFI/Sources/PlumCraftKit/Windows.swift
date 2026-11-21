@@ -97,9 +97,11 @@ public final class ParametersModel {
     /// The scene changed: read the rows again when the node's face did (a value set, a wire
     /// made, a run's state; the face's `rev` says so).
     public func sceneChanged() {
-        guard let n = node else { return }
-        let rev = model.face(id: n)?.rev
-        if rev != faceRev { refresh() }
+        // every change, not only the face's (N4 slice 4: a hidden input set by a script, on the
+        // face, or undone changes no face, and the inspector didn't follow); redrawn only when
+        // its rows differ
+        guard node != nil else { return }
+        refresh()
     }
 
     public func refresh() {
@@ -113,7 +115,7 @@ public final class ParametersModel {
         Task {
             do {
                 let r = try await model.parameters(node: n)
-                if node == n {
+                if node == n, r != reply {
                     reply = r
                     error = nil
                     onChange?(r)

@@ -45,6 +45,7 @@
 
 pub mod appearance;
 pub mod asks;
+pub mod autosave;
 pub mod bundle;
 pub mod canvas_cmds;
 pub mod conformance;
@@ -74,6 +75,7 @@ pub mod run_anim;
 pub mod run_text;
 pub mod scene;
 pub mod selection;
+pub mod settings;
 pub mod shell_schema;
 pub mod switchboard;
 pub mod theme;

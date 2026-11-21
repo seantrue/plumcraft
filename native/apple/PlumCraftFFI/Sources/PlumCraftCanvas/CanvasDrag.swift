@@ -303,3 +303,20 @@ extension Array {
     /// The element at `i`, or nil past either end.
     subscript(safe i: Int) -> Element? { i >= 0 && i < count ? self[i] : nil }
 }
+
+/// A slider's value as the core takes it (N4 slice 4): whole for an INT, else on the widget's
+/// step from its minimum and at its decimals, held to its range, so no float noise is set.
+public enum SliderValue {
+    public static func of(_ d: Double, _ w: Widget) -> JSONValue {
+        var x = d
+        if let lo = w.min { x = Swift.max(x, lo) }
+        if let hi = w.max { x = Swift.min(x, hi) }
+        if w.int { return .int(Int64(x.rounded())) }
+        if let st = w.step, st > 0 {
+            let base = w.min ?? 0
+            x = ((x - base) / st).rounded() * st + base
+        }
+        let m = pow(10, Double(Swift.max(0, Swift.min(w.decimals ?? 3, 8))))
+        return .double((x * m).rounded() / m)
+    }
+}

@@ -186,22 +186,12 @@ pub fn action(item: &Item) -> Option<crate::canvas::Action> {
 }
 
 /// Open the window an item names that the shell does itself (a text field can't live in a
-/// menu): renaming a node, a group or a frame, a group's promoted parameter.
+/// menu): a group's promoted parameter.
 pub fn open_window(ctx: &egui::Context, item: &Item) {
     let p = item.params.clone().unwrap_or_default();
     let text = |k: &str| p.get(k).and_then(serde_json::Value::as_str).unwrap_or_default().to_owned();
-    match item.id.as_str() {
-        "rename.node" => {
-            crate::rename_view::request(ctx, crate::rename_view::RenameTarget::Node(text("node").as_str().into()), &text("title"), &text("placeholder"))
-        }
-        "rename.frame" => crate::rename_view::request(
-            ctx,
-            crate::rename_view::RenameTarget::Frame(plumcraft_graph::FrameId(text("frame"))),
-            &text("title"),
-            crate::frame_view::UNTITLED,
-        ),
-        "rename.group" => crate::groups_view::request_rename(ctx, &text("group").as_str().into(), &text("name")),
-        "group.editPromoted" => crate::groups_view::open_parameter(ctx, &text("group").as_str().into(), &text("label")),
-        _ => {}
+    // (renaming a node, a group or a frame is `name.edit` now, a command: N4 slice 3)
+    if item.id == "group.editPromoted" {
+        crate::groups_view::open_parameter(ctx, &text("group").as_str().into(), &text("label"));
     }
 }

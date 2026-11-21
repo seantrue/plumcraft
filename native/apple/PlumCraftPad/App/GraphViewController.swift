@@ -177,23 +177,49 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         box.accessibilityLabel = "Engines starting"
         engineItem = UIBarButtonItem(customView: box)
         navigationItem.style = .editor
+        // the title's menu, as iPadOS's document apps have it (N4 slice 4: autosaved, so no Save):
+        // Duplicate, Rename (the system's, in the title: renameDelegate), Save a Copy…, Move…,
+        // Share…, each a core command; a failed save's reason when there is one
+        navigationItem.renameDelegate = self
         navigationItem.titleMenuProvider = { [weak self] suggested in
             guard let self else { return UIMenu(children: suggested) }
-            // the core's Save and Share… (graph.share raises the share ask, N4 slice 3)
-            let own = ["graph.save", "graph.share"].compactMap { c in self.model?.menuBar.item(command: c) }.map { it in
-                UIAction(title: it.label, image: UIImage(systemName: it.command == "graph.share" ? "square.and.arrow.up" : "square.and.arrow.down"),
-                         attributes: it.enabled ? [] : .disabled) { [weak self] _ in self?.dispatch(it) }
+            var own: [UIMenuElement] = []
+            if let a = self.model?.state.autosave, a.state == "failed", let e = a.error {
+                own.append(UIAction(title: "Couldn't Save", subtitle: e, image: UIImage(systemName: "exclamationmark.triangle"), attributes: .disabled) { _ in })
             }
-            return UIMenu(children: own + suggested)
+            let items: [(String, String, String, Bool)] = [
+                ("Duplicate", "plus.square.on.square", "graph.duplicate", false),
+                ("Save a Copy…", "doc.on.doc", "graph.saveCopy", true),
+                ("Move…", "folder", "graph.move", true),
+                ("Share…", "square.and.arrow.up", "graph.share", true),
+            ]
+            for (title, symbol, command, invoke) in items {
+                let enabled = self.model?.menuBar.item(command: command)?.enabled ?? true
+                own.append(UIAction(title: title, image: UIImage(systemName: symbol), attributes: enabled ? [] : .disabled) { [weak self] _ in
+                    self?.fileCommand(command, invoke: invoke)
+                })
+            }
+            let rename = suggested.filter { ($0 as? UICommand)?.action == #selector(UIResponderStandardEditActions.rename(_:)) || $0.title == "Rename" }
+            return UIMenu(children: own + rename)
         }
         layoutBar()
     }
+
+    /// The gear: the core's Settings… (the app menu's, for a touch screen with no menu bar shown).
+    lazy var settingsItem: UIBarButtonItem = {
+        let b = UIBarButtonItem(title: "Settings", image: UIImage(systemName: "gearshape"), primaryAction: UIAction { [weak self] _ in
+            guard let self, let m = self.model, let it = m.menuBar.item(command: "app.settings") else { return }
+            self.dispatch(it)
+        })
+        b.accessibilityIdentifier = "tool.app.settings"
+        return b
+    }()
 
     /// The bar from the core's toolbar: Add, Fit and Select on the left after Documents; Run, Run
     /// Selected, Cancel and Share on the right before the engines.
     func layoutBar() {
         var left: [UIBarButtonItem] = doneItem.map { [$0] } ?? []
-        var right: [UIBarButtonItem] = engineItem.map { [$0] } ?? []
+        var right: [UIBarButtonItem] = (engineItem.map { [$0] } ?? []) + [settingsItem]
         var made: [String: UIBarButtonItem] = [:]
         for it in ToolbarWords.buttons(toolItems) {
             guard let c = it.command else { continue }
@@ -293,7 +319,9 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             _ = await CoreHost.ready?.value
             guard let self else { return }
             do {
-                let r = try await core.request("document.open", ["path": .string(path)])
+                // the core saves the graph itself once a change settles (N4 slice 4, the
+                // maintainer: "Build autosave in the core and use it on the iPad")
+                let r = try await core.request("document.open", ["path": .string(path), "autosave": true])
                 guard let doc = r["doc"].uint64 else { throw PlumError(.decode, "document.open gave no doc") }
                 self.doc = doc
                 attach(DocumentModel(core: core, doc: doc), doc: doc)
@@ -371,9 +399,13 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         let params = PadParameters(model: model)
         params.host = self
         parameters = params
-        model.onWindows = { [weak pops, weak params] w in
+        let sheet = PadSettingsSheet(model: model)
+        sheet.host = self
+        settingsSheet = sheet
+        model.onWindows = { [weak pops, weak params, weak sheet] w in
             pops?.follow(w)
             params?.params.follow(w)
+            sheet?.follow(w.settings)
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks
@@ -464,6 +496,9 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             return
         case "app.quit":
             return
+        case "app.about":
+            PadSettings.about(over: self, model: model)
+            return
         default:
             break
         }
@@ -514,16 +549,39 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         reportNow()
     }
 
-    func showTitle() {
-        let edited = model?.state.dirty == true
-        title = name
-        let zoom = canvasView.map { "\(Int(($0.canvas.viewport.zoom * 100).rounded()))%" } ?? ""
-        if #available(iOS 26.0, *) {
-            navigationItem.subtitle = [edited ? "Edited" : nil, zoom.isEmpty ? nil : zoom].compactMap { $0 }.joined(separator: " · ")
-        } else {
-            title = edited ? "\(name) — Edited" : name
+    /// The autosave's word for the title (N4 slice 4): nothing while all is saved; Saving…
+    /// while a change waits or is written; "Couldn't Save" when the last save failed (its reason
+    /// is the banner's, once, and the title menu's).
+    var autosaveWord: String? {
+        guard let a = model?.state.autosave, a.on else { return model?.state.dirty == true ? "Edited" : nil }
+        switch a.state {
+        case "pending", "saving": return "Saving…"
+        case "failed": return "Couldn't Save"
+        case "untitled": return "Not Saved"
+        default: return nil
         }
     }
+
+    func showTitle() {
+        title = name
+        let zoom = canvasView.map { "\(Int(($0.canvas.viewport.zoom * 100).rounded()))%" } ?? ""
+        let word = autosaveWord
+        if #available(iOS 26.0, *) {
+            navigationItem.subtitle = [word, zoom.isEmpty ? nil : zoom].compactMap { $0 }.joined(separator: " · ")
+        } else {
+            title = word.map { "\(name) — \($0)" } ?? name
+        }
+        // a failed save is said once, without a dialog; the title keeps saying it until a save works
+        let failure = model?.state.autosave.state == "failed" ? model?.state.autosave.error : nil
+        if let f = failure, f != failureSaid {
+            say("Couldn't save \(name): \(f). PlumCraft keeps trying; your changes are kept here meanwhile.")
+        }
+        failureSaid = failure
+    }
+
+    var failureSaid: String?
+    /// The settings sheet, following the core's `view.windows.settings` (N4 slice 4).
+    var settingsSheet: PadSettingsSheet?
 
     var shownZoom = -1
     var viewportReport: Task<Void, Never>?
@@ -546,6 +604,25 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
     }
 
+    /// A file command from the title's menu (N4 slice 4): Duplicate at once (said in the banner),
+    /// the others as their menu items run them, asking where (Save a Copy…, Move…) or what with
+    /// (Share…).
+    func fileCommand(_ command: String, invoke: Bool) {
+        guard let m = model else { return }
+        Task { [weak self] in
+            do {
+                if invoke {
+                    _ = try await m.invoke(command, person: true)
+                } else {
+                    let r = try await m.run(command)
+                    if let copy = r["copy"].string { self?.say("Duplicated as \(URL(fileURLWithPath: copy).lastPathComponent)") }
+                }
+            } catch {
+                self?.say("\(error)")
+            }
+        }
+    }
+
     /// The core's Save (it writes the file atomically; its dirty state clears).
     func save() {
         guard let m = model, let it = m.menuBar.item(command: "graph.save") else { return }
@@ -559,9 +636,28 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     }
 
 
-    /// Close the graph and go back to the browser: an edited graph asks first.
+    /// Close the graph and go back to the browser. Autosaved (every graph the app opens), the core
+    /// saves it as it closes; only a save that fails asks. Otherwise an edited graph asks first.
     func close(_ then: @escaping () -> Void) {
         guard !closing else { return }
+        if model?.state.autosave.on == true, let doc, let core = CoreHost.core, !CoreHost.options.scratchState {
+            closing = true
+            Task { [weak self] in
+                let r = try? await core.request("document.close", [:], doc: doc)
+                guard let self else { return }
+                if r?["closing"].bool == true {
+                    self.finishClose(then, closed: true)
+                    return
+                }
+                self.closing = false
+                let why = self.model?.state.autosave.error ?? "the file couldn't be written"
+                let a = UIAlertController(title: "Couldn't save \(self.name)", message: "\(why). Close it anyway and lose the changes since the last save?", preferredStyle: .alert)
+                a.addAction(UIAlertAction(title: "Close Without Saving", style: .destructive) { [weak self] _ in self?.finishClose(then) })
+                a.addAction(UIAlertAction(title: "Keep Open", style: .cancel))
+                self.present(a, animated: true)
+            }
+            return
+        }
         if model?.state.dirty == true && !CoreHost.options.scratchState {
             let a = UIAlertController(title: "Save changes to \(name)?", message: "Your changes will be lost if you don't save them.", preferredStyle: .alert)
             a.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
@@ -579,10 +675,10 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         finishClose(then)
     }
 
-    private func finishClose(_ then: @escaping () -> Void) {
+    private func finishClose(_ then: @escaping () -> Void, closed: Bool = false) {
         closing = true
         if let doc, let core = CoreHost.core {
-            core.post("document.close", ["discard": true], doc: doc)
+            if !closed { core.post("document.close", ["discard": true], doc: doc) }
             StatusFile.shared.removeWindow(doc)
         }
         model?.stop()
@@ -854,5 +950,25 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         command.attributes = it.enabled ? [] : .disabled
         command.subtitle = it.enabled ? nil : it.reason
         command.discoverabilityTitle = it.hover
+    }
+}
+
+/// Rename in the title, as iPadOS's document apps do (N4 slice 4): the core's `graph.rename`.
+extension GraphViewController: UINavigationItemRenameDelegate {
+    func navigationItemShouldBeginRenaming(_ navigationItem: UINavigationItem) -> Bool {
+        model?.state.path != nil
+    }
+
+    func navigationItem(_ navigationItem: UINavigationItem, didEndRenamingWith title: String) {
+        let name = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, let m = model else { return }
+        Task { [weak self] in
+            do {
+                _ = try await m.run("graph.rename", ["name": .string(name)])
+            } catch {
+                self?.say("Couldn't rename: \(error)")
+                self?.showTitle()
+            }
+        }
     }
 }

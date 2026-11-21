@@ -3069,6 +3069,13 @@
             "null"
           ]
         },
+        "text": {
+          "description": "A number as every shell shows it (N4 slice 4: an INT whole, a FLOAT at `decimals`;\n[`widget_text::number_text`]): on the face, in the inspector and while scrubbing.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "value": true
       },
       "required": [
@@ -3098,6 +3105,13 @@
             "$ref": "#/$defs/PopoutWindow"
           },
           "type": "array"
+        },
+        "settings": {
+          "description": "The Settings window is open, on this section (`app.settings {tab?, open?}`, N4 slice 4):\na native shell shows its own settings window or sheet while it is, and closes it with\n`app.settings {open: false}`.",
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
       "type": "object"

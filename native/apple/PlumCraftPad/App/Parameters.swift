@@ -131,6 +131,8 @@ final class ParametersList: UITableViewController, UITextFieldDelegate, UITextVi
     let params: ParametersModel
     private(set) var reply: ParametersReply?
     private var typing = false
+    /// A slider is being dragged: its field follows; the rows aren't reloaded under it.
+    private var sliding = false
     private let noteLabel = UILabel()
 
     init(params: ParametersModel) {
@@ -185,7 +187,7 @@ final class ParametersList: UITableViewController, UITextFieldDelegate, UITextVi
         reply = r
         navigationItem.title = r.title
         // a field being typed into isn't pulled out from under the person
-        if typing && same { return }
+        if (typing || sliding) && same { return }
         header()
         tableView.reloadData()
     }
@@ -312,17 +314,30 @@ final class ParametersList: UITableViewController, UITextFieldDelegate, UITextVi
             s.minimumValue = Float(lo)
             s.maximumValue = Float(max(hi, lo + 1e-9))
             s.value = Float(w.value.double ?? lo)
-            s.isContinuous = false
+            // continuous: the field follows the finger; the value is set once, when it lifts
+            // (one undo step), on the core's step and decimals (N4 slice 4)
+            s.isContinuous = true
             s.accessibilityIdentifier = "slider.\(key)"
             let f = field(p, w)
             f.widthAnchor.constraint(equalToConstant: 64).isActive = true
-            s.addAction(UIAction { [weak s, weak f] _ in
+            let commit = { [weak s] in
                 guard let s else { return }
-                let d = Double(s.value)
-                let v: JSONValue = w.int ? .int(Int64(d.rounded())) : .double(d)
-                f?.text = w.int ? String(Int64(d.rounded())) : String(format: "%.\(w.decimals ?? 3)g", d)
+                let v = SliderValue.of(Double(s.value), w)
                 Task { await params.set(port: key, value: v) }
+            }
+            s.addAction(UIAction { [weak s, weak f, weak self] _ in
+                guard let s else { return }
+                let v = SliderValue.of(Double(s.value), w)
+                f?.text = CanvasDrag.numberText(v.double ?? Double(s.value), w)
+                self?.sliding = s.isTracking
+                // VoiceOver's increments and a hardware keyboard move it without tracking
+                if !s.isTracking { commit() }
             }, for: .valueChanged)
+            s.addAction(UIAction { [weak self] _ in
+                self?.sliding = false
+                commit()
+            }, for: [.touchUpInside, .touchUpOutside])
+            s.addAction(UIAction { [weak self] _ in self?.sliding = false }, for: .touchCancel)
             let h = UIStackView(arrangedSubviews: [s, f])
             h.spacing = 8
             made = h

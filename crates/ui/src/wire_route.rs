@@ -110,33 +110,38 @@ impl Canvas {
             .collect()
     }
 
-    /// The routed wire under a screen position (within a few screen points), if any.
+    /// Every wire the canvas draws itself rather than snarl, with its ports, its curve (graph
+    /// coordinates) and its colour: those with bend points, and those the core routes backward
+    /// round the faces ([`crate::shown`], N4 slice 4).
+    pub(crate) fn drawn_paths(&self) -> Vec<(PortRef, PortRef, Vec<Pos2>, Color32)> {
+        let mut out: Vec<_> =
+            self.routed_paths().into_iter().filter_map(|(i, path, color)| self.routed.get(i).map(|r| (r.from.clone(), r.to.clone(), path, color))).collect();
+        out.extend(self.backward.iter().map(|b| (b.from.clone(), b.to.clone(), b.path.clone(), b.color)));
+        out
+    }
+
+    /// The wire the canvas draws itself under a screen position (within a few screen points),
+    /// if any: one with bend points, or one routed backward.
     pub fn routed_at(&self, screen: Pos2) -> Option<(PortRef, PortRef)> {
         let scale = self.to_global.scaling.max(0.05);
         let p = self.to_global.inverse() * screen;
-        self.routed_paths()
+        self.drawn_paths()
             .into_iter()
-            .map(|(i, path, _)| (i, path_distance(&path, p) * scale))
-            .filter(|(_, d)| *d <= crate::canvas::WIRE_HIT)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .and_then(|(i, _)| self.routed.get(i).map(|r| (r.from.clone(), r.to.clone())))
+            .map(|(from, to, path, _)| (from, to, path_distance(&path, p) * scale))
+            .filter(|(.., d)| *d <= crate::canvas::WIRE_HIT)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(from, to, _)| (from, to))
     }
 
-    /// Routed wires' midpoints on screen, with their ports.
+    /// The midpoints on screen of the wires the canvas draws itself, with their ports.
     pub(crate) fn routed_midpoints(&self) -> Vec<(Pos2, PortRef, PortRef)> {
-        self.routed_paths()
-            .into_iter()
-            .filter_map(|(i, path, _)| {
-                let r = self.routed.get(i)?;
-                Some((self.to_global * *path.get(path.len() / 2)?, r.from.clone(), r.to.clone()))
-            })
-            .collect()
+        self.drawn_paths().into_iter().filter_map(|(from, to, path, _)| Some((self.to_global * *path.get(path.len() / 2)?, from, to))).collect()
     }
 
-    /// The point `t` (0 to 1) of the way along the bent wire into `to`, on screen (tests and
-    /// the control channel click it).
+    /// The point `t` (0 to 1) of the way along the wire into `to` the canvas draws itself (bent,
+    /// or routed backward), on screen (tests and the control channel click it).
     pub fn routed_point(&self, to: &PortRef, t: f32) -> Option<Pos2> {
-        let (_, path, _) = self.routed_paths().into_iter().find(|(i, ..)| self.routed.get(*i).is_some_and(|r| &r.to == to))?;
+        let (.., path, _) = self.drawn_paths().into_iter().find(|(_, x, ..)| x == to)?;
         let k = ((path.len().saturating_sub(1)) as f32 * t.clamp(0.0, 1.0)).round() as usize;
         Some(self.to_global * *path.get(k)?)
     }

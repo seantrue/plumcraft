@@ -10,6 +10,19 @@ public struct ThemeReply: Codable, Hashable, Sendable {
     public var shell: UInt32
     public var name: String
     public var tokens: [String: RGBA]
+    /// The theme chosen (`system` or a theme's name), the system's appearance as the core has it,
+    /// and the look's generation (N4 slice 4; a core with a look of its own).
+    public var chosen: String?
+    public var system: SystemAppearance?
+    public var gen: UInt64?
+}
+
+/// What the core has of the system's appearance (`lifecycle.appearance`, N4 slice 4).
+public struct SystemAppearance: Codable, Hashable, Sendable {
+    public var dark: Bool
+    public var contrast: String
+    public var reduceMotion: Bool
+    public var reduceTransparency: Bool
 }
 
 // MARK: - Menus (12.1)
@@ -385,7 +398,7 @@ public struct GeometrySetReply: Codable, Hashable, Sendable {
 
 // MARK: - The feed (7.1, as built on the C ABI)
 
-public enum DomainWord: String, Sendable, CaseIterable { case engine, document, menus, scene }
+public enum DomainWord: String, Sendable, CaseIterable { case engine, document, menus, scene, prefs }
 public typealias Domain = Open<DomainWord>
 
 /// A domain of a document that changed. Engine changes carry `connected`, `label`, `ready`; a
@@ -406,6 +419,21 @@ public struct Changed: Codable, Hashable, Sendable {
     public var undo: String?
     public var redo: String?
     public var lastError: String?
+    /// The core's autosave (N4 slice 4): `{on, state, error?, saves, failures}`.
+    public var autosave: AutosaveState?
+}
+
+/// Where the core's autosave is (N4 slice 4; contract 4.4): `state` is `off`, `clean`, `pending`,
+/// `untitled`, `saving`, `saved` or `failed` (then `error` says why).
+public struct AutosaveState: Codable, Hashable, Sendable {
+    public var on: Bool
+    public var state: String
+    public var error: String?
+    public var saves: UInt64?
+    public var failures: UInt64?
+    public init(on: Bool = false, state: String = "off", error: String? = nil) {
+        self.on = on; self.state = state; self.error = error
+    }
 }
 
 /// The document as the feed last told it (`changed`, domain `document`): what a window's title,
@@ -420,6 +448,8 @@ public struct DocumentState: Hashable, Sendable {
     public var undo: String?
     public var redo: String?
     public var lastError: String?
+    /// The core's autosave, when on.
+    public var autosave = AutosaveState()
 
     public init() {}
 
@@ -434,6 +464,7 @@ public struct DocumentState: Hashable, Sendable {
         undo = c.undo
         redo = c.redo
         lastError = c.lastError
+        autosave = c.autosave ?? AutosaveState()
     }
 }
 

@@ -206,6 +206,13 @@ pub trait Shell: Host {
     fn document_mut(&mut self) -> Option<&mut crate::document::Document> {
         None
     }
+    /// `settings.get {fromDisk?}` (N4 slice 4): the settings as a model this shell renders
+    /// ([`crate::settings::model`]). By default the document's shared look's, if it has one.
+    fn settings_model(&mut self, params: &Value) -> Option<Result<Value, String>> {
+        let d = self.document_mut()?;
+        d.look.as_ref()?;
+        Some(crate::settings::get(d, params))
+    }
 }
 
 /// Publish the scene as it is now, and the hot calls' snapshot with it: the document's
@@ -647,6 +654,20 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         "theme.get" => match s.theme_tokens() {
             Some(v) => ok(v),
             None => err(not_here("theme.get")),
+        },
+        // autosave (N4 slice 4): on or off, a file to save to, its state and what is on disk
+        "document.autosave" => match s.document_mut() {
+            Some(d) => match crate::autosave::control(d, params) {
+                Ok(v) => ok(v),
+                Err(e) => err(e),
+            },
+            None => err(not_here(method)),
+        },
+        // the settings as a model the shell renders (N4 slice 4)
+        "settings.get" => match s.settings_model(params) {
+            Some(Ok(v)) => ok(v),
+            Some(Err(e)) => err(e),
+            None => err(not_here(method)),
         },
         // the node icons' SVGs, for a shell that draws them itself (N4 slice 2)
         "icon.get" => match crate::icons::reply(params) {

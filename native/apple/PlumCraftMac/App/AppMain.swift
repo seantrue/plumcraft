@@ -26,6 +26,10 @@
 //                                 launch: it refuses to start unless COMMONKIT_STORE_ROOT and
 //                                 COMMONKIT_MARK_DIR name scratch folders, never the Mac's own store
 //   --bench OUT --nodes N --wires M [--phase-seconds S]   the scripted budget run (Bench.swift)
+//   --control-bind lan|ADDR --control-token HEX [--control-port N]
+//                                 debug builds only (N4 slice 4): the control port on the local
+//                                 network with this pre-shared token; a release build refuses it
+//                                 and keeps the port on loopback
 
 import AppKit
 import PlumCraft
@@ -49,6 +53,9 @@ struct Options {
     var dumpMenus: String?
     var scratchState = false
     var bench: BenchOptions?
+    var controlBind: String?
+    var controlToken: String?
+    var controlPort: UInt16 = 0
 
     static func parse(_ argv: [String]) -> Options {
         var o = Options()
@@ -76,6 +83,9 @@ struct Options {
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
             case "--then": o.then = (next() ?? "").split(separator: ";").map(String.init)
             case "--dump-menus": o.dumpMenus = next()
+            case "--control-bind": o.controlBind = next()
+            case "--control-token": o.controlToken = next()
+            case "--control-port": o.controlPort = next().flatMap(UInt16.init) ?? 0
             case "--hide-watched": break  // N4 slice 3: no Watched column to hide
             case "--engine": o.engine = next() ?? "text"
             case "--bench": b = BenchOptions(out: next() ?? "bench.json")
@@ -126,7 +136,15 @@ enum CoreHost {
             .appendingPathComponent("Logs/PlumCraft").path
         // the config (contract 4.1) and the start are the kit's, shared with the iPad app
         var config = ShellConfig(appID: id, appName: "PlumCraft", version: "0.7.0", storeRoot: store)
-        config.dirs = ["caches": caches.path, "logs": logs]
+        // the app's own preferences (the core keeps every setting there, N4 slice 4);
+        // PLUMCRAFT_EDITOR_PREFS, which every script sets to scratch, wins in the core
+        let prefs = (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
+            .appendingPathComponent("PlumCraft").path
+        config.dirs = ["caches": caches.path, "logs": logs, "prefs": prefs]
+        config.dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        config.moreContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
+        config.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        config.reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         config.platform = ["os": "macos", "subprocess": true, "craft_apps": true, "python": true, "multi_window": true,
                            "pointer": true, "keyboard": true, "hover": true]
         config.displayScale = Double(NSScreen.main?.backingScaleFactor ?? 2)
@@ -135,6 +153,17 @@ enum CoreHost {
         config.also = options.also
         config.pickEngines = options.pick
         config.controlTokenFile = options.controlTokenFile
+        if let bind = options.controlBind, bind != "loopback" {
+            #if DEBUG
+            config.controlBind = bind
+            config.controlToken = options.controlToken
+            config.controlPort = options.controlPort
+            #else
+            // a release build never listens beyond loopback (decision 10)
+            FileHandle.standardError.write(Data("PlumCraft: --control-bind \(bind) refused: a release build keeps the control port on loopback\n".utf8))
+            Status.shared.set("controlBindRefused", .string(bind))
+            #endif
+        }
         do {
             let (c, r) = try ShellCore.open(config)
             core = c
@@ -204,9 +233,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// aren't named, or are the Mac's own (COMMONKIT_STORE_ROOT wins over the config's root).
     static func scratchRefusal() -> String? {
         let env = ProcessInfo.processInfo.environment
-        for k in ["COMMONKIT_STORE_ROOT", "COMMONKIT_MARK_DIR"] {
+        for k in ["COMMONKIT_STORE_ROOT", "COMMONKIT_MARK_DIR", "PLUMCRAFT_EDITOR_PREFS"] {
             guard let v = env[k], !v.isEmpty else { return "--scratch-state needs \(k) set to a scratch folder" }
             if v.hasPrefix("/Volumes/CommonkitStore") { return "--scratch-state refuses \(k)=\(v): that is the Mac's own store" }
+            if k == "PLUMCRAFT_EDITOR_PREFS", v.contains("/Library/Application Support/") {
+                return "--scratch-state refuses PLUMCRAFT_EDITOR_PREFS=\(v): that is a person's own preferences"
+            }
         }
         if let r = CoreHost.options.storeRoot, r.hasPrefix("/Volumes/CommonkitStore") { return "--scratch-state refuses --store-root \(r)" }
         return nil
@@ -245,6 +277,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
+
+    /// A click on the Dock icon with no window showing (every graph closed, or only pop-outs
+    /// left and closed): the graphs' windows come back, or, with none open, File › Open, so a
+    /// running app is never left with nothing to click (N4 slice 4).
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if flag || CoreHost.options.scratchState { return true }
+        let docs = NSDocumentController.shared.documents
+        if docs.isEmpty {
+            NSDocumentController.shared.openDocument(nil)
+        } else {
+            for d in docs { d.showWindows() }
+        }
+        return false
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationSupportsSecureRestorableState(_ app: NSApplication) -> Bool { true }
 

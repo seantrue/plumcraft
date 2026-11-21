@@ -31,6 +31,20 @@ public struct ShellConfig: Sendable {
     public var controlTokenFile: String?
     /// `log.level`, when the app wants other than the core's default.
     public var logLevel: String?
+    /// `dirs.prefs` is in `dirs`; the system's appearance at start (`display.dark`, …).
+    public var dark = false
+    public var moreContrast = false
+    public var reduceMotion = false
+    public var reduceTransparency = false
+    #if DEBUG
+    /// A debug build only (N4 slice 4, decision 10): the control port on the local network
+    /// (`lan` or an address), with a pre-shared token from the launch arguments. A release build
+    /// has neither field, so it can never ask the core for more than loopback.
+    public var controlBind: String?
+    public var controlToken: String?
+    /// The port it listens on there (0 picks one; a device's scripts want a known one).
+    public var controlPort: UInt16 = 0
+    #endif
 
     public init(appID: String, appName: String, version: String, storeRoot: String) {
         self.appID = appID; self.appName = appName; self.version = version; self.storeRoot = storeRoot
@@ -46,11 +60,19 @@ public struct ShellConfig: Sendable {
             "store_root": .string(storeRoot),
             "dirs": .object(d),
             "platform": .object(platform),
-            "display": ["scale": .double(displayScale), "frame_ms": .double(frameMs)],
+            "display": ["scale": .double(displayScale), "frame_ms": .double(frameMs), "dark": .bool(dark),
+                        "contrast": moreContrast ? "more" : "normal", "reduce_motion": .bool(reduceMotion),
+                        "reduce_transparency": .bool(reduceTransparency)],
             "engines": ["default": .string(engine), "mode": "inproc", "also": .array(also.filter { $0 != engine }.map { .string($0) }),
                         "auto": .bool(pickEngines)],
         ]
         if let tf = controlTokenFile { c["control"] = ["port": 0, "token_file": .string(tf)] }
+        #if DEBUG
+        if let bind = controlBind, bind != "loopback", let token = controlToken {
+            // no token file: the token is the one the launch gave, never printed
+            c["control"] = ["port": .uint(UInt64(controlPort)), "bind": .string(bind), "token": .string(token), "network_debug": true]
+        }
+        #endif
         if let l = logLevel { c["log"] = ["level": .string(l)] }
         return .object(c)
     }
