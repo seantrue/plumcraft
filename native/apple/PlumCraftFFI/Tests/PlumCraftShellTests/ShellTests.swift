@@ -125,6 +125,11 @@ let testEnvironment: Void = {
         #expect(ShellCommands.notBuilt(it) == "Settings isn't available yet in this app (Settings).")
         let run = try item(#"[{"id":"r","label":"Run","command":"run.start","enabled":true}]"#)[0]
         #expect(ShellCommands.notBuilt(run) == nil)
+        // built in N4 slice 3: the parameters inspector and pop-outs
+        #expect(ShellCommands.unbuilt["node.parameters"] == nil)
+        #expect(ShellCommands.unbuilt["view.popout"] == nil)
+        #expect(ToolbarWords.symbol("play") == "play.fill")
+        #expect(ToolbarWords.symbol("nope") == "square.dashed")
     }
 
     @Test func theAnswersWords() {

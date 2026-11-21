@@ -163,6 +163,9 @@ public final class DocumentModel {
     public private(set) var theme: ThemeReply?
     public private(set) var menuBar: [MenuItem] = []
     public private(set) var menuGen: UInt64?
+    /// The toolbar's buttons, from the core (`menu.get {context: {kind: "toolbar"}}`, N4 slice 3):
+    /// label, icon, enabled, reason and check are the core's, read again whenever menus change.
+    public private(set) var toolbar: [MenuItem] = []
     public private(set) var asks: [Ask] = []
     public private(set) var watched: Watched?
     public private(set) var engine = EngineState()
@@ -194,6 +197,13 @@ public final class DocumentModel {
     /// Called when the scene's `view` changed (a fit asked, the palette opened or closed), after
     /// `onChange`: the palette's UI follows it (N4 slice 1).
     @ObservationIgnored public var onView: ((View) -> Void)?
+    /// Called when the document's windows changed (`view.windows`: the parameters inspector and
+    /// the pop-outs; N4 slice 3), after `onView`.
+    @ObservationIgnored public var onWindows: ((Windows) -> Void)?
+    /// Called when the toolbar's buttons changed (the core's toolbar model, N4 slice 3).
+    @ObservationIgnored public var onToolbar: (([MenuItem]) -> Void)?
+    /// Called when a name editor opened, moved or closed (`view.name`, N4 slice 3).
+    @ObservationIgnored public var onName: ((NameEdit?) -> Void)?
 
     @ObservationIgnored private var feedTask: Task<Void, Never>?
     @ObservationIgnored private var sceneBusy = false
@@ -356,7 +366,38 @@ public final class DocumentModel {
         let full: Bool = if case .full = reply { true } else { false }
         onChange?(SceneChange(gen: gen, full: full, changed: changed, removed: removed,
                               selectionChanged: before.0 != selection, viewChanged: before.1 != view))
-        if before.1 != view { onView?(view) }
+        if before.1 != view {
+            onView?(view)
+            if before.1.windows != view.windows { onWindows?(view.windows ?? Windows()) }
+            if before.1.name != view.name { onName?(view.name) }
+            // Select mode is a toolbar button's check
+            if before.1.select != view.select { refreshToolbar() }
+        }
+    }
+
+    /// The windows the core has open for this document.
+    public var windows: Windows { view.windows ?? Windows() }
+
+    /// Read the toolbar's buttons again.
+    public func refreshToolbar() {
+        Task {
+            guard let m = try? await core.request(ContextMenuReply.self, "menu.get", ["context": ["kind": "toolbar"]], doc: requestDoc) else { return }
+            if m.items != toolbar {
+                toolbar = m.items
+                onToolbar?(m.items)
+            }
+            pulse()
+        }
+    }
+
+    /// `parameters.get {node}` (N4 slice 3): every input of the node for the inspector.
+    public func parameters(node: String) async throws -> ParametersReply {
+        try await core.request(ParametersReply.self, "parameters.get", ["node": .string(node)], doc: requestDoc)
+    }
+
+    /// `popout.get {id}` (N4 slice 3): a pop-out's value and its viewer's state.
+    public func popout(id: UInt64) async throws -> PopoutValue {
+        try await core.request(PopoutValue.self, "popout.get", ["id": .uint(id)], doc: requestDoc)
     }
 
     /// A delta on one table, written back only when items came or went: a table observed by a
@@ -450,6 +491,7 @@ public final class DocumentModel {
                 menuBar = m.menus
                 menuGen = m.gen
                 if changed { onMenus?(m.menus) }
+                if changed || toolbar.isEmpty { refreshToolbar() }
             } catch {
                 lastError = "\(error)"
             }
@@ -513,6 +555,10 @@ public final class DocumentModel {
     }
 
     // MARK: Waiting (tests, and a shell that must have something before it goes on)
+
+    /// Wake whoever waits on this model (`wait`): a model built on it changed something they may
+    /// be waiting for (the parameters' rows, a pop-out's value).
+    public func poke() { pulse() }
 
     private func pulse() {
         let w = waiters

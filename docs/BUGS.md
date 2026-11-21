@@ -18,6 +18,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
 - Seen again: 2026-11-20, in the full run for N3 slice 2 with nothing else building. It fails at `crates/engine/tests/persist.rs:166`, the "too big" case: a 60 ms node that makes 32 MB was persisted, where the test expects it not to be worth it. Passed 40 of 40 alone. The test's own comment says the margin is a matter of timing.
 - Seen again: 2026-11-20, on the Mac in N4 slice 2's gate, in the Python suite's test of the same name (`python/tests/test_persist.py`) while cargo was running in parallel. Passed 10 of 10 alone.
+- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run (the Rust test), together with B38. Both passed 10 of 10 alone afterwards.
 - Issue: none
 
 ### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
@@ -25,6 +26,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-20
 - Report: "record bugs"
 - Context: `plumcraft-text::conformance mode2_process`, `crates/text/tests/conformance.rs:390`, "off really runs the slow node". Failed once in a full parallel run while three other builds were running on the host. Not looked into.
+- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run, together with B37. Passed 10 of 10 alone afterwards.
 - Issue: none
 
 ### B39. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host

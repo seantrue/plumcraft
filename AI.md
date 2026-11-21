@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-20 — N4 slice 3: parameters, groups, frames, nets and pop-out windows (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**Asked for.** Parameters, groups, frames, nets and named ports in both Swift apps, and the maintainer's N3 exit decision on the Watched panel: "Eliminate the side column in favor of just the popout window." Also the maintainer's "No exceptions to the rule": the controller told the agent to undo slice 2's contract exemption for the iPad's Select mode and Share, and to audit every user action. The maintainer typed into slice 2's Mac build by hand: "Input is good."
+
+**What the agent did (~3,200 LOC of Swift added and ~300 removed, ~1,400 lines of Rust, tests included).** The audit turned eleven kinds of shell-side or command-less action into core commands: Select mode, Share, the toolbar's labels and state (a toolbar menu context), the viewers' zoom and text options, every rename (a core in-place name editor), reveal, and several menu items that had no command at all and did nothing in the Apple apps. The Watched column is gone; a watched value opens a pop-out held in the core's view state, a real window on the Mac and a window or sheet on the iPad. A parameters inspector over every input, with Show on Face saved in the workflow. Groups (make, enter and return, rename), frames (make, rename, resize, colour; shown grown round pushed members), nets with a count on the driver's tag. Six new conformance cases, 36 in all; both apps pass 36 of 36.
+
+**Defects in the agent's work, caught by its tests and runs.** The iPad app could come up with no window after a restored pop-out closed; a Fit that ran before layout; white-on-white crumbs in dark mode; twelve egui tests broken by a first version of the name window. It also found and fixed a crash in slice 1's iPad palette (an index out of range).
+
+**Left shell-side.** Pan and zoom, by the contract; platform chrome; and the palette's typed search text, which the agent was unsure about and listed for the maintainer.
+
+**Not verified.** With the Mac app active: pop-out windows coming forward, remembered frames, focus in the parameters popover, the share picker. Nothing on an iPad device. The controller looked at two of the pictures.
+
+**Also this day.** At the maintainer's request a separate read-only review of the OpenCV engine repository: it is Python only (no Rust binding exists or was planned), passes conformance, covers about a third of what image workflows expect, and silently rounds to 8 bits in several nodes. Report in `claude-debug/opencv-engine-review.md`. The Mac slept mid-review and cut the agent off; it was resumed.
+
 ### 2026-11-20 — N4 slice 2: editing values on a node's face (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **Asked for.** The maintainer, after using the iPad app: "App looks good, cant edit text values". Also from the N3 exit: nodes that grow after a run must not overlap their neighbours, wires going right to left could bend "so as to clear the corners of the sending and receiving nodes", and icons and the more-button. The maintainer tried slice 1's Mac build by hand (wire drags, the filtered palette): "Looks good."

@@ -283,4 +283,84 @@ final class GestureTests: XCTestCase {
             XCTFail("no more-button in the status")
         }
     }
+
+    /// N4 slice 3, through UIKit: a double tap on a node opens its parameters (a popover); a hidden
+    /// parameter is changed there and shown on the face, where its new value is; a double tap on
+    /// a collapsed group opens it, and the way back leaves it; a double tap on a frame's tab
+    /// renames it in place; a double tap on an output pin pops its value out (a sheet when the
+    /// graph is full screen).
+    @MainActor
+    func testWindowsAndNames() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = env["PLUMCRAFT_STATUS"] ?? NSTemporaryDirectory() + "plumcraft-ui-status.json"
+        try? FileManager.default.removeItem(atPath: statusPath)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Windows and Names", "--status-file", statusPath, "--then", "zoom:1:w"]
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        func at(_ p: [Double]) -> XCUICoordinate { origin.withOffset(CGVector(dx: p[0], dy: p[1])) }
+        func rowKeys(_ id: String) -> [String] { ((window()["rows"] as? [String: Any])?[id] as? [[String: Any]])?.compactMap { $0["key"] as? String } ?? [] }
+        XCTAssertFalse(rowKeys("w").contains("count"), "count starts hidden from the face")
+
+        // a double tap on the node: its parameters, in a popover
+        let title = try XCTUnwrap(((window()["points"] as? [String: Any])?["w"] as? [String: Any])?["title"] as? [Double])
+        at(title).doubleTap()
+        wait("the parameters open on w") { (($0["parameters"] as? [String: Any])?["shown"] as? Bool) == true }
+        let count = app.textFields["edit.count"]
+        XCTAssertTrue(count.waitForExistence(timeout: 10), "the hidden count's field")
+        shot("n4s3-ui-parameters")
+        count.tap()
+        count.clearAndType("5\n")
+        wait("count set while hidden") { ($0["undo"] as? String) == "Set Value" }
+        // shown on the face, where its value is the one set
+        app.buttons["face.count"].tap()
+        wait("count on the face, at 5") { w in
+            let list = ((w["rows"] as? [String: Any])?["w"] as? [Any]) ?? []
+            return list.contains { (($0 as? [String: Any])?["key"] as? String) == "count" && (($0 as? [String: Any])?["value"] as? String) == "5" }
+        }
+        shot("n4s3-ui-hidden-shown")
+        // Done closes it in the core
+        app.buttons["parameters-done"].tap()
+        wait("the parameters closed") { ($0["parameters"] as? [String: Any]).map { ($0["shown"] as? Bool) == false } ?? true }
+
+        // a double tap on the collapsed group: inside it, and the way back
+        let g = try XCTUnwrap(((window()["points"] as? [String: Any])?["group:g1"] as? [String: Any])?["title"] as? [Double])
+        at(g).doubleTap()
+        wait("inside the group") { ($0["focus"] as? String) == "g1" && (($0["crumbs"] as? [String])?.count ?? 0) == 2 }
+        shot("n4s3-ui-inside-group")
+        app.buttons["crumb.0"].tap()
+        wait("back on the graph") { $0["focus"] is NSNull || $0["focus"] == nil }
+
+        // a double tap on the frame's tab: its title edited in place
+        let tab = try XCTUnwrap((window()["frameTabs"] as? [String: Any])?["f1"] as? [Double])
+        at(tab).doubleTap()
+        let name = app.textFields["name-editor"]
+        XCTAssertTrue(name.waitForExistence(timeout: 10), "the frame's name field")
+        name.clearAndType("Inputs\n")
+        wait("the frame renamed") { (($0["frames"] as? [String: Any])?["f1"] as? String) == "Inputs" }
+        shot("n4s3-ui-frame-renamed")
+
+        // a double tap on an output pin: the value pops out
+        let out = try XCTUnwrap((((window()["points"] as? [String: Any])?["n1"] as? [String: Any])?["out"] as? [[Double]])?.first)
+        at(out).doubleTap()
+        wait("a pop-out shown") { (($0["popouts"] as? [[String: Any]])?.first?["shown"] as? String).map { $0 != "none" } ?? false }
+        let done = app.buttons["popout-done"]
+        XCTAssertTrue(done.waitForExistence(timeout: 10), "the pop-out's Done (a sheet) or close (a window of its own)")
+        shot("n4s3-ui-popout")
+        done.tap()
+        wait("the pop-out closed") { (($0["popouts"] as? [[String: Any]]) ?? []).isEmpty }
+    }
 }
+
+extension XCUIElement {
+    /// Select what the field holds and type over it.
+    func clearAndType(_ text: String) {
+        let now = (value as? String) ?? ""
+        typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: now.count) + text)
+    }
+}
+

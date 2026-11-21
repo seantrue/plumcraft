@@ -18,7 +18,7 @@
 //                               (default none: each document starts only the engines its graph uses)
 //   --engines-pick on|off       pick a document's engines by its graph (default on; off: --engine and
 //                               --engines-also in every document, for comparisons)
-//   --hide-watched              start with the Watched panel hidden
+//   --hide-watched              accepted and ignored (N4 slice 3: no Watched column)
 //   --then STEP;STEP            what the first graph does once ready (Script.swift)
 //   --bench OUT --nodes N --wires M [--phase-seconds S]   the budget run (Bench.swift); OUT is
 //                               relative to Documents unless absolute
@@ -45,7 +45,6 @@ struct Options {
     var engine = "text"
     var also: [String] = []
     var pick = true
-    var hideWatched = false
     var then: [String] = []
     var bench: BenchOptions?
 
@@ -71,7 +70,7 @@ struct Options {
             case "--engines-also":
                 let v = next() ?? ""
                 o.also = v == "none" ? [] : v.split(separator: ",").map(String.init)
-            case "--hide-watched": o.hideWatched = true
+            case "--hide-watched": break  // N4 slice 3: no Watched column to hide
             case "--then": o.then = (next() ?? "").split(separator: ";").map(String.init)
             case "--bench": b = BenchOptions(out: next() ?? "bench.json")
             case "--nodes": b?.nodes = next().flatMap(Int.init) ?? 500
@@ -186,8 +185,12 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {
-        let c = UISceneConfiguration(name: "Default", sessionRole: connectingSceneSession.role)
-        c.delegateClass = SceneDelegate.self
+        // a value popped out in a window of its own (N4 slice 3)
+        let popout = options.userActivities.contains { $0.activityType == PadPopouts.activityType }
+            || connectingSceneSession.stateRestorationActivity?.activityType == PadPopouts.activityType
+            || connectingSceneSession.configuration.name == "Pop-Out"
+        let c = UISceneConfiguration(name: popout ? "Pop-Out" : "Default", sessionRole: connectingSceneSession.role)
+        c.delegateClass = popout ? PopoutSceneDelegate.self : SceneDelegate.self
         return c
     }
 

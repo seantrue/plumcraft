@@ -329,6 +329,11 @@
           "format": "uint",
           "minimum": 0,
           "type": "integer"
+        },
+        "text": {
+          "default": "",
+          "description": "What the driver's tag says: the net's name and how many inputs it feeds (\"picture ×3\",\nas the egui editor's tag; N4 slice 3). The hit test's estimate of the tag is this text's.",
+          "type": "string"
         }
       },
       "required": [
@@ -1595,6 +1600,238 @@
         }
       ]
     },
+    "NameEdit": {
+      "description": "The name being edited: the scene's `view.name`.",
+      "properties": {
+        "hint": {
+          "description": "Shown greyed in an empty field (a node's type name).",
+          "type": "string"
+        },
+        "label": {
+          "description": "What is being named, for the field's accessibility label (\"Frame title\").",
+          "type": "string"
+        },
+        "rect": {
+          "description": "Where the field goes, graph units `[x0, y0, x1, y1]` (the shell keeps it at least legible,\nas a row's editor).",
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "target": {
+          "$ref": "#/$defs/NameTarget"
+        },
+        "text": {
+          "description": "What the field starts with.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target",
+        "text",
+        "label",
+        "rect"
+      ],
+      "type": "object"
+    },
+    "NameTarget": {
+      "description": "What is named.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "A node's title (`node.title`; blank goes back to its type's name).",
+          "properties": {
+            "node": {
+              "properties": {
+                "node": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "node"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "node"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A group's name (`group.rename`).",
+          "properties": {
+            "group": {
+              "properties": {
+                "group": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "group"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "group"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A frame's title (`frame.set {title}`).",
+          "properties": {
+            "frame": {
+              "properties": {
+                "frame": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "frame"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "frame"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A net's name (`net.rename`).",
+          "properties": {
+            "net": {
+              "properties": {
+                "group": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "net"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "An input made one of the graph's parameters (`graph.port.name`), or a named port's name\n(`graph.port.rename`).",
+          "properties": {
+            "port": {
+              "properties": {
+                "node": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "node",
+                "port"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "port"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A wire's slice (`wire.slice`; blank clears it).",
+          "properties": {
+            "slice": {
+              "properties": {
+                "node": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "node",
+                "port"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "slice"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "Every wire from an output drawn through one net (`output.label`).",
+          "properties": {
+            "label": {
+              "properties": {
+                "node": {
+                  "type": "string"
+                },
+                "port": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "node",
+                "port"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "label"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A promoted parameter's label (`group.editPromoted {newLabel}`).",
+          "properties": {
+            "promoted": {
+              "properties": {
+                "group": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "group",
+                "label"
+              ],
+              "type": "object"
+            }
+          },
+          "required": [
+            "promoted"
+          ],
+          "type": "object"
+        }
+      ]
+    },
     "Named": {
       "properties": {
         "hover": {
@@ -2028,6 +2265,59 @@
       },
       "type": "object"
     },
+    "PopoutWindow": {
+      "description": "One pop-out window: what it follows, and enough for a shell to title it, bring it forward and\nknow when to read its value again.",
+      "properties": {
+        "id": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "index": {
+          "format": "int64",
+          "type": "integer"
+        },
+        "node": {
+          "type": "string"
+        },
+        "port": {
+          "type": "string"
+        },
+        "raised": {
+          "description": "Rises each time the pop-out is asked for while open: the shell brings its window forward.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stamp": {
+          "description": "Changes when what `popout.get` reads changes (the value a run sent, the viewer's state):\nthe shell reads it again then.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "title": {
+          "description": "The window's title: the node's title and the port.",
+          "type": "string"
+        },
+        "viewer": {
+          "description": "The viewer it shows: the one asked for, else the value's default (`values::default_viewer`);\nnone until a run has sent the value.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "node",
+        "port",
+        "index",
+        "title",
+        "raised",
+        "stamp"
+      ],
+      "type": "object"
+    },
     "PortAt": {
       "description": "A port: `{node, port}`.",
       "properties": {
@@ -2235,6 +2525,34 @@
         "frames",
         "groups",
         "marks"
+      ],
+      "type": "object"
+    },
+    "Reveal": {
+      "description": "Reveal `node`, whose face is at `rect` (graph units), once per `seq`.",
+      "properties": {
+        "node": {
+          "type": "string"
+        },
+        "rect": {
+          "items": {
+            "format": "double",
+            "type": "number"
+          },
+          "maxItems": 4,
+          "minItems": 4,
+          "type": "array"
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "seq",
+        "node",
+        "rect"
       ],
       "type": "object"
     },
@@ -2618,6 +2936,17 @@
           ],
           "description": "The latest fit asked for (`canvas.fit`), or none since the document opened."
         },
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NameEdit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "A name being edited in place (`name.edit`, N4 slice 3): the shell puts a text field over\n`rect`. Left out while none is."
+        },
         "palette": {
           "anyOf": [
             {
@@ -2628,6 +2957,25 @@
             }
           ],
           "description": "The node palette, while it is open (`canvas.palette`; core state since N3 slice 1, open\nquestion 4). Left out while it is closed."
+        },
+        "reveal": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Reveal"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The latest node asked to be revealed (`canvas.reveal`, N4 slice 3: core view state, as\n`fit` is): the shell centres its view on `rect` once per `seq`. Left out until one is."
+        },
+        "select": {
+          "description": "Select mode is on (`canvas.selectMode`, N4 slice 3): a one-finger drag on empty canvas\ndraws a marquee rather than panning, on a shell recognising touch. Left out while off.",
+          "type": "boolean"
+        },
+        "windows": {
+          "$ref": "#/$defs/Windows",
+          "description": "The document's windows (contract 12.5's `windows` domain, carried in the scene's view\nsince N4 slice 3): the parameters inspector and the pop-outs. Left out while none is open."
         }
       },
       "type": "object"
@@ -2732,6 +3080,26 @@
         "int",
         "choices"
       ],
+      "type": "object"
+    },
+    "Windows": {
+      "description": "The document's windows, in the scene's `view.windows`.",
+      "properties": {
+        "parameters": {
+          "description": "The node the parameters inspector is open on.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "popouts": {
+          "description": "The pop-outs open, oldest first.",
+          "items": {
+            "$ref": "#/$defs/PopoutWindow"
+          },
+          "type": "array"
+        }
+      },
       "type": "object"
     },
     "Wire": {

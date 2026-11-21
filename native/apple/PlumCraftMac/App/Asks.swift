@@ -11,8 +11,9 @@
 //   clipboard.set, .get      NSPasteboard
 //   open.external            NSWorkspace (an app named, or the system's default; Finder reveals)
 //   screenshot               the canvas drawn offscreen, as a PNG at the path asked
-//   share                    refused: "isn't available yet in this app" (no share targets are
-//                            declared, so the core offers none)
+//   share                    NSSharingServicePicker with the file, under the toolbar (File ›
+//                            Share…, the core's `graph.share`, N4 slice 3); answered when a
+//                            service is picked, cancelled when the picker closes without one
 
 import AppKit
 import PlumCraftCanvas
@@ -239,11 +240,28 @@ final class AskPresenter {
         case .openExternal?:
             openExternal(a)
         default:
-            // share: nothing here shares yet (no share targets are declared)
-            say("Share isn't available yet in this app.")
-            answer(a, ["error": "share isn't available yet in this app"])
+            share(a)
         }
     }
+
+    /// The share ask: the system's picker for the file, shown from the window's top right.
+    private func share(_ a: Ask) {
+        guard let path = a.params["file"].string, let content = window?.contentView else {
+            return answer(a, ["error": "nothing to share"])
+        }
+        let picker = NSSharingServicePicker(items: [URL(fileURLWithPath: path)])
+        let d = ShareDelegate { [weak self] chosen in
+            guard let self else { return }
+            if let chosen { answer(a, ["notice": .string("Shared with \(chosen)")]) } else { cancel(a) }
+            sharing = nil
+        }
+        sharing = d
+        picker.delegate = d
+        let r = NSRect(x: content.bounds.maxX - 60, y: content.bounds.maxY - 4, width: 1, height: 1)
+        picker.show(relativeTo: r, of: content, preferredEdge: .minY)
+    }
+
+    private var sharing: ShareDelegate?
 
     /// Open a file in another app, or the system's default for it, or reveal it in Finder.
     private func openExternal(_ a: Ask) {
@@ -302,5 +320,16 @@ final class AskPresenter {
         } catch {
             answer(a, ["error": .string("\(error)")])
         }
+    }
+}
+
+/// The share picker's answer: the service chosen, or none.
+@MainActor
+final class ShareDelegate: NSObject, NSSharingServicePickerDelegate {
+    let done: (String?) -> Void
+    init(_ done: @escaping (String?) -> Void) { self.done = done }
+    nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
+        let title = service?.title
+        MainActor.assumeIsolated { done(title) }
     }
 }

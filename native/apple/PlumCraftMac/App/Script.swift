@@ -99,8 +99,6 @@ struct Script {
             Status.shared.set("sheet", .null)
         case "theme" where parts.count >= 2:
             NSApp.appearance = NSAppearance(named: parts[1] == "dark" ? .darkAqua : .aqua)
-        case "toggle-watched":
-            window.toggleWatched(nil)
         case "quit":
             // a scripted launch quits without asking about unsaved changes, as its TERM does (N4
             // slice 1: an edited graph's review alert waited for nobody and blocked the TERM)

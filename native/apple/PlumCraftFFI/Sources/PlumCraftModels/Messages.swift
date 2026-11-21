@@ -58,6 +58,8 @@ public struct MenuItem: Codable, Hashable, Sendable, Identifiable {
     public var look: Look
     public var color: String?
     public var strong: Bool
+    /// A toolbar button's icon (N4 slice 3): a Lucide name from the core's set.
+    public var icon: String?
 
     public var isSubmenu: Bool { submenu || !items.isEmpty }
 
@@ -79,6 +81,7 @@ public struct MenuItem: Codable, Hashable, Sendable, Identifiable {
         look = try c.decodeIfPresent(Look.self, forKey: .look) ?? .known(.plain)
         color = try c.decodeIfPresent(String.self, forKey: .color)
         strong = try c.decodeIfPresent(Bool.self, forKey: .strong) ?? false
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
     }
 }
 
@@ -516,5 +519,67 @@ public struct FeedBatch: Codable, Hashable, Sendable {
     /// Nothing for subscribers (replies are the requests').
     public var isQuiet: Bool {
         events.isEmpty && asks.isEmpty && asksEnded.isEmpty && media.isEmpty && changed.isEmpty && log == nil && dropped == 0
+    }
+}
+
+// MARK: Windows (N4 slice 3)
+
+/// `popout.get {id}`: a pop-out's value (as the Watched panel's was) and its viewer's state.
+public struct PopoutValue: Codable, Hashable, Sendable {
+    public var id: UInt64
+    public var node: String
+    public var port: String
+    public var title: String?
+    public var summary: String?
+    public var media: String?
+    public var viewer: String?
+    public var value: JSONValue?
+    public var data: JSONValue?
+    public var picture: WatchedPicture?
+    public var excerpt: WatchedExcerpt?
+    public var error: JSONValue?
+    public var text: TextView?
+    /// The whole-view zoom asked for: "fit", "1:1", or nil (fit).
+    public var fit: String?
+
+    public struct TextView: Codable, Hashable, Sendable {
+        public var wrap: Bool
+        public var mono: Bool
+        public var all: Bool
+    }
+
+    /// The same value as the kit's text helpers take it.
+    public var watched: Watched {
+        Watched(node: node, port: port, summary: summary, media: media, viewer: viewer, value: value, data: data, picture: picture, excerpt: excerpt, error: error)
+    }
+}
+
+/// `parameters.get {node}`: every input of a node, in the inspector's sections.
+public struct ParametersReply: Codable, Hashable, Sendable {
+    public var node: String
+    public var title: String
+    public var kind: String
+    public var display: String
+    public var description: String?
+    public var about: String?
+    public var family: String?
+    public var open: Bool
+    public var sections: [Section]
+    public var count: Int
+    public var hidden: [String]
+
+    public struct Section: Codable, Hashable, Sendable {
+        public var title: String
+        public var rows: [Row]
+    }
+
+    public struct Row: Codable, Hashable, Sendable {
+        public var row: InRow
+        public var onFace: Bool
+        public var canHide: Bool
+        public var editable: Bool
+        public var `default`: JSONValue?
+        public var reset: Bool
+        public var help: String
     }
 }

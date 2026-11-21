@@ -72,7 +72,8 @@
           "node": "n2",
           "port": "text"
         },
-        "pin": 1
+        "pin": 1,
+        "text": "caption ×1"
       },
       "id": "caption",
       "key": {

@@ -135,9 +135,17 @@ pub fn default_viewer(d: &plumcraft_proto::display::Display) -> &'static str {
 /// a text's first 4 KiB, `{text, offset, totalChars, lines}`), or null while nothing is watched. `summary` and the rest are null
 /// until a run has sent the value.
 pub fn watched_json(run: &plumcraft_session::RunState) -> serde_json::Value {
+    match run.panel() {
+        Some((w, d)) => value_json(w, d),
+        None => serde_json::Value::Null,
+    }
+}
+
+/// A watched entry's value as [`watched_json`] has the panel's: the panel's, or a pop-out's
+/// (`popout.get`, N4 slice 3).
+pub fn value_json(w: &plumcraft_proto::display::WatchRequest, d: Option<&plumcraft_proto::display::Display>) -> serde_json::Value {
     use plumcraft_proto::display::Rendition;
     use serde_json::{Value, json};
-    let Some((w, d)) = run.panel() else { return Value::Null };
     let mut v = json!({"node": w.node, "port": w.port, "summary": d.map(|d| d.summary.clone()), "media": d.map(|d| d.media), "viewer": d.map(default_viewer)});
     if let Some(d) = d {
         if let Some(x) = &d.value {

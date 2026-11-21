@@ -176,7 +176,7 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
         onShown?()
     }
 
-    static func fieldText(_ w: Widget) -> String {
+    public static func fieldText(_ w: Widget) -> String {
         if w.blank || w.value.isNull { return "" }
         if w.kind.word == .number, let d = w.value.double {
             if w.int { return String(Int64(d.rounded())) }

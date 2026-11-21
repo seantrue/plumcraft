@@ -425,6 +425,13 @@ pub fn invoke(h: &mut impl Host, id: &str, by: By) {
                 let _ = h.run("selection.clear", &Value::Null);
             }
         }
+        // File › Share… (N4 slice 3): the graph's file to the platform's share sheet
+        "graph.share" => match h.run(id, &json!({})) {
+            Ok(r) => {
+                raise(h, Kind::Share, r, by, Cont::new(Then::Notice));
+            }
+            Err(e) => h.say(e),
+        },
         // Edit › Paste: the shell reads the clipboard, then it is pasted
         "edit.paste" => {
             ask_paste(h, by);

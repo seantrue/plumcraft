@@ -60,6 +60,8 @@ targets:
         # the scene's restoration activity (the graph shown and its view)
         NSUserActivityTypes:
           - com.plumcraft.pad.graph
+          # a pop-out's own window (N4 slice 3)
+          - com.plumcraft.pad.popout
         # the system's document browser, Files, open in place
         UISupportsDocumentBrowser: true
         LSSupportsOpeningDocumentsInPlace: true

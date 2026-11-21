@@ -66,8 +66,9 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     var contextTask: Task<[MenuItem], Never>?
     /// The type of the touch that began the press under way (a finger, a Pencil, a pointer).
     var pressType: UITouch.TouchType = .direct
-    /// Select mode (the app's toolbar toggle): a one-finger drag on empty canvas is a marquee.
-    public var selectMode = false
+    /// Select mode, the core's (`canvas.selectMode`, the scene's `view.select`; N4 slice 3): a
+    /// one-finger drag on empty canvas is a marquee.
+    public var selectMode: Bool { model.view.selectMode }
     /// The drag under way (the kit's, shared with the Mac).
     public let drag: CanvasDrag
     /// The node palette (the core's state); the app presents it (`presentPalette`).
@@ -86,18 +87,26 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
     /// Editing a value on a face (N4 slice 2): the core's row and the control over it.
     public let rowEditor: RowEditor
     public private(set) var fieldEditor: FieldEditorHost!
+    /// A name edited in place (N4 slice 3).
+    public let nameEditor: NameEditor
+    public private(set) var nameField: NameFieldHost!
 
     public init(model: DocumentModel, frame: CGRect = CGRect(x: 0, y: 0, width: 1024, height: 768)) {
         let host = CALayer()
         canvas = LayerCanvas(model: model, host: host, screenScale: UITraitCollection.current.displayScale)
         palette = PaletteModel(model: model)
         rowEditor = RowEditor(model: model)
+        nameEditor = NameEditor(model: model)
         let c = canvas
         // a finger's target size (44 points across, plan 5.5); a pointer's while one is pressing
         drag = CanvasDrag(canvas: c) { CanvasLink.slop(points: 22, zoom: Double(c.viewport.zoom)) }
         super.init(frame: frame)
         fieldEditor = FieldEditorHost(canvasView: self, editor: rowEditor)
-        canvas.followers = { [weak self] in self?.fieldEditor.follow() }
+        nameField = NameFieldHost(canvasView: self, editor: nameEditor)
+        canvas.followers = { [weak self] in
+            self?.fieldEditor.follow()
+            self?.nameField.follow()
+        }
         drag.onError = { [weak self] e in self?.onError?(e) }
         drag.onBegan = { [weak self] k in self?.onGesture?("drag.begin.\(k?.rawValue ?? "none")") }
         drag.onEnded = { [weak self] k, r in
@@ -117,6 +126,7 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         model.onView = { [weak self] v in
             self?.palette.follow(v)
             self?.rowEditor.follow(v)
+            self?.nameEditor.follow(v.name)
         }
         layer.addSublayer(host)
         host.frame = bounds

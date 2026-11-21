@@ -424,6 +424,9 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
                     p.reply.insert("context".into(), cx.clone());
                     p.menu = Some(cx);
                 }
+            } else if let Some(g) = band_chevron(snap, &h, at) {
+                // an open group's band: its chevron collapses it (N4 slice 3), selecting nothing
+                p.commands.push(("group.collapse", json!({"group": g, "collapsed": true})));
             } else {
                 tap(f, snap, &h, mods, &mut p.commands);
             }
@@ -443,7 +446,13 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
             match context(f, snap, &h) {
                 Some(cx) => {
                     p.reply.insert("context".into(), cx.clone());
-                    p.menu = Some(cx);
+                    // a wire's menu puts Add Bend Point where the press was (N4 slice 3); a shell
+                    // asking menu.get itself may pass `at` in the context too
+                    let mut menu = cx;
+                    if menu["kind"] == "wire" {
+                        menu["at"] = json!([at.x, at.y]);
+                    }
+                    p.menu = Some(menu);
                 }
                 None => p.commands.push(("canvas.palette", json!({"open": true, "at": [at.x, at.y]}))),
             }
@@ -552,13 +561,48 @@ fn edit_row(snap: &Snapshot, h: &Hit) -> Option<(&'static str, Value)> {
     Some(("row.edit", json!({"node": w.node, "port": w.key})))
 }
 
+/// The open group whose band's chevron (its first 26 graph units) `at` is on, if any.
+fn band_chevron(snap: &Snapshot, h: &Hit, at: Point) -> Option<String> {
+    if h.kind != kind::GROUP {
+        return None;
+    }
+    let (id, r) = snap.group_of(h.item)?;
+    (at.x <= r.min.x + 26.0 && at.y <= r.min.y + crate::geometry::GROUP_HEADER).then(|| id.to_owned())
+}
+
+/// "Open what it is on" (the maintainer's N3 exit card 3; N4 slice 3): a face opens its
+/// parameters, a collapsed group's face the group, a value (an output pin, a wired input's, the
+/// preview, a text excerpt, a wire) pops out in a window, a frame's tab or an open group's band
+/// edits its name, a tag goes to the net's driver, empty canvas opens the palette.
 fn double_tap(snap: &Snapshot, h: &Hit, at: Point, out: &mut Vec<(&'static str, Value)>) {
     match h.kind {
         kind::NODE => {
             let Some(id) = snap.face_id_of(h.node) else { return };
             match id.strip_prefix("group:") {
                 Some(g) => out.push(("canvas.focus", json!({"group": g}))),
+                None if matches!(h.part, part::PREVIEW | part::FOOTER) && snap.pin_count(h.node, true) > 0 => {
+                    out.push(("view.popout", json!({"node": id})));
+                }
                 None => out.push(("node.parameters", json!({"node": id}))),
+            }
+        }
+        kind::PIN => {
+            let output = h.part == part::OUTPUT;
+            let Some(port) = snap.pin_port(h.node, output, h.pin) else { return };
+            if output {
+                out.push(("view.popout", port_json(&port)));
+            } else if let Some(w) = snap.wire_into(h.node, h.pin) {
+                out.push(("view.popout", port_json(&w.from)));
+            }
+        }
+        kind::FRAME if h.part == part::FRAME_TAB => {
+            if let Some((id, _)) = snap.frame_of(h.item) {
+                out.push(("name.edit", json!({"frame": id})));
+            }
+        }
+        kind::GROUP => {
+            if let Some((id, _)) = snap.group_of(h.item) {
+                out.push(("name.edit", json!({"group": id})));
             }
         }
         kind::WIRE => {

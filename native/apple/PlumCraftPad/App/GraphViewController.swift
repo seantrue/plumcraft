@@ -1,6 +1,7 @@
-// One open graph on the iPad (N3 slice 5): the layer canvas, a navigation bar with the run's
-// controls and the engines' state, the Watched panel (an inspector column in regular width, a
-// sheet with detents in compact width), the asks, context menus and the canvas's keys.
+// One open graph on the iPad (N3 slice 5): the layer canvas, a navigation bar with the core's
+// toolbar (N4 slice 3: every button's label, enabled state and check from the core) and the
+// engines' state, the core's windows (the parameters inspector, pop-outs; the Watched column is
+// gone), the way back out of a group, the asks, context menus and the canvas's keys.
 //
 // Saving: explicit, as the core has it today. Plan 6 and decision 7 give iOS autosave with no Save
 // command; the contract puts it in the core (`document.open {autosave: true}`, 4.4), which isn't
@@ -32,21 +33,23 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var model: DocumentModel?
     var canvasView: CanvasView?
     var asks: AskPresenter?
-    var watched: WatchedPanel?
+    /// The core's windows (N4 slice 3).
+    var popouts: PadPopouts?
+    var parameters: PadParameters?
     let canvasHost = UIView()
-    let panelHost = UIView()
-    var panelWidth: NSLayoutConstraint?
-    var panelShown = true
+    /// The way back out of an entered group: Graph › outer › inner.
+    let crumbs = UIStackView()
+    let crumbsBox = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     let placeholder = UILabel()
     let banner = UILabel()
     var bannerTask: Task<Void, Never>?
     let engineDot = UIView()
     let engineLabel = UILabel()
-    var runItem: UIBarButtonItem?
-    var runSelectedItem: UIBarButtonItem?
-    var cancelItem: UIBarButtonItem?
-    var watchedItem: UIBarButtonItem?
-    var selectItem: UIBarButtonItem?
+    /// The toolbar's buttons as the core last gave them, and the bar's items by command.
+    var toolItems: [MenuItem] = []
+    var barItems: [String: UIBarButtonItem] = [:]
+    var engineItem: UIBarButtonItem?
+    var doneItem: UIBarButtonItem?
     var paletteView: PaletteController?
     var opened = ContinuousClock.now
     var readyShown = false
@@ -63,7 +66,6 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         self.then = then
         super.init(nibName: nil, bundle: nil)
         Self.live.add(self)
-        panelShown = !CoreHost.options.hideWatched
     }
 
     @available(*, unavailable)
@@ -77,32 +79,15 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         title = name
-        for x in [canvasHost, panelHost] {
-            x.translatesAutoresizingMaskIntoConstraints = false
-            view.addSubview(x)
-        }
+        canvasHost.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(canvasHost)
         canvasHost.clipsToBounds = true
-        panelHost.clipsToBounds = true
-        let sep = UIView()
-        sep.backgroundColor = .separator
-        sep.translatesAutoresizingMaskIntoConstraints = false
-        panelHost.addSubview(sep)
-        let w = panelHost.widthAnchor.constraint(equalToConstant: 0)
-        panelWidth = w
         // the canvas under the bar's safe area, edge to edge below and at the sides
         NSLayoutConstraint.activate([
             canvasHost.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
             canvasHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             canvasHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            canvasHost.trailingAnchor.constraint(equalTo: panelHost.leadingAnchor),
-            panelHost.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-            panelHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            panelHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            w,
-            sep.leadingAnchor.constraint(equalTo: panelHost.leadingAnchor),
-            sep.topAnchor.constraint(equalTo: panelHost.topAnchor),
-            sep.bottomAnchor.constraint(equalTo: panelHost.bottomAnchor),
-            sep.widthAnchor.constraint(equalToConstant: 1 / max(traitCollection.displayScale, 1)),
+            canvasHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
         ])
         placeholder.text = "Opening…"
         placeholder.textColor = .secondaryLabel
@@ -116,10 +101,28 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         banner.layer.cornerRadius = 10
         banner.layer.masksToBounds = true
         banner.isHidden = true
-        for x in [placeholder, banner] {
+        crumbs.axis = .horizontal
+        crumbs.spacing = 2
+        crumbs.alignment = .center
+        crumbs.translatesAutoresizingMaskIntoConstraints = false
+        crumbsBox.contentView.addSubview(crumbs)
+        crumbsBox.layer.cornerRadius = 18
+        crumbsBox.clipsToBounds = true
+        crumbsBox.isHidden = true
+        crumbsBox.accessibilityIdentifier = "crumbs"
+        for x in [placeholder, banner, crumbsBox] {
             x.translatesAutoresizingMaskIntoConstraints = false
             canvasHost.addSubview(x)
         }
+        NSLayoutConstraint.activate([
+            crumbs.topAnchor.constraint(equalTo: crumbsBox.contentView.topAnchor, constant: 4),
+            crumbs.bottomAnchor.constraint(equalTo: crumbsBox.contentView.bottomAnchor, constant: -4),
+            crumbs.leadingAnchor.constraint(equalTo: crumbsBox.contentView.leadingAnchor, constant: 8),
+            crumbs.trailingAnchor.constraint(equalTo: crumbsBox.contentView.trailingAnchor, constant: -8),
+            crumbsBox.topAnchor.constraint(equalTo: canvasHost.safeAreaLayoutGuide.topAnchor, constant: 10),
+            crumbsBox.leadingAnchor.constraint(equalTo: canvasHost.safeAreaLayoutGuide.leadingAnchor, constant: 12),
+            crumbsBox.trailingAnchor.constraint(lessThanOrEqualTo: canvasHost.trailingAnchor, constant: -12),
+        ])
         NSLayoutConstraint.activate([
             placeholder.centerXAnchor.constraint(equalTo: canvasHost.centerXAnchor),
             placeholder.centerYAnchor.constraint(equalTo: canvasHost.centerYAnchor),
@@ -128,7 +131,6 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             banner.widthAnchor.constraint(lessThanOrEqualTo: canvasHost.widthAnchor, constant: -40),
         ])
         makeBar()
-        registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (g: GraphViewController, _: UITraitCollection) in g.placePanel(animated: false) }
         openInCore()
     }
 
@@ -151,30 +153,13 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     /// two Undo (the iPad spike's rule, note 24 section 17). ⌘Z and the Edit menu still undo.
     override var editingInteractionConfiguration: UIEditingInteractionConfiguration { .none }
 
-    /// Run, Run Selected, Cancel; the engines' state; the Watched panel; and the document's menu
-    /// on its title (Save, Share).
+    /// Documents (back to the browser), the core's toolbar, the engines' state, and the document's
+    /// menu on its title (the core's Save and Share…).
     func makeBar() {
         let done = UIBarButtonItem(title: "Documents", image: UIImage(systemName: "chevron.backward"),
                                    primaryAction: UIAction { [weak self] _ in self?.close {} })
         done.accessibilityLabel = "Documents"
-        let fit = UIBarButtonItem(title: "Fit", image: UIImage(systemName: "arrow.up.left.and.down.right.magnifyingglass"),
-                                  primaryAction: UIAction { [weak self] _ in self?.canvasView?.fitView() })
-        fit.accessibilityLabel = "Fit"
-        // Add Node (plan 5.5's + button): the palette at the view's centre
-        let add = UIBarButtonItem(title: "Add Node", image: UIImage(systemName: "plus"),
-                                  primaryAction: UIAction { [weak self] _ in self?.canvasView?.openPalette() })
-        add.accessibilityLabel = "Add Node"
-        // Select mode: a one-finger drag on empty canvas draws a marquee instead of panning
-        let select = UIBarButtonItem(title: "Select", image: UIImage(systemName: "rectangle.dashed"),
-                                     primaryAction: UIAction { [weak self] _ in self?.toggleSelectMode() })
-        select.accessibilityLabel = "Select"
-        selectItem = select
-        navigationItem.leftBarButtonItems = [done, fit, add, select]
-        let run = UIBarButtonItem(title: "Run", image: UIImage(systemName: "play.fill"), primaryAction: UIAction { [weak self] _ in self?.runGraph() })
-        let sel = UIBarButtonItem(title: "Run Selected", image: UIImage(systemName: "play.square"), primaryAction: UIAction { [weak self] _ in self?.runSelected() })
-        let cancel = UIBarButtonItem(title: "Cancel Run", image: UIImage(systemName: "stop.fill"), primaryAction: UIAction { [weak self] _ in self?.cancelRun() })
-        let panel = UIBarButtonItem(title: "Watched", image: UIImage(systemName: "sidebar.right"), primaryAction: UIAction { [weak self] _ in self?.toggleWatched(nil) })
-        for (b, t) in [(run, "Run"), (sel, "Run Selected"), (cancel, "Cancel Run"), (panel, "Watched")] { b.accessibilityLabel = t }
+        doneItem = done
         // the engines: a dot and a word, the label and any error as its menu
         engineDot.backgroundColor = .systemOrange
         engineDot.layer.cornerRadius = 4
@@ -190,21 +175,109 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         box.alignment = .center
         box.isAccessibilityElement = true
         box.accessibilityLabel = "Engines starting"
-        let engine = UIBarButtonItem(customView: box)
-        navigationItem.rightBarButtonItems = [panel, engine, cancel, sel, run]
-        runItem = run
-        runSelectedItem = sel
-        cancelItem = cancel
-        watchedItem = panel
+        engineItem = UIBarButtonItem(customView: box)
         navigationItem.style = .editor
         navigationItem.titleMenuProvider = { [weak self] suggested in
             guard let self else { return UIMenu(children: suggested) }
-            let save = UIAction(title: "Save", image: UIImage(systemName: "square.and.arrow.down"),
-                                attributes: self.model?.state.dirty == true ? [] : .disabled) { [weak self] _ in self?.save() }
-            let share = UIAction(title: "Share…", image: UIImage(systemName: "square.and.arrow.up")) { [weak self] _ in self?.shareFile() }
-            return UIMenu(children: [save, share] + suggested)
+            // the core's Save and Share… (graph.share raises the share ask, N4 slice 3)
+            let own = ["graph.save", "graph.share"].compactMap { c in self.model?.menuBar.item(command: c) }.map { it in
+                UIAction(title: it.label, image: UIImage(systemName: it.command == "graph.share" ? "square.and.arrow.up" : "square.and.arrow.down"),
+                         attributes: it.enabled ? [] : .disabled) { [weak self] _ in self?.dispatch(it) }
+            }
+            return UIMenu(children: own + suggested)
         }
+        layoutBar()
+    }
+
+    /// The bar from the core's toolbar: Add, Fit and Select on the left after Documents; Run, Run
+    /// Selected, Cancel and Share on the right before the engines.
+    func layoutBar() {
+        var left: [UIBarButtonItem] = doneItem.map { [$0] } ?? []
+        var right: [UIBarButtonItem] = engineItem.map { [$0] } ?? []
+        var made: [String: UIBarButtonItem] = [:]
+        for it in ToolbarWords.buttons(toolItems) {
+            guard let c = it.command else { continue }
+            let b = UIBarButtonItem(title: it.label, image: UIImage(systemName: ToolbarWords.symbol(it.icon)),
+                                    primaryAction: UIAction { [weak self] _ in self?.toolbarButton(c) })
+            b.accessibilityLabel = it.label
+            b.accessibilityIdentifier = "tool.\(c)"
+            made[c] = b
+            if ["canvas.palette", "canvas.fit", "canvas.selectMode"].contains(c) { left.append(b) } else { right.insert(b, at: 0) }
+        }
+        // the right side reads from the trailing edge: Share, Cancel, Run Selected, Run, engines
+        let order = ["graph.share", "run.cancel", "run.selected", "run.start"]
+        right.sort { a, b in
+            let ka = made.first { $0.value === a }.map(\.key).flatMap { order.firstIndex(of: $0) } ?? 99
+            let kb = made.first { $0.value === b }.map(\.key).flatMap { order.firstIndex(of: $0) } ?? 99
+            return ka < kb
+        }
+        barItems = made
+        navigationItem.leftBarButtonItems = left
+        navigationItem.rightBarButtonItems = right
         validateBar()
+    }
+
+    /// The core's toolbar changed: new buttons lay the bar out again; states only revalidate.
+    func followToolbar(_ items: [MenuItem]) {
+        let before = Set(ToolbarWords.buttons(toolItems).compactMap(\.command))
+        toolItems = items
+        if Set(ToolbarWords.buttons(items).compactMap(\.command)) != before { layoutBar() } else { validateBar() }
+        reportNow()
+    }
+
+    /// A toolbar button: the core's item, dispatched as a menu's.
+    func toolbarButton(_ command: String) {
+        guard let it = toolItems.first(where: { $0.command == command }) else { return }
+        if command == "canvas.palette" {
+            canvasView?.openPalette()
+            return
+        }
+        dispatch(it)
+    }
+
+    /// Present `vc` from the graph, whatever the graph shows now giving way first (one
+    /// presentation at a time: the palette, the parameters, a pop-out's sheet).
+    func presentReplacing(_ vc: UIViewController) {
+        if let other = presentedViewController, other !== vc {
+            other.dismiss(animated: false) { [weak self] in self?.present(vc, animated: true) }
+        } else if presentedViewController == nil {
+            present(vc, animated: true)
+        }
+    }
+
+    // MARK: The way back out of a group
+
+    func showCrumbs() {
+        guard let m = model, let f = m.focus else {
+            if !crumbsBox.isHidden { crumbsBox.isHidden = true }
+            return
+        }
+        let names = ["Graph"] + f.path.map(\.name)
+        let now = crumbs.arrangedSubviews.compactMap { ($0 as? UIButton)?.configuration?.title }
+        if now == names && !crumbsBox.isHidden { return }
+        for v in crumbs.arrangedSubviews { v.removeFromSuperview() }
+        for (k, n) in names.enumerated() {
+            if k > 0 {
+                let sep = UIImageView(image: UIImage(systemName: "chevron.right"))
+                sep.tintColor = .tertiaryLabel
+                crumbs.addArrangedSubview(sep)
+            }
+            var c = UIButton.Configuration.plain()
+            c.title = n
+            c.image = k == 0 ? UIImage(systemName: "chevron.backward") : nil
+            c.imagePadding = 4
+            c.buttonSize = .small
+            let target: JSONValue = k == 0 ? .null : .string(f.path[k - 1].id)
+            let last = k == names.count - 1
+            let b = UIButton(configuration: c, primaryAction: UIAction { [weak m] _ in
+                guard let m, !last else { return }
+                Task { _ = try? await m.run("canvas.focus", ["group": target]) }
+            })
+            b.accessibilityIdentifier = "crumb.\(k)"
+            b.isEnabled = !last
+            crumbs.addArrangedSubview(b)
+        }
+        crumbsBox.isHidden = false
     }
 
     // MARK: Opening in the core
@@ -248,8 +321,14 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         v.canvas.onViewport = { [weak self] vp in
             self?.showZoom(vp.zoom)
             self?.viewportChanged()
+            self?.parameters?.follow()
         }
-        v.canvas.onDrawn = { [weak self] _ in self?.drawn() }
+        v.canvas.onDrawn = { [weak self] _ in
+            self?.drawn()
+            self?.parameters?.params.sceneChanged()
+            self?.showCrumbs()
+        }
+        v.nameField.onShown = { [weak self] in self?.reportNow() }
         v.onGesture = { g in StatusFile.shared.set("gesture", .string(g)) }
         v.onCommand = { [weak self] id in self?.invoke(id) }
         v.onCommands = { [weak self] ran in self?.ranByGesture(ran) }
@@ -258,7 +337,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         paletteView = pc
         v.presentPalette = { [weak self] p, focus in
             guard let self, let v = canvasView, let pc = paletteView else { return }
-            // a sheet the graph shows (the Watched panel's in compact width) gives way first
+            // a sheet or popover the graph shows (a pop-out's, the parameters) gives way first
             if let other = presentedViewController, other !== pc {
                 other.dismiss(animated: false) { pc.present(from: self, source: v, at: p, focus: focus) }
             } else {
@@ -284,11 +363,19 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             StatusFile.shared.set("contextMenu", .array(items.map { .string($0.label) }))
             return PadMenus.actions(items, model: model) { [weak self] it in self?.dispatch(it) }
         }
-        // the panel
-        let panel = WatchedPanel(model: model, pictures: v.canvas.pictures)
-        panel.onShown = { [weak self] in self?.reportNow() }
-        watched = panel
-        placePanel(animated: false)
+        // the core's windows: pop-outs and the parameters inspector
+        let pops = PadPopouts(model: model, pictures: v.canvas.pictures)
+        pops.host = self
+        pops.onChange = { [weak self] in self?.reportNow() }
+        popouts = pops
+        let params = PadParameters(model: model)
+        params.host = self
+        parameters = params
+        model.onWindows = { [weak pops, weak params] w in
+            pops?.follow(w)
+            params?.params.follow(w)
+        }
+        model.onToolbar = { [weak self] items in self?.followToolbar(items) }
         // the asks
         let a = AskPresenter(model: model)
         a.host = self
@@ -298,10 +385,6 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         a.saveFolder = { [weak self] in self?.saveFolder() ?? CoreHost.dirs.documents }
         asks = a
         model.onAsks = { [weak a] list in a?.update(list) }
-        model.onWatched = { [weak panel, weak self] w in
-            panel?.show(w)
-            self?.reportNow()
-        }
         model.onState = { [weak self] st in self?.followState(st) }
         model.onMenus = { [weak self, weak model] _ in
             if let model { MenuState.shared.modelChanged(model) }
@@ -313,76 +396,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         reportNow()
     }
 
-    // MARK: The Watched panel: a column in regular width, a sheet in compact
-
     var compact: Bool { traitCollection.horizontalSizeClass == .compact }
-
-    func placePanel(animated: Bool) {
-        guard let panel = watched else { return }
-        if compact {
-            // out of the column; a sheet when shown
-            if panel.parent === self {
-                panel.willMove(toParent: nil)
-                panel.view.removeFromSuperview()
-                panel.removeFromParent()
-            }
-            panelWidth?.constant = 0
-            if panelShown && panel.presentingViewController == nil && view.window != nil { presentPanelSheet(panel) }
-        } else {
-            if panel.presentingViewController != nil {
-                // out of its sheet first: a view controller still presented can't be a child
-                // (adding it at once threw, N3 slice 5)
-                panel.dismiss(animated: false) { [weak self] in self?.placePanel(animated: animated) }
-                return
-            }
-            if panel.parent == nil {
-                addChild(panel)
-                panel.view.translatesAutoresizingMaskIntoConstraints = false
-                panelHost.addSubview(panel.view)
-                NSLayoutConstraint.activate([
-                    panel.view.topAnchor.constraint(equalTo: panelHost.topAnchor),
-                    panel.view.bottomAnchor.constraint(equalTo: panelHost.bottomAnchor),
-                    panel.view.leadingAnchor.constraint(equalTo: panelHost.leadingAnchor, constant: 1),
-                    panel.view.trailingAnchor.constraint(equalTo: panelHost.trailingAnchor),
-                ])
-                panel.didMove(toParent: self)
-            }
-            panelWidth?.constant = panelShown ? min(360, max(280, view.bounds.width * 0.3)) : 0
-        }
-        if animated {
-            UIView.animate(withDuration: 0.25) { self.view.layoutIfNeeded() }
-        }
-        watchedItem?.isSelected = panelShown
-        if let m = model { showEngine(m.engine) }
-        reportNow()
-    }
-
-    func presentPanelSheet(_ panel: WatchedPanel) {
-        panel.modalPresentationStyle = .pageSheet
-        if let s = panel.sheetPresentationController {
-            s.detents = [.medium(), .large()]
-            s.largestUndimmedDetentIdentifier = .medium
-            s.prefersGrabberVisible = true
-            s.prefersScrollingExpandsWhenScrolledToEdge = false
-        }
-        panel.presentationController?.delegate = self
-        present(panel, animated: true)
-    }
-
-    /// The person swiped the sheet down: the panel is hidden.
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        panelShown = false
-        watchedItem?.isSelected = false
-        reportNow()
-    }
-
-    @objc func toggleWatched(_ sender: Any?) {
-        panelShown.toggle()
-        if compact, let panel = watched, !panelShown, panel.presentingViewController != nil {
-            panel.dismiss(animated: true)
-        }
-        placePanel(animated: true)
-    }
 
     var laidOutSize = CGSize.zero
 
@@ -396,7 +410,10 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     override func viewWillTransition(to size: CGSize, with coordinator: any UIViewControllerTransitionCoordinator) {
         super.viewWillTransition(to: size, with: coordinator)
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in self?.placePanel(animated: false) }
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.parameters?.follow()
+            self?.reportNow()
+        }
     }
 
     // MARK: Running
@@ -414,13 +431,11 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         dispatch(it)
     }
 
-    /// Select mode on or off (the toolbar's toggle).
+    /// Select mode on or off: the core's `canvas.selectMode` (N4 slice 3; the toolbar's toggle
+    /// shows the core's check).
     func toggleSelectMode() {
-        guard let v = canvasView else { return }
-        v.selectMode.toggle()
-        selectItem?.isSelected = v.selectMode
-        StatusFile.shared.set("selectMode", .bool(v.selectMode))
-        reportNow()
+        guard let it = toolItems.first(where: { $0.command == "canvas.selectMode" }) else { return }
+        dispatch(it)
     }
 
     /// What a gesture ran: a refusal (a wire that doesn't fit) or a command with no UI yet is said.
@@ -461,14 +476,16 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
     }
 
+    /// Each button as the core has it: enabled with its reason as the hint, checked when on.
     func validateBar() {
-        let m = model
-        let run = m?.menuBar.item(command: "run.start")
-        let cancel = m?.menuBar.item(command: "run.cancel")
-        runItem?.isEnabled = run?.enabled ?? false
-        runSelectedItem?.isEnabled = m?.menuBar.item(command: "run.selected")?.enabled ?? false
-        cancelItem?.isEnabled = cancel?.enabled ?? false
-        watchedItem?.isEnabled = m != nil
+        for it in toolItems {
+            guard let c = it.command, let b = barItems[c] else { continue }
+            b.isEnabled = it.enabled && model != nil
+            b.isSelected = it.checked == true
+            b.accessibilityHint = ToolbarWords.help(it)
+            b.title = it.label
+        }
+        StatusFile.shared.set("selectMode", .bool(model?.view.selectMode ?? false))
     }
 
     func showEngine(_ e: EngineState) {
@@ -541,12 +558,6 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         return FileManager.default.isWritableFile(atPath: dir.path) ? dir : CoreHost.dirs.documents
     }
 
-    /// The graph's file to the share sheet.
-    func shareFile() {
-        let sheet = UIActivityViewController(activityItems: [document.fileURL], applicationActivities: nil)
-        sheet.popoverPresentationController?.sourceItem = navigationItem.titleView ?? watchedItem
-        present(sheet, animated: true)
-    }
 
     /// Close the graph and go back to the browser: an edited graph asks first.
     func close(_ then: @escaping () -> Void) {
@@ -576,6 +587,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
         model?.stop()
         asks?.stop()
+        popouts?.closeAll()
         nonisolated(unsafe) let d = document
         let scoped = scoped
         d.close { _ in
@@ -647,7 +659,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     func reportNow() {
         guard let doc else { return }
         var s: [String: JSONValue] = ["doc": .uint(doc), "ready": .bool(readyShown), "path": .string(document.fileURL.path), "title": .string(name),
-                                      "compact": .bool(compact), "panel": .bool(panelShown),
+                                      "compact": .bool(compact),
                                       "size": [.double(Double(view.bounds.width)), .double(Double(view.bounds.height))]]
         if let v = canvasView {
             s["faces"] = .int(Int64(v.canvas.faceCount))
@@ -680,7 +692,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                 let outs = (0..<L.outputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: true, pin: $0) }.map(pt)
                 let ins = (0..<L.inputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: false, pin: $0) }.map(pt)
                 let more = v.canvas.moreRect(face: f.nid).map { pt(CGPoint(x: $0.midX, y: $0.midY)) } ?? .null
-                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more]
+                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more,
+                                "title": pt(CGPoint(x: f.pos.x + L.size.width * 0.4, y: f.pos.y + 14))]
             }
             s["points"] = .object(points)
             // each face's rows' widgets (view points) and values, for UI tests of inline editing
@@ -710,7 +723,22 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                    "shown": .bool(paletteView?.presentingViewController != nil), "pending": pal.pendingText.map(JSONValue.string) ?? .null]
                 : ["open": false, "shown": .bool(paletteView?.presentingViewController != nil)]
         }
-        if let p = watched { s["watched"] = .object(p.describe) }
+        if let p = popouts { s["popouts"] = p.describe }
+        if let p = parameters { s["parameters"] = p.describe }
+        if let n = canvasView?.nameField.field {
+            s["nameField"] = ["text": .string(n.text ?? ""), "frame": [.double(Double(n.frame.minX)), .double(Double(n.frame.minY)), .double(Double(n.frame.width)), .double(Double(n.frame.height))]]
+        }
+        s["toolbar"] = .array(ToolbarWords.buttons(toolItems).map { ["id": .string($0.command ?? ""), "label": .string($0.label), "enabled": .bool($0.enabled), "checked": $0.checked.map(JSONValue.bool) ?? .null] })
+        s["crumbs"] = .array(crumbsBox.isHidden ? [] : crumbs.arrangedSubviews.compactMap { ($0 as? UIButton)?.configuration?.title }.map { .string($0) })
+        if let m = model {
+            // where named things are, in view points (UI tests aim with them)
+            let vp = canvasView?.canvas.viewport ?? Viewport()
+            s["frameTabs"] = .object(Dictionary(uniqueKeysWithValues: m.frames.items.map { f in
+                (f.id, JSONValue.array([.double(Double(vp.toView(CGPoint(x: f.pos.x + 40, y: f.pos.y - 11)).x)), .double(Double(vp.toView(CGPoint(x: f.pos.x + 40, y: f.pos.y - 11)).y))]))
+            }))
+            s["frames"] = .object(Dictionary(uniqueKeysWithValues: m.frames.items.map { ($0.id, JSONValue.string($0.title)) }))
+            s["focus"] = m.focus.map { .string($0.group) } ?? .null
+        }
         StatusFile.shared.window(doc, .object(s))
     }
 
@@ -794,7 +822,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         switch action {
-        case PadMenus.run, #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(actualSize(_:)), #selector(toggleWatched(_:)):
+        case PadMenus.run, #selector(zoomIn(_:)), #selector(zoomOut(_:)), #selector(actualSize(_:)):
             return model != nil
         case #selector(cut(_:)), #selector(copy(_:)), #selector(paste(_:)), #selector(delete(_:)), #selector(selectAll(_:)):
             return role(for: action)?.enabled ?? false

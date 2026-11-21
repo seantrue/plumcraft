@@ -172,14 +172,17 @@ public final class PalettePopover: NSObject, NSPopoverDelegate, NSSearchFieldDel
     public func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
 
     public func tableView(_ tableView: NSTableView, isGroupRow row: Int) -> Bool {
-        if case .header = rows[row] { true } else { false }
+        guard rows.indices.contains(row) else { return false }
+        if case .header = rows[row] { return true } else { return false }
     }
 
     public func tableView(_ tableView: NSTableView, shouldSelectRow row: Int) -> Bool {
-        if case .item = rows[row] { true } else { false }
+        guard rows.indices.contains(row) else { return false }
+        if case .item = rows[row] { return true } else { return false }
     }
 
     public func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
+        guard rows.indices.contains(row) else { return nil }
         switch rows[row] {
         case .header(let title):
             let t = NSTextField(labelWithString: title)

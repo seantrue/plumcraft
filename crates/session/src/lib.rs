@@ -555,12 +555,17 @@ impl Session {
                     // a new graph: its pop-outs followed the old one's ports
                     self.views.popouts.clear();
                     self.views.editors.clear();
+                    // and its parameters inspector was on one of its nodes (N4 slice 3)
+                    self.views.parameters = None;
                     viewer_cmds::clear(self);
                     doc_edits::clear(self);
                 } else {
                     self.run.on_edit(before, &self.graph, now);
                     view_cmds::prune(self);
                     viewer_cmds::prune(self);
+                    if self.views.parameters.as_ref().is_some_and(|n| self.graph.node(n).is_none()) {
+                        self.views.parameters = None;
+                    }
                     doc_edits::prune(self);
                 }
             }

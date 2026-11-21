@@ -147,6 +147,16 @@ pub fn request_rename(ctx: &egui::Context, gid: &GroupId, current: &str) {
     ctx.data_mut(|d| d.insert_temp(rename_window_id(), (gid.clone(), current.to_owned())));
 }
 
+/// Is the group's rename window open?
+pub fn rename_open(ctx: &egui::Context) -> bool {
+    ctx.data(|d| d.get_temp::<(GroupId, String)>(rename_window_id()).is_some())
+}
+
+/// Close the group's rename window (the core closed its name editor).
+pub fn close_rename(ctx: &egui::Context) {
+    ctx.data_mut(|d| d.remove::<(GroupId, String)>(rename_window_id()));
+}
+
 /// The rename window, when one was asked for. Returns the command it sends; it closes once
 /// it is sent, or on Esc or its ×.
 pub fn rename_window(ctx: &egui::Context, graph: &Graph) -> Vec<Action> {

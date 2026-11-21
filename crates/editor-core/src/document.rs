@@ -266,6 +266,14 @@ pub struct Document {
     pub palette: Option<crate::scene::Palette>,
     /// The row a field editor is open on (`row.edit`, N4 slice 2): the scene's `view.edit`.
     pub editing: Option<crate::inline::RowEdit>,
+    /// The latest reveal asked for (`canvas.reveal`, N4 slice 3): the scene's `view.reveal`.
+    pub reveal: Option<crate::scene::Reveal>,
+    /// Select mode (`canvas.selectMode`, N4 slice 3): the scene's `view.select`.
+    pub select_mode: bool,
+    /// A name edited in place (`name.edit`, N4 slice 3): the scene's `view.name`.
+    pub naming: Option<crate::naming::NameEdit>,
+    /// Which use of each net Go to Next Use goes to next (`canvas.reveal {net}`), by net id.
+    pub reveal_next: std::collections::HashMap<String, usize>,
     /// The latest snapshot, for readers on other threads (the C ABI's hot calls), set as it is made.
     pub snapshot_out: crate::geometry::SnapshotCell,
     /// The run animation ([`crate::run_anim`]): each node's body washed by its state while a run
@@ -344,6 +352,10 @@ impl Document {
             snapshot: std::sync::Arc::default(),
             drag: crate::gesture::DragCell::default(),
             palette: None,
+            select_mode: false,
+            reveal: None,
+            naming: None,
+            reveal_next: std::collections::HashMap::new(),
             editing: None,
             snapshot_out: crate::geometry::SnapshotCell::default(),
         }
@@ -792,6 +804,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.drag.set(None);
         d.palette = None;
         d.editing = None;
+        d.naming = None;
         let graph = d.session.graph();
         d.fit_owed = !graph.nodes.is_empty() || !graph.frames.is_empty();
     } else {
@@ -1198,7 +1211,14 @@ impl Shell for Document {
     }
     fn menu_facts(&self) -> crate::menu::Facts {
         let s = self.selection.get();
-        crate::menu::Facts { selected: s.nodes, selected_groups: s.groups, live: self.link.is_some(), caps: self.caps, ..crate::menu::Facts::default() }
+        crate::menu::Facts {
+            selected: s.nodes,
+            selected_groups: s.groups,
+            live: self.link.is_some(),
+            caps: self.caps,
+            select_mode: self.select_mode,
+            ..crate::menu::Facts::default()
+        }
     }
     fn menu_revision(&mut self) -> Option<&mut crate::menu::Revision> {
         Some(&mut self.menus)
@@ -1302,7 +1322,15 @@ impl Document {
             now: std::time::Instant::now(),
             app_text,
             editors,
-            view: crate::scene::View { fit: self.fit.clone(), palette: self.palette.clone(), edit: self.editing.clone() },
+            view: crate::scene::View {
+                fit: self.fit.clone(),
+                palette: self.palette.clone(),
+                edit: self.editing.clone(),
+                select: self.select_mode,
+                reveal: self.reveal.clone(),
+                windows: crate::windows::of(&self.session),
+                name: self.naming.clone(),
+            },
             geometry: Some(&self.geometry),
         }
     }

@@ -861,7 +861,7 @@ impl Snapshot {
                     net_key: (n.key.name.clone(), n.key.group.as_ref().map(|g| g.0.clone())),
                     wire: None,
                     face,
-                    rect: tag_rect(anchor, name, false),
+                    rect: tag_rect(anchor, if n.driver.text.is_empty() { name } else { n.driver.text.as_str() }, false),
                 });
             }
             for u in &n.uses {
@@ -1425,6 +1425,17 @@ impl Snapshot {
             .iter()
             .find(|t| if driver { t.part == part::DRIVER && t.net == item } else { t.part == part::USE && t.wire.as_ref().is_some_and(|w| w.0 == item) })?;
         Some((t.net_key.0.clone(), t.net_key.1.clone(), t.wire.as_ref().map(|w| w.1.clone())))
+    }
+
+    /// Net `name`'s (local to `group`) driver's tag, where the hit test takes it (N4 slice 3: where
+    /// its name is edited in place).
+    pub fn driver_tag_rect(&self, name: &str, group: Option<&str>) -> Option<Rect> {
+        self.tags.iter().find(|t| t.part == part::DRIVER && t.net_key.0 == name && t.net_key.1.as_deref() == group).map(|t| t.rect)
+    }
+
+    /// Open group `id`'s rect.
+    pub fn group_rect_by_id(&self, id: &str) -> Option<Rect> {
+        self.groups.iter().find(|g| g.id == id).map(|g| g.rect)
     }
 
     /// Frame `nid`: its id and rect.

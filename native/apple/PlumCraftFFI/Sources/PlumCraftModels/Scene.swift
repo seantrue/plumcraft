@@ -168,7 +168,58 @@ public struct View: Codable, Hashable, Sendable {
     public var palette: Palette?
     /// The row a field editor is open on (`row.edit`, N4 slice 2).
     public var edit: RowEdit?
-    public init(fit: Fit? = nil, palette: Palette? = nil, edit: RowEdit? = nil) { self.fit = fit; self.palette = palette; self.edit = edit }
+    /// Select mode is on (`canvas.selectMode`, N4 slice 3): a one-finger drag on empty canvas
+    /// draws a marquee. Absent while off.
+    public var select: Bool?
+    /// The document's windows (N4 slice 3): the parameters inspector and the pop-outs.
+    public var windows: Windows?
+    /// A node to reveal (`canvas.reveal`, N4 slice 3): centred once per `seq`.
+    public var reveal: Reveal?
+    /// A name edited in place (`name.edit`, N4 slice 3).
+    public var name: NameEdit?
+    public init(fit: Fit? = nil, palette: Palette? = nil, edit: RowEdit? = nil, select: Bool? = nil, windows: Windows? = nil, name: NameEdit? = nil) {
+        self.fit = fit; self.palette = palette; self.edit = edit; self.select = select; self.windows = windows; self.name = name
+    }
+    public var selectMode: Bool { select ?? false }
+}
+
+/// Reveal `node`, whose face is at `rect`, once per `seq`.
+public struct Reveal: Codable, Hashable, Sendable {
+    public var seq: UInt64
+    public var node: String
+    public var rect: Rect
+}
+
+/// The document's windows as the core keeps them (contract 12.5, N4 slice 3).
+public struct Windows: Codable, Hashable, Sendable {
+    /// The node the parameters inspector is open on.
+    public var parameters: String?
+    public var popouts: [PopoutWindow]?
+    public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil) { self.parameters = parameters; self.popouts = popouts }
+    public var list: [PopoutWindow] { popouts ?? [] }
+}
+
+/// One pop-out window: what it follows, its title, when to bring it forward (`raised` rises)
+/// and when to read its value again (`stamp` changes).
+public struct PopoutWindow: Codable, Hashable, Sendable {
+    public var id: UInt64
+    public var node: String
+    public var port: String
+    public var index: Int64
+    public var title: String
+    public var viewer: String?
+    public var raised: UInt64
+    public var stamp: UInt64
+}
+
+/// A name edited in place (`view.name`): what, its text, and where the field goes (graph units).
+public struct NameEdit: Codable, Hashable, Sendable {
+    /// `{node: {node}}`, `{frame: {frame}}`, … (the core's target, passed back unread).
+    public var target: JSONValue
+    public var text: String
+    public var hint: String?
+    public var label: String
+    public var rect: Rect
 }
 
 /// The row a field editor is open on: the node whose input it is (a member's on a collapsed
@@ -598,6 +649,8 @@ public struct Net: SceneItem {
 }
 
 public struct NetDriver: Codable, Hashable, Sendable {
+    /// The driver's tag: the net's name and how many inputs it feeds ("picture ×3", N4 slice 3).
+    public var text: String?
     public var from: PortRef
     public var face: String
     public var pin: Int

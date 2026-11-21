@@ -325,6 +325,10 @@ pub struct Item {
     /// Drawn strong (an engine in use).
     #[serde(skip_serializing_if = "is_false")]
     pub strong: bool,
+    /// An icon for a toolbar's button (N4 slice 3): a Lucide name from the core's set
+    /// (`icon.get`), which a platform may show as its own symbol for the same meaning.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
 }
 
 impl Item {
@@ -407,6 +411,8 @@ pub struct Facts {
     pub caps: Capabilities,
     /// The application's value editors: `(editor.kind, label, help)` (`node.editor`).
     pub editors: Vec<(String, String, String)>,
+    /// Select mode is on (`canvas.selectMode`, N4 slice 3): View › Select Mode's check mark.
+    pub select_mode: bool,
 }
 
 /// The menu bar's titles, in order.
@@ -462,7 +468,12 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
             items.extend(engine_items(session, facts));
         }
         "Edit" => items.extend(edit_items(facts)),
-        "View" => items.extend(view_items(session)),
+        "View" => items.extend(view_items(session, facts)),
+        "File" => {
+            // Share… (N4 slice 3) after Save As
+            let at = items.iter().position(|i| i.command.as_deref() == Some("graph.saveAs")).map_or(items.len(), |k| k + 1);
+            items.insert(at, share_item(session));
+        }
         "Node" => items.extend(node_items(session, facts)),
         "Run" => {
             // Run Selected (a canvas command: it runs the selection) after Run
@@ -570,8 +581,67 @@ fn run_selected_item(session: &Session, facts: &Facts) -> Item {
     }
 }
 
-/// View › Animation Speed and Fit.
-fn view_items(session: &Session) -> Vec<Item> {
+/// File › Share…: the graph's file to the platform's share sheet, once it has one.
+fn share_item(session: &Session) -> Item {
+    let item = Item::new("graph.share", "Share…", Some("graph.share"), None).hover("Send the graph's file with the platform's share sheet");
+    match session.path() {
+        Some(_) => item,
+        None => item.disabled(Some("save the graph first: Share sends its file".into())),
+    }
+}
+
+/// View › Select Mode: a one-finger drag on empty canvas draws a marquee (touch).
+fn select_mode_item(facts: &Facts) -> Item {
+    Item::new("canvas.selectMode", "Select Mode", Some("canvas.selectMode"), None)
+        .hover("A one-finger drag on empty canvas draws a marquee rather than panning (touch)")
+        .look(Look::Check, facts.select_mode)
+}
+
+/// The toolbar (N4 slice 3; `menu.get {context: {kind: "toolbar"}}`): every button a shell's
+/// toolbar shows, in order, with its label, icon, enabled state, reason and check mark from the
+/// core, so no shell keeps a button's state of its own. A separator divides groups.
+pub fn toolbar(session: &Session, facts: &Facts) -> Vec<Item> {
+    let icon = |mut i: Item, name: &str| {
+        i.icon = Some(name.to_owned());
+        i
+    };
+    let mut add = Item::new("canvas.palette", "Add Node", Some("canvas.palette"), None).hover("Add a node from the palette (Tab)");
+    add.shortcut = Some(Shortcut::key("Tab"));
+    let mut fit = Item::new("canvas.fit", "Fit", Some("canvas.fit"), None).hover("Fit the view to all nodes (F)");
+    fit.shortcut = Some(Shortcut::key("F"));
+    let run = command_specs()
+        .iter()
+        .find(|c| c.id == "run.start")
+        .map(|c| command_item(session, c))
+        .unwrap_or_else(|| Item::new("run.start", "Run", Some("run.start"), None));
+    let cancel = command_specs()
+        .iter()
+        .find(|c| c.id == "run.cancel")
+        .map(|c| command_item(session, c))
+        .unwrap_or_else(|| Item::new("run.cancel", "Cancel", Some("run.cancel"), None));
+    let mut run = run.hover("Run the graph");
+    run.label = "Run".into();
+    let mut cancel = cancel.hover("Cancel the run");
+    cancel.label = "Cancel".into();
+    let mut select = select_mode_item(facts);
+    select.label = "Select".into();
+    let mut share = share_item(session);
+    share.label = "Share".into();
+    vec![
+        icon(add, "plus"),
+        icon(fit, "scan"),
+        Item::separator(),
+        icon(run, "play"),
+        icon(run_selected_item(session, facts), "square-play"),
+        icon(cancel, "square"),
+        Item::separator(),
+        icon(select, "square-dashed-mouse-pointer"),
+        icon(share, "share"),
+    ]
+}
+
+/// View › Animation Speed, Fit and Select Mode.
+fn view_items(session: &Session, facts: &Facts) -> Vec<Item> {
     let speeds = crate::run_anim::SPEEDS
         .iter()
         .map(|&ms| {
@@ -585,7 +655,7 @@ fn view_items(session: &Session) -> Vec<Item> {
         .collect();
     let mut fit = Item::new("canvas.fit", "Fit", Some("canvas.fit"), None).hover("Fit the view to all nodes");
     fit.shortcut = Some(Shortcut::key("F"));
-    vec![Item::submenu("view.animationSpeed", "Animation Speed", speeds), fit]
+    vec![Item::submenu("view.animationSpeed", "Animation Speed", speeds), fit, select_mode_item(facts)]
 }
 
 /// Node › Add (by category, under a menu per engine with several) and Search….
@@ -595,7 +665,14 @@ fn node_items(session: &Session, facts: &Facts) -> Vec<Item> {
         if catalog.nodes.is_empty() { vec![Item::line(Look::Text, "No node types: the engine is not connected.")] } else { add_tree(catalog, facts.center) };
     let mut search = Item::new("canvas.palette", "Search…", Some("canvas.palette"), None);
     search.shortcut = Some(Shortcut::key("Tab"));
-    vec![Item::submenu("node.add", "Add", add), search]
+    // Node › Edit Parameters… (N4 slice 3): the inspector on the one node selected, ⌘I
+    let mut params = match facts.selected.as_slice() {
+        [one] if facts.selected_groups.is_empty() => Item::run("node.parameters", "Edit Parameters…", json!({"node": one})),
+        _ => Item::new("node.parameters", "Edit Parameters…", Some("node.parameters"), None).disabled(Some("select one node to edit its parameters".into())),
+    };
+    params.shortcut = Some(Shortcut::primary("I"));
+    params.hover = Some("Every input of the node, shown on its face or not".into());
+    vec![Item::submenu("node.add", "Add", add), search, params]
 }
 
 /// Nested menus of node types by category path, under a menu per engine first when several
@@ -773,6 +850,8 @@ pub enum Context {
     Net { net: plumcraft_graph::NetKey, to: Option<PortRef> },
     /// The empty canvas.
     Canvas,
+    /// The toolbar's buttons (N4 slice 3, [`toolbar`]).
+    Toolbar,
 }
 
 impl Context {
@@ -796,7 +875,18 @@ impl Context {
             "node" => Context::Node { node: NodeId::from(id("node")?.as_str()) },
             "proxy" => Context::Proxy { group: GroupId::from(id("group")?.as_str()) },
             "group" => Context::Group { group: GroupId::from(id("group")?.as_str()) },
-            "wire" => Context::Wire { to: port("to")?, bend: None },
+            "wire" => {
+                // where the press was (N4 slice 3): Add Bend Point puts the point there
+                let bend = match o.get("at") {
+                    None | Some(Value::Null) => None,
+                    Some(v) => {
+                        let a = v.as_array().filter(|a| a.len() == 2).ok_or("context.at must be [x, y]")?;
+                        let c = |v: &Value| v.as_f64().filter(|f| f.is_finite() && f.abs() <= 1.0e7).ok_or("context.at must be [x, y] numbers");
+                        Some(json!({"at": [c(&a[0])?, c(&a[1])?]}))
+                    }
+                };
+                Context::Wire { to: port("to")?, bend }
+            }
             "input" => Context::Input { port: port("port")? },
             "output" => Context::Output { port: port("port")? },
             "frame" => Context::Frame { frame: id("frame")? },
@@ -811,9 +901,10 @@ impl Context {
                 Context::Net { net: plumcraft_graph::NetKey { name, group }, to }
             }
             "canvas" => Context::Canvas,
+            "toolbar" => Context::Toolbar,
             other => {
                 return Err(format!(
-                    "context.kind {:?}: one of node, proxy, group, wire, input, output, frame, net, canvas",
+                    "context.kind {:?}: one of node, proxy, group, wire, input, output, frame, net, canvas, toolbar",
                     other.chars().take(32).collect::<String>()
                 ));
             }
@@ -831,6 +922,7 @@ impl Context {
             Context::Frame { .. } => "frame",
             Context::Net { .. } => "net",
             Context::Canvas => "canvas",
+            Context::Toolbar => "toolbar",
         }
     }
 }
@@ -863,18 +955,21 @@ pub fn context(parts: &Parts<'_>, facts: &Facts, cx: &Context) -> Vec<Item> {
         Context::Output { port } => vec![Item::run("run.watch", format!("Watch {}", port.port), json!({"node": port.node, "port": port.port}))],
         Context::Frame { frame } => frame_menu(parts.graph, frame),
         Context::Net { net, to } => net_menu(parts.graph, net, to.as_ref()),
-        Context::Canvas => canvas_menu(),
+        Context::Canvas => canvas_menu(facts),
+        // the toolbar needs the session's commands' states: `get` builds it
+        Context::Toolbar => Vec::new(),
     }
 }
 
 /// The canvas's own menu. Today a right-click on the canvas opens the palette, so the egui shell
 /// draws none; a touch shell shows these on a long press.
-fn canvas_menu() -> Vec<Item> {
+fn canvas_menu(facts: &Facts) -> Vec<Item> {
     vec![
         Item::new("canvas.palette", "Add Node…", Some("canvas.palette"), None),
         Item::new("edit.paste", "Paste", Some("edit.paste"), None).role(Role::Paste),
         Item::new("selection.all", "Select All", Some("selection.all"), None).role(Role::SelectAll),
         Item::new("canvas.fit", "Fit", Some("canvas.fit"), None),
+        select_mode_item(facts),
     ]
 }
 
@@ -895,11 +990,7 @@ fn node_menu(parts: &Parts<'_>, facts: &Facts, id: &NodeId) -> Vec<Item> {
     }
     out.push(Item::line(Look::Note, format!("{} ({})", id, node.kind)));
     let shown = plumcraft_session::node_title(graph, catalog, id);
-    let current = node.title.clone().unwrap_or_default();
-    out.push(
-        Item::local("rename.node", "Rename…", Some(json!({"node": id, "title": current, "placeholder": plumcraft_session::display_name(catalog, &node.kind)})))
-            .hover(format!("Title this node (now \"{shown}\")")),
-    );
+    out.push(Item::run("name.edit", "Rename…", json!({"node": id})).hover(format!("Title this node (now \"{shown}\")")));
     // how it shows, what it keeps, where it runs: for the selection when the node is in it
     let targets: Vec<NodeId> = if facts.selected.contains(id) { facts.selected.clone() } else { vec![id.clone()] };
     let row = |label: &str, items: Vec<Item>| Item { label: label.to_owned(), items, look: Look::Row, enabled: true, ..Item::default() };
@@ -1118,8 +1209,8 @@ fn parameters_menu(parts: &Parts<'_>, gid: &GroupId) -> Option<Item> {
         .promoted
         .iter()
         .map(|pr| {
-            Item::local("group.editPromoted", format!("{}…", pr.label), Some(json!({"group": gid, "label": pr.label})))
-                .hover("Rename, document, set its range or unpromote it")
+            Item::run("name.edit", format!("Rename {}…", pr.label), json!({"promoted": {"group": gid, "label": pr.label}}))
+                .hover("Rename this promoted parameter")
         })
         .collect();
     Some(Item::submenu(&format!("group.parameters:{gid}"), format!("Parameters of {}", grp.name), items))
@@ -1133,7 +1224,7 @@ pub fn group_menu(graph: &plumcraft_graph::Graph, gid: &GroupId) -> Vec<Item> {
 /// A group's own items: rename and ungroup (collapse, expand and enter are its header's buttons).
 fn group_items(gid: &GroupId, name: &str) -> Vec<Item> {
     vec![
-        Item::local("rename.group", "Rename…", Some(json!({"group": gid, "name": name}))).hover("Rename this group"),
+        Item::run("name.edit", "Rename…", json!({"group": gid})).hover(format!("Rename {name}")),
         Item::run("group.ungroup", "Ungroup", json!({"group": gid})).hover("Dissolve the group; its nodes stay"),
     ]
 }
@@ -1181,24 +1272,41 @@ fn wire_menu(parts: &Parts<'_>, to: &PortRef, bend: Option<&Value>) -> Vec<Item>
     ];
     let label = if w.slice.is_some() { "Edit Slice…" } else { "Slice…" };
     out.push(
-        Item::local("wire.slice", label, Some(json!({"to": to, "slice": w.slice})))
-            .hover("Take part of the list this wire carries: start:stop:step (1:-1:2, :-1) or an index (-1)"),
+        Item::run("name.edit", label, json!({"slice": to})).hover("Take part of the list this wire carries: start:stop:step (1:-1:2, :-1) or an index (-1)"),
     );
     if w.slice.is_some() {
         out.push(Item::run("wire.slice", "Clear Slice", json!({"to": to, "slice": null})));
     }
-    let bend_item = match bend {
-        Some(via) => Item::run("wire.route", "Add Bend Point", json!({"to": to, "via": via})),
-        None => Item::local("wire.route", "Add Bend Point", Some(json!({"to": to}))),
+    let at = bend.and_then(|b| b.get("at")).and_then(Value::as_array).and_then(|a| Some([a.first()?.as_f64()?, a.get(1)?.as_f64()?]));
+    let bend_item = match (at, bend) {
+        (Some(p), _) => {
+            // the point where the press was, among the wire's bend points in order along it
+            let start = parts.graph.node(&w.from.node).map_or([0.0, 0.0], |n| [f64::from(n.pos[0]), f64::from(n.pos[1])]);
+            let end = parts.graph.node(&to.node).map_or([1.0, 0.0], |n| [f64::from(n.pos[0]), f64::from(n.pos[1])]);
+            let dir = [end[0] - start[0], end[1] - start[1]];
+            let along = |q: [f64; 2]| (q[0] - start[0]) * dir[0] + (q[1] - start[1]) * dir[1];
+            let point = [p[0].round() as i32, p[1].round() as i32];
+            let mut via = w.via.clone();
+            let k = via.iter().position(|v| along([f64::from(v[0]), f64::from(v[1])]) > along(p)).unwrap_or(via.len());
+            via.insert(k, point);
+            Item::run("wire.route", "Add Bend Point", json!({"to": to, "via": via}))
+        }
+        (None, Some(via)) => Item::run("wire.route", "Add Bend Point", json!({"to": to, "via": via})),
+        (None, None) => {
+            // no point given: at the wire's middle, between its ends
+            let mut via = w.via.clone();
+            let ends = (parts.graph.node(&w.from.node).map(|n| n.pos), parts.graph.node(&to.node).map(|n| n.pos));
+            if let (Some(a), Some(b)) = ends {
+                via.push([((a[0] + b[0]) / 2.0) as i32 + 110, ((a[1] + b[1]) / 2.0) as i32 + 40]);
+            }
+            Item::run("wire.route", "Add Bend Point", json!({"to": to, "via": via}))
+        }
     };
     out.push(bend_item.hover("Bend the wire here: drag the point to shape it"));
     if !w.via.is_empty() {
         out.push(Item::run("wire.route", "Straighten", json!({"to": to, "via": []})).hover("Remove the bend points"));
     }
-    out.push(
-        Item::local("output.label", "Label All Uses…", Some(json!({"from": from})))
-            .hover("Draw every wire from this output as a net label, as a schematic does"),
-    );
+    out.push(Item::run("name.edit", "Label All Uses…", json!({"label": from})).hover("Draw every wire from this output as a net label, as a schematic does"));
     out.push(Item::run("wire.disconnect", "Disconnect", json!({"to": to})));
     out
 }
@@ -1208,7 +1316,7 @@ fn input_menu(parts: &Parts<'_>, at: &PortRef) -> Vec<Item> {
     let graph = parts.graph;
     if let Some(name) = graph.name_of_port(at) {
         return vec![
-            Item::local("rename.port", "Rename Port…", Some(json!({"name": name}))),
+            Item::run("name.edit", "Rename Port…", json!({"port": at})),
             Item::run("graph.port.unname", "Remove Name", json!({"name": name})).hover("The port stops being one of the graph's parameters; its value stays"),
         ];
     }
@@ -1219,7 +1327,7 @@ fn input_menu(parts: &Parts<'_>, at: &PortRef) -> Vec<Item> {
         .is_some_and(|r| r.port.has_widget());
     if has_widget && graph.wire_into(at).is_none() {
         vec![
-            Item::local("name.port", "Name This Port…", Some(json!({"port": at})))
+            Item::run("name.edit", "Name This Port…", json!({"port": at}))
                 .hover("Make it one of the graph's parameters, set from outside by name (run --set NAME=VALUE)"),
         ]
     } else {
@@ -1243,7 +1351,7 @@ pub fn frame_menu(graph: &plumcraft_graph::Graph, id: &str) -> Vec<Item> {
     colours.push(Item::run("frame.set", "Theme accent", json!({"frame": fid, "color": null})).look(Look::Selected, frame.color.is_none()));
     vec![
         Item::line(Look::Note, format!("frame {fid}")),
-        Item::local("rename.frame", "Rename…", Some(json!({"frame": fid, "title": frame.title}))),
+        Item::run("name.edit", "Rename…", json!({"frame": fid})),
         Item::submenu(&format!("frame.colour:{fid}"), "Colour", colours),
         Item::run("frame.remove", "Remove Frame", json!({"frame": fid})).hover("Its nodes stay"),
     ]
@@ -1257,21 +1365,24 @@ pub fn net_menu(graph: &plumcraft_graph::Graph, key: &plumcraft_graph::NetKey, t
         Some(g) => format!("{} (in group {})", key.name, g.name),
         None => key.name.clone(),
     };
-    let go = if to.is_some() { "Go to Driver" } else { "Go to Next Use" };
-    let mut out = vec![Item::line(Look::Note, format!("Net {describe}, from {from}")), Item::local("canvas.reveal", go, None)];
+    let go = match (to, net) {
+        (Some(_), Some(n)) => Item::run("canvas.reveal", "Go to Driver", json!({"node": n.from.node})),
+        _ => Item::run("canvas.reveal", "Go to Next Use", json!({"net": key.name, "group": key.group})),
+    };
+    let mut out = vec![Item::line(Look::Note, format!("Net {describe}, from {from}")), go];
     if let Some(n) = net {
         let watch = json!({"node": n.from.node, "port": n.from.port});
         out.push(Item::run("run.watch", "Watch", watch.clone()).hover("Show this net's value in the Watched panel"));
         out.push(Item::run("view.popout", "Pop Out", watch).hover("Show this net's value in a window of its own, updated by every run"));
     }
     out.push(Item::run("net.select", "Select Net", json!({"name": key.name, "group": key.group})).hover("Highlight every label of this net"));
-    out.push(Item::local("rename.net", "Rename Net…", None));
+    out.push(Item::run("name.edit", "Rename Net…", json!({"net": key.name, "group": key.group})));
     if let Some(to) = to {
         out.push(Item::run("wire.unlabel", "Draw as Wire", json!({"to": to})).hover("Draw this connection as a wire again"));
     }
     if to.is_none() || graph.net_wires(key).count() > 1 {
         let tos: Vec<&PortRef> = graph.net_wires(key).map(|w| &w.to).collect();
-        out.push(Item::local("wire.unlabelAll", "Draw All as Wires", Some(json!({"to": tos}))).hover("Draw every connection of this net as a wire again"));
+        out.push(Item::run("wire.unlabel", "Draw All as Wires", json!({"to": tos})).hover("Draw every connection of this net as a wire again"));
     }
     out
 }
@@ -1315,7 +1426,8 @@ pub fn get(session: &Session, facts: &Facts, params: &Value, revision: Option<&m
         }
         Some(c) => {
             let cx = Context::parse(c)?;
-            let items = serde_json::to_value(context(&Parts::of(session), facts, &cx)).map_err(|e| e.to_string())?;
+            let list = if cx == Context::Toolbar { toolbar(session, facts) } else { context(&Parts::of(session), facts, &cx) };
+            let items = serde_json::to_value(list).map_err(|e| e.to_string())?;
             Ok(json!({"context": cx.kind(), "items": items}))
         }
     }
@@ -1444,7 +1556,9 @@ mod tests {
         let f = Facts::default();
         let node = context(&Parts::of(&s), &f, &Context::Node { node: NodeId::from(a.as_str()) });
         assert!(find(&node, "node.duplicate").is_some_and(|i| i.params == Some(json!({"nodes": [a]}))));
-        assert!(find(&node, "rename.node").is_some_and(|i| i.command.is_none()), "a window the shell opens");
+        // a name is edited in place through the core (N4 slice 3), no longer the shell's own item
+        assert!(find(&node, "name.edit").is_some_and(|i| i.params == Some(json!({"node": a}))));
+        assert!(node.iter().flat_map(Item::walk).all(|i| !i.is_action() || i.command.is_some()), "every item the person can choose is a command");
         let wire = context(&Parts::of(&s), &f, &Context::Wire { to: PortRef::new(u.as_str(), "text"), bend: None });
         assert!(find(&wire, "wire.disconnect").is_some());
         assert!(context(&Parts::of(&s), &f, &Context::Node { node: NodeId::from("gone") }).is_empty());

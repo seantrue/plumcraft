@@ -170,8 +170,6 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         m.addItem(withTitle: "Zoom In", action: #selector(CanvasView.zoomIn(_:)), keyEquivalent: "+")
         m.addItem(withTitle: "Zoom Out", action: #selector(CanvasView.zoomOut(_:)), keyEquivalent: "-")
         m.addItem(withTitle: "Actual Size", action: #selector(CanvasView.actualSize(_:)), keyEquivalent: "0")
-        m.addItem(.separator())
-        m.addItem(withTitle: "Show Watched Panel", action: #selector(GraphWindowController.toggleWatched(_:)), keyEquivalent: "i").keyEquivalentModifierMask = [.command, .option]
         // Enter Full Screen is the system's: AppKit adds it to the View menu itself
     }
 

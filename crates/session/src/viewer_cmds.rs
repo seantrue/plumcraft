@@ -295,6 +295,13 @@ fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
     if to.is_some() || at.is_some() {
         tools_mut(s, role)?.zoom = Some(ZoomAsk { to, at });
     }
+    // a pop-out keeps a whole-view zoom (Fit, 1:1) as its state (N4 slice 3)
+    if let WatchRole::Popout(id) = role
+        && matches!(to, Some(Zoom::Fit | Zoom::OneToOne))
+        && let Some(o) = s.views.popouts.iter_mut().find(|o| o.id == id)
+    {
+        o.fit = to;
+    }
     let roles: Vec<WatchRole> = if matches!(role, WatchRole::Popout(_)) { vec![role] } else { vec![WatchRole::Panel, WatchRole::PinA, WatchRole::PinB] };
     let mut out = json!({"to": p.get("to"), "at": at.map(|(r, c)| [r, c])});
     if to == Some(Zoom::Fit) {
