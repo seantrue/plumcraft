@@ -149,8 +149,18 @@ public sealed record View
     public Reveal? Reveal { get; init; }
     /// <summary>A name edited in place (name.edit, N4 slice 3).</summary>
     public NameEdit? Name { get; init; }
+    /// <summary>Zoom the view by a factor or to a zoom, about its centre, once per `seq` (canvas.zoom, N5 slice 3).</summary>
+    public ZoomAsk? Zoom { get; init; }
 
     [JsonIgnore] public bool SelectMode => Select ?? false;
+}
+
+/// <summary>The scene's view.zoom: `by` a factor (Zoom In, Zoom Out) or `to` a zoom (Actual Size).</summary>
+public sealed record ZoomAsk
+{
+    public required ulong Seq { get; init; }
+    public double? By { get; init; }
+    public double? To { get; init; }
 }
 
 public sealed record Reveal

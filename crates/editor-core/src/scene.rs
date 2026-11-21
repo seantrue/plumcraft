@@ -138,6 +138,11 @@ pub struct View {
     /// `fit` is): the shell centres its view on `rect` once per `seq`. Left out until one is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reveal: Option<Reveal>,
+    /// The latest zoom asked for (`canvas.zoom`, N5 slice 3: Zoom In, Zoom Out and Actual Size
+    /// are commands, the view itself the shell's): the shell zooms its view by `by`, or to `to`,
+    /// about the view's centre, once per `seq`. Left out until one is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub zoom: Option<Zoom>,
     /// A name being edited in place (`name.edit`, N4 slice 3): the shell puts a text field over
     /// `rect`. Left out while none is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -209,6 +214,18 @@ pub struct Reveal {
     pub seq: u64,
     pub node: String,
     pub rect: [f64; 4],
+}
+
+/// Zoom the view by `by` (Zoom In 1.25, Zoom Out 0.8) or to `to` (Actual Size 1), about its
+/// centre, once per `seq` (`canvas.zoom`, N5 slice 3).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct Zoom {
+    pub seq: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub to: Option<f64>,
 }
 
 /// The selection, as the scene carries it.

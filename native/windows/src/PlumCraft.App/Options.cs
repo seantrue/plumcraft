@@ -2,7 +2,7 @@
 //
 //   PlumCraft.exe [graph.json ...]           each graph in its own window (none: one untitled window)
 //     --root DIR                  every root the core and its engines write under DIR (default
-//                                 %LOCALAPPDATA%\PlumCraft): store, marks, preferences, scratch, logs
+//                                 %LOCALAPPDATA%\Plummer): store, marks, preferences, scratch, logs
 //     --engine text|array         the engine the core starts on (default text; the core starts the
 //                                 others a graph uses, engines.auto)
 //     --control-port N --token-file F   open the core's control port on loopback (0: any free port),
@@ -23,7 +23,7 @@ namespace PlumCraft.App;
 public sealed class Options
 {
     public List<string> Paths = [];
-    public string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "PlumCraft");
+    public string Root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), CoreHost.AppName);
     public string Engine = "text";
     public int? ControlPort;
     public string? TokenFile;

@@ -255,6 +255,16 @@ pub struct Document {
     /// apps, where a watch with no window showed nothing): `run.watch {node, port}` from a tap on
     /// a pin or a Watch menu item ends with the value in a pop-out, brought forward if open.
     pub watch_pops_out: bool,
+    /// Each document is a window of the shell's (`platform.document_windows`, N5 slice 3): New
+    /// and Open make documents of their own ([`invoke::Host::document_windows`]), which the core
+    /// that owns this document opens from [`Document::opens`]; Quit is the core's, every document
+    /// in turn ([`Document::quit_asked`]).
+    pub document_windows: bool,
+    /// Documents New and Open asked for, for the core to open and the shell to show: a graph's
+    /// file or none (untitled), and who asked.
+    pub opens: Vec<(Option<PathBuf>, crate::asks::By)>,
+    /// Quit was asked for here, and who asked: the core closes every document in turn.
+    pub quit_asked: Option<crate::asks::By>,
     /// The shell's scratch folder (`dirs.scratch`, B42): where the core puts a temporary file it
     /// names itself (`document.autosave {scratch}`). None: the process's scratch root
     /// (`plumcraft_scratch`), as on a desktop.
@@ -306,6 +316,8 @@ pub struct Document {
     pub editing: Option<crate::inline::RowEdit>,
     /// The latest reveal asked for (`canvas.reveal`, N4 slice 3): the scene's `view.reveal`.
     pub reveal: Option<crate::scene::Reveal>,
+    /// The latest zoom asked for (`canvas.zoom`, N5 slice 3): the scene's `view.zoom`.
+    pub zoom: Option<crate::scene::Zoom>,
     /// Select mode (`canvas.selectMode`, N4 slice 3): the scene's `view.select`.
     pub select_mode: bool,
     /// A name edited in place (`name.edit`, N4 slice 3): the scene's `view.name`.
@@ -383,6 +395,9 @@ impl Document {
             look: None,
             look_seen: 0,
             watch_pops_out: false,
+            document_windows: false,
+            opens: Vec::new(),
+            quit_asked: None,
             scratch: None,
             effects: Effects::default(),
             startup: None,
@@ -408,6 +423,7 @@ impl Document {
             palette: None,
             select_mode: false,
             reveal: None,
+            zoom: None,
             naming: None,
             reveal_next: std::collections::HashMap::new(),
             editing: None,
@@ -1276,6 +1292,20 @@ impl Host for Document {
     fn closing(&self) -> bool {
         self.close_asked
     }
+    fn document_windows(&self) -> bool {
+        self.document_windows
+    }
+    fn open_document(&mut self, path: Option<PathBuf>, by: crate::asks::By) {
+        if self.document_windows {
+            self.opens.push((path, by));
+        }
+    }
+    fn quit_all(&mut self, by: crate::asks::By) -> bool {
+        if self.document_windows {
+            self.quit_asked = Some(by);
+        }
+        self.document_windows
+    }
     fn allow_uploads(&mut self, files: &[String]) {
         if let Some(link) = &self.link {
             link.conn.allow_uploads(files);
@@ -1457,6 +1487,7 @@ impl Document {
                 edit: self.editing.clone(),
                 select: self.select_mode,
                 reveal: self.reveal.clone(),
+                zoom: self.zoom.clone(),
                 windows: crate::windows::of(&self.session),
                 name: self.naming.clone(),
             },

@@ -4,7 +4,9 @@
        N5's gate): its folder runs as it is. Windows 10 1809 and later, ARM64 and x64. -->
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <AssemblyName>PlumCraft</AssemblyName>
+    <AssemblyName>Plummer</AssemblyName>
+    <Product>Plummer</Product>
+    <AssemblyTitle>Plummer</AssemblyTitle>
     <RootNamespace>PlumCraft.App</RootNamespace>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>

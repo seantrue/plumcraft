@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — N5 slice 3: the Windows app edits, and is Plummer (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** The slice plan and its cards as before; the no-exceptions rule that every user action is a core command ("Do it. No exceptions to the rule. Unless I change my mind."); and the rename: "New app should be plummer instead of plumcraft", "2, Plummer will be the new base app/platform".
+
+**Built (agent).** Every canvas gesture goes to the core as a gesture and the app draws the reply: moving faces with the core's previews, wiring with the core's live route and target feedback, a drop on empty canvas opening the palette, double clicks by the core's rule, touch pan and pinch, a native palette flyout, native field editors placed over the core's rows, and keyboard focus on the canvas. Slice 2's shell-side actions are now the core's: a `platform.document_windows` flag makes New, Open, Exit and close into core commands whose feed tells the app which window to show or close, and a `canvas.zoom` command carries the zoom keys. The close prompt says "close the window" and not "quit". The app declares it cannot share, so the core disables Share. The app is renamed Plummer (`Plummer.exe`, `com.swapwizard.plummer.windows`); projects, namespaces and the core keep their names.
+
+**B51, in slice 2's code, found and fixed.** Every mouse click and drag on the canvas did nothing: releasing pointer capture raised a capture-lost event that cancelled the press. Slice 2's report had put the missing clicks down to the VM; that was wrong, and nobody had clicked the app by hand to find out. **B52, open:** a kit test that sends 500 requests at once hit the core's limit of held requests once.
+
+**Gate.** The conformance suite, now 53 cases, passes against the app from the C# runner on the Windows VM (ARM64, and x64 under emulation), from the Swift runner on the Mac over a port, and against the Mac app. `dotnet test` 41 of 41 in three of four runs (B52 in the fourth). On the Mac, nextest 1,569 of 1,570 (the known baseline failure), Python 224, `swift test` passes. The Linux gate ran before the merge. Everything was rerun after the Mac's disk filled mid-slice and after a usage limit stopped the agent.
+
+**Defects in the agent's own work, caught by running:** a field that committed when the window lost activation; Enter in the palette picking before the search updated; Delete unbound; a script step that raced the scene; a Rust test answering a stale prompt; the Swift schema test failing on the new `view.zoom` field.
+
+**Not verified.** Input was injected inside the VM (mouse, keys, synthetic pen and touch); no physical mouse, pen, touch screen or touchpad has been used, and no person has clicked through it. Frame, group and bend-point drags, scrubbing, autoscroll and the colour and multi-line editors were not driven in the app. Nothing ran on Windows 10 or on a machine with a GPU, so the frame numbers (about 58 fps at 500 nodes, software-rendered at 64 Hz) do not judge the budget.
+
 ### 2026-11-21 — The native apps become Plummer; Apple and egui decisions applied (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** On the egui questions: "1. Disable 2. Accept. 3. Close". On the Apple cards: "Apple: 1A; 2B; 3C "New app should be plummer instead of plumcraft"; 4A; 5A; 6A; 7A; 8A". Asked whether that renamed the name, the ids or both: "2, Plummer will be the new base app/platform". On the ids, after the controller proposed two forms of its own: "I'd prefer to get com.plummer...", then "I own swapwizard.com, so how about com.swapwizard.plummer.pad and .mac?". The name, the ids and the choice of two ids over one are the maintainer's; the controller's two interim proposals were not used.

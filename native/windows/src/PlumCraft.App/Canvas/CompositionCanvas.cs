@@ -77,7 +77,7 @@ sealed class WireEntry(ShapeVisual visual, CompositionSpriteShape shape)
     public WRect Bounds;
 }
 
-public sealed class CompositionCanvas
+public sealed partial class CompositionCanvas
 {
     public DocumentModel Model { get; }
     public CanvasLink Link { get; }
@@ -192,6 +192,8 @@ public sealed class CompositionCanvas
     void Apply(SceneChange c)
     {
         if (c.Full && FirstDrawnMs is null) CoreHost.Mark("first_scene");
+        // a move kept at its drop until the scene has it: the scene has it now
+        NoteMoveArrived(c);
         foreach (var nid in c.Removed) Remove(nid);
         foreach (var nid in c.Changed)
         {
@@ -228,6 +230,7 @@ public sealed class CompositionCanvas
         if (c.SelectionChanged || c.Full) UpdateSelection();
         UpdateWashes(c.Changed);
         if (c.ViewChanged || c.Full) HonourFit();
+        if (c.ViewChanged || c.Full) HonourZoom();
         Cull(true);
         Pump();
         if (Idle)
@@ -413,9 +416,9 @@ public sealed class CompositionCanvas
             if (e.Visual.IsVisible != show) e.Visual.IsVisible = show;
             if (!show) hidden++;
         }
-        foreach (var w in wires.Values)
+        foreach (var (nid, w) in wires)
         {
-            var show = !Culling || Meets(w.Bounds, keep);
+            var show = (!Culling || Meets(w.Bounds, keep)) && nid != pickedWire && !w.Bounds.IsEmpty;
             if (w.Visual.IsVisible != show) w.Visual.IsVisible = show;
             if (!show) hidden++;
         }
@@ -680,7 +683,8 @@ public sealed class CompositionCanvas
         var L = e.Layout;
         float w = L?.W ?? 220, h = L?.H ?? 160;
         e.Visual.Size = new Vector2(w + 2 * m, h + 2 * m);
-        e.Visual.Offset = new Vector3((float)e.Face.Pos.X - m, (float)e.Face.Pos.Y - m, 0);
+        var off = moving.ContainsKey(e.Nid) ? moveOffset : Vector2.Zero;
+        e.Visual.Offset = new Vector3((float)e.Face.Pos.X - m + off.X, (float)e.Face.Pos.Y - m + off.Y, 0);
         if (e.Wash is { } wash && L is not null)
         {
             wash.Offset = new Vector3(m, m + L.Header, 0);
@@ -922,7 +926,7 @@ public sealed class CompositionCanvas
         e.Visual.Offset = new Vector3(origin, 0);
         e.Visual.Size = new Vector2((float)b.Width + 12, (float)b.Height + 12);
         e.Bounds = new WRect(origin.X, origin.Y, b.Width + 12, b.Height + 12);
-        e.Visual.IsVisible = true;
+        e.Visual.IsVisible = pickedWire != w.Nid;
     }
 
     /// <summary>A frame: its body washed in its colour, an outline, and its title on a tab above.</summary>

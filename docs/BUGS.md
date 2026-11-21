@@ -50,6 +50,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the Mac app's conformance runs (`--scratch-state`, scratch store, prefs, caches and logs) left `~/Library/Preferences/com.swapwizard.plummer.mac.plist`, the new id's real defaults file, created at the time of the runs; it holds an empty dictionary. The old id's file, `com.plumcraft.mac.plist`, holds keys such as `NSWindow Frame PlumCraft Pop-Out count.count`, the pop-out windows' remembered frames (`Popouts.swift`'s `setFrameAutosaveName`; the Settings window does the same), which look like they came from earlier scripted runs. So `--scratch-state` keeps the core's files in scratch but not AppKit's defaults. Not fixed: a scripted launch could skip frame autosave names, or run in a defaults suite of its own. Not checked: which call created the empty file.
 - Issue: none
 
+### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
+
+- Reported: 2026-11-21
+- Report: found by the gate of N5 slice 3 (`native/n5-editing`); recorded under the standing "record bugs"
+- Context: `native/windows/tests/PlumCraft.Kit.Tests/CoreTests.cs:149`, the Windows kit's test that sends 500 requests at once to a core just opened. In one of four `dotnet test` runs on the Windows 11 ARM64 test machine (40 of 41 passed) the core refused one with "busy: the document's engine is still connecting": the C ABI core holds at most 256 requests for a document whose engine hasn't connected yet (`MAX_HELD`, `crates/ffi/src/core.rs`), and the test doesn't wait for the engine before sending them. The run before and the two after passed 41 of 41. Not changed: the test or the limit, whichever is wrong, is for the maintainer.
+- Issue: none
+
 ## Closed, not reproduced
 
 Closed without a fix: the maintainer decided they need no more work unless they are seen again.
@@ -64,6 +71,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B51. The Windows app dropped every mouse click and mouse drag on the canvas
+
+- Reported: 2026-11-21
+- Report: found by N5 slice 3's input probe (`native/n5-editing`); recorded under the standing "record bugs"
+- Context: slice 2's report said a mouse click injected on the Windows test machine "did not arrive" after the machine restarted, while hover did. With the injector now logging what it can see (its session and integrity level and the app's, both session 1 at High; the foreground window; `GetAsyncKeyState` after each button), the presses and releases did arrive: the app's own status listed `pressed Mouse … L` and `released Mouse …`, and nothing followed. Touch and pen worked.
+- Cause: `CanvasView.OnReleased` released the pointer capture before handling the release, and `ReleasePointerCapture` raises `PointerCaptureLost` at once, whose handler took it as a cancel and cleared the press; the release that followed found no press. Every mouse click and drag on the canvas did nothing (right clicks, through `ContextRequested`, still worked).
+- Fixed: 2026-11-21, branch `native/n5-editing`: the release is handled first and the capture let go after, and a capture loss the view asked for (`releasing`) is not a cancel. Verified on the test machine with real input through `SendInput`: a click on empty canvas ran `selection.clear`, a drag of a face `edit.move` ("Move Node"), a drag from a pin `wire.connect`, a double click on empty canvas the palette, a click on a row the field editor (`claude-debug/native-n5/r3-probe-run2.txt` and later). Before the fix the same input ran nothing (`r3-probe-run1.txt`).
 
 ### B45. In the egui editor, hiding a row from a node's face shifts the rows, and an edit on the face changes the wrong port
 

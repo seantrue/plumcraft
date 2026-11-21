@@ -4,10 +4,12 @@
 // what the core says or what isn't built yet, and a status line (the engine, the document, the zoom).
 //
 // Everything the person does here is a core command by id (contract 12.13, the maintainer: "No
-// exceptions to the rule"); what stays the shell's: the view's pan and zoom (Ctrl+= Ctrl+- Ctrl+0 among
-// them, when the core gives those keys to nothing), and the platform's document windows: New and Open
-// make a window of their own (Open's picker is the shell's, as the Mac's NSDocumentController), and Exit
-// closes each window through the core's `app.quit`.
+// exceptions to the rule"; N5 slice 3 moved the last of slice 2's shell-side actions into the core): New
+// and Open are the core's graph.new and graph.open, which open a document and tell the app to show it
+// (the feed's `window` change, `platform.document_windows`); Exit is the core's app.quit, which closes
+// every document in turn; the close button is the core's document.close for the person (its prompt says
+// close, not quit); About shows app.about's words; the zoom keys are canvas.zoom. What stays the shell's:
+// the view's pan and zoom by wheel, drag and pinch, and the window's own chrome.
 
 using System.Numerics;
 using System.Text.Json;
@@ -37,6 +39,7 @@ public sealed class DocWindow : Window
     readonly Asks asks;
     readonly Popouts popouts;
     readonly Pictures pictures;
+    public Editors Editors { get; }
     readonly Grid root = new();
     readonly Grid titleBar = new() { Height = 32 };
     readonly TextBlock titleText = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Margin = new Thickness(12, 0, 0, 0) };
@@ -61,7 +64,7 @@ public sealed class DocWindow : Window
         First = first;
         Hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
         Model = new DocumentModel(core, doc);
-        Title = "PlumCraft";
+        Title = CoreHost.AppName;
         ExtendsContentIntoTitleBar = true;
         SystemBackdrop = new MicaBackdrop();
         var o = CoreHost.Options;
@@ -73,6 +76,7 @@ public sealed class DocWindow : Window
         }
 
         CanvasView = new CanvasView(Model);
+        Editors = new Editors(this, CanvasView, Model);
         pictures = new Pictures(Model);
         menus = new Menus(menuBar, Dispatch);
         asks = new Asks(this, Model);
@@ -93,12 +97,46 @@ public sealed class DocWindow : Window
         AppWindow.Closing += async (_, e) =>
         {
             if (closingFromCore) return;
-            // the close button is the core's app.quit for this document (it asks about unsaved work)
+            // the close button is the core's document.close for the person (it asks about unsaved work,
+            // in words that say the window closes)
             e.Cancel = true;
             await CloseAsPersonAsync();
         };
         CompositionTarget.Rendering += OnRendering;
+        // the canvas has the keyboard when the window is activated (not the menu bar's first item)
+        Activated += (_, e) =>
+        {
+            IsActive = e.WindowActivationState != WindowActivationState.Deactivated;
+            if (e.WindowActivationState != WindowActivationState.Deactivated)
+                DispatcherQueue.TryEnqueue(Microsoft.UI.Dispatching.DispatcherQueuePriority.Low, FocusCanvas);
+        };
         NoteStatus();
+    }
+
+    /// <summary>A new document's window: cascaded from the window it was asked in, kept inside that display's
+    /// work area (back to its top left when a cascade would leave it).</summary>
+    public void PlaceFrom(DocWindow? from)
+    {
+        if (from is null) return;
+        var o = from.AppWindow.Position;
+        var size = AppWindow.Size;
+        var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(from.AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest).WorkArea;
+        int x = o.X + 32, y = o.Y + 32;
+        if (x + size.Width > area.X + area.Width || y + size.Height > area.Y + area.Height) { x = area.X + 16; y = area.Y + 16; }
+        x = Math.Max(area.X, x);
+        y = Math.Max(area.Y, y);
+        AppWindow.Move(new Windows.Graphics.PointInt32 { X = x, Y = y });
+    }
+
+    /// <summary>The window has the system's activation (focus lost to another window isn't a field's commit).</summary>
+    public bool IsActive { get; private set; } = true;
+
+    /// <summary>The canvas takes the keyboard (the window activated, a menu or flyout closed), unless an editor has it.</summary>
+    public void FocusCanvas()
+    {
+        if (closed || Editors.Palette.IsOpen || Editors.Rows.Open is not null || Editors.Names.Open is not null) return;
+        if (Content?.XamlRoot is { } xr && FocusManager.GetFocusedElement(xr) is TextBox or ComboBox) return;
+        CanvasView.Focus(FocusState.Programmatic);
     }
 
     // ---------------- the window's parts ----------------
@@ -177,11 +215,26 @@ public sealed class DocWindow : Window
         CanvasView.ContextMenu += (p, items) =>
         {
             var f = menus.Flyout(items);
+            f.Closed += (_, _) => { LastMenu = 0; FocusCanvas(); NoteStatus(); };
             f.ShowAt(CanvasView, new FlyoutShowOptions { Position = p });
             LastMenu = items.Count;
             NoteStatus();
         };
         CanvasView.Failed += e => Banner(e, true);
+        CanvasView.InputSeen += NoteStatus;
+        CanvasView.Drag.Ended += (_, _) => NoteStatus();
+        CanvasView.EscapeUnhandled += async () =>
+        {
+            // Escape: a run in flight cancelled (run.cancel, as 12.3 binds it), else a net's selection cleared
+            if (FindItem("run.cancel") is { Enabled: true } cancel) await Dispatch(cancel, true);
+            else if (Model.Selection.Net is not null) await Run("net.select", Jsonv.EmptyObject);
+            else if (Model.Selection.Nodes.Count > 0 || Model.Selection.Groups.Count > 0) await Run("selection.clear", Jsonv.EmptyObject);
+        };
+        CanvasView.BackspacePressed += async () =>
+        {
+            if (FindItem("edit.delete") is { } del) { if (del.Enabled) await Dispatch(del, true); }
+            else await Run("edit.delete", Jsonv.EmptyObject);
+        };
         CanvasView.Canvas.Trouble += e => Banner(e, true);
         var viewNoted = DispatcherQueue.CreateTimer();
         viewNoted.Interval = TimeSpan.FromMilliseconds(300);
@@ -208,7 +261,7 @@ public sealed class DocWindow : Window
         // the document's name, as Windows titles a document window ("name - App"); the core's longer
         // title (with its engines) is in the status line's engine part
         var name = s.Name.Length > 0 ? s.Name : s.Path is { } p ? Path.GetFileName(p) : "Untitled";
-        Title = $"{(s.Dirty ? "*" : "")}{name} - PlumCraft";
+        Title = $"{(s.Dirty ? "*" : "")}{name} - {CoreHost.AppName}";
         titleText.Text = Title;
         stateText.Text = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
         NoteStatus();
@@ -296,22 +349,30 @@ public sealed class DocWindow : Window
         ["node.editor"] = "value editors",
         ["viewer.compare"] = "Compare",
         ["viewer.pin"] = "Compare",
-        ["canvas.palette"] = "the node palette",
-        ["name.edit"] = "renaming in place",
-        ["row.edit"] = "editing a value on its face",
     };
+
+    /// <summary>The menu model's item for a command (the menu bar's, then the toolbar's).</summary>
+    MenuItem? FindItem(string command) =>
+        menus.Model.SelectMany(m => m.Flatten()).FirstOrDefault(i => i.Command == command && i.Params is null)
+        ?? Model.Toolbar.FirstOrDefault(i => i.Command == command);
+
+    async Task Run(string command, System.Text.Json.JsonElement p)
+    {
+        try { await Model.RunAsync(command, p); }
+        catch (Exception e) { Banner($"{command}: {e.Message}", true); }
+    }
 
     static string? NotBuilt(IEnumerable<CommandRun> ran)
     {
         foreach (var c in ran)
-            if (c.Ok && Unbuilt.TryGetValue(c.Command, out var what)) return $"That opens {what}, which isn't in PlumCraft for Windows yet.";
+            if (c.Ok && Unbuilt.TryGetValue(c.Command, out var what)) return $"That opens {what}, which isn't in {CoreHost.AppName} for Windows yet.";
         return null;
     }
 
     void NoteUnbuiltWindows(DocumentWindows w)
     {
-        if (w.Parameters is not null) Banner("The parameters inspector isn't in PlumCraft for Windows yet.");
-        else if (w.Settings is not null) Banner("Settings isn't in PlumCraft for Windows yet.");
+        if (w.Parameters is not null) Banner($"The parameters inspector isn't in {CoreHost.AppName} for Windows yet.");
+        else if (w.Settings is not null) Banner($"Settings isn't in {CoreHost.AppName} for Windows yet.");
     }
 
     /// <summary>Run a model item for the person at this window (the menu bar, a context menu, the toolbar,
@@ -321,24 +382,20 @@ public sealed class DocWindow : Window
         if (it.Command is not { } command) return;
         if (Unbuilt.TryGetValue(command, out var what))
         {
-            Banner($"{it.Label.Replace("…", "", StringComparison.Ordinal)} isn't in PlumCraft for Windows yet ({what}).");
+            Banner($"{it.Label.Replace("…", "", StringComparison.Ordinal)} isn't in {CoreHost.AppName} for Windows yet ({what}).");
             return;
         }
         try
         {
             switch (command)
             {
-                case "app.quit":
-                    CoreHost.QuitAll();
-                    return;
-                case "graph.new" when it.Params is null:
-                    await CoreHost.OpenWindowAsync(null);
-                    return;
-                case "graph.open" when it.Params is null:
-                    await OpenAsync();
-                    return;
+                // the core's words for About, shown in the platform's dialog
                 case "app.about":
                     await AboutAsync();
+                    return;
+                // Node › Search…, Tab, Add Node: the palette at the pointer (the core's default is the view's centre)
+                case "canvas.palette" when it.Params is null:
+                    await Editors.OpenPaletteAsync();
                     return;
             }
             await Model.ActivateAsync(it, person);
@@ -347,26 +404,6 @@ public sealed class DocWindow : Window
         {
             Banner($"{it.Label}: {e.Message}", true);
         }
-    }
-
-    /// <summary>File › Open: the system's picker, then the graph in a window of its own, or in this one
-    /// while it is an untouched new graph (as the Mac's document controller does).</summary>
-    async Task OpenAsync()
-    {
-        var picker = new FileOpenPicker { SuggestedStartLocation = PickerLocationId.DocumentsLibrary, ViewMode = PickerViewMode.List };
-        WinRT.Interop.InitializeWithWindow.Initialize(picker, Hwnd);
-        picker.FileTypeFilter.Add(".json");
-        picker.FileTypeFilter.Add(".zip");
-        Picking = true;
-        NoteStatus();
-        Windows.Storage.StorageFile? f;
-        try { f = await picker.PickSingleFileAsync(); }
-        finally { Picking = false; NoteStatus(); }
-        if (f is null) return;
-        if (Model.State.Path is null && !Model.State.Dirty && Model.Faces.Count == 0)
-            await Model.RunAsync("graph.open", Jsonv.Object(("path", Jsonv.Of(f.Path)), ("discard", Jsonv.True)));
-        else
-            await CoreHost.OpenWindowAsync(f.Path);
     }
 
     /// <summary>The file picker is showing (scripts screenshot it).</summary>
@@ -384,7 +421,7 @@ public sealed class DocWindow : Window
         if (a.Get("engine").Str() is { Length: > 0 } e) lines.Add($"Engine: {e}");
         var d = new ContentDialog
         {
-            Title = a.Get("title").Str() ?? "PlumCraft", XamlRoot = Content.XamlRoot, RequestedTheme = ContentTheme,
+            Title = a.Get("title").Str() ?? CoreHost.AppName, XamlRoot = Content.XamlRoot, RequestedTheme = ContentTheme,
             Content = new TextBlock { Text = string.Join("\n", lines), IsTextSelectionEnabled = true }, CloseButtonText = "OK",
         };
         await d.ShowAsync();
@@ -394,32 +431,46 @@ public sealed class DocWindow : Window
 
     async void OnKey(object sender, KeyRoutedEventArgs e)
     {
-        // a text field has the keyboard: plain keys are its own
+        if (e.Handled) return;
+        // a text field has the keyboard: plain keys are its own, and so are the edit shortcuts (12.2)
         var focused = FocusManager.GetFocusedElement(Content.XamlRoot);
-        var plain = focused is not (TextBox or PasswordBox or RichEditBox);
-        if (await menus.KeyAsync(e, plain)) return;
-        // the view's own keys, when the core gives them to nothing: Ctrl+= Ctrl+- Ctrl+0
-        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
-        if (!ctrl) return;
-        var c = CanvasView.Canvas;
-        switch ((int)e.Key)
+        var text = focused is TextBox or PasswordBox or RichEditBox or ComboBox or AutoSuggestBox;
+        if (menus.Match(e.Key, !text) is { } it)
         {
-            case 187 or (int)VirtualKey.Add: c.ZoomBy(1.25f, c.ViewSize / 2); e.Handled = true; break;
-            case 189 or (int)VirtualKey.Subtract: c.ZoomBy(0.8f, c.ViewSize / 2); e.Handled = true; break;
-            case (int)VirtualKey.Number0: c.ZoomTo(1); e.Handled = true; break;
+            if (text && (it.Command?.StartsWith("edit.", StringComparison.Ordinal) == true || it.Command == "selection.all")) return;
+            e.Handled = true;
+            // a shortcut fired in a field runs after the field commits
+            if (text) await Editors.CommitOpenFieldAsync();
+            if (it.Enabled) await Dispatch(it, true);
+            return;
+        }
+        // the zoom keys, when the core's menus give them to nothing: the core's canvas.zoom (N5 slice 3)
+        var ctrl = (Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control) & Windows.UI.Core.CoreVirtualKeyStates.Down) != 0;
+        if (!ctrl || text) return;
+        System.Text.Json.JsonElement? zoom = (int)e.Key switch
+        {
+            187 or (int)VirtualKey.Add => Jsonv.Object(("by", Jsonv.Of(1.25))),
+            189 or (int)VirtualKey.Subtract => Jsonv.Object(("by", Jsonv.Of(0.8))),
+            (int)VirtualKey.Number0 or (int)VirtualKey.NumberPad0 => Jsonv.Object(("to", Jsonv.Of(1.0))),
+            _ => null,
+        };
+        if (zoom is { } z)
+        {
+            e.Handled = true;
+            await Run("canvas.zoom", z);
         }
     }
 
     // ---------------- closing ----------------
 
-    /// <summary>Close as the person would (the close button, Exit): the core's app.quit for this document,
-    /// which asks about unsaved changes; whether it closed.</summary>
+    /// <summary>Close as the person would (the close button): the core's document.close for the person,
+    /// which asks about unsaved changes (Save, Don't Save, Cancel: "close the window"); whether it closed.</summary>
     public async Task<bool> CloseAsPersonAsync()
     {
         if (closed) return true;
         try
         {
-            await Model.InvokeAsync("app.quit", person: true);
+            await Model.Core.ResultAsync("document.close", Jsonv.Object(("doc", Jsonv.Of(Doc)), ("by", Jsonv.Of("person"))));
         }
         catch (Exception e)
         {
@@ -471,7 +522,9 @@ public sealed class DocWindow : Window
             ["selected"] = Model.Selection.Nodes.Count, ["gesture"] = LastGesture, ["pointer"] = new JsonArray([.. CanvasView.Seen.Select(x => (JsonNode)x)]), ["engine"] = Model.Engine.Label, ["dirty"] = Model.State.Dirty,
             ["banner"] = banner.IsOpen ? banner.Message : null, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
             ["contextMenu"] = LastMenu, ["popouts"] = popouts.Describe(), ["menus"] = menus.Model.Count, ["toolbar"] = toolbar.PrimaryCommands.Count,
-            ["drawOnUi"] = c.DrawOnUiThread, ["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches },
+            ["drag"] = CanvasView.DragState, ["fits"] = CanvasView.TargetFits, ["note"] = CanvasView.LastNote, ["editors"] = Editors.Describe(),
+            ["focus"] = (Content?.XamlRoot is { } xr ? FocusManager.GetFocusedElement(xr)?.GetType().Name : null), ["undo"] = Model.State.Undo,
+            ["wires"] = Model.Wires.Count, ["drawOnUi"] = c.DrawOnUiThread, ["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches },
         };
         CoreHost.Status.Window(Doc, o);
     }

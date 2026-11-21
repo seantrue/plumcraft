@@ -2985,6 +2985,17 @@
         "windows": {
           "$ref": "#/$defs/Windows",
           "description": "The document's windows (contract 12.5's `windows` domain, carried in the scene's view\nsince N4 slice 3): the parameters inspector and the pop-outs. Left out while none is open."
+        },
+        "zoom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Zoom"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The latest zoom asked for (`canvas.zoom`, N5 slice 3: Zoom In, Zoom Out and Actual Size\nare commands, the view itself the shell's): the shell zooms its view by `by`, or to `to`,\nabout the view's centre, once per `seq`. Left out until one is."
         }
       },
       "type": "object"
@@ -3289,6 +3300,34 @@
       "required": [
         "at",
         "from"
+      ],
+      "type": "object"
+    },
+    "Zoom": {
+      "description": "Zoom the view by `by` (Zoom In 1.25, Zoom Out 0.8) or to `to` (Actual Size 1), about its\ncentre, once per `seq` (`canvas.zoom`, N5 slice 3).",
+      "properties": {
+        "by": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "seq": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "to": {
+          "format": "double",
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "seq"
       ],
       "type": "object"
     }
