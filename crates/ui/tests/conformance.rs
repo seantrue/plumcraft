@@ -27,7 +27,12 @@ fn linked(make: fn() -> plumcraft_engine::Engine) -> Link {
 }
 
 fn editor(make: fn() -> plumcraft_engine::Engine, pack: &'static str) -> Egui {
-    let app = EditorApp::new(Session::new(make().schema())).with_link(linked(make));
+    // the suite's engines folder, read and offered as the application offers the person's own
+    // (B71: Reload Engine List and Install Engine… are the core's)
+    let launcher = plumcraft_editor_core::engines::Launcher { folder: Some(conformance::suite_engines_folder()), ..Default::default() };
+    assert_eq!(launcher.load_manifests(), Vec::<String>::new());
+    let mut app = EditorApp::new(Session::new(make().schema())).with_launcher(&launcher).with_link(linked(make));
+    app.session.engines.choices = launcher.choices();
     let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_ui_state(|ui, app: &mut EditorApp| app.show(ui), app);
     h.run_steps(6);
     Egui(h, pack)
@@ -68,7 +73,7 @@ impl Driver for Egui {
     }
     /// The engine it was linked to. Its control port has no `media.get`.
     fn has(&self, capability: &str) -> bool {
-        capability.strip_prefix("engine:") == Some(self.1)
+        capability == "manifests" || capability.strip_prefix("engine:") == Some(self.1)
     }
     /// A frame, and a moment for the engine's events to arrive.
     fn pause(&mut self) {

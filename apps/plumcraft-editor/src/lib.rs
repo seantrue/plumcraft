@@ -60,14 +60,15 @@ use plumcraft_automation::server;
 use plumcraft_editor_core::document::Opening;
 #[cfg(test)]
 use plumcraft_editor_core::engines::engine_binary;
+#[cfg(test)]
+use plumcraft_editor_core::engines::load_manifests;
 use plumcraft_editor_core::engines::{
-    EMPTY_WORKFLOW, EngineKind, Launcher, Mode, WORKER_FLAG, choices, choose, flag_value, load_manifests, manifest_args, manifest_folder, serve_worker,
-    set_packs, with_engine_arg, with_file_engines,
+    EMPTY_WORKFLOW, EngineKind, Launcher, Mode, WORKER_FLAG, choices, choose, flag_value, manifest_args, serve_worker, set_packs, with_engine_arg,
+    with_file_engines,
 };
 use plumcraft_editor_core::headless;
-use plumcraft_editor_core::install::install_engine;
 #[cfg(test)]
-use plumcraft_editor_core::install::installed_executables;
+use plumcraft_editor_core::install::{Progress, Setup, install_engine, installed_executables};
 use plumcraft_editor_core::log::Level;
 use plumcraft_graph::Graph;
 use plumcraft_proto::catalogue::SchemaReply;
@@ -338,12 +339,8 @@ fn editor_with(
     app.shot = shot;
     app.setup_context(ctx);
     // The Engine menu: every engine and hosting, this one checked.
-    let manifests = launcher.manifests.clone();
-    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
-        let problems = load_manifests(&manifests, manifest_folder().as_deref());
-        (choices(), problems)
-    }));
-    let mut app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
+    // Reload Engine List and Install Engine…: the editor core's, as in every shell (B71)
+    let mut app = app.with_launcher(&launcher).with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector());
     match link {
         Ok(link) => app.with_link(link),
         Err(e) => {
@@ -378,12 +375,8 @@ fn editor_starting(
     app.shot = shot;
     app.setup_context(ctx);
     // The Engine menu: every engine and hosting, this one checked.
-    let manifests = launcher.manifests.clone();
-    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
-        let problems = load_manifests(&manifests, manifest_folder().as_deref());
-        (choices(), problems)
-    }));
-    let app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
+    // Reload Engine List and Install Engine…: the editor core's, as in every shell (B71)
+    let app = app.with_launcher(&launcher).with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector());
     // `--engine a,b`: the others beside the first (Engine › Add Engine), hosted as the first where
     // they can be, else as they are by default. A pack's hosting is its own: its application may
     // be one executable, with no engine binaries beside it.
@@ -448,7 +441,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         args.extend(["--engine".to_owned(), engine.to_owned()]);
     }
     let manifests = manifest_args(&args);
-    for problem in load_manifests(&manifests, manifest_folder().as_deref()) {
+    for problem in (Launcher { manifests: manifests.clone(), ..Default::default() }).load_manifests() {
         say(Level::Error, &format!("{program}: {problem}"));
     }
     let args = with_engine_arg(args);
@@ -1800,10 +1793,13 @@ mod install_tests {
         let (tools, bin, home) = (root.join("tools"), root.join("bin"), root.join("home"));
         // the person's uv cache, so it needn't download everything again
         let cache = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/uv")).unwrap();
-        let env: [(&str, &std::path::Path); 4] = [("UV_TOOL_DIR", &tools), ("UV_TOOL_BIN_DIR", &bin), ("HOME", &home), ("UV_CACHE_DIR", &cache)];
-        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &env).unwrap();
+        let env =
+            vec![("UV_TOOL_DIR".to_owned(), tools), ("UV_TOOL_BIN_DIR".to_owned(), bin), ("HOME".to_owned(), home.clone()), ("UV_CACHE_DIR".to_owned(), cache)];
+        let engines = home.join(".config/plumcraft/engines");
+        let setup = Setup { folder: Some(engines.clone()), env, ..Setup::default() };
+        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &setup, &Progress::default()).unwrap();
         assert!(said.contains("duckdb-engine"), "{said}");
-        let manifest = home.join(".config/plumcraft/engines/duckdb.toml");
+        let manifest = engines.join("duckdb.toml");
         let resolved = plumcraft_host::manifest::load(&manifest).unwrap();
         assert_eq!(resolved.manifest.id, "duckdb");
         assert!(resolved.demo.as_ref().is_some_and(|d| d.is_file()), "the wheel's demo: {:?}", resolved.demo);

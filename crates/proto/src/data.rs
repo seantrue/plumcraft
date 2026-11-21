@@ -206,7 +206,7 @@ mod tests {
      "meta": {"media": "application/x-npy", "size": 7873536,
               "form": {"kind": "array", "dtype": "<f4", "shape": [812, 808, 3],
                        "space": "Lab", "names": ["L", "a", "b"], "table": false}},
-     "at": [{"kind": "commonkit", "key": "impc:v1:impcarr:9e107d9d372bb6826bd81d3542a419d6:c"},
+     "at": [{"kind": "commonkit", "key": "impc:v1:plumarr:9e107d9d372bb6826bd81d3542a419d6:c"},
             {"kind": "path", "path": "/Users/me/Library/Caches/commonkit/store/plumarr/9e/9e107d9d372bb6826bd81d3542a419d6.c.npy"},
             {"kind": "url", "url": "https://engine.example:7311/v1/blobs/md5/nd1/9e107d9d372bb6826bd81d3542a419d6"}]}"#;
 

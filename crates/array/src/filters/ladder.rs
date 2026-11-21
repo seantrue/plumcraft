@@ -1,4 +1,4 @@
-//! yapocis's default Gaussian weight ladder (`yapocis.lib.gaussian_ladder.LADDER`: max_width 150,
+//! The kernel library's default Gaussian weight ladder (`lib.gaussian_ladder.LADDER`: max_width 150,
 //! scale 1.6, limit 0.001), pinned as float64 literals so every machine uses the same weights.
 //! Widths 9, 13, 19, 27, 39, 59, 87, 127 (scales 0-7), copied from the Python literals with
 //! their `repr`, which round-trips float64 exactly.

@@ -50,7 +50,7 @@ The existing `quantile_linear_f32` and `median_f32` had no fixtures. They have t
 
 ## Fixtures
 
-The recorder is Yapocis3's `src/yapocis/codegen/host_fixtures.py` (branch `host-fixtures-ports`). It gains four sections (`elementwise`, `extrema`, `order`, `fft`) plus three `linspace` cases in `hist`. Its inputs include:
+The recorder is the kernel library's `codegen/host_fixtures.py` (branch `host-fixtures-ports`). It gains four sections (`elementwise`, `extrema`, `order`, `fft`) plus three `linspace` cases in `hist`. Its inputs include:
 
 - every pair of 25 special values;
 - long arrays with NaN and signed zeros sprinkled in;
@@ -90,7 +90,7 @@ The `simd_math` test also assumed numpy's float32 `exp`/`log` are libm, which is
 | Where | What | Result |
 |---|---|---|
 | Mac | `cargo test -p npexact --release` | all pass (7 suites) |
-| Mac | `cargo clippy --workspace --all-targets` (yapocis-rs, `ocl`, `metal`) with `-D warnings`, `cargo fmt --check` | clean |
+| Mac | `cargo clippy --workspace --all-targets` (the Rust kernel library, `ocl`, `metal`) with `-D warnings`, `cargo fmt --check` | clean |
 | The Linux test host | `cargo test -p npexact --release` against its own fixtures, plus clippy | all pass, clean |
 | both | `elementwise`, `extrema`, `order`, `fft` replayed for **both** hosts | 24, 2,054, 84 and 7 shapes per host |
 | Mac | `cargo test -p plumcraft-array --release` | 52 passed |
@@ -99,7 +99,7 @@ The `simd_math` test also assumed numpy's float32 `exp`/`log` are libm, which is
 
 ## Still to do
 
-- **Publish npexact.** The changes are additive (new modules, `_with` variants, two policies) plus two bug fixes, so 0.1.1 fits. npexact takes its version from the yapocis-rs workspace (0.1.0), so it needs its own `version` or a workspace bump. Then remove `[patch.crates-io]` from PlumCraft's `Cargo.toml`. Publishing `plumcraft-array` needs this first.
+- **Publish npexact.** The changes are additive (new modules, `_with` variants, two policies) plus two bug fixes, so 0.1.1 fits. npexact takes its version from the Rust kernel library's workspace (0.1.0), so it needs its own `version` or a workspace bump. Then remove `[patch.crates-io]` from PlumCraft's `Cargo.toml`. Publishing `plumcraft-array` needs this first.
 - **AVX-512.** A CPU with it runs numpy's AVX-512 loops, with 16 lanes and its own reductions. Neither the zero-sign rule nor the quadrant rounding is proven there.
 - **The array engine's other hosts.** Its references are the Mac's; Mandelbrot shows that an x86 run can't match them all.
 - **Docs and correction.** `lib.rs` says npexact was ported from numpy 2.5.3's sources, while every fixture was recorded with 2.3.3. `npexact-numpy-gap.md` repeated "2.5.3". (Its remark that npexact has no sort is now out of date.)

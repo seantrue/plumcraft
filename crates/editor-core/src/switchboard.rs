@@ -294,6 +294,7 @@ impl Switchboard<'_> {
             EngineChange::Reload => Next::Done(self.reload()),
             EngineChange::Clear => Next::Done(Ok(self.clear())),
             EngineChange::Install(url) => Next::Done(self.start_install(url)),
+            EngineChange::CancelInstall => Next::Done(self.cancel_install()),
         })
     }
 
@@ -366,27 +367,59 @@ impl Switchboard<'_> {
             return Err(format!("installing {}", i.url));
         }
         let i = Installing::start(installer, url.clone(), self.waker.clone())?;
+        let short = url.trim_start_matches("https://github.com/");
+        let said = format!("Installing {short}: uv downloads and builds it, which can take a few minutes (Engine › Cancel Install stops it)");
+        crate::log::info("install", &said);
         self.session.engines.installing = Some(url.clone());
+        self.session.engines.install_status = Some(said.clone());
         *self.installing = Some(i);
-        *self.last_error = None;
+        // the status line (and a native shell's banner) says it has begun
+        *self.last_error = Some(said);
         Ok(json!({"installing": url}))
     }
 
-    /// Take a finished install: read the engine manifests again, so the Engine menu offers what
-    /// was installed, and say how it went. Returns whether one finished.
+    /// `engine.install.cancel`: ask the install under way to stop; [`Switchboard::poll_install`]
+    /// takes its end.
+    pub fn cancel_install(&mut self) -> Result<Value, String> {
+        let Some(i) = &self.installing else { return Err("no engine is being installed".into()) };
+        i.progress.cancel();
+        crate::log::info("install", &format!("cancelling the install of {}", i.url));
+        self.session.engines.install_status = Some(format!("Cancelling the install of {}…", i.url.trim_start_matches("https://github.com/")));
+        Ok(json!({"cancelling": i.url}))
+    }
+
+    /// Follow the install under way: what it says it is doing goes to `engine.installing`'s
+    /// status (and the log); once it has ended, read the engine manifests again, so the Engine
+    /// menu offers what was installed, and say how it went (the status line, the log). Returns
+    /// whether one finished. Every turn of every shell ([`crate::control::step`]).
     pub fn poll_install(&mut self) -> bool {
         let Some(i) = &self.installing else { return false };
-        let Some(outcome) = i.poll() else { return false };
+        let Some(outcome) = i.poll() else {
+            let now = i.progress.status();
+            if now.is_some() && !i.progress.cancelled() && now != self.session.engines.install_status {
+                if let Some(s) = &now {
+                    crate::log::write(crate::log::Level::Debug, "install", s, None);
+                }
+                self.session.engines.install_status = now;
+                self.effects.redraw = true;
+            }
+            return false;
+        };
         let url = i.url.clone();
         *self.installing = None;
         self.session.engines.installing = None;
-        *self.last_error = Some(match outcome {
+        self.session.engines.install_status = None;
+        let (level, said) = match outcome {
             Ok(said) => match self.reload() {
-                Ok(_) => format!("{said}. The Engine menu offers it now."),
-                Err(e) => format!("{said}, but the engine list didn't reload: {e}"),
+                Ok(_) => (crate::log::Level::Info, format!("{said}. The Engine menu offers it now.")),
+                Err(e) => (crate::log::Level::Warn, format!("{said}, but the engine list didn't reload: {e}")),
             },
-            Err(e) => format!("installing {url}: {e}"),
-        });
+            Err(e) if e == crate::install::CANCELLED => (crate::log::Level::Info, format!("The install of {url} was cancelled")),
+            Err(e) => (crate::log::Level::Error, format!("Installing {url} failed: {e}")),
+        };
+        crate::log::write(level, "install", &said, None);
+        *self.last_error = Some(said);
+        self.effects.redraw = true;
         true
     }
 
@@ -706,6 +739,9 @@ pub fn inspect(session: &Session, link: Option<&Link>, state: &EngineState, coor
         "choices": e.choices,
         "pending": e.is_pending(),
         "installing": e.installing,
+        "installStatus": e.install_status,
+        "canInstall": e.can_install,
+        "installRefused": e.install_refused,
     });
     if let Some(t) = &e.current {
         let tj = t.to_json();

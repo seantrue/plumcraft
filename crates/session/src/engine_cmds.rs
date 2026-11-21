@@ -80,10 +80,17 @@ pub struct Engines {
     pub current: Option<EngineTarget>,
     /// Attaching to a running HTTP engine is offered.
     pub can_attach: bool,
-    /// Installing an engine from GitHub is offered (the host has an installer).
+    /// Installing an engine from GitHub is offered: the editor core decides, from the platform's
+    /// capabilities (it can start programs and has a Python) and whether the host has an
+    /// installer (`plumcraft_editor_core::document::Document::offer_installs`).
     pub can_install: bool,
+    /// Why installing isn't offered, in words a person reads (a disabled Install Engine… says
+    /// it): "This device can't install engines: …". `None`: nothing more to say.
+    pub install_refused: Option<String>,
     /// The repository being installed, while it is.
     pub installing: Option<String>,
+    /// What the install under way is doing ("uv is downloading and building it…"), while it is.
+    pub install_status: Option<String>,
     /// Engines connected beside [`Engines::current`], in the order they were added.
     pub added: Vec<EngineTarget>,
     request: Option<EngineTarget>,
@@ -191,6 +198,8 @@ pub enum EngineChange {
     Clear,
     /// Download an engine from GitHub and install it (`https://github.com/owner/repo`).
     Install(String),
+    /// Stop the install under way (`engine.install.cancel`).
+    CancelInstall,
 }
 
 impl Engines {
@@ -488,10 +497,20 @@ pub fn github_repo(text: &str) -> Option<String> {
 
 fn can_install(s: &Session) -> std::result::Result<(), String> {
     match (s.engines.can_install, &s.engines.installing) {
-        (false, _) => Err("this editor can't install engines".into()),
+        (false, _) => Err(s.engines.install_refused.clone().unwrap_or_else(|| "this editor can't install engines".into())),
         (true, Some(r)) => Err(format!("installing {r}")),
         (true, None) => Ok(()),
     }
+}
+
+fn can_cancel_install(s: &Session) -> std::result::Result<(), String> {
+    if s.engines.installing.is_some() { Ok(()) } else { Err("no engine is being installed".into()) }
+}
+
+fn cancel_install(s: &mut Session, _: &Value) -> Result<Value> {
+    let url = s.engines.installing.clone().ok_or_else(|| SessionError::Params("no engine is being installed".into()))?;
+    s.engines.changes.push(EngineChange::CancelInstall);
+    Ok(json!({"cancelling": url}))
 }
 
 fn install(s: &mut Session, p: &Value) -> Result<Value> {
@@ -516,7 +535,8 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let e = &s.engines;
     let added: Vec<Value> = e.added.iter().map(EngineTarget::to_json).collect();
     Ok(
-        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install, "installing": e.installing, "pending": e.is_pending()}),
+        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install,
+               "installRefused": e.install_refused, "installing": e.installing, "installStatus": e.install_status, "pending": e.is_pending()}),
     )
 }
 
@@ -621,9 +641,19 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Install Engine…",
             menu: &["Engine"],
             shortcut: None,
-            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install git+URL`, then its own `register`), then read the engine manifests again; it runs in the background, and the status bar says when it is done (ui.inspect's engine.installing until then). It runs the package's code: install only what you trust",
+            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install --reinstall git+URL`, then its own `register --folder` into the engines folder), then read the engine manifests again; it runs in the background, saying what it is doing (ui.inspect's engine.installing and installStatus, engine.list, the status line), and the status line says when it is done. Offered where the platform declares subprocess and python; elsewhere disabled with the reason (engine.list's installRefused). It runs the package's code: install only what you trust",
             enabled: can_install,
             run: install,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.install.cancel",
+            label: "Cancel Install",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{} -> {cancelling: url}: stop the install under way (its uv or register is stopped); the status line says it was cancelled",
+            enabled: can_cancel_install,
+            run: cancel_install,
             journal: false,
         },
         CommandSpec {
@@ -631,7 +661,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Engines",
             menu: &[],
             shortcut: None,
-            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, pending}",
+            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending}",
             enabled: always,
             run: list,
             journal: false,
@@ -876,12 +906,18 @@ mod tests {
         }
         let mut s = offered();
         assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("can't install"));
+        // the host's reason, when it gives one, is what a person reads
+        s.engines.install_refused = Some("This device can't install engines: it can't start programs".into());
+        assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("This device can't install engines"));
+        assert!(s.execute("engine.install.cancel", &Value::Null).is_err(), "nothing to cancel");
         s.engines.can_install = true;
         assert!(s.execute("engine.install", &json!({"repo": "nope"})).is_err());
         assert_eq!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap(), json!({"installing": "https://github.com/a/b"}));
         assert_eq!(s.engines.take_change(), Some(EngineChange::Install("https://github.com/a/b".into())));
         s.engines.installing = Some("https://github.com/a/b".into());
         assert!(s.execute("engine.install", &json!({"repo": "c/d"})).unwrap_err().to_string().contains("installing"));
+        assert_eq!(s.execute("engine.install.cancel", &Value::Null).unwrap(), json!({"cancelling": "https://github.com/a/b"}));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::CancelInstall));
         assert!(s.journal().is_empty(), "not journaled");
     }
 

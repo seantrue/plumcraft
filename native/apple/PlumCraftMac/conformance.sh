@@ -27,6 +27,9 @@ trap cleanup EXIT INT TERM
 export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_STORE_MIN_FREE_GB=2 \
   COMMONKIT_STORE_ROOT="$scratch/store" COMMONKIT_MARK_DIR="$scratch/marks" COMMONKIT_TEST_RUN="$scratch/run" \
   PLUMCRAFT_CRAFT_ROOT="$scratch/craft"
+# B71: the engines folder is the suite's (one engine running elsewhere, `probe`), never the
+# person's ~/.config/plumcraft/engines; the runner is told (--has manifests)
+export PLUMCRAFT_ENGINE_FOLDER="$root/crates/editor-core/fixtures/conformance/engines"
 
 cd "$here"
 # APP: an app already built and signed (an exported Developer ID build, say), run as it is
@@ -72,7 +75,7 @@ done
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
 echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
-timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" \
+timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?
 set -e

@@ -328,7 +328,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "Component versions (`impressionist`, `yapocis`, …).",
+          "description": "Component versions (`impressionist`, `kernels`, …).",
           "type": "object"
         },
         "id": {

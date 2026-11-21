@@ -6,14 +6,14 @@
 //! Spaces and their channels (the Python module's conventions):
 //!
 //! - `RGB`: red, green, blue, 0..1.
-//! - `HSI`: hue, saturation, intensity, 0..1, hue a fraction of a turn. yapocis's `hsi` kernel
+//! - `HSI`: hue, saturation, intensity, 0..1, hue a fraction of a turn. The kernel library's `hsi` kernel
 //!   (the GLSL "IQ" RGB->HSV), as impressionist's `core.hsi` calls it through `rgb2hsi3` /
 //!   `hsi2rgb3`: the forward kernel reads the pixel as `(r, b, g)`, and the inverse's
 //!   `(1, 1/3, 2/3)` phase constants undo that swap. Saturation and intensity are clamped to
 //!   0..1; hue may reach 1.0 in f32.
-//! - `IHSL`: Hanbury's improved HLS from yapocis_external's `ihsl` kernel: hue in turns from the
+//! - `IHSL`: Hanbury's improved HLS from the external kernel library's `ihsl` kernel: hue in turns from the
 //!   acos formula, saturation `max - min`, BT.709 luminance. A grey gets hue 0.5 (the kernel's
-//!   `clamp(0/0)` is -1, as on the OpenCL path the research software runs). yapocis builds that kernel with
+//!   `clamp(0/0)` is -1, as on the OpenCL path the research software runs). The kernel library builds that kernel with
 //!   `-cl-fast-relaxed-math -cl-finite-math-only`, so the GPU's hue for greys and near-greys
 //!   (a 0/0, or a catastrophic cancellation in `r^2+g^2+b^2 - (rg+rb+gb)`) depends on how its
 //!   compiler contracted the sums: mostly 0.5, sometimes 0.25. The port computes the kernel's
@@ -30,9 +30,9 @@
 //!   gamma splines, L through its cube-root spline, D65 white.
 //! - `YCrCb`: OpenCV's float coefficients (0.299, 0.587, 0.114; Cr 0.713, Cb 0.564) and a 0.5
 //!   delta.
-//! - `XYZ`: yapocis colormath's `srgb_d65` matrices, with `linearize` (the Python default): RGB
+//! - `XYZ`: the kernel library's colormath module's `srgb_d65` matrices, with `linearize` (the Python default): RGB
 //!   is sRGB-decoded (negatives clipped to 0) before the matrix and encoded after.
-//! - `xyY`: colormath's `xyz2xyY` / `xyY2xyz` on that XYZ. As in the kernel (yapocis3 #66),
+//! - `xyY`: colormath's `xyz2xyY` / `xyY2xyz` on that XYZ. As in the kernel (the kernel library's #66),
 //!   black and any other exact zero sum (X+Y+Z = 0) have no chromaticity: x and y are 0 there,
 //!   Y is kept, and y = 0 comes back as XYZ 0 (RGB black).
 //!
@@ -105,7 +105,7 @@ fn map(planes: &[Vec<f32>], f: fn([f32; 3]) -> [f32; 3]) -> Vec<Vec<f32>> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// HSI: yapocis kernels/ocl/hsi.mako, `_rgb2hsi` / `_hsi2rgb`, via rgb2hsi3 / hsi2rgb3.
+// HSI: the kernel library's kernels/ocl/hsi.mako, `_rgb2hsi` / `_hsi2rgb`, via rgb2hsi3 / hsi2rgb3.
 
 /// The kernel's `eps` (1e-10), a float on the GPU.
 const HSI_EPS: f32 = 1.0e-10;
@@ -153,7 +153,7 @@ fn mix(a: f32, b: f32, t: f32) -> f32 {
 }
 
 // ---------------------------------------------------------------------------------------------
-// IHSL: yapocis_external kernels/ocl/ihsl.mako, RGBToIHSL / IHSLToRGB.
+// IHSL: the external kernel library's kernels/ocl/ihsl.mako, RGBToIHSL / IHSLToRGB.
 
 fn acospi(x: f32) -> f32 {
     (f64::from(x).acos() / PI) as f32
@@ -548,7 +548,7 @@ fn luv_to_rgb([l, u, v]: [f32; 3]) -> [f32; 3] {
 }
 
 // ---------------------------------------------------------------------------------------------
-// XYZ, xyY: yapocis colormath (srgb_d65) with colorspaces.py's srgb_decode / srgb_encode.
+// XYZ, xyY: the kernel library's colormath (srgb_d65) with colorspaces.py's srgb_decode / srgb_encode.
 
 /// `srgb_d65.rgb2xyz`, row-major (X, Y, Z rows).
 const RGB2XYZ: [f32; 9] = [0.4124564, 0.3575761, 0.1804375, 0.2126729, 0.7151522, 0.072175, 0.0193339, 0.119192, 0.9503041];

@@ -41,7 +41,7 @@ use crate::run_view::Thumbs;
 /// slowest start the launcher allows (60 s), and then some.
 pub const START_WAIT: Duration = document::START_WAIT;
 
-pub use plumcraft_editor_core::install::{Installer, Installing, KNOWN_ENGINES};
+pub use plumcraft_editor_core::install::{Installer, Installing, KNOWN_ENGINES, Progress};
 pub use plumcraft_editor_core::switchboard::Reloader;
 
 /// Starts engine `engine` hosted as `mode` (one of the app's [`EngineChoice`]s) and links to it;
@@ -88,21 +88,20 @@ impl EditorApp {
         self
     }
 
-    /// How `engine.install` downloads and installs an engine; offers the command.
-    pub fn with_installer(mut self, installer: Installer) -> Self {
-        self.doc.session.engines.can_install = true;
-        self.doc.installer = Some(installer);
+    /// Offer the engines `launcher`'s manifests name and installing engines, as the editor core
+    /// decides for every shell ([`Document::offer_installs`], B71): the application's own setup.
+    pub fn with_launcher(mut self, launcher: &plumcraft_editor_core::engines::Launcher) -> Self {
+        self.doc.offer_installs(launcher);
         self
     }
 
-    /// Take a finished install: read the engine manifests again, so the Engine menu offers what
-    /// was installed, and say how it went. Returns whether one finished.
-    pub fn poll_install(&mut self) -> bool {
-        if self.doc.installing.is_none() {
-            // every frame: nothing to lend
-            return false;
-        }
-        self.board(|b| b.poll_install())
+    /// A stand-in installer, offered as if the platform could install (tests): what
+    /// [`EditorApp::with_launcher`] gives the core's own.
+    pub fn with_installer(mut self, installer: Installer) -> Self {
+        self.doc.session.engines.can_install = true;
+        self.doc.session.engines.install_refused = None;
+        self.doc.installer = Some(installer);
+        self
     }
 
     /// Run `f` on the editor's engine parts with its starter, waiting for engines here (the
@@ -182,7 +181,8 @@ impl EditorApp {
         }
     }
 
-    /// How `engine.manifests.reload` reads the manifests again.
+    /// How `engine.manifests.reload` reads the manifests again (a test's stand-in;
+    /// [`EditorApp::with_launcher`] gives the core's own).
     pub fn with_reloader(mut self, reloader: Reloader) -> Self {
         self.doc.reloader = Some(reloader);
         self

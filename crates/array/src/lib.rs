@@ -3,11 +3,11 @@
 //! Arrays are the core ARRAY type (`plumcraft_proto::catalogue::core_types`): any numeric
 //! dtype in, `f32` out (integer labels as `<i4`), with an optional colour space and channel
 //! names. The nodes keep the research software's titles, ports, defaults and descriptions; their arithmetic
-//! is ported from yapocis's numba kernels (`yapocis3/src/yapocis/kernels/numbax`, without
-//! `fastmath`, so results are the same on every machine) and the yapocis library code around
+//! is ported from the kernel library's numba kernels (`kernels/numbax`, without
+//! `fastmath`, so results are the same on every machine) and the kernel library's own code around
 //! them, with npexact for the steps that are numpy's own (draws, reductions, histograms,
-//! sorts). They match the research software closely, not bit for bit: the research software runs yapocis's GPU kernels.
-//! Nothing from yapocis_external: what the research software took from there is written here plainly, and
+//! sorts). They match the research software closely, not bit for bit: the research software runs the kernel library's GPU kernels.
+//! Nothing from the external kernel library: what the research software took from there is written here plainly, and
 //! Mean Shift and Posterize Hue are left out.
 //!
 //! Groups (each a module with its own `nodes()`): [`channels`] (files, channels, stacks),

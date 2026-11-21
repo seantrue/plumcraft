@@ -457,6 +457,38 @@ impl Document {
         self.waker.as_ref()
     }
 
+    /// Offer the engines `launcher`'s manifests name and installing engines, as every shell
+    /// does (B71: these were the egui shell's alone, so the native apps offered neither): Reload
+    /// Engine List reads its manifests again, and Install Engine… installs with its
+    /// [`crate::install::Setup`] where the platform can ([`crate::install::refusal`] decides, by
+    /// the platform's capabilities, not by which shell runs). Where it can't, Install Engine… is
+    /// disabled with the reason. Takes the platform from `launcher`, as [`Document::caps`].
+    pub fn offer_installs(&mut self, launcher: &crate::engines::Launcher) {
+        self.caps = launcher.caps;
+        self.reloader = Some(launcher.reloader());
+        let refused = crate::install::refusal(&launcher.caps);
+        self.installer = if refused.is_none() { Some(launcher.install_setup().installer()) } else { None };
+        self.session.engines.can_install = refused.is_none();
+        self.session.engines.install_refused = refused;
+    }
+
+    /// Offer the choices there are now on this platform, when another document of this core has
+    /// read the manifests since this one last looked (`reads` is [`crate::engines::manifest_reads`]
+    /// as this one last saw it): whether they changed.
+    pub fn follow_manifests(&mut self, reads: &mut u64) -> bool {
+        let now = crate::engines::manifest_reads();
+        if now == *reads {
+            return false;
+        }
+        *reads = now;
+        let choices = crate::engines::choices_for(&self.caps);
+        if choices == self.session.engines.choices {
+            return false;
+        }
+        self.session.engines.choices = choices;
+        true
+    }
+
     /// Send the asks raised (each with this document's id) and ended to `sink`, every turn and
     /// whenever a request may have asked something.
     pub fn set_asks_sink(&mut self, sink: Option<AsksSink>) {

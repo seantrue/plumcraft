@@ -74,7 +74,7 @@ The goal was to refute two claims: that the plan **loses no the research softwar
 ### H4. Persisted memo can serve stale results across dependency upgrades and mask exactness failures
 
 - **Evidence:**
-  - The salt is "the research software's `code_version()` over package, yapocis and kernels" (spec 14.2). It leaves out numpy, OpenCV, Pillow, Metal/MLX, GPU driver and compiler versions.
+  - The salt is "the research software's `code_version()` over package, the kernel library and kernels" (spec 14.2). It leaves out numpy, OpenCV, Pillow, Metal/MLX, GPU driver and compiler versions.
   - Today the memo lives in RAM, so a restart recomputes everything. With persistence, a numpy upgrade returns `cached` with the old bytes.
   - The G5 exit criterion ("a restart gives `cached`") rewards exactly this behaviour.
   - Nothing says that the exactness gate (92 of 92) and the conformance suite run with the memo off.

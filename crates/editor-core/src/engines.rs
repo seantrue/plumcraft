@@ -239,11 +239,29 @@ impl Manifests {
     }
 }
 
-/// The folder engines install their manifests in.
+/// The environment variable naming another engines folder (scripts and tests point it at
+/// scratch, so nothing reads or writes the person's own).
+pub const ENGINE_FOLDER_ENV: &str = "PLUMCRAFT_ENGINE_FOLDER";
+
+/// The folder engines install their manifests in: `$PLUMCRAFT_ENGINE_FOLDER` when set, else
+/// `~/.config/plumcraft/engines`, the same for every PlumCraft editor (the egui editor, Plummer,
+/// the Windows app), so an engine installed with one is offered by all.
 pub fn manifest_folder() -> Option<PathBuf> {
+    if let Some(f) = std::env::var_os(ENGINE_FOLDER_ENV).filter(|f| !f.is_empty()) {
+        return Some(PathBuf::from(f));
+    }
     // home(), not $HOME: Windows sets no HOME for an app started from the desktop, so the folder
     // `register` had just written to was never read there
     plumcraft_proto::programs::home().map(|h| h.join(".config").join("plumcraft").join("engines"))
+}
+
+/// How many times this process has read engine manifests ([`load_manifests`]): a core with
+/// several documents offers what one of them read again to the others.
+static MANIFEST_READS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// [`MANIFEST_READS`]' count.
+pub fn manifest_reads() -> u64 {
+    MANIFEST_READS.load(std::sync::atomic::Ordering::SeqCst)
 }
 
 /// Read the engine manifests in `files`, then every `*.toml` in `folder`, as the engines this
@@ -275,6 +293,7 @@ pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
         }
     }
     EXTERNALS.with_borrow_mut(|e| *e = loaded);
+    MANIFEST_READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     problems
 }
 
@@ -630,9 +649,40 @@ pub struct Launcher {
     /// A store root for the engines it starts (the shell's `Dirs.store`): compiled-in ones
     /// publish there, processes get it as `COMMONKIT_STORE_ROOT`. `None`: the shared default.
     pub store_root: Option<PathBuf>,
+    /// The engines folder read at start and by `engine.manifests.reload`, and installed into
+    /// (`dirs.engines` in a C ABI config, a test's scratch folder). `None`: [`manifest_folder`].
+    pub folder: Option<PathBuf>,
+    /// The `uv` that installs engines (a test's stand-in). `None`: found ([`crate::install::find_uv`]).
+    pub uv: Option<PathBuf>,
 }
 
 impl Launcher {
+    /// The engines folder it reads and installs into.
+    pub fn engine_folder(&self) -> Option<PathBuf> {
+        self.folder.clone().or_else(manifest_folder)
+    }
+
+    /// Read the engine manifests (its files, then its engines folder) on this thread, the one
+    /// that chooses and starts engines: what couldn't be read. Every shell's startup.
+    pub fn load_manifests(&self) -> Vec<String> {
+        load_manifests(&self.manifests, self.engine_folder().as_deref())
+    }
+
+    /// What `engine.manifests.reload` does with it: read them again, and the choices there are
+    /// now on this platform.
+    pub fn reloader(&self) -> crate::switchboard::Reloader {
+        let me = self.clone();
+        Box::new(move || {
+            let problems = me.load_manifests();
+            (me.choices(), problems)
+        })
+    }
+
+    /// How it installs engines (`engine.install`): uv, into its engines folder.
+    pub fn install_setup(&self) -> crate::install::Setup {
+        crate::install::Setup { uv: self.uv.clone(), folder: self.engine_folder(), ..Default::default() }
+    }
+
     /// `engine.switch`'s ids, checked, then [`Launcher::connect_core`]: what a shell's Engine
     /// menu starts engines with.
     pub fn connect_ids(&self, engine: &str, mode: &str, waker: Option<Waker>) -> Result<Link, String> {

@@ -836,7 +836,7 @@ mod tests {
     fn keys_and_paths_are_strict() {
         assert!(relpath("plum:v1:plumraw:0123456789abcdef0123456789abcdef:c").is_some());
         for bad in [
-            "impc:v1:impcarr:0123456789abcdef0123456789abcdef:c",
+            "impc:v1:plumarr:0123456789abcdef0123456789abcdef:c",
             "plum:v1:plumraw:../../etc/passwd:c",
             "plum:v1:plumraw:0123:c",
             "plum:v1:x:0123456789abcdef0123456789abcdef:c",
