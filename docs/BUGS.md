@@ -66,6 +66,17 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B70. The Mac app could not make a new graph: File › New did nothing, and a launch showed only the Open panel
+
+- Reported: 2026-11-21
+- Report: "I can't create a new graph? Only open an old one?"
+- Context: the maintainer's first launch of the Developer ID build of the dev branch. With no file to open the app showed File › Open's panel, with no way to make a new graph.
+- Cause: the app declared its document type with the role Viewer. AppKit makes a new document only of a type the app can edit, so `newDocument` did nothing at all: File › New and its key were dead, in every build since the Mac app became document-based. No test or script noticed, because every scripted launch opens a file, and nobody had launched it by hand without one. The controller first told the maintainer that New worked once the panel was cancelled, from reading the code; that was wrong.
+- Fix: the document type's role is Editor (`native/apple/PlumCraftMac/project.yml`). Asked whether a launch should open an untitled graph or the panel should gain a button, the maintainer chose "1": a launch with nothing to open, and a Dock click with no graph open, make a new untitled graph (`AppMain.swift`).
+- Verified: a scratch launch with nothing to open reported no window before the role change and one ready, untitled, unedited graph after it; the Mac conformance suite 53 of 53 with the person's Library unchanged. Not verified by a person, and no automated check launches without a file yet.
+- Fixed: 2026-11-21
+- Issue: none
+
 ### B50. A scripted launch of the Mac app writes to the person's real defaults domain
 
 - Reported: 2026-11-21
