@@ -159,31 +159,42 @@ final class AskPresenter {
             alert.messageText = p["title"].string ?? "Plummer"
             alert.informativeText = p["intro"].string ?? p["hint"].string ?? p["label"].string ?? ""
             var fields: [(String, NSTextField)] = []
-            let stack = NSStackView()
-            stack.orientation = .vertical
-            stack.alignment = .leading
+            // a form is a grid, as the system's own are: each label right-aligned beside its
+            // field, on the field's baseline (B73: the labels were stacked above all the fields)
+            var rows: [[NSView]] = []
+            let fieldWidth: CGFloat = 280
             if a.kind.word == .text {
                 let f = NSTextField(string: p["text"].string ?? "")
                 f.placeholderString = p["placeholder"].string
                 fields.append(("text", f))
+                rows.append([f])
             } else {
                 for fd in p["fields"].array ?? [] {
                     guard let key = fd["key"].string else { continue }
                     let f: NSTextField = fd["kind"].string == "secret" ? NSSecureTextField() : NSTextField()
                     f.stringValue = p["values"][key].string ?? ""
                     f.placeholderString = fd["hint"].string
-                    let label = NSTextField(labelWithString: fd["label"].string ?? key)
-                    stack.addArrangedSubview(label)
+                    let label = NSTextField(labelWithString: (fd["label"].string ?? key) + ":")
+                    label.alignment = .right
+                    f.setAccessibilityLabel(fd["label"].string ?? key)
                     fields.append((key, f))
+                    rows.append([label, f])
                 }
             }
             for (_, f) in fields {
-                f.frame.size.width = 300
-                f.widthAnchor.constraint(equalToConstant: 300).isActive = true
-                stack.addArrangedSubview(f)
+                f.translatesAutoresizingMaskIntoConstraints = false
+                f.widthAnchor.constraint(equalToConstant: fieldWidth).isActive = true
             }
-            stack.frame = NSRect(x: 0, y: 0, width: 300, height: CGFloat(fields.count) * 48)
-            alert.accessoryView = stack
+            let grid = NSGridView(views: rows)
+            grid.rowSpacing = 8
+            grid.columnSpacing = 8
+            grid.rowAlignment = .firstBaseline
+            if grid.numberOfColumns > 1 { grid.column(at: 0).xPlacement = .trailing }
+            // each field tabs to the next, and the last back to the first
+            for (k, (_, f)) in fields.enumerated() where fields.count > 1 { f.nextKeyView = fields[(k + 1) % fields.count].1 }
+            grid.translatesAutoresizingMaskIntoConstraints = true
+            grid.frame = NSRect(origin: .zero, size: grid.fittingSize)
+            alert.accessoryView = grid
             alert.addButton(withTitle: p["submit"].string ?? "OK")
             alert.addButton(withTitle: "Cancel").keyEquivalent = "\u{1b}"
             alert.window.initialFirstResponder = fields.first?.1

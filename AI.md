@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — B73: the Mac app's forms had their labels in the wrong place (Claude Fable 5.2)
+
+**What the maintainer reported:** "The attach dialog is meh", with a picture showing one label clipped and the other above the wrong field.
+
+**Cause.** AI-written code from an earlier slice stacked all the labels, then all the fields, in a frame too short for both. No test or agent had ever looked at a form sheet: forms raised by a script show no sheet, so every check passed without one being drawn.
+
+**Fix (controller, ~20 lines in `Asks.swift`).** A grid: each label beside its field, right-aligned on the baseline, sized to fit.
+
+**Verified.** The same grid drawn in a system alert to a picture; Mac conformance 53 of 53. **Not verified:** in the app's own sheet, which only a person has seen.
+
 ### 2026-11-21 — Second pass over private names, and a scratch guard that names no volume (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said**, given a second list of names found in tracked files: "3 - all private", and of the git history, "2 leave history".

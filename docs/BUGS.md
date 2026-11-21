@@ -59,6 +59,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B73. The Mac app's forms put every label above the wrong field, the first one clipped
+
+- Reported: 2026-11-21
+- Report: "The attach dialog is meh", with a picture: "Address" cut off at the top, "Token" above the address field, the token field unlabelled.
+- Cause: `Asks.swift` added all the labels to a stack, then all the fields, in a frame sized for the fields alone. Every form the core asks the Mac for (Attach, Install) was drawn this way. Nothing checked what a form looks like: a scripted ask shows no sheet.
+- Fix: a form is a grid, each label right-aligned beside its field on its baseline, sized to fit, with the fields in tab order.
+- Verified: the same grid in a system alert drawn to a picture (`claude-debug/b73/form.swift`), labels beside their fields; Mac conformance still passes. Not seen in the app's own sheet by the controller.
+- Fixed: 2026-11-21
+- Issue: none
+
 ### B70. The Mac app could not make a new graph: File › New did nothing, and a launch showed only the Open panel
 
 - Reported: 2026-11-21
