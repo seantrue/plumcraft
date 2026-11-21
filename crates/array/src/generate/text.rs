@@ -1,4 +1,4 @@
-//! Draw Text (the research software's, which drew with yapocis graphics4 and FreeType): text set in a font's
+//! Draw Text (the research software's, which drew with the kernel library's graphics4 and FreeType): text set in a font's
 //! outlines (skrifa) and filled antialiased (tiny-skia), blended onto the canvas in a colour.
 //!
 //! Fonts: Inter (the UI's own OFL face, always there), every craft-fonts face when the build

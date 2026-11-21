@@ -23,8 +23,11 @@
 //   --scratch-state               don't restore or save windows (scripts: the Mac's saved state is
 //                                 left alone; `-ApplePersistenceIgnoreState YES` would do it too,
 //                                 but AppKit then offers the `YES` as a file to open). A scripted
-//                                 launch: it refuses to start unless COMMONKIT_STORE_ROOT and
-//                                 COMMONKIT_MARK_DIR name scratch folders, never the Mac's own store
+//                                 launch: it refuses to start unless everything it would write
+//                                 (the store, marks, caches, log, preferences, craft root) is
+//                                 inside --scratch-root or the system's temporary folder
+//   --scratch-root D              a scratch folder outside the temporary folder that a scripted
+//                                 launch may write in (default: none, only the temporary folder)
 //   --bench OUT --nodes N --wires M [--phase-seconds S]   the scripted budget run (Bench.swift)
 //   --control-bind lan|ADDR --control-token HEX [--control-port N]
 //                                 debug builds only (N4 slice 4): the control port on the local
@@ -52,6 +55,7 @@ struct Options {
     var then: [String] = []
     var dumpMenus: String?
     var scratchState = false
+    var scratchRoot: String?
     var bench: BenchOptions?
     var controlBind: String?
     var controlToken: String?
@@ -77,6 +81,7 @@ struct Options {
             case "--select": o.select = (next() ?? "").split(separator: ",").map(String.init)
             case "--no-open-panel": o.openPanel = false
             case "--scratch-state": o.scratchState = true
+            case "--scratch-root": o.scratchRoot = next()
             case "--engines-pick": o.pick = next() != "off"
             case "--engines-also":
                 let v = next() ?? ""
@@ -132,28 +137,47 @@ enum CoreHost {
     /// Done once the core's own first document is closed: windows open theirs after it.
     static var ready: Task<UInt64?, Never>?
 
-    static func open() {
+    /// Where the app writes: its caches, the store's root, its log and its preferences' folder.
+    struct Layout {
+        var scratch: URL?
+        var caches: String
+        var store: String
+        var logs: String
+        var prefs: String
+    }
+
+    /// The layout for these options. A scripted launch (--scratch-state) keeps its caches, log and
+    /// preferences beside the scratch marks it must be given, not in the person's Library: since
+    /// the core writes exports under dirs.caches (B42, the N4 device gate) a scripted export would
+    /// land there. With no marks named, it falls back to the Library, which the guard refuses.
+    static func layout(_ options: Options, _ env: [String: String]) -> Layout {
         let fm = FileManager.default
         let id = AppID.bundle
-        // a scripted launch (--scratch-state) keeps its caches and log beside the scratch marks it
-        // must be given, not in the person's Library: since the core writes exports under
-        // dirs.caches (B42, the N4 device gate) a scripted export would land there
         let scratch = options.scratchState
-            ? ProcessInfo.processInfo.environment["COMMONKIT_MARK_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).deletingLastPathComponent() }
+            ? env["COMMONKIT_MARK_DIR"].flatMap { $0.isEmpty ? nil : URL(fileURLWithPath: $0).deletingLastPathComponent() }
             : nil
         let caches = scratch.map { $0.appendingPathComponent("mac-caches").appendingPathComponent(id) }
             ?? (fm.urls(for: .cachesDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent(id)
-        let store = options.storeRoot ?? caches.appendingPathComponent("store").path
-        try? fm.createDirectory(atPath: store, withIntermediateDirectories: true)
         let logs = scratch.map { $0.appendingPathComponent("mac-logs").path }
             ?? (fm.urls(for: .libraryDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory).appendingPathComponent("Logs/Plummer").path
-        // the config (contract 4.1) and the start are the kit's, shared with the iPad app
-        var config = ShellConfig(appID: id, appName: "Plummer", version: ShellConfig.bundleVersion, storeRoot: store)
         // the app's own preferences (the core keeps every setting there, N4 slice 4);
         // PLUMCRAFT_EDITOR_PREFS, which every script sets to scratch, wins in the core
-        let prefs = (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
+        let prefs = scratch.map { $0.appendingPathComponent("mac-prefs").path }
+            ?? (fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first ?? fm.temporaryDirectory)
             .appendingPathComponent("Plummer").path
-        config.dirs = ["caches": caches.path, "logs": logs, "prefs": prefs]
+        return Layout(scratch: scratch, caches: caches.path, store: options.storeRoot ?? caches.appendingPathComponent("store").path,
+                      logs: logs, prefs: prefs)
+    }
+
+    static func open() {
+        let fm = FileManager.default
+        let id = AppID.bundle
+        let l = layout(options, ProcessInfo.processInfo.environment)
+        let store = l.store
+        try? fm.createDirectory(atPath: store, withIntermediateDirectories: true)
+        // the config (contract 4.1) and the start are the kit's, shared with the iPad app
+        var config = ShellConfig(appID: id, appName: "Plummer", version: ShellConfig.bundleVersion, storeRoot: store)
+        config.dirs = ["caches": l.caches, "logs": l.logs, "prefs": l.prefs]
         config.dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         config.moreContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         config.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
@@ -232,7 +256,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "light"?: NSApp.appearance = NSAppearance(named: .aqua)
         default: break
         }
-        if CoreHost.options.scratchState, let why = Self.scratchRefusal() {
+        if CoreHost.options.scratchState, let why = Self.scratchRefusal(CoreHost.options, ProcessInfo.processInfo.environment) {
             // loud, and no dialog: a scripted launch that would reach the Mac's own store stops here
             FileHandle.standardError.write(Data("Plummer: \(why)\n".utf8))
             exit(3)
@@ -263,19 +287,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         sigterm = s
     }
 
-    /// Why a scripted launch (`--scratch-state`) must not start: the store or marks it would use
-    /// aren't named, or are the Mac's own (COMMONKIT_STORE_ROOT wins over the config's root).
-    static func scratchRefusal() -> String? {
-        let env = ProcessInfo.processInfo.environment
-        for k in ["COMMONKIT_STORE_ROOT", "COMMONKIT_MARK_DIR", "PLUMCRAFT_EDITOR_PREFS"] {
-            guard let v = env[k], !v.isEmpty else { return "--scratch-state needs \(k) set to a scratch folder" }
-            if v.hasPrefix("/Volumes/CommonkitStore") { return "--scratch-state refuses \(k)=\(v): that is the Mac's own store" }
-            if k == "PLUMCRAFT_EDITOR_PREFS", v.contains("/Library/Application Support/") {
-                return "--scratch-state refuses PLUMCRAFT_EDITOR_PREFS=\(v): that is a person's own preferences"
-            }
-        }
-        if let r = CoreHost.options.storeRoot, r.hasPrefix("/Volumes/CommonkitStore") { return "--scratch-state refuses --store-root \(r)" }
-        return nil
+    /// Why a scripted launch (`--scratch-state`) must not start: a place it would write is unset
+    /// where the fallback is the person's own, or is outside the scratch root it was given
+    /// (`--scratch-root`) and the system's temporary folder (the kit's ScratchGuard). It names no
+    /// store or volume (maintainer, 2026-11-21). Written files named on the command line
+    /// (`--status-file`, `--dump-menus`, `--bench`, the token file) are the script's own outputs
+    /// and are not checked.
+    static func scratchRefusal(_ options: Options, _ env: [String: String]) -> String? {
+        let l = CoreHost.layout(options, env)
+        let locations: [ScratchGuard.Location] = [
+            .init("COMMONKIT_STORE_ROOT", env["COMMONKIT_STORE_ROOT"],
+                  ifUnset: "the store isn't the script's: a scripted launch must name it there, since it wins over --store-root"),
+            .init("COMMONKIT_MARK_DIR", env["COMMONKIT_MARK_DIR"],
+                  ifUnset: "the caches, log and preferences would go to the person's Library (~/Library/Caches, ~/Library/Logs, ~/Library/Application Support)"),
+            // unset, the core keeps prefs.json in the preferences folder, checked below
+            .init("PLUMCRAFT_EDITOR_PREFS", env["PLUMCRAFT_EDITOR_PREFS"]),
+            .init("PLUMCRAFT_CRAFT_ROOT", env["PLUMCRAFT_CRAFT_ROOT"],
+                  ifUnset: "the craft apps' stores would go to ~/Library/Caches/plumcraft/craft"),
+            .init("COMMONKIT_TEST_RUN", env["COMMONKIT_TEST_RUN"]),
+            .init(options.storeRoot == nil ? "the store root (the caches' store)" : "--store-root", l.store),
+            .init("the caches folder", l.caches),
+            .init("the log folder", l.logs),
+            .init("the preferences folder", l.prefs),
+        ]
+        var allowed = ScratchGuard.temporaryFolders(env)
+        if let r = options.scratchRoot { allowed.insert(r, at: 0) }
+        return ScratchGuard.refusal(locations, inside: allowed)
     }
 
     func applicationDidFinishLaunching(_ note: Notification) {

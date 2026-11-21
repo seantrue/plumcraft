@@ -7,9 +7,9 @@ space is optional everywhere: an array without one is plain numbers.
 Spaces (see the Rust module for the full notes):
 
 - `RGB`: red, green, blue, 0..1.
-- `HSI`: yapocis's `hsi` kernel (the GLSL "IQ" RGB->HSV) as impressionist calls it: the forward
+- `HSI`: the kernel library's `hsi` kernel (the GLSL "IQ" RGB->HSV) as impressionist calls it: the forward
   kernel reads the pixel as (r, b, g); hue a fraction of a turn; s and i clamped to 0..1.
-- `IHSL`: yapocis_external's `ihsl` kernel (Hanbury): hue in turns from the acos formula,
+- `IHSL`: the external kernel library's `ihsl` kernel (Hanbury): hue in turns from the acos formula,
   saturation max - min, BT.709 luminance; a grey gets hue 0.5; the inverse's four-digit matrix.
 - `HSV`, `HLS`: OpenCV's float conventions, hue in degrees 0..360.
 - `Lab`: OpenCV's forward 33^3 fixed-point table with trilinear interpolation (L quantised to
@@ -17,9 +17,9 @@ Spaces (see the Rust module for the full notes):
   1024-knot sRGB spline.
 - `Luv`: OpenCV's float paths: gamma splines, cube-root spline, D65.
 - `YCrCb`: OpenCV's float coefficients and 0.5 delta.
-- `XYZ`, `xyY`: yapocis colormath's `srgb_d65` matrices with sRGB decode/encode; black (any
+- `XYZ`, `xyY`: the kernel library's colormath module's `srgb_d65` matrices with sRGB decode/encode; black (any
   exact zero sum X+Y+Z) has no chromaticity: x and y are 0 there and Y is kept, as in the kernel
-  (yapocis3 #66).
+  (the kernel library's #66).
 """
 
 from __future__ import annotations
@@ -113,7 +113,7 @@ def _clamp(x, lo, hi):
     return np.minimum(np.fmax(x, F(lo)), F(hi)).astype(np.float32)
 
 
-# ---------- HSI: yapocis hsi kernel via rgb2hsi3 / hsi2rgb3 ----------
+# ---------- HSI: the kernel library's hsi kernel via rgb2hsi3 / hsi2rgb3 ----------
 
 HSI_EPS = F(1.0e-10)
 _FRACT_MAX = np.frombuffer(np.uint32(0x3F7FFFFF).tobytes(), dtype=np.float32)[0]
@@ -152,7 +152,7 @@ def _hsi_to_rgb(h, s, i):
     return out
 
 
-# ---------- IHSL: yapocis_external ihsl kernel ----------
+# ---------- IHSL: the external kernel library's ihsl kernel ----------
 
 
 def _acospi(x):
@@ -462,7 +462,7 @@ def _luv_to_rgb(l, u, v):  # noqa: E741
     return _encode_spline(r), _encode_spline(g), _encode_spline(b)
 
 
-# ---------- XYZ, xyY: yapocis colormath srgb_d65 with sRGB decode/encode ----------
+# ---------- XYZ, xyY: the kernel library's colormath srgb_d65 with sRGB decode/encode ----------
 
 RGB2XYZ = [F(v) for v in (0.4124564, 0.3575761, 0.1804375, 0.2126729, 0.7151522, 0.072175, 0.0193339, 0.119192, 0.9503041)]
 XYZ2RGB = [F(v) for v in (3.2404542, -1.5371385, -0.4985314, -0.969266, 1.8760108, 0.041556, 0.0556434, -0.2040259, 1.0572252)]

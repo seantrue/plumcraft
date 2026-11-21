@@ -33,7 +33,7 @@ fn every_node_is_described_and_typed() {
 }
 
 /// #84: simplex's `tileable` wraps its skewed lattice, so the output repeats along the diagonal
-/// and its edges don't meet on x or y (yapocis's backends included). The tooltip must not promise
+/// and its edges don't meet on x or y (the kernel library's backends included). The tooltip must not promise
 /// seamless edges.
 #[test]
 fn simplex_tileable_tooltip_does_not_promise_seamless_edges() {

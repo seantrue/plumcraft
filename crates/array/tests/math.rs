@@ -3,7 +3,7 @@
 //! and Wrap Angle.
 //!
 //! `fixtures/math/reference.json` is written by `claude-debug/math_fixtures_gen.py` in
-//! yapocis3's env with the numba backend: yapocis's numba kernels where the research software calls one,
+//! The kernel library's env with the numba backend: the kernel library's numba kernels where the research software calls one,
 //! numpy for the rest, impressionist's `core.curves` for Apply Curve. Every kernel is compared
 //! with its reference below, with its tolerance and the reason for it; then every node runs
 //! through the executor, and hostile inputs come back as errors, never panics.

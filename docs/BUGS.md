@@ -252,9 +252,9 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ### B26. "Wrap seamlessly at the edges" on Simplex Noise's `tileable`
 
-- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #84)
-- Report: the `tileable` tooltip says "Wrap seamlessly at the edges", but simplex wraps its lattice in skewed coordinates, so the output repeats along the diagonal and its edges don't tile on x or y, on yapocis's backends or here. Measured seams are the same size as with `tileable` off.
-- Context: yapocis3 made the same correction to its docs (its `simplex2d` docstring: "The output is not seamless along x or y"); real seamless tiling is yapocis3 #83 (a feature request), which would change this port too. impressionist's copy of the tooltip (its `docs/BUGS.md` B2) gets the same wording in its own branch.
+- Reported: 2026-11-11 (found while checking the kernel library's #65 against this port; filed as #84)
+- Report: the `tileable` tooltip says "Wrap seamlessly at the edges", but simplex wraps its lattice in skewed coordinates, so the output repeats along the diagonal and its edges don't tile on x or y, on the kernel library's backends or here. Measured seams are the same size as with `tileable` off.
+- Context: the kernel library made the same correction to its docs (its `simplex2d` docstring: "The output is not seamless along x or y"); real seamless tiling is the kernel library's #83 (a feature request), which would change this port too. impressionist's copy of the tooltip (its `docs/BUGS.md` B2) gets the same wording in its own branch.
 - Issue: #84
 - Cause: the tooltip described what tiling was meant to do, not what the kernel does.
 - Fix: the tooltip (`crates/array/src/generate/mod.rs`) is now "Wrap the noise lattice; not seamless on x or y (smooth only)". Test: `simplex_tileable_tooltip_does_not_promise_seamless_edges` (`crates/array/tests/catalogue.rs`), which fails on the old text.
@@ -262,22 +262,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ### B25. Simplex Noise swapped the tile periods on non-square tileable noise
 
-- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #83)
-- Report: `simplex2d` puts pixel (r, c) at (r / h, c / w) × frequency, but passed `tile_w = w / frequency` as the period of the row-based coordinate and `tile_h = h / frequency` as the column-based one's. yapocis wraps the row-based coordinate with rows / frequency (its kernels' `width` is the rows). Square sizes, and `tileable` off, were unaffected; non-square tileable output differed from yapocis by up to 0.72 (24 × 16, measured). Every `simplex.json` case was square, so none caught it.
-- Context: the doc comment also said the numba kernel "is only right for" square sizes, which went stale when yapocis3 #75 (`29f8403`) fixed numba's loop.
+- Reported: 2026-11-11 (found while checking the kernel library's #65 against this port; filed as #83)
+- Report: `simplex2d` puts pixel (r, c) at (r / h, c / w) × frequency, but passed `tile_w = w / frequency` as the period of the row-based coordinate and `tile_h = h / frequency` as the column-based one's. The kernel library wraps the row-based coordinate with rows / frequency (its kernels' `width` is the rows). Square sizes, and `tileable` off, were unaffected; non-square tileable output differed from the kernel library by up to 0.72 (24 × 16, measured). Every `simplex.json` case was square, so none caught it.
+- Context: the doc comment also said the numba kernel "is only right for" square sizes, which went stale when the kernel library's #75 (`29f8403`) fixed numba's loop.
 - Issue: #83
-- Cause: the port took yapocis's `tile_w`/`tile_h` names as columns/rows, where yapocis means rows/columns.
-- Fix: `crates/array/src/generate/noise.rs`: the row-based coordinate wraps every `h / frequency` cells and the column-based one every `w / frequency` (`tile_rows`, `tile_cols`; `simplex2d_single`'s parameters renamed `tile_x`, `tile_y`). The doc comment now says what the kernels compute. `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases (24 × 16 and 12 × 30) recorded from yapocis3 `main` (`6fa5e01`, numba backend) with the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py`, which first checked that the five existing cases still reproduce exactly; the existing cases are byte-identical. `simplex_matches_numba` reads `height` and `width` when a case has them and checks the shape. It fails on the old port (max error 0.72 at 24 × 16) and passes exactly (0) on the new.
+- Cause: the port took the kernel library's `tile_w`/`tile_h` names as columns/rows, where the kernel library means rows/columns.
+- Fix: `crates/array/src/generate/noise.rs`: the row-based coordinate wraps every `h / frequency` cells and the column-based one every `w / frequency` (`tile_rows`, `tile_cols`; `simplex2d_single`'s parameters renamed `tile_x`, `tile_y`). The doc comment now says what the kernels compute. `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases (24 × 16 and 12 × 30) recorded from the kernel library's `main` (`6fa5e01`, numba backend) with the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py`, which first checked that the five existing cases still reproduce exactly; the existing cases are byte-identical. `simplex_matches_numba` reads `height` and `width` when a case has them and checks the shape. It fails on the old port (max error 0.72 at 24 × 16) and passes exactly (0) on the new.
 - Fixed: 2026-11-12, branch `fix/83-84-simplex-tile`
 
 ### B24. xyY of black is NaN
 
-- Reported: 2026-11-11 (found while porting colormath; filed upstream as yapocis3 #66)
+- Reported: 2026-11-11 (found while porting colormath; filed upstream as the kernel library's #66)
 - Report: the colour spaces gave x = y = NaN for black in xyY, and NaN RGB back, because colormath's OpenCL `xyz2xyY` divided 0 by 0, while its numba port gave 0.
-- Context: yapocis3 #66 (now closed) settled it: an exact zero sum X+Y+Z has x = y = 0, and Y is kept. The maintainer chose that option "With check" (an explicit `sum != 0` test), and "Patch the 10 values directly" for this repository's fixture.
-- Issue: seantrue/yapocis3#66 (closed)
+- Context: the kernel library's #66 (now closed) settled it: an exact zero sum X+Y+Z has x = y = 0, and Y is kept. The maintainer chose that option "With check" (an explicit `sum != 0` test), and "Patch the 10 values directly" for this repository's fixture.
+- Issue: the kernel library's #66 (closed)
 - Cause: the ports copied the kernel's `x / sum`, `y / sum` with no zero check.
-- Fix: `if sum != 0 { x/sum, y/sum } else { 0, 0 }`, Y kept, in the three ports: `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, with `np.where`). Bit-identical to yapocis3's numbax `xyz2xyY` (jit and numpy fallback) on 100,000 random rows plus black, (0.5, -0.5, 0), -0 and (0.25, 0.25, -0.5). The inverses already gave XYZ 0 at y = 0 and are unchanged. `crates/engine/tests/fixtures/color.json`: the 10 nulls became 0.0, with nothing else changed (a JSON-aware comparison): `spaces.xyY.from_rgb` planes 0 and 1 (x, y) and `spaces.xyY.to_rgb` planes 0, 1 and 2 (r, g, b), each at samples 0 and 41. Tests: the fixture comparisons in `crates/engine/tests/color.rs` and `python/tests/test_color.py` (xyY) fail with the old ports and the patched fixture; the new `xyy_of_black_is_zero` (array) fails with the old port.
+- Fix: `if sum != 0 { x/sum, y/sum } else { 0, 0 }`, Y kept, in the three ports: `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, with `np.where`). Bit-identical to the kernel library's numbax `xyz2xyY` (jit and numpy fallback) on 100,000 random rows plus black, (0.5, -0.5, 0), -0 and (0.25, 0.25, -0.5). The inverses already gave XYZ 0 at y = 0 and are unchanged. `crates/engine/tests/fixtures/color.json`: the 10 nulls became 0.0, with nothing else changed (a JSON-aware comparison): `spaces.xyY.from_rgb` planes 0 and 1 (x, y) and `spaces.xyY.to_rgb` planes 0, 1 and 2 (r, g, b), each at samples 0 and 41. Tests: the fixture comparisons in `crates/engine/tests/color.rs` and `python/tests/test_color.py` (xyY) fail with the old ports and the patched fixture; the new `xyy_of_black_is_zero` (array) fails with the old port.
 - Fixed: 2026-11-11, branch `fix/66-xyY-black`
 
 ### B23. A run marks every node queued, not only the ones it computes
@@ -436,10 +436,10 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 - Reported: 2026-11-05
 - Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
-- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
+- Repo: npexact, in the Rust kernel library's repository; not PlumCraft's to fix
 - Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
-- Issue: seantrue/yapocis-rs#10
-- Fixed in npexact: 2026-11-05, seantrue/yapocis-rs#11 (`5a51589`), with the recorder in seantrue/yapocis3#74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
+- Issue: the Rust kernel library's #10
+- Fixed in npexact: 2026-11-05, the Rust kernel library's #11 (`5a51589`), with the recorder in the kernel library's #74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
 - Fixed in PlumCraft: 2026-11-05, branch `fix/b6-npexact-complex`. The Mandelbrot kernel calls `npexact::complex::Mul::array_default()` and `mul_c64` (npexact 0.1.2) in place of its own `numpy_complex_fma()`; the golden test passes on the M4 Max and on the Linux test host.
 
 ### B4. No built-in viewer for XML files

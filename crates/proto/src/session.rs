@@ -138,7 +138,7 @@ pub struct EngineInfo {
     pub name: String,
     #[serde(deserialize_with = "null_as_default")]
     pub version: String,
-    /// Component versions (`impressionist`, `yapocis`, …).
+    /// Component versions (`impressionist`, `kernels`, …).
     #[serde(deserialize_with = "crate::de::lenient_map")]
     pub components: BTreeMap<String, String>,
     /// The engine's code digest, part of every memo key (spec 14).

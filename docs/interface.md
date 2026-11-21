@@ -198,7 +198,7 @@ Engine → UI:
 ```json
 {"v": 2, "protocol": 2, "session": "s-7f3a…",
  "engine": {"id": "research", "name": "research", "version": "0.1.0",
-            "components": {"research": "1a2b…", "yapocis": "2909778"},
+            "components": {"research": "1a2b…", "kernels": "2909778"},
             "salt": "py:research+1a2b3c…", "schema_digest": "3b8c…"},
  "caps": ["events.push", "events.poll", "events.resume", "run.peek", "run.watch", "run.plan",
           "display.stream", "status.progress", "data.shm", "data.path", "memo.persist",
@@ -888,7 +888,7 @@ memo key = <algo>(canon(["plumcraft-memo-v1", kind, node_version, engine_salt,
 written   memo:<algo>:<hex>
 ```
 
-- `engine_salt`: the engine's code digest from `hello` **plus a digest of the resolved dependency set**. **Required since records persist (section 14.5)**: a salt without the code would serve a fixed node the old code's result. The SDKs build it as `<prefix>+code:<engine code digest>+sdk:<SDK code digest>`, and a Python engine that names `dependencies` adds `+deps:<digest of those packages' versions>`: in Rust, `build.rs` bakes the MD5 of the engine crate's `src/` and of the SDK's own sources (`crates/engine`, `crates/proto`, `crates/store`), each with the workspace `Cargo.lock` (`crates/engine/digest.rs`), so the salt is the same in every hosting mode and changes only when code that can change a result does; in Python, the MD5 of the engine's package `.py` files and of the SDK's, plus Python's minor version and the numpy and pyuncommonkit versions, computed when the engine starts. The craft adapter adds the craft's version, executable digest and manifest digest (as listed below) (Python: the research software's `code_version()` over package, yapocis and kernels, plus `uv.lock`, `numpy.__version__`, `cv2.__version__`; Rust: `rust:research-<version>+<build digest>` plus `Cargo.lock`; GPU engines add the Metal or MLX framework and driver version; MCP adapter: app id, `serverInfo.version` and build hash). A dependency upgrade therefore misses every persisted record.
+- `engine_salt`: the engine's code digest from `hello` **plus a digest of the resolved dependency set**. **Required since records persist (section 14.5)**: a salt without the code would serve a fixed node the old code's result. The SDKs build it as `<prefix>+code:<engine code digest>+sdk:<SDK code digest>`, and a Python engine that names `dependencies` adds `+deps:<digest of those packages' versions>`: in Rust, `build.rs` bakes the MD5 of the engine crate's `src/` and of the SDK's own sources (`crates/engine`, `crates/proto`, `crates/store`), each with the workspace `Cargo.lock` (`crates/engine/digest.rs`), so the salt is the same in every hosting mode and changes only when code that can change a result does; in Python, the MD5 of the engine's package `.py` files and of the SDK's, plus Python's minor version and the numpy and pyuncommonkit versions, computed when the engine starts. The craft adapter adds the craft's version, executable digest and manifest digest (as listed below) (Python: the research software's `code_version()` over package, the kernel library and kernels, plus `uv.lock`, `numpy.__version__`, `cv2.__version__`; Rust: `rust:research-<version>+<build digest>` plus `Cargo.lock`; GPU engines add the Metal or MLX framework and driver version; MCP adapter: app id, `serverInfo.version` and build hash). A dependency upgrade therefore misses every persisted record.
 - `device_class`: present only for nodes that declare `memo.device_sensitive`.
 - `params`: resolved non-wired values; provenance excluded (F43).
 - `inputs`: `{port: identity}` including any wire slice. A plan-key identity is the string `<upstream plan key>#<upstream port>`, with `[<slice>]` appended in canonical text for a sliced wire. A bound input (section 7.6 rule 10) is identified by its content instead, since another engine's plan key means nothing here: a blob by its handle string (`md5:nd1:…`), a json value as `{"json": value}`, a list as the list of its items' identities. So when an upstream engine recomputes the same bytes, the downstream memo still hits.
@@ -1082,7 +1082,7 @@ mode = "pipekit"          # inproc | process | http | pipekit
 # process / http:
 command = ["uv", "run", "--project", "python", "python", "-m", "research_engine.serve"]
 cwd = "."
-env = { YAPOCIS_PROJECT = "~/workspace/yapocis_external" }
+env = { KERNELS_PROJECT = "~/workspace/external-kernels" }
 restart = "on-crash"
 max_restarts = 5
 # http:

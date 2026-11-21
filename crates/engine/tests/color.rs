@@ -1,5 +1,5 @@
 //! The colour-space port (`plumcraft_engine::color`) against impressionist itself: fixtures from
-//! `claude-debug/color_fixtures_gen.py`, run in the research software's Python (OpenCV 4.14, yapocis on its
+//! `claude-debug/color_fixtures_gen.py`, run in the research software's Python (OpenCV 4.14, the kernel library on its
 //! default OpenCL backend). For every space the fixture holds `from_rgb(rgb)` and
 //! `to_rgb(from_rgb(rgb))`; the inverse here is fed the fixture's forward planes, so each
 //! direction is checked on its own.
@@ -28,7 +28,7 @@ struct Tol {
 /// - HSI, IHSL: the reference runs on the GPU (OpenCL, which may contract to fma, and whose
 ///   acospi/sinpi/cospi and division are not correctly rounded), so a few more ulps.
 /// - IHSL hue of greys and near-greys (saturation < 1e-3) is not compared: there the kernel's
-///   hue is 0/0 or a catastrophic cancellation (`r^2+g^2+b^2 - (rg+rb+gb)`), and yapocis builds
+///   hue is 0/0 or a catastrophic cancellation (`r^2+g^2+b^2 - (rg+rb+gb)`), and the kernel library builds
 ///   it with `-cl-fast-relaxed-math -cl-finite-math-only`, so the GPU's answer (0.5 for most
 ///   exact greys, 0.25 for some, anything for near-greys) depends on how its compiler contracted
 ///   the sum. The port gives 0.5 for every exact grey, the kernel's NaN -> clamp -> -1 path.
