@@ -161,7 +161,11 @@ fn a_port_beyond_loopback_needs_the_debug_flag_and_a_pre_shared_token() {
     // loopback, as ever, needs neither
     assert!(open(json!({"port": 0})).is_ok());
     // an address other than 127.0.0.1 that never leaves this machine (IPv6 loopback), with the
-    // flag and the token: served, and the token is asked for
+    // flag and the token: served, and the token is asked for. A machine with no IPv6 (the
+    // Linux test host) has no such address to serve on; what is refused was checked above.
+    if std::net::TcpListener::bind(("::1", 0)).is_err() {
+        return;
+    }
     let mut c = Client::open(&json!({"store_root": store_root("bind"), "control": {"port": 0, "bind": "::1", "network_debug": true, "token": token}}));
     let info = c.call("core.control", json!({}));
     let Some(port) = info["result"]["port"].as_u64() else {
