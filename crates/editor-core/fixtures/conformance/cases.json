@@ -1478,14 +1478,19 @@
     },
     {
       "name": "an engine a manifest in the engines folder names is offered, and Reload Engine List keeps it",
-      "about": "B71: the native apps read no engine manifests, so an engine installed with the egui editor was never offered there. A driver with `manifests` has the suite's engines folder (fixtures/conformance/engines: probe.toml, an engine running elsewhere, so every platform lists it): engine.list's choices and the Engine menu offer it, and engine.manifests.reload reads the folder again and still offers it",
+      "about": "B71: the native apps read no engine manifests, so an engine installed with the egui editor was never offered there. A driver with `manifests` has the suite's engines folder (fixtures/conformance/engines: probe.toml, an engine running elsewhere, so every platform lists it): engine.list's choices and the Engine menu offer it, and engine.manifests.reload reads the folder again and still offers it. docs/interface.md 16.6: a driver that also has `copied_manifest` has instead the folder conformance::copied_manifest_folder makes in scratch (probe.toml, and copied.toml, a copy of a project's manifest away from its project); its steps check that engine.list's and ui.inspect's choices carry the warning for that engine and not for the probe, and that the Engine menu's items for it carry it as `warning`, still enabled, their hover starting with it",
       "half": "read",
       "needs": ["manifests"],
       "steps": [
         {"call": "command.run", "params": {"command": "engine.list", "params": {}}, "expect": {"/result/choices": {"$find": {"where": {"engine": "probe"}, "want": {"/engineLabel": "Conformance Probe", "/mode": "http"}}}}},
         {"call": "menu.get", "expect": {"/result/menus": {"$deep": {"label": "Conformance Probe"}}}},
         {"call": "command.run", "params": {"command": "engine.manifests.reload", "params": {}}},
-        {"call": "command.run", "params": {"command": "engine.list", "params": {}}, "until": {"/result/pending": false}, "expect": {"/result/choices": {"$find": {"where": {"engine": "probe"}, "want": {"/engineLabel": "Conformance Probe"}}}}}
+        {"call": "command.run", "params": {"command": "engine.list", "params": {}}, "until": {"/result/pending": false}, "expect": {"/result/choices": {"$find": {"where": {"engine": "probe"}, "want": {"/engineLabel": "Conformance Probe"}}}}},
+        {"only": "copied_manifest", "call": "command.run", "params": {"command": "engine.list", "params": {}}, "expect": {"/result/choices": {"$find": {"where": {"engine": "copied"}, "want": {"/engineLabel": "Copied Engine", "/warning": {"$includes": "no pyproject.toml"}}}}}},
+        {"only": "copied_manifest", "call": "command.run", "params": {"command": "engine.list", "params": {}}, "expect": {"/result/choices": {"$find": {"where": {"engine": "probe"}, "want": {"/warning": {"$exists": false}}}}}},
+        {"only": "copied_manifest", "call": "ui.inspect", "expect": {"/result/engine/choices": {"$find": {"where": {"engine": "copied"}, "want": {"/warning": {"$includes": "it may be a copy"}}}}}},
+        {"only": "copied_manifest", "call": "menu.get", "expect": {"/result/menus": {"$deep": {"label": "Copied Engine", "enabled": true, "warning": {"$includes": "it may be a copy"}, "hover": {"$includes": "no pyproject.toml"}}}}},
+        {"only": "copied_manifest", "call": "menu.get", "expect": {"/result/menus": {"$deep": {"label": "Conformance Probe", "warning": {"$exists": false}}}}}
       ]
     }
   ]

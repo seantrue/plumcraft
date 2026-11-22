@@ -356,6 +356,13 @@ impl EngineKind {
         }
     }
 
+    /// What loading its manifest warned about (`plumcraft_host::manifest::folder_warnings`: very
+    /// likely it won't start), for the Engine menu to mark it with; `None` for every other engine.
+    pub fn warning(self) -> Option<String> {
+        let EngineKind::External(i) = self else { return None };
+        EXTERNALS.with_borrow(|e| e.get(usize::from(i)).map(|x| x.resolved.warnings.join("\n")).filter(|w| !w.is_empty()))
+    }
+
     /// Does a manifest start this engine, or is it already running?
     pub fn attaches(self) -> bool {
         matches!(self, EngineKind::External(i) if external(i).is_some_and(|e| matches!(e.resolved.start, Start::Attach { .. })))
@@ -528,7 +535,7 @@ pub fn offers(caps: &Capabilities) -> Vec<Offer> {
         .into_iter()
         .flat_map(|k| Mode::ALL.into_iter().filter(move |m| k.hosts(*m)).map(move |m| (k, m)))
         .map(|(k, m)| Offer {
-            choice: EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m) },
+            choice: EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m), warning: k.warning() },
             why_not: caps.refuses(k, m),
         })
         .collect()
@@ -543,7 +550,7 @@ pub fn refused(caps: &Capabilities) -> Vec<Offer> {
         .filter_map(|(k, m)| {
             let why = caps.refuses(k, m)?;
             Some(Offer {
-                choice: EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m) },
+                choice: EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m), warning: k.warning() },
                 why_not: Some(why),
             })
         })

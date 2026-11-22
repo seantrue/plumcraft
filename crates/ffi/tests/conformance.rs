@@ -169,6 +169,44 @@ fn the_array_cases_pass_through_the_c_abi() {
     d.0.close();
 }
 
+/// The C ABI headless with `copied_manifest` (docs/interface.md 16.6): its engines folder is the
+/// scratch one `conformance::copied_manifest_folder` makes, a copy of a project's manifest in it.
+struct Copied(Abi);
+
+impl Driver for Copied {
+    fn name(&self) -> String {
+        "the C ABI, headless, with a copied manifest".into()
+    }
+    fn call(&mut self, method: &str, params: Value) -> Value {
+        self.0.call(method, params)
+    }
+    fn reports(&self) -> bool {
+        true
+    }
+    fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
+        self.0.report_geometry(faces)
+    }
+    fn has(&self, capability: &str) -> bool {
+        capability == "copied_manifest" || self.0.has(capability)
+    }
+    fn pause(&mut self) {
+        self.0.pause();
+    }
+}
+
+/// The manifests case with its `copied_manifest` steps: the warning in `engine.list`,
+/// `ui.inspect`'s engine and the Engine menu, through the real exported functions.
+#[test]
+fn a_copied_manifest_is_marked_through_the_c_abi() {
+    let root = std::fs::canonicalize(store_root("conformance-copied")).unwrap();
+    let folder = conformance::copied_manifest_folder(&root).unwrap();
+    let mut d = Copied(Abi(Client::open(&json!({"store_root": root.join("store"), "dirs": {"engines": folder}, "platform": {"subprocess": true}})), "text"));
+    let case = conformance::cases().unwrap().into_iter().find(|c| c["name"].as_str().is_some_and(|n| n.starts_with("an engine a manifest"))).unwrap();
+    let o = conformance::run_case(&mut d, &case);
+    assert!(o.error.is_none() && o.skipped.is_none() && o.steps >= 9, "{o:?}");
+    d.0.0.close();
+}
+
 /// A script on the core's control port: the protocol's JSON lines, as a Swift or Kotlin shell's
 /// test harness would drive its own core.
 struct Port {

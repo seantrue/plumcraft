@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The Engine menu marks an engine whose manifest warned; register and uv's cache (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1,2,3 yes" again, to marking such an engine in the Engine menu itself, warning when `register` runs from a throwaway uv environment, and judging `uv run` with no `--project` from a folder with no project.
+
+**What the agent did.** The menu model's items and `engine.list`'s choices gain an additive `warning`; egui draws a mark and the text on hover; what the native shells must draw is in the contract (they were not edited: the Mac and Windows already show the text as a tooltip, the iPad shows nothing yet). `register` in both SDKs warns when its program lives in uv's cache and refuses when it lives in a temporary build environment, found by the cache's own tag file and checked against real `uvx` and `uv run --with` interpreters. The no-`--project` rule warns only when a bare Python is certain. The conformance suite gained two matchers and five steps behind a `copied_manifest` capability.
+
+**Defects in the agent's own work, caught by tests:** a separate conformance case that would have broken the Swift and C# runners' skipped-case assertions (folded into gated steps); two drivers that offered no copied engine.
+
+**Verified (agent, Mac).** nextest 1,592 of 1,593 (the known baseline failure); Python 229. **Not verified:** Windows; any native shell.
+
 ### 2026-11-21 — A copied engine manifest says so; the Python SDK's clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1,2,3 yes" to keeping B72's no-restart rule, warning about a manifest whose folder holds no project, and giving the Python SDK the Rust SDK's injectable clock.

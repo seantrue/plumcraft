@@ -99,6 +99,7 @@ An engine is a Python package, so it ships as one: `uv build`, then `uv publish`
 - The demo is the package's `examples/demo.json`. A generated project's wheel includes `examples/`.
 - A checkout's own link (`scripts/install`) is left alone unless `--force`, and `unregister` removes only a manifest `register` wrote.
 - Every path in the manifest is absolute, so it works from any folder. `register` refuses, writing nothing, when the program it would start isn't one this user can run (an engine run as `python engine.py register`).
+- Run from uv's cache (`uvx my-engine register`, `uv tool run`), `register` warns and still writes the manifest: `uv cache clean` or `uv cache prune` removes that environment, and the engine with it. Run from a temporary one (`uv run --with my-engine my-engine register`, which uv removes when the command ends), it refuses. `register.uv_cache(program)` says which; `uv tool install` is the install that lasts.
 
 **Pictures on nodes:** a picture file's value shows a thumbnail when it carries one. Make it with `image(data, pixels=array)`, or override `Engine.picture_thumb(blob)` to give Load Files' values one, returning (h, w, 4) uint8; the SDK itself decodes no pictures.
 

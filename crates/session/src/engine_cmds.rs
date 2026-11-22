@@ -40,6 +40,10 @@ pub struct EngineChoice {
     pub engine_label: String,
     /// The hosting's menu item ("Rust · in-process (mode 1)").
     pub mode_label: String,
+    /// What loading its manifest warned about, when it very likely won't start (a copy of a
+    /// project's manifest, `docs/interface.md` 16.6): the Engine menu marks its items with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// What to connect to.
@@ -661,7 +665,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Engines",
             menu: &[],
             shortcut: None,
-            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending}",
+            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel, warning?}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending}",
             enabled: always,
             run: list,
             journal: false,
@@ -676,7 +680,13 @@ mod tests {
     fn offered() -> Session {
         let mut s = Session::default();
         for (engine, mode) in [("text", "inproc"), ("text", "python"), ("audio", "inproc")] {
-            s.engines.choices.push(EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: engine.into(), mode_label: mode.into() });
+            s.engines.choices.push(EngineChoice {
+                engine: engine.into(),
+                mode: mode.into(),
+                engine_label: engine.into(),
+                mode_label: mode.into(),
+                warning: None,
+            });
         }
         s.engines.current = Some(EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() });
         s.engines.can_attach = true;
@@ -714,7 +724,13 @@ mod tests {
     #[test]
     fn a_missing_kind_an_engine_offers_names_that_engine_and_picking_starts_it() {
         let mut s = offered();
-        s.engines.choices.push(EngineChoice { engine: "array".into(), mode: "inproc".into(), engine_label: "array".into(), mode_label: "inproc".into() });
+        s.engines.choices.push(EngineChoice {
+            engine: "array".into(),
+            mode: "inproc".into(),
+            engine_label: "array".into(),
+            mode_label: "inproc".into(),
+            warning: None,
+        });
         s.engines.offered = kinds(&[("array", &["array.blur"]), ("text", &["text.upper"])]);
         s.connected = true;
         // the file names no engine: the host's kinds say which
@@ -818,9 +834,21 @@ mod tests {
         // audio is offered over HTTP and as a process too: the process is faster than HTTP,
         // in-process faster still
         for mode in ["http", "process"] {
-            s.engines.choices.push(EngineChoice { engine: "audio".into(), mode: mode.into(), engine_label: "audio".into(), mode_label: mode.into() });
+            s.engines.choices.push(EngineChoice {
+                engine: "audio".into(),
+                mode: mode.into(),
+                engine_label: "audio".into(),
+                mode_label: mode.into(),
+                warning: None,
+            });
         }
-        s.engines.choices.push(EngineChoice { engine: "film".into(), mode: "http".into(), engine_label: "film".into(), mode_label: "http".into() });
+        s.engines.choices.push(EngineChoice {
+            engine: "film".into(),
+            mode: "http".into(),
+            engine_label: "film".into(),
+            mode_label: "http".into(),
+            warning: None,
+        });
         assert_eq!(s.engines.best("audio").map(|c| c.mode.as_str()), Some("inproc"));
         assert_eq!(s.engines.best("film").map(|c| c.mode.as_str()), Some("http"), "the only way there is");
         s.connected = true;

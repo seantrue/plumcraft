@@ -702,6 +702,15 @@ Asked three questions after B72's fix: 1, keep the rule that an engine which exi
 | 1 | An engine that exits before it ever connects | Keep: not restarted (`docs/interface.md` 16.3 already says so; nothing to build) |
 | 2 | A manifest whose relative folder holds no project | Warn when the manifest is loaded, add an actionable line to a failed start, and have `register` refuse to write such a manifest (`docs/interface.md` 16.6) |
 | 3 | The Python SDK's clock | Give it the injectable clock the Rust executor has (`Clock`, `RealClock`, `VirtualClock`), and move the persist tests onto it |
+### Follow-ups to the copied-manifest warning (the maintainer, 2026-11-21)
+
+Asked three questions after the copied-manifest warning merged (#154): 1, mark such an engine in the Engine menu itself, not only in the log and the status bar; 2, have `register` warn when it runs from a throwaway uv environment (`uvx`, `uv run --with`), whose path a cache clean can remove; 3, have the rule also judge `uv run` with no `--project` but a relative `cwd`. The answer: "1,2,3 yes".
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 | The warning in the Engine menu | Yes: on the engine's items, in `engine.list` and `ui.inspect` too |
+| 2 | `register` from a throwaway uv environment | Yes: warn, still write the manifest |
+| 3 | `uv run` with no `--project` and a relative `cwd` | Yes: judged as uv searches, only where it certainly fails |
 
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 

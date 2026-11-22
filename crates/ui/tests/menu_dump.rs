@@ -227,7 +227,7 @@ fn with_subs(d: &mut Dump, h: &mut H, name: &str) {
 }
 
 fn choice(engine: &str, label: &str, mode: &str, mode_label: &str) -> EngineChoice {
-    EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into() }
+    EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into(), warning: None }
 }
 
 fn choices() -> Vec<EngineChoice> {

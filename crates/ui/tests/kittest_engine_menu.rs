@@ -11,7 +11,7 @@ use plumcraft_session::engine_cmds::{EngineChoice, EngineTarget};
 use plumcraft_ui::EditorApp;
 
 fn choice(engine: &str, label: &str, mode: &str, mode_label: &str) -> EngineChoice {
-    EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into() }
+    EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into(), warning: None }
 }
 
 /// Text hosted in a process or in-process (listed slowest first), Audio over HTTP only.
@@ -59,4 +59,23 @@ fn picking_automatically_an_engine_starts_the_fastest_way() {
     assert!(h.query_by_label("Rust · separate process").is_none(), "no list of hostings");
     assert!(h.query_by_label("Rust · in-process").is_none(), "no list of hostings");
     assert_eq!(tried(&h), text("inproc"), "the fastest hosting");
+}
+
+/// An engine whose manifest warned (a copy of a project's) is marked, its submenu and its
+/// hostings, and still starts when picked: the warning is a mark, not a refusal.
+#[test]
+fn an_engine_whose_manifest_warned_is_marked_and_still_offered() {
+    let mut app = editor(false);
+    let warned = EngineChoice { warning: Some("it may be a copy".into()), ..choice("copied", "Copied", "process", "Process (mode 2)") };
+    app.session.engines.choices.push(warned);
+    let mut h = harness(app);
+    click(&mut h, "Engine");
+    h.run_steps(2);
+    let mark = plumcraft_ui::menu_view::WARNING_MARK;
+    assert!(h.query_by_label("Copied ⏵").is_none(), "the label carries the mark");
+    click(&mut h, &format!("{mark} Copied ⏵"));
+    h.run_steps(3);
+    click(&mut h, &format!("{mark} Process (mode 2)"));
+    h.run_steps(3);
+    assert_eq!(tried(&h), Some(EngineTarget::Choice { engine: "copied".into(), mode: "process".into() }));
 }

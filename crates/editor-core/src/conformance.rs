@@ -65,6 +65,32 @@ pub fn suite_engines_folder() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("conformance").join("engines")
 }
 
+/// The engines folder of a driver with the `copied_manifest` capability, made in `root` (a
+/// scratch folder of the test's, with no `pyproject.toml` in it or above it): the suite's
+/// `probe.toml`, and `copied.toml`, a copy of a project's manifest (`uv run --project .`) away
+/// from its project, beside a stand-in `uv` that fails as Python does there ("No module named
+/// copied_engine"). Its engine is offered, warned of (`docs/interface.md` 16.6), and the menu
+/// marks it. The folder is `root/engines`.
+pub fn copied_manifest_folder(root: &std::path::Path) -> std::io::Result<std::path::PathBuf> {
+    let folder = root.join("engines");
+    std::fs::create_dir_all(&folder)?;
+    std::fs::write(folder.join("probe.toml"), include_str!("../fixtures/conformance/engines/probe.toml"))?;
+    std::fs::write(
+        folder.join("copied.toml"),
+        "id = \"copied\"\nname = \"Copied Engine\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"copied_engine\"]\ncwd = \".\"\n",
+    )?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let uv = folder.join("uv");
+        std::fs::write(&uv, "#!/bin/sh\necho 'No module named copied_engine' >&2\nexit 1\n")?;
+        std::fs::set_permissions(&uv, std::fs::Permissions::from_mode(0o755))?;
+    }
+    #[cfg(windows)]
+    std::fs::write(folder.join("uv.cmd"), "@echo No module named copied_engine 1>&2\r\n@exit /b 1\r\n")?;
+    Ok(folder)
+}
+
 /// A shell the suite drives.
 pub trait Driver {
     /// For messages.
@@ -366,7 +392,8 @@ fn same(a: &Value, b: &Value) -> bool {
 
 fn deep_has(v: &Value, fields: &Map<String, Value>) -> bool {
     match v {
-        Value::Object(o) => fields.iter().all(|(k, w)| o.get(k).is_some_and(|x| same(x, w))) || o.values().any(|x| deep_has(x, fields)),
+        // a field's want may be a matcher (`{"$includes": "…"}`), as at a pointer
+        Value::Object(o) => fields.iter().all(|(k, w)| matches(o.get(k), w).is_ok()) || o.values().any(|x| deep_has(x, fields)),
         Value::Array(a) => a.iter().any(|x| deep_has(x, fields)),
         _ => false,
     }
@@ -381,6 +408,7 @@ fn matches(got: Option<&Value>, want: &Value) -> Result<(), String> {
         let ok = match k.as_str() {
             "$exists" => got.is_some() == arg.as_bool().unwrap_or(true),
             "$len" => got.and_then(|g| g.as_array().map(Vec::len).or_else(|| g.as_object().map(Map::len))).map(|n| n as u64) == arg.as_u64(),
+            "$includes" => arg.as_str().is_some_and(|a| got.and_then(Value::as_str).is_some_and(|g| g.contains(a))),
             "$contains" => got.and_then(Value::as_array).is_some_and(|a| a.iter().any(|x| same(x, arg))),
             "$deep" => arg.as_object().is_some_and(|f| got.is_some_and(|g| deep_has(g, f))),
             "$not" => got.is_none_or(|g| !same(g, arg)),
@@ -502,6 +530,13 @@ mod tests {
         assert!(matches(Some(&json!({"a": [{"command": "x", "y": 1}]})), &json!({"$deep": {"command": "x"}})).is_ok());
         assert!(matches(Some(&json!("b")), &json!({"$one": ["a", "b"]})).is_ok());
         assert!(matches(Some(&json!(1)), &json!({"$bogus": 1})).is_err());
+        assert!(matches(Some(&json!("a copy of it")), &json!({"$includes": "copy"})).is_ok());
+        assert!(matches(Some(&json!("a link")), &json!({"$includes": "copy"})).is_err());
+        assert!(matches(Some(&json!(1)), &json!({"$includes": "1"})).is_err(), "only text includes");
+        let menu = json!({"items": [{"id": "engine:copied", "warning": "it may be a copy"}, {"id": "engine:text"}]});
+        assert!(matches(Some(&menu), &json!({"$deep": {"id": "engine:copied", "warning": {"$includes": "copy"}}})).is_ok());
+        assert!(matches(Some(&menu), &json!({"$deep": {"id": "engine:text", "warning": {"$includes": "copy"}}})).is_err());
+        assert!(matches(Some(&menu), &json!({"$deep": {"id": "engine:text", "warning": {"$exists": false}}})).is_ok());
     }
 
     /// The core's own document as a shell: the dispatcher every shell's control port uses, with
@@ -564,6 +599,54 @@ mod tests {
             let e = o.error.unwrap_or_else(|| panic!("{bad} passed"));
             assert!(e.starts_with("step 2:") && e.contains(says), "{bad}: {e}");
         }
+    }
+
+    /// [`DocDriver`] whose engines folder is [`super::copied_manifest_folder`]'s.
+    struct CopiedDoc(DocDriver);
+
+    impl Driver for CopiedDoc {
+        fn name(&self) -> String {
+            "the core's document, with a copied manifest".into()
+        }
+        fn call(&mut self, method: &str, params: Value) -> Value {
+            self.0.call(method, params)
+        }
+        fn reports(&self) -> bool {
+            true
+        }
+        fn pause(&mut self) {
+            self.0.pause();
+        }
+        fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
+            self.0.report_geometry(faces)
+        }
+        fn has(&self, capability: &str) -> bool {
+            capability == "manifests" || capability == "copied_manifest"
+        }
+    }
+
+    /// The copied-manifest case, and the manifests case beside it, on a scratch engines folder
+    /// holding a copy of a project's manifest; the case fails on a folder without one.
+    #[test]
+    fn the_copied_manifest_case_passes_on_the_cores_own_document() {
+        let root = std::fs::canonicalize(plumcraft_scratch::dir("conformance-copied")).unwrap();
+        let folder = super::copied_manifest_folder(&root).unwrap();
+        let launcher = crate::engines::Launcher { folder: Some(folder), ..Default::default() };
+        let problems = launcher.load_manifests();
+        assert!(problems.len() == 1 && problems[0].contains("copied.toml"), "{problems:?}");
+        let session = plumcraft_session::Session::new(plumcraft_text::engine().schema());
+        let mut d = CopiedDoc(DocDriver(crate::document::Document::new(session)));
+        d.0.0.session.engines.choices = launcher.choices();
+        d.0.0.offer_installs(&launcher);
+        let cases = cases().unwrap();
+        let case = cases.iter().find(|c| c["name"].as_str().is_some_and(|n| n.starts_with("an engine a manifest"))).cloned().unwrap();
+        let o = run_case(&mut d, &case);
+        assert!(o.error.is_none() && o.skipped.is_none() && o.steps >= 9, "{o:?}");
+        // not vacuous: the suite's own folder has no copy, and the copied steps fail there
+        let mut plain = CopiedDoc(DocDriver(crate::document::Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()))));
+        suite_engines(&mut plain.0.0);
+        let o = run_case(&mut plain, &case);
+        assert!(o.error.as_deref().is_some_and(|e| e.starts_with("step 5:")), "{o:?}");
     }
 
     #[test]

@@ -310,6 +310,11 @@ pub struct Item {
     /// The enabled item's tooltip.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hover: Option<String>,
+    /// Something wrong with what it stands for that doesn't disable it (an engine whose manifest
+    /// warned that it very likely won't start): the shell marks the item and shows this on hover.
+    /// `hover` starts with the same text, so a shell that shows only `hover` still says it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub items: Vec<Item>,
     /// A submenu, even when it has no items.
@@ -361,6 +366,18 @@ impl Item {
 
     pub fn hover(mut self, hover: impl Into<String>) -> Item {
         self.hover = Some(hover.into());
+        self
+    }
+
+    /// Marked with `warning` (none: as it was), which also starts its hover.
+    fn warned(mut self, warning: Option<&String>) -> Item {
+        if let Some(w) = warning {
+            self.hover = Some(match self.hover.take() {
+                Some(h) => format!("{w}\n\n{h}"),
+                None => w.clone(),
+            });
+            self.warning = Some(w.clone());
+        }
         self
     }
 
@@ -779,6 +796,8 @@ fn engine_items(session: &Session, facts: &Facts) -> Vec<Item> {
     let mut list = Vec::new();
     for (label, modes) in groups {
         let engine = modes.first().map_or("", |(c, _)| c.engine.as_str());
+        // a manifest that warned (a copy of a project's): every item of the engine says so
+        let warning = modes.first().and_then(|(c, _)| c.warning.as_ref());
         let using = engines.in_use(engine).filter(|_| facts.live).and_then(|m| modes.iter().find(|(c, why)| c.mode == m && why.is_none()).map(|(c, _)| *c));
         let heading = match using {
             Some(c) => format!("{label} · {}", c.mode_label),
@@ -788,7 +807,8 @@ fn engine_items(session: &Session, facts: &Facts) -> Vec<Item> {
             let startable = modes.iter().any(|(_, why)| why.is_none());
             let mut item = Item::run("engine.use", heading, json!({"engine": engine}))
                 .hover(format!("engine.use {{engine: {engine:?}}}"))
-                .look(Look::Radio, using.is_some());
+                .look(Look::Radio, using.is_some())
+                .warned(warning);
             item.strong = using.is_some();
             if !startable {
                 item = item.disabled(modes.first().and_then(|(_, why)| why.clone()));
@@ -802,11 +822,12 @@ fn engine_items(session: &Session, facts: &Facts) -> Vec<Item> {
                 let on = using.is_some_and(|u| u.mode == c.mode);
                 let item = Item::run("engine.use", c.mode_label.clone(), json!({"engine": c.engine, "mode": c.mode}))
                     .hover(format!("engine.use {{engine: {:?}, mode: {:?}}}", c.engine, c.mode))
-                    .look(Look::Radio, on);
+                    .look(Look::Radio, on)
+                    .warned(warning);
                 if why.is_some() { item.disabled(why.clone()) } else { item }
             })
             .collect();
-        let mut sub = Item::submenu(&format!("engine:{engine}"), heading, hostings);
+        let mut sub = Item::submenu(&format!("engine:{engine}"), heading, hostings).warned(warning);
         sub.strong = using.is_some();
         list.push(sub);
     }
@@ -1525,7 +1546,7 @@ mod tests {
     }
 
     fn choice(engine: &str, label: &str, mode: &str, mode_label: &str) -> EngineChoice {
-        EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into() }
+        EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: label.into(), mode_label: mode_label.into(), warning: None }
     }
 
     #[test]
@@ -1563,6 +1584,37 @@ mod tests {
         s.engines.choices = vec![choice("text", "Text", "inproc", "Rust · in-process")];
         let engine = bar_menu(&s, &desk, "Engine");
         assert_eq!(engine.walk().into_iter().filter(|i| i.look == Look::Radio).count(), 1);
+    }
+
+    /// An engine whose manifest warned has the warning on its submenu and every hosting (and,
+    /// picking automatically, on its one item), at the start of the hover; others have none.
+    #[test]
+    fn an_engine_whose_manifest_warned_is_marked_in_the_engine_menu() {
+        let mut s = Session::default();
+        let warned = EngineChoice { warning: Some("it may be a copy".into()), ..choice("copied", "Copied", "process", "Process (mode 2)") };
+        let http = EngineChoice { mode: "http".into(), mode_label: "HTTP (mode 3)".into(), ..warned.clone() };
+        s.engines.choices = vec![choice("text", "Text", "inproc", "Rust · in-process"), warned, http];
+        let desk = Facts { caps: Capabilities::DESKTOP, ..Facts::default() };
+        let engine = bar_menu(&s, &desk, "Engine");
+        let all = engine.walk();
+        let sub = all.iter().find(|i| i.id == "engine:copied").unwrap();
+        assert_eq!(sub.warning.as_deref(), Some("it may be a copy"));
+        assert_eq!(sub.hover.as_deref(), Some("it may be a copy"));
+        assert_eq!(sub.items.len(), 2);
+        for i in &sub.items {
+            assert!(i.enabled, "a warning doesn't disable it");
+            assert_eq!(i.warning.as_deref(), Some("it may be a copy"));
+            assert!(i.hover.as_deref().is_some_and(|h| h.starts_with("it may be a copy\n\nengine.use")), "{:?}", i.hover);
+        }
+        let text = all.iter().find(|i| i.id == "engine:text").unwrap();
+        assert!(text.walk().iter().all(|i| i.warning.is_none()));
+        let json = serde_json::to_value(sub).unwrap();
+        assert_eq!(json["warning"], "it may be a copy");
+        assert!(serde_json::to_value(text).unwrap().get("warning").is_none(), "absent when there is none");
+        s.engines.auto = true;
+        let engine = bar_menu(&s, &desk, "Engine");
+        let one = engine.walk().into_iter().find(|i| i.params == Some(json!({"engine": "copied"}))).unwrap();
+        assert_eq!(one.warning.as_deref(), Some("it may be a copy"));
     }
 
     #[test]
