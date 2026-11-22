@@ -27,6 +27,8 @@ from typing import Any, ClassVar
 
 from commonkit import digest as ck_digest
 
+from .clock import Clock, RealClock, VirtualClock
+
 PROTOCOL = 2
 
 # Protocol error codes (spec 12.2), as JSON-RPC numbers.
@@ -371,6 +373,8 @@ class Engine:
 
         self.store_root: str | None = os.environ.get("COMMONKIT_STORE_ROOT") or _default_root()
         self.persist_ms: float | None = persist_ms_from_env()
+        # what a node's own work is measured on (the real clock unless a test gives one)
+        self.clock: Clock = RealClock()
         from .declare import bind
 
         bind(self)
@@ -414,6 +418,12 @@ class Engine:
         """Persist results whose own work took at least `ms` (spec 14.5); None persists nothing
         unless a node is marked `cache: always`. Persisting needs a store."""
         self.persist_ms = ms
+        return self
+
+    def with_clock(self, clock: Clock) -> Engine:
+        """Measure nodes' work on `clock` instead of the real one (tests: `VirtualClock`, on which
+        a node's work is exactly what it sleeps on that clock)."""
+        self.clock = clock
         return self
 
     def with_wire_type(self, w: dict) -> Engine:
@@ -521,6 +531,7 @@ __all__ = [
     "Blob",
     "Bool",
     "CancelToken",
+    "Clock",
     "ConfigError",
     "Cx",
     "DeclarationError",
@@ -537,10 +548,12 @@ __all__ = [
     "Port",
     "ProtoError",
     "Range",
+    "RealClock",
     "String",
     "Svg",
     "Table",
     "Text",
+    "VirtualClock",
     "WireType",
     "image",
     "node",

@@ -194,9 +194,58 @@ public final class PortDriver: ConformanceDriver {
         }
     }
 
+    /// A running app measures its own faces; with `suiteGeometry` (the default since N5 slice 4)
+    /// the suite's `geometry` steps still run: the suite's measurements are reported over the
+    /// app's once the app has measured those faces, and held until the core has them (the app
+    /// reports a face again only when it changes).
+    public var suiteGeometry = true
+
     public func reportGeometry(_ faces: JSONValue) async throws {
+        let list = faces.array ?? []
+        if !reports {
+            // the app's own report first, so the suite's comes after it
+            let until = ContinuousClock.now + settleLimit
+            for f in list {
+                while await call("geometry.locate", ["node": f["node"]])["result"]["measured"] != true, ContinuousClock.now < until {
+                    try? await Task.sleep(for: .milliseconds(10))
+                }
+            }
+        }
         let r = await call("command.run", ["command": "geometry.set", "params": ["faces": faces]])
         if r["ok"] != true { throw ConformanceError("geometry.set: \(r)") }
+        if reports { return }
+        // held: each face's rect is the suite's size (one the app laid out again meanwhile is reported again)
+        let deadline = ContinuousClock.now + settleLimit
+        var round = 0
+        while true {
+            var all = true
+            for f in list {
+                let rect = await call("geometry.locate", ["node": f["node"]])["result"]["rect"].array ?? []
+                let size = f["size"].array ?? []
+                guard rect.count == 4, size.count == 2, let x0 = rect[0].double, let y0 = rect[1].double, let x1 = rect[2].double, let y1 = rect[3].double,
+                      let w = size[0].double, let h = size[1].double, abs(x1 - x0 - w) <= 1e-3, abs(y1 - y0 - h) <= 1e-3
+                else {
+                    all = false
+                    break
+                }
+            }
+            if all {
+                let scene = await call("scene.get", [:])
+                for f in list {
+                    guard let id = f["node"].string, let sz = f["size"].array, sz.count == 2, let w = sz[0].double, let h = sz[1].double,
+                          let face = (scene["result"]["nodes"].array ?? []).first(where: { $0["id"].string == id }) else { continue }
+                    overridden[id] = Override(rev: face["rev"].uint64 ?? 0, w: w, h: h, since: nil)
+                }
+                return
+            }
+            if ContinuousClock.now > deadline { throw ConformanceError("the app's own measurements kept replacing the suite's") }
+            try? await Task.sleep(for: .milliseconds(20))
+            round += 1
+            if round % 10 == 0 {
+                let again = await call("command.run", ["command": "geometry.set", "params": ["faces": faces]])
+                if again["ok"] != true { throw ConformanceError("geometry.set: \(again)") }
+            }
+        }
     }
 
     /// A headless core: nothing to wait for. An app: until it has measured every face in the
@@ -205,10 +254,43 @@ public final class PortDriver: ConformanceDriver {
         if reports { return }
         let deadline = ContinuousClock.now + settleLimit
         while ContinuousClock.now < deadline {
-            if await everyFaceMeasured() { return }
+            if await everyFaceMeasured(), await overridesSettled() { return }
             try? await Task.sleep(for: .milliseconds(10))
         }
         settleTimeouts += 1
+    }
+
+    /// Faces whose measurements the suite reported over the app's: the face's `rev` then and the suite's
+    /// size. Once the face changes, the app measures it again; until its own measurement replaces the
+    /// suite's (the size differs, or 3 s pass), a settle isn't done, or a step would aim at the
+    /// suite's rows while the core hits the app's (N5 slice 4: a scrub on the Mac app began on a body).
+    struct Override { var rev: UInt64; var w: Double; var h: Double; var since: ContinuousClock.Instant? }
+    private var overridden: [String: Override] = [:]
+
+    func overridesSettled() async -> Bool {
+        if overridden.isEmpty { return true }
+        let scene = await call("scene.get", [:])
+        for (id, was) in overridden {
+            var o = was
+            guard let face = (scene["result"]["nodes"].array ?? []).first(where: { $0["id"].string == id }) else {
+                overridden[id] = nil
+                continue
+            }
+            if (face["rev"].uint64 ?? 0) == o.rev { continue }
+            if o.since == nil {
+                o.since = ContinuousClock.now
+                overridden[id] = o
+            }
+            let rect = await call("geometry.locate", ["node": .string(id)])["result"]["rect"].array ?? []
+            let w = rect.count == 4 ? (rect[2].double ?? 0) - (rect[0].double ?? 0) : 0
+            let h = rect.count == 4 ? (rect[3].double ?? 0) - (rect[1].double ?? 0) : 0
+            if abs(w - o.w) > 1e-3 || abs(h - o.h) > 1e-3 || ContinuousClock.now - (o.since ?? ContinuousClock.now) > .seconds(3) {
+                overridden[id] = nil
+            } else {
+                return false
+            }
+        }
+        return true
     }
 
     func everyFaceMeasured() async -> Bool {
@@ -221,16 +303,23 @@ public final class PortDriver: ConformanceDriver {
         return true
     }
 
-    public func hotMove(at: (Float, Float), slop: Float) -> JSONValue? { nil }
+    /// The typed move's JSON form over the port (`geometry.dragMove`, N5 slice 4).
+    public func hotMove(at: (Float, Float), slop: Float) async -> JSONValue? {
+        let r = await call("geometry.dragMove", ["at": [.double(Double(at.0)), .double(Double(at.1))], "slop": .double(Double(slop))])
+        return r["ok"] == true ? r["result"] : ["status": -1, "error": r["error"]]
+    }
 
-    /// The engines the core has; the port doesn't serve `media.get`; an app's canvas measures its
-    /// rows' widgets and header parts (`rows`).
     /// What else the app or core has (`--has`): `manifests` when its engines folder is the
     /// suite's (B71: `PLUMCRAFT_ENGINE_FOLDER`, or a config's `dirs.engines`).
     public var also: Set<String> = []
 
+    /// The engines the core has; `media.get` (a C ABI core's port serves it since N5 slice 4);
+    /// an app's canvas measures its rows' widgets and header parts (`rows`), and with
+    /// `suiteGeometry` the suite's measurements are reported over its own (`reports`).
     public func has(_ capability: String) -> Bool {
         if capability == "rows" { return !reports }
+        if capability == "reports" { return !reports && suiteGeometry }
+        if capability == "media" { return true }
         if capability == "port" { return true }
         if capability == "prefs" { return prefs }
         if also.contains(capability) { return true }

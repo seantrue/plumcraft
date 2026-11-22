@@ -71,6 +71,23 @@ def test_unregister_removes_only_what_register_wrote(engines, capsys):
     assert not (engines / "text.toml").exists()
 
 
+def test_a_manifest_that_cannot_start_is_not_written(engines, capsys, monkeypatch):
+    # an engine with no `__main__`, run as a script that isn't executable (`python engine.py register`)
+    script = Path(scratch.mkdtemp("engine-script-")) / "engine.py"
+    script.write_text("# not executable\n")
+    script.chmod(0o644)
+    monkeypatch.setattr(sys, "argv", [str(script)])
+    monkeypatch.setattr(register.importlib.util, "find_spec", lambda name: None)
+    assert run("register", folder=engines) == 1
+    err = capsys.readouterr().err
+    assert "not registered" in err and str(script.resolve()) in err, err
+    assert not engines.exists(), "nothing written"
+    # an executable program is registered as before
+    script.chmod(0o755)
+    assert run("register", folder=engines) == 0
+    assert tomllib.loads((engines / "text.toml").read_text())["command"] == [str(script.resolve())]
+
+
 def test_anything_else_is_served():
     assert register.main(TextEngine, []) is None
     assert register.main(TextEngine, ["--listen", "127.0.0.1:0"]) is None

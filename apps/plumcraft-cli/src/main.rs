@@ -130,7 +130,7 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
         }
         Mode::Socket { python } => {
             let host = ProcessHost::start(manifest(*python)?).map_err(|e| e.to_string())?;
-            match host.wait_ready(Duration::from_secs(10)) {
+            match host.wait_started(Duration::from_secs(10))? {
                 EngineState::Connected { .. } => {
                     eprintln!("({} engine process {} on a Unix socket)", lang(*python), host.pid().unwrap_or(0));
                     Ok(Box::new(host))
@@ -150,31 +150,43 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
             eprintln!("(attached to {url}, {how})");
             Ok(Box::new(host))
         }
-        Mode::File { path, http } => match plumcraft_host::manifest::load(path)?.start {
-            Start::Command(m) if *http => {
-                let name = m.name.clone();
-                let host = HttpHost::spawn(&m, HttpOptions { remote: true, ..Default::default() })?;
-                eprintln!("({name} over HTTP at {}, remote: sources upload, values download)", host.base());
-                Ok(Box::new(host))
+        Mode::File { path, http } => {
+            let resolved = plumcraft_host::manifest::load(path)?;
+            for w in &resolved.warnings {
+                eprintln!("{}: {w}", path.display());
             }
-            Start::Command(m) => {
-                let name = m.name.clone();
-                let host = ProcessHost::start(m).map_err(|e| e.to_string())?;
-                // uv may have an environment to build first
-                match host.wait_ready(Duration::from_secs(60)) {
-                    EngineState::Connected { .. } => {
-                        eprintln!("({name}, process {} on a Unix socket)", host.pid().unwrap_or(0));
-                        Ok(Box::new(host))
-                    }
-                    other => Err(format!("engine not ready: {other:?}")),
+            let failed = |why: String| resolved.failed(why);
+            start_file(resolved.start.clone(), *http).map_err(failed)
+        }
+    }
+}
+
+/// Start the engine a manifest names (`--engine-manifest`).
+fn start_file(start: Start, http: bool) -> Result<Box<dyn Connection>, String> {
+    match start {
+        Start::Command(m) if http => {
+            let name = m.name.clone();
+            let host = HttpHost::spawn(&m, HttpOptions { remote: true, ..Default::default() })?;
+            eprintln!("({name} over HTTP at {}, remote: sources upload, values download)", host.base());
+            Ok(Box::new(host))
+        }
+        Start::Command(m) => {
+            let name = m.name.clone();
+            let host = ProcessHost::start(m).map_err(|e| e.to_string())?;
+            // uv may have an environment to build first
+            match host.wait_started(Duration::from_secs(60))? {
+                EngineState::Connected { .. } => {
+                    eprintln!("({name}, process {} on a Unix socket)", host.pid().unwrap_or(0));
+                    Ok(Box::new(host))
                 }
+                other => Err(format!("engine not ready: {other:?}")),
             }
-            Start::Attach { url, token } => {
-                let host = HttpHost::attach(&url, &token, HttpOptions::default())?;
-                eprintln!("(attached to {url})");
-                Ok(Box::new(host))
-            }
-        },
+        }
+        Start::Attach { url, token } => {
+            let host = HttpHost::attach(&url, &token, HttpOptions::default())?;
+            eprintln!("(attached to {url})");
+            Ok(Box::new(host))
+        }
     }
 }
 

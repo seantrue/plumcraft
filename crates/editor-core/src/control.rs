@@ -608,6 +608,28 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 Err(e) => err(e),
             }
         }
+        // the drag under way with the pointer at `at` (N5 slice 4): `plum_gesture_move`'s typed
+        // answer as JSON, for a driver over this port (the conformance suite's `hot` steps);
+        // nothing changes
+        "geometry.dragMove" => {
+            let (x, y, slop) = match crate::geometry::parse_point(params, &[]) {
+                Ok(p) => p,
+                Err(e) => return err(e),
+            };
+            if !(x.is_finite() && y.is_finite()) {
+                return err("at must be [x, y] numbers");
+            }
+            let snap = match snapshot(s, method) {
+                Ok(snap) => snap,
+                Err(e) => return e,
+            };
+            let Some(drag) = s.document_mut().and_then(|d| d.drag.get()) else {
+                return err("no drag under way (begin one first)");
+            };
+            let slop = if slop.is_nan() { 0.0 } else { slop.clamp(0.0, 1.0e4) };
+            let at = crate::plain::Point::new(crate::wire_path::coord(x), crate::wire_path::coord(y));
+            ok(crate::gesture::typed_json(&drag.update(&snap, at, slop)))
+        }
         // where the core has something (N2 slice 4): a face, its pin, a wire's middle, a frame's
         // tab, at the geometry it has, so a script (the conformance suite) aims a gesture at what
         // any shell measured

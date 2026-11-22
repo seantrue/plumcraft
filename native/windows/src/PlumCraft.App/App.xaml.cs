@@ -18,7 +18,18 @@ public partial class App : Application
     public App()
     {
         CoreHost.Mark("app");
+        // the app's theme is the appearance asked for (`--appearance`), else the system's: the panels' theme
+        // brushes (cards, secondary text) are read from the app's resources, so they follow it (N5 slice 4)
+        switch (Options.Parse(Environment.GetCommandLineArgs()).Appearance)
+        {
+            case "dark": RequestedTheme = ApplicationTheme.Dark; break;
+            case "light": RequestedTheme = ApplicationTheme.Light; break;
+        }
         InitializeComponent();
+        // a diagnostic for a fault the platform raises past the handler below (a stowed exception): every
+        // exception thrown, as it is thrown, when PLUMMER_TRACE is set
+        if (Environment.GetEnvironmentVariable("PLUMMER_TRACE") is { Length: > 0 })
+            AppDomain.CurrentDomain.FirstChanceException += (_, e) => CoreHost.Log($"thrown: {e.Exception.GetType().Name} 0x{e.Exception.HResult:x8} {e.Exception.Message}\n{Environment.StackTrace}");
         UnhandledException += (_, e) =>
         {
             CoreHost.Log($"unhandled: {e.Exception}");

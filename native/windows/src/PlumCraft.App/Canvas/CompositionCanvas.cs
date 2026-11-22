@@ -231,6 +231,7 @@ public sealed partial class CompositionCanvas
         UpdateWashes(c.Changed);
         if (c.ViewChanged || c.Full) HonourFit();
         if (c.ViewChanged || c.Full) HonourZoom();
+        NoteTagsAndMarks();
         Cull(true);
         Pump();
         if (Idle)
@@ -297,6 +298,7 @@ public sealed partial class CompositionCanvas
         foreach (var g in Model.Groups.Items) PlaceGroup(g);
         UpdateSelection();
         UpdateWashes([.. faces.Keys]);
+        NoteTagsAndMarks();
         Pump();
     }
 
@@ -667,6 +669,7 @@ public sealed partial class CompositionCanvas
         }
         UpdateSelection();
         UpdateWashes(touched);
+        if (touched.Count > 0) NoteTagsAndMarks();
         Cull(true);
         if (FirstDrawnMs is null && faces.Count > 0)
         {
@@ -850,6 +853,15 @@ public sealed partial class CompositionCanvas
     void UpdatePreview(FaceEntry e)
     {
         var pv = e.Face.Preview;
+        // a sound's waveform (N5 slice 4, as the Apple canvas since N4 slice 5): the engine's peaks, drawn once
+        if (pv is { KindWord: PreviewWord.Peaks, Handle: { } ph } && Pictures.HandleOf(ph) is { } peaks && e.Layout?.Preview is not null)
+        {
+            var key = $"peaks|{peaks}|{themeGen}";
+            if (e.Preview is not null && e.PreviewHandle == key) { e.Preview.Opacity = pv.Faded == true ? 0.45f : 1; PlaceFace(e); return; }
+            e.PreviewHandle = key;
+            _ = LoadWaveform(e, peaks, key, pv.Faded == true);
+            return;
+        }
         var handle = pv is { KindWord: PreviewWord.Rgba8, Handle: { } h } ? Pictures.HandleOf(h) : null;
         if (handle is null || e.Layout?.Preview is null)
         {

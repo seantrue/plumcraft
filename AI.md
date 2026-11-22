@@ -33,6 +33,51 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Harm done to the maintainer's own files by the agent's runs:** a stray `Untitled.json` saved into a folder in their home, and one value in the app's defaults changed to a scratch path. Reported, not undone. The check no longer drives the Save and Open panels or Open Recent for this reason (B81, B84).
 
 **Verified (agent).** nextest 1,580 of 1,581 (the known baseline failure); Python 225; `swift test` 94; Mac conformance 57 of 57, three runs; iPad simulator 56 of 56 with one skipped. **Not verified:** the iPad's drawing of the new pieces; the iPad has no person check; recipe text has never been seen.
+### 2026-11-21 — A copied engine manifest says so; the Python SDK's clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1,2,3 yes" to keeping B72's no-restart rule, warning about a manifest whose folder holds no project, and giving the Python SDK the Rust SDK's injectable clock.
+
+**Why the warning exists.** The controller copied the maintainer's engine manifest into a scratch folder, got Python's "No module named …", and reported the engine as broken. A copy runs in the copy's folder; a link resolves back to the project.
+
+**What the agent did.** Loading a manifest whose `uv run --project DIR` names a folder with no `pyproject.toml` in it or above it (or no folder at all) records a warning in the manifest-problems channel, and a failed start of such an engine ends with what to do about it. The rule judges only that command shape and stays silent on everything else. The Python `register` refuses to write a manifest whose program cannot be run. The Python SDK gains `Clock`, `RealClock`, `VirtualClock` and `Engine.with_clock`; the persist tests use it and no longer patch `time` (pointing the executor back at the wall clock fails 4 of 5 of them).
+
+**Verified (agent, Mac).** nextest 1,584 of 1,585 (the known baseline failure); Python 227; clippy, fmt and gates clean. **Not verified:** Windows; a real copied manifest through an app's menu.
+
+### 2026-11-21 — B72, B37 and B38 fixed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided**, on cards: B72 "Fix now"; B37 "Fix it the same way as B49"; B38 "Investigate for the same cause"; the persist rule itself, "Leave the rule".
+
+**B72 (agent).** An engine that exits before it ever connects was treated as a crash and restarted five times, then waited on for 60 s, then linked dead and reported as started. It now fails at once with its exit status and the last lines of its stderr, as a process and over HTTP (10 ms and 26 ms in the new test; 60 s and a false success before).
+
+**The controller's wrong report.** The controller told the maintainer their installed OpenCV engine was broken. It was not: its registration is a link into the engine's project, and the controller's test copied the file to a scratch folder, so its relative folder pointed nowhere. The agent started the real one from another folder in both modes.
+
+**B37 (agent).** The Rust executor measures work on an injectable clock (`plumcraft_engine::clock`; the real clock by default); the persist tests run on a virtual one, with a new test either side of the limit. Load alone did not reproduce the failure; an injected 300 ms allocation stall failed the old test 30 of 30 and the new one passed 30 of 30.
+
+**B38 (agent).** A race in the test: its stopwatch started after the run was accepted, so a late acceptance came off the slow node's 300 ms. It starts before the run is sent. Not reproduced naturally on the Linux test host; a 60 ms late acceptance on the Mac failed the old timing in all six hostings.
+
+**The agent's slips:** one pytest run outside the scratch environment (rerun inside: 225 passed); a scratch backup file deleted against the rule.
+
+**Verified.** Mac nextest 1,581 of 1,582 (the known baseline failure), before one last small change that was then covered by 325 crate tests; Python 225.
+### 2026-11-21 — N5 slice 4: the Windows app's panels and viewers, with part of its gate not taken (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the agent built.** Every window and viewer the Apple shells have, drawn natively in WinUI 3 from the core's models: a docked parameters inspector, Messages, Cache Report, graph Parameters, value editors, Compare, Settings, and pop-out viewers for pictures, SVG, arrays, text, tables (virtualized, paged and sorted by the core), JSON, bytes and sound. The core gained `media.get` on the C ABI control port and `geometry.dragMove`; the C# and Swift runners now run every step against an app that measures its own faces (738 of 738, where 18 were skipped).
+
+**Verified (agent).** On the Windows test VM, final ARM64 build: 55 of 55 cases, four runs; x64 under emulation 54 then 55 (the one failure a timing fault in the suite's sound case, B56); the Swift runner on the Mac against the Windows app 55 of 55; `dotnet test` 47; Mac conformance 55 of 55.
+
+**Not verified, and why.** The VM's console session wedged once (B55: a launch handed to Windows Terminal, as far as could be narrowed; scripted launches now run headless) and after a restart the VM stopped answering altogether. So: no panel timings, no 100,000-row scroll, three screenshots not retaken, and **no launch of the app as a person would**, the check the Mac app failed today. Sound has never been heard; Drag Out never dropped into Explorer. One app exit during testing is unexplained (B54).
+
+**Defects in the agent's own work, caught by its tests or pictures:** light cards and title bars in dark mode; a blank picture viewer; a misaligned table header; an outline showing type names; a marquee using a stale point; a runner settle that could pass on a stale measurement.
+### 2026-11-21 — The wire tiles confirmed on the iPad; the maintainer's 29 decisions recorded (Claude Fable 5.2)
+
+**What the maintainer said:** "Go for 146" (merge the wire tiles before the device trace), then "Go for trace".
+
+**The trace (controller, on the maintainer's iPad).** 500 nodes, 800 wires, two rounds of each drawing in one build: tiles 0.0 ms of hitch a second in every phase; the old drawing 142 to 156 panning; wires hidden 0.0. The agent's Mac offscreen measurement predicted this, and the device agrees.
+
+**A defect in earlier AI work, found here.** The bench was changed today to clean up each trace's working file after the disk filled; it does not: this run left six files, 19 GB (B76). The controller deleted them.
+
+**Not done.** The iPad's five UI tests: the iPad had locked by then.
+
+**Also recorded** (previous commit, without a ledger entry at the time): the maintainer's answers to 29 cards after B70 to B73, in note 24, in their words.
 
 ### 2026-11-21 — The iPad's wire hitches: cause found, wires drawn as tiles, not yet confirmed on the device (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

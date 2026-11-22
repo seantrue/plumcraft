@@ -266,7 +266,8 @@ pub fn manifest_reads() -> u64 {
 
 /// Read the engine manifests in `files`, then every `*.toml` in `folder`, as the engines this
 /// thread offers. What can't be used (it won't parse, or its id is taken, by a built-in engine
-/// or an earlier manifest) is reported, and the rest still load.
+/// or an earlier manifest) is reported, and the rest still load; so is what loads but very likely
+/// won't start (`plumcraft_host::manifest::folder_warnings`: a copy of a project's manifest).
 pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
     let mut listed: Vec<PathBuf> = files.to_vec();
     if let Some(Ok(dir)) = folder.map(std::fs::read_dir) {
@@ -288,7 +289,11 @@ pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
                 // the same file twice (given and installed) is one engine
                 Some(x) if x.resolved.path == r.path => {}
                 Some(x) => problems.push(format!("{}: id {:?} is already {}", path.display(), r.manifest.id, x.resolved.path.display())),
-                None => loaded.push(External { id: r.manifest.id.clone(), title: r.manifest.title().to_owned(), resolved: r }),
+                None => {
+                    // it loads and is offered, but it very likely won't start: say why now
+                    problems.extend(r.warnings.iter().map(|w| format!("{}: {w}", path.display())));
+                    loaded.push(External { id: r.manifest.id.clone(), title: r.manifest.title().to_owned(), resolved: r });
+                }
             },
         }
     }
@@ -759,7 +764,8 @@ pub fn start(kind: EngineKind, mode: Mode, waker: Option<Waker>, bin: Option<Pat
         Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?)
     } else if let Some(m) = manifest {
         let h = ProcessHost::start(m).map_err(|e| e.to_string())?;
-        h.wait_ready(kind.ready_wait());
+        // an engine that exits before it connects fails the start now, saying why (B72)
+        h.wait_started(kind.ready_wait())?;
         Arc::new(h)
     } else {
         // without a root given, the engine keeps its own (the shared default)
@@ -780,14 +786,16 @@ fn connect_external(e: &External, mode: Mode, wait: Duration, waker: Option<Wake
         }
         m
     };
+    // a start that fails says what loading the manifest warned about (a copy of a project's own)
+    let failed = |why: String| e.resolved.failed(why);
     let (conn, label): (Arc<dyn Connection>, &str) = match (&e.resolved.start, mode) {
         (Start::Attach { url, token }, _) => (Arc::new(HttpHost::attach(url, token, HttpOptions::default())?), "mode 3 · HTTP, running"),
         (Start::Command(m), Mode::HttpRust) => {
-            (Arc::new(HttpHost::spawn(&with_store(m), HttpOptions { remote: true, ..Default::default() })?), "mode 3 · HTTP")
+            (Arc::new(HttpHost::spawn(&with_store(m), HttpOptions { remote: true, ..Default::default() }).map_err(failed)?), "mode 3 · HTTP")
         }
         (Start::Command(m), _) => {
-            let h = ProcessHost::start(with_store(m)).map_err(|e| e.to_string())?;
-            h.wait_ready(wait);
+            let h = ProcessHost::start(with_store(m)).map_err(|e| failed(e.to_string()))?;
+            h.wait_started(wait).map_err(failed)?;
             (Arc::new(h), "mode 2 · process")
         }
     };
@@ -883,6 +891,27 @@ mod tests {
         let ok = offers.iter().filter(|o| o.why_not.is_none()).map(id).collect();
         let refused = offers.iter().filter_map(|o| o.why_not.clone().map(|w| (id(o), w))).collect();
         (ok, refused)
+    }
+
+    /// B72, for the built-in engines: a text or audio engine binary that exits at once fails
+    /// the start at once as a process, with its stderr, as over HTTP.
+    #[cfg(unix)]
+    #[test]
+    fn a_built_in_engine_binary_that_exits_at_once_fails_the_start_at_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = plumcraft_scratch::dir("b72-builtin");
+        let bin = dir.join("broken-engine");
+        std::fs::write(&bin, "#!/bin/sh\necho 'cannot load the library' >&2\nexit 2\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for kind in [EngineKind::Text, EngineKind::Audio] {
+            let launcher = Launcher { binaries: vec![(kind, bin.clone())], ..Default::default() };
+            for (mode, before) in [(Mode::Rust, "exited before connecting"), (Mode::HttpRust, "exited before listening")] {
+                let t = std::time::Instant::now();
+                let e = launcher.connect_core(kind, mode, None).err().unwrap_or_default();
+                assert!(t.elapsed() < Duration::from_secs(3), "{kind:?} {mode:?}: {:?}", t.elapsed());
+                assert!(e.contains(before) && e.contains("exit 2") && e.contains("cannot load the library"), "{kind:?} {mode:?}: {e}");
+            }
+        }
     }
 
     #[test]

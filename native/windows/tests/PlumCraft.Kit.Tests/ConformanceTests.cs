@@ -95,6 +95,7 @@ public class Suite(ITestOutputHelper output)
         var model = new PlumCraft.Kit.DocumentModel(core);
         model.Start();
         using var d = await PortDriver.ConnectAsync((int)port, token, following: model);
+        d.Also.Add("manifests");
         var cases = Runner.Cases(CasesPath);
         var sw = Stopwatch.StartNew();
         var outp = await Runner.RunAsync(d, cases, null);

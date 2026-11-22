@@ -66,13 +66,32 @@ def _sdk_version() -> str:
         return "?"
 
 
+def _command(cls: type) -> list[str]:
+    """How the manifest starts engine class `cls`: this Python with its package's `__main__`,
+    else the program this was run as. Every path in it is absolute, so the manifest doesn't depend
+    on the folder it is written to (`docs/interface.md` 16.6)."""
+    package = _package(cls)
+    if importlib.util.find_spec(f"{package}.__main__") is not None:
+        return [sys.executable, "-m", package]
+    return [str(Path(sys.argv[0]).resolve())]
+
+
+def _unstartable(command: list[str]) -> str | None:
+    """Why a manifest running `command` wouldn't start, when it certainly wouldn't: its program
+    isn't a file this user may run (a script run as `python path/to/script.py register`)."""
+    program = Path(command[0])
+    if program.is_file() and os.access(program, os.X_OK):
+        return None
+    return (
+        f"the manifest would start {program}, which isn't a program this user can run; "
+        "run register from the engine's installed command, or from its project (`uv run <command> register`)"
+    )
+
+
 def manifest(cls: type, script: str) -> str:
     """The manifest for engine class `cls` as installed here."""
     package = _package(cls)
-    if importlib.util.find_spec(f"{package}.__main__") is not None:
-        command = [sys.executable, "-m", package]
-    else:
-        command = [str(Path(sys.argv[0]).resolve())]
+    command = _command(cls)
     name = getattr(cls, "name", None) or cls.id
     lines = [
         f"{MARK.format(script=script)} (plumcraft-engine {_sdk_version()}): how PlumCraft starts the installed {name}.",
@@ -103,6 +122,11 @@ def register(cls: type, args: list[str], script: str) -> int:
     if "--print" in args:
         sys.stdout.write(text)
         return 0
+    why = _unstartable(_command(cls))
+    if why is not None:
+        # a manifest that can't start is worse than none: the editor would offer a dead engine
+        print(f"{script}: not registered: {why}", file=sys.stderr)
+        return 1
     target = folder(args) / f"{cls.id}.toml"
     if (target.exists() or target.is_symlink()) and not _ours(target) and "--force" not in args:
         what = f"a link to {os.path.realpath(target)} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"
