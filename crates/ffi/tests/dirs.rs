@@ -128,6 +128,8 @@ fn child_takes_values_out_with_home_read_only() {
     assert!(inside(&file, &dir("caches")), "exported to {file:?}");
     let pg = cl.call("popout.get", json!({"id": p}));
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "CORGI", "{exported} {pg}");
+    // the text engine tracks no lineage: no recipe, so a shell offers no Recipe (2026-11-22)
+    assert_eq!(pg["result"]["hasRecipe"], false, "{pg}");
     // Share: the same file
     let shared = cl.run("value.share", json!({"popout": p}));
     assert!(inside(Path::new(shared["file"].as_str().unwrap()), &dir("caches")), "{shared}");

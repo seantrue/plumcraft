@@ -1,4 +1,4 @@
-//! Saving a node's output with its recipe: `run.save` asks the engine to write the file
+//! Saving a node's output: `run.save` asks the engine to write the file
 //! (`output.save`, spec 15), as PNG, JPEG or whatever else its catalogue's `save_formats` list.
 //! The Watched panel's and a result node's "Save Result…" and "Contact Sheet…" use it.
 //!
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use plumcraft_graph::NodeId;
 use plumcraft_proto::catalogue::{Media, Port, SaveFormat, SchemaReply, scalars, texts};
 use plumcraft_proto::error::NodeError;
-use plumcraft_proto::run::{GraphRef, SaveReply, SaveRequest};
+use plumcraft_proto::run::{GraphInfo, GraphRef, SaveReply, SaveRequest};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -71,7 +71,7 @@ impl SaveState {
     /// The state as JSON (`ui.inspect`): the pending save and the last outcome.
     pub fn summary(&self) -> Value {
         let last = self.last.as_ref().map(|(ask, r)| {
-            json!({"request": ask, "ok": r.ok, "paths": r.paths, "recipe": r.recipe, "items": r.items, "labels": r.labels, "error": r.error.as_ref().map(|e| &e.message)})
+            json!({"request": ask, "ok": r.ok, "paths": r.paths, "recipe": r.recipe, "stamped": r.stamped, "items": r.items, "labels": r.labels, "error": r.error.as_ref().map(|e| &e.message)})
         });
         json!({"pending": self.pending, "last": last})
     }
@@ -208,6 +208,15 @@ fn can_save(s: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// What a saved file says of the workflow (spec 15, `graph_info`; purely informational): the
+/// document's name (its file's name without the extension, or `Untitled`) and `sha256:` of the
+/// open graph's JSON, the hash the trust file keeps ([`crate::trust::graph_hash`]).
+pub fn graph_info(s: &Session) -> GraphInfo {
+    let name = s.path().and_then(Path::file_stem).map_or_else(|| "Untitled".to_owned(), |n| n.to_string_lossy().into_owned());
+    let hex = crate::trust::graph_hash(s.graph());
+    GraphInfo { name, hash: if hex.is_empty() { String::new() } else { format!("sha256:{hex}") } }
+}
+
 /// `run.save {node, port?, index?, sheet?, path, options?}`.
 fn save(s: &mut Session, p: &Value) -> Result<Value> {
     let node = NodeId::from(str_param(p, "node")?);
@@ -257,6 +266,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(SessionError::Params("this workflow came from elsewhere: review it before saving a result (graph.review, then graph.trust)".into()));
     }
     let ask = SaveAsk { node: node.0.clone(), port: port.clone(), index, path: path.clone(), sheet };
+    let graph_info = Some(graph_info(s));
     s.save.outbox.push(SaveRequest {
         graph: GraphRef::Inline { graph },
         node: node.0,
@@ -266,6 +276,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         format,
         options,
         sheet,
+        graph_info,
         ..Default::default()
     });
     s.save.pending = Some(ask.clone());
@@ -278,7 +289,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label: "Save Result…",
         menu: &[],
         shortcut: None,
-        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats)} -> {pending} (the engine writes the file, its recipe included, by the extension; the reply arrives later: ui.inspect's save)",
+        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats)} -> {pending} (the engine writes the file by the extension, with the workflow's name and graph hash where the format has room; the reply arrives later: ui.inspect's save)",
         enabled: can_save,
         run: save,
         journal: false,
@@ -348,6 +359,11 @@ mod tests {
         let body = &out[0];
         assert_eq!((body.node.as_str(), body.port.as_str(), body.index, body.format.as_str(), body.sheet), (id.as_str(), "picture", Some(2), "pic", false));
         assert_eq!(body.options["dither"], "some");
+        // the workflow's name and its graph's hash, informational (2026-11-22)
+        let info = body.graph_info.clone().unwrap();
+        assert_eq!(info.name, "Untitled");
+        assert_eq!(info.hash, format!("sha256:{}", crate::trust::graph_hash(s.graph())));
+        assert_eq!(info.hash.len(), "sha256:".len() + 64);
         let path = PathBuf::from(body.path.clone().unwrap());
         assert!(path.is_absolute() && path.ends_with("prints/one.pic"), "{}", path.display());
         let GraphRef::Inline { graph } = &body.graph else { panic!("inline") };

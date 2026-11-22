@@ -58,9 +58,9 @@ pub const SWATCHES: [(&str, &str); 6] =
 
 /// The save buttons, on a result node and in the Watched panel.
 pub const SAVE_RESULT: &str = "Save Result…";
-pub const SAVE_HELP: &str = "Save this result as a file with its recipe";
+pub const SAVE_HELP: &str = "Save this result as a file, with the workflow's name and graph hash where the format has room";
 pub const CONTACT_SHEET: &str = "Contact Sheet…";
-pub const SHEET_HELP: &str = "Save every item on one picture, each labelled with the value that varied, with the sweep's recipe";
+pub const SHEET_HELP: &str = "Save every item of the list on one picture";
 
 /// The Edit menu's Align › edges, as `edit.align`'s `edge`.
 pub const ALIGN_EDGES: [(&str, &str); 6] = [

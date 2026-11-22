@@ -148,7 +148,7 @@ fn bar(ui: &mut egui::Ui, id: u64, share_refused: Option<&str>, run: &mut Vec<cr
     if ui.small_button(COPY).on_hover_text("Copy the value (value.copy)").clicked() {
         invoked.push(("value.copy", at.clone()));
     }
-    if ui.small_button(SAVE_AS).on_hover_text("Save the value to a file, its recipe included (value.saveAs)").clicked() {
+    if ui.small_button(SAVE_AS).on_hover_text("Save the value to a file (value.saveAs)").clicked() {
         invoked.push(("value.saveAs", at.clone()));
     }
     let share = ui.add_enabled(share_refused.is_none(), egui::Button::new(SHARE).small());

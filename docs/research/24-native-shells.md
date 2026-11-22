@@ -1137,3 +1137,38 @@ The controller asked: "F19: add save formats to the Rust SDK so a result node ca
 | 1 | F19: add save formats to the Rust SDK so a result node can offer Save Result, or leave the row unmet? | "Make the save an basic feature." |
 
 Read as: both SDKs (Rust `crates/engine`, Python `plumcraft_engine`) declare save formats and save a node's result, with defaults for every core type, so a basic engine gets Save Result with no code (branch `feat/sdk-save`, `claude-debug/sdk-save.md`).
+
+#### Decisions after Save Result and the iPad and Windows gates (the maintainer, 2026-11-22)
+
+The answer line, verbatim: "Decisions: 1A; 2A; 3C \"No embedding of recipes. It was ill conceived.\"; 4A; 5A; 6A \"Also question saving non image shapes (mindim < 64, channels > 4, extreme aspect ratios)\"; 7A; 8A; 9A; 10A; 11A; 12B". A is each card's first option.
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | The remote branch pushed by mistake | A: delete it (done by the controller) |
+| 2 | Contact Sheet… on an SDK engine's list result | A: add a default picture contact sheet to both SDKs |
+| 3 | The recipe in saved files: A PNG only, B every format, C carry none | C: "No embedding of recipes. It was ill conceived." |
+| 4 | A save has no cancel op | A: keep saves without a cancel |
+| 5 | A format id across engines | A: an id means one format across engines |
+| 6 | An array's default format | A: keep PNG first; "Also question saving non image shapes (mindim < 64, channels > 4, extreme aspect ratios)" |
+| 7 | B97 (six Rust tests failing on Windows only) | A: fix it |
+| 8 | The Python SDK's `register` paths | A: clean them as B95 did in Rust |
+| 9 | The iPad's narrow bar | A: accept it |
+| 10 | B60 | A: close it once a device run with the window set passes |
+| 11 | B118 | A: close it as not the app's |
+| 12 | #161, the engine-split note | B: hold it |
+
+#### How far "no embedding of recipes" reaches (the maintainer, 2026-11-22)
+
+| # | Question | Answer (verbatim) |
+|---|---|---|
+| 1 | Does "No embedding of recipes. It was ill conceived." cover only the SDK's saved files, or should recipe embedding come out everywhere, including the Recipe button in the viewers and what the egui editor writes into its own saves? | "everywhere. Let's store a name and a hash of graph instead. Purely informational." |
+
+#### Recipes and the floor (the maintainer, 2026-11-22)
+
+The question: "everywhere" would remove what four of the research software's floor rows use (F56 recipe display, F63 lineage, F64 save picture with recipe, F77 recipes in pictures, which recovers a workflow from a saved picture), against the rule that PlumCraft never supports less than the research software uses. The options: (1) drop floor rows F56, F63, F64, F77 and remove recipes everywhere; (2) "Keep recipes for engines that track lineage, and nothing else. PlumCraft's SDKs and built-in engines carry only the name and hash. The research software keeps its four rows. The Recipe button stays, but only shows something for its engine."; (3) something between.
+
+| # | Question | Answer (verbatim) |
+|---|---|---|
+| 1 | Remove recipes everywhere (1), keep them for lineage-tracking engines only (2), or something between (3)? | "go with 2 less risk." |
+
+Not answered: whether the graph hash covers the whole document (the core's `trust::graph_hash`, positions included, so moving a node changes it) or only what makes the result. The whole document's is used until it is decided.

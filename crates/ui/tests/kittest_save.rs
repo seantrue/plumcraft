@@ -253,7 +253,7 @@ fn a_list_offers_a_contact_sheet() {
     let got = wrote(&r.dir.join("sheet.note"));
     assert_eq!((&got["sheet"], &got["index"]), (&json!(true), &Value::Null));
     assert!(r.h.query_by_label_contains("saved a sheet of 3 as").is_some());
-    assert!(r.h.query_by_label_contains("without its recipe").is_some(), "the reply said it has none");
+    assert!(r.h.query_by_label_contains("recipe").is_none(), "no word of a recipe the file has none of (3C)");
 }
 
 #[test]

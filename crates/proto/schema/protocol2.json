@@ -869,6 +869,22 @@
         }
       ]
     },
+    "GraphInfo": {
+      "description": "What a saved file says of the workflow that made it: purely informational (spec 15).",
+      "properties": {
+        "hash": {
+          "default": "",
+          "description": "`sha256:<hex>` of the open graph's JSON as the editor writes it to its file.",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "The document's title (its file's name without the extension, or `Untitled`).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "GraphRef": {
       "description": "The graph a run executes: the workflow JSON inline, or a handle from `graph.put`.",
       "oneOf": [
@@ -3202,7 +3218,11 @@
         },
         "recipe": {
           "default": false,
-          "description": "Every file carries its recipe.",
+          "description": "Every file carries its recipe (the research software's floor, F64; the SDKs never set it).",
+          "type": "boolean"
+        },
+        "stamped": {
+          "description": "Every file carries the request's `graph_info` (spec 15): informational.",
           "type": "boolean"
         }
       },
@@ -3221,6 +3241,17 @@
             "graph": null,
             "kind": "inline"
           }
+        },
+        "graph_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GraphInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The workflow's name and the hash of its graph, for the engine to write into the files where\na format has room for them (spec 15; the maintainer, 2026-11-22: \"store a name and a hash of\ngraph instead. Purely informational\"). Nothing reads it back; absent, nothing is written."
         },
         "index": {
           "default": null,

@@ -495,6 +495,36 @@ pub struct SaveRequest {
     /// The whole graph that share came from: what a saved recipe holds, so it remakes the file.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub recipe_graph: Option<Value>,
+    /// The workflow's name and the hash of its graph, for the engine to write into the files where
+    /// a format has room for them (spec 15; the maintainer, 2026-11-22: "store a name and a hash of
+    /// graph instead. Purely informational"). Nothing reads it back; absent, nothing is written.
+    #[serde(deserialize_with = "lenient_opt", skip_serializing_if = "Option::is_none")]
+    pub graph_info: Option<GraphInfo>,
+}
+
+/// What a saved file says of the workflow that made it: purely informational (spec 15).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(default)]
+pub struct GraphInfo {
+    /// The document's title (its file's name without the extension, or `Untitled`).
+    #[serde(deserialize_with = "null_as_default")]
+    pub name: String,
+    /// `sha256:<hex>` of the open graph's JSON as the editor writes it to its file.
+    #[serde(deserialize_with = "null_as_default")]
+    pub hash: String,
+}
+
+impl GraphInfo {
+    /// The longest name or hash an engine writes; the rest is cut (hostile input, spec 18).
+    pub const MAX_TEXT: usize = 256;
+
+    /// One line for a file's comment: `PlumCraft graph "name", sha256:…`, its parts cut to
+    /// [`GraphInfo::MAX_TEXT`] characters, control characters as spaces.
+    pub fn line(&self) -> String {
+        let clean = |s: &str| s.chars().take(Self::MAX_TEXT).map(|c| if c.is_control() { ' ' } else { c }).collect::<String>();
+        format!("PlumCraft graph \"{}\", {}", clean(&self.name), clean(&self.hash))
+    }
 }
 
 impl Default for SaveRequest {
@@ -513,6 +543,7 @@ impl Default for SaveRequest {
             inputs: BTreeMap::new(),
             trusted_roots: Vec::new(),
             recipe_graph: None,
+            graph_info: None,
         }
     }
 }
@@ -537,9 +568,12 @@ pub struct SaveReply {
     pub paths: Vec<String>,
     #[serde(deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<SavedFile>,
-    /// Every file carries its recipe.
+    /// Every file carries its recipe (the research software's floor, F64; the SDKs never set it).
     #[serde(deserialize_with = "null_as_default")]
     pub recipe: bool,
+    /// Every file carries the request's `graph_info` (spec 15): informational.
+    #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
+    pub stamped: bool,
     /// A contact sheet's item count.
     #[serde(deserialize_with = "null_as_default")]
     pub items: u64,

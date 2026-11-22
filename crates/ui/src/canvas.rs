@@ -1273,7 +1273,7 @@ impl<'a> NodeViewer<'a> {
             Footer::Error { text, full, paint: p } => {
                 ui.add(egui::Label::new(egui::RichText::new(text).color(paint(p, self.tokens))).wrap()).on_hover_text(full);
             }
-            // A result that has run: save it with its recipe; a list of them also as one
+            // A result that has run: save it; a list of them also as one
             // labelled contact sheet.
             Footer::Save { port, sheet } => {
                 ui.horizontal(|ui| {

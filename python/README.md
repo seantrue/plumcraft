@@ -91,7 +91,7 @@ class Loud(Engine):
     def shout(self, text: str = "plum") -> Text: return text
 ```
 
-`save_formats` on the class adds formats (one with a default's id replaces it); `@node(save_formats=[...])` gives a node its own list, in order (`[]` offers none); `engine.without_save_format("jpeg")` and `engine.without_default_save_formats()` take formats away. A save runs the graph for the node (a memo hit after a run), writes to the path the editor names (or returns the file, which the editor writes, when the engine is remote), saves a list as numbered files, and reports a failure as data (`docs/interface.md` section 15).
+`save_formats` on the class adds formats (one with a default's id replaces it); `@node(save_formats=[...])` gives a node its own list, in order (`[]` offers none); `engine.without_save_format("jpeg")` and `engine.without_default_save_formats()` take formats away. A save runs the graph for the node (a memo hit after a run), writes to the path the editor names (or returns the file, which the editor writes, when the engine is remote), saves a list as numbered files or, for Contact Sheet…, as one picture of every item (PNG and JPEG), writes the workflow's name and graph hash into PNG, WAV and SVG files (informational; no recipe is ever embedded), and reports a failure as data (`docs/interface.md` section 15).
 
 ## Values and errors
 

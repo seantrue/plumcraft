@@ -165,3 +165,32 @@ def test_print_from_uvs_cache_warns_too(engines, capsys, monkeypatch):
 def test_anything_else_is_served():
     assert register.main(TextEngine, []) is None
     assert register.main(TextEngine, ["--listen", "127.0.0.1:0"]) is None
+
+
+def test_paths_a_person_reads_lose_windows_long_path_prefix():
+    """B95 in the Python SDK (decision 8A): what register prints shows a path without its
+    long-path prefix, as `plumcraft_proto::programs::shown`; the same string handling on every
+    platform (the Windows test VM was down, so this ran on the Mac only)."""
+    cases = {
+        r"\\?\C:\Users\a\cache": r"C:\Users\a\cache",
+        r"\\?\UNC\server\share\x": r"\\server\share\x",
+        r"\\?\GLOBALROOT\Device\x": r"\\?\GLOBALROOT\Device\x",
+        r"\\?\C": r"\\?\C",
+        r"C:\plain": r"C:\plain",
+        "/usr/local/bin": "/usr/local/bin",
+        "": "",
+    }
+    for given, want in cases.items():
+        assert register.shown(given) == want, given
+    assert register.shown(Path("/a/b")) == str(Path("/a/b"))
+
+
+def test_register_prints_a_cache_root_without_the_prefix(engines, capsys, monkeypatch):
+    root = r"\\?\C:\Users\a\AppData\Local\uv\cache"
+    monkeypatch.setattr(register, "uv_cache", lambda _p: (root, False))
+    assert run("register", folder=engines) == 0
+    err = capsys.readouterr().err
+    assert r"(C:\Users\a\AppData\Local\uv\cache)" in err and "\\\\?\\" not in err, err
+    monkeypatch.setattr(register, "uv_cache", lambda _p: (root, True))
+    assert run("register", folder=engines) == 1
+    assert "\\\\?\\" not in capsys.readouterr().err

@@ -25,8 +25,9 @@ thiserror = { workspace = true }
 commonkit = { workspace = true }
 # workflow bundles
 zip = { workspace = true }
+# a test's copies and exports under its scratch root, never a person's caches (doc_cmds::default_root)
+plumcraft-scratch = { workspace = true }
 
 [dev-dependencies]
-plumcraft-scratch = { path = "../scratch" }
 plumcraft-engine = { path = "../engine" }
 plumcraft-text = { path = "../text" }

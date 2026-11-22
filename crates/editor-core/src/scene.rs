@@ -1627,7 +1627,7 @@ fn run_footer(cx: &Ctx<'_>, id: &NodeId, def: Option<&NodeDef>, n: &NodeRun, ful
         let (short, _) = run_text::truncate_chars(&full, run_text::ERROR_CHARS);
         out.push(Footer::Error { text: short, full, paint: cx.tok(token) });
     }
-    // A result that has run: save it with its recipe; a list of them also as one contact sheet.
+    // A result that has run: save it; a list of them also as one contact sheet.
     if matches!(n.state, Some(NodeState::Done | NodeState::Cached))
         && let Some(d) = def.filter(|d| d.flags.result)
         && let Some(port) = d.outputs.first().map(|o| o.name.clone())

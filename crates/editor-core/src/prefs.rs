@@ -108,6 +108,10 @@ pub fn path_for(name: &str) -> Option<PathBuf> {
     if let Some(p) = std::env::var_os(format!("{var}_PREFS")).filter(|p| !p.is_empty()) {
         return Some(PathBuf::from(p));
     }
+    // a test never reads or writes a person's preferences: its own, under its scratch root
+    if plumcraft_scratch::testing() {
+        return Some(plumcraft_scratch::dir("prefs").join(name).join("prefs.json"));
+    }
     let home = home_dir()?;
     // an Apple app writes inside its container's Library, never at its root (B42)
     Some(if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -333,6 +337,23 @@ mod tests {
         assert_ne!(a, b);
         assert!(a.ends_with("another-app/prefs.json"), "{}", a.display());
         assert!(b.ends_with("plumcraft-editor/prefs.json"), "{}", b.display());
+    }
+
+    /// A test never reaches a person's preferences (the real file that appeared in the
+    /// maintainer's Library, 2026-11-22): without `<NAME>_PREFS`, a test's are under its scratch
+    /// root, and a setting saved goes there.
+    #[test]
+    fn a_test_keeps_its_preferences_under_its_scratch_root() {
+        assert!(plumcraft_scratch::testing(), "a cargo test binary is a test");
+        let p = path_for("PlumCraft").unwrap();
+        assert!(p.starts_with(plumcraft_scratch::root()), "{}", p.display());
+        if let Some(home) = home_dir() {
+            assert!(!p.starts_with(&home) || plumcraft_scratch::root().starts_with(&home), "{}", p.display());
+        }
+        let mut s = Store::for_app("PlumCraft");
+        s.set_auto_engines(true);
+        assert!(p.is_file(), "the setting went to the scratch file");
+        assert_eq!(trust_path_for("PlumCraft").unwrap(), p.with_file_name("trusted.json"));
     }
 
     #[test]

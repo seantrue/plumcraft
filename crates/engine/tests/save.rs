@@ -89,7 +89,38 @@ fn engine() -> Engine {
             formats: None,
         }))
         .with_node(Box::new(Make { id: "t.fail", ty: core_types::TEXT, value: |_| Err(NodeError::new(NodeError::OP, "it broke")), formats: None }))
+        .with_node(Box::new(Make {
+            id: "t.pics",
+            ty: core_types::ARRAY,
+            value: |_| {
+                let pic = |v: u8| Data::Array(Array::new("|u1", vec![2, 2], vec![v; 4]));
+                Ok(Data::List(List { items: vec![pic(10), pic(200), pic(90)], axes: Vec::new(), labels: vec!["a 1".into(), "a 2".into(), "a 3".into()] }))
+            },
+            formats: None,
+        }))
         .with_save_format(shout)
+}
+
+/// Contact Sheet… on an SDK engine (decision 2A): every picture of a list on one PNG, the
+/// labels in the reply; a format that doesn't make sheets refuses. And the workflow's name and
+/// graph hash go into the formats with room for them (`stamped`), nothing else.
+#[test]
+fn a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name() {
+    let h = host(engine);
+    let dir = plumcraft_scratch::dir("sdk-save-sheet");
+    let info = json!({"name": "Flow", "hash": "sha256:0123"});
+    let r = save(&h, "t.pics", json!({"path": dir.join("sheet.png"), "sheet": true, "graph_info": info}));
+    assert!(r.ok && r.items == 3 && r.labels == ["a 1", "a 2", "a 3"] && r.paths.len() == 1 && r.stamped && !r.recipe, "{r:?}");
+    let png = std::fs::read(dir.join("sheet.png")).unwrap();
+    let img = image::load_from_memory(&png).unwrap().to_rgb8();
+    // two columns, two rows of 2-pixel cells, 8-pixel gaps
+    assert_eq!((img.width(), img.height()), (2 * 2 + 3 * 8, 2 * 2 + 3 * 8));
+    assert_eq!((img.get_pixel(8, 8).0, img.get_pixel(18, 8).0, img.get_pixel(8, 18).0), ([10; 3], [200; 3], [90; 3]));
+    assert!(png.windows(15).any(|w| w == b"PlumCraft graph"), "the name and hash, informational");
+    assert!(save(&h, "t.pics", json!({"path": dir.join("sheet.jpg"), "sheet": true})).ok, "JPEG makes sheets too");
+    assert!(save(&h, "t.pics", json!({"path": dir.join("sheet.npy"), "sheet": true})).error.unwrap().message.contains("sheet"));
+    let txt = save(&h, "t.text", json!({"path": dir.join("w.txt"), "graph_info": info}));
+    assert!(txt.ok && !txt.stamped && std::fs::read(dir.join("w.txt")).unwrap() == b"plum", "text has no room: as it was");
 }
 
 fn host(e: fn() -> Engine) -> Host {

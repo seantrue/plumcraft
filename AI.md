@@ -20,6 +20,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Contact sheets, no recipes in SDK saves, a name and graph hash instead; tests kept out of the real home (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the recipe in saved files: "No embedding of recipes. It was ill conceived."; asked how far that reaches: "everywhere. Let's store a name and a hash of graph instead. Purely informational."; and, shown that four of the research software's floor rows depend on recipes, between dropping those rows and keeping recipes for lineage-tracking engines only: "go with 2 less risk." On an array's default format: PNG first, and "Also question saving non image shapes (mindim < 64, channels > 4, extreme aspect ratios)". After a preferences file appeared in their real Library, asked whether to delete it: "keep".
+
+**What the agent did.** Both SDKs' PNG and JPEG formats put a list of pictures on one contact sheet, the same pixels from Rust and Python (checked against a shared fixture). The SDKs' unused recipe hook is gone; recipes remain, described in the interface as belonging to lineage-tracking engines. Every save sends the workflow's name and the graph's hash, which the default PNG, WAV and SVG formats write into the file and nothing reads back; additive. The editor no longer says "without its recipe" or promises one in help text. The Python SDK's register prints paths without Windows' long-path prefix (tested with strings only, not on Windows). Hunting the stray preferences file (B124), the agent ran all Rust and Python tests under a scratch home: neither wrote preferences there, so the cause is still unknown, but the probe found Rust tests exporting values into the real cache folder. Both paths now go under the process's scratch root in a test.
+
+**Not built:** the question on non-picture shapes; it needs a message addition and is written up as a proposal.
+
+**Defects in the agent's own work, caught by the gate:** a clippy failure, a build break from a dev-only dependency, a line-length error, and a stale catalogue expectation. The controller renumbered the agent's bug entry, which clashed with one merged the same hour.
+
+**Verified (agent, Mac).** nextest 1,640 of 1,641 (the known baseline failure); Python 247. **Not verified:** any launched app.
 ### 2026-11-22 — Save Result reaches the Mac through the core; a person check that no longer depends on machine speed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer's rule decided.** A second agent, reading the Windows shell, found that the face footer's Save Result… line was drawn but did nothing in any native shell, and patched it in the Windows shell. The maintainer's standing rule is that a shell-side user action is a defect, so the controller had it made the core's.
