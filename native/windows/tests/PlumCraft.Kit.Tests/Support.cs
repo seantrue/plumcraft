@@ -74,7 +74,9 @@ static class Support
         {
             ("store_root", Jsonv.Of(D("store"))),
             ("dirs", Jsonv.Object(("documents", Jsonv.Of(D("documents"))), ("caches", Jsonv.Of(D("caches"))), ("store", Jsonv.Of(D("store"))),
-                ("scratch", Jsonv.Of(D("scratch"))), ("prefs", Jsonv.Of(D("prefs"))), ("logs", Jsonv.Of(D("logs"))))),
+                ("scratch", Jsonv.Of(D("scratch"))), ("prefs", Jsonv.Of(D("prefs"))), ("logs", Jsonv.Of(D("logs"))),
+                // B71: the suite's engines folder (one engine running elsewhere, `probe`), never the person's
+                ("engines", Jsonv.Of(Fixture("crates/editor-core/fixtures/conformance/engines"))))),
         };
         foreach (var (k, v) in extra)
         {

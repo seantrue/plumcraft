@@ -14,6 +14,7 @@
 //     --nodes N [--wires M]       build a spike.scene of N nodes in the first window (budgets)
 //     --view Z,X,Y                after the first frame: zoom Z with graph point (X, Y) at the top left
 //     --bench OUT [--exit] [--phase-seconds S]   the budget run (Bench.cs)
+//     --bench-panels                             with --bench: each panel and viewer opened, and a 100,000-row table scrolled (Bench.Panels.cs)
 //     --then STEP;STEP            what the first window does once drawn (Script.cs)
 
 using System.Globalization;
@@ -35,6 +36,8 @@ public sealed class Options
     public int Wires = -1;
     public float[]? View;
     public string? Bench;
+    /// <summary>N5 slice 4: the panels' and viewers' bench instead of the canvas's (Bench.Panels.cs).</summary>
+    public bool BenchPanels;
     public bool Exit;
     public double PhaseSeconds = 4;
     public List<string> Then = [];
@@ -69,6 +72,7 @@ public sealed class Options
                     break;
                 case "--bench": o.Bench = Next(); break;
                 case "--exit": o.Exit = true; break;
+                case "--bench-panels": o.BenchPanels = true; break;
                 case "--phase-seconds": o.PhaseSeconds = double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var ps) ? ps : 4; break;
                 case "--then": o.Then = [.. Next().Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]; break;
                 default:

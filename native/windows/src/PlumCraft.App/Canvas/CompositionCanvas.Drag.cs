@@ -245,6 +245,7 @@ public sealed partial class CompositionCanvas
     public void ClearDrag(bool keepWire = false)
     {
         ShowMarquee(null);
+        ShowTouches(null);
         ShowGhost(null);
         ShowDragTarget(null);
         PickUp(null);

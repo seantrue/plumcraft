@@ -20,7 +20,7 @@ public static class Bench
 {
     static double Now => CoreHost.Clock.Elapsed.TotalMilliseconds;
 
-    static Task<double> NextFrame()
+    internal static Task<double> NextFrame()
     {
         var t = new TaskCompletionSource<double>(TaskCreationOptions.RunContinuationsAsynchronously);
         void On(object? s, object e)
@@ -32,7 +32,7 @@ public static class Bench
         return t.Task;
     }
 
-    static JsonObject Stats(List<double> xs)
+    internal static JsonObject Stats(List<double> xs)
     {
         if (xs.Count == 0) return new JsonObject { ["n"] = 0 };
         var s = xs.OrderBy(x => x).ToList();
@@ -40,7 +40,7 @@ public static class Bench
         return new JsonObject { ["n"] = s.Count, ["p50"] = P(0.5), ["p95"] = P(0.95), ["max"] = Math.Round(s[^1], 3) };
     }
 
-    static async Task<JsonObject> Phase(double seconds, double period, Action<double> step)
+    internal static async Task<JsonObject> Phase(double seconds, double period, Action<double> step)
     {
         var intervals = new List<double>();
         var start = Now;

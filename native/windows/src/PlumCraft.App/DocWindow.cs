@@ -39,6 +39,12 @@ public sealed class DocWindow : Window
     readonly Asks asks;
     readonly Popouts popouts;
     readonly Pictures pictures;
+    /// <summary>The parameters inspector, a pane beside the canvas (N5 slice 4).</summary>
+    public Inspector Inspector { get; }
+    /// <summary>Settings, Messages, the Cache Report, the graph's Parameters, value editors, Compare.</summary>
+    readonly CoreWindows coreWindows;
+    public Popouts PopoutWindows => popouts;
+    public CoreWindows CoreWindowsOf => coreWindows;
     public Editors Editors { get; }
     readonly Grid root = new();
     readonly Grid titleBar = new() { Height = 32 };
@@ -81,6 +87,8 @@ public sealed class DocWindow : Window
         menus = new Menus(menuBar, Dispatch);
         asks = new Asks(this, Model);
         popouts = new Popouts(this, Model, pictures);
+        Inspector = new Inspector(this, Model);
+        coreWindows = new CoreWindows(this, Model, pictures);
         Follow();
         // the scene is asked for before the window's controls are made: it is fetched and decoded off
         // this thread meanwhile
@@ -91,6 +99,7 @@ public sealed class DocWindow : Window
             closed = true;
             CompositionTarget.Rendering -= OnRendering;
             popouts.CloseAll();
+            coreWindows.CloseAll();
             Model.Stop();
             CoreHost.Closed(this);
         };
@@ -135,7 +144,7 @@ public sealed class DocWindow : Window
     public void FocusCanvas()
     {
         if (closed || Editors.Palette.IsOpen || Editors.Rows.Open is not null || Editors.Names.Open is not null) return;
-        if (Content?.XamlRoot is { } xr && FocusManager.GetFocusedElement(xr) is TextBox or ComboBox) return;
+        if (Content?.XamlRoot is { } xr && FocusManager.GetFocusedElement(xr) is TextBox or ComboBox or Slider or ToggleSwitch) return;
         CanvasView.Focus(FocusState.Programmatic);
     }
 
@@ -156,7 +165,14 @@ public sealed class DocWindow : Window
         root.Children.Add(toolbar);
         Grid.SetRow(banner, 3);
         root.Children.Add(banner);
-        var canvasBorder = new Microsoft.UI.Xaml.Controls.Border { Child = CanvasView, BorderThickness = new Thickness(0, 1, 0, 1) };
+        // the canvas, and the parameters inspector docked at its right while the core has it open
+        var middle = new Grid();
+        middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        middle.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        middle.Children.Add(CanvasView);
+        Grid.SetColumn(Inspector, 1);
+        middle.Children.Add(Inspector);
+        var canvasBorder = new Microsoft.UI.Xaml.Controls.Border { Child = middle, BorderThickness = new Thickness(0, 1, 0, 1) };
         canvasBorder.BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"];
         Grid.SetRow(canvasBorder, 4);
         root.Children.Add(canvasBorder);
@@ -201,7 +217,9 @@ public sealed class DocWindow : Window
         Model.StateChanged += ShowState;
         Model.EngineChanged += ShowEngine;
         Model.AsksChanged += a => { asks.Follow(a); NoteStatus(); };
-        Model.WindowsChanged += w => { popouts.Follow(w); NoteUnbuiltWindows(w); };
+        // the core's windows (N5 slice 4): the inspector, pop-outs, Settings and the core's other panels
+        Model.WindowsChanged += w => { Inspector.Params.Follow(w); popouts.Follow(w); coreWindows.Follow(w); };
+        Model.SceneChanged += _ => Inspector.Params.SceneChanged();
         Model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(DocumentModel.Closing) && Model.Closing) CloseFromCore();
@@ -210,7 +228,7 @@ public sealed class DocWindow : Window
         CanvasView.GestureAnswered += r =>
         {
             LastGesture = string.Join(",", r.Commands.Select(c => c.Command));
-            if (NotBuilt(r.Commands) is { } say) Banner(say); else NoteStatus();
+            NoteStatus();
         };
         CanvasView.ContextMenu += (p, items) =>
         {
@@ -306,6 +324,9 @@ public sealed class DocWindow : Window
     static IconElement? Glyph(string? lucide)
     {
         if (lucide is null) return null;
+        // Cancel Run: a filled square, as a media Stop is (slice 3's outlined Stop glyph read as a checkbox)
+        if (lucide == "square" || lucide.Contains("stop"))
+            return new PathIcon { Data = new RectangleGeometry { Rect = new Windows.Foundation.Rect(3, 3, 10, 10) }, Width = 16, Height = 16 };
         string? g = lucide switch
         {
             _ when lucide.Contains("play") => "",
@@ -338,19 +359,6 @@ public sealed class DocWindow : Window
 
     // ---------------- dispatching the core's items ----------------
 
-    /// <summary>Commands whose window this app doesn't have yet (N5 slices 3 and 4): choosing one says so.</summary>
-    static readonly Dictionary<string, string> Unbuilt = new()
-    {
-        ["node.parameters"] = "the parameters inspector",
-        ["app.settings"] = "Settings",
-        ["view.messages"] = "the Messages window",
-        ["run.cacheReport"] = "the Cache Report",
-        ["view.params"] = "the graph's Parameters window",
-        ["node.editor"] = "value editors",
-        ["viewer.compare"] = "Compare",
-        ["viewer.pin"] = "Compare",
-    };
-
     /// <summary>The menu model's item for a command (the menu bar's, then the toolbar's).</summary>
     MenuItem? FindItem(string command) =>
         menus.Model.SelectMany(m => m.Flatten()).FirstOrDefault(i => i.Command == command && i.Params is null)
@@ -362,29 +370,11 @@ public sealed class DocWindow : Window
         catch (Exception e) { Banner($"{command}: {e.Message}", true); }
     }
 
-    static string? NotBuilt(IEnumerable<CommandRun> ran)
-    {
-        foreach (var c in ran)
-            if (c.Ok && Unbuilt.TryGetValue(c.Command, out var what)) return $"That opens {what}, which isn't in {CoreHost.AppName} for Windows yet.";
-        return null;
-    }
-
-    void NoteUnbuiltWindows(DocumentWindows w)
-    {
-        if (w.Parameters is not null) Banner($"The parameters inspector isn't in {CoreHost.AppName} for Windows yet.");
-        else if (w.Settings is not null) Banner($"Settings isn't in {CoreHost.AppName} for Windows yet.");
-    }
-
     /// <summary>Run a model item for the person at this window (the menu bar, a context menu, the toolbar,
     /// a shortcut): its command by id.</summary>
     public async Task Dispatch(MenuItem it, bool person)
     {
         if (it.Command is not { } command) return;
-        if (Unbuilt.TryGetValue(command, out var what))
-        {
-            Banner($"{it.Label.Replace("…", "", StringComparison.Ordinal)} isn't in {CoreHost.AppName} for Windows yet ({what}).");
-            return;
-        }
         try
         {
             switch (command)
@@ -510,6 +500,9 @@ public sealed class DocWindow : Window
         }
     }
 
+    /// <summary>What the panels and pop-outs show now (the panels' bench).</summary>
+    public JsonObject PanelsNow() => new() { ["inspector"] = Inspector.Describe(), ["coreWindows"] = coreWindows.Describe(), ["popouts"] = popouts.Describe() };
+
     public void NoteStatus()
     {
         if (CoreHost.Status.Path is null) return;
@@ -521,10 +514,10 @@ public sealed class DocWindow : Window
             ["firstFrameMs"] = FirstFrameMs, ["zoom"] = c.View.Zoom, ["pan"] = new JsonArray(c.View.Pan.X, c.View.Pan.Y),
             ["selected"] = Model.Selection.Nodes.Count, ["gesture"] = LastGesture, ["pointer"] = new JsonArray([.. CanvasView.Seen.Select(x => (JsonNode)x)]), ["engine"] = Model.Engine.Label, ["dirty"] = Model.State.Dirty,
             ["banner"] = banner.IsOpen ? banner.Message : null, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
-            ["contextMenu"] = LastMenu, ["popouts"] = popouts.Describe(), ["menus"] = menus.Model.Count, ["toolbar"] = toolbar.PrimaryCommands.Count,
+            ["contextMenu"] = LastMenu, ["popouts"] = popouts.Describe(), ["inspector"] = Inspector.Describe(), ["coreWindows"] = coreWindows.Describe(), ["menus"] = menus.Model.Count, ["toolbar"] = toolbar.PrimaryCommands.Count,
             ["drag"] = CanvasView.DragState, ["fits"] = CanvasView.TargetFits, ["note"] = CanvasView.LastNote, ["editors"] = Editors.Describe(),
             ["focus"] = (Content?.XamlRoot is { } xr ? FocusManager.GetFocusedElement(xr)?.GetType().Name : null), ["undo"] = Model.State.Undo,
-            ["wires"] = Model.Wires.Count, ["drawOnUi"] = c.DrawOnUiThread, ["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches },
+            ["wires"] = Model.Wires.Count, ["hover"] = c.Hovered, ["tags"] = c.TagCount, ["marks"] = c.MarkCount, ["touches"] = c.TouchCount, ["drawOnUi"] = c.DrawOnUiThread, ["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches },
         };
         CoreHost.Status.Window(Doc, o);
     }

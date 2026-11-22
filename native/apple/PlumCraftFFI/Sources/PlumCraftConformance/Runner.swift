@@ -20,9 +20,11 @@ public protocol ConformanceDriver: AnyObject {
     func reportGeometry(_ faces: JSONValue) async throws
     /// Wait until the shell drew and measured what the last request changed.
     func settle() async
-    /// The typed drag move, as `ui.gesture`'s `update`; nil where the driver has none.
-    func hotMove(at: (Float, Float), slop: Float) -> JSONValue?
-    /// `engine:<pack>`, `media` (`reports` is `reports`).
+    /// The typed drag move, as `plum_gesture_move` answers it (over a port its JSON form,
+    /// `geometry.dragMove`, N5 slice 4); nil where the driver has none.
+    func hotMove(at: (Float, Float), slop: Float) async -> JSONValue?
+    /// `engine:<pack>`, `media`; `reports` for a driver that measures its own faces but reports
+    /// the suite's over them (N5 slice 4; a headless driver's is `reports`).
     func has(_ capability: String) -> Bool
     /// Let the shell get on before a request is sent again (`until`).
     func pause() async
@@ -41,6 +43,9 @@ public struct Outcome: Sendable, Equatable {
     public var error: String?
     /// Not run, and why.
     public var skipped: String?
+    /// Steps this driver didn't run (an `only` it lacks, a `hot` or `geometry` step it has no
+    /// form for): N5 slice 4's gate counts them.
+    public var stepsSkipped = 0
 
     public var passed: Bool { error == nil && skipped == nil }
 }
@@ -77,6 +82,9 @@ public enum Conformance {
         let skipped = outcomes.compactMap { o in o.skipped.map { "  skipped \(o.name): \($0)" } }
         let run = outcomes.count - skipped.count
         var s = "\(driver): \(run - failed.count) of \(run) cases passed, \(skipped.count) skipped"
+        // the steps (N5 slice 4): run of the cases' total, and those this driver skipped
+        let total = outcomes.reduce(0) { $0 + $1.steps }, notRun = outcomes.reduce(0) { $0 + $1.stepsSkipped }
+        s += "; steps \(total - notRun) run of \(total), \(notRun) skipped"
         if !failed.isEmpty { s += "\n" + failed.joined(separator: "\n") }
         if !skipped.isEmpty { s += "\n" + skipped.joined(separator: "\n") }
         return s
@@ -84,7 +92,8 @@ public enum Conformance {
 
     static func has(_ d: ConformanceDriver, _ capability: String) -> Bool {
         switch capability {
-        case "reports": d.reports
+        // the suite's measurements reported: by a headless driver, or over an app's own (N5 slice 4)
+        case "reports": d.reports || d.has("reports")
         // rows' widgets and header parts measured (N4 slice 2): reported by the suite, or by the app
         case "rows": d.reports || d.has("rows")
         default: d.has(capability)
@@ -105,48 +114,51 @@ public enum Conformance {
         }
         await d.settle()
         let steps = c["steps"].array ?? []
+        var notRun = 0
         for (k, s) in steps.enumerated() {
             do {
-                try await step(d, &vars, s)
+                if try await !step(d, &vars, s) { notRun += 1 }
             } catch {
-                return Outcome(name: name, steps: k, error: "step \(k + 1): \(error)", skipped: nil)
+                return Outcome(name: name, steps: k, error: "step \(k + 1): \(error)", skipped: nil, stepsSkipped: notRun)
             }
         }
         // a drag left under way would carry into the next case, and so would an open palette
         _ = await d.call("ui.gesture", ["kind": "drag", "phase": "cancel"])
         _ = await d.call("command.run", ["command": "canvas.palette", "params": ["open": false]])
-        return Outcome(name: name, steps: steps.count, error: nil, skipped: nil)
+        return Outcome(name: name, steps: steps.count, error: nil, skipped: nil, stepsSkipped: notRun)
     }
 
-    static func step(_ d: ConformanceDriver, _ vars: inout [String: JSONValue], _ s: JSONValue) async throws {
+    /// Run one step: false when this driver skipped it.
+    @discardableResult
+    static func step(_ d: ConformanceDriver, _ vars: inout [String: JSONValue], _ s: JSONValue) async throws -> Bool {
         let only: [String] = switch s["only"] {
         case .string(let c): [c]
         case .array(let a): a.compactMap(\.string)
         default: []
         }
-        if only.contains(where: { !has(d, $0) }) { return }
+        if only.contains(where: { !has(d, $0) }) { return false }
         if let faces = s.object?["geometry"] {
-            if d.reports { try await d.reportGeometry(subst(faces, vars)) }
-            return
+            guard has(d, "reports") else { return false }
+            try await d.reportGeometry(subst(faces, vars))
+            return true
         }
         if let h = s.object?["hot"] {
             let r = try await resolve(d, subst(h, vars))
             guard let at = r["at"].array, at.count == 2 else { throw ConformanceError("hot.at must be [x, y]") }
             guard let x = at[0].double, let y = at[1].double else { throw ConformanceError("hot.at must be numbers") }
             let slop = r["slop"].double.map { Float($0) } ?? defaultSlop
-            if let v = d.hotMove(at: (Float(x), Float(y)), slop: slop) {
-                try expect(["ok": true, "result": v], s.object?["expect"], vars)
-            }
-            return
+            guard let v = await d.hotMove(at: (Float(x), Float(y)), slop: slop) else { return false }
+            try expect(["ok": true, "result": v], s.object?["expect"], vars)
+            return true
         }
         if let name = s["check"].string {
             if name == "authRefused" {
                 guard let p = d as? PortDriver else { throw ConformanceError("authRefused needs a driver over the control port") }
                 try await p.authRefused()
-                return
+                return true
             }
             try check(name, subst(s, vars))
-            return
+            return true
         }
         let method: String
         let params: JSONValue
@@ -216,6 +228,7 @@ public enum Conformance {
                 vars[v] = x
             }
         }
+        return true
     }
 
     static func short(_ v: JSONValue) -> String {

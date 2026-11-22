@@ -1,31 +1,29 @@
 // Watching shows the value in a pop-out window (contract 12.20: the maintainer, "Eliminate the side
 // column in favor of just the popout window"). The core keeps which values are popped out (the scene's
-// `view.windows.popouts`); each is a window here, titled with the node and port, brought forward when
-// the core asks again (`raised`), read again when its `stamp` changes (`popout.get`), closed with its
-// close button (`view.close`) or when the core closes it. Its controls are the core's commands
-// (`viewer.zoom`, `viewer.text`).
+// `view.windows.popouts`); each is a window here, titled with the node and port, brought forward when the
+// core asks again (`raised`), read again when its `stamp` changes (`popout.get`), closed with its close
+// button (`view.close`) or when the core closes it.
 //
-// The viewers of slice 2, plan 8's first three:
+// N5 slice 4 completes the viewers the Apple shells have (Viewers.cs): picture (the channel picker, Fit
+// and 1:1, the readout and pinned probe, detail on zoom), SVG, an array's pictures, text (wrap,
+// monospaced, the whole text), scalars, table (the core's paging and sort), the numbers grid, the JSON
+// outline and YAML, bytes, a list's items, sound (waveform, spectrogram, playback), and what no viewer
+// draws (its type, size and the engine's picture). Every viewer's state is the core's (`viewer.*`); what
+// stays here is motion: scrolling, a picture's pinch or wheel zoom, a column's width, the playing clock.
 //
-//   picture     the rgba8 rendition (media.get, plum_blob) in a zoomable view; Fit and Actual Size are
-//               the core's `viewer.zoom`
-//   text.plain  selectable text; Wrap, Monospaced and Show All are the core's `viewer.text`, the whole
-//               text read from the full value's bytes (media.get {want: "bytes"})
-//   scalar      the value, formatted
-//
-// Any other kind shows its kind and summary (slice 4 adds the rest).
+// The bar every viewer has: View As (the viewers the core offers), a list's item stepper, Drag Out (a
+// real file drag of what `value.export` writes), Compare (Pin as A, Pin as B), Copy, Save As… and
+// Share… (each the core's command for the person: `value.copy`, `value.saveAs`, `value.share`), Share
+// disabled with the core's reason when this shell has no share sheet.
 
-using System.Globalization;
-using System.Text;
 using System.Text.Json;
-using Microsoft.Graphics.Canvas;
-using Microsoft.Graphics.Canvas.UI.Xaml;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using PlumCraft.App.Canvas;
 using PlumCraft.Kit;
 using PlumCraft.Models;
+using Border = Microsoft.UI.Xaml.Controls.Border;
 
 namespace PlumCraft.App;
 
@@ -33,40 +31,29 @@ namespace PlumCraft.App;
 public sealed class Popouts(DocWindow owner, DocumentModel model, Pictures pictures)
 {
     readonly Dictionary<ulong, ValueWindow> open = [];
-    Dictionary<ulong, Seen> known = [];
-
-    sealed record Seen(ulong Raised, ulong Stamp);
+    Dictionary<ulong, PopoutWindow> known = [];
 
     public IReadOnlyDictionary<ulong, ValueWindow> Open => open;
 
     public void Follow(DocumentWindows w)
     {
         var list = w.Popouts ?? [];
-        var now = list.ToDictionary(p => p.Id);
-        foreach (var id in open.Keys.ToList())
-            if (!now.ContainsKey(id)) { open[id].CloseFromCore(); open.Remove(id); }
-        foreach (var p in list)
+        var d = PopoutDiff.Of(known, list);
+        known = list.ToDictionary(p => p.Id);
+        foreach (var id in d.Closed)
+            if (open.Remove(id, out var gone)) gone.CloseFromCore();
+        foreach (var p in d.Opened)
         {
-            if (!open.TryGetValue(p.Id, out var win))
-            {
-                win = new ValueWindow(owner, model, pictures, p);
-                win.ClosedByPerson += () => open.Remove(p.Id);
-                open[p.Id] = win;
-                win.Place(open.Count - 1);
-                win.Activate();
-                win.Refresh();
-            }
-            else
-            {
-                if (known.TryGetValue(p.Id, out var k))
-                {
-                    if (k.Stamp != p.Stamp) win.Refresh();
-                    if (k.Raised != p.Raised) win.Activate();
-                }
-                win.Entry = p;
-            }
+            if (open.ContainsKey(p.Id)) continue;
+            var win = new ValueWindow(owner, new PopoutModel(model, p), pictures);
+            win.ClosedByPerson += () => { open.Remove(p.Id); owner.NoteStatus(); };
+            open[p.Id] = win;
+            win.Place(open.Count - 1);
+            win.Activate();
+            win.Pop.Refresh();
         }
-        known = list.ToDictionary(p => p.Id, p => new Seen(p.Raised, p.Stamp));
+        foreach (var p in d.Changed) if (open.TryGetValue(p.Id, out var win)) win.Pop.Update(p);
+        foreach (var p in d.Raised) if (open.TryGetValue(p.Id, out var win)) win.Activate();
         owner.NoteStatus();
     }
 
@@ -77,71 +64,88 @@ public sealed class Popouts(DocWindow owner, DocumentModel model, Pictures pictu
     }
 
     /// <summary>What each window shows, for scripts (the status file).</summary>
-    public System.Text.Json.Nodes.JsonArray Describe() =>
-        [.. open.Values.Select(w => (System.Text.Json.Nodes.JsonNode)w.Describe())];
+    public System.Text.Json.Nodes.JsonArray Describe() => [.. open.Values.Select(w => (System.Text.Json.Nodes.JsonNode)w.Describe())];
 }
 
 public sealed class ValueWindow : Window
 {
     readonly DocWindow owner;
-    readonly DocumentModel model;
+    public PopoutModel Pop { get; }
     readonly Pictures pictures;
-    public PlumCraft.Models.PopoutWindow Entry { get; set; }
     public event Action? ClosedByPerson;
-    readonly TextBlock summary = new() { Opacity = 0.75, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(12, 8, 12, 4), IsTextSelectionEnabled = true };
-    readonly CommandBar bar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, HorizontalAlignment = HorizontalAlignment.Left, IsDynamicOverflowEnabled = false };
+    readonly TextBlock summary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 10, 14, 2), IsTextSelectionEnabled = true, MaxLines = 3 };
+    readonly StackPanel left = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+    readonly CommandBar bar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, IsDynamicOverflowEnabled = false, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     readonly Grid body = new();
-    PopoutValue? value;
-    bool closingFromCore, busy, again;
-    string shownKind = "";
-    readonly Dictionary<string, string> wholeText = [];
+    IViewer? viewer;
+    public IViewer? Viewer => viewer;
+    bool closingFromCore;
+    string? shareRefused;
+    bool shareKnown;
 
-    public ValueWindow(DocWindow owner, DocumentModel model, Pictures pictures, PlumCraft.Models.PopoutWindow entry)
+    public ValueWindow(DocWindow owner, PopoutModel pop, Pictures pictures)
     {
         this.owner = owner;
-        this.model = model;
+        Pop = pop;
         this.pictures = pictures;
-        Entry = entry;
-        Title = entry.Title;
-        SystemBackdrop = new Microsoft.UI.Xaml.Media.MicaBackdrop();
+        Title = pop.Window.Title;
+        SystemBackdrop = new MicaBackdrop();
+        Ui.TitleBar(this);
+        summary.Foreground = Ui.Brush("TextFillColorSecondaryBrush");
+        summary.Style = Ui.TextStyle("CaptionTextBlockStyle");
         var root = new Grid { RequestedTheme = Appearance.Theme };
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(summary);
-        Grid.SetRow(bar, 1);
-        root.Children.Add(bar);
-        Grid.SetRow(body, 2);
-        body.Margin = new Thickness(12, 4, 12, 12);
-        root.Children.Add(body);
+        var barRow = Ui.Columns(Ui.Star, Ui.Auto);
+        barRow.Children.Add(left);
+        barRow.Children.Add(bar.At(1));
+        root.Children.Add(barRow.At(0, 1));
+        root.Children.Add(new Border { BorderBrush = Ui.Brush("DividerStrokeColorDefaultBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = body }.At(0, 2));
+        root.KeyDown += async (_, e) =>
+        {
+            if (e.Key == Windows.System.VirtualKey.Escape && !e.Handled && e.OriginalSource is not TextBox) { e.Handled = true; await PersonClosesAsync(); }
+        };
         Content = root;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 520, Height = 440 });
+        AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = 560, Height = 460 });
         if (CoreHost.Options.Top && AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter op) op.IsAlwaysOnTop = true;
-        AppWindow.Closing += (s, e) =>
+        AppWindow.Closing += async (_, e) =>
         {
             if (closingFromCore) return;
-            // the person closed it: the core's pop-out goes too
-            _ = model.RunAsync("view.close", Jsonv.Object(("id", Jsonv.Of(Entry.Id))));
-            ClosedByPerson?.Invoke();
+            e.Cancel = true;
+            await PersonClosesAsync();
         };
+        Closed += (_, _) => { gone = true; pop.Changed -= OnValue; viewer?.Gone(); };
+        pop.Changed += OnValue;
     }
 
-    /// <summary>Beside its document's window, on the right where that display's work area has room, else
-    /// over the window's right edge; the first four stacked down the side, more cascading over them; always
-    /// inside the work area.</summary>
+    /// <summary>The person closed it: the core's pop-out goes too, and the document's window comes forward.</summary>
+    async Task PersonClosesAsync()
+    {
+        if (closingFromCore) return;
+        closingFromCore = true;
+        ClosedByPerson?.Invoke();
+        await Pop.CloseAsync();
+        Close();
+        owner.Activate();
+    }
+
+    /// <summary>Beside its document's window, on the right where that display's work area has room, else over
+    /// the window's right edge; the first four stacked down the side, more cascading over them.</summary>
     public void Place(int k)
     {
         var o = owner.AppWindow.Position;
         var s = owner.AppWindow.Size;
         var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(owner.AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest).WorkArea;
-        int w = Math.Min(460, area.Width), h = Math.Min(330, Math.Max(200, area.Height / 3));
+        int w = Math.Min(560, area.Width), h = Math.Min(440, Math.Max(240, area.Height / 2));
         AppWindow.Resize(new Windows.Graphics.SizeInt32 { Width = w, Height = h });
         var slot = k % 4;
         var extra = k / 4 * 28;
         var right = o.X + s.Width + 8;
         var x = right + w <= area.X + area.Width ? right : o.X + s.Width - w - 16;
         x += extra;
-        var y = o.Y + 40 + slot * (h / 2 + 24) + extra;
+        var y = o.Y + 40 + slot * (h / 3 + 24) + extra;
         x = Math.Clamp(x, area.X, Math.Max(area.X, area.X + area.Width - w));
         y = Math.Clamp(y, area.Y, Math.Max(area.Y, area.Y + area.Height - h));
         AppWindow.Move(new Windows.Graphics.PointInt32 { X = x, Y = y });
@@ -157,206 +161,217 @@ public sealed class ValueWindow : Window
         Close();
     }
 
-    /// <summary>Read the value again (popout.get), coalesced.</summary>
-    public async void Refresh()
+    bool gone;
+
+    void OnValue(PopoutValue v)
     {
-        if (busy) { again = true; return; }
-        busy = true;
-        try
+        if (!gone) Show(v);
+    }
+
+    async void Show(PopoutValue v)
+    {
+        try { await ShowAsync(v); }
+        catch (Exception e) { CoreHost.Log($"pop-out {Pop.Id}: {e}"); }
+    }
+
+    async Task ShowAsync(PopoutValue v)
+    {
+        if (gone) return;
+        Title = v.Title ?? Pop.Window.Title;
+        summary.Text = v.Summary ?? (v.Media is { } m ? $"{m}, not computed yet" : "Run the graph to see this value.");
+        if (!shareKnown) await ReadShare();
+        if (gone) return;
+        Bar(v);
+        var kind = ViewerKind(v);
+        if (viewer is null || viewer.Kind != kind)
         {
-            var v = await model.PopoutAsync(Entry.Id);
-            value = v;
-            await Show(v);
+            viewer?.Gone();
+            viewer = Make(kind);
+            body.Children.Clear();
+            body.Children.Add(viewer.View);
         }
-        catch (Exception e)
-        {
-            summary.Text = $"Couldn't read the value: {e.Message}";
-        }
-        busy = false;
+        viewer.Update(v);
         owner.NoteStatus();
-        if (again) { again = false; Refresh(); }
     }
 
-    async Task Run(string command, params (string, JsonElement)[] p)
+    /// <summary>Which viewer draws `v`: the core's choice, an error, or none yet.</summary>
+    static string ViewerKind(PopoutValue v)
     {
-        try { await model.RunAsync(command, Jsonv.Object([("popout", Jsonv.Of(Entry.Id)), .. p])); }
-        catch (Exception e) { summary.Text = e.Message; }
-        Refresh();
-    }
-
-    AppBarButton Button(string label, Symbol icon, Func<Task> run)
-    {
-        var b = new AppBarButton { Label = label, Icon = new SymbolIcon(icon) };
-        b.Click += async (_, _) => await run();
-        return b;
-    }
-
-    AppBarToggleButton Toggle(string label, bool on, Func<bool, Task> run)
-    {
-        var b = new AppBarToggleButton { Label = label, IsChecked = on };
-        b.Click += async (_, _) => await run(b.IsChecked == true);
-        return b;
-    }
-
-    async Task Show(PopoutValue v)
-    {
-        Title = v.Title ?? Entry.Title;
-        summary.Text = v.Summary ?? (v.Media is { } m ? $"{m}, not computed yet" : "not computed yet");
-        var viewer = v.Viewer ?? Entry.Viewer ?? "";
-        bar.PrimaryCommands.Clear();
-        shownKind = viewer;
-        if (v.Error is { } err && err.ValueKind != JsonValueKind.Null)
+        if (v.Error is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined }) return "error";
+        var id = v.Viewer ?? "";
+        if (id == "array.pictures" && (v.Views?.Count ?? 0) <= 1) return "picture";
+        return id switch
         {
-            body.Children.Clear();
-            body.Children.Add(new TextBlock { Text = err.ValueKind == JsonValueKind.String ? err.GetString() : err.GetRawText(), TextWrapping = TextWrapping.Wrap, Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed), IsTextSelectionEnabled = true });
-            return;
-        }
-        switch (viewer)
-        {
-            case "picture":
-                bar.PrimaryCommands.Add(Button("Fit", Symbol.ZoomOut, () => Run("viewer.zoom", ("to", Jsonv.Of("fit")))));
-                bar.PrimaryCommands.Add(Button("Actual Size", Symbol.FullScreen, () => Run("viewer.zoom", ("to", Jsonv.Of("1:1")))));
-                await ShowPicture(v);
-                break;
-            case "text.plain":
-                var tv = v.Text;
-                bar.PrimaryCommands.Add(Toggle("Wrap", tv?.Wrap ?? true, on => Run("viewer.text", ("wrap", Jsonv.Of(on)))));
-                bar.PrimaryCommands.Add(Toggle("Monospaced", tv?.Mono ?? false, on => Run("viewer.text", ("mono", Jsonv.Of(on)))));
-                bar.PrimaryCommands.Add(Toggle("Show All", tv?.All ?? false, on => Run("viewer.text", ("all", Jsonv.Of(on)))));
-                await ShowText(v);
-                break;
-            case "scalar":
-                body.Children.Clear();
-                body.Children.Add(new TextBlock
-                {
-                    Text = Scalar(v.Value, v.Summary), FontSize = 40, FontWeight = Microsoft.UI.Text.FontWeights.SemiLight,
-                    HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center, IsTextSelectionEnabled = true,
-                });
-                break;
-            default:
-                body.Children.Clear();
-                body.Children.Add(new TextBlock { Text = $"{CoreHost.AppName} for Windows has no {(viewer.Length > 0 ? viewer : "viewer")} viewer yet.\n{v.Summary}", TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
-                break;
-        }
-    }
-
-    /// <summary>A scalar, formatted: grouping, a whole number without decimals, up to six otherwise.</summary>
-    public static string Scalar(JsonElement? value, string? summary)
-    {
-        if (value is not { } v || v.ValueKind == JsonValueKind.Null || v.ValueKind == JsonValueKind.Undefined) return summary ?? "—";
-        switch (v.ValueKind)
-        {
-            case JsonValueKind.True: return "true";
-            case JsonValueKind.False: return "false";
-            case JsonValueKind.String: return v.GetString() ?? "";
-            case JsonValueKind.Number:
-                if (v.TryGetInt64(out var n)) return n.ToString("N0", CultureInfo.CurrentCulture);
-                if (v.TryGetDouble(out var d)) return d.ToString("#,##0.######", CultureInfo.CurrentCulture);
-                return v.GetRawText();
-            default: return v.GetRawText();
-        }
-    }
-
-    async Task ShowPicture(PopoutValue v)
-    {
-        var handle = v.Picture?.Handle ?? (v.Picture is { } pic ? Pictures.HandleOf(pic.Ref) : null);
-        if (handle is null)
-        {
-            body.Children.Clear();
-            body.Children.Add(new TextBlock { Text = "No picture yet: run the graph.", Opacity = 0.7 });
-            return;
-        }
-        var bmp = await pictures.LoadAsync(handle);
-        if (bmp is null)
-        {
-            body.Children.Clear();
-            body.Children.Add(new TextBlock { Text = $"Couldn't read the picture: {pictures.LastFailure}", TextWrapping = TextWrapping.Wrap });
-            return;
-        }
-        var w = (float)bmp.SizeInPixels.Width;
-        var h = (float)bmp.SizeInPixels.Height;
-        var src = new CanvasImageSource(CanvasDevice.GetSharedDevice(), w, h, 96);
-        using (var ds = src.CreateDrawingSession(Microsoft.UI.Colors.Transparent)) ds.DrawImage(bmp);
-        var actual = v.Fit == "1:1";
-        var scale = Content?.XamlRoot?.RasterizationScale ?? 1;
-        var img = new Image
-        {
-            Source = src, Stretch = actual ? Stretch.None : Stretch.Uniform,
-            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+            "picture" or "svg" => "picture",
+            "text.plain" or "scalar" or "table.grid" or "array.grid" or "tree" or "yaml" or "hex" or "audio" or "items" or "array.pictures" => id,
+            "" => "none",
+            _ => "opaque",
         };
-        if (actual) { img.Width = w / scale; img.Height = h / scale; }
-        var sv = new ScrollViewer
-        {
-            Content = img, ZoomMode = ZoomMode.Enabled, MinZoomFactor = 0.1f, MaxZoomFactor = 16,
-            HorizontalScrollBarVisibility = actual ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
-            VerticalScrollBarVisibility = actual ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
-            HorizontalScrollMode = ScrollMode.Auto, VerticalScrollMode = ScrollMode.Auto,
-        };
-        body.Children.Clear();
-        body.Children.Add(sv);
     }
 
-    async Task ShowText(PopoutValue v)
+    IViewer Make(string kind) => kind switch
     {
-        var tv = v.Text;
-        var text = v.Excerpt?.Text ?? "";
-        var total = (long)(v.Excerpt?.TotalChars ?? (ulong)text.Length);
-        var handle = v.Data is { } d ? Pictures.HandleOf(d) : null;
-        if (tv?.All == true && handle is not null && total > text.Length)
-        {
-            if (!wholeText.TryGetValue(handle, out var whole))
-            {
-                whole = await Whole(handle);
-                if (whole is not null) wholeText[handle] = whole;
-            }
-            if (whole is not null) text = whole;
-        }
-        var block = new TextBlock
-        {
-            Text = text, IsTextSelectionEnabled = true, TextWrapping = tv?.Wrap == false ? TextWrapping.NoWrap : TextWrapping.Wrap,
-            FontFamily = new FontFamily(tv?.Mono == true ? "Consolas" : FaceText.Family), FontSize = 13,
-        };
-        var panel = new StackPanel { Spacing = 6 };
-        panel.Children.Add(block);
-        if (text.Length < total) panel.Children.Add(new TextBlock { Text = $"{text.Length:N0} of {total:N0} characters shown", Opacity = 0.6 });
-        body.Children.Clear();
-        body.Children.Add(new ScrollViewer
-        {
-            Content = panel, HorizontalScrollBarVisibility = tv?.Wrap == false ? ScrollBarVisibility.Auto : ScrollBarVisibility.Disabled,
-            HorizontalScrollMode = ScrollMode.Auto,
-        });
-    }
+        "picture" => new PictureViewer(Pop, pictures, this),
+        "text.plain" => new TextViewer(Pop),
+        "scalar" => new ScalarViewer(),
+        "table.grid" => new TableViewer(Pop, grid: false),
+        "array.grid" => new TableViewer(Pop, grid: true),
+        "tree" => new TreeViewer(Pop),
+        "yaml" => new YamlViewer(Pop),
+        "hex" => new HexViewer(Pop),
+        "audio" => new AudioViewer(Pop, pictures),
+        "items" => new ItemsViewer(Pop, pictures),
+        "array.pictures" => new ArrayPicturesViewer(pictures),
+        "error" => new MessageViewer(v => $"This value failed: {(v.Error is { ValueKind: JsonValueKind.String } e ? e.GetString() : v.Error.Get("message").Str() ?? v.Error?.GetRawText())}", error: true),
+        "none" => new MessageViewer(v => v.Summary is null ? "Run the graph to see this value." : "No value yet."),
+        _ => new OpaqueViewer(pictures),
+    };
 
-    /// <summary>The value's own bytes as UTF-8 (media.get {want: "bytes"}, then plum_blob), at most 8 MB.</summary>
-    async Task<string?> Whole(string handle)
+    /// <summary>Whether this shell may share (the core's `command.list` says `value.share` is enabled, or why not).</summary>
+    async Task ReadShare()
     {
         try
         {
-            var note = await model.Core.RequestAsync<MediaNote>("media.get", Jsonv.Object(("handle", Jsonv.Of(handle)), ("want", Jsonv.Of("bytes"))), model.RequestDoc);
-            var key = note.Key;
-            if (note.StatusWord == MediaWord.Pending)
-            {
-                if (!await model.WaitAsync(() => model.Media.TryGetValue(key, out var m) && m.StatusWord != MediaWord.Pending, TimeSpan.FromSeconds(30))) return null;
-                note = model.Media[key];
-            }
-            if (note.StatusWord != MediaWord.Ready) return null;
-            var core = model.Core;
-            return await Task.Run(() =>
-            {
-                using var lease = core.Blob(key, out _);
-                if (lease is null) return null;
-                var span = lease.Span;
-                return Encoding.UTF8.GetString(span[..Math.Min(span.Length, 8 << 20)]);
-            });
+            var list = await Pop.Model.Core.ResultAsync("command.list", Jsonv.EmptyObject, Pop.Model.RequestDoc);
+            var rows = list.ValueKind == JsonValueKind.Array ? list.EnumerateArray() : list.Get("commands").Items();
+            foreach (var r in rows)
+                if (r.Get("id").Str() == "value.share")
+                {
+                    shareRefused = r.Get("enabled").Bool() == false ? r.Get("disabledReason").Str() ?? "not available" : null;
+                    break;
+                }
+            shareKnown = true;
         }
-        catch (Exception) { return null; }
+        catch (Exception) { }
     }
 
-    public System.Text.Json.Nodes.JsonObject Describe() => new()
+    void Bar(PopoutValue v)
     {
-        ["id"] = Entry.Id, ["title"] = Title, ["viewer"] = shownKind, ["summary"] = summary.Text,
-        ["value"] = value?.Viewer == "scalar" ? Scalar(value.Value, value.Summary) : null,
-        ["text"] = value?.Excerpt?.Text is { } t ? t[..Math.Min(t.Length, 200)] : null,
-        ["picture"] = value?.Picture is { } p ? $"{p.W}x{p.H}" : null,
-    };
+        left.Children.Clear();
+        if (v.Viewers is { Count: > 1 } offered)
+        {
+            var asCombo = new ComboBox { MinWidth = 140 };
+            foreach (var o in offered)
+            {
+                var item = new ComboBoxItem { Content = o.Native == false ? $"{o.Label} (picture)" : o.Label, Tag = o.Id };
+                asCombo.Items.Add(item);
+                if (o.Id == v.Viewer) asCombo.SelectedItem = item;
+            }
+            ToolTipService.SetToolTip(asCombo, "View As");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(asCombo, "View As");
+            asCombo.SelectionChanged += async (_, _) => { if (asCombo.SelectedItem is ComboBoxItem { Tag: string id } && id != v.Viewer) await Pop.ChooseViewerAsync(id); };
+            left.Children.Add(asCombo);
+        }
+        if (v.Items is { } n && n > 1)
+        {
+            var i = v.Index ?? 0;
+            var prev = Ui.GlyphButton(Ui.G.Back, "Previous Item", async () => await Pop.CommandAsync("run.item", ("index", Jsonv.Of(i - 1))));
+            prev.IsEnabled = i > 0;
+            var next = Ui.GlyphButton(Ui.G.Forward, "Next Item", async () => await Pop.CommandAsync("run.item", ("index", Jsonv.Of(i + 1))));
+            next.IsEnabled = (ulong)(i + 1) < n;
+            left.Children.Add(prev);
+            left.Children.Add(new TextBlock { Text = $"item {i + 1} of {n}", VerticalAlignment = VerticalAlignment.Center, Style = Ui.TextStyle("CaptionTextBlockStyle") });
+            left.Children.Add(next);
+        }
+        if (bar.PrimaryCommands.Count > 0) return;
+        // Drag Out: a real file drag of what value.export writes
+        var handle = new Border { Child = Ui.Icon(Ui.G.Drag, 16), Padding = new Thickness(10, 8, 10, 8), CanDrag = true, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+        ToolTipService.SetToolTip(handle, "Drag the value out as a file");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(handle, "Drag Out");
+        handle.DragStarting += async (_, e) =>
+        {
+            var deferral = e.GetDeferral();
+            try
+            {
+                if (await Pop.ExportFileAsync() is { } path)
+                {
+                    var file = await Windows.Storage.StorageFile.GetFileFromPathAsync(path);
+                    e.Data.SetStorageItems([file]);
+                    e.Data.RequestedOperation = Windows.ApplicationModel.DataTransfer.DataPackageOperation.Copy;
+                    LastDrag = path;
+                }
+                else e.Cancel = true;
+            }
+            catch (Exception ex) { e.Cancel = true; CoreHost.Log($"drag out: {ex.Message}"); }
+            deferral.Complete();
+        };
+        bar.PrimaryCommands.Add(new AppBarElementContainer { Content = handle, VerticalAlignment = VerticalAlignment.Center });
+        var compare = new AppBarButton { Label = "Compare", Icon = Ui.Icon(Ui.G.Compare, 16) };
+        var pins = new MenuFlyout();
+        var pa = new MenuFlyoutItem { Text = "Pin as A" };
+        pa.Click += async (_, _) => await Pop.PinAsync("a");
+        var pb = new MenuFlyoutItem { Text = "Pin as B" };
+        pb.Click += async (_, _) => await Pop.PinAsync("b");
+        pins.Items.Add(pa);
+        pins.Items.Add(pb);
+        compare.Flyout = pins;
+        ToolTipService.SetToolTip(compare, "Pin this value as A or B and compare");
+        bar.PrimaryCommands.Add(compare);
+        // Recipe: what made the value (`viewer.recipe {popout}`), its Copy the core's (`{copy: true}`)
+        var recipe = new AppBarButton { Label = "Recipe", Icon = Ui.Icon(Ui.G.Info, 16) };
+        ToolTipService.SetToolTip(recipe, "What made this value: its style, parameters and graph");
+        var recipeText = new TextBlock { FontFamily = new FontFamily("Cascadia Mono, Consolas"), FontSize = 12, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.NoWrap };
+        var copyRecipe = new Button { Content = "Copy Recipe" };
+        copyRecipe.Click += async (_, _) => await Pop.CommandAsync("viewer.recipe", ("copy", Jsonv.True));
+        var recipePanel = new StackPanel { Spacing = 8, MaxWidth = 520 };
+        recipePanel.Children.Add(new ScrollViewer { Content = recipeText, MaxHeight = 360, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollMode = ScrollMode.Auto });
+        recipePanel.Children.Add(copyRecipe);
+        var recipeFly = new Flyout { Content = recipePanel };
+        recipeFly.Opening += async (_, _) =>
+        {
+            recipeText.Text = "Reading the recipe…";
+            var r = await Pop.CommandAsync("viewer.recipe");
+            var rec = r?.Get("recipe");
+            var has = rec is { ValueKind: not JsonValueKind.Null and not JsonValueKind.Undefined };
+            recipeText.Text = has ? JsonSerializer.Serialize(rec!.Value, RecipeJson) : Pop.LastRefusal ?? "No recipe: this value wasn't made by a run with one.";
+            copyRecipe.IsEnabled = has;
+            LastRecipe = has;
+        };
+        recipe.Flyout = recipeFly;
+        bar.PrimaryCommands.Add(recipe);
+        bar.PrimaryCommands.Add(Out("Copy", Ui.G.Copy, "Copy the value", "value.copy"));
+        bar.PrimaryCommands.Add(Out("Save As…", Ui.G.Save, "Save the value to a file, its recipe included", "value.saveAs"));
+        var share = Out("Share…", Ui.G.Share, shareRefused ?? "Share the value", "value.share");
+        if (shareRefused is { } why)
+        {
+            // disabled with the core's reason, said where a disabled button's tooltip can't be
+            share.IsEnabled = false;
+            var wrap = new Border { Child = new AppBarButton { Label = "Share…", Icon = Ui.Icon(Ui.G.Share, 16), IsEnabled = false, LabelPosition = CommandBarLabelPosition.Collapsed, Width = 48 }, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
+            ToolTipService.SetToolTip(wrap, $"{why} (value.share)");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(wrap, why);
+            bar.PrimaryCommands.Add(new AppBarElementContainer { Content = wrap });
+        }
+        else bar.PrimaryCommands.Add(share);
+    }
+
+    AppBarButton Out(string label, string glyph, string tip, string command)
+    {
+        var b = new AppBarButton { Label = label, Icon = Ui.Icon(glyph, 16) };
+        ToolTipService.SetToolTip(b, tip);
+        b.Click += async (_, _) =>
+        {
+            if (await Pop.TakeOutAsync(command) is { } refused) summary.Text = refused;
+        };
+        return b;
+    }
+
+    static readonly JsonSerializerOptions RecipeJson = new() { WriteIndented = true, TypeInfoResolver = new System.Text.Json.Serialization.Metadata.DefaultJsonTypeInfoResolver() };
+
+    /// <summary>Whether the last recipe read had one.</summary>
+    public bool? LastRecipe { get; private set; }
+
+    /// <summary>The file the last drag out carried.</summary>
+    public string? LastDrag { get; private set; }
+
+    public System.Text.Json.Nodes.JsonObject Describe()
+    {
+        var o = new System.Text.Json.Nodes.JsonObject
+        {
+            ["id"] = Pop.Id, ["title"] = Title, ["viewer"] = Pop.Value?.Viewer, ["drawn"] = viewer?.Kind, ["summary"] = summary.Text,
+            ["share"] = shareRefused is null ? "enabled" : $"disabled: {shareRefused}", ["drag"] = LastDrag,
+            ["placed"] = new System.Text.Json.Nodes.JsonArray(Placed.x, Placed.y, Placed.w, Placed.h),
+        };
+        if (viewer?.Describe() is { } d) foreach (var (k, v) in d) o[k] = v?.DeepClone();
+        return o;
+    }
 }
