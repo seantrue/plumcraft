@@ -156,6 +156,17 @@ pub struct Config {
     /// default, and the Apple apps, whose document controllers make their windows): New and Open
     /// replace the document's graph, and Quit closes the document it was asked in.
     pub document_windows: bool,
+    /// The engines folder (`dirs.engines`, B71): the engine manifests read at start and by
+    /// Reload Engine List, and where Install Engine… registers what it installs. None:
+    /// `$PLUMCRAFT_ENGINE_FOLDER` when set, else `~/.config/plumcraft/engines`, the folder every
+    /// PlumCraft editor shares. `$PLUMCRAFT_ENGINE_FOLDER` wins over this (scripts point it at
+    /// scratch), as `PLUMCRAFT_EDITOR_PREFS` wins over `dirs.prefs`.
+    pub engine_folder: Option<PathBuf>,
+    /// More engine manifests to read (`engines.manifests`, spec 16.6: `--engine-manifest`'s).
+    pub manifests: Vec<PathBuf>,
+    /// The `uv` that installs engines (`engines.uv`; tests give a stand-in). None: found as a
+    /// manifest's `uv` is (`$PLUMCRAFT_UV`, PATH, the login shell's PATH, the usual folders).
+    pub uv: Option<PathBuf>,
 }
 
 /// The application, as the config names it (contract 4.1's `app`).
@@ -214,6 +225,9 @@ impl Default for Config {
             caches: None,
             scratch: None,
             document_windows: false,
+            engine_folder: None,
+            manifests: Vec::new(),
+            uv: None,
         }
     }
 }
@@ -261,6 +275,16 @@ impl Config {
                 None | Some(Value::Null) => false,
                 Some(Value::Bool(b)) => *b,
                 Some(_) => return Err("config: platform.document_windows must be true or false".into()),
+            },
+            engine_folder: match std::env::var_os(plumcraft_editor_core::engines::ENGINE_FOLDER_ENV).filter(|f| !f.is_empty()) {
+                Some(f) => Some(PathBuf::from(f)),
+                None => dir_of(o, "engines")?,
+            },
+            manifests: manifest_files(engines.and_then(|e| e.get("manifests")))?,
+            uv: match engines.and_then(|e| e.get("uv")) {
+                None | Some(Value::Null) => None,
+                Some(Value::String(p)) if !p.trim().is_empty() && p.len() <= 4096 && !p.contains('\0') => Some(PathBuf::from(p)),
+                Some(_) => return Err("config: engines.uv must be a program's path".into()),
             },
         })
     }
@@ -383,6 +407,25 @@ fn prefs_path(o: &serde_json::Map<String, Value>) -> Result<Option<PathBuf>, Str
         None | Some(Value::Null) => Ok(None),
         Some(Value::String(d)) if !d.trim().is_empty() && d.len() <= 4096 && !d.contains('\0') => Ok(Some(PathBuf::from(d).join("prefs.json"))),
         Some(_) => Err("config: dirs.prefs must be a folder's path".into()),
+    }
+}
+
+/// The most files `engines.manifests` names.
+const MAX_MANIFESTS: usize = 64;
+
+/// `engines.manifests`: engine manifest files, read before the engines folder's.
+fn manifest_files(v: Option<&Value>) -> Result<Vec<PathBuf>, String> {
+    let bad = || "config: engines.manifests must be a list of manifest files' paths".to_owned();
+    match v {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(Value::Array(a)) if a.len() <= MAX_MANIFESTS => a
+            .iter()
+            .map(|p| match p.as_str() {
+                Some(p) if !p.trim().is_empty() && p.len() <= 4096 && !p.contains('\0') => Ok(PathBuf::from(p)),
+                _ => Err(bad()),
+            })
+            .collect(),
+        Some(_) => Err(bad()),
     }
 }
 
@@ -822,7 +865,14 @@ impl Core {
         }
         // the demo is part of the program: read now, so a bad one is the config's error
         let demo = if config.demo { Some(demo_graph(kind)?) } else { None };
-        let launcher = Launcher { caps: config.platform, store_root: config.store_root.clone(), ..Default::default() };
+        let launcher = Launcher {
+            caps: config.platform,
+            store_root: config.store_root.clone(),
+            manifests: config.manifests.clone(),
+            folder: config.engine_folder.clone(),
+            uv: config.uv.clone(),
+            ..Default::default()
+        };
         let (tx, rx) = channel();
         let drain = tx.clone();
         let waker = link::Waker::new(move || {
@@ -899,6 +949,12 @@ impl Core {
         let thread = std::thread::Builder::new()
             .name("plumcraft-ffi-core".into())
             .spawn(move || {
+                // the engines manifests name are read here, the thread that chooses and starts
+                // engines (B71: the C ABI never read them, so the native apps offered none an
+                // install had registered); what can't be read is the log's
+                for problem in launcher.load_manifests() {
+                    plumcraft_editor_core::log::warn("engines", &format!("engine manifests: {problem}"));
+                }
                 // a document's parts live on this thread only
                 let mut worker = Worker {
                     shared: thread_shared,
@@ -1062,6 +1118,9 @@ struct Doc {
     told_gen: u64,
     /// The look's generation last told the shell (`changed`, domain `prefs`, N4 slice 4).
     prefs_told: u64,
+    /// How many times the core's manifests had been read when this document last looked
+    /// (`engines::manifest_reads`).
+    manifest_reads: u64,
 }
 
 /// The core thread's state: its documents, by id, and what they share.
@@ -1154,7 +1213,8 @@ impl Worker {
         doc.document_windows = self.document_windows;
         doc.scratch = self.dirs.1.clone();
         plumcraft_editor_core::settings::follow(&mut doc);
-        doc.caps = self.launcher.caps;
+        // Reload Engine List and Install Engine…, offered as the platform allows (B71)
+        doc.offer_installs(&self.launcher);
         doc.share = self.share;
         doc.set_waker(Some(self.waker.clone()));
         let launcher = self.launcher.clone();
@@ -1179,6 +1239,7 @@ impl Worker {
                 told: Value::Null,
                 told_gen: 0,
                 prefs_told: 0,
+                manifest_reads: plumcraft_editor_core::engines::manifest_reads(),
             },
         );
         id
@@ -1357,7 +1418,10 @@ impl Worker {
         let s = &d.doc.session;
         let now = json!({"title": control::window_title(s, &Shell::view(&d.doc)), "document": control::document_name(s, &d.doc.document),
                          "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error,
-                         "autosave": d.doc.autosave.status()});
+                         "autosave": d.doc.autosave.status(),
+                         // an engine install under way and what it is doing (B71), for a shell's
+                         // progress line; null when none is
+                         "installing": s.engines.installing.as_ref().map(|u| json!({"repo": u, "status": s.engines.install_status}))});
         if now == d.told {
             return;
         }
@@ -1465,6 +1529,9 @@ impl Worker {
             }
             if let Some(d) = self.docs.get_mut(&id) {
                 control::tick(&mut d.doc);
+                // another document read the manifests again (Reload Engine List, an install):
+                // this one offers what is there now too
+                d.doc.follow_manifests(&mut d.manifest_reads);
                 self.windows_asked(id);
             }
             if let Some(d) = self.docs.get_mut(&id) {

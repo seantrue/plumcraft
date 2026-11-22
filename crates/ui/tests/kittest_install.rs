@@ -1,7 +1,8 @@
 //! Engine › Install Engine… (`engine.install`): the window offers the public engines, the
 //! install runs off the UI thread with the status bar saying so, and when it ends the engine
-//! list is read again and the person is told. The installer is a stand-in; the app's own runs
-//! `uv tool install` and `register` (apps/plumcraft-editor).
+//! list is read again and the person is told. The installer is a stand-in; the editor core's own
+//! runs `uv tool install` and `register` (`plumcraft_editor_core::install`, tested there with a
+//! stand-in uv), and the app offers it through `EditorApp::with_launcher` (B71).
 
 mod common;
 
@@ -22,8 +23,9 @@ fn app(result: Result<String, String>) -> (EditorApp, Arc<AtomicUsize>, Arc<Mute
             r.fetch_add(1, Ordering::SeqCst);
             (Vec::new(), Vec::new())
         }))
-        .with_installer(Arc::new(move |url: &str| {
+        .with_installer(Arc::new(move |url: &str, p: &plumcraft_ui::engine_view::Progress| {
             a.lock().unwrap().push(url.to_owned());
+            p.say("Installing: uv is downloading and building it");
             std::thread::sleep(Duration::from_millis(150));
             result.clone()
         }));

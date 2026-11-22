@@ -1,5 +1,5 @@
-//! Coordinates, Simplex Noise (yapocis numba `simplex.py`), Mandelbrot (yapocis numba
-//! `mandelbrot.py`) and Game of Life (yapocis_external `life`, written plainly).
+//! Coordinates, Simplex Noise (the kernel library's numba `simplex.py`), Mandelbrot (the kernel library's numba
+//! `mandelbrot.py`) and Game of Life (the external kernel library's `life`, written plainly).
 
 use npexact::random::Generator;
 use plumcraft_engine::{Cx, Data, Inputs, Outputs};
@@ -27,11 +27,11 @@ pub fn coordinate_planes(h: usize, w: usize) -> (Vec<f32>, Vec<f32>) {
 
 // ---------- Simplex Noise ----------
 
-/// The 2-D gradients (yapocis `GRAD2`), indexed by `hash & 11`.
+/// The 2-D gradients (the kernel library's `GRAD2`), indexed by `hash & 11`.
 const GRAD2: [[f64; 2]; 12] =
     [[1.0, 1.0], [-1.0, 1.0], [1.0, -1.0], [-1.0, -1.0], [1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0], [1.0, 1.0], [0.0, -1.0], [-1.0, 1.0], [0.0, -1.0]];
 
-/// yapocis's `_hash_int`, in 32-bit ints as its device kernels and its numba port compute it
+/// The kernel library's `_hash_int`, in 32-bit ints as its device kernels and its numba port compute it
 /// (wrapping, arithmetic shifts). The coordinates and seed are taken modulo 2^32, as the
 /// kernels' `int` arguments are.
 fn hash_int(x: i64, y: i64, z: i64, seed: i64) -> i64 {
@@ -52,9 +52,9 @@ fn wrap(a: i64, m: i64) -> i64 {
     a.rem_euclid(m.max(1))
 }
 
-/// One octave of 2-D simplex noise (yapocis `_simplex2d_single`), in float64 as numba runs it.
+/// One octave of 2-D simplex noise (the kernel library's `_simplex2d_single`), in float64 as numba runs it.
 /// With `tileable`, the lattice index taken from `x` wraps with `tile_x` and the one taken from
-/// `y` with `tile_y` (yapocis's `tile_w` and `tile_h`).
+/// `y` with `tile_y` (the kernel library's `tile_w` and `tile_h`).
 fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_x: i64, tile_y: i64) -> f64 {
     const F2: f64 = 0.366_025_403_784_438_6;
     const G2: f64 = 0.211_324_865_405_187_13;
@@ -85,8 +85,8 @@ fn simplex2d_single(x: f64, y: f64, seed: i64, tileable: bool, tile_x: i64, tile
     70.0 * (n0 + n1 + n2)
 }
 
-/// Fractal 2-D simplex noise, 0-1, `h` × `w` (yapocis `Simplex.simplex2d`). Pixel (r, c) is
-/// noise at (r / h, c / w) × frequency, as yapocis's device kernels and numba port compute it
+/// Fractal 2-D simplex noise, 0-1, `h` × `w` (the kernel library's `Simplex.simplex2d`). Pixel (r, c) is
+/// noise at (r / h, c / w) × frequency, as the kernel library's device kernels and numba port compute it
 /// (the kernels' `width` is the rows). With `tileable`, the row-based coordinate's lattice wraps
 /// every rows / frequency cells and the column-based one every columns / frequency (#83). The
 /// lattice is skewed, so the output repeats along the diagonal, not on x or y (#84).
@@ -114,12 +114,12 @@ pub fn simplex2d(h: usize, w: usize, seed: i64, scale: f64, octaves: i64, persis
     out
 }
 
-/// yapocis `Simplex.turbulence`: `|2 * noise - 1|` of the default fBm, in float32.
+/// The kernel library's `Simplex.turbulence`: `|2 * noise - 1|` of the default fBm, in float32.
 pub fn turbulence(h: usize, w: usize, seed: i64, scale: f64, octaves: i64) -> Vec<f32> {
     simplex2d(h, w, seed, scale, octaves, 0.5, 2.0, false).into_iter().map(|v| (2.0f32 * v - 1.0).abs()).collect()
 }
 
-/// yapocis `Simplex.ridged`: `(1 - turbulence)^2`, in float32.
+/// The kernel library's `Simplex.ridged`: `(1 - turbulence)^2`, in float32.
 pub fn ridged(h: usize, w: usize, seed: i64, scale: f64, octaves: i64) -> Vec<f32> {
     turbulence(h, w, seed, scale, octaves)
         .into_iter()
@@ -163,7 +163,7 @@ fn escaped(zr: f32, zi: f32, threshold: f32) -> bool {
     ((a * a + b * b).sqrt() as f32) > threshold
 }
 
-/// The escape iteration of each point of `re` × `im` (yapocis numba `mandelbrot`: numpy
+/// The escape iteration of each point of `re` × `im` (the kernel library's numba `mandelbrot`: numpy
 /// complex64 steps, the first iteration at which `|z| > 2`, 0 inside the set; a point escaping at
 /// iteration 0 keeps going, as the kernel's `out == 0` test lets it). Row-major, `im.len()` rows.
 pub fn mandelbrot_iterations(re: &[f32], im: &[f32], maxiter: i64, cancel: &dyn Fn() -> bool) -> Option<Vec<i16>> {
@@ -216,7 +216,7 @@ pub(super) fn mandelbrot(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> 
 
 // ---------- Game of Life ----------
 
-/// One generation on a torus (yapocis_external `life_step`).
+/// One generation on a torus (the external kernel library's `life_step`).
 pub fn life_step(state: &[u8], h: usize, w: usize) -> Vec<u8> {
     let mut out = vec![0u8; h * w];
     for y in 0..h {

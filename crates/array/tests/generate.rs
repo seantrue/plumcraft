@@ -1,5 +1,5 @@
-//! Generate, Regions, Draw and Frequency: each kernel against references from yapocis's numba
-//! backend and yapocis_external's numba kernels (`claude-debug/generate_fixtures_gen.py` writes
+//! Generate, Regions, Draw and Frequency: each kernel against references from the kernel library's numba
+//! backend and the external kernel library's numba kernels (`claude-debug/generate_fixtures_gen.py` writes
 //! `tests/fixtures/generate/`), every node through the executor, and hostile inputs as errors,
 //! never panics.
 
@@ -197,7 +197,7 @@ fn numpy_draws_are_numpys() {
 }
 
 #[test]
-fn external_kernels_match_yapocis_external() {
+fn external_kernels_match_the_external_kernel_library() {
     let x = fixture("external");
     // connected components and outlines: exact
     let (shape, edges) = arr(&x["components"]["edges"]);

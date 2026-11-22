@@ -11,6 +11,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: a screenshot run launched the app (`edit-number`, 15:17) through a one-shot Interactive scheduled task, as every run does. It never wrote its first window to its status file. From then on no program started in the console session: every later scheduled task's process (cmd, PowerShell, the screenshot and input injectors) stayed at its start, and the app's process and the console host and terminal processes launched with it couldn't be ended (`Stop-Process` and `taskkill` reported success or access denied, and the processes stayed). Windows logged a `LiveKernelEvent` (code `1cc`) at 15:31 and an application hang in another app. A program started from the SSH session (session 0) still runs. The VM was not restarted (the brief: never restart it); the stuck processes are still there. Whether the app caused it, or the VM's display driver did and the app was the first to meet it, is not known.
 - Issue: none
 
+### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
+
+- Reported: 2026-11-21
+- Report: found by the controller checking B71: `engine.switch` to an engine whose program exits immediately (its Python module is not installed) got no reply for 30 s as a process; over HTTP the same engine failed in 0.2 s with "the engine exited before listening".
+- Context: `crates/editor-core`, the process start of an engine a manifest names.
+- Issue: none
+
 ### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -19,6 +26,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Seen again: 2026-11-20, in the full run for N3 slice 2 with nothing else building. It fails at `crates/engine/tests/persist.rs:166`, the "too big" case: a 60 ms node that makes 32 MB was persisted, where the test expects it not to be worth it. Passed 40 of 40 alone. The test's own comment says the margin is a matter of timing.
 - Seen again: 2026-11-20, on the Mac in N4 slice 2's gate, in the Python suite's test of the same name (`python/tests/test_persist.py`) while cargo was running in parallel. Passed 10 of 10 alone.
 - Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run (the Rust test), together with B38. Both passed 10 of 10 alone afterwards.
+- Note: 2026-11-21, B49 found the Python test's cause: the work is measured on the wall clock, and allocating the big array can stall for over 150 ms while the kernel compacts memory, which makes a 60 ms node look worth persisting. The Rust test probably fails the same way; it has no virtual clock to pin the work, so its fix needs an injectable clock in the Rust executor or a much bigger margin. Not checked.
 - Issue: none
 
 ### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
@@ -43,14 +51,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
-### B49. `test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted` fails on the Linux test host while it is busy
-
-- Reported: 2026-11-21
-- Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
-- Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
-- Seen again: 2026-11-21, in the gate for the private-strings branch and then in 6 of 6 runs of the file alone, with the host's load average near 19. The assertion, at `tests/test_persist.py:100`: `assert twice(r, {"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 8_000_000}}) == ("done", 2), "too big"` got `('cached', 1)`: a result meant to be too big to persist was persisted and came back cached. So it is not a timing miss in the test's own waits; whatever decides "too big" gives a different answer while the host is busy. Not looked into further.
-- Issue: none
-
 ### B54. The Windows app ended once with a stowed exception during the conformance suite's read half
 
 - Reported: 2026-11-21
@@ -63,6 +63,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-21
 - Report: found by the gate of N5 slice 3 (`native/n5-editing`); recorded under the standing "record bugs"
 - Context: `native/windows/tests/PlumCraft.Kit.Tests/CoreTests.cs:149`, the Windows kit's test that sends 500 requests at once to a core just opened. In one of four `dotnet test` runs on the Windows 11 ARM64 test machine (40 of 41 passed) the core refused one with "busy: the document's engine is still connecting": the C ABI core holds at most 256 requests for a document whose engine hasn't connected yet (`MAX_HELD`, `crates/ffi/src/core.rs`), and the test doesn't wait for the engine before sending them. The run before and the two after passed 41 of 41. Not changed: the test or the limit, whichever is wrong, is for the maintainer.
+- Issue: none
+
+### B60. `testWindowsAndNames` fails on the iPad: Show on Face not found after editing a hidden value
+
+- Reported: 2026-11-21
+- Report: the controller, from the iPad UI test run on the maintainer's iPad (portrait, 834 by 1210 points, the dev branch at `50b8aec`)
+- Context: `native/apple/PlumCraftPad/UITests/GestureTests.swift:359`. Four of five UI tests passed on the device (`testCompactWindowsByATap`, `testEveryViewerByATap`, `testInlineEdits`, `testTouchGestures`); `testWindowsAndNames` failed. After the parameters popover opened on node `w`, the field `edit.count` was found, tapped and typed into (`5\n`; the status then said "Set Value"), and `app.buttons["face.count"].tap()` failed with "Failed to get matching snapshot: No matches found for Elements matching predicate '"face.count" IN identifiers'". The test passes in the simulator.
+- Looked into (2026-11-21, branch `native/n4-wire-hitches`): **not reproduced, cause not found.** In an iPad Pro 11-inch (M4) simulator in portrait, booted headless so the software keyboard shows as on the iPad, with the status read from the accessibility element as on a device, the test passed every time: at the default text size, at the three largest standard sizes and at Accessibility Large. The popover opens above `w`, in the space between the toolbar and the node, and shows about three rows; while the count field is edited UIKit keeps its row in view, and after Return and the list's reload the row and its Show on Face button are still there. Nothing in the popover's code (`PlumCraftPad/App/Parameters.swift`) dismisses it on Return or changes on a device. Ruled out in the simulator: the software keyboard, a larger text size, the status element. Not ruled out: timing on the device (the test tapped `face.count` the moment the status said "Set Value", while the keyboard was going and the list reloading; every other step of the test waits for its element), and anything the device does that the simulator doesn't. **The test now waits for the button (10 s), looks for it in the list both ways if it isn't in view, and attaches a screenshot (`b60-face-count-missing`) and the app's element tree (`b60-element-tree`) when it still can't find it,** with screenshots while the keyboard is up (`n4s3-ui-count-typing`) and once the value is set (`n4s3-ui-count-set`). No app change: no app defect was shown. To confirm: `native/apple/PlumCraftPad/device.sh ui` on the iPad; if `testWindowsAndNames` passes, the cause was the tap's timing; if it fails, the two attachments show what the popover held.
 - Issue: none
 
 ## Closed, not reproduced
@@ -86,6 +94,42 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Report: found reading the runner against `crates/editor-core/src/conformance.rs` in N5 slice 4 (`native/n5-panels`)
 - Context: the suite's `holds: {pointer: want}` step form (with `for`, added for B43: a window the shell closed by itself a moment after it opened) asks again for that long and every reply must match. The Swift and Rust runners do; the C# runner, ported before the form existed, ignored `holds` and passed such a step on its first reply, so "the shell never closes what the core opened" was not checked by the C# runner against the Windows app in slices 2 and 3.
 - Fixed: 2026-11-21, branch `native/n5-panels`: `holds` and `for` as the other runners have them (`native/windows/src/PlumCraft.Conformance/Runner.cs`). The Windows app passes the three such steps.
+- Issue: none
+
+### B73. The Mac app's forms put every label above the wrong field, the first one clipped
+
+- Reported: 2026-11-21
+- Report: "The attach dialog is meh", with a picture: "Address" cut off at the top, "Token" above the address field, the token field unlabelled.
+- Cause: `Asks.swift` added all the labels to a stack, then all the fields, in a frame sized for the fields alone. Every form the core asks the Mac for (Attach, Install) was drawn this way. Nothing checked what a form looks like: a scripted ask shows no sheet.
+- Fix: a form is a grid, each label right-aligned beside its field on its baseline, sized to fit, with the fields in tab order.
+- Verified: the same grid in a system alert drawn to a picture (`claude-debug/b73/form.swift`), labels beside their fields; Mac conformance still passes. Not seen in the app's own sheet by the controller.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B71. The native apps can't install an engine and don't offer the engines installed
+
+- Reported: 2026-11-21
+- Report: the maintainer, on first using the Mac app (Plummer) by hand: "Install engine is greyed out, no engines available. WTF?" They had been told twice that the Mac build could install an engine; it could not.
+- Context: Engine › Install Engine… was disabled in Plummer with "this editor can't install engines", and the Engine menu offered none of the engines in `~/.config/plumcraft/engines` (DuckDB and OpenCV, installed with the egui editor). Below the floor: the egui editor installs and offers them.
+- Cause: the installer, the manifest reader and the decision to offer installing were in the editor core already (since N1 slice 2), but only the egui application wired them: `apps/plumcraft-editor` called `load_manifests` at start, gave the document a Reloader and an Installer, and `EditorApp::with_installer` set `can_install`; the egui shell's own frame loop followed the install (`poll_install`). The C ABI's core did none of these: it never read the engines folder, had no Reloader (so Reload Engine List did nothing but say "this editor has no engine manifests to read"), no Installer, and never set `can_install`, whatever the platform declared. A test asserted the refusal (`attach_asks_with_the_cores_form_and_install_is_refused_here`). So whether a shell could install was decided by which shell it was, not by the platform: a breach of "the shell decides nothing".
+- Fixed: 2026-11-21, branch `fix/b71-native-engines`: the core wires it for every shell. `Launcher` gains `folder` (the engines folder: `dirs.engines`, else `$PLUMCRAFT_ENGINE_FOLDER`, else `~/.config/plumcraft/engines`, the folder every editor shares) and `uv`; `Launcher::load_manifests`, `reloader` and `install_setup`; `Document::offer_installs` gives a document the Reloader and, where `install::refusal(caps)` allows (the platform declares `subprocess` and `python`), the installer, else disables Install Engine… with the reason ("This device can't install engines: it can't start programs" on the iPad). The C ABI's core reads the manifests on its thread at start (`engines.manifests` and the folder) and offers each document what any document read again (`Document::follow_manifests`). `control::step` follows the install, in every shell. The installer is whole in the core (`install::install_engine`): uv found as a manifest's is (the login shell's PATH and the usual folders, since an app from the Finder has none; a miss says where it looked), `register --folder <engines folder>`, each step in a process group of its own with the search PATH and a 30-minute limit, what it is doing (with uv's latest line) as `engine.installing`/`installStatus` and the `document` domain's `installing`, and `engine.install.cancel` (Engine › Cancel Install), new, which stops it and what it started. The egui shell lost its own Reloader and install loop (`EditorApp::with_launcher` takes the core's). Plummer shows "Installing an engine…" in its engine cell while one runs. Verified by: core tests with a stand-in uv (install, register into the folder given, uv's failure, cancel within 5 s, a step past its limit, uv missing), the C ABI tests (a desktop platform's manifests offered from the start, Install Engine…'s form, an install, a second document offered it, a cancelled install; the iPad's platform refused with the reason and an attached manifest engine still offered; bad config fields refused), two new conformance cases on every driver (the core's document, the C ABI and its port, egui, the Swift kit and its port, the Mac app: 55 of 55), and a real install through an ad hoc signed, hardened Plummer launched as the Finder would (a bare environment), on scratch: `seantrue/plumcraft-duckdb-engine` installed and registered in 7.7 s, started as a process (a Homebrew Python, a separate process, so library validation doesn't apply), and a SQL Query node gave 42 (`claude-debug/native-engines-install.md`).
+### B70. The Mac app could not make a new graph: File › New did nothing, and a launch showed only the Open panel
+
+- Reported: 2026-11-21
+- Report: "I can't create a new graph? Only open an old one?"
+- Context: the maintainer's first launch of the Developer ID build of the dev branch. With no file to open the app showed File › Open's panel, with no way to make a new graph.
+- Cause: the app declared its document type with the role Viewer. AppKit makes a new document only of a type the app can edit, so `newDocument` did nothing at all: File › New and its key were dead, in every build since the Mac app became document-based. No test or script noticed, because every scripted launch opens a file, and nobody had launched it by hand without one. The controller first told the maintainer that New worked once the panel was cancelled, from reading the code; that was wrong.
+- Fix: the document type's role is Editor (`native/apple/PlumCraftMac/project.yml`). Asked whether a launch should open an untitled graph or the panel should gain a button, the maintainer chose "1": a launch with nothing to open, and a Dock click with no graph open, make a new untitled graph (`AppMain.swift`).
+- Verified: a scratch launch with nothing to open reported no window before the role change and one ready, untitled, unedited graph after it; the Mac conformance suite 53 of 53 with the person's Library unchanged. Not verified by a person, and no automated check launches without a file yet.
+- Fixed: 2026-11-21
+### B49. `test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted` fails on the Linux test host while it is busy
+
+- Reported: 2026-11-21
+- Report: found by the Linux gate for the egui parity branch; recorded under the standing "record bugs"
+- Context: `python/tests/test_persist.py`. It failed in the gate's full Python run (1 failed, 223 passed) and in 4 of 5 runs of the file alone straight afterwards, while the host's load average was above 20; it then passed in 11 runs of the file and one full run (224 passed) once the load fell. The branch changed no Python. The assertion was not captured: the gate keeps only the last two lines of pytest's output.
+- Seen again: 2026-11-21, in the gate for the private-strings branch and then in 6 of 6 runs of the file alone, with the host's load average near 19. The assertion, at `tests/test_persist.py:100`: `assert twice(r, {"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 8_000_000}}) == ("done", 2), "too big"` got `('cached', 1)`: a result meant to be too big to persist was persisted and came back cached. So it is not a timing miss in the test's own waits; whatever decides "too big" gives a different answer while the host is busy. Not looked into further.
+- Cause: the test, not the executor. Whether a result is too big is weighed against the node's own work as measured on the wall clock (spec 14.5: its size at ~200 MB/s, twice, under the work time), and the case gave that rule 22 ms of room: about 8.2 MB of outputs costs 81.8 ms to write and read back, and the node sleeps 60 ms and then makes an 8 MB array with `np.full`. numpy asks for huge pages for so large an array (`madvise`, which the host's `transparent_hugepage/defrag` setting honours), so when the host's memory is fragmented (swap full, almost no free blocks of 2 MB, as the gate's builds leave it) the kernel compacts memory while the array's pages fault in. That took 33 to 157 ms on the host, against 0.3 to 0.7 ms otherwise; with numpy's huge-page advice turned off it never took over 7 ms and caused no compaction stalls (`/proc/vmstat compact_stall`), with it on 6 to 9 stalls per first allocation (`claude-debug/b49/probe_thp.py`, `probe_breakdown.py`). The sleep itself was always 60.1 ms. So the work measured was 62.4 to 71.5 ms in passing runs and 87.6, 90.9, 96.8 and 122.8 ms in failing ones (`probe_work_ms.py`), over the 81.8 ms limit, and the rule rightly persisted it. The load average is a proxy: the test failed 2 of 3 runs with the load at 1.6 while memory was still fragmented, and passed 10 of 10 later at a load of 25. The executor does what the contract says: a node that really took 97 ms is worth persisting at 8 MB. Its Rust twin (B37) has a wider margin (32 MB, 320 ms) and probably fails the same way; not checked.
+- Fixed: 2026-11-21, branch `fix/b49-persist-too-big`: the tests of what isn't persisted run on a virtual clock (`VirtualClock` in `python/tests/test_persist.py`, the executor's `time` module patched for the test), on which a node's work is exactly the time it sleeps, so the fast, setup and too-big cases no longer depend on how fast the machine is. A new test, `test_too_big_is_weighed_against_the_work_measured`, pins the work: 8.2 MB after 60 ms of work is not persisted, after 97 ms (a failing run's value) it is. No SDK code changed. Verified on the Linux test host: with a pytest plugin that adds 40 ms to every `np.full` of 1 MB or more (`claude-debug/b49/b49_stall.py`), the old file failed 3 of 3 and the new one passed 3 of 3, with the host quiet; under a load of 32 niced CPU spinners and 6 processes churning 64 MB to 1 GB arrays (`claude-debug/b49/load.sh`, load average 35 to 53), the old file failed 6 of 10 at the same assertion and the new one passed 30 of 30, and the full Python suite passed 225 of 225; quiet, the old file passed 10 of 10, the new one 30 of 30 and the full suite 225 of 225. `ruff check` clean.
 - Issue: none
 
 ### B50. A scripted launch of the Mac app writes to the person's real defaults domain
@@ -262,9 +306,9 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ### B26. "Wrap seamlessly at the edges" on Simplex Noise's `tileable`
 
-- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #84)
-- Report: the `tileable` tooltip says "Wrap seamlessly at the edges", but simplex wraps its lattice in skewed coordinates, so the output repeats along the diagonal and its edges don't tile on x or y, on yapocis's backends or here. Measured seams are the same size as with `tileable` off.
-- Context: yapocis3 made the same correction to its docs (its `simplex2d` docstring: "The output is not seamless along x or y"); real seamless tiling is yapocis3 #83 (a feature request), which would change this port too. impressionist's copy of the tooltip (its `docs/BUGS.md` B2) gets the same wording in its own branch.
+- Reported: 2026-11-11 (found while checking the kernel library's #65 against this port; filed as #84)
+- Report: the `tileable` tooltip says "Wrap seamlessly at the edges", but simplex wraps its lattice in skewed coordinates, so the output repeats along the diagonal and its edges don't tile on x or y, on the kernel library's backends or here. Measured seams are the same size as with `tileable` off.
+- Context: the kernel library made the same correction to its docs (its `simplex2d` docstring: "The output is not seamless along x or y"); real seamless tiling is the kernel library's #83 (a feature request), which would change this port too. impressionist's copy of the tooltip (its `docs/BUGS.md` B2) gets the same wording in its own branch.
 - Issue: #84
 - Cause: the tooltip described what tiling was meant to do, not what the kernel does.
 - Fix: the tooltip (`crates/array/src/generate/mod.rs`) is now "Wrap the noise lattice; not seamless on x or y (smooth only)". Test: `simplex_tileable_tooltip_does_not_promise_seamless_edges` (`crates/array/tests/catalogue.rs`), which fails on the old text.
@@ -272,22 +316,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ### B25. Simplex Noise swapped the tile periods on non-square tileable noise
 
-- Reported: 2026-11-11 (found while checking yapocis3 #65 against this port; filed as #83)
-- Report: `simplex2d` puts pixel (r, c) at (r / h, c / w) × frequency, but passed `tile_w = w / frequency` as the period of the row-based coordinate and `tile_h = h / frequency` as the column-based one's. yapocis wraps the row-based coordinate with rows / frequency (its kernels' `width` is the rows). Square sizes, and `tileable` off, were unaffected; non-square tileable output differed from yapocis by up to 0.72 (24 × 16, measured). Every `simplex.json` case was square, so none caught it.
-- Context: the doc comment also said the numba kernel "is only right for" square sizes, which went stale when yapocis3 #75 (`29f8403`) fixed numba's loop.
+- Reported: 2026-11-11 (found while checking the kernel library's #65 against this port; filed as #83)
+- Report: `simplex2d` puts pixel (r, c) at (r / h, c / w) × frequency, but passed `tile_w = w / frequency` as the period of the row-based coordinate and `tile_h = h / frequency` as the column-based one's. The kernel library wraps the row-based coordinate with rows / frequency (its kernels' `width` is the rows). Square sizes, and `tileable` off, were unaffected; non-square tileable output differed from the kernel library by up to 0.72 (24 × 16, measured). Every `simplex.json` case was square, so none caught it.
+- Context: the doc comment also said the numba kernel "is only right for" square sizes, which went stale when the kernel library's #75 (`29f8403`) fixed numba's loop.
 - Issue: #83
-- Cause: the port took yapocis's `tile_w`/`tile_h` names as columns/rows, where yapocis means rows/columns.
-- Fix: `crates/array/src/generate/noise.rs`: the row-based coordinate wraps every `h / frequency` cells and the column-based one every `w / frequency` (`tile_rows`, `tile_cols`; `simplex2d_single`'s parameters renamed `tile_x`, `tile_y`). The doc comment now says what the kernels compute. `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases (24 × 16 and 12 × 30) recorded from yapocis3 `main` (`6fa5e01`, numba backend) with the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py`, which first checked that the five existing cases still reproduce exactly; the existing cases are byte-identical. `simplex_matches_numba` reads `height` and `width` when a case has them and checks the shape. It fails on the old port (max error 0.72 at 24 × 16) and passes exactly (0) on the new.
+- Cause: the port took the kernel library's `tile_w`/`tile_h` names as columns/rows, where the kernel library means rows/columns.
+- Fix: `crates/array/src/generate/noise.rs`: the row-based coordinate wraps every `h / frequency` cells and the column-based one every `w / frequency` (`tile_rows`, `tile_cols`; `simplex2d_single`'s parameters renamed `tile_x`, `tile_y`). The doc comment now says what the kernels compute. `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases (24 × 16 and 12 × 30) recorded from the kernel library's `main` (`6fa5e01`, numba backend) with the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py`, which first checked that the five existing cases still reproduce exactly; the existing cases are byte-identical. `simplex_matches_numba` reads `height` and `width` when a case has them and checks the shape. It fails on the old port (max error 0.72 at 24 × 16) and passes exactly (0) on the new.
 - Fixed: 2026-11-12, branch `fix/83-84-simplex-tile`
 
 ### B24. xyY of black is NaN
 
-- Reported: 2026-11-11 (found while porting colormath; filed upstream as yapocis3 #66)
+- Reported: 2026-11-11 (found while porting colormath; filed upstream as the kernel library's #66)
 - Report: the colour spaces gave x = y = NaN for black in xyY, and NaN RGB back, because colormath's OpenCL `xyz2xyY` divided 0 by 0, while its numba port gave 0.
-- Context: yapocis3 #66 (now closed) settled it: an exact zero sum X+Y+Z has x = y = 0, and Y is kept. The maintainer chose that option "With check" (an explicit `sum != 0` test), and "Patch the 10 values directly" for this repository's fixture.
-- Issue: seantrue/yapocis3#66 (closed)
+- Context: the kernel library's #66 (now closed) settled it: an exact zero sum X+Y+Z has x = y = 0, and Y is kept. The maintainer chose that option "With check" (an explicit `sum != 0` test), and "Patch the 10 values directly" for this repository's fixture.
+- Issue: the kernel library's #66 (closed)
 - Cause: the ports copied the kernel's `x / sum`, `y / sum` with no zero check.
-- Fix: `if sum != 0 { x/sum, y/sum } else { 0, 0 }`, Y kept, in the three ports: `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, with `np.where`). Bit-identical to yapocis3's numbax `xyz2xyY` (jit and numpy fallback) on 100,000 random rows plus black, (0.5, -0.5, 0), -0 and (0.25, 0.25, -0.5). The inverses already gave XYZ 0 at y = 0 and are unchanged. `crates/engine/tests/fixtures/color.json`: the 10 nulls became 0.0, with nothing else changed (a JSON-aware comparison): `spaces.xyY.from_rgb` planes 0 and 1 (x, y) and `spaces.xyY.to_rgb` planes 0, 1 and 2 (r, g, b), each at samples 0 and 41. Tests: the fixture comparisons in `crates/engine/tests/color.rs` and `python/tests/test_color.py` (xyY) fail with the old ports and the patched fixture; the new `xyy_of_black_is_zero` (array) fails with the old port.
+- Fix: `if sum != 0 { x/sum, y/sum } else { 0, 0 }`, Y kept, in the three ports: `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, with `np.where`). Bit-identical to the kernel library's numbax `xyz2xyY` (jit and numpy fallback) on 100,000 random rows plus black, (0.5, -0.5, 0), -0 and (0.25, 0.25, -0.5). The inverses already gave XYZ 0 at y = 0 and are unchanged. `crates/engine/tests/fixtures/color.json`: the 10 nulls became 0.0, with nothing else changed (a JSON-aware comparison): `spaces.xyY.from_rgb` planes 0 and 1 (x, y) and `spaces.xyY.to_rgb` planes 0, 1 and 2 (r, g, b), each at samples 0 and 41. Tests: the fixture comparisons in `crates/engine/tests/color.rs` and `python/tests/test_color.py` (xyY) fail with the old ports and the patched fixture; the new `xyy_of_black_is_zero` (array) fails with the old port.
 - Fixed: 2026-11-11, branch `fix/66-xyY-black`
 
 ### B23. A run marks every node queued, not only the ones it computes
@@ -446,10 +490,10 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 - Reported: 2026-11-05
 - Report: "In PlumCraft, but remember as bug for future fix in npexact" (on fixing B5)
-- Repo: npexact, in `seantrue/yapocis-rs`; not PlumCraft's to fix
+- Repo: npexact, in the Rust kernel library's repository; not PlumCraft's to fix
 - Context: `npexact::random::Contraction::host_default()` (npexact 0.1.1, `src/random/mod.rs:223`) decides fused-or-plain by architecture at compile time: fused on aarch64, plain elsewhere. That fits numpy.random's C, which the wheels compile once, but not numpy's SIMD ufunc loops, which numpy picks at run time and which fuse on x86-64 with FMA3 and AVX2 (B5). PlumCraft borrowed the random rule for Mandelbrot's complex multiply and got x86-64 wrong. B5 is fixed in PlumCraft with its own `numpy_complex_fma()` (`crates/array/src/generate/noise.rs`); npexact should offer that rule (a runtime "numpy's SIMD contraction" beside `Contraction`, with fixtures from both hosts), and PlumCraft should then call it instead.
-- Issue: seantrue/yapocis-rs#10
-- Fixed in npexact: 2026-11-05, seantrue/yapocis-rs#11 (`5a51589`), with the recorder in seantrue/yapocis3#74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
+- Issue: the Rust kernel library's #10
+- Fixed in npexact: 2026-11-05, the Rust kernel library's #11 (`5a51589`), with the recorder in the kernel library's #74. `npexact::complex::Mul` has `array_default()`, decided at run time (fused on arm64, and on x86-64 with FMA3 and AVX2), and `scalar_default()`, decided at build time: numpy scalars are plain on x86-64. npexact 0.1.2 published it (tag `npexact-v0.1.2`).
 - Fixed in PlumCraft: 2026-11-05, branch `fix/b6-npexact-complex`. The Mandelbrot kernel calls `npexact::complex::Mul::array_default()` and `mul_c64` (npexact 0.1.2) in place of its own `numpy_complex_fma()`; the golden test passes on the M4 Max and on the Linux test host.
 
 ### B4. No built-in viewer for XML files

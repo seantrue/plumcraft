@@ -1,10 +1,10 @@
 //! The Math group's arithmetic, one plane (or one flat array) at a time.
 //!
-//! The elementwise kernels are yapocis's numba kernels (`kernels/numbax/operators.py`,
+//! The elementwise kernels are the kernel library's numba kernels (`kernels/numbax/operators.py`,
 //! `imageops.py`) as plain loops: float32 data, the Python-float parameters in float64 as numba
 //! types them, no fused multiply-add and no reassociation (numba compiled them with
-//! `fastmath`, so its results can differ in the last bit). histeq and histmatch are yapocis's
-//! host code (`lib/imageops.py`, after yapocis-rs's port). Wherever they call numpy, the numpy
+//! `fastmath`, so its results can differ in the last bit). histeq and histmatch are the kernel library's
+//! host code (`lib/imageops.py`, after the Rust kernel library's port). Wherever they call numpy, the numpy
 //! behaviour is npexact's (`linspace`, `interp`, `histogram`, `cumsum`, `searchsorted`, `min`,
 //! `max`, `nanmin`, `nanmax`, `nanpercentile`, `nan_to_num`, `minimum`, `maximum`, `mod`),
 //! proven there by fixtures numpy recorded on arm64 and x86-64. Nothing here panics: sizes are
@@ -16,7 +16,7 @@ use npexact::hist::{histogram_density_f32, histogram_range_f32, interp, linspace
 use npexact::order::{nanpercentile_linear_f32, searchsorted_left_f64};
 use npexact::random::Contraction;
 
-/// The operations Arithmetic offers: the research software's four (yapocis operators) and the numpy steps it
+/// The operations Arithmetic offers: the research software's four (the kernel library's operators) and the numpy steps it
 /// also covers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Arith {
@@ -45,7 +45,7 @@ impl Arith {
         })
     }
 
-    /// One element. yapocis's `_op_njit`: float32 `a + b`, `a - b`, `a * b`; divide is
+    /// One element. The kernel library's `_op_njit`: float32 `a + b`, `a - b`, `a * b`; divide is
     /// `a / (b + 1e-20)`, which numba types as float64 (the literal is a double) and stores as
     /// float32. minimum and maximum are numpy's (npexact): NaN wins, and a tie between the
     /// signed zeros resolves as numpy's loops do on this CPU.
@@ -62,7 +62,7 @@ impl Arith {
     }
 }
 
-/// yapocis `clamp_pixels`: below `low` → low, above `high` → high (compared in float64, as
+/// The kernel library's `clamp_pixels`: below `low` → low, above `high` → high (compared in float64, as
 /// numba compares a float32 with a Python float); NaN stays NaN.
 pub fn clamp_pixels(p: &[f32], low: f64, high: f64) -> Vec<f32> {
     p.iter()
@@ -79,7 +79,7 @@ pub fn clamp_pixels(p: &[f32], low: f64, high: f64) -> Vec<f32> {
         .collect()
 }
 
-/// yapocis `stretch`, as its device kernels compute it in float32: each value clamped to
+/// The kernel library's `stretch`, as its device kernels compute it in float32: each value clamped to
 /// `input_min..input_max`, then mapped linearly onto `low..high` (NaN passes through).
 pub fn stretch(p: &[f32], input_min: f64, input_max: f64, low: f64, high: f64) -> Vec<f32> {
     let (lo, hi, low, high) = (input_min as f32, input_max as f32, low as f32, high as f32);
@@ -93,15 +93,15 @@ pub fn stretch(p: &[f32], input_min: f64, input_max: f64, low: f64, high: f64) -
         .collect()
 }
 
-/// yapocis `binarize`: 1 where `v >= threshold`, else 0 (NaN → 0).
+/// The kernel library's `binarize`: 1 where `v >= threshold`, else 0 (NaN → 0).
 pub fn binarize(p: &[f32], threshold: f64) -> Vec<f32> {
     p.iter().map(|&v| if f64::from(v) >= threshold { 1.0 } else { 0.0 }).collect()
 }
 
-/// yapocis `histogram` (the numba kernel): `bins` counts over low..high, bin
+/// The kernel library's `histogram` (the numba kernel): `bins` counts over low..high, bin
 /// `int((v - low) * scale)` with `scale = bins / (high - low + 1e-20)`, values outside
 /// clamped into the end bins. NaN is left out (numba's `int(NaN)` is the platform's: 0 on
-/// arm64, which yapocis's histeq zeroes anyway). `bins` ≥ 1.
+/// arm64, which the kernel library's histeq zeroes anyway). `bins` ≥ 1.
 pub fn histogram(p: &[f32], bins: usize, low: f64, high: f64) -> Vec<i64> {
     let mut counts = vec![0i64; bins];
     if bins == 0 {
@@ -129,10 +129,10 @@ fn cumsum(counts: &[i64]) -> Vec<i64> {
     cumsum_i64(counts)
 }
 
-/// yapocis `Imageops.histeq(im, nbr_bins)`: the kernel's histogram over 0..1 with bin 0 (black)
+/// The kernel library's `Imageops.histeq(im, nbr_bins)`: the kernel's histogram over 0..1 with bin 0 (black)
 /// left out, its cumulative distribution scaled to `(bins - 1) / bins`, and each value
 /// interpolated on it (numpy's `interp` over `linspace(0, 1, bins)`). A plane with nothing
-/// above bin 0 (yapocis: 0/0, NaN everywhere) comes out as 0. `bins` ≥ 2.
+/// above bin 0 (the kernel library: 0/0, NaN everywhere) comes out as 0. `bins` ≥ 2.
 pub fn histeq(p: &[f32], bins: usize) -> Vec<f32> {
     let bins = bins.max(2);
     let mut hist = histogram(p, bins, 0.0, 1.0);
@@ -156,10 +156,10 @@ fn searchsorted_left(a: &[f64], v: f64) -> usize {
     searchsorted_left_f64(a, v)
 }
 
-/// yapocis `Imageops.histmatch(im, target_hist, nbr_bins)`: the source's cumulative
+/// The kernel library's `Imageops.histmatch(im, target_hist, nbr_bins)`: the source's cumulative
 /// distribution (kernel histogram over 0..1, bin 0 left out) looked up in the target's
 /// (`searchsorted`, bin 0 left out too), each value interpolated onto the target bins. Degenerate
-/// histograms (nothing above bin 0) go through numpy's NaN arithmetic as yapocis's do. `bins` ≥ 2
+/// histograms (nothing above bin 0) go through numpy's NaN arithmetic as the kernel library's do. `bins` ≥ 2
 /// and `target.len() == bins`.
 pub fn histmatch(p: &[f32], target: &[f64], bins: usize) -> Vec<f32> {
     let bins = bins.max(2);
@@ -264,7 +264,7 @@ pub fn nan_to_num(v: f32) -> f32 {
     nan_to_num_f32(v)
 }
 
-/// `np.nan_to_num(yapocis normalize(a))`: `a - a.min()`, then over its max, float32; a constant
+/// `np.nan_to_num(normalize(a))`, the kernel library's `normalize`: `a - a.min()`, then over its max, float32; a constant
 /// (0/0) or any NaN gives 0.
 pub fn normalize(p: &[f32]) -> Vec<f32> {
     let Some((lo, _)) = min_max(p) else { return Vec::new() };

@@ -39,7 +39,7 @@ fn every_space_round_trips_through_rgb() {
     assert!(convert_planes("RGB", "XYZ", "nowhere", true, &rgb).is_err());
 }
 
-/// Black has no chromaticity: colormath gives x = y = 0 there (yapocis3 #66), not 0/0, and
+/// Black has no chromaticity: colormath gives x = y = 0 there (the kernel library's #66), not 0/0, and
 /// xyY (0, 0, 0) comes back as RGB black.
 #[test]
 fn xyy_of_black_is_zero() {

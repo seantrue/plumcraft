@@ -1257,7 +1257,10 @@ impl EditorApp {
             ui.separator();
             if let Some(i) = &self.doc.installing {
                 ui.spinner();
-                ui.label(format!("installing {}…", i.url.trim_start_matches("https://github.com/")));
+                let l = ui.label(format!("installing {}…", i.url.trim_start_matches("https://github.com/")));
+                if let Some(s) = &self.doc.session.engines.install_status {
+                    l.on_hover_text(s);
+                }
                 ui.separator();
             }
             // the workflow, as the window title names it (the title isn't in screenshots)
@@ -1479,10 +1482,10 @@ impl EditorApp {
             self.handle_close(&ctx);
             self.drain_control(&ctx);
         }
+        // (an install under way is followed there too: the core's step)
         if let Some(Err(e)) = self.pump_engine() {
             self.doc.last_error = Some(e);
         }
-        self.poll_install();
         let semibold = fonts::has_semibold(&ctx);
         if semibold != self.tokens.semibold {
             self.tokens.semibold = semibold;

@@ -54,6 +54,9 @@ pub struct Client {
     pub events_per_poll: Vec<usize>,
     /// The size of each poll's buffer.
     pub poll_bytes: Vec<usize>,
+    /// The `changed` entries every poll brought, in order (a test that waits for one may have
+    /// had it polled while waiting for a reply).
+    pub changed: Vec<Value>,
 }
 
 pub fn store_root(name: &str) -> String {
@@ -69,7 +72,7 @@ impl Client {
         // SAFETY: the config is live for the call; ctx is a number the wake looks up.
         let core = unsafe { plum_open(text.as_ptr(), text.len(), Some(wake), n as *mut c_void) };
         assert_ne!(core, 0, "plum_open: {}", String::from_utf8_lossy(&take(plumcraft_ffi::plum_last_error())));
-        Client { core, signal, replies: HashMap::new(), events: Vec::new(), polls: 0, events_per_poll: Vec::new(), poll_bytes: Vec::new() }
+        Client { core, signal, replies: HashMap::new(), events: Vec::new(), polls: 0, events_per_poll: Vec::new(), poll_bytes: Vec::new(), changed: Vec::new() }
     }
 
     pub fn send(&self, req: &Value) -> u64 {
@@ -97,6 +100,7 @@ impl Client {
             self.events_per_poll.push(events.len());
         }
         self.events.extend(events.iter().cloned());
+        self.changed.extend(v["changed"].as_array().into_iter().flatten().cloned());
         true
     }
 

@@ -57,6 +57,14 @@ use serde_json::{Map, Value, json};
 /// The cases, as checked in.
 pub const CASES: &str = include_str!("../fixtures/conformance/cases.json");
 
+/// The suite's engines folder (B71): a driver with the `manifests` capability points its shell's
+/// engines folder here (`Launcher::folder`, a C ABI config's `dirs.engines`, or
+/// `$PLUMCRAFT_ENGINE_FOLDER` for an app), so the case about manifests finds its engine, `probe`.
+/// Only read, never written.
+pub fn suite_engines_folder() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures").join("conformance").join("engines")
+}
+
 /// A shell the suite drives.
 pub trait Driver {
     /// For messages.
@@ -520,6 +528,19 @@ mod tests {
             let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
             if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
         }
+        /// Its engines folder is the suite's ([`suite_engines`]).
+        fn has(&self, capability: &str) -> bool {
+            capability == "manifests"
+        }
+    }
+
+    /// The suite's engines folder (`fixtures/conformance/engines`), as a launcher's: read on this
+    /// thread, offered by `d` with installing as a desktop has it.
+    fn suite_engines(d: &mut crate::document::Document) {
+        let launcher = crate::engines::Launcher { folder: Some(super::suite_engines_folder()), ..Default::default() };
+        assert_eq!(launcher.load_manifests(), Vec::<String>::new());
+        d.session.engines.choices = launcher.choices();
+        d.offer_installs(&launcher);
     }
 
     /// The runner is not vacuous: a wrong want, a wrong ok, a missing value each fail their case.
@@ -552,7 +573,9 @@ mod tests {
         // a look of its own, in memory, as the C ABI's core gives its documents (N4 slice 4)
         d.0.look =
             Some(std::sync::Arc::new(std::sync::Mutex::new(crate::settings::Look::new(crate::prefs::Store::default(), crate::settings::System::default()))));
+        suite_engines(&mut d.0);
         let out = run_all(&mut d).unwrap();
+        assert!(out.iter().any(|o| o.name.starts_with("an engine a manifest") && o.skipped.is_none()), "the manifest case ran");
         assert!(out.iter().all(|o| o.error.is_none()), "{}", summary(&d.name(), &out));
         let steps: usize = out.iter().map(|o| o.steps).sum();
         assert!(out.len() >= 15 && steps >= 150, "{} cases, {steps} steps", out.len());

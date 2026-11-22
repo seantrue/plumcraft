@@ -43,6 +43,37 @@ public struct Viewport: Equatable, Sendable {
     public func toView(_ g: CGPoint) -> CGPoint { CGPoint(x: g.x * zoom + pan.x, y: g.y * zoom + pan.y) }
 }
 
+/// Switches that change how wires are drawn, for the bench alone (the wire-hitch work: each
+/// isolates one suspect, so the device pass can bisect by switch). Never set by the apps.
+public enum WireSwitch: String, Sendable, CaseIterable {
+    /// Mitred joins, as the N0 spike drew them (the canvas joins round).
+    case miter = "--wire-miter"
+    /// 2-point wires, as the spike's (the canvas's are 2.5).
+    case thin = "--wire-thin"
+    /// Only wires whose box is under 800 by 400 graph units, as the spike's scene had (its wires
+    /// went forward 1 to 3 columns; the core's bench scene wires each node to any earlier one).
+    case shortOnly = "--wire-short-only"
+    /// The canvas before the wire-hitch fix: a shape layer per wire, its frame tight around the
+    /// wire (unclipped), instead of wires drawn into tile pictures. The device pass's before, in
+    /// the same build.
+    case layers = "--wire-layers"
+}
+
+/// What the wire layers give the compositor at one moment (`LayerCanvas.wireStats`).
+public struct WireStats: Sendable, Equatable {
+    public var layers = 0
+    public var shown = 0
+    public var inView = 0
+    public var elements = 0
+    /// Layers with a picture (drawn wires), as against shape layers.
+    public var tiles = 0
+    /// The shown layers' view-clipped area over the view's (1: one view's worth of blending).
+    public var coverage = 0.0
+    /// The largest one's, as a fraction of the view.
+    public var largest = 0.0
+    public init() {}
+}
+
 /// What the canvas did, for measurements and tests.
 public struct CanvasCounts: Sendable, Equatable {
     public var facesLaidOut = 0
@@ -50,6 +81,7 @@ public struct CanvasCounts: Sendable, Equatable {
     public var reports = 0
     public var wiresPathed = 0
     public var batches = 0
+    public var tilesDrawn = 0
 }
 
 @MainActor
@@ -98,7 +130,22 @@ public final class LayerCanvas {
 
     var faces: [UInt64: FaceEntry] = [:]
     var faceById: [String: UInt64] = [:]
-    var wires: [UInt64: CAShapeLayer] = [:]
+    /// Every drawn wire's path and colour (WireTiles.swift): the wires are drawn into tile
+    /// pictures, and only a wire being moved or picked up has a shape layer of its own (`live`).
+    var wireGeoms: [UInt64: WireGeom] = [:]
+    var tiles: [TileKey: WireTile] = [:]
+    var dirtyTiles: Set<TileKey> = []
+    var tileWorking = false
+    /// The shape layers of wires drawn on their own, by wire; those in `returning` go once the
+    /// tiles that now draw them are up.
+    var live: [UInt64: CAShapeLayer] = [:]
+    var returning: Set<UInt64> = []
+    /// Wires a kept move left live until the scene brings their new paths.
+    var liveUntilPathed: Set<UInt64> = []
+    /// The paths the live layers draw (graph units), to clip them again when the view moves.
+    var livePaths: [UInt64: CGPath] = [:]
+    /// The wire under the pointer, drawn wider over the tiles.
+    let hoverWireLayer = CAShapeLayer()
     var tags: [UInt64: [CALayer]] = [:]
     var frames: [UInt64: CALayer] = [:]
     var groups: [UInt64: CALayer] = [:]
@@ -114,7 +161,7 @@ public final class LayerCanvas {
     var lastRevealSeq: UInt64?
     /// The first full scene's faces were all measured (the time to first frame stops here).
     public private(set) var firstFrameAt: ContinuousClock.Instant?
-    public private(set) var counts = CanvasCounts()
+    public internal(set) var counts = CanvasCounts()
     /// Called after each batch of faces is on its layers (measurements, budgets).
     public var onDrawn: ((Set<UInt64>) -> Void)?
     /// Called when the transform changes (the host shows the zoom, reports it).
@@ -156,6 +203,18 @@ public final class LayerCanvas {
     public var wiresHidden = false {
         didSet { wireRoot.isHidden = wiresHidden }
     }
+    /// The bench's wire switches (`WireSwitch`); every wire is drawn again when they change.
+    public var wireSwitches: Set<WireSwitch> = [] {
+        didSet {
+            guard wireSwitches != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            for nid in wireGeoms.keys { if let w = model.wires[nid]?.item { pathWire(w) } }
+            cull(force: true)
+            CATransaction.commit()
+            pumpTiles()
+        }
+    }
     public private(set) var culledFor: CGRect?
     public private(set) var hiddenCount = 0
     let cullMargin: CGFloat = 0.5
@@ -193,6 +252,13 @@ public final class LayerCanvas {
             s.isHidden = true
             overlay.addSublayer(s)
         }
+        hoverWireLayer.anchorPoint = .zero
+        hoverWireLayer.fillColor = nil
+        hoverWireLayer.lineCap = .round
+        hoverWireLayer.lineJoin = .round
+        hoverWireLayer.isHidden = true
+        hoverWireLayer.zPosition = 2
+        wireRoot.addSublayer(hoverWireLayer)
         host.addSublayer(world)
         CATransaction.commit()
         model.onChange = { [weak self] c in self?.apply(c) }
@@ -222,7 +288,7 @@ public final class LayerCanvas {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         host.backgroundColor = colors.canvas
-        for nid in wires.keys { if let w = model.wires[nid]?.item { pathWire(w) } }
+        for nid in wireGeoms.keys { if let w = model.wires[nid]?.item { pathWire(w) } }
         for nid in frames.keys { if let f = model.frames[nid]?.item { placeFrame(f) } }
         for nid in groups.keys { if let g = model.groups[nid]?.item { placeGroup(g) } }
         for nid in marks.keys { if let m = model.marks[nid]?.item { placeMark(m) } }
@@ -232,6 +298,7 @@ public final class LayerCanvas {
         // every face is drawn again in the new colours (their sizes don't change)
         needDraw.formUnion(faces.keys)
         pump()
+        pumpTiles()
     }
 
     /// Everything the model has, as if it had all just changed.
@@ -295,6 +362,7 @@ public final class LayerCanvas {
         if c.viewChanged || c.full { honourFit() }
         cull(force: true)
         pump()
+        pumpTiles()
         // nothing to draw (no face changed, or an empty graph): what is shown is already current
         if idle { onDrawn?([]) }
     }
@@ -330,8 +398,7 @@ public final class LayerCanvas {
             needLayout.remove(nid)
             needDraw.remove(nid)
         }
-        wires.removeValue(forKey: nid)?.removeFromSuperlayer()
-        if hoverWire == nid { hoverWire = nil }
+        removeWire(nid)
         for l in tags.removeValue(forKey: nid) ?? [] { l.removeFromSuperlayer() }
         frames.removeValue(forKey: nid)?.removeFromSuperlayer()
         groups.removeValue(forKey: nid)?.removeFromSuperlayer()
@@ -777,11 +844,7 @@ public final class LayerCanvas {
             if e.layer.isHidden != h { e.layer.isHidden = h }
             if h { hidden += 1 }
         }
-        for (nid, l) in wires {
-            let h = !all && !l.frame.intersects(keep) && !movingWires.contains(nid)
-            if l.isHidden != h { l.isHidden = h }
-            if h { hidden += 1 }
-        }
+        hidden += cullWires(keep: keep, all: all)
         for ls in tags.values {
             for l in ls {
                 let h = !all && !l.frame.intersects(keep)
@@ -792,31 +855,6 @@ public final class LayerCanvas {
     }
 
     // MARK: - Wires
-
-    /// A wire's layer, its frame tight around its path (15.2), stroked in its colour; a routed
-    /// wire's bend points as rings; none for a wire drawn through a net.
-    func pathWire(_ w: Wire) {
-        let l = wires[w.nid] ?? {
-            let s = CAShapeLayer()
-            s.fillColor = nil
-            s.lineCap = .round
-            s.lineJoin = .round
-            s.anchorPoint = .zero
-            wireRoot.addSublayer(s)
-            wires[w.nid] = s
-            return s
-        }()
-        counts.wiresPathed += 1
-        l.strokeColor = colors.color(w.paint)
-        l.lineWidth = hoverWire == w.nid ? 4.5 : 2.5
-        guard w.kind.word != .net, w.path.count >= 4 else {
-            l.path = nil
-            l.isHidden = true
-            return
-        }
-        l.isHidden = false
-        setPath(l, Self.chain(w.path.map { CGPoint(x: $0.x, y: $0.y) }, via: w.via.map { CGPoint(x: $0.x, y: $0.y) }))
-    }
 
     /// A cubic chain (start, then three points a segment) as a path, with rings at `via`.
     static func chain(_ pts: [CGPoint], via: [CGPoint]) -> CGMutablePath {
@@ -832,14 +870,6 @@ public final class LayerCanvas {
             p.addEllipse(in: CGRect(x: v.x - 5, y: v.y - 5, width: 10, height: 10))
         }
         return p
-    }
-
-    func setPath(_ l: CAShapeLayer, _ p: CGPath) {
-        let box = p.boundingBoxOfPath.insetBy(dx: -4, dy: -4)
-        var t = CGAffineTransform(translationX: -box.minX, y: -box.minY)
-        l.position = box.origin
-        l.bounds = CGRect(origin: .zero, size: box.size)
-        l.path = p.copy(using: &t)
     }
 
     // MARK: - Frames, groups, tags, marks
@@ -1139,11 +1169,13 @@ public final class LayerCanvas {
             n += 1
         }
         pump()
+        settleTiles()
         return n
     }
 
-    /// Nothing waits to be laid out or drawn, no batch is out, and no icon is being fetched.
-    public var idle: Bool { !working && needLayout.isEmpty && needDraw.isEmpty && iconFetches == 0 }
+    /// Nothing waits to be laid out or drawn (faces or wire tiles), no batch is out, and no icon
+    /// is being fetched.
+    public var idle: Bool { !working && needLayout.isEmpty && needDraw.isEmpty && iconFetches == 0 && !tileWorking && dirtyTiles.isEmpty }
     var iconFetches = 0
     /// A redraw at the settled zoom is still to come (tests wait for it).
     public var settlePending: Bool { settleTask != nil }
@@ -1160,14 +1192,13 @@ public final class LayerCanvas {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if let old = hoverWire, h?.kind != .wire || h?.wire != old {
+        if hoverWire != nil, h?.kind != .wire || h?.wire != hoverWire {
             hoverWire = nil
-            wires[old]?.lineWidth = 2.5
         }
-        if let h, h.kind == .wire, let l = wires[h.wire] {
+        if let h, h.kind == .wire, wireGeoms[h.wire] != nil {
             hoverWire = h.wire
-            l.lineWidth = 4.5
         }
+        showHoverWire()
         if let h, h.kind == .pin {
             let r: CGFloat = 8
             hoverRing.path = CGPath(ellipseIn: CGRect(x: CGFloat(h.x) - r, y: CGFloat(h.y) - r, width: 2 * r, height: 2 * r), transform: nil)
@@ -1277,9 +1308,12 @@ public final class LayerCanvas {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
-        if let old = pickedWire { wires[old]?.opacity = 1 }
+        let old = pickedWire
         pickedWire = nid
-        if let nid { wires[nid]?.opacity = 0.15 }
+        // the picked wire is drawn on its own, faint, and taken out of the tiles
+        if let old, old != nid { updateLive(old) }
+        if let nid { updateLive(nid) }
+        pumpTiles()
     }
 
     /// The point of the pin a drag's wire is anchored at (`drag.from` of a wire's begin).
@@ -1301,6 +1335,18 @@ public final class LayerCanvas {
         for n in nids { if let e = faces[n] { moving[n] = CGPoint(x: e.face.pos.x, y: e.face.pos.y) } }
         moveOffset = .zero
         for n in nids { faces[n]?.layer.zPosition = 1_000_000 }
+        // the moved faces' wires leave the tiles now, drawn as they are on layers of their own,
+        // so the tiles without them are up before the pointer has gone far
+        let ids = Set(moving.keys.compactMap { faces[$0]?.face.id })
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        for w in model.wires.items where ids.contains(w.fromFace) || ids.contains(w.toFace) {
+            guard wireGeoms[w.nid] != nil else { continue }
+            movingWires.insert(w.nid)
+            updateLive(w.nid)
+        }
+        CATransaction.commit()
+        pumpTiles()
     }
 
     /// The drag is at `(dx, dy)` from its start: move the faces' layers, and re-path their wires
@@ -1311,9 +1357,17 @@ public final class LayerCanvas {
         CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
         moveOffset = CGPoint(x: dx, y: dy)
+        let iv = Self.signposter.beginInterval("wires.move")
+        defer { Self.signposter.endInterval("wires.move", iv) }
         for n in moving.keys { if let e = faces[n] { placeFace(e) } }
+        var taken = false
         for p in link.wirePaths(faces: Array(moving.keys), dx: Float(dx), dy: Float(dy)) {
-            guard let l = wires[p.nid], p.pointCount >= 4 else { continue }
+            guard wireGeoms[p.nid] != nil, p.pointCount >= 4 else { continue }
+            if !movingWires.contains(p.nid) {
+                movingWires.insert(p.nid)
+                taken = true
+            }
+            let l = updateLive(p.nid, setPath: false)
             var pts: [CGPoint] = []
             pts.reserveCapacity(p.pointCount)
             var k = p.points.startIndex
@@ -1322,9 +1376,9 @@ public final class LayerCanvas {
                 k += 2
             }
             let via = model.wires[p.nid]?.item.via.map { CGPoint(x: $0.x, y: $0.y) } ?? []
-            setPath(l, Self.chain(pts, via: via))
-            movingWires.insert(p.nid)
+            if let l { setLivePath(l, p.nid, Self.chain(pts, via: via)) }
         }
+        if taken { pumpTiles() }
     }
 
     /// Positions a finished move holds until the scene brings the faces' new ones.
@@ -1344,6 +1398,10 @@ public final class LayerCanvas {
             for (n, start) in was { held[n] = CGPoint(x: start.x + off.x, y: start.y + off.y) }
             let ids = Array(was.keys)
             let wiresMoved = movingWires
+            // the moved wires stay on their own layers, where they were dropped, until the scene
+            // brings their new paths (pathWire takes them back into the tiles)
+            liveUntilPathed.formUnion(wiresMoved)
+            movingWires = []
             Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(1))
                 guard let self else { return }
@@ -1352,15 +1410,25 @@ public final class LayerCanvas {
                     any = true
                     if let e = self.faces[n] { self.placeFace(e) }
                 }
-                if any { for w in wiresMoved { if let item = self.model.wires[w]?.item { self.pathWire(item) } } }
+                CATransaction.begin()
+                CATransaction.setDisableActions(true)
+                for w in wiresMoved where any || self.liveUntilPathed.contains(w) {
+                    if let item = self.model.wires[w]?.item { self.pathWire(item) } else { self.liveUntilPathed.remove(w) }
+                }
+                CATransaction.commit()
+                self.pumpTiles()
             }
         } else {
             for n in was.keys { if let e = faces[n] { placeFace(e) } }
-            for w in movingWires { if let item = model.wires[w]?.item { pathWire(item) } }
+            let wiresMoved = movingWires
+            movingWires = []
+            for w in wiresMoved {
+                if let item = model.wires[w]?.item { pathWire(item) } else { updateLive(w) }
+            }
         }
-        movingWires = []
         reorder()
         CATransaction.commit()
+        pumpTiles()
     }
 
     // MARK: - Rows (N4 slice 2: editing values on a face)
@@ -1432,9 +1500,46 @@ public final class LayerCanvas {
     public func faceLayer(nid: UInt64) -> CALayer? { faces[nid]?.layer }
     /// Whether the face shows the run's wash now.
     public func washed(nid: UInt64) -> Bool { faces[nid]?.wash != nil }
-    public func wireLayer(nid: UInt64) -> CAShapeLayer? { wires[nid] }
+    /// A wire's box in graph units, as drawn (its path's, widened by its stroke).
+    public func wireBox(nid: UInt64) -> CGRect? { wireGeoms[nid]?.box }
+    /// Whether a wire is on screen: on a shown layer of its own, or in a shown tile with a picture.
+    public func wireShown(nid: UInt64) -> Bool {
+        if let l = live[nid], !returning.contains(nid) { return !l.isHidden }
+        guard let g = wireGeoms[nid] else { return false }
+        return tileKeys(g.box).contains { k in tiles[k].map { !$0.layer.isHidden && $0.layer.contents != nil } ?? false }
+    }
+    /// A wire drawn on a layer of its own (moved, picked up), if it is.
+    public func liveWireLayer(nid: UInt64) -> CAShapeLayer? { returning.contains(nid) ? nil : live[nid] }
     public var faceCount: Int { faces.count }
-    public var wireLayerCount: Int { wires.count }
+    /// The wires drawn (in tiles or on layers of their own).
+    public var wireLayerCount: Int { wireGeoms.count }
+
+    /// What the wires give the compositor now (the wire-hitch work): layers, those shown, those
+    /// reaching into the view, their paths' elements, and the view-clipped area of the shown
+    /// wire layers over the view's (the render server rasterises and blends a shape layer over
+    /// its bounds, so this is the overdraw the wires cost a frame).
+    public func wireStats() -> WireStats {
+        var s = WireStats()
+        let view = CGRect(origin: .zero, size: viewSize)
+        let area = max(view.width * view.height, 1)
+        let t = CGAffineTransform(a: viewport.zoom, b: 0, c: 0, d: viewport.zoom, tx: viewport.pan.x, ty: viewport.pan.y)
+        func count(_ l: CALayer) {
+            s.layers += 1
+            guard !l.isHidden, !(l.superlayer?.isHidden ?? false) else { return }
+            if let sl = l as? CAShapeLayer, sl.path == nil { return }
+            s.shown += 1
+            let r = l.frame.applying(t).intersection(view)
+            guard !r.isNull, r.width > 0, r.height > 0 else { return }
+            s.inView += 1
+            let f = r.width * r.height / area
+            s.coverage += Double(f)
+            s.largest = max(s.largest, Double(f))
+            if let sl = l as? CAShapeLayer, let p = sl.path { p.applyWithBlock { _ in s.elements += 1 } }
+            if l.contents != nil { s.tiles += 1 }
+        }
+        for l in wireRoot.sublayers ?? [] { count(l) }
+        return s
+    }
     public var tagCount: Int { tags.values.reduce(0) { $0 + $1.count } }
     public var drawnBytes: Int {
         faces.values.reduce(0) { $0 + ($1.layout.map { FaceRenderer.bytes($0.size, scale: 1) } ?? 0) }

@@ -1,4 +1,4 @@
-//! Trace Contours: yapocis truetrace's CPU path (`yapocis.lib.truetrace`): the signed distance
+//! Trace Contours: the kernel library's truetrace CPU path (`lib.truetrace`): the signed distance
 //! field of a mask by Felzenszwalb's exact Euclidean distance transform (`edt_1d`, `edt_2d`,
 //! `sdf_from_mask_cpu`, float64, stored as float32), the iso moved off the field's values
 //! (`off_field_iso`), marching squares in float32 (`marching_squares_cpu`), and the segments

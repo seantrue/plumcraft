@@ -224,9 +224,11 @@ fn watching_a_port_pops_its_value_out_and_a_second_watch_brings_it_forward() {
 }
 
 /// N4 slice 6: Engine › Attach… and Install Engine… have no window of their own here: invoked,
-/// the core asks with its form, and runs the command with what was typed.
+/// the core asks with its form, and runs the command with what was typed. A core whose config
+/// declares no platform can't start programs, so Install Engine… is refused, saying why (B71:
+/// the core decides by the platform, `engines_install.rs` has the platform that can).
 #[test]
-fn attach_asks_with_the_cores_form_and_install_is_refused_here() {
+fn attach_asks_with_the_cores_form_and_install_says_why_this_platform_cannot() {
     let mut c = Client::open(&config("attach-form", None));
     let r = c.call("ui.invoke", json!({"command": "engine.attach"}));
     assert_eq!(r["ok"], true, "{r}");
@@ -241,8 +243,16 @@ fn attach_asks_with_the_cores_form_and_install_is_refused_here() {
     assert!(again["params"]["error"].as_str().is_some_and(|e| e.contains("Address")), "{again}");
     let gone = c.call("ask.answer", json!({"ask": again["ask"], "cancel": true}));
     assert!(form(&gone).is_none(), "{gone}");
-    // this core can't install engines: the command is refused, and nothing is asked
+    // this platform can't install engines: the command is refused with the reason, and nothing
+    // is asked
     let i = c.call("ui.invoke", json!({"command": "engine.install"}));
     assert!(i["ok"] == false || form(&i).is_none(), "{i}");
+    let why = "This device can't install engines: it can't start programs";
+    let l = c.run("engine.list", json!({}));
+    assert_eq!((l["canInstall"].as_bool(), l["installRefused"].as_str()), (Some(false), Some(why)), "{l}");
+    let r = c.call("command.run", json!({"command": "engine.install", "params": {"repo": "a/b"}}));
+    assert!(r["ok"] == false && r["error"].as_str().is_some_and(|e| e.contains(why)), "{r}");
+    let m = c.call("menu.get", json!({}));
+    assert!(m["result"]["menus"].to_string().contains(why), "the Engine menu's Install Engine… says why: {m}");
     c.close();
 }

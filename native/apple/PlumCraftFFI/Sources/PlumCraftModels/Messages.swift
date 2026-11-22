@@ -421,6 +421,18 @@ public struct Changed: Codable, Hashable, Sendable {
     public var lastError: String?
     /// The core's autosave (N4 slice 4): `{on, state, error?, saves, failures}`.
     public var autosave: AutosaveState?
+    /// An engine install under way (B71): `{repo, status}`; absent or null when none is.
+    public var installing: InstallState?
+}
+
+/// An engine install under way (B71; contract 7.2's `document` domain): the repository and what
+/// it is doing now ("Installing owner/repo: uv is downloading and building it (…)").
+public struct InstallState: Codable, Hashable, Sendable {
+    public var repo: String
+    public var status: String?
+    public init(repo: String, status: String? = nil) {
+        self.repo = repo; self.status = status
+    }
 }
 
 /// Where the core's autosave is (N4 slice 4; contract 4.4): `state` is `off`, `clean`, `pending`,
@@ -450,6 +462,8 @@ public struct DocumentState: Hashable, Sendable {
     public var lastError: String?
     /// The core's autosave, when on.
     public var autosave = AutosaveState()
+    /// An engine install under way, while one is (B71).
+    public var installing: InstallState?
 
     public init() {}
 
@@ -465,6 +479,7 @@ public struct DocumentState: Hashable, Sendable {
         redo = c.redo
         lastError = c.lastError
         autosave = c.autosave ?? AutosaveState()
+        installing = c.installing
     }
 }
 

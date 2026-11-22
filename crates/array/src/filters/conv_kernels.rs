@@ -1,4 +1,4 @@
-//! yapocis's named 1-D convolution kernels (`yapocis.lib.convolve_kernels` driven by
+//! The kernel library's named 1-D convolution kernels (`lib.convolve_kernels` driven by
 //! `interfaces/convolves.yml`): the generators in float64 as numpy computes them (sums with
 //! npexact's pairwise sum), stored as float32.
 

@@ -1,7 +1,7 @@
 // The conformance suite (docs/shell-interface.md 16.1) against a running shell's control port:
 //
 //   plumcraft-conformance --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all]
-//                         [--measured] [--engine text]... [--case NAME] [--needing engine:array]
+//                         [--measured] [--engine text]... [--has manifests]... [--case NAME] [--needing engine:array]
 //
 // `--measured`: the shell measures its own faces (an app with a canvas): the suite's geometry
 // steps report its measurements over the app's (N5 slice 4; `--own-geometry` skips them, as
@@ -23,6 +23,9 @@ func run() async -> Int32 {
     }
     var engines: Set<String> = []
     while let e = value("--engine") { engines.insert(e) }
+    // what else the app has (`--has manifests`: its engines folder is the suite's, B71)
+    var also: Set<String> = []
+    while let c = value("--has") { also.insert(c) }
     let measured = args.contains("--measured")
     // the app's core keeps its preferences in a file (every app launched by the scripts does);
     // --no-prefs for one that doesn't
@@ -30,7 +33,7 @@ func run() async -> Int32 {
     let ownGeometry = args.contains("--own-geometry")
     let host = value("--host") ?? "127.0.0.1"
     guard let portText = value("--port"), let port = UInt16(portText), let tokenFile = value("--token-file"), let casesPath = value("--cases") else {
-        FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--case NAME] [--needing CAPABILITY]\n".utf8))
+        FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--has CAPABILITY] [--case NAME] [--needing CAPABILITY]\n".utf8))
         return 2
     }
     let doc = value("--doc").flatMap(UInt64.init)
@@ -46,6 +49,7 @@ func run() async -> Int32 {
         let d = try await PortDriver(host: host, port: port, token: token, reports: !measured, doc: doc, engines: engines.isEmpty ? ["text"] : engines, prefs: prefs)
         d.suiteGeometry = !ownGeometry
         defer { d.close() }
+        d.also = also
         let t0 = ContinuousClock.now
         let out = await Conformance.run(d, cases: cases, half: half)
         let took = ContinuousClock.now - t0

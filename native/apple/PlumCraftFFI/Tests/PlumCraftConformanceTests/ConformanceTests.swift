@@ -35,9 +35,13 @@ let testEnvironment: Void = {
     setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
 }()
 
+/// The suite's engines folder (B71): every core here reads it (`dirs.engines`), so the drivers
+/// have `manifests`, and none reads the person's own.
+let suiteEngines = repo.appendingPathComponent("crates/editor-core/fixtures/conformance/engines").path
+
 func openCore(_ name: String, _ extra: [String: JSONValue] = [:]) throws -> PlumCore {
     _ = testEnvironment
-    var config: [String: JSONValue] = ["store_root": .string(scratch("store-\(name)"))]
+    var config: [String: JSONValue] = ["store_root": .string(scratch("store-\(name)")), "dirs": ["engines": .string(suiteEngines)]]
     for (k, v) in extra { config[k] = v }
     return try PlumCore(config: .object(config))
 }
@@ -53,6 +57,7 @@ func log(_ driver: String, _ out: [Outcome]) {
         let core = try openCore("conf-kit-read")
         defer { core.close() }
         let d = KitDriver(core: core, engine: "text")
+        d.also = ["manifests"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: .read)
         log(d.name, out)
@@ -88,6 +93,7 @@ func log(_ driver: String, _ out: [Outcome]) {
         model.start()
         let d = try await PortDriver(port: UInt16(port), token: token, following: model)
         defer { d.close() }
+        d.also = ["manifests"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: .read)
         log(d.name, out)
@@ -102,6 +108,7 @@ func log(_ driver: String, _ out: [Outcome]) {
         let core = try openCore("conf-kit-all")
         defer { core.close() }
         let d = KitDriver(core: core, engine: "text")
+        d.also = ["manifests"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: nil)
         log(d.name + ", every case", out)

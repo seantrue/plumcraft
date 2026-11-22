@@ -10,15 +10,81 @@ PlumCraft comes out of the maintainer's dataflow editor, research software suppo
 
 - "Replan that with particular attention to defining the interface between the UI and the engine."
 - "Assume shared memory and commonkit protocol when single system. Support remote system via upload of source and download of result."
-- "Support CAS (MD5 hash like alexandria) handles to reduce data movement and to reuse checkpoint results."
+- "Support CAS (MD5 hash like [another of the maintainer's projects]) handles to reduce data movement and to reuse checkpoint results."
 - "Consider other RPC protocols now rather than shoe horning later."
 - Four hosting modes: the compiled-in engine, a separate-process Rust engine, a separate-process HTTP engine and the existing Python/pipekit framework; example engines for OpenCV, text and audio, and one around an artcraft app's MCP server.
 - "Under no circumstance support less functionality than the research software uses. This must include tracking node status changes … Visualizing data in flight is important."
 - A *craft name without a trademark.
 
-The maintainer also chose the name (PlumCraft, over the recommended WireCraft, after asking for PipeCraft, Plumbium, PlumbCraft and NodeCraft to be screened), decided the thin slice first instead of the full plan, and redirected the work twice: "Why are we working on the research software tests instead of working on the new plumcraft?" (the floor became PlumCraft's conformance suite, with only a short capture on old the research software), and "Move it to its own plumcraft repo" (D17, first decided as extraction inside the research software). Everything PlumCraft builds on is the maintainer's own earlier work: the research software, the research software, commonkit, pipekit, alexandria and the craft apps.
+The maintainer also chose the name (PlumCraft, over the recommended WireCraft, after asking for PipeCraft, Plumbium, PlumbCraft and NodeCraft to be screened), decided the thin slice first instead of the full plan, and redirected the work twice: "Why are we working on the research software tests instead of working on the new plumcraft?" (the floor became PlumCraft's conformance suite, with only a short capture on old the research software), and "Move it to its own plumcraft repo" (D17, first decided as extraction inside the research software). Everything PlumCraft builds on is the maintainer's own earlier work: the research software, the research software, commonkit, pipekit, the archive project and the craft apps.
 
 ## Contributions
+
+### 2026-11-21 — The iPad's wire hitches: cause found, wires drawn as tiles, not yet confirmed on the device (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "These hitches seem borderline significant (168ms is perceptible)", and chose to fix them before N4's gate closes.
+
+**The device evidence (controller, on the maintainer's iPad).** A bisect across five builds at 500 nodes and 800 wires showed the same hitching in every build since N3 slice 3 (about 155 ms of hitch a second panning), and none at all with wires hidden. So it was never a regression, and the controller's earlier report that slice 6 had made it worse was a comparison between runs with different amounts of graph on screen.
+
+**Cause (agent).** One shape layer per wire, as the N0 spike drew them. The spike's test graph wired nodes to near neighbours; the real bench graph wires across the whole graph, so nearly every layer covered much of the view and was blended again each frame. Stroke width and joins made no difference; drawing only the short wires removed the cost.
+
+**Fix (agent).** Wires are drawn into tile pictures on workers, redrawn at the settled zoom; wires being moved get their own clipped layer. The old drawing stays behind a bench switch for an A/B on the device. Measured on the Mac with a new offscreen bench (no Instruments): 148 to 690 ms of late frames a second in the moving phases before, 0 after. Pictures compared pixel by pixel are identical except at fitted zoom, where crossings read slightly heavier (0.6% of drawn pixels).
+
+**Defects in the agent's own work, caught by its pixel tests:** seams between tiles; heavier wires at some zooms; 80 MB of stale tile pictures after zooming in.
+
+**B60.** One iPad UI test failed on the device (Show on Face not found after typing in the parameters popover). It did not reproduce in a simulator with the software keyboard; no app defect was found; the test now waits for the control and attaches evidence if it is missing. Open until the device says.
+
+**Verified.** `swift test` 87; Mac conformance 53 of 53; Release builds of both apps. **Not verified:** anything on the iPad. The hitches are fixed when a device trace says so.
+### 2026-11-21 — B73: the Mac app's forms had their labels in the wrong place (Claude Fable 5.2)
+
+**What the maintainer reported:** "The attach dialog is meh", with a picture showing one label clipped and the other above the wrong field.
+
+**Cause.** AI-written code from an earlier slice stacked all the labels, then all the fields, in a frame too short for both. No test or agent had ever looked at a form sheet: forms raised by a script show no sheet, so every check passed without one being drawn.
+
+**Fix (controller, ~20 lines in `Asks.swift`).** A grid: each label beside its field, right-aligned on the baseline, sized to fit.
+
+**Verified.** The same grid drawn in a system alert to a picture; Mac conformance 53 of 53. **Not verified:** in the app's own sheet, which only a person has seen.
+### 2026-11-21 — B71: the native apps could not install an engine or offer installed ones (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported**, in the Mac app: "Install engine is greyed out, no engines available. WTF?" Then, on learning why no test had noticed: "How are the text and array engines getting attached for testing?" They are not attached: every test of a native app ran the two engines compiled into it.
+
+**The controller's failures.** It told the maintainer twice that the Mac build could install an engine, from the command list, without checking the command was enabled. It reported the Mac app's floor as met when no test had used an engine outside the app. The gap was known at N4 slice 6 (a test asserted "install is refused here") and was not raised.
+
+**Cause.** The installer and the manifest reader were in the core, but only the egui app wired them up: read the manifests at startup, supplied the installer, allowed installing, followed an install. The C ABI core did none of it.
+
+**Fix (agent, about 1,150 lines over 33 files).** The wiring is the core's: the engines folder, reading manifests at launch and on reload, whether installing is offered (by the platform's declared `subprocess` and `python`, with a reason a person can read where not), the installer (finds uv through the login shell's PATH, since an app started from the Finder has none), following and cancelling an install (new command `engine.install.cancel`). egui uses the same path. Two conformance cases use an engine from a manifest folder.
+
+**Verified.** Agent: nextest 1,577 of 1,578 (the known baseline failure); Python 224; `swift test` 81; Mac conformance 55 of 55; one real install of a public engine through a hardened-runtime build started bare as the Finder would, in scratch, then a node run on it. Controller, after merging the dev branch: Mac conformance 55 of 55, and a scratch launch with a copy of the maintainer's two engine registrations: both offered; one starts as a process and over HTTP; the other fails because its registration names a module that is not installed (the engine's own fault), and as a process that failure took 30 s to report instead of at once (B72).
+
+**Not verified.** By a person; the sheet a menu pick shows; a notarized build; a Mac with no uv or no Python; the iPad app; Windows (its install stays disabled until it declares Python).
+
+### 2026-11-21 — Second pass over private names, and a scratch guard that names no volume (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said**, given a second list of names found in tracked files: "3 - all private", and of the git history, "2 leave history".
+
+**What the agent did.** Nine more names replaced by role across 55 tracked files (about 430 occurrences), maintainer quotes kept verbatim with only the token in square brackets. Nine occurrences of one name stay because they are a wire value saved graphs depend on (an Equalize method); that is listed for the maintainer. The Mac app's scripted-launch guard no longer names the maintainer's store volume: a pure function in the Swift kit refuses a `--scratch-state` launch unless everything it writes resolves inside a scratch root or the system's temporary folders (7 new tests, symlinks and lookalike siblings included).
+
+**Verified (agent):** nextest 1,569 of 1,570 (the known baseline failure); Python 224; `swift test` 88; Mac conformance 53 of 53 with the Library unchanged; four refusal launches exit 3 naming the location. The private-strings check: no match.
+
+**Still in history.** Past commits keep the names; the maintainer chose not to rewrite history.
+### 2026-11-21 — B49: the persist test's too-big case pinned to a virtual clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked.** "Fix B49": the Python test of what isn't persisted failed on the Linux test host while it was busy, with a too-big result coming back cached.
+
+**Cause (agent's investigation).** The test, not the executor. The size rule weighs a result against the node's wall-clock work, and the too-big case left it 22 ms of room (81.8 ms limit, 60 ms sleep). Faulting in the node's 8 MB numpy array, which numpy marks for huge pages, stalled for up to 157 ms while the kernel compacted fragmented memory; probes showed the stall only with numpy's huge-page advice on, and the measured work at 87.6 to 122.8 ms in failing runs against 62 to 72 ms in passing ones. The load average was a proxy for fragmented memory: the test failed with the load at 1.6 and passed at 25. Ruled out: the sleep (always 60.1 ms), the text output, any rate measured at run time (the rate is a constant).
+
+**Fix (agent; `python/tests/test_persist.py`, ~45 LOC).** The not-persisted test runs on a virtual clock patched into the executor's `time`, so a node's work is exactly what it sleeps; a new test pins the work either side of the limit (60 ms not persisted, 97 ms persisted). No SDK code changed. B37, the Rust twin, got a note, not a fix.
+
+**Verified, on the Linux test host.** With an injected 40 ms stall on large `np.full`, the old file failed 3 of 3 with the host quiet and the new one passed 3 of 3. Under a self-made load (CPU spinners and memory churners), old 6 of 10 failed, new 30 of 30 passed, full Python suite 225 of 225; quiet, new 30 of 30 and the suite 225 of 225. `ruff check` clean. No Rust was built or run.
+### 2026-11-21 — B70: the Mac app could not make a new graph (Claude Fable 5.2)
+
+**What the maintainer reported**, on first opening the Mac build: "I can't create a new graph? Only open an old one?" Offered an untitled graph at launch or a button on the Open panel, they chose "1".
+
+**The controller's wrong answer first.** Reading the code, the controller said New worked once the Open panel was cancelled. It did not: the first test of the launch change showed no window at all. The app declared its document type as Viewer, and AppKit creates new documents only for a type an app can edit, so File › New had been dead since the Mac app became document-based (AI-written, several slices ago). Every scripted launch and every conformance case opens a file, and no person had launched the app without one, so nothing caught it until the maintainer did.
+
+**Fix (controller, ~10 lines).** The type's role is Editor; a launch with nothing to open, and a Dock click with no graph open, make a new untitled graph.
+
+**Verified.** A scratch launch with nothing to open: no window before, one ready untitled graph after. Mac conformance 53 of 53, the person's Library unchanged. **Not verified:** by a person; and there is still no automated check that launches without a file, which is the gap that let this through.
 
 ### 2026-11-21 — Identifying strings cleaned out of tracked files (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
@@ -581,7 +647,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-19 — Native editors: the plan, its decisions, and stage N0 (Claude Fable 5.2 controlling; Claude Opus 5.5 agents)
 
-**What the maintainer asked for.** "Plan a separate implementation of the editor portion of plumcraft on multiple ui framework/languages (MacOS/Swift, iOS/Swift, Android/Kotlin). The existing egui experience is inferior in MacOS, and terrible in iOS", attending to "native platform gestures and conventions", "clean interfaces and performant interactions", keeping the non-GUI code and "the current capability for logging, debug driving, et al."; egui to be taken as "fatally flawed" on handhelds and "temporarily adequate" on desktops. They pointed at the iPad spike and at the native virtimp.com app as prior art. They answered the plan's twelve decisions (all as recommended), then, after N0, the contract's twenty questions (all as recommended but one: documents share one in-process engine from the start), and set: "Run agents on opus 5.5, keep fable for controller"; "Initial target would be < 500 active nodes. Current rendering is adequate."; "Free space floor is 2GB on mobile; virtimp_com_app already has an answer as to where to put the store; commit the gradlew jar"; and the branch rule, "No merging of this branch into main until ready to switch in production. Treat feat/native-n0 as the dev branch." The maintainer also asked the right question about commonkit ("aren't default values written into a config file in the store location?"), which sent the 2 GB floor to the tree's `.policy.json` instead of a commonkit change.
+**What the maintainer asked for.** "Plan a separate implementation of the editor portion of plumcraft on multiple ui framework/languages (MacOS/Swift, iOS/Swift, Android/Kotlin). The existing egui experience is inferior in MacOS, and terrible in iOS", attending to "native platform gestures and conventions", "clean interfaces and performant interactions", keeping the non-GUI code and "the current capability for logging, debug driving, et al."; egui to be taken as "fatally flawed" on handhelds and "temporarily adequate" on desktops. They pointed at the iPad spike and at the native virtimp.com app as prior art. They answered the plan's twelve decisions (all as recommended), then, after N0, the contract's twenty questions (all as recommended but one: documents share one in-process engine from the start), and set: "Run agents on opus 5.5, keep fable for controller"; "Initial target would be < 500 active nodes. Current rendering is adequate."; "Free space floor is 2GB on mobile; [the research software's app repository] already has an answer as to where to put the store; commit the gradlew jar"; and the branch rule, "No merging of this branch into main until ready to switch in production. Treat feat/native-n0 as the dev branch." The maintainer also asked the right question about commonkit ("aren't default values written into a config file in the store location?"), which sent the 2 GB floor to the tree's `.policy.json` instead of a commonkit change.
 
 **What the AI did** (`git diff --cached --numstat`; the lockfile and the Gradle wrapper left out).
 - **The plan** (the controller): `docs/research/24-native-shells.md` (~420 lines): a toolkit-free editor core, a second contract between it and each shell, native drawing from a shared scene, asks for platform services, stages N0 to N6, and N0's results. Written from two read-only surveys by agents (the seam in `plumcraft-ui`; the iPad spike and the native app). `AGENTS.md` rule 2 gained the `crates/ffi` exception the maintainer decided; `docs/plan.md` D25; a decisions checklist page.
@@ -624,13 +690,13 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 - **Python SDK:** `data.py`, `memo.py`, `__init__.py` (salts, hello), `host.py` through `commonkit.digest`; `blake3` is no longer a direct dependency; `pyuncommonkit>=0.2.0`; ruff `TID251`.
 - **Gates:** `scripts/check-hash-gates.sh` (hash crates only under commonkit; one runtime commonkit 0.2; a grep with `hash-allowlist.txt`), clippy `disallowed-types`/`-methods` (with `build::both` allowed only in `digest.rs`); CI runs nextest and pytest under md5 and then b3.
 - **Tests:** `coordinator/tests/one_algo.rs` (every value kind, from an empty store, scanned for foreign digests and handles; an old client's `algo` field is ignored), `python/tests/test_one_algo.py` (replaces `test_b3.py`), `engine/tests/b3_handles.rs` rewritten for one algorithm and the hello refusal, the scan-store, craft CAS, exe-digest, salt, shared-upload and status-cell tests; the handle and plan-key vectors check their algorithm's column (`memo_canon.json` gained `key_b3`, generated by plum's `claude-debug/l1_make_memo_b3.py` from the SDK's own `plan_key`).
-- **Docs:** `interface.md` §4.2 (`raw`), §4.3, the capability table (`hash.b3`), §8.1 (`algo`), §14.2, §14.5; the alexandria claims in `interface.md` and `handle.rs` removed; `docs/plan.md` lines marked superseded; CHANGELOG and STATUS.
+- **Docs:** `interface.md` §4.2 (`raw`), §4.3, the capability table (`hash.b3`), §8.1 (`algo`), §14.2, §14.5; the archive project claims in `interface.md` and `handle.rs` removed; `docs/plan.md` lines marked superseded; CHANGELOG and STATUS.
 
 **Defect caught in review (plum's L1 evaluator, finding B2).** The first `scan-store` opened its root as a read-write `plumcraft_store::Store`: that created a missing root, wrote and removed a `.writable.*` probe in it, and touched each memo record's mtime as it read it, and a mistyped root passed as "0 finding(s)". The plan runs `scan-store` as a gate on the maintainer's own trees, so it must never write. Fixed: it refuses a root that isn't a directory (exit 2), and reads segment and record files directly (the `.npy` payload, inflated), with no `Store`. Tests: `scan_store_writes_nothing` (no entry in a scanned store tree or craft tree, the root included, is new or has a newer mtime) and `scan_store_fails_on_a_missing_root` (both modes, and the root isn't created). The new tests were run on the fixed code only.
 
 **Calls beyond the plan.** The `cargo tree -i commonkit … --depth 0` gate prints two `commonkit v0.2.0` lines here, because the build scripts depend on commonkit for the salts (D4); the gate counts the runtime copy and requires every copy to be 0.2. The `--shared` flag above.
 
-**Not verified here.** That the 56 b3 findings of the earlier survey come back on the old code was not re-run on this branch; the new tests were run only on the new code (yapocis-rs's and yapocis3's known-answer tests were seen failing first). Screenshots of the status bar weren't taken. The 0.7.0 bump (SDK 0.2.0, the `plumcraft-engine new` pin) belongs to the bump PR.
+**Not verified here.** That the 56 b3 findings of the earlier survey come back on the old code was not re-run on this branch; the new tests were run only on the new code (the Rust kernel library's and the kernel library's known-answer tests were seen failing first). Screenshots of the status bar weren't taken. The 0.7.0 bump (SDK 0.2.0, the `plumcraft-engine new` pin) belongs to the bump PR.
 
 **Division of labor:** the maintainer decided the design and its decisions; the plum planner wrote the plan; Claude implemented it and wrote this entry.
 
@@ -653,17 +719,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-12 — B25 (#83) and B26 (#84): Simplex Noise's tile periods and `tileable` tooltip (Claude Opus 5.5)
 
-**What the maintainer decided:** both issues came from the yapocis3 #65 review, which the maintainer had filed here ("3 file"), and the maintainer approved fixing them together now: "Yes to do 4 now". For yapocis3 the maintainer had chosen to stop promising seamless output ("2 A") and to file real tiling as a feature (yapocis3 #83); this tooltip follows that. Later: "Fold B2 into the #84 fix", so impressionist's copy of the tooltip gets the same wording in its own branch.
+**What the maintainer decided:** both issues came from the kernel library's #65 review, which the maintainer had filed here ("3 file"), and the maintainer approved fixing them together now: "Yes to do 4 now". For the kernel library the maintainer had chosen to stop promising seamless output ("2 A") and to file real tiling as a feature (the kernel library's #83); this tooltip follows that. Later: "Fold B2 into the #84 fix", so impressionist's copy of the tooltip gets the same wording in its own branch.
 
 **What the AI did:**
 
-- **B25 (#83), `crates/array/src/generate/noise.rs`** (~12 LOC with docs): the row-based lattice index now wraps every `h / frequency` cells and the column-based one every `w / frequency`. The port had read yapocis's `tile_w`/`tile_h` as columns/rows, but yapocis's `width` is the rows. Checked against yapocis3's numbax `_simplex2d_njit` before changing it. The doc comment no longer says numba is only right for square sizes (stale since yapocis3 #75).
-- **Fixture:** `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases, 24 × 16 and 12 × 30, recorded from yapocis3 `main` (`6fa5e01`) through `Simplex.simplex2d` on the numba backend, by the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py` (run read-only against the yapocis3 checkout; a stamp-file check found no writes there). The probe first confirmed that the five existing cases reproduce exactly. They were appended by re-serialising the JSON, after checking that the re-serialised original is byte-identical, so the existing cases didn't move. This repository's own `claude-debug/generate_fixtures_gen.py` (untracked) doesn't emit the new cases yet.
+- **B25 (#83), `crates/array/src/generate/noise.rs`** (~12 LOC with docs): the row-based lattice index now wraps every `h / frequency` cells and the column-based one every `w / frequency`. The port had read the kernel library's `tile_w`/`tile_h` as columns/rows, but the kernel library's `width` is the rows. Checked against the kernel library's numbax `_simplex2d_njit` before changing it. The doc comment no longer says numba is only right for square sizes (stale since the kernel library's #75).
+- **Fixture:** `crates/array/tests/fixtures/generate/simplex.json` gains two non-square tileable cases, 24 × 16 and 12 × 30, recorded from the kernel library's `main` (`6fa5e01`) through `Simplex.simplex2d` on the numba backend, by the plum coordinator's probe `claude-debug/pc8384_simplex_fixture.py` (run read-only against the kernel library's checkout; a stamp-file check found no writes there). The probe first confirmed that the five existing cases reproduce exactly. They were appended by re-serialising the JSON, after checking that the re-serialised original is byte-identical, so the existing cases didn't move. This repository's own `claude-debug/generate_fixtures_gen.py` (untracked) doesn't emit the new cases yet.
 - **B26 (#84), `crates/array/src/generate/mod.rs`:** the tooltip "Wrap seamlessly at the edges (smooth only)" became "Wrap the noise lattice; not seamless on x or y (smooth only)".
 - **Tests** (~24 LOC): `simplex_matches_numba` reads `height`/`width` when a case has them and checks the output's shape; `simplex_tileable_tooltip_does_not_promise_seamless_edges` (`crates/array/tests/catalogue.rs`). Before the fix, the first failed on the 24 × 16 case (max error 0.72) and the second on the old text; after it both pass, the simplex cases at error 0.
 - **Docs:** `docs/BUGS.md` B25 and B26 (Fixed), `docs/STATUS.md`.
 
-**Defects:** B25 was in AI-written code: the original port swapped the periods, and the square-only fixtures couldn't see it. It was caught by reading the port against yapocis during the yapocis3 #65 review, not by a test. B26's tooltip was copied from the research software's node, which had the same overclaim.
+**Defects:** B25 was in AI-written code: the original port swapped the periods, and the square-only fixtures couldn't see it. It was caught by reading the port against the kernel library during the kernel library's #65 review, not by a test. B26's tooltip was copied from the research software's node, which had the same overclaim.
 
 **Lines** (measured, `git diff --numstat`, lines added): ~13 source (code, docs, tooltip), ~24 test, ~21 BUGS and STATUS, plus two fixture cases.
 
@@ -679,14 +745,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ### 2026-11-11 — B24: xyY of black is 0, not NaN (Claude Opus 5.5)
 
-**What the maintainer decided:** yapocis3 #66 (filed from this repository's colour port) is settled the same way everywhere: an exact zero sum X+Y+Z gives x = y = 0 and keeps Y, "With check" (an explicit `sum != 0` test, not an epsilon). For this repository's fixture: "Patch the 10 values directly", not a regeneration. The Trace Contours tooltip and offset sign were checked in the same review and need no change here.
+**What the maintainer decided:** The kernel library's #66 (filed from this repository's colour port) is settled the same way everywhere: an exact zero sum X+Y+Z gives x = y = 0 and keeps Y, "With check" (an explicit `sum != 0` test, not an epsilon). For this repository's fixture: "Patch the 10 values directly", not a regeneration. The Trace Contours tooltip and offset sign were checked in the same review and need no change here.
 
 **What the AI did:**
 
-- **Ports** (~12 LOC with the docs): the zero-sum branch in `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, `np.where` with a safe divisor, as yapocis3's numpy fallback), with the two module docs and two test comments that said black is NaN. The inverses already gave XYZ 0 at y = 0 (read, unchanged).
+- **Ports** (~12 LOC with the docs): the zero-sum branch in `crates/engine/src/color.rs` (`xyz_to_xyy`), `crates/array/src/colour/mod.rs` (`rgb_to`) and `python/src/plumcraft_engine/color.py` (`_xyz_to_xyy`, `np.where` with a safe divisor, as the kernel library's numpy fallback), with the two module docs and two test comments that said black is NaN. The inverses already gave XYZ 0 at y = 0 (read, unchanged).
 - **Fixture:** in `crates/engine/tests/fixtures/color.json` the 10 nulls (xyY `from_rgb` x, y and `to_rgb` r, g, b at samples 0 and 41) became 0.0 by a text edit, so no other number's spelling moved; a JSON-aware comparison found exactly those 10 differences, and a word diff shows 10 `null` → `0.0` and nothing else.
 - **Test** (~13 LOC): `xyy_of_black_is_zero` in `crates/array/tests/colour.rs`, since the fixture covers only the engine and Python ports; it fails with the old array port.
-- **Checked:** with the patched fixture and the old ports, the Rust and Python fixture comparisons fail on xyY (got NaN, want 0); with the new ports and the old fixture they fail the other way (got 0, want NaN); with both, they pass. The Python port is bit-identical to yapocis3's numbax `xyz2xyY` (jit and numpy fallback, at yapocis3 `842f4d0`) on 100,000 random rows plus black, (0.5, −0.5, 0), −0 and (0.25, 0.25, −0.5). The Rust ports are the same expression, and the fixture tests hold them to it; they weren't compared bit for bit on random data.
+- **Checked:** with the patched fixture and the old ports, the Rust and Python fixture comparisons fail on xyY (got NaN, want 0); with the new ports and the old fixture they fail the other way (got 0, want NaN); with both, they pass. The Python port is bit-identical to the kernel library's numbax `xyz2xyY` (jit and numpy fallback, at the kernel library's `842f4d0`) on 100,000 random rows plus black, (0.5, −0.5, 0), −0 and (0.25, 0.25, −0.5). The Rust ports are the same expression, and the fixture tests hold them to it; they weren't compared bit for bit on random data.
 - **Docs:** `docs/BUGS.md` B24 (Fixed), `docs/STATUS.md`.
 
 **Defects:** none found in this change. The defect it fixes was the ports' faithful copy of the kernel's 0/0, recorded when the port was written as "black has no chromaticity: NaN".
@@ -835,7 +901,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 - **The version:** found that 0.6.0 had gone out (crates only) since the last release it made, and that only #66 had landed after it, with no public API change. So a patch: 0.6.1.
 - **The bump:** the workspace and the Python text twin to 0.6.1; CHANGELOG, STATUS.
-- **The release:** the gate, a release PR, `cargo publish --workspace` from `main`, then `packaging/release.sh --upload --publish`. That run is its own gate. It builds and notarizes two DMGs, builds Linux on the Linux test host and Windows on `win11-dev`, tags `plumcraft-v0.6.1`, and publishes the release as Latest.
+- **The release:** the gate, a release PR, `cargo publish --workspace` from `main`, then `packaging/release.sh --upload --publish`. That run is its own gate. It builds and notarizes two DMGs, builds Linux on the Linux test host and Windows on the Windows test VM, tags `plumcraft-v0.6.1`, and publishes the release as Latest.
 
 ### 2026-11-10 — The wire menu labels every use of an output, not one wire (Claude Opus 5.5)
 
@@ -875,9 +941,9 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 The maintainer reported, from a session of the research software, "bug: popout shoud stay on top while main window is being edited". Recorded as B19 in `docs/BUGS.md` with the report verbatim and the popout code's location (`crates/ui/src/popouts.rs`). Nothing was investigated or fixed, and no issue was filed.
 
-### 2026-11-06 — The array engine's Simplex and Stretch follow yapocis's device kernels (Claude Opus 5.5)
+### 2026-11-06 — The array engine's Simplex and Stretch follow the kernel library's device kernels (Claude Opus 5.5)
 
-The research software is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with yapocis's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in Yapocis3 (`29f8403`), and the ports here follow it.
+The research software is folding this engine's array nodes into its Impressionist engine. Comparing each array node with its Impressionist twin found two places where the numba kernels these nodes are ported from disagreed with the kernel library's own device kernels. The maintainer ruled in favour of the device kernels in both. The numba port was fixed in the kernel library (`29f8403`), and the ports here follow it.
 
 - **Simplex Noise ("Option 1"):** `hash_int` now wraps in 32 bits, as the device kernels' `int` does. In numba's 64-bit ints it picked a different gradient at about half the lattice points, so the noise only correlated 0.5–0.7 with Impressionist's. The node's non-square layout was already the kernels' (row/rows, column/columns), and the numba port now has it too.
 - **Stretch ("Clamp is the right answer"):** `kernels::stretch` now clamps each value to the input range before mapping it onto low..high, in float32 in the kernel's order. It used to map in float64 without clamping, so manual and percentile ranges let values out of low..high.
@@ -892,7 +958,7 @@ The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/ref
 
 **What the AI did:**
 
-- **Installers:** started the shut-off `win11-dev` VM on the Linux test host, and ran `release.sh` with the notary profile from the tagged commit, without `--upload`. Its gate passed: 1,197 Rust and 218 Python tests. Then it published the six images and checksums with `gh release create` on the existing tag, as Latest, and shut the VM off.
+- **Installers:** started the shut-off Windows test VM on the Linux test host, and ran `release.sh` with the notary profile from the tagged commit, without `--upload`. Its gate passed: 1,197 Rust and 218 Python tests. Then it published the six images and checksums with `gh release create` on the existing tag, as Latest, and shut the VM off.
 - **`packaging/release.sh`** (~20 lines): `--upload` reuses an existing tag when only docs, `packaging/` or `.github/` changed since it, and uploads to its release.
 - **`ci.yml`:** changes to `packaging/` alone skip CI.
 
@@ -1127,7 +1193,7 @@ The fixtures `tests/fixtures/generate/simplex.json` and `tests/fixtures/math/ref
 **What the maintainer asked:**
 
 - "What is left to do before publishing crates and building releases for github?"
-- Then: "B10 is a major feature, we'll start that after the release. Make sure we are publishing any crates needed from yapocis-rs and impressionist-rs, et al. Reccomend a tag name, get agreement before continuing", with "Release for Mac Arm+Intel, Intel Linux, Intel Windows".
+- Then: "B10 is a major feature, we'll start that after the release. Make sure we are publishing any crates needed from [the Rust kernel library] and impressionist-rs, et al. Reccomend a tag name, get agreement before continuing", with "Release for Mac Arm+Intel, Intel Linux, Intel Windows".
 - Later: "skip impressionist-rs".
 - Then "Yes and yes": to the tag `plumcraft-v0.2.4`, and to bringing commonkit's Windows branch in first.
 
@@ -1234,9 +1300,9 @@ The AI's first diagnosis, "too short a 5 s wait", is recorded as wrong in `docs/
 
 ### 2026-11-05 — The Mandelbrot kernel takes numpy's rule from npexact 0.1.2 (B6) (Claude Opus 5.5)
 
-**What the maintainer asked:** B6 got the `fix approved` label in yapocis-rs, then came "fix approved bugs", then "release npexact 0.1.2", then "Go" for PlumCraft to use it.
+**What the maintainer asked:** B6 got the `fix approved` label in the Rust kernel library, then came "fix approved bugs", then "release npexact 0.1.2", then "Go" for PlumCraft to use it.
 
-**What the AI did:** this is the PlumCraft side of B6. The work in npexact was seantrue/yapocis-rs#11 (`npexact::complex`, with fixtures from both machines) and the 0.1.2 release (#12). The fixtures came from Yapocis3's recorder (seantrue/yapocis3#74).
+**What the AI did:** this is the PlumCraft side of B6. The work in npexact was the Rust kernel library's #11 (`npexact::complex`, with fixtures from both machines) and the 0.1.2 release (#12). The fixtures came from the kernel library's recorder (the kernel library's #74).
 
 - **The kernel:** the Mandelbrot kernel (`crates/array/src/generate/noise.rs`) now calls `npexact::complex::Mul::array_default()` and `mul_c64`. They replace the local `numpy_complex_fma()` that B5's fix had added (29 lines removed, 4 added). The two compute the same arithmetic.
 - **npexact found more than the issue asked for:** numpy scalars, which go through compiled C, are not fused on x86-64. npexact's `Mul::scalar_default()` covers that; the kernel only needs the array rule.
@@ -1362,19 +1428,19 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 
 ### 2026-11-04 — A Windows installer, engines found from the desktop, and old SDKs named (Claude Opus 5.5)
 
-**What the maintainer asked:** "yes, install InnoSetup. GUI only is fine for now". Then, after trying it on `win11-dev`: "Installing OpenCV engine appeared to succeed, but engine does not show up". Then the engine's `AF_UNIX` traceback. Then "PM, bump the engine pins, and add the clearer error".
+**What the maintainer asked:** "yes, install InnoSetup. GUI only is fine for now". Then, after trying it on the Windows test VM: "Installing OpenCV engine appeared to succeed, but engine does not show up". Then the engine's `AF_UNIX` traceback. Then "PM, bump the engine pins, and add the clearer error".
 
 **What the AI did** (~355 lines added and ~37 removed over 22 files, plus `plumcraft.ico`):
 
-- **The installer:** `packaging/windows.sh` runs under Git for Windows' bash and shares `common.sh`, which now knows `.exe` and `$PYTHON`. `packaging/plumcraft.iss` is for Inno Setup 6.7.3, which the AI installed per-user on `win11-dev` with winget. It installs per-user with no administrator, adds a Start menu entry, and optionally a desktop icon and a PATH entry, which the uninstaller removes. `release.sh` gets `--windows-host` and `--windows-jump`, and ships a `git archive` with links dereferenced. There is an `.ico` from the app icon, and the editor is a windowed app in Windows release builds.
-- **Checked on `win11-dev`:**
+- **The installer:** `packaging/windows.sh` runs under Git for Windows' bash and shares `common.sh`, which now knows `.exe` and `$PYTHON`. `packaging/plumcraft.iss` is for Inno Setup 6.7.3, which the AI installed per-user on the Windows test VM with winget. It installs per-user with no administrator, adds a Start menu entry, and optionally a desktop icon and a PATH entry, which the uninstaller removes. `release.sh` gets `--windows-host` and `--windows-jump`, and ships a `git archive` with links dereferenced. There is an `.ico` from the app icon, and the editor is a windowed app in Windows release builds.
+- **Checked on the Windows test VM:**
   - a silent per-user install;
   - the installed CLI ran the demo compiled in, as a process over loopback TCP, and over HTTP;
   - the installed editor opened on the RDP desktop with no console;
   - the silent uninstall left nothing, and PATH was otherwise unchanged;
-  - `release.sh --skip-gate --windows-host win11-dev --windows-jump $LINUX_HOST` made the DMG, the setup program, the zip and `SHA256SUMS`, run in a scratch clone with a throwaway commit, since the script refuses a dirty tree.
+  - `release.sh --skip-gate --windows-host $WINDOWS_HOST --windows-jump $LINUX_HOST` made the DMG, the setup program, the zip and `SHA256SUMS`, run in a scratch clone with a throwaway commit, since the script refuses a dirty tree.
 - **Engines from the desktop.** The maintainer's report traced to `manifest_folder()` reading only `HOME`. Windows doesn't set `HOME` for a desktop program, though SSH sessions have it, which is why the model's own runs never saw it. Eight places read `HOME` directly; they now use `plumcraft_proto::programs::home` and `expand_home`, which fall back to `USERPROFILE`, and the Python SDK's `files._expand` matches.
-- **Old SDKs named.** The OpenCV engine pinned the SDK to PlumCraft `3995cb7`, from before the port. The host now recognises the `AF_UNIX` `AttributeError` in an engine's stderr, and the banner says to reinstall it or update its pin (`known_cause`, with a test). The three public engines were re-pinned to `81dd28f` in their own repos. A fresh install from GitHub on `win11-dev` then got the new SDK.
+- **Old SDKs named.** The OpenCV engine pinned the SDK to PlumCraft `3995cb7`, from before the port. The host now recognises the `AF_UNIX` `AttributeError` in an engine's stderr, and the banner says to reinstall it or update its pin (`known_cause`, with a test). The three public engines were re-pinned to `81dd28f` in their own repos. A fresh install from GitHub on the Windows test VM then got the new SDK.
 
 **Defects in the AI's work, caught by running it:**
 
@@ -1384,11 +1450,11 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 - The model's sync script didn't carry new files under `assets/`.
 - **The maintainer found** that an installed engine never appeared. The model's checks had run from SSH, where `HOME` is set.
 
-**Tests:** the Mac gate passes, 1,126 Rust and 218 Python. On `win11-dev` the install, run and uninstall checks above pass.
+**Tests:** the Mac gate passes, 1,126 Rust and 218 Python. On the Windows test VM the install, run and uninstall checks above pass.
 
 ### 2026-11-04 — PlumCraft on Windows (Claude Opus 5.5)
 
-**What the maintainer asked:** "You can build plumcraft on Windows. See [the Linux test host] ~/sysadmin/docs/windows-dev-vm-runbook.md". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."
+**What the maintainer asked:** "You can build plumcraft on Windows. See [the Linux test host] [a private runbook]". They pointed out the older ports in `C:\work` and Intel's OpenCL runtimes. On the transport the model asked about, they chose loopback TCP, and said to port and test, then ask. Then: "Rerun for fixes. Investigate commonkit's unreleased Windows fix, check the unchecked, and ignore the Mandelbrot vs numba diff."
 
 **What the AI did** (~830 lines added and ~160 removed, over 40 files, plus `.gitattributes`):
 
@@ -1430,7 +1496,7 @@ Committed with the above, as found in the working tree. `README.md` gains the Wi
 
 **Left:** `mandelbrot_matches_numba` fails on x86-64, because its fixture is arm64's FMA output. The maintainer said to ignore it.
 
-**Tests:** on `win11-dev`, the first run had 48 failures and the second 12. The last full run had 1,119 Rust passing and 2 failing (Mandelbrot, and the race, since fixed), and 215 Python passing and 1 failing (`file_token`, since fixed). The fixed targets were rerun on Windows: the race test passed three times. The Mac gate passes: 1,125 Rust, 218 Python.
+**Tests:** on the Windows test VM, the first run had 48 failures and the second 12. The last full run had 1,119 Rust passing and 2 failing (Mandelbrot, and the race, since fixed), and 215 Python passing and 1 failing (`file_token`, since fixed). The fixed targets were rerun on Windows: the race test passed three times. The Mac gate passes: 1,125 Rust, 218 Python.
 
 **Division of labour:** the maintainer chose the platform, the transport and the scope; the model ported, ran and fixed.
 
@@ -1632,15 +1698,15 @@ The maintainer: "Publish plumcraft-array". The dry run failed: the array engine'
 
 ### 2026-11-03 — npexact from crates.io (Claude Opus 5.5)
 
-The maintainer said "Publish npexact", and the AI published 0.1.1 from yapocis-rs; that work is in yapocis-rs's `AI.md`. Then, with "CPM", the AI removed the `[patch.crates-io]` pin on the GitHub commit and made the workspace require `npexact = "0.1.1"`, because the array engine now calls functions that 0.1.0 doesn't have. `Cargo.lock` takes it from the registry, so `plumcraft-array` can now be published.
+The maintainer said "Publish npexact", and the AI published 0.1.1 from the Rust kernel library; that work is in the Rust kernel library's `AI.md`. Then, with "CPM", the AI removed the `[patch.crates-io]` pin on the GitHub commit and made the workspace require `npexact = "0.1.1"`, because the array engine now calls functions that 0.1.0 doesn't have. `Cargo.lock` takes it from the registry, so `plumcraft-array` can now be published.
 
 ### 2026-11-03 — The array engine's numpy behaviours move into npexact (Claude Opus 5.5)
 
 The maintainer asked first to "assess the gap between npexact and all of numpy". That assessment is `claude-debug/npexact-numpy-gap.md`. Then they asked: "Move the hand-ported behaviours into npexact, record fixtures on Linux and test."
 
-**What the AI did.** `plumcraft-array` had copied 15 families of numpy behaviour into its own code. They now live in npexact (yapocis-rs PR #8), held to fixtures numpy recorded on the M4 Max and on the Linux test host's Xeon (Yapocis3 PR #72). The engine calls them through its existing function names, so its nodes and tests didn't change. The PlumCraft side is a net deletion: ~60 LOC added and ~180 removed across `math/kernels.rs`, `filters/kernels.rs`, `filters/trace.rs`, `generate/{fft,noise,regions}.rs` and `colour/mod.rs`. `Cargo.toml` patches `npexact` to the merged yapocis-rs commit until the next release is on crates.io. Notes: `claude-debug/npexact-ports-linux.md`.
+**What the AI did.** `plumcraft-array` had copied 15 families of numpy behaviour into its own code. They now live in npexact (the Rust kernel library's PR #8), held to fixtures numpy recorded on the M4 Max and on the Linux test host's Xeon (the kernel library's PR #72). The engine calls them through its existing function names, so its nodes and tests didn't change. The PlumCraft side is a net deletion: ~60 LOC added and ~180 removed across `math/kernels.rs`, `filters/kernels.rs`, `filters/trace.rs`, `generate/{fft,noise,regions}.rs` and `colour/mod.rs`. `Cargo.toml` patches `npexact` to the merged Rust kernel library commit until the next release is on crates.io. Notes: `claude-debug/npexact-ports-linux.md`.
 
-**Defect in AI-written PlumCraft code, caught by the new fixtures:** `clip(v, 0, None)` returned `-0` for `-0`, but numpy gives `+0`. The move fixes it. The x86 fixtures also caught two npexact bugs, `quantile` and `sin`/`cos` on x86-64, which yapocis-rs's `AI.md` records.
+**Defect in AI-written PlumCraft code, caught by the new fixtures:** `clip(v, 0, None)` returned `-0` for `-0`, but numpy gives `+0`. The move fixes it. The x86 fixtures also caught two npexact bugs, `quantile` and `sin`/`cos` on x86-64, which the Rust kernel library's `AI.md` records.
 
 **Investigated, not caused by this work:** on the Linux test host, `mandelbrot_matches_numba` fails at 9 points. Unmodified code fails the same way: the references come from the Mac's numba, which fuses the complex multiply, and x86 doesn't. The test was left alone.
 
@@ -1794,7 +1860,7 @@ Built from a clean clone and tested before upload: with no Rust tools, a generat
 
 **What the AI did:**
 
-- **Published:** `npexact` 0.1.0 from the maintainer's yapocis-rs, then 16 crates, with `plumcraft-cli` renamed `plumcraft`. `cargo install plumcraft --locked` from crates.io built in a clean folder and ran a workflow.
+- **Published:** `npexact` 0.1.0 from the maintainer's Rust kernel library, then 16 crates, with `plumcraft-cli` renamed `plumcraft`. `cargo install plumcraft --locked` from crates.io built in a clean folder and ran a workflow.
 - **Packaging:** exact internal versions, path-only internal dev-dependencies, licences in each crate, and `digest.rs` linked into each engine crate. The dry run found that four build scripts included a file from another crate, which a published crate wouldn't have. The SDK digest hashed sibling crates that a published crate doesn't have, so it now also takes the crate version.
 - **`craft-ui`:** the two modules PlumCraft uses, 175 lines and their tests, copied into `crates/ui/src/craft_ui` with their notice.
 - **Audio:** the SoundCraft crates are about 12,000 lines reached through a plugin registry, so nothing small could be extracted, and crates.io refuses optional git dependencies too, so a feature wouldn't work. The editor no longer compiles audio in; it starts `plumcraft-audio-engine` as a process when that binary is beside it, which is the interchangeable-engine design doing its job.
@@ -1965,7 +2031,7 @@ Gate on the final tree: Rust 1,037 passed, 0 failed, 3 ignored; Python 208 passe
 - **`EngineCore`** (spec 16.1): `Engine::with_core(catalogue, factory)`, an executor of the engine's own, built on the worker thread so it needn't be `Send`, rebuilt after a caught panic. The spec's trait was narrowed to `run` and `release`: identity, schema and caps stay on `Engine`, so the host answers them mid-run.
 - **`PackEngine.worker`:** a pack hosted in a child of the same executable (`--engine-worker <id>`), so a crash costs a run, not the editor.
 - **Held values** (spec 7.6 rule 11, capability `values.held`): `RunRequest.hold`, `Opaque.held` and `values.release`, so a value with no wire form reaches a later fragment of its own engine. This closes the silent skip the research software's plan found: the node now says why a value can't cross, where it said "upstream did not finish".
-- **`Port`** gains `fills`, `shows`, `widget`, `soft_min` and `soft_max`; the catalogue carries them and the editor doesn't draw them yet. `npexact` moved to yapocis-rs 1fbf919.
+- **`Port`** gains `fills`, `shows`, `widget`, `soft_min` and `soft_max`; the catalogue carries them and the editor doesn't draw them yet. `npexact` moved to the Rust kernel library's 1fbf919.
 - **`crates/craft/tests/vectorcraft_paths.rs`** pins what VectorCraft keeps of strokes, measured before From SVG was designed: order, direction and open paths survive, Simplify makes cubics of some, and a closed square comes back a `rect`.
 - ~450 lines added in `crates` and `apps` outside tests, ~230 of new test files, ~75 of tests in `host.rs`.
 
@@ -2355,7 +2421,7 @@ Gate on the final tree: Rust 1,037 passed, 0 failed, 3 ignored; Python 208 passe
 ### 2026-10-29 — Arrays first class, the array engine, colour spaces in both SDKs and Draw Text (Claude Opus 5.5)
 
 **How the work was steered.** The maintainer asked for a survey of the research software's nodes, then said "NP arrays are a MUCH better core data type than CV2", and after the storage work: "Make arrays first class, import array nodes from the research software's repository." The maintainer redirected the work three times:
-- **A different tack:** "yapocis-rs already has operations for all of this, I think. Evaluate an "array-rs" implementation that is a stripped down version of yapocis-rs? (nothing from yapocis-external)". The AI's evaluation is `claude-debug/array-rs-evaluation.md`.
+- **A different tack:** "[the Rust kernel library] already has operations for all of this, I think. Evaluate an "array-rs" implementation that is a stripped down version of [the Rust kernel library]? (nothing from [the external kernel library])". The AI's evaluation is `claude-debug/array-rs-evaluation.md`.
 - **Port numba instead:** "Meh. How much can you port from the numba implementation using npexact?", then "Let's do it. Long term goal is to be able to load multiple engines, and move across engine borders."
 - **Colour space:** "colorspace must be able to be None". An array without a space is plain numbers.
 
@@ -2367,10 +2433,10 @@ The maintainer also asked for the Python colour spaces to be ported, for Draw Te
 - **The editor's array viewer and `run.view`.**
 - **Variadic slots resolved by the Rust executor.**
 - **Colour:** all ten of the research software's colour spaces in the Rust SDK, written by a subagent, with Lab bit-exact against OpenCV's table. The AI then ported them to numpy for the Python SDK, held to the same fixture and tolerances.
-- **`plumcraft-array`:** a Rust CPU engine of 50 nodes in five groups, with `--engine array` and an Engine menu entry. The kernels are ported from yapocis's numba code without fast-math, using npexact for numpy's own numerics. Three of the groups were written by subagents and reviewed by the AI.
+- **`plumcraft-array`:** a Rust CPU engine of 50 nodes in five groups, with `--engine array` and an Engine menu entry. The kernels are ported from the kernel library's numba code without fast-math, using npexact for numpy's own numerics. Three of the groups were written by subagents and reviewed by the AI.
 - **Draw Text:** skrifa outlines filled by tiny-skia. It offers Inter always, plus craft-fonts embedded at build time.
-- **Reference checks:** every kernel is checked against references from yapocis's numba backend, the research software, Pillow and numpy. Most match bit for bit; each other tolerance is stated.
-- **Filed upstream, each reproduced first:** seantrue/yapocis3 #64–#67 and seantrue/the research software #69.
+- **Reference checks:** every kernel is checked against references from the kernel library's numba backend, the research software, Pillow and numpy. Most match bit for bit; each other tolerance is stated.
+- **Filed upstream, each reproduced first:** the kernel library's #64–#67 and seantrue/the research software #69.
 
 **Size:** about 10,400 lines added, without `Cargo.lock`, test fixtures, the generated matrices and the golden schema.
 - Array engine source: ~5,480 LOC, including a 250-line demo workflow.
@@ -2394,7 +2460,7 @@ The maintainer also asked for the Python colour spaces to be ported, for Draw Te
 - Python variadics.
 - Stretch and Simplex flatten the research software's per-choice options into plain ports, because the executor doesn't pass a choice's sub-ports.
 
-**Investigated, not ours:** the yapocis and the research software bugs above. Each was reproduced before it was filed.
+**Investigated, not ours:** the kernel library's and the research software's bugs above. Each was reproduced before it was filed.
 
 ### 2026-10-29 — Storage that follows the store's rules: published documents, a reaped craft store, persisted results and compression (Claude Opus 5.5)
 
