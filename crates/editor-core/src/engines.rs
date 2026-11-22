@@ -759,7 +759,8 @@ pub fn start(kind: EngineKind, mode: Mode, waker: Option<Waker>, bin: Option<Pat
         Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?)
     } else if let Some(m) = manifest {
         let h = ProcessHost::start(m).map_err(|e| e.to_string())?;
-        h.wait_ready(kind.ready_wait());
+        // an engine that exits before it connects fails the start now, saying why (B72)
+        h.wait_started(kind.ready_wait())?;
         Arc::new(h)
     } else {
         // without a root given, the engine keeps its own (the shared default)
@@ -787,7 +788,7 @@ fn connect_external(e: &External, mode: Mode, wait: Duration, waker: Option<Wake
         }
         (Start::Command(m), _) => {
             let h = ProcessHost::start(with_store(m)).map_err(|e| e.to_string())?;
-            h.wait_ready(wait);
+            h.wait_started(wait)?;
             (Arc::new(h), "mode 2 · process")
         }
     };

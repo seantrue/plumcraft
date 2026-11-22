@@ -121,7 +121,8 @@ impl HttpHost {
             .env(ENV_TOKEN, &token)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::inherit());
+            // copied to ours as before, and its end kept for a start that fails (B72)
+            .stderr(Stdio::piped());
         if let Some(dir) = &m.cwd {
             cmd.current_dir(dir);
         }
@@ -131,13 +132,19 @@ impl HttpHost {
         plumcraft_proto::programs::own_group(&mut cmd);
         let mut child = cmd.spawn().map_err(|e| format!("could not start the engine: {e}"))?;
         let lifeline = child.stdin.take();
+        let tail = std::sync::Arc::new(Mutex::new(std::collections::VecDeque::new()));
+        let stderr_closed = child.stderr.take().map(|err| crate::process::capture_stderr(err, std::sync::Arc::clone(&tail), true));
         let deadline = Instant::now() + Duration::from_secs(20);
         let addr = loop {
             if let Ok(a) = std::fs::read_to_string(&port_file) {
                 break a;
             }
             if let Ok(Some(status)) = child.try_wait() {
-                return Err(format!("the engine exited before listening ({status})"));
+                if let Some(closed) = &stderr_closed {
+                    let _ = closed.recv_timeout(crate::process::LAST_WORDS_WAIT);
+                }
+                let why = format!("the engine exited before listening ({})", plumcraft_proto::programs::describe_exit(status));
+                return Err(crate::process::with_last_words(&why, &tail));
             }
             if Instant::now() > deadline {
                 kill_group(&mut child);
