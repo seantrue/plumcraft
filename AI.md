@@ -20,6 +20,22 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — B72, B37 and B38 fixed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided**, on cards: B72 "Fix now"; B37 "Fix it the same way as B49"; B38 "Investigate for the same cause"; the persist rule itself, "Leave the rule".
+
+**B72 (agent).** An engine that exits before it ever connects was treated as a crash and restarted five times, then waited on for 60 s, then linked dead and reported as started. It now fails at once with its exit status and the last lines of its stderr, as a process and over HTTP (10 ms and 26 ms in the new test; 60 s and a false success before).
+
+**The controller's wrong report.** The controller told the maintainer their installed OpenCV engine was broken. It was not: its registration is a link into the engine's project, and the controller's test copied the file to a scratch folder, so its relative folder pointed nowhere. The agent started the real one from another folder in both modes.
+
+**B37 (agent).** The Rust executor measures work on an injectable clock (`plumcraft_engine::clock`; the real clock by default); the persist tests run on a virtual one, with a new test either side of the limit. Load alone did not reproduce the failure; an injected 300 ms allocation stall failed the old test 30 of 30 and the new one passed 30 of 30.
+
+**B38 (agent).** A race in the test: its stopwatch started after the run was accepted, so a late acceptance came off the slow node's 300 ms. It starts before the run is sent. Not reproduced naturally on the Linux test host; a 60 ms late acceptance on the Mac failed the old timing in all six hostings.
+
+**The agent's slips:** one pytest run outside the scratch environment (rerun inside: 225 passed); a scratch backup file deleted against the rule.
+
+**Verified.** Mac nextest 1,581 of 1,582 (the known baseline failure), before one last small change that was then covered by 325 crate tests; Python 225.
+
 ### 2026-11-21 — The iPad's wire hitches: cause found, wires drawn as tiles, not yet confirmed on the device (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "These hitches seem borderline significant (168ms is perceptible)", and chose to fix them before N4's gate closes.
