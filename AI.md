@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — The iPad in a small window: two app faults, and tests that assumed the whole screen (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Ran the iPad with the controller twice (1 of 6 tests passed, then 3 of 6), and, asked how the iPad was set up after the controller saw a 375 by 655 canvas in the logs, answered: "It's on Windowed apps".
+
+**What the agent did (about 580 lines of Swift, scripts and docs).** Reproduced the device failures on the simulator in Windowed Apps mode at that size: all seven tests failed there as on the device. Two app faults fixed: in a window under 440 points the system's overflow swallowed Run and More (B119; the narrow bar now keeps Documents, title, Run and More, with Add Node in the More menu), and the row editor read the keyboard's screen frame as window coordinates, leaving the edited field under the keyboard in a window away from the screen's origin (B120). The tests' whole-screen assumptions fixed (B121): they pan points into reach, find toolbar buttons on the bar or in More, and ask for the window they need (`--window-size`, reached through the system's Zoom or a corner drag, since an iPad app cannot set its own window size). Every test and time-out now prints the window's size, size classes and state.
+
+**Earlier wrong readings.** B112 to B114, recorded yesterday as possible app defects, were the tests tapping points outside a small window. The controller's suggestion that the never-idle fault (B111) followed the window size is not supported: it appeared in one run and not in the next at the same size. B111 stays open and unexplained.
+
+**Verified (agent, simulator and Mac; the Mac's screen was locked).** iPad UI tests 7 of 7 in Full Screen Apps (one earlier run 6 of 7, a time-out that did not repeat in three reruns) and 7 of 7 in Windowed Apps at 375 by 655 landscape; iPad conformance 59 of 59 with 4 skipped; the Mac suite 63 of 63, the person check 48 steps passed and 6 not seen. **Not verified:** the device.
+
 ### 2026-11-22 — The iPad's stray keyboard is the system's, not the app's (B118); keyboard and first responder in the status (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1 - leave as process; 2 - leave as mac only; 3 - which rust sdk?; 4 - look now": egui keeps audio as a process, the test engine stays Mac-only, and B118 is looked into now. Question 3 was answered later ("Make the save an basic feature.").

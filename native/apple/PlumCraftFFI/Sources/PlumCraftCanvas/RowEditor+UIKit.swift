@@ -209,7 +209,9 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
 
     @objc func keyboard(_ n: Notification) {
         guard let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect, let win = canvasView.window else { return }
-        let inView = canvasView.convert(win.convert(end, from: nil), from: nil)
+        // the keyboard's frame is in the screen's space: a window that isn't the whole screen
+        // (Windowed Apps, Stage Manager, Split View) sits elsewhere on it (B119)
+        let inView = canvasView.convert(end, from: win.screen.coordinateSpace)
         keyboardTop = inView.minY < canvasView.bounds.maxY ? inView.minY : nil
         keepAboveKeyboard()
         onShown?()
