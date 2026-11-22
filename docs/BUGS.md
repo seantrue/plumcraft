@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B76. The iPad bench leaves each Instruments trace's working file in the temporary folder
+
+- Reported: 2026-11-21
+- Report: found by the controller after the wire trace: six `instruments*.ktrace` files, 19 GB together, were left in the temporary folder by six traces, although `bench.sh` was changed earlier the same day to give each trace its own temporary folder and delete it. The earlier run of this fault filled the Mac's disk.
+- Context: `native/apple/PlumCraftPad/bench.sh`, `trace-wires` and `trace-device`.
+- Issue: none
+
 ### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
 
 - Reported: 2026-11-21
