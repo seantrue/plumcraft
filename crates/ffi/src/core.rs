@@ -850,6 +850,12 @@ impl Core {
     /// every document), and the feed says when (`changed`, domain `engine`). Requests for a
     /// document whose engine hasn't connected yet are held and answered once it has.
     pub fn open(config: &Config, wake: Option<WakeFn>, ctx: *mut c_void) -> Result<Core, String> {
+        // the audio engine compiled in, as text and array are (before anything asks which
+        // engines there are: the core reads the compiled-in engines' kinds once)
+        plumcraft_editor_core::engines::set_compiled_audio(plumcraft_editor_core::engines::CompiledAudio {
+            engine: plumcraft_audio::engine,
+            demo: plumcraft_audio::DEMO_WORKFLOW,
+        });
         let (kind, mode) = config.engine_and_mode()?;
         let also = config.also_targets(kind)?;
         let auto = config.auto;

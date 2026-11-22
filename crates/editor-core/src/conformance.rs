@@ -18,7 +18,9 @@
 //!
 //! **Needs:** `needs: [capability]` runs the case only on a driver that has every one
 //! ([`Driver::has`]): `engine:text` and `engine:array` (an engine of that pack is connected, so
-//! runs and watches work), `media` (it serves `media.get`), `reports` (the suite gives it its
+//! runs and watches work), `engine:audio` (the audio engine is compiled in, as the C ABI's is
+//! since 2026-11-22, or connected), `engine:ports` (the test engine for the port and graph
+//! rows, `crates/ports`, is connected or installed: never in a shipped app), `media` (it serves `media.get`), `reports` (the suite gives it its
 //! measurements), `manifests` (its engines folder is the suite's), `install` (its platform can
 //! install engines and its core asks Install Engine… with the core's form: a shell with no
 //! install window of its own; decision 5, N4 person gate). A case a driver can't run is skipped, and the outcome says so.

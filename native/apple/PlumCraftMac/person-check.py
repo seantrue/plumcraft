@@ -169,6 +169,22 @@ def layout_ok(sheet, axsheets):
     return problems, seen_ax
 
 
+def console_locked():
+    """Whether the Mac's screen is locked: accessibility then sees no app's windows, so what the
+    check reads or presses through it can't be done (2026-11-22: a run at night saw none)."""
+    try:
+        import plistlib
+        out = subprocess.run(["ioreg", "-n", "Root", "-d1", "-a"], capture_output=True, timeout=20).stdout
+        return bool(plistlib.loads(out).get("IOConsoleLocked"))
+    except (subprocess.SubprocessError, ValueError, OSError):
+        return False
+
+
+def ax_blind(name, why="the screen is locked: accessibility sees no app windows"):
+    """A step that needs accessibility, while it can't see: said, not failed."""
+    return say(None, name, f"not done: {why}")
+
+
 def axrun(*a):
     try:
         return json.loads(subprocess.run([A.ax, *a], capture_output=True, text=True, timeout=30).stdout)
@@ -266,7 +282,7 @@ def check_sheet(name, opener, shot):
         return say(False, name, f"no sheet appeared on the window: pick {r}; the app's last sheet {st.get('sheet')}, banner {st.get('banner')!r}; documents {docs()}")
     pic = step(f"sheet:{os.path.join(A.shots, shot)}").get("picture")
     axs = ax("sheet")
-    problems, seen_ax = layout_ok(s["sheet"], axs.get("sheets") if axs.get("trusted") else None)
+    problems, seen_ax = layout_ok(s["sheet"], axs.get("sheets") if axs.get("trusted") and not console_locked() else None)
     ctl = "; ".join(f"{c['kind']} {c.get('axLabel') or c['text']!r}" for c in s["sheet"]["controls"] if c["kind"] != "label")
     ok = not problems
     say(ok, name, f"a sheet ({s['sheet']['class']}, {s['sheet']['size']}): {ctl}; picture {pic}; {seen_ax}" + ("" if ok else "; " + "; ".join(problems)))
@@ -291,7 +307,7 @@ ENGINE_GRAPH = {
     "engines": ["person_text"],
     "nodes": {
         "story": {"kind": "text.literal", "pos": [0, 0], "engine": "person_text", "values": {"text": "a corgi naps"}},
-        "think": {"kind": "text.slow", "pos": [320, 0], "engine": "person_text", "values": {"seconds": 3.0}},
+        "think": {"kind": "text.slow", "pos": [320, 0], "engine": "person_text", "values": {"seconds": 6.0}},
         "rep": {"kind": "text.repeat", "pos": [640, 0], "engine": "person_text", "values": {"times": 2}},
         "shout": {"kind": "text.upper", "pos": [960, 0], "engine": "person_text"},
         "broken": {"kind": "text.fail", "pos": [320, 300], "engine": "person_text"},
@@ -460,14 +476,17 @@ def engine_half(port, outside):
         f"story {seen.get('story')}, think {seen.get('think')}, rep {seen.get('rep')}, shout {seen.get('shout')}")
 
     # E6. F30 Auto-run: Run › Auto-Run on, an edit runs by itself; then off
+    def auto_checked():
+        return [i.get("checked") for i in step("menu:Run").get("items", []) if i.get("title") == "Auto-Run"]
     a = step("menu-pick:Run/Auto-Run")
-    checked = [i.get("checked") for i in step("menu:Run").get("items", []) if i.get("title") == "Auto-Run"]
+    # the check follows the core's state, which the menu reads once the feed has brought it
+    checked = wait(lambda: (lambda c: c if c == [True] else None)(auto_checked()), 10, every=0.2) or auto_checked()
     step("edit:rep.times")
     step("field:4")
     step("return")
     auto = wait(lambda: (lambda f: f if state(f, "rep") == "done" and "a corgi wakes" * 4 in json.dumps(f.get("rep", {})) or (state(f, "shout") == "done" and "A CORGI WAKES" * 4 in json.dumps(f.get("shout", {}))) else None)(faces()), 20, every=0.2)
     step("menu-pick:Run/Auto-Run")
-    off = [i.get("checked") for i in step("menu:Run").get("items", []) if i.get("title") == "Auto-Run"]
+    off = wait(lambda: (lambda c: c if c == [False] else None)(auto_checked()), 10, every=0.2) or auto_checked()
     say(bool(a.get("ok") and checked == [True] and auto and off == [False]),
         "F30 auto-run: with Run › Auto-Run checked an edit runs by itself; unchecked again",
         f"pick {a.get('ok')}; checked {checked} then {off}; ran by itself {bool(auto)}")
@@ -503,6 +522,75 @@ def engine_half(port, outside):
     step("use:0")
 
 
+AUDIO_GRAPH = {
+    "version": 1,
+    "nodes": {
+        "tone": {"kind": "audio.tone", "pos": [0, 0], "values": {"seconds": 1.0}},
+        "gain": {"kind": "audio.gain", "pos": [420, 0], "values": {"db": -6.0}},
+    },
+    "wires": [{"from": {"node": "tone", "port": "audio"}, "to": {"node": "gain", "port": "audio"}}],
+}
+
+
+def audio_viewer(port):
+    """The audio engine compiled in (2026-11-21, "Compile array,audio,text in"): a graph of its
+    nodes opened as the Finder opens a file runs on it in process; its sound popped out by a click
+    on the output pin opens the audio viewer, and Play in the viewer's bar (pressed as an
+    assistive app presses it) plays and Pause pauses it in the core's state. Nothing is heard: a
+    scripted launch's player is muted."""
+    path = os.path.join(A.scratch, "audio-check.json")
+    with open(path, "w") as f:
+        json.dump(AUDIO_GRAPH, f)
+    r = step(f"open:{path}")
+    mine = wait(lambda: [d for d in docs() if d["path"] and os.path.realpath(d["path"]) == os.path.realpath(path) and d["ready"]], 30, every=0.3)
+    if not (r.get("ok") and mine):
+        say(False, "the audio engine compiled in: its graph opened", f"open {r}; documents {docs()}")
+        return
+    doc = mine[0]["doc"]
+    k = next(i for i, d in enumerate(docs()) if d["doc"] == doc)
+    step(f"use:{k}")
+
+    def engines():
+        return port.call("ui.inspect", {}, doc=doc).get("engine", {})
+    e = wait(lambda: (lambda x: x if any(y.get("id") == "audio" and (y.get("state") or {}).get("state") == "connected" for y in x.get("engines", [])) else None)(engines()), 60, every=0.5) or engines()
+    added = port.call("command.run", {"command": "engine.list", "params": {}}, doc=doc).get("added", [])
+    hosting = next((a.get("mode") for a in added if a.get("engine") == "audio"), None) or (e.get("mode") if e.get("engine") == "audio" else None)
+    say(bool(e) and hosting == "inproc", "the audio engine compiled in: started in process for its graph",
+        f"engines {[(y.get('id'), (y.get('state') or {}).get('state')) for y in e.get('engines', [])]}; audio hosted {hosting!r}")
+    step("tap:out=gain.0")
+
+    def win():
+        return next((x for x in status().get("windows", []) if x.get("doc") == doc), {})
+    pops = wait(lambda: (lambda p: p if p and p[0].get("viewer") == "audio" else None)(win().get("popouts")), 60, every=0.3) or win().get("popouts") or []
+    pid = (pops or [{}])[0].get("id")
+    got = port.call("popout.get", {"id": pid}, doc=doc) if pid is not None else {}
+    form = got.get("form") or {}
+    say(bool(pops) and got.get("viewer") == "audio" and form.get("kind") == "audio" and (form.get("frames") or 0) > 0,
+        "the gain's sound popped out by a click on its pin: the audio viewer, the sound's form from the engine",
+        f"pop-outs {[(p.get('viewer'), p.get('title')) for p in pops]}; viewer {got.get('viewer')!r}, form {form}")
+    if pid is None:
+        return
+    title = pops[0].get("title") or ""
+    if console_locked():
+        ax_blind("the audio viewer's Play and Pause")
+        return close_audio(port, doc)
+    pr = axrun("press", str(A.pid), "audio-play", title)
+    playing = wait(lambda: (port.call("popout.get", {"id": pid}, doc=doc).get("state") or {}).get("audio", {}).get("playing") is True, 10, every=0.2)
+    pr2 = axrun("press", str(A.pid), "audio-play", title)
+    paused = wait(lambda: (port.call("popout.get", {"id": pid}, doc=doc).get("state") or {}).get("audio", {}).get("playing") is False, 10, every=0.2)
+    say(bool(pr.get("pressed") and playing and pr2.get("pressed") and paused), "the audio viewer's Play and Pause, pressed as an assistive app presses them: the core's state follows (nothing heard)",
+        f"Play pressed {pr.get('pressed')}, playing {bool(playing)}; Pause pressed {pr2.get('pressed')}, paused {bool(paused)}")
+    close_audio(port, doc)
+
+
+def close_audio(port, doc):
+    port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, "audio-check-saved.json")}}, doc=doc)
+    wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
+    step("menu-pick:File/Close")
+    wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
+    step("use:0")
+
+
 def main():
     global A
     p = argparse.ArgumentParser()
@@ -524,6 +612,8 @@ def main():
         "launch: an untitled graph window", f"documents {[(d['title'], d['path'] or 'no file', 'visible' if d['visible'] else 'hidden') for d in ds]}"
         + (f"; accessibility: windows {[w.get('title') for w in axw]}" if axw is not None else "; accessibility not trusted"))
     port = Port()
+    if console_locked():
+        say(None, "accessibility", "the screen is locked: accessibility sees no app windows, so what is read or pressed through it is left out (each says so); the panels are cancelled from inside the app")
 
     # 1b. B87: the engines folder's unreadable manifest is said: the engine's state and the
     # window's banner (the core's status line, which the Mac shows as its banner)
@@ -635,12 +725,20 @@ def main():
                 f"killed {old}; engine cell meanwhile {down}; new process {again}; engine {status().get('engine', {}).get('label')!r}; watched {val2}")
         # the pop-out's bar: Recipe (decision 27), pressed as an assistive app presses it
         title = (pops or [{}])[0].get("title")
-        pr = subprocess.run([A.ax, "press", str(A.pid), "viewer-recipe", title or ""], capture_output=True, text=True, timeout=30).stdout.strip()
+        if console_locked():
+            ax_blind("the pop-out's Recipe")
+            pr = None
+        else:
+            pr = subprocess.run([A.ax, "press", str(A.pid), "viewer-recipe", title or ""], capture_output=True, text=True, timeout=30).stdout.strip()
         rec = wait(lambda: status().get("recipe"), 10, every=0.3)
-        say(bool(rec and rec.get("shown")), "the pop-out's Recipe", f"pressed {pr}; the app says {rec}")
+        if pr is not None:
+            say(bool(rec and rec.get("shown")), "the pop-out's Recipe", f"pressed {pr}; the app says {rec}")
 
         # the engine half (decision 10): the engine-interface rows on the installed engine
         engine_half(port, outside)
+
+        # the audio engine compiled in, and its viewer
+        audio_viewer(port)
 
     # 6, 7. Attach… and Install Engine… show real sheets, labels beside their fields (B73)
     check_sheet("Engine › Attach…: a real sheet", "Engine/Attach…", "attach-sheet.png")
@@ -678,7 +776,16 @@ def main():
     else:
         axrun("press", str(A.pid), "CancelButton")
     gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
-    say(bool(at.get("ok") and panel and seen.get("name") == "person.json" and seen.get("folder") == os.path.basename(folder) and gone and not allowed),
+    if panel and not gone:
+        # never left open: cancelled from inside the app (never Save)
+        step("panel-cancel")
+        gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
+    if console_locked():
+        ax_blind("File › Save As…: the save panel's own fields")
+        say(bool(at.get("ok") and panel and gone and not allowed), "File › Save As…: the save panel opened and was cancelled (not pressed)",
+            f"panel {panel['sheet']['class'] if panel else None}; cancelled {bool(gone)}")
+    else:
+      say(bool(at.get("ok") and panel and seen.get("name") == "person.json" and seen.get("folder") == os.path.basename(folder) and gone and not allowed),
         "File › Save As…: the save panel opens on the scratch folder with the name, read from the panel itself, then Cancel",
         f"pick {r.get('ok')}; panel {panel['sheet']['class'] if panel else None}; the panel's own name field {seen.get('name')!r}, "
         f"folder {seen.get('folder')!r} (wanted {os.path.basename(folder)!r}); Save not pressed: {why}; cancelled {bool(gone)}")
@@ -741,10 +848,18 @@ def main():
     oseen = dict(last)
     axrun("press", str(A.pid), "CancelButton")
     closed_panel = wait(lambda: not panel_fields(sheet=False).get("folders"), 10, every=0.5)
-    say(bool(r.get("ok") and os.path.basename(folder) in (oseen.get("folders") or []) and closed_panel),
-        "File › Open…: the open panel opens on the scratch folder, read from the panel itself, then Cancel",
-        f"pick {r.get('ok')} ({r.get('target') or r.get('error')}); the panel's own folder pop-up(s) {oseen.get('folders')}; Open not pressed; cancelled {bool(closed_panel)}"
-        + ("" if oseen.get("folders") else f"; windows seen {oseen.get('windows')}"))
+    # never left open: cancelled from inside the app too (never Open); it answers "no panel"
+    # once it is gone
+    cancelled_inside = step("panel-cancel")
+    if console_locked():
+        ax_blind("File › Open…: the open panel's own folder")
+        say(bool(r.get("ok")), "File › Open…: the open panel opened and was cancelled (not pressed)",
+            f"pick {r.get('ok')}; cancelled from inside {cancelled_inside.get('ok')}")
+    else:
+        say(bool(r.get("ok") and os.path.basename(folder) in (oseen.get("folders") or []) and closed_panel),
+            "File › Open…: the open panel opens on the scratch folder, read from the panel itself, then Cancel",
+            f"pick {r.get('ok')} ({r.get('target') or r.get('error')}); the panel's own folder pop-up(s) {oseen.get('folders')}; Open not pressed; cancelled {bool(closed_panel)}"
+            + ("" if oseen.get("folders") else f"; windows seen {oseen.get('windows')}"))
     inv = port.call("ui.invoke", {"command": "graph.open"})
     ask = next((a for a in inv.get("asks", []) if a.get("kind") == "file.open"), None)
     if ask:

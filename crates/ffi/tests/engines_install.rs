@@ -181,6 +181,45 @@ fn a_platform_without_programs_offers_attached_manifest_engines_and_refuses_inst
     c.close();
 }
 
+/// Decision 17 on the iPad's platform: an engine whose manifest warned (a copy of a project's,
+/// which starts a program) is listed in the Engine menu disabled with the platform's reason and
+/// still carries its `warning`, which the iPad draws as the symbol and the subtitle.
+#[test]
+fn a_platform_without_programs_lists_a_warned_engine_disabled_and_marked() {
+    let dir = plumcraft_scratch::dir("ffi-engines-ipad-warned");
+    let folder = dir.join("engines");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("copied.toml"),
+        "id = \"copied\"\nname = \"Copied Engine\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"copied_engine\"]\ncwd = \".\"\n",
+    )
+    .unwrap();
+    // the program it names must be there for the manifest to load (it is never started here)
+    std::fs::write(folder.join("uv"), "#!/bin/sh\nexit 1\n").unwrap();
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(folder.join("uv"), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let config = json!({"store_root": store_root("engines-ipad-warned"), "engines": {"default": "text"},
+                        "platform": {"os": "ios", "subprocess": false, "python": false, "craft_apps": false}, "dirs": {"engines": folder}});
+    let mut c = Client::open(&config);
+    let m = c.call("menu.get", json!({}));
+    fn find(v: &Value) -> Option<Value> {
+        match v {
+            Value::Object(o) if o.get("label").and_then(Value::as_str).is_some_and(|l| l.starts_with("Copied Engine")) => Some(v.clone()),
+            Value::Object(o) => o.values().find_map(find),
+            Value::Array(a) => a.iter().find_map(find),
+            _ => None,
+        }
+    }
+    let eng = c.call("ui.inspect", json!({}))["result"]["engine"].clone();
+    let item = find(&m["result"]).unwrap_or_else(|| panic!("the warned engine is listed: engine {eng}"));
+    assert_eq!(item["enabled"], false, "{item}");
+    assert!(item["reason"].as_str().is_some_and(|r| r.contains("can't start programs")), "{item}");
+    assert!(item["warning"].as_str().is_some_and(|w| w.contains("may be a copy")), "{item}");
+    c.close();
+}
+
 #[test]
 fn a_config_names_its_engines_folder_manifests_and_uv_or_is_refused() {
     let bad = [

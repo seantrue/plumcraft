@@ -98,7 +98,8 @@ impl Driver for Abi {
     /// The engine it was opened on, `media.get` (the C ABI serves it), and the suite's engines
     /// folder (every core here is opened with it, [`engines`]).
     fn has(&self, capability: &str) -> bool {
-        capability == "media" || capability == "manifests" || capability.strip_prefix("engine:") == Some(self.1)
+        // the audio engine is compiled into the C ABI's library (2026-11-21): every core has it
+        capability == "media" || capability == "manifests" || capability == "engine:audio" || capability.strip_prefix("engine:") == Some(self.1)
     }
     /// Wait for the core's wake (at most 50 ms), then poll it.
     fn pause(&mut self) {
@@ -139,7 +140,12 @@ fn the_suite_passes_through_the_c_abi() {
         .unwrap()
         .into_iter()
         // and those for Install Engine…'s form (`install`: this core is not on a platform that installs engines)
-        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array")) || n.contains(&serde_json::json!("install"))))
+        // and the test engine's (`engine:ports`: the launched Mac app and egui run them)
+        .filter(|c| {
+            c["needs"].as_array().is_some_and(|n| {
+                n.contains(&serde_json::json!("engine:array")) || n.contains(&serde_json::json!("install")) || n.contains(&serde_json::json!("engine:ports"))
+            })
+        })
         .filter_map(|c| c["name"].as_str().map(str::to_owned))
         .collect();
     assert!(arrays.len() >= 5);
@@ -245,7 +251,7 @@ impl Driver for Port {
     /// The text engine (the core's default), the suite's engines folder, and `media.get`, which the
     /// port serves since N5 slice 4.
     fn has(&self, capability: &str) -> bool {
-        capability == "engine:text" || capability == "manifests" || capability == "media"
+        capability == "engine:text" || capability == "engine:audio" || capability == "manifests" || capability == "media"
     }
     /// The typed move's JSON form (`geometry.dragMove`, N5 slice 4): the suite's `hot` steps run
     /// over the port too.

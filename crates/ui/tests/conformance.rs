@@ -108,7 +108,15 @@ fn the_suite_passes_on_the_egui_editor() {
         .unwrap()
         .into_iter()
         // and those for Install Engine…'s form (`install`: egui has its own Install window, not the core's form)
-        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array")) || n.contains(&serde_json::json!("install"))))
+        // and the audio engine's (below, on the editor linked to it)
+        .filter(|c| {
+            c["needs"].as_array().is_some_and(|n| {
+                n.contains(&serde_json::json!("engine:array"))
+                    || n.contains(&serde_json::json!("install"))
+                    || n.contains(&serde_json::json!("engine:audio"))
+                    || n.contains(&serde_json::json!("engine:ports"))
+            })
+        })
         .filter_map(|c| c["name"].as_str().map(str::to_owned))
         .collect();
     assert!(arrays.len() >= 5);
@@ -123,4 +131,27 @@ fn the_array_cases_pass_on_the_egui_editor() {
         conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:array")))).collect();
     let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
     assert!(!out.is_empty() && out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));
+}
+
+/// The audio engine's case on the editor linked to it in process (the egui editor itself, being
+/// published, starts the audio engine as a process: its SoundCraft crates are git dependencies).
+#[test]
+fn the_audio_case_passes_on_the_egui_editor() {
+    let mut d = editor(plumcraft_audio::engine, "audio");
+    let cases: Vec<Value> =
+        conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:audio")))).collect();
+    assert!(!cases.is_empty());
+    let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
+    assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));
+}
+
+/// The test engine's cases (the port and graph rows), on the editor linked to it in process.
+#[test]
+fn the_ports_cases_pass_on_the_egui_editor() {
+    let mut d = editor(plumcraft_ports::engine, "ports");
+    let cases: Vec<Value> =
+        conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:ports")))).collect();
+    assert!(cases.len() >= 3);
+    let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
+    assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));
 }

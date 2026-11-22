@@ -713,6 +713,23 @@ def _resolve_inputs(
     params: dict[str, Any] = {}
     for port in d.get("inputs") or []:
         name = port["name"]
+        var = port.get("variadic")
+        if isinstance(var, dict):
+            # A variadic input (spec 7.6 rule 4): each wired slot (`c1`, `c2`, …) arrives under its
+            # own name; an unwired slot is absent (2026-11-22: missing here, as the Rust SDK has it)
+            got = False
+            for w in upstream:
+                slot = w["to"]["port"]
+                if _is_slot(var, slot) and w["from"]["port"] in values.get(w["from"]["node"], {}):
+                    inputs[slot] = _deliver(w, values[w["from"]["node"]][w["from"]["port"]])
+                    got = True
+            for slot, v in (bound or {}).items():
+                if _is_slot(var, slot):
+                    inputs[slot] = v
+                    got = True
+            if not got and int(var.get("min") or 0) > 0 and not port.get("optional", False):
+                raise NodeError(NodeError.CONFIG, f"input {quoted(name)}: connect at least one")
+            continue
         numeric = {"INT": memo.INT, "FLOAT": memo.FLOAT}.get(port.get("type", ""))
         wire = next((w for w in upstream if w["to"]["port"] == name), None)
         if bound and name in bound:
@@ -734,7 +751,47 @@ def _resolve_inputs(
         elif name in params and is_source and isinstance(params[name], str):
             # A file source is keyed by its content, never its path (spec 14.3).
             params[name] = _source_identity(params[name]) or params[name]
+        # A choice with sub-ports (spec 7.6, `options`): the chosen option's ports arrive as
+        # `<port>.<sub>`, wired or from their widgets or defaults, and key the memo as inputs do
+        # (2026-11-22: missing here as in the Rust SDK's executor, which the ports test engine found)
+        options = port.get("options")
+        chosen = inputs.get(name)
+        if isinstance(options, dict) and chosen is not None:
+            key_of = chosen if isinstance(chosen, str) else json.dumps(chosen)
+            for sub in options.get(key_of) or []:
+                key = f"{name}.{sub['name']}"
+                sub_numeric = {"INT": memo.INT, "FLOAT": memo.FLOAT}.get(sub.get("type", ""))
+                sub_wire = next((w for w in upstream if w["to"]["port"] == key), None)
+                if bound and key in bound:
+                    inputs[key] = bound[key]
+                elif sub_wire is not None and sub_wire["from"]["port"] in values.get(sub_wire["from"]["node"], {}):
+                    inputs[key] = _deliver(sub_wire, values[sub_wire["from"]["node"]][sub_wire["from"]["port"]])
+                elif wn["values"].get(key) is not None:
+                    inputs[key] = params[key] = memo.coerce(wn["values"][key], sub_numeric)
+                elif sub.get("default") is not None:
+                    inputs[key] = params[key] = memo.coerce(sub["default"], sub_numeric)
+                elif not sub.get("optional", False):
+                    raise NodeError(NodeError.CONFIG, f"input {quoted(key)} has no value")
     return inputs, params
+
+
+def _is_slot(var: dict, name: str) -> bool:
+    """Whether `name` is one of a variadic input's slots: one of its `names`, or its `template` with
+    `{n}` a whole number from 1 to `max` (0: no limit), as the Rust SDK reads it."""
+    if name in (var.get("names") or []):
+        return True
+    template = str(var.get("template") or "")
+    if "{n}" not in template:
+        return False
+    pre, post = template.split("{n}", 1)
+    if not (name.startswith(pre) and name.endswith(post)) or len(name) <= len(pre) + len(post):
+        return False
+    digits = name[len(pre) : len(name) - len(post)]
+    if not digits.isascii() or not digits.isdigit():
+        return False
+    n = int(digits)
+    top = int(var.get("max") or 0)
+    return n >= 1 and (top == 0 or n <= top)
 
 
 def _materialize_source(root: str | None, src: Any) -> tuple[str, str]:

@@ -37,6 +37,7 @@
 
 import AppKit
 import PlumCraft
+import PlumCraftCanvas
 import PlumCraftModels
 import PlumCraftShell
 
@@ -269,6 +270,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // start more than one), so a script can quit each by its PID
         Status.shared.path = CoreHost.options.statusFile
         Status.shared.notePid()
+        // what is animating now, for scripts and the UI tests (empty when idle; Activity)
+        Status.shared.set("animating", .array([]))
+        Activity.shared.onChange = { names in Status.shared.set("animating", .array(names.map(JSONValue.string))) }
         switch CoreHost.options.appearance {
         case "dark"?: NSApp.appearance = NSAppearance(named: .darkAqua)
         case "light"?: NSApp.appearance = NSAppearance(named: .aqua)

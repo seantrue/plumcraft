@@ -73,7 +73,8 @@ func log(_ driver: String, _ out: [Outcome]) {
         let core = try openCore("conf-kit-read")
         defer { core.close() }
         let d = KitDriver(core: core, engine: "text")
-        d.also = ["manifests"]
+        // the audio engine is compiled into the C ABI's library (2026-11-21): every core here has it
+        d.also = ["manifests", "engine:audio"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: .read)
         log(d.name, out)
@@ -111,7 +112,8 @@ func log(_ driver: String, _ out: [Outcome]) {
         model.start()
         let d = try await PortDriver(port: UInt16(port), token: token, following: model)
         defer { d.close() }
-        d.also = ["manifests"]
+        // the audio engine is compiled into the C ABI's library (2026-11-21): every core here has it
+        d.also = ["manifests", "engine:audio"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: .read)
         log(d.name, out)
@@ -128,7 +130,8 @@ func log(_ driver: String, _ out: [Outcome]) {
         let core = try openCore("conf-kit-all")
         defer { core.close() }
         let d = KitDriver(core: core, engine: "text")
-        d.also = ["manifests"]
+        // the audio engine is compiled into the C ABI's library (2026-11-21): every core here has it
+        d.also = ["manifests", "engine:audio"]
         let cases = try Conformance.cases(at: casesURL)
         let out = await Conformance.run(d, cases: cases, half: nil)
         log(d.name + ", every case", out)
