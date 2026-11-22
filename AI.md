@@ -20,6 +20,12 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Note 25: the engine split, saved for later (Claude Fable 5.2)
+
+**What the maintainer proposed and decided.** Splitting the built-in engines into array, audio, image, video, tabular and text, with platform viewers for the media engines and database interop for tabular; then: "Save the thinking on the refactoring of engines. We'll do it after the plummer development line can replace plumcraft, but before refactoring [the research software's PlumCraft port]."
+
+**What the AI did.** Wrote `docs/research/25-engine-split.md` (about 90 lines): the proposal in the maintainer's words, a count of today's node kinds from a quick read of the three engine crates, where they would go, eight impacts (the largest: renamed kinds break saved graphs and no alias mechanism exists), a possible order, and five open decisions with none answered. The counts and estimates are from a quick read, not a study, and the note says so.
+
 ### 2026-11-22 — Audio compiled into the native apps; the engine half on the iPad; a test engine for ports (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "Compile array,audio,text in. Yes to the rest", to four questions: the iPad's engine half uses engines compiled into the app (against the controller's suggestion of attaching over HTTP), with audio joining text and array; Open Recent's menu items stay unseen by the person check; the apps report what is animating; a test engine with its own nodes covers the port and graph rows. The reading that the first sentence answers the iPad question is the controller's.
