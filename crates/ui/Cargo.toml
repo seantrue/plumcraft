@@ -65,6 +65,8 @@ plumcraft-engine = { path = "../engine" }
 plumcraft-text = { path = "../text" }
 plumcraft-audio = { path = "../audio" }
 plumcraft-array = { path = "../array" }
+# the test engine for the port and graph rows (the conformance suite's ports cases)
+plumcraft-ports = { path = "../ports" }
 serde_yaml = "0.9"
 # wgpu: the offscreen snapshot example renders with it; the kittests only query the
 # accessibility tree and never render.

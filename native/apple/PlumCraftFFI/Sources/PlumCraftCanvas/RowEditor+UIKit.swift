@@ -222,6 +222,7 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
         guard let top = keyboardTop, let c = control else { return }
         let lift = EditorPlacement.lift(c.frame, keyboardTop: top)
         guard lift != 0 else { return }
+        Activity.shared.timed("keyboard-lift", 0.28)
         let v = canvasView.canvas.viewport
         canvasView.canvas.setViewport(Viewport(pan: CGPoint(x: v.pan.x, y: v.pan.y + lift), zoom: v.zoom), animated: true)
     }

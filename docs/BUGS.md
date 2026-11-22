@@ -98,6 +98,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: the controller's device run of the iPad UI tests (the maintainer present; built from the main checkout, `build-device/test`): `testInlineEdits` passed but took 863 s; "App animations complete notification not received" 14 times in the run
 - Context: the log shows the first field (text) typed into and Done tapped normally; then `7` typed into the `count` row's number field (the numbers-and-punctuation keyboard), and from the tap on `row-editor-done` that follows the app never reported idle again: every later step waited 60 s first. So something starts animating or redrawing with the number field's editor and doesn't stop after it closes; a battery defect on a device too.
 - Looked into (branch `native/n4-decided-2`, no device use): **not reproduced** on an iPad Pro 11-inch (M5) simulator booted headless (the software number keyboard shows, as on the device), in portrait, with the status read from the file and again from the accessibility element as the device read it: `testInlineEdits` passed in 21 s and 22 s, no idle wait. What runs without end in the iPad's canvas: only a running face's wash pulse (`LayerCanvas`, `repeatCount = .infinity`, while a face shows running); the pan momentum's display link stops itself; the wire tiles have no timer; the keyboard's lift (`FieldEditorHost.keepAboveKeyboard`) animates the viewport once per keyboard frame change. Candidates on a device: a face left showing running (its pulse), or the keyboard lift and the keyboard's frame notifications feeding each other at the device's keyboard height. Needs the device: re-run with the app reporting what animates (a pulse, the momentum link, a viewport animation) in its status.
+- Looked into again (2026-11-22, branch `native/n4-engine-half`, no device use): both Apple apps now report what is animating in their status (`animating`: a running face's pulse, the run colours' fade, an animated pan or zoom, the reveal, the pan's momentum, the keyboard lift; empty when idle), and the UI tests print it on every "timed out waiting". `testInlineEdits` now asserts it empties within 8 s of the number field's Done. On the iPad Pro 11-inch (M5) simulator, booted headless so the software keyboard shows (it did: the numbers keyboard, as on the device), with the status read from the file and then from the accessibility element as the device reads it, the test passed every time (four runs) and `animating` emptied: **still not reproduced.** The device re-run now says what was animating if it happens again.
 - Issue: none
 
 ### B112. On the iPad, the table viewer's output pin double-tapped did not pop it out (`testEveryViewerByATap`)
@@ -112,6 +113,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-21
 - Report: the controller's device run: "timed out waiting for zoomed in by the pinch" (zoom stayed 1), "the palette dismissed", "the marquee selected", and `GestureTests.swift:122` and `:226` (no "Select" button)
 - Looked into: **not reproduced** on the simulator: passed in 39 s and 40 s. The later failures follow the first (the zoom never changed, so the points the test aims at were elsewhere). The Select button is the toolbar's Select mode (`canvas.selectMode`, N4 slice 3); a device window narrower than regular width puts it in the More menu, where the test doesn't look. Needs a device re-run, with the window's width class and the toolbar's items in the failure's attachments.
+- Issue: none
+
+### B118. On the iPad simulator the software keyboard was up after a launch with nothing being edited
+
+- Reported: 2026-11-22
+- Report: seen in a picture taken by the new UI test `testAWarnedEngineIsMarkedInTheMenu` (branch `native/n4-engine-half`), the first test of its run, right after launch and with the More menu and its Engine submenu open: the full software keyboard was on screen though no field was open
+- Context: the canvas's controller becomes first responder at launch (`GraphViewController`, for the hardware keyboard's commands) but takes no text; no other test's picture shows the keyboard without a field. Seen in each run of that test whose picture or element list I read (five), a test which launches with no `--then` steps (the other tests' first step may put it away); the test's tap on the keyboard's Hide key didn't hide it. Not looked into further. On a device with no hardware keyboard a keyboard over half the screen is what a person would see. Worth checking with B111 (the device never idle once a field's keyboard had been up)
 - Issue: none
 
 ### B114. On the iPad, `testWindowsAndNames` failed: not inside the group, no `crumb.0` button
@@ -145,6 +153,35 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B117. With the screen locked the person check failed its accessibility steps and left the save panel open
+
+- Reported: 2026-11-22
+- Report: found by a person check run at night (branch `native/n4-engine-half`)
+- Context: with the screen locked (`IOConsoleLocked`), accessibility sees no app's windows: the check's Recipe, Play, the sheets' layout from outside and the panels' own fields all failed, Cancel couldn't be pressed in the save panel, so it stayed open, File › Close found it, and Quit didn't end the app (killed by its PID). Nothing was pressed; the home listing and the person's Library were unchanged.
+- Fix: the check reads `IOConsoleLocked`; while locked, each step that needs accessibility says so (a SEE line) instead of failing, and the panels are cancelled from inside the app (the `panel-cancel` step), which also runs after every panel whether or not accessibility pressed Cancel. Never Save or Open.
+- Verified: a run with the screen locked: 48 PASS, 0 FAIL, 6 SEE, the app quit by itself; runs with it unlocked do every accessibility step.
+- Seen later (2026-11-22, the gate runs): with the screen locked the app also takes its steps more slowly (probably the system napping a window nobody can see), so the engine half's 3-second slow node finished before Run › Cancel Run was picked (F36), before the second Run (F29), and Run › Auto-Run's check was read before the menu had followed the core (F30). The slow node now takes 6 s and the Auto-Run check is waited for. Runs on the unlocked screen never failed these.
+- Fixed: 2026-11-22
+- Issue: none
+
+### B116. The Python SDK's executor passed no choice sub-port value and no variadic slot to a node
+
+- Reported: 2026-11-22
+- Report: found while fixing B115 (branch `native/n4-engine-half`)
+- Context: `python/src/plumcraft_engine/exec.py` `_resolve_inputs` read only a definition's own inputs: a choice's sub-port (`how.width`) and a variadic input's slots (`c1`, `c2`, …) never reached the node, and a sub-port's value never keyed the memo.
+- Fix: both resolved as the Rust SDK does (`_is_slot` mirrors its rule).
+- Verified: `python/tests/test_subports.py` (5 tests).
+- Fixed: 2026-11-22
+- Issue: none
+
+### B115. The Rust SDK's executor passed no choice sub-port value to a node
+
+- Reported: 2026-11-22
+- Report: found by the ports test engine's conformance case on the egui editor (branch `native/n4-engine-half`)
+- Context: `crates/engine/src/exec.rs` `resolve_inputs`: a choice with `options` showed its sub-port on the face (`how.width`) and the graph kept its value, but the node never received it (it ran with its own default), and the value didn't key the memo, so changing it reran nothing.
+- Fix: the chosen option's ports arrive as `<port>.<sub>`, wired, from their values or defaults, and key the memo as inputs do.
+- Verified: the conformance case "ports: a variadic input, a choice's sub-port…" (egui, the launched Mac app).
+- Fixed: 2026-11-22
 ### B94. The Windows palette's kinds had no names for UI Automation
 
 - Reported: 2026-11-22

@@ -26,6 +26,36 @@ fn runs_text(c: &mut Client) {
     assert_eq!(done["result"]["nodes"][&up]["state"], "done", "{done}");
 }
 
+/// The audio engine compiled in (2026-11-21, "Compile array,audio,text in"): on a platform that
+/// starts no programs (an iPad's), its demo opens on the core's own document, the core starts the
+/// audio engine in process for the graph's kinds, and the whole demo runs.
+#[test]
+fn the_audio_demo_runs_on_the_audio_engine_compiled_in() {
+    let mut c = Client::open(&json!({"store_root": store_root("audio-inproc"), "platform": {"os": "ios", "subprocess": false}}));
+    let demo = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/plumcraft-editor/demos/audio.json");
+    let r = command(&mut c, "graph.open", json!({"path": demo, "discard": true}));
+    assert_eq!(r["ok"], true, "{r}");
+    let t0 = std::time::Instant::now();
+    loop {
+        let i = c.call("ui.inspect", json!({}));
+        let audio = i["result"]["engine"]["engines"].as_array().into_iter().flatten().find(|e| e["id"] == "audio").cloned();
+        if audio.as_ref().is_some_and(|a| a["state"]["state"] == "connected") {
+            let listed = command(&mut c, "engine.list", json!({}));
+            assert!(listed["result"]["added"].as_array().unwrap().contains(&json!({"engine": "audio", "mode": "inproc"})), "in process: {listed}");
+            break;
+        }
+        assert!(t0.elapsed() < std::time::Duration::from_secs(30), "the audio engine never connected: {}", i["result"]["engine"]);
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    c.run("run.start", json!({"watch": [{"node": "peak", "port": "peak"}]}));
+    let done = c.call("spike.waitRun", json!({"timeout_ms": 60_000}));
+    assert_eq!(done["ok"], true, "{done}");
+    for n in ["tone", "fade", "gain", "verb", "peak", "lufs", "spec"] {
+        assert!(matches!(done["result"]["nodes"][n]["state"].as_str(), Some("done" | "cached")), "{n}: {done}");
+    }
+    c.close();
+}
+
 #[test]
 fn engine_commands_switch_add_remove_and_clear() {
     let mut c = Client::open(&json!({"store_root": store_root("switch")}));
@@ -43,7 +73,12 @@ fn engine_commands_switch_add_remove_and_clear() {
     // what this platform can't start isn't offered: refused, naming what is
     let r = command(&mut c, "engine.switch", json!({"engine": "text", "mode": "process"}));
     assert_eq!(r["ok"], false, "{r}");
-    assert!(r["error"].as_str().unwrap().contains("the choices: text/inproc, array/inproc"), "{r}");
+    assert!(r["error"].as_str().unwrap().contains("the choices: text/inproc, audio/inproc, array/inproc"), "{r}");
+    // the audio engine, compiled in since 2026-11-21, beside the array engine, and out again
+    let r = command(&mut c, "engine.add", json!({"engine": "audio", "mode": "inproc"}));
+    assert_eq!((r["ok"].as_bool(), r["result"]["engines"].clone()), (Some(true), json!(["array", "audio"])), "{r}");
+    let r = command(&mut c, "engine.remove", json!({"engine": "audio"}));
+    assert_eq!(r["result"]["engines"], json!(["array"]), "{r}");
     // clear: no engine, nothing runs
     let r = command(&mut c, "engine.clear", json!({}));
     assert_eq!(r["result"]["label"], "engine: not connected", "{r}");

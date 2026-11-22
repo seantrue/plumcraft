@@ -61,6 +61,35 @@ pub fn set_packs(packs: Vec<PackEngine>) -> Result<(), String> {
     PACKS.set(packs).map_err(|_| "the application started twice".to_owned())
 }
 
+/// The audio engine compiled into this application (mode 1), when the application links it.
+///
+/// Why it is registered, not a dependency of this crate as text and array are: the audio engine
+/// is built on SoundCraft's DSP and file crates, which are git dependencies (not on crates.io), so
+/// a published crate can't depend on it (commit fb9e074, "audio as a process"). The native apps'
+/// library (`plumcraft-ffi`, never published) links it and registers it here at start; the egui
+/// editor, which is published, starts it as a process. Registered, it is offered in process (its
+/// default, as text's and array's), its node kinds are known before it starts, and its demo
+/// opens; the process and HTTP hostings stay where the platform can start programs.
+#[derive(Debug, Clone, Copy)]
+pub struct CompiledAudio {
+    /// Build it, on the engine's own thread (`plumcraft_audio::engine`).
+    pub engine: fn() -> plumcraft_engine::Engine,
+    /// Its demo workflow (`plumcraft_audio::DEMO_WORKFLOW`).
+    pub demo: &'static str,
+}
+
+static AUDIO: std::sync::OnceLock<CompiledAudio> = std::sync::OnceLock::new();
+
+/// Compile the audio engine in (once per process; a second call changes nothing).
+pub fn set_compiled_audio(audio: CompiledAudio) {
+    let _ = AUDIO.set(audio);
+}
+
+/// The audio engine compiled in, if the application registered it.
+pub fn compiled_audio() -> Option<CompiledAudio> {
+    AUDIO.get().copied()
+}
+
 fn pack(i: u16) -> Option<&'static PackEngine> {
     PACKS.get().and_then(|p| p.get(usize::from(i)))
 }
@@ -407,12 +436,14 @@ impl EngineKind {
     }
 
     /// Is there an engine `self` hosted as `mode`? Only the text engine has a Python twin; the
-    /// audio engine and one a manifest names are a process or HTTP, and one already running is
-    /// only HTTP.
+    /// audio engine is a process or HTTP, and in process too where the application compiled it
+    /// in ([`compiled_audio`]); one a manifest names is a process or HTTP, and one already running
+    /// is only HTTP.
     pub fn hosts(self, mode: Mode) -> bool {
         match self {
             EngineKind::External(_) if self.attaches() => mode == Mode::HttpRust,
-            EngineKind::External(_) | EngineKind::Audio => matches!(mode, Mode::Rust | Mode::HttpRust),
+            EngineKind::Audio => matches!(mode, Mode::Rust | Mode::HttpRust) || (mode == Mode::InProc && compiled_audio().is_some()),
+            EngineKind::External(_) => matches!(mode, Mode::Rust | Mode::HttpRust),
             EngineKind::Pack(i) => mode == pack(i).map_or(Mode::InProc, PackEngine::mode),
             _ => self == EngineKind::Text || !mode.python(),
         }
@@ -439,11 +470,12 @@ impl EngineKind {
         }
     }
 
-    /// How it is hosted without a flag: the craft adapter and the audio engine as their own
-    /// processes, the others compiled in.
+    /// How it is hosted without a flag: the craft adapter as its own process, the audio engine
+    /// too unless the application compiled it in, the others compiled in.
     pub fn default_mode(self) -> Mode {
         match self {
             EngineKind::External(_) if self.attaches() => Mode::HttpRust,
+            EngineKind::Audio if compiled_audio().is_some() => Mode::InProc,
             EngineKind::External(_) | EngineKind::Audio => Mode::Rust,
             // An application on this library may be one file, with no adapter binary beside it.
             EngineKind::Craft(_) if PACKS.get().is_none_or(Vec::is_empty) => Mode::Rust,
@@ -480,7 +512,9 @@ impl EngineKind {
     pub fn engine(self) -> Result<plumcraft_engine::Engine, String> {
         match self {
             EngineKind::Text => Ok(plumcraft_text::engine()),
-            EngineKind::Audio => Err("the audio engine runs as its own process, plumcraft-audio-engine".into()),
+            EngineKind::Audio => compiled_audio()
+                .map(|a| (a.engine)())
+                .ok_or_else(|| "the audio engine isn't compiled into this application: it runs as its own process, plumcraft-audio-engine".into()),
             EngineKind::Array => Ok(plumcraft_array::engine()),
             EngineKind::Craft(id) => plumcraft_craft::manifest::Manifest::named(id).and_then(|m| plumcraft_craft::engine(&m)),
             EngineKind::External(_) => Err("an engine a manifest names runs as its own process".into()),
@@ -488,12 +522,13 @@ impl EngineKind {
         }
     }
 
-    /// Its demo workflow, where the engine carries one: `None` for the audio engine, whose demo
-    /// is the application's (it is built apart), and for an engine with none.
+    /// Its demo workflow, where the engine carries one: the audio engine's where it is compiled
+    /// in (otherwise its demo is the application's, built apart), and `None` for an engine with
+    /// none.
     pub fn own_demo(self) -> Result<Option<String>, String> {
         Ok(match self {
             EngineKind::Text => Some(plumcraft_text::DEMO_WORKFLOW.into()),
-            EngineKind::Audio => None,
+            EngineKind::Audio => compiled_audio().map(|a| a.demo.to_owned()),
             EngineKind::Array => Some(plumcraft_array::DEMO_WORKFLOW.into()),
             EngineKind::Craft(id) => plumcraft_craft::manifest::demo(id).map(str::to_owned),
             EngineKind::External(i) => match external(i).and_then(|e| e.resolved.demo) {
@@ -610,7 +645,9 @@ fn compiled_defs() -> &'static [(String, Vec<plumcraft_proto::catalogue::NodeDef
     static DEFS: std::sync::OnceLock<Vec<(String, Vec<plumcraft_proto::catalogue::NodeDef>)>> = std::sync::OnceLock::new();
     DEFS.get_or_init(|| {
         let packs = PACKS.get().map_or(0, Vec::len);
-        let kinds = (0..packs).filter_map(|i| u16::try_from(i).ok()).map(EngineKind::Pack).chain([EngineKind::Text, EngineKind::Array]);
+        // the audio engine with them where the application compiled it in
+        let audio = compiled_audio().map(|_| EngineKind::Audio);
+        let kinds = (0..packs).filter_map(|i| u16::try_from(i).ok()).map(EngineKind::Pack).chain([EngineKind::Text, EngineKind::Array]).chain(audio);
         kinds
             .filter_map(|k| {
                 let e = k.engine().ok()?;
