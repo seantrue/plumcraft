@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Save Result reaches the Mac through the core; a person check that no longer depends on machine speed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer's rule decided.** A second agent, reading the Windows shell, found that the face footer's Save Result… line was drawn but did nothing in any native shell, and patched it in the Windows shell. The maintainer's standing rule is that a shell-side user action is a defect, so the controller had it made the core's.
+
+**What the agent did (about 830 lines of Rust, Swift, Python and docs).** A footer tap is now a core gesture decided by the line's kind, and a menu item carrying `ask: true` is invoked by the core (B122), so every shell gets Save Result with no shell code. The Mac's save panel gained a Format pop-up and the options come in the app's form sheet. The Swift conformance runner gives each case a scratch folder and runs the save case. The person check saves a result node from its footer: the real panel is opened, read through accessibility and cancelled, never pressed; the file is written to scratch through a scripted answer and read back. Three person-check steps that failed one controller run in two were reworked to wait on state, not time, with a new text node that passes its input once a file exists (B123).
+
+**Defects in the agent's own work.** The Mac panel first offered the name "Result.quoted.quoted"; the person check caught it. The iPad's Save Result is written but has never been launched, because no engine the iPad runs has a result node.
+
+**Verified (agent, Mac).** The Mac gate five times in a row, two under load on every core: the suite 64 of 64 cases and the person check 54 steps passed, 0 failed, each time. iPad simulator conformance 59 of 59 with 5 skipped; UI tests 7 of 7; nextest 1,636 of 1,637 (the known baseline failure). Floor row F19 is met on the Mac. **Unexplained:** a default preferences file appeared in the maintainer's Library during the iPad part of the gate; it was left in place and reported.
+
 ### 2026-11-22 — Save Result as a basic feature of both engine SDKs (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** asked whether to add save formats to the Rust SDK or leave floor row F19 unmet, and told which SDK was meant: "Make the save an basic feature."

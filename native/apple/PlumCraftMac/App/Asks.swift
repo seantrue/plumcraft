@@ -5,7 +5,8 @@
 // answered at once; `screenshot` is answered whoever asked, from the canvas's own picture.
 //
 //   file.open, folder.pick   NSOpenPanel as a sheet
-//   file.save                NSSavePanel as a sheet
+//   file.save                NSSavePanel as a sheet; several kinds (Save Result…'s formats): a
+//                            Format pop-up under it (`FormatChoice`)
 //   prompt                   NSAlert as a sheet (Save, Don't Save, Cancel; Trust, Cancel)
 //   text, form               NSAlert as a sheet with text fields
 //   clipboard.set, .get      NSPasteboard
@@ -20,6 +21,7 @@ import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
 import PlumCraftShell
+import UniformTypeIdentifiers
 
 @MainActor
 final class AskPresenter {
@@ -34,6 +36,10 @@ final class AskPresenter {
     private var handled: Set<UInt64> = []
     /// Called when a sheet for an ask opens (scripts take a picture of it), with the ask.
     var onSheet: ((Ask) -> Void)?
+    /// The open save panel's Format pop-up, kept while the panel is.
+    private var formatChoice: FormatChoice?
+    /// The refusal each form was last shown again with.
+    private var refusedShown: [UInt64: String] = [:]
 
     init(model: DocumentModel) {
         self.model = model
@@ -42,9 +48,19 @@ final class AskPresenter {
     /// The pending asks changed: close a sheet whose ask ended; show the next.
     func update(_ asks: [Ask]) {
         if let s = showing, !asks.contains(where: { $0.ask == s }) {
+            // the core ended the ask (a script answered it, or it was withdrawn): its sheet goes
             showing = nil
+            Status.shared.set("asking", .null)
             closeSheet?()
             closeSheet = nil
+        }
+        // a form the core refused (a value the command doesn't take): it stays open with its
+        // `error`, shown again with the reason (Save Result…'s options, decision 5)
+        for a in asks where handled.contains(a.ask) && showing != a.ask && a.kind.word == .form && a.by != "script" {
+            if let e = a.params["error"].string, refusedShown[a.ask] != e {
+                refusedShown[a.ask] = e
+                handled.remove(a.ask)
+            }
         }
         for a in asks where !handled.contains(a.ask) {
             let person = a.by != "script"
@@ -91,9 +107,23 @@ final class AskPresenter {
 
     // MARK: Modal: sheets on the window
 
-    private func modal(_ a: Ask) {
+    private func modal(_ a: Ask, waited: Int = 0) {
         guard let window else { return cancel(a) }
         showing = a.ask
+        // a sheet still going (a panel whose ask the core just ended, closing): this one waits
+        // until the window is free, or AppKit drops it (Save Result…'s options after a script
+        // answered its panel, B122), at most 3 s
+        if window.attachedSheet != nil, waited < 60 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                MainActor.assumeIsolated {
+                    guard let self, self.showing == a.ask, self.model.asks.contains(where: { $0.ask == a.ask }) else { return }
+                    self.modal(a, waited: waited + 1)
+                }
+            }
+            return
+        }
+        // what the window shows for the core now (scripts read it: which ask, its kind)
+        Status.shared.set("asking", ["ask": .uint(a.ask), "kind": .string(a.kind.raw)])
         let p = a.params
         switch a.kind.word {
         case .fileOpen?, .folderPick?:
@@ -140,11 +170,21 @@ final class AskPresenter {
                 panel.nameFieldStringValue = u.lastPathComponent
             }
             let exts = AskWords.extensions(p)
-            if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
+            if !exts.isEmpty { panel.allowedContentTypes = FormatChoice.saveTypes(exts) }
             panel.canCreateDirectories = true
+            // several kinds (Save Result…'s formats: the output's, by the core): a Format pop-up
+            // under the panel, as the system's own apps have, which renames the file to the kind
+            // chosen and limits the panel to it; the name's extension picks the kind shown first
+            let kinds = AskWords.kinds(p)
+            if kinds.count > 1 {
+                let format = FormatChoice(panel: panel, kinds: kinds)
+                panel.accessoryView = format.view
+                formatChoice = format
+            }
             closeSheet = { [weak window, weak panel] in if let panel { window?.endSheet(panel, returnCode: .cancel) } }
             panel.beginSheetModal(for: window) { [weak self] r in
                 guard let self else { return }
+                self.formatChoice = nil
                 self.done(a)
                 guard r == .OK, let u = panel.url else { return self.cancel(a) }
                 self.answer(a, ["path": .string(u.path)])
@@ -171,7 +211,9 @@ final class AskPresenter {
         case .text?, .form?:
             let alert = NSAlert()
             alert.messageText = p["title"].string ?? "Plummer"
-            alert.informativeText = p["intro"].string ?? p["hint"].string ?? p["label"].string ?? ""
+            let intro = p["intro"].string ?? p["hint"].string ?? p["label"].string ?? ""
+            // a refused answer's reason, above the fields it is about
+            alert.informativeText = p["error"].string.map { intro.isEmpty ? $0 : "\(intro)\n\n\($0)" } ?? intro
             // each field: its key, its control, and what it answers
             var fields: [(String, NSControl, () -> String)] = []
             // a form is a grid, as the system's own are: each label right-aligned beside its
@@ -276,6 +318,7 @@ final class AskPresenter {
         if showing == a.ask {
             showing = nil
             closeSheet = nil
+            Status.shared.set("asking", .null)
         }
         // show what queued meanwhile
         let pending = model.asks
@@ -395,5 +438,54 @@ final class ShareDelegate: NSObject, NSSharingServicePickerDelegate {
     nonisolated func sharingServicePicker(_ picker: NSSharingServicePicker, didChoose service: NSSharingService?) {
         let title = service?.title
         MainActor.assumeIsolated { done(title) }
+    }
+}
+
+/// A save panel's Format pop-up (Save Result…'s formats): the kinds' labels; choosing one renames
+/// the file to its extension and limits the panel to it. Its accessibility label is "Format".
+@MainActor
+final class FormatChoice: NSObject {
+    let view: NSView
+    private let pop = NSPopUpButton()
+    private weak var panel: NSSavePanel?
+    private let kinds: [(label: String, extensions: [String])]
+
+    init(panel: NSSavePanel, kinds: [(label: String, extensions: [String])]) {
+        self.panel = panel
+        self.kinds = kinds
+        let label = NSTextField(labelWithString: "Format:")
+        pop.addItems(withTitles: kinds.map { "\($0.label) (.\($0.extensions[0]))" })
+        pop.setAccessibilityLabel("Format")
+        pop.setAccessibilityIdentifier("save-format")
+        let row = NSStackView(views: [label, pop])
+        row.orientation = .horizontal
+        row.spacing = 8
+        row.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        view = row
+        super.init()
+        pop.target = self
+        pop.action = #selector(chose)
+        let k = AskWords.kindIndex(kinds, name: panel.nameFieldStringValue)
+        pop.selectItem(at: k)
+        limit(to: k)
+    }
+
+    private func limit(to k: Int) {
+        panel?.allowedContentTypes = Self.saveTypes(kinds[k].extensions)
+    }
+
+    /// The types a save panel is limited to for these extensions: none (any name) when one is a
+    /// type the system doesn't know (an engine's own format, `.quoted`), whose dynamic type the
+    /// panel can't tell a name has, so it put the extension on twice ("Result.quoted.quoted").
+    static func saveTypes(_ exts: [String]) -> [UTType] {
+        let types = exts.compactMap { UTType(filenameExtension: $0) }
+        return types.contains(where: \.isDynamic) ? [] : types
+    }
+
+    @objc private func chose() {
+        let k = max(0, pop.indexOfSelectedItem)
+        guard k < kinds.count, let panel else { return }
+        panel.nameFieldStringValue = AskWords.renamed(panel.nameFieldStringValue, to: kinds[k])
+        limit(to: k)
     }
 }

@@ -614,7 +614,7 @@ Footer items, in order (`canvas.rs:1267-1390`):
 | `editor` | `label`, `hover` | `node.editor {node}` |
 | `progress` | `fraction` 0..1, `stage` | none |
 | `error` | `text` (cut to 180 chars), `full`, `token` (`text_dim` for skipped, `error` otherwise) | none |
-| `save` | `buttons`: Save Result…, Contact Sheet… (when items > 1) | `run.save {node, port, sheet, ask: true}` (11.4) |
+| `save` | `port`, `sheet`: Save Result…, and Contact Sheet… on the right half (when items > 1) | `run.save {node, port, sheet, ask: true}` (11.4), done by the core on a tap (`ui.gesture`; the shell measures the line as `parts.footer[k]`); a menu item carrying these params may be run with `command.run` too: the core invokes it, as `ui.invoke` does |
 | `excerpt` | `text` (3 lines, 200 chars), `faded` | `run.watch {node}` |
 | `engineText` | `text` (120 chars), `full` | none |
 | `appText` | The application's overlay line (160 chars), `full` | none |
@@ -706,7 +706,7 @@ What a recognised gesture means is the core's (`crates/editor-core/src/gesture.r
 
 | Gesture on | Commands, in order |
 |---|---|
-| Tap a face's body, header, title, row, preview or footer | `selection.set {nodes: [id]}` (a collapsed group's face: `{groups: [g]}`); Shift `mode: add`, `primary` `mode: remove`. A title, preview or footer item also `run.watch {node}` when the node has an output (only where the shell reported those `parts`) |
+| Tap a face's body, header, title, row, preview or footer | `selection.set {nodes: [id]}` (a collapsed group's face: `{groups: [g]}`); Shift `mode: add`, `primary` `mode: remove`. A title, preview or footer item also `run.watch {node}` when the node has an output (only where the shell reported those `parts`), except the footer's `save` line: its tap is `run.save {node, port, sheet, ask: true}`, invoked as the menu item is (the core asks `file.save`, then the format's options), `sheet: true` on the line's right half when it offers Contact Sheet… (since the Save Result branch: a core gesture, so no shell code; a shell's own `ui.gesture` is its person's, so the shell shows the asks, the control port's a script's) |
 | Tap a header's chevron, enter button | `node.view` (full ↔ collapsed) or `group.collapse {collapsed: false}`; `canvas.focus {group}`. No selection change |
 | Tap an output pin; a wired input pin | `run.watch {node, port}` of the output; of the wire's source. An unwired input: nothing (its row shows its value). No selection change |
 | Tap a wire | `selection.clear` (unless Shift or `primary`), then `run.watch` of its source |

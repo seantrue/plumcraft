@@ -892,8 +892,12 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                 let ins = (0..<L.inputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: false, pin: $0) }.map(pt)
                 let more = v.canvas.moreRect(face: f.nid).map { pt(CGPoint(x: $0.midX, y: $0.midY)) } ?? .null
                 // the face's whole box (top left, bottom right), so a test finds empty canvas to pan from
+                // the footer's Save Result… line, its left quarter, when the face shows one (B122)
+                let saveAt: JSONValue = f.footer.firstIndex(where: { if case .save = $0 { true } else { false } })
+                    .flatMap { k in L.footerParts.indices.contains(k) ? L.footerParts[k] : nil }
+                    .map { r in pt(CGPoint(x: f.pos.x + r.minX + r.width / 4, y: f.pos.y + r.midY)) } ?? .null
                 let box: JSONValue = .array([pt(CGPoint(x: f.pos.x, y: f.pos.y)), pt(CGPoint(x: f.pos.x + L.size.width, y: f.pos.y + L.size.height))])
-                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more, "box": box,
+                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more, "box": box, "save": saveAt,
                                 "title": pt(CGPoint(x: f.pos.x + L.size.width * 0.4, y: f.pos.y + 14))]
             }
             s["points"] = .object(points)

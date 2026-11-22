@@ -6,7 +6,9 @@
 //                            the graph's life)
 //   file.save                an alert naming the file, saved into the graph's own folder when the
 //                            app can write there, else PlumCraft's Documents folder (the contract's
-//                            commit flow for a destination without a path, 11.3, isn't in the core)
+//                            commit flow for a destination without a path, 11.3, isn't in the core);
+//                            Save Result… (purpose `result`): the name and format, the file written
+//                            into a folder of the app's, then the document picker exports it
 //   prompt                   an alert (Save, Don't Save, Cancel; Trust, Cancel)
 //   text, form               an alert with text fields
 //   clipboard.set, .get      UIPasteboard
@@ -41,6 +43,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     private var picking: Ask?
     /// The delegates that keep a closed pick field to its choices, while its form is up.
     var pickGuards: [PickOnly] = []
+    /// The refusal each form was last shown again with.
+    private var refusedShown: [UInt64: String] = [:]
 
     init(model: DocumentModel) {
         self.model = model
@@ -52,6 +56,13 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             showing = nil
             shown?.dismiss(animated: true)
             shown = nil
+        }
+        // a form the core refused stays open with its `error`: shown again with the reason
+        for a in asks where handled.contains(a.ask) && showing != a.ask && a.kind.word == .form && a.by != "script" {
+            if let e = a.params["error"].string, refusedShown[a.ask] != e {
+                refusedShown[a.ask] = e
+                handled.remove(a.ask)
+            }
         }
         for a in asks where !handled.contains(a.ask) {
             let person = a.by != "script"
@@ -139,6 +150,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             picker.delegate = self
             picking = a
             present(picker, for: a)
+        case .fileSave? where p["purpose"].string == "result":
+            saveResult(a)
         case .fileSave?:
             let alert = UIAlertController(title: p["title"].string ?? "Save", message: "Saved in \(saveFolder().lastPathComponent).", preferredStyle: .alert)
             alert.addTextField { f in
@@ -171,8 +184,10 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             }
             present(alert, for: a)
         case .text?, .form?:
-            let alert = UIAlertController(title: p["title"].string ?? "Plummer",
-                                          message: p["intro"].string ?? p["hint"].string ?? p["label"].string, preferredStyle: .alert)
+            let intro = p["intro"].string ?? p["hint"].string ?? p["label"].string
+            // a refused answer's reason, with what it is about
+            let message = p["error"].string.map { e in intro.map { "\($0)\n\n\(e)" } ?? e } ?? intro
+            let alert = UIAlertController(title: p["title"].string ?? "Plummer", message: message, preferredStyle: .alert)
             var keys: [String] = []
             if a.kind.word == .text {
                 keys = ["text"]
@@ -233,6 +248,97 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             done(a)
             cancel(a)
         }
+    }
+
+    // MARK: Save Result… (purpose `result`)
+
+    /// Save Result…: the name and format in an alert (the output's formats, by the core, in the
+    /// name field's menu; choosing one renames the file), the file written by the engine into a
+    /// folder of the app's own, then the system's document picker exports it where the person
+    /// chooses (Files, a cloud drive), as iPadOS apps export. The format's options, when it has
+    /// any, the core asks for between the two with its form.
+    private func saveResult(_ a: Ask) {
+        let p = a.params
+        let kinds = AskWords.kinds(p)
+        let alert = UIAlertController(title: p["title"].string ?? "Save Result", message: "Then choose where it goes.", preferredStyle: .alert)
+        alert.addTextField { f in
+            f.text = p["name"].string ?? "Result"
+            f.clearButtonMode = .whileEditing
+            f.accessibilityIdentifier = "save-name"
+            guard kinds.count > 1 else { return }
+            let b = UIButton(type: .system)
+            b.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
+            b.accessibilityLabel = "Format"
+            b.accessibilityIdentifier = "save-format"
+            b.showsMenuAsPrimaryAction = true
+            b.menu = UIMenu(title: "Format", children: kinds.map { k in
+                UIAction(title: k.label, subtitle: "." + k.extensions[0]) { [weak f] _ in
+                    f?.text = AskWords.renamed(f?.text ?? "", to: k)
+                }
+            })
+            f.rightView = b
+            f.rightViewMode = .always
+        }
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            self?.done(a)
+            self?.cancel(a)
+        })
+        alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
+            guard let self else { return }
+            self.done(a)
+            var name = (alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, !name.contains("/") else { return self.cancel(a) }
+            // a name without a format's extension takes the first format's
+            if !kinds.isEmpty, (name as NSString).pathExtension.isEmpty { name = AskWords.renamed(name, to: kinds[0]) }
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("plummer-export-\(UUID().uuidString.prefix(8))", isDirectory: true)
+            do { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) } catch { return self.cancel(a) }
+            let m = self.model
+            Task { [weak self] in
+                let before = (try? await m.inspect())?["save"]["last"]["request"] ?? .null
+                guard let self else { return }
+                self.answer(a, ["path": .string(dir.appendingPathComponent(name).path)])
+                await self.exportWhenSaved(before: before)
+            }
+        })
+        present(alert, for: a)
+    }
+
+    /// Wait (on the core's `save`, at most 5 minutes, the save's own limit) for the save just
+    /// asked for, then offer its files to the document picker to export. Nothing pending and no
+    /// ask open for a few looks: the person cancelled the options.
+    private func exportWhenSaved(before: JSONValue) async {
+        let deadline = Date().addingTimeInterval(300)
+        var quiet = 0
+        while Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(300))
+            guard let s = try? await model.inspect() else { continue }
+            let save = s["save"]
+            let last = save["last"]
+            let pending = !save["pending"].isNull
+            if !pending, last["request"] != before, !last["request"].isNull {
+                let paths = (last["paths"].array ?? []).compactMap(\.string).map { URL(fileURLWithPath: $0) }
+                    .filter { FileManager.default.fileExists(atPath: $0.path) }
+                guard last["ok"].bool == true, !paths.isEmpty else {
+                    return say("Couldn't save: \(last["error"].string ?? "the engine wrote nothing")")
+                }
+                StatusFile.shared.set("exporting", .array(paths.map { .string($0.lastPathComponent) }))
+                let picker = UIDocumentPickerViewController(forExporting: paths, asCopy: true)
+                picker.delegate = exportDelegate
+                guard let host else { return }
+                var top: UIViewController = host
+                while let q = top.presentedViewController, !q.isBeingDismissed { top = q }
+                top.present(picker, animated: true)
+                return
+            }
+            quiet = !pending && model.asks.isEmpty ? quiet + 1 : 0
+            if quiet >= 10 { return }
+        }
+    }
+
+    /// The export picker's answer, said (the file is the picker's to copy).
+    private lazy var exportDelegate = ExportDelegate { [weak self] urls in
+        StatusFile.shared.set("exporting", .null)
+        if let u = urls.first { self?.say("Saved \(u.lastPathComponent).") }
     }
 
     // MARK: The document picker
@@ -313,6 +419,15 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             answer(a, ["error": .string("\(error)")])
         }
     }
+}
+
+/// The export picker's delegate: where the files went (nothing when it was cancelled).
+@MainActor
+final class ExportDelegate: NSObject, UIDocumentPickerDelegate {
+    let done: ([URL]) -> Void
+    init(_ done: @escaping ([URL]) -> Void) { self.done = done }
+    func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) { done(urls) }
+    func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) { done([]) }
 }
 
 /// A pick field with no other text allowed: its text comes from its choices menu only.

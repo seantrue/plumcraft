@@ -954,3 +954,38 @@ fn current_handles_cross_both_ways() {
         assert_eq!(&h.resolve(data).unwrap().bytes[..], input.to_uppercase().as_bytes(), "{name} bind");
     }
 }
+
+/// `text.gate` (the person check's F29 and F36): it waits while its file isn't there, passes the
+/// text once it is, and a cancel stops it while it waits.
+#[test]
+fn the_gate_waits_for_its_file_and_stops_on_cancel() {
+    let c = inproc();
+    let file = plumcraft_scratch::dir("text-gate").join("open");
+    let g = |text: &str| {
+        graph(
+            json!({"a": {"kind": "text.literal", "values": {"text": text}}, "g": {"kind": "text.gate", "values": {"open": file.display().to_string(), "timeout": 30.0}}}),
+            &[("a", "text", "g", "text")],
+        )
+    };
+    // shut: it waits; the file comes; it passes
+    run(&*c, "shut", 1, g("plum"), json!({}));
+    let opener = {
+        let file = file.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            std::fs::write(&file, "").unwrap();
+        })
+    };
+    let (_, reply) = collect(&*c, "shut", 0);
+    opener.join().unwrap();
+    assert!(reply.ok, "{reply:?}");
+    assert_eq!(reply.nodes["g"].state, NodeState::Done, "{reply:?}");
+    // shut again, cancelled while it waits
+    std::fs::remove_file(&file).unwrap();
+    run(&*c, "cut", 2, g("pear"), json!({}));
+    std::thread::sleep(Duration::from_millis(200));
+    call(&*c, "run.cancel", json!({"run_id": "cut"}));
+    let (_, reply) = collect(&*c, "cut", 0);
+    assert!(!reply.ok);
+    assert_eq!(reply.nodes["g"].state, NodeState::Cancelled, "{reply:?}");
+}
