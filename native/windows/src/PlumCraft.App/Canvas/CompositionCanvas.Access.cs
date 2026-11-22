@@ -1,0 +1,50 @@
+// What UI Automation can see of the canvas (N5 gate): every face on it, with its title, its state and
+// footer lines, and each pin, at its place in the view. The canvas draws with Composition, so without
+// this a screen reader, or a check that drives the app as a person does, finds one blank pane.
+// Nothing here is worked out anew: it reads the faces' layouts the canvas already holds.
+
+using System.Numerics;
+using WRect = Windows.Foundation.Rect;
+
+namespace PlumCraft.App.Canvas;
+
+/// <summary>A part of the canvas UI Automation shows: a face (its pins as children) or a pin.</summary>
+public sealed record CanvasPart(string Id, string Name, string Role, WRect View, string Status, List<CanvasPart> Children);
+
+public sealed partial class CompositionCanvas
+{
+    /// <summary>The faces in the view (and each face's pins), in view points.</summary>
+    public List<CanvasPart> AccessibleParts()
+    {
+        var o = new List<CanvasPart>();
+        foreach (var e in faces.Values.OrderBy(f => f.Face.Pos.Y).ThenBy(f => f.Face.Pos.X))
+        {
+            if (e.Layout is not { } L) continue;
+            var r = e.Rect;
+            var tl = View.ToView(new Vector2((float)r.X, (float)r.Y));
+            var view = new WRect(tl.X, tl.Y, r.Width * View.Zoom, r.Height * View.Zoom);
+            if (view.X > ViewSize.X || view.Y > ViewSize.Y || view.X + view.Width < 0 || view.Y + view.Height < 0) continue;
+            var pins = new List<CanvasPart>();
+            WRect Pin(float x, float y)
+            {
+                var c = View.ToView(new Vector2((float)r.X + x, (float)r.Y + y));
+                var h = Math.Max(6, 8 * View.Zoom);
+                return new WRect(c.X - h / 2, c.Y - h / 2, h, h);
+            }
+            for (int k = 0; k < e.Face.Inputs.Count && k < L.InputPins.Length; k++)
+            {
+                var row = e.Face.Inputs[k];
+                pins.Add(new CanvasPart($"in.{e.Nid}.{row.Key}", row.Label, "input", Pin(0, L.InputPins[k]), row.Text ?? (row.Widget is { } wd ? FaceLayout.WidgetText(wd) : ""), []));
+            }
+            for (int k = 0; k < e.Face.Outputs.Count && k < L.OutputPins.Length; k++)
+            {
+                var row = e.Face.Outputs[k];
+                pins.Add(new CanvasPart($"out.{e.Nid}.{row.Key}", row.Label, "output", Pin(L.W, L.OutputPins[k]), row.Ty, []));
+            }
+            var lines = L.Footer.SelectMany(f => f.Lines).ToList();
+            var state = e.Face.Header.State.Hover ?? e.Face.Header.State.Kind;
+            o.Add(new CanvasPart($"node.{e.Nid}", e.Face.Header.Title.Text, "node", view, string.Join(" | ", lines.Prepend(state)), pins));
+        }
+        return o;
+    }
+}

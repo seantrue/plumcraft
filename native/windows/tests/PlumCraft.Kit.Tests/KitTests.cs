@@ -171,6 +171,25 @@ public class Model(ITestOutputHelper output)
         Assert.Contains("connected", late.Engine.Label);
     });
 
+    /// <summary>B93: a graph opened before its model followed the feed (the command line's `document.open
+    /// {path}` before the window) is known by its file, not as Untitled.</summary>
+    [Fact]
+    public Task AGraphOpenedBeforeItsModelIsKnownByItsFile() => OnContext(async () =>
+    {
+        using var core = OpenCore("model-opened");
+        var path = Path.Combine(Scratch("model-opened-graph"), "opened first.json");
+        File.WriteAllText(path, """{"version": 1, "nodes": {"t": {"kind": "text.literal", "values": {"text": "hi"}, "pos": [0, 0]}}, "wires": []}""");
+        var opened = await core.ResultAsync("document.open", O(("path", S(path))));
+        var doc = opened.Get("doc").U64()!.Value;
+        // the core said so in the feed before anyone listened; the model starts afterwards
+        await Task.Delay(300);
+        var model = new DocumentModel(core, doc);
+        model.Start();
+        Assert.True(await model.WaitAsync(() => model.State.Path is not null), "the model never learned the document's path");
+        Assert.Equal(Path.GetFullPath(path), Path.GetFullPath(model.State.Path!));
+        Assert.Contains("opened first", model.State.Name.Length > 0 ? model.State.Name : Path.GetFileName(model.State.Path!));
+    });
+
     /// <summary>A picture from the array engine: watched, made by media.get, lent by plum_blob.</summary>
     [Fact]
     public Task AWatchedPictureIsLentWithoutACopy() => OnContext(async () =>

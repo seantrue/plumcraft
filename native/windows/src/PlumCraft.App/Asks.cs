@@ -237,6 +237,25 @@ public sealed class Asks(DocWindow window, DocumentModel model)
                         panel.Children.Add(tb);
                         fields.Add((key, () => tb.Text));
                         break;
+                    case "pick":
+                        // a pick list (decision 5, N4 person gate): the core's choices in a ComboBox under its label,
+                        // editable for any other when `other` is set; the answer is the chosen value or the text typed
+                        var choices = f.Get("choices").Items().Select(c => (value: c.Get("value").Str() ?? "", label: c.Get("label").Str() ?? c.Get("value").Str() ?? "")).ToList();
+                        var other = f.Get("other").IsTrue();
+                        var cb = new ComboBox { Header = label, IsEditable = other, PlaceholderText = f.Get("hint").Str() ?? "", MinWidth = 320, HorizontalAlignment = HorizontalAlignment.Stretch };
+                        foreach (var c in choices) cb.Items.Add(c.label);
+                        var at = choices.FindIndex(c => c.value == initial);
+                        if (at >= 0) cb.SelectedIndex = at;
+                        else if (other && initial.Length > 0) cb.Text = initial;
+                        panel.Children.Add(cb);
+                        fields.Add((key, () =>
+                        {
+                            var typed = cb.Text ?? "";
+                            if (cb.SelectedIndex is var i && i >= 0 && i < choices.Count && (!other || typed.Length == 0 || typed == choices[i].label)) return choices[i].value;
+                            var byLabel = choices.FindIndex(c => c.label == typed);
+                            return byLabel >= 0 ? choices[byLabel].value : other ? typed.Trim() : "";
+                        }));
+                        break;
                     default:
                         var line = new TextBox { Header = label, Text = initial, PlaceholderText = f.Get("hint").Str() ?? "" };
                         panel.Children.Add(line);

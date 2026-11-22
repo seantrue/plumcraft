@@ -160,7 +160,10 @@ public sealed class KitDriver : IConformanceDriver
 
     /// <summary>Its engine, media.get (the C ABI serves it), and `manifests`: the kit's cores are opened on the
     /// suite's engines folder (`dirs.engines`, B71).</summary>
-    public bool Has(string capability) => capability is "media" or "manifests" || capability == $"engine:{Engine}";
+    public bool Has(string capability) => capability is "media" or "manifests" || capability == $"engine:{Engine}" || Also.Contains(capability);
+
+    /// <summary>What else this core has: `copied_manifest` when its engines folder is `CopiedManifest.Make`'s.</summary>
+    public HashSet<string> Also { get; } = [];
 
     /// <summary>The next feed batch the model sees, or 50 ms.</summary>
     public Task PauseAsync() => Model.NextChangeAsync(TimeSpan.FromMilliseconds(50));
@@ -446,5 +449,22 @@ sealed class LineConnection : IDisposable
         reader.Dispose();
         stream.Dispose();
         client.Dispose();
+    }
+}
+
+/// <summary>The suite's copied-manifest engines folder (`conformance::copied_manifest_folder`, docs/shell-interface.md
+/// 16): the probe, and `copied.toml`, a project's manifest copied with no project beside it, whose `./uv` fails as
+/// Python would there. A driver whose engines folder is this one claims `copied_manifest`.</summary>
+public static class CopiedManifest
+{
+    public static string Make(string root, string probeToml)
+    {
+        var folder = Path.Combine(root, "engines");
+        Directory.CreateDirectory(folder);
+        File.Copy(probeToml, Path.Combine(folder, "probe.toml"), overwrite: true);
+        File.WriteAllText(Path.Combine(folder, "copied.toml"),
+            "id = \"copied\"\nname = \"Copied Engine\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"copied_engine\"]\ncwd = \".\"\n");
+        File.WriteAllText(Path.Combine(folder, "uv.cmd"), "@echo No module named copied_engine 1>&2\r\n@exit /b 1\r\n");
+        return folder;
     }
 }

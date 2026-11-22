@@ -171,12 +171,14 @@ public sealed class Editors
                 section = it.Category;
                 // a section's name as the platform heads a group in a list: smaller, secondary, semibold, no
                 // rule under it, never selected (slice 3's ListViewHeaderItem drew a row with an underline)
-                list.Items.Add(new ListViewItem
+                var heading = new ListViewItem
                 {
                     Content = new TextBlock { Text = section, Style = Ui.TextStyle("CaptionTextBlockStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Ui.Brush("TextFillColorSecondaryBrush") },
                     IsHitTestVisible = false, IsTabStop = false, AllowFocusOnInteraction = false, MinHeight = 26, Padding = new Thickness(12, k == 0 ? 2 : 10, 0, 2),
                     VerticalContentAlignment = VerticalAlignment.Bottom,
-                });
+                };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetHeadingLevel(heading, Microsoft.UI.Xaml.Automation.Peers.AutomationHeadingLevel.Level2);
+                list.Items.Add(heading);
             }
             var row = new Grid { Tag = it, ColumnSpacing = 8 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -190,6 +192,9 @@ public sealed class Editors
                 row.Children.Add(n);
             }
             ToolTipService.SetToolTip(row, it.Kind);
+            // the row's words for UI Automation (B94: a screen reader, or the person check, found every kind
+            // row unnamed: the row is a Grid, which has no name of its own)
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(row, note is null ? it.Label : $"{it.Label}, {note}");
             list.Items.Add(row);
             if (k == Palette.Selected)
             {

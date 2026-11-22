@@ -30,7 +30,7 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
         {
             // the same shape: labels, enabled, checks and reasons in place, so an open menu stays open
             var old = shown.Keys.ToList();
-            var now = menus.SelectMany(m => m.Items.SelectMany(i => i.Flatten())).ToList();
+            var now = menus.SelectMany(m => Walk(m.Items)).ToList();
             var next = new Dictionary<MenuItem, MenuFlyoutItemBase>(ReferenceEqualityComparer.Instance);
             for (int k = 0; k < Math.Min(old.Count, now.Count); k++)
             {
@@ -54,7 +54,7 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
             // Alt opens the bar with a key for each menu: its first letter not taken, else its next
             foreach (var ch in top.Label.ToUpperInvariant())
                 if (char.IsLetter(ch) && keys.Add(ch)) { mbi.AccessKey = ch.ToString(); break; }
-            foreach (var it in top.Items) if (Make(it, top.Id) is { } el) mbi.Items.Add(el);
+            foreach (var el in MakeAll(top.Items, top.Id)) mbi.Items.Add(el);
             bar.Items.Add(mbi);
         }
     }
@@ -66,8 +66,41 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
     public MenuFlyout Flyout(IEnumerable<MenuItem> items)
     {
         var f = new MenuFlyout();
-        foreach (var it in items) if (Make(it, "context", context: true) is { } el) f.Items.Add(el);
+        foreach (var el in MakeAll(items, "context", context: true)) f.Items.Add(el);
         return f;
+    }
+
+    /// <summary>A list's items; a section (`look: "section"`, not a submenu: the Engine menu's engines) puts
+    /// its items in place, under its label when it has one (B90: it was drawn as an empty submenu, so the
+    /// Engine menu listed no engine).</summary>
+    IEnumerable<MenuFlyoutItemBase> MakeAll(IEnumerable<MenuItem> items, string group, bool context = false)
+    {
+        foreach (var it in items)
+        {
+            if (it.LookWord == LookWord.Section && !it.Submenu && !it.Separator)
+            {
+                if (it.Label.Length > 0) yield return new MenuFlyoutItem { Text = it.Label, IsEnabled = false };
+                foreach (var el in MakeAll(it.Items, it.Id, context)) yield return el;
+                continue;
+            }
+            if (Make(it, group, context) is { } one) yield return one;
+        }
+    }
+
+    /// <summary>The items MakeAll registers, in its order (an update in place pairs them by position).</summary>
+    static IEnumerable<MenuItem> Walk(IEnumerable<MenuItem> items)
+    {
+        foreach (var it in items)
+        {
+            if (it.Separator) continue;
+            if (it.LookWord == LookWord.Section && !it.Submenu)
+            {
+                foreach (var c in Walk(it.Items)) yield return c;
+                continue;
+            }
+            yield return it;
+            if (it.IsSubmenu) foreach (var c in Walk(it.Items)) yield return c;
+        }
     }
 
     MenuFlyoutItemBase? Make(MenuItem it, string group, bool context = false)
@@ -76,8 +109,10 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
         if (it.IsSubmenu)
         {
             var sub = new MenuFlyoutSubItem { Text = it.Label, IsEnabled = it.Items.Count > 0 };
-            foreach (var c in it.Items) if (Make(c, it.Id, context) is { } el) sub.Items.Add(el);
+            Update(sub, it);
+            // registered before its items, in the order Walk gives
             if (!context) shown[it] = sub;
+            foreach (var el in MakeAll(it.Items, it.Id, context)) sub.Items.Add(el);
             return sub;
         }
         MenuFlyoutItem item = it.LookWord switch
@@ -98,6 +133,8 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
         if (el is MenuFlyoutSubItem sub)
         {
             sub.Text = it.Label;
+            sub.Icon = it.Warning is { Length: > 0 } ? new FontIcon { Glyph = "\uE7BA" } : null;
+            ToolTipService.SetToolTip(sub, it.Warning);
             return;
         }
         if (el is not MenuFlyoutItem item) return;
@@ -105,7 +142,12 @@ public sealed class Menus(MenuBar bar, Func<MenuItem, bool, Task> dispatch)
         item.Text = it.Label;
         var plain = it.LookWord is LookWord.Note or LookWord.Text or LookWord.Dim or LookWord.Section;
         item.IsEnabled = it.Enabled && it.Command is not null && !plain;
-        ToolTipService.SetToolTip(item, !it.Enabled && it.Reason is { Length: > 0 } r ? r : it.Hover);
+        var tip = !it.Enabled && it.Reason is { Length: > 0 } r ? r : it.Warning is { Length: > 0 } wn ? wn : it.Hover;
+        // an item with a warning keeps working, marked with the warning glyph (shell interface 12)
+        item.Icon = it.Warning is { Length: > 0 } ? new FontIcon { Glyph = "\uE7BA" } : null;
+        ToolTipService.SetToolTip(item, tip);
+        // the same words to UI Automation (a screen reader reads why an item is disabled)
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(item, tip ?? "");
         if (it.Shortcut is { } sc) item.KeyboardAcceleratorTextOverride = Describe(sc);
         if (item is ToggleMenuFlyoutItem t) t.IsChecked = it.Checked == true;
         if (item is RadioMenuFlyoutItem rd) rd.IsChecked = it.Checked == true;

@@ -51,9 +51,12 @@ public sealed class DocWindow : Window
     readonly TextBlock titleText = new() { VerticalAlignment = VerticalAlignment.Center, FontSize = 12, Margin = new Thickness(12, 0, 0, 0) };
     readonly MenuBar menuBar = new();
     readonly CommandBar toolbar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Right, HorizontalAlignment = HorizontalAlignment.Left, IsDynamicOverflowEnabled = true, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
-    readonly InfoBar banner = new() { IsOpen = false, IsClosable = true, Margin = new Thickness(8, 0, 8, 4) };
+    // floated over the canvas's top edge (the maintainer: "Float it over the canvas"), so a message
+    // never moves the canvas under the pointer
+    readonly InfoBar banner = new() { IsOpen = false, IsClosable = true };
     readonly TextBlock engineText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-    readonly TextBlock stateText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75 };
+    readonly FontIcon engineWarning = new() { Glyph = "\uE7BA", FontSize = 12, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 134, 0)) };
+    readonly TextBlock stateText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75, MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock zoomText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75 };
     readonly Microsoft.UI.Xaml.Shapes.Ellipse engineDot = new() { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center };
     bool closingFromCore, closed, viewSet;
@@ -163,8 +166,6 @@ public sealed class DocWindow : Window
         root.Children.Add(menuBar);
         Grid.SetRow(toolbar, 2);
         root.Children.Add(toolbar);
-        Grid.SetRow(banner, 3);
-        root.Children.Add(banner);
         // the canvas, and the parameters inspector docked at its right while the core has it open
         var middle = new Grid();
         middle.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
@@ -172,6 +173,16 @@ public sealed class DocWindow : Window
         middle.Children.Add(CanvasView);
         Grid.SetColumn(Inspector, 1);
         middle.Children.Add(Inspector);
+        // the banner over the canvas (not the inspector), on an opaque card (the InfoBar's own ground is
+        // see-through) with a shadow; closed, the InfoBar collapses and the card with it
+        var bannerCard = new Microsoft.UI.Xaml.Controls.Border
+        {
+            Child = banner, CornerRadius = new CornerRadius(4), Margin = new Thickness(12, 8, 12, 0), MaxWidth = 720,
+            HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Top,
+            Background = (Brush)Application.Current.Resources["SolidBackgroundFillColorBaseBrush"],
+            Shadow = new ThemeShadow(), Translation = new System.Numerics.Vector3(0, 0, 16),
+        };
+        middle.Children.Add(bannerCard);
         var canvasBorder = new Microsoft.UI.Xaml.Controls.Border { Child = middle, BorderThickness = new Thickness(0, 1, 0, 1) };
         canvasBorder.BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"];
         Grid.SetRow(canvasBorder, 4);
@@ -183,6 +194,7 @@ public sealed class DocWindow : Window
         var engine = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         engine.Children.Add(engineDot);
         engine.Children.Add(engineText);
+        engine.Children.Add(engineWarning);
         status.Children.Add(engine);
         Grid.SetColumn(stateText, 1);
         status.Children.Add(stateText);
@@ -281,7 +293,10 @@ public sealed class DocWindow : Window
         var name = s.Name.Length > 0 ? s.Name : s.Path is { } p ? Path.GetFileName(p) : "Untitled";
         Title = $"{(s.Dirty ? "*" : "")}{name} - {CoreHost.AppName}";
         titleText.Text = Title;
-        stateText.Text = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
+        // one line in the status bar, the whole text on hover (an engine's error can run to several lines)
+        var full = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
+        stateText.Text = string.Join(" · ", full.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        ToolTipService.SetToolTip(stateText, full.Length > 0 ? full : null);
         NoteStatus();
     }
 
@@ -290,6 +305,10 @@ public sealed class DocWindow : Window
         var col = e.Ready ? Windows.UI.Color.FromArgb(255, 46, 160, 67) : e.Connected ? Windows.UI.Color.FromArgb(255, 210, 153, 34) : Windows.UI.Color.FromArgb(255, 150, 150, 150);
         engineDot.Fill = new SolidColorBrush(col);
         engineText.Text = e.Label.Length > 0 ? e.Label : e.Connected ? "Engine connected" : "Engine starting";
+        // the engine in use has a warning (a copied manifest): a warning glyph in its cell, the words on hover
+        engineWarning.Visibility = e.Warning is { Length: > 0 } ? Visibility.Visible : Visibility.Collapsed;
+        ToolTipService.SetToolTip(engineWarning, e.Warning);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(engineWarning, e.Warning ?? "");
         NoteStatus();
     }
 

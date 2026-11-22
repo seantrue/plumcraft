@@ -75,6 +75,8 @@ public sealed record MenuItem
     public string Look { get => look ?? "plain"; init => look = value; }
     public string? Color { get; init; }
     public bool Strong { get; init; }
+    /// <summary>Something wrong with what the item stands for that doesn't disable it (shell interface 12, 2026-11-21).</summary>
+    public string? Warning { get; init; }
     /// <summary>A toolbar button's icon (N4 slice 3): a Lucide name from the core's set.</summary>
     public string? Icon { get; init; }
 
@@ -459,6 +461,8 @@ public sealed record Changed
     public bool? Connected { get; init; }
     public string? Label { get; init; }
     public bool? Ready { get; init; }
+    /// <summary>`engine` domain: what is wrong with the engine in use that doesn't stop it (a manifest's warning).</summary>
+    public string? Warning { get; init; }
     public bool? Closing { get; init; }
     public string? Title { get; init; }
     public string? Document { get; init; }

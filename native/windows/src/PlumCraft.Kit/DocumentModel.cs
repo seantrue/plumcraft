@@ -147,7 +147,7 @@ public sealed class Utf8Order : IComparer<string>
 public sealed record SceneChange(ulong Gen, bool Full, IReadOnlySet<ulong> Changed, IReadOnlySet<ulong> Removed, bool SelectionChanged, bool ViewChanged);
 
 /// <summary>The engine as the feed last said.</summary>
-public sealed record EngineState(bool Connected = false, bool Ready = false, string Label = "");
+public sealed record EngineState(bool Connected = false, bool Ready = false, string Label = "", string? Warning = null);
 
 public sealed class DocumentModel : INotifyPropertyChanged
 {
@@ -249,6 +249,31 @@ public sealed class DocumentModel : INotifyPropertyChanged
         _ = RefreshThemeAsync();
         RefreshMenus();
         RefreshEngine();
+        RefreshDocument();
+    }
+
+    /// <summary>Read the document's state once (ui.inspect's `document`, `path`, `dirty`, `undo`, `redo`): the
+    /// feed says when it changes, but a document opened before this model followed the feed (a graph named on
+    /// the command line, `document.open {path}` before the window) said so before it listened (B93: its window
+    /// was titled Untitled). A state the feed brought meanwhile is newer and wins.</summary>
+    public async void RefreshDocument()
+    {
+        try
+        {
+            var r = await Core.ResultAsync("ui.inspect", default, RequestDoc);
+            if (State.Gen > 0) return;
+            var st = new DocumentState
+            {
+                Gen = 0, Title = r.Get("title").Str() ?? "", Name = r.Get("document").Str() ?? "", Path = r.Get("path").Str(),
+                Dirty = r.Get("dirty").IsTrue(), Undo = r.Get("undo").Str(), Redo = r.Get("redo").Str(),
+            };
+            if (st == State) return;
+            State = st;
+            Notify(nameof(State));
+            StateChanged?.Invoke(st);
+        }
+        catch (Exception) { /* a closed core: nothing to say */ }
+        finally { Pulse(); }
     }
 
     /// <summary>Stop following the feed (the core stays open).</summary>
@@ -285,7 +310,7 @@ public sealed class DocumentModel : INotifyPropertyChanged
             var r = await Core.ResultAsync("ui.inspect", default, RequestDoc);
             var connected = r.Pointer("/engine/connected").Bool();
             if (connected is not { } c) return;
-            var e = new EngineState(c, Engine.Ready || c, r.Pointer("/engine/label").Str() ?? Engine.Label);
+            var e = new EngineState(c, Engine.Ready || c, r.Pointer("/engine/label").Str() ?? Engine.Label, Engine.Warning);
             // the feed's word, if it came meanwhile, is newer
             if (Engine == new EngineState() && e != Engine)
             {
@@ -316,7 +341,7 @@ public sealed class DocumentModel : INotifyPropertyChanged
                     if (c.Gen != MenuGen) RefreshMenus();
                     break;
                 case DomainWord.Engine:
-                    var e = new EngineState(c.Connected ?? Engine.Connected, c.Ready ?? Engine.Ready, c.Label ?? Engine.Label);
+                    var e = new EngineState(c.Connected ?? Engine.Connected, c.Ready ?? Engine.Ready, c.Label ?? Engine.Label, c.Warning);
                     if (e != Engine)
                     {
                         Engine = e;
