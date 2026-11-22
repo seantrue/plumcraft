@@ -341,8 +341,11 @@ fn memo_reuses_unchanged_nodes(mk: fn() -> Conn) {
         if !memo.is_empty() {
             extra["memo"] = json!(memo);
         }
-        run(&h, id, generation, graph, extra);
+        // B38: timed from before the run is sent. The engine starts the graph before its
+        // acceptance reaches here, so timing from the acceptance took a slow one's lateness (a
+        // busy host) off the slow node's 300 ms.
         let t = Instant::now();
+        run(&h, id, generation, graph, extra);
         let (events, reply) = collect(&h, id, 0);
         (events, reply, t.elapsed())
     };

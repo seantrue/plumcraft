@@ -925,6 +925,7 @@ mod tests {
             let (r, _) = d.command("engine.switch", json!({"engine": "gone", "mode": mode}), &launcher);
             let took = t.elapsed();
             let e = r.unwrap_err();
+            eprintln!("{mode} failed in {took:?}: {e}");
             assert!(took < limit, "{mode}: {took:?}: {e}");
             let before = if mode == "process" { "exited before connecting" } else { "exited before listening" };
             assert!(e.contains(before) && e.contains("exit 1"), "{mode}: {e}");
