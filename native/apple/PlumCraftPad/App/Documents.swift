@@ -184,6 +184,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         default: break
         }
         if o.compactWidth { w.traitOverrides.horizontalSizeClass = .compact }
+        if let spec = o.windowSize { SceneReport.ask(ws, spec) }
+        SceneReport.shared.watch(ws)
         let first = Self.firstScene
         Self.firstScene = false
         StatusFile.shared.set("scenes", .int(Int64(UIApplication.shared.connectedScenes.count)))
@@ -236,6 +238,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
     func sceneDidDisconnect(_ scene: UIScene) {
         StatusFile.shared.set("sceneDisconnected", .string(scene.session.persistentIdentifier))
+    }
+
+    /// The window's size changed (a free-size window resized, a rotation): said in the status.
+    @available(iOS 26.0, *)
+    func windowScene(_ windowScene: UIWindowScene, didUpdateEffectiveGeometry previousEffectiveGeometry: UIWindowScene.Geometry) {
+        SceneReport.shared.note(windowScene)
     }
 
     func sceneDidBecomeActive(_ scene: UIScene) {

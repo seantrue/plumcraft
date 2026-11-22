@@ -57,6 +57,11 @@ struct Options {
     /// `--width-class compact`: the scripted launch's windows lay out as a narrow window does
     /// (Split View, Slide Over, a narrow Stage Manager window), on any iPad (N4 slice 6).
     var compactWidth = false
+    /// `--window-size WxH` or `full` (scripts and the UI tests): the window asks for that size
+    /// where the system lets a window be any size (iPadOS's Windowed Apps or Stage Manager),
+    /// through the scene's size restrictions; iPadOS keeps a window's last size otherwise. Not
+    /// honoured with Full Screen Apps (the window is the screen).
+    var windowSize: String?
     var engine = "text"
     var also: [String] = []
     var pick = true
@@ -85,6 +90,7 @@ struct Options {
             case "--scratch-state": o.scratchState = true
             case "--appearance": o.appearance = next()
             case "--width-class": o.compactWidth = next() == "compact"
+            case "--window-size": o.windowSize = next()
             case "--engine": o.engine = next() ?? "text"
             case "--engines-pick": o.pick = next() != "off"
             case "--engines-also":
@@ -134,6 +140,92 @@ struct Dirs {
 /// B118: the on-screen keyboard (`keyboard`: shown, its frame in the screen) and what holds the
 /// keyboard's focus (`firstResponder`: its type, and a text field's accessibility identifier),
 /// written to the status whenever the keyboard shows, hides or moves.
+/// The window as the system has it, for scripts and the UI tests (`scene` in the status): its size,
+/// its size classes, the scene's activation state, the orientation, and the size a launch asked
+/// for with `--window-size`. On an iPad with Windowed Apps or Stage Manager a window can be any
+/// size and keeps the size it last had, so every log should say what it was (B119).
+@MainActor
+final class SceneReport {
+    static let shared = SceneReport()
+    private var asked: String?
+    private var watched: Set<ObjectIdentifier> = []
+
+    static func word(_ c: UIUserInterfaceSizeClass) -> String {
+        switch c {
+        case .compact: return "compact"
+        case .regular: return "regular"
+        default: return "unspecified"
+        }
+    }
+
+    static func word(_ s: UIScene.ActivationState) -> String {
+        switch s {
+        case .foregroundActive: return "foregroundActive"
+        case .foregroundInactive: return "foregroundInactive"
+        case .background: return "background"
+        default: return "unattached"
+        }
+    }
+
+    /// The scene's window, its classes and state, as JSON.
+    static func describe(_ ws: UIWindowScene) -> JSONValue {
+        let t = ws.traitCollection
+        let b = ws.coordinateSpace.bounds
+        var o: [String: JSONValue] = [
+            "size": .array([.double(Double(b.width)), .double(Double(b.height))]),
+            "screen": .array([.double(Double(ws.screen.bounds.width)), .double(Double(ws.screen.bounds.height))]),
+            "horizontal": .string(word(t.horizontalSizeClass)),
+            "vertical": .string(word(t.verticalSizeClass)),
+            "state": .string(word(ws.activationState)),
+            "orientation": .int(Int64(ws.effectiveGeometry.interfaceOrientation.rawValue)),
+            "fullScreen": .bool(abs(b.width - ws.screen.bounds.width) < 1 && abs(b.height - ws.screen.bounds.height) < 1),
+        ]
+        if let r = ws.sizeRestrictions {
+            o["restricted"] = .array([.double(Double(r.minimumSize.width)), .double(Double(r.minimumSize.height)),
+                                      .double(Double(r.maximumSize.width)), .double(Double(r.maximumSize.height))])
+        }
+        if let a = shared.asked { o["asked"] = .string(a) }
+        return .object(o)
+    }
+
+    /// `--window-size WxH` or `full`: the scene's size restrictions pinned to that size, which a
+    /// system with free-size windows honours by resizing the window (tried on the simulator).
+    static func ask(_ ws: UIWindowScene, _ spec: String) {
+        shared.asked = spec
+        guard let r = ws.sizeRestrictions else { return }
+        let size: CGSize
+        if spec == "full" {
+            size = ws.screen.bounds.size
+        } else {
+            let p = spec.lowercased().split(separator: "x").compactMap { Double($0) }
+            guard p.count == 2, p[0] > 0, p[1] > 0 else { return }
+            size = CGSize(width: p[0], height: p[1])
+        }
+        r.minimumSize = size
+        r.maximumSize = size
+    }
+
+    /// Report the scene now and whenever its size, classes or state change.
+    func watch(_ ws: UIWindowScene) {
+        let id = ObjectIdentifier(ws)
+        guard !watched.contains(id) else { return }
+        watched.insert(id)
+        ws.registerForTraitChanges([UITraitHorizontalSizeClass.self, UITraitVerticalSizeClass.self]) { (s: UIWindowScene, _: UITraitCollection) in
+            SceneReport.shared.note(s)
+        }
+        for name in [UIScene.didActivateNotification, UIScene.willDeactivateNotification, UIScene.didEnterBackgroundNotification, UIScene.willEnterForegroundNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: ws, queue: .main) { [weak ws] _ in
+                MainActor.assumeIsolated { if let ws { SceneReport.shared.note(ws) } }
+            }
+        }
+        note(ws)
+    }
+
+    func note(_ ws: UIWindowScene) {
+        StatusFile.shared.set("scene", Self.describe(ws))
+    }
+}
+
 @MainActor
 final class KeyboardWatch {
     static let shared = KeyboardWatch()
