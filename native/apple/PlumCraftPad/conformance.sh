@@ -10,6 +10,8 @@
 #
 # `gestures` runs the UI test instead (UITests/GestureTests.swift): real taps, a long press's
 # context menu, a pinch, a drag and a double tap through UIKit's recognisers, and the rotations.
+# PLUMCRAFT_WINDOW (`375x655`) runs them in a window of that size (the simulator's Settings ›
+# Multitasking & Gestures set to Windowed Apps; with Full Screen Apps the window is the screen).
 # SIM names the simulator (default: the booted "iPad Pro 13-inch (M5)").
 set -euo pipefail
 half="${1:-read}"
@@ -35,9 +37,9 @@ cd "$here"
 command -v xcodegen >/dev/null && xcodegen generate --quiet
 if [ "$half" = gestures ]; then
   shots="${SHOTS:-$root/claude-debug/native-n3/s5-shots}"; mkdir -p "$shots"
-  TEST_RUNNER_PLUMCRAFT_STATUS="$scratch/ui-status.json" TEST_RUNNER_PLUMCRAFT_SHOTS="$shots" \
+  TEST_RUNNER_PLUMCRAFT_STATUS="$scratch/ui-status.json" TEST_RUNNER_PLUMCRAFT_SHOTS="$shots" TEST_RUNNER_PLUMCRAFT_WINDOW="${PLUMCRAFT_WINDOW:-}" TEST_RUNNER_PLUMCRAFT_ORIENTATION="${PLUMCRAFT_ORIENTATION:-}" \
     timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug -derivedDataPath build \
-    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|^B111: |TEST (SUCCEEDED|FAILED)'
+    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|^B111: |^WINDOW |TEST (SUCCEEDED|FAILED)'
   exit "${PIPESTATUS[0]}"
 fi
 # a build that fails stops here (N4 slice 4: it used to go on, and ran the app installed before)

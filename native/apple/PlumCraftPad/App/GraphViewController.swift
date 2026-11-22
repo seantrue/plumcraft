@@ -247,10 +247,11 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             // an iPhone, or a narrow iPad window (Split View, Slide Over, Stage Manager): Documents
             // and Add on the left; Run and a More menu on the right, which holds the rest of the
             // core's toolbar, Settings and the engines' state, built as it opens (N4 slice 6)
-            left = (doneItem.map { [$0] } ?? []) + (made["canvas.palette"].map { [$0] } ?? [])
+            left = (doneItem.map { [$0] } ?? []) + (narrow ? [] : (made["canvas.palette"].map { [$0] } ?? []))
             right = (made["run.start"].map { [$0] } ?? [])
             right.insert(moreItem, at: 0)
         }
+        barNarrow = narrow
         navigationItem.leftBarButtonItems = left
         navigationItem.rightBarButtonItems = right
         StatusFile.shared.set("bar", .array((left + right).map { .string($0.accessibilityIdentifier ?? $0.title ?? "") }))
@@ -264,7 +265,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             guard let self else { return done([]) }
             var items: [UIMenuElement] = []
             for it in ToolbarWords.buttons(self.toolItems) {
-                guard let c = it.command, !["canvas.palette", "run.start"].contains(c) else { continue }
+                // what the bar shows stays off the menu: Add Node is on it unless the window is narrow
+                guard let c = it.command, c != "run.start", c != "canvas.palette" || self.narrow else { continue }
                 let a = UIAction(title: it.label, image: UIImage(systemName: ToolbarWords.symbol(it.icon)),
                                  attributes: it.enabled && self.model != nil ? [] : .disabled,
                                  state: it.checked == true ? .on : .off) { [weak self] _ in self?.toolbarButton(c) }
@@ -505,12 +507,21 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     var compact: Bool { traitCollection.horizontalSizeClass == .compact }
 
+    /// A window too narrow for Documents, Add, the title, Run and More side by side: an iPhone, a
+    /// small free-size iPad window (Windowed Apps, Stage Manager; 375 points wide with the window
+    /// controls beside Documents, B119). Add Node then goes in the More menu, which the system's
+    /// own overflow would otherwise swallow with Run.
+    var narrow: Bool { compact && view.bounds.width > 0 && view.bounds.width < 440 }
+    /// What the bar was laid out for.
+    var barNarrow = false
+
     var laidOutSize = CGSize.zero
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         if view.bounds.size != laidOutSize {
             laidOutSize = view.bounds.size
+            if narrow != barNarrow { layoutBar() }
             reportNow()
         }
     }
@@ -847,6 +858,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         var s: [String: JSONValue] = ["doc": .uint(doc), "ready": .bool(readyShown), "path": .string(document.fileURL.path), "title": .string(name),
                                       "compact": .bool(compact),
                                       "size": [.double(Double(view.bounds.width)), .double(Double(view.bounds.height))]]
+        // the window as the system has it: size classes, activation, a size asked for (B119)
+        if let ws = view.window?.windowScene { s["scene"] = SceneReport.describe(ws) }
         if let v = canvasView {
             s["faces"] = .int(Int64(v.canvas.faceCount))
             s["wires"] = .int(Int64(v.canvas.wireLayerCount))
@@ -878,7 +891,9 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                 let outs = (0..<L.outputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: true, pin: $0) }.map(pt)
                 let ins = (0..<L.inputPins.count).compactMap { v.canvas.pinPoint(face: f.id, output: false, pin: $0) }.map(pt)
                 let more = v.canvas.moreRect(face: f.nid).map { pt(CGPoint(x: $0.midX, y: $0.midY)) } ?? .null
-                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more,
+                // the face's whole box (top left, bottom right), so a test finds empty canvas to pan from
+                let box: JSONValue = .array([pt(CGPoint(x: f.pos.x, y: f.pos.y)), pt(CGPoint(x: f.pos.x + L.size.width, y: f.pos.y + L.size.height))])
+                points[f.id] = ["center": pt(c), "out": .array(outs), "in": .array(ins), "more": more, "box": box,
                                 "title": pt(CGPoint(x: f.pos.x + L.size.width * 0.4, y: f.pos.y + 14))]
             }
             s["points"] = .object(points)

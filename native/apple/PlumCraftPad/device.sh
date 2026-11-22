@@ -14,7 +14,11 @@
 #   the iPad.
 # ui:     the iPad UI tests on the device. The tests read the app's status from the debug build's
 #   status element (accessibility), since the test runner's sandbox can't see the app's files on a
-#   device; each run has a result bundle of its own.
+#   device; each run has a result bundle of its own. Each test's launch asks for the whole screen
+#   (`--window-size full`), or for PLUMCRAFT_WINDOW (`375x655`) when it is set; with Windowed
+#   Apps or Stage Manager iPadOS otherwise keeps whatever size the window last had (B119 to
+#   B121). Each test prints its window (`WINDOW …`). PLUMCRAFT_ORIENTATION=landscape turns the
+#   iPad first.
 # Nothing here asks Apple for anything: signing uses the team's existing identity and profile.
 # Exit 5: the iPad was locked (a launch refused); nothing after it was read.
 set -uo pipefail
@@ -110,11 +114,11 @@ ui() {
   # a result bundle of this run's own (xcodebuild refuses to write over one), never an old one read
   local result="$out/ui-$run_id.xcresult"
   rm -rf "$result"
-  TEST_RUNNER_PLUMCRAFT_SHOTS="$out" TEST_RUNNER_PLUMCRAFT_STATUS_VIA=element timeout 1800 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug \
+  TEST_RUNNER_PLUMCRAFT_SHOTS="$out" TEST_RUNNER_PLUMCRAFT_STATUS_VIA=element TEST_RUNNER_PLUMCRAFT_WINDOW="${PLUMCRAFT_WINDOW:-}" TEST_RUNNER_PLUMCRAFT_ORIENTATION="${PLUMCRAFT_ORIENTATION:-}" timeout 1800 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug \
     -derivedDataPath "$pad/build-device/test" -destination "id=$dev" CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" \
     -resultBundlePath "$result" test >"$out/ui-full-$run_id.log" 2>&1
   local code=$?
-  grep -E 'Test Case|error:|^B111: |TEST (SUCCEEDED|FAILED)' "$out/ui-full-$run_id.log" | tee "$out/ui-$run_id.log"
+  grep -E 'Test Case|error:|^B111: |^WINDOW |TEST (SUCCEEDED|FAILED)' "$out/ui-full-$run_id.log" | tee "$out/ui-$run_id.log"
   if locked "$out/ui-full-$run_id.log"; then echo "the iPad is locked: the UI tests didn't run (unlock it; Auto-Lock to Never)"; code=5; fi
   if grep -q 'Authentication canceled' "$out/ui-full-$run_id.log"; then
     echo "UI automation was refused: Settings > Developer > Enable UI Automation on the iPad, then run again"; code=6

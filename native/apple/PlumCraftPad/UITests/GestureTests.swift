@@ -41,8 +41,28 @@ final class GestureTests: XCTestCase {
 
     /// The launch arguments with `--status-file <path>` made `--status-element` when the status
     /// is read from the element.
+    /// The window each test asks for (`--window-size`): the whole screen unless a test sets
+    /// another, or PLUMCRAFT_WINDOW (`WxH` or `full`) sets one for every test. On an iPad with
+    /// Windowed Apps or Stage Manager a window keeps the size it last had (B119), so each launch
+    /// asks; with Full Screen Apps the window is the screen whatever is asked.
+    var windowSize = "full"
+    /// A test that needs one size whatever PLUMCRAFT_WINDOW says (the others work at any size).
+    var windowNeeded: String?
+    /// Whether this launch's window has been said yet (once, when the app first answers).
+    var windowSaid = false
+
+    @MainActor
     func adoptStatus(_ app: XCUIApplication) {
         launched = app
+        windowSaid = false
+        let size = windowNeeded ?? ProcessInfo.processInfo.environment["PLUMCRAFT_WINDOW"].flatMap { $0.isEmpty ? nil : $0 } ?? windowSize
+        app.launchArguments += ["--window-size", size]
+        // PLUMCRAFT_ORIENTATION=landscape: the device turned first, as the maintainer's iPad was
+        switch ProcessInfo.processInfo.environment["PLUMCRAFT_ORIENTATION"] {
+        case "landscape"?: XCUIDevice.shared.orientation = .landscapeLeft
+        case "portrait"?: XCUIDevice.shared.orientation = .portrait
+        default: break
+        }
         guard viaElement, let k = app.launchArguments.firstIndex(of: "--status-file"), k + 1 < app.launchArguments.count else { return }
         app.launchArguments.replaceSubrange(k...(k + 1), with: ["--status-element"])
     }
@@ -66,18 +86,73 @@ final class GestureTests: XCTestCase {
     }
 
     /// Wait (at most `timeout`) until `cond` holds of the first window's status.
+    @MainActor
     @discardableResult
     func wait(_ what: String, timeout: TimeInterval = 20, _ cond: ([String: Any]) -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
-            if cond(window()) { return true }
+            let w = window()
+            if !windowSaid, w["ready"] != nil {
+                windowSaid = true
+                sizeWindow()
+                // every log says the window each test had: size, classes, the scene's state
+                print("WINDOW \(name): \(sceneLine(status()))")
+            }
+            if cond(w) { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
         // what the app was animating then (Activity: empty when idle), for B111's device re-run
         let s = status()
         // and the keyboard with what had its focus (B118, B111)
-        XCTFail("timed out waiting for \(what): animating \(s["animating"] ?? "(not reported)"), keyboard \(s["keyboard"] ?? "(not reported)"), first responder \(s["firstResponder"] ?? "(not reported)"): \(window())")
+        XCTFail("timed out waiting for \(what): window \(sceneLine(s)); animating \(s["animating"] ?? "(not reported)"), keyboard \(s["keyboard"] ?? "(not reported)"), first responder \(s["firstResponder"] ?? "(not reported)"): \(window())")
         return false
+    }
+
+    /// The window made the size this launch asked for. "full" the app gets by itself (the scene's
+    /// minimum size is the screen). A smaller size iPadOS gives only to a window a person resizes:
+    /// the app pins its scene's size to the one asked, and a drag of the window's corner toward
+    /// the screen's top left stops there (tried on the simulator with Windowed Apps: 375 by 655,
+    /// B119). With Full Screen Apps no window is resized, and the line says so.
+    @MainActor
+    func sizeWindow() {
+        guard let app = launched, let c = status()["scene"] as? [String: Any], let asked = c["asked"] as? String else { return }
+        if asked == "full" {
+            // the system's own window controls, as a person zooms a window to the whole screen:
+            // asking for it alone isn't enough (the scene's minimum size grows it only in steps)
+            guard (c["fullScreen"] as? Bool) == false else { return }
+            let sb = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+            let controls = sb.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'window-controls:'")).firstMatch
+            guard controls.waitForExistence(timeout: 3) else { print("WINDOW \(name): no window controls to zoom with"); return }
+            controls.tap()
+            let zoom = sb.buttons["Zoom-button"]
+            if zoom.waitForExistence(timeout: 3) { zoom.tap() }
+            let until = Date().addingTimeInterval(5)
+            while Date() < until, ((status()["scene"] as? [String: Any])?["fullScreen"] as? Bool) != true { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            if ((status()["scene"] as? [String: Any])?["fullScreen"] as? Bool) != true { print("WINDOW \(name): could not be made the whole screen") }
+            return
+        }
+        let want = asked.lowercased().split(separator: "x").compactMap { Double($0) }
+        func fits() -> Bool {
+            guard want.count == 2, let s = (status()["scene"] as? [String: Any])?["size"] as? [Double], s.count == 2 else { return false }
+            return abs(s[0] - want[0]) < 1 && abs(s[1] - want[1]) < 1
+        }
+        if fits() { return }
+        let f = app.windows.firstMatch.frame
+        guard f.width > 0 else { return }
+        let origin = app.coordinate(withNormalizedOffset: .zero)
+        origin.withOffset(CGVector(dx: f.maxX - 3, dy: f.maxY - 3))
+            .press(forDuration: 0.6, thenDragTo: origin.withOffset(CGVector(dx: f.minX + 20, dy: f.minY + 20)))
+        let until = Date().addingTimeInterval(5)
+        while Date() < until, !fits() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        if !fits() { print("WINDOW \(name): could not be made \(asked) (Full Screen Apps, or the system's own limits)") }
+    }
+
+    /// The scene as the app reports it, on one line: size, size classes, activation state,
+    /// orientation, full screen or not, the size asked for.
+    func sceneLine(_ s: [String: Any]) -> String {
+        guard let c = s["scene"] as? [String: Any] else { return "(not reported)" }
+        let size = (c["size"] as? [Double]).map { $0.map { String(format: "%.1f", $0) }.joined(separator: "x") } ?? "?"
+        return "size \(size), h \(c["horizontal"] ?? "?"), v \(c["vertical"] ?? "?"), \(c["state"] ?? "?"), orientation \(c["orientation"] ?? "?"), fullScreen \(c["fullScreen"] ?? "?"), asked \(c["asked"] ?? "-")"
     }
 
     @MainActor func shot(_ name: String) {
@@ -104,7 +179,12 @@ final class GestureTests: XCTestCase {
         let canvas = app.otherElements["Canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         let centre = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
-        let corner = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.06))
+        // empty canvas a finger reaches, at any window size (B119)
+        let empty = try XCTUnwrap(emptyCanvas(app, canvas), "empty canvas")
+        let corner = canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: empty.x, dy: empty.y))
+        let v = visibleCanvas(app, canvas)
+        // the canvas's top left corner, below the bar: clear of a menu or a sheet from below
+        let outside = canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: v.minX + 12, dy: v.minY + 12))
 
         // a tap on a face selects it
         centre.tap()
@@ -121,7 +201,7 @@ final class GestureTests: XCTestCase {
         let items = (status()["contextMenu"] as? [String]) ?? []
         XCTAssertTrue(items.contains("Duplicate"), "\(items)")
         // dismissed without choosing (a tap outside the menu)
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.5)).tap()
+        outside.tap()
         XCTAssertTrue(duplicate.waitForNonExistence(timeout: 10))
 
         // a pinch zooms
@@ -140,12 +220,17 @@ final class GestureTests: XCTestCase {
         XCTAssertEqual((window()["zoom"] as? Double) ?? 0, z1, accuracy: 0.001, "a pan leaves the zoom")
 
         // the toolbar's Fit fits everything (a double tap no longer does: the maintainer, N3's exit)
-        app.buttons["Fit"].tap()
+        toolbar(app, "Fit")
         wait("fitted by the toolbar's Fit") { (($0["zoom"] as? Double) ?? 9) < z1 * 0.8 }
         shot("n4s1-ui-fitted")
         try editing(app, canvas)
 
-        // every orientation: the canvas keeps what was at its centre at its centre
+        // every orientation: the canvas keeps what was at its centre at its centre. A window
+        // that is the whole screen turns with it; a free-size window (Windowed Apps, Stage
+        // Manager) keeps its own shape. A zoomed window may go back to the size it had before the
+        // zoom on a turn (seen on the simulator: whole screen, turned, 375 by 655 again), which is
+        // how the device's window came to be small (B121): whichever, the graph is still shown
+        func whole() -> Bool { ((status()["scene"] as? [String: Any])?["fullScreen"] as? Bool) ?? true }
         for (o, name) in [(UIDeviceOrientation.landscapeLeft, "landscape"), (.portrait, "portrait")] {
             XCUIDevice.shared.orientation = o
             RunLoop.current.run(until: Date().addingTimeInterval(2))
@@ -153,8 +238,11 @@ final class GestureTests: XCTestCase {
             XCTAssertTrue(app.buttons["Documents"].exists, "the graph is still shown after the rotation")
             wait("laid out \(name)") {
                 let s = ($0["size"] as? [Double]) ?? [0, 0]
+                guard whole() else { return s[0] > 0 && s[1] > 0 }
                 return o.isLandscape ? s[0] > s[1] : s[1] > s[0]
             }
+            // a turn can change a free-size window's size, which iPadOS then keeps (B121)
+            print("WINDOW after turning \(name): \(sceneLine(status()))")
             RunLoop.current.run(until: Date().addingTimeInterval(1))
             if o != .portrait { shot("n4s1-ui-\(name)") }
         }
@@ -172,20 +260,24 @@ final class GestureTests: XCTestCase {
 
     @MainActor
     func editing(_ app: XCUIApplication, _ canvas: XCUIElement) throws {
-        let corner = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.06, dy: 0.5))
+        let empty = try XCTUnwrap(emptyCanvas(app, canvas), "empty canvas")
+        let corner = canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: empty.x, dy: empty.y))
         // a double tap on empty canvas: the palette there
         corner.doubleTap()
         wait("the palette opened by the double tap") { (($0["palette"] as? [String: Any])?["shown"] as? Bool) == true }
         shot("n4s1-ui-palette-double-tap")
         // dismissed by a tap outside it: the core's palette closes, nothing added
         let nodes0 = (window()["nodes"] as? Int) ?? 0
-        app.coordinate(withNormalizedOffset: CGVector(dx: 0.03, dy: 0.95)).tap()
+        // (above the palette, which a narrow window shows as a sheet from below)
+        let v = visibleCanvas(app, canvas)
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: v.minX + 12, dy: v.minY + 12)).tap()
         wait("the palette dismissed") { (($0["palette"] as? [String: Any])?["open"] as? Bool) == false }
         XCTAssertEqual((window()["nodes"] as? Int) ?? -1, nodes0)
 
         // a one-finger drag on a face moves it: one undo step
         let id = "swap"
         let before = try XCTUnwrap(pos(id))
+        _ = reachable(app, canvas, id, "center")
         let c = try XCTUnwrap(point(canvas, id, "center"), "where swap is: \(window()["points"] ?? "none")")
         c.press(forDuration: 0.05, thenDragTo: c.withOffset(CGVector(dx: 120, dy: 90)))
         wait("swap moved, one step") { _ in
@@ -204,8 +296,15 @@ final class GestureTests: XCTestCase {
         // a wire from an output pin dropped on empty canvas: the palette for what takes it
         let wires0 = (window()["wireCount"] as? Int) ?? 0
         let nodes1 = (window()["nodes"] as? Int) ?? 0
+        _ = reachable(app, canvas, "after", "out", 0)
         let out = try XCTUnwrap(point(canvas, "after", "out", 0), "after.s output: \(window()["points"] ?? "none")")
-        out.press(forDuration: 0.05, thenDragTo: out.withOffset(CGVector(dx: 40, dy: 220)))
+        // dropped on empty canvas a finger reaches, well away from the pin (at any window size)
+        let pin = try XCTUnwrap(((window()["points"] as? [String: Any])?["after"] as? [String: Any]).flatMap { ($0["out"] as? [[Double]])?.first })
+        let drop = emptyPoints(app, canvas).filter { hypot($0.x - pin[0], $0.y - pin[1]) > 120 }
+            .min { hypot($0.x - pin[0] - 40, $0.y - pin[1] - 220) < hypot($1.x - pin[0] - 40, $1.y - pin[1] - 220) }
+            ?? CGPoint(x: pin[0] + 40, y: pin[1] + 220)
+        print("WINDOW wire: from \(pin) to \(drop), the canvas reachable in \(visibleCanvas(app, canvas))")
+        out.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: drop.x, dy: drop.y)))
         wait("the palette for the dropped wire") {
             let p = $0["palette"] as? [String: Any]
             return (p?["wire"] as? Bool) == true && (p?["shown"] as? Bool) == true && !((p?["items"] as? [String]) ?? []).isEmpty
@@ -221,12 +320,15 @@ final class GestureTests: XCTestCase {
         shot("n4s1-ui-after-add-and-connect")
 
         // Select mode: a one-finger drag on empty canvas is a marquee
-        app.buttons["Select"].tap()
+        toolbar(app, "Select")
         wait("select mode on") { ($0["selectMode"] as? Bool) == true }
-        let a = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.02, dy: 0.02))
-        a.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.98, dy: 0.98)))
+        // across what a finger reaches of the canvas (below the bar, inside the window)
+        let reach = visibleCanvas(app, canvas).insetBy(dx: 8, dy: 8)
+        let o = canvas.coordinate(withNormalizedOffset: .zero)
+        let a = o.withOffset(CGVector(dx: reach.minX, dy: reach.minY))
+        a.press(forDuration: 0.05, thenDragTo: o.withOffset(CGVector(dx: reach.maxX, dy: reach.maxY)))
         wait("the marquee selected") { (($0["selection"] as? [String]) ?? []).count >= 2 }
-        app.buttons["Select"].tap()
+        toolbar(app, "Select")
         wait("select mode off") { ($0["selectMode"] as? Bool) == false }
 
         // a two-finger double tap tidies
@@ -244,6 +346,13 @@ final class GestureTests: XCTestCase {
     }
 
     func value(_ face: String, _ k: Int) -> String? { row(face, k)?.1 }
+
+    /// Row `k` of a face, panned to first where a finger can reach it (B119).
+    @MainActor
+    func rowReachable(_ app: XCUIApplication, _ canvas: XCUIElement, _ face: String, _ k: Int) -> (CGPoint, String)? {
+        reveal(app, canvas) { self.row(face, k).map { [Double($0.0.x), Double($0.0.y)] } }
+        return row(face, k)
+    }
 
     /// Editing values on a face (N4 slice 2), through UIKit: a tap on a text row opens a text field
     /// with the keyboard up and the row above it, typing and Done set it (one undo step, "Set
@@ -265,7 +374,7 @@ final class GestureTests: XCTestCase {
         func at(_ p: CGPoint) -> XCUICoordinate { origin.withOffset(CGVector(dx: p.x, dy: p.y)) }
 
         // a text: tap, the field with the keyboard up and the row above it, type, Done
-        let (label, _) = try XCTUnwrap(row("w", 1))
+        let (label, _) = try XCTUnwrap(rowReachable(app, canvas, "w", 1))
         at(label).tap()
         wait("the text field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "text" }
         let field = app.textFields["row-editor"]
@@ -283,7 +392,7 @@ final class GestureTests: XCTestCase {
         shot("n4s2-ui-text-set")
 
         // a number: the numbers keyboard; past its range it is held there by the core
-        let (count, _) = try XCTUnwrap(row("w", 2))
+        let (count, _) = try XCTUnwrap(rowReachable(app, canvas, "w", 2))
         at(count).tap()
         wait("the number field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "number" }
         XCTAssertTrue(field.waitForExistence(timeout: 10))
@@ -305,7 +414,7 @@ final class GestureTests: XCTestCase {
         print("B111: animating 8 s after the number's Done: \(animating)")
 
         // a choice: the system's menu on the row
-        let (mode, _) = try XCTUnwrap(row("w", 5))
+        let (mode, _) = try XCTUnwrap(rowReachable(app, canvas, "w", 5))
         at(mode).tap()
         let title = app.buttons["title"]
         XCTAssertTrue(title.waitForExistence(timeout: 10), "the choices' menu")
@@ -314,13 +423,13 @@ final class GestureTests: XCTestCase {
         wait("mode set to title") { _ in self.value("w", 5) == "title" }
 
         // a switch flips on a tap
-        let (flag, before) = try XCTUnwrap(row("w", 4))
+        let (flag, before) = try XCTUnwrap(rowReachable(app, canvas, "w", 4))
         XCTAssertEqual(before, "on")
         at(flag).tap()
         wait("flag off") { _ in self.value("w", 4) == "off" }
 
         // a number scrubbed by a drag on its row: amount, 0.50, moves up with a drag right
-        let (amount, a0) = try XCTUnwrap(row("w", 3))
+        let (amount, a0) = try XCTUnwrap(rowReachable(app, canvas, "w", 3))
         XCTAssertEqual(a0, "0.50")
         at(amount).press(forDuration: 0.05, thenDragTo: at(CGPoint(x: amount.x + 90, y: amount.y)))
         wait("amount scrubbed up") { _ in (Double(self.value("w", 3) ?? "") ?? 0) > 0.5 }
@@ -361,7 +470,8 @@ final class GestureTests: XCTestCase {
         XCTAssertFalse(rowKeys("w").contains("count"), "count starts hidden from the face")
 
         // a double tap on the node: its parameters, in a popover
-        let title = try XCTUnwrap(((window()["points"] as? [String: Any])?["w"] as? [String: Any])?["title"] as? [Double])
+        // each point made reachable first: in a small window it may be off the window (B119)
+        let title = try XCTUnwrap(reachable(app, canvas, "w", "title"))
         at(title).doubleTap()
         wait("the parameters open on w") { (($0["parameters"] as? [String: Any])?["shown"] as? Bool) == true }
         let count = app.textFields["edit.count"]
@@ -405,7 +515,7 @@ final class GestureTests: XCTestCase {
         wait("the parameters closed") { ($0["parameters"] as? [String: Any]).map { ($0["shown"] as? Bool) == false } ?? true }
 
         // a double tap on the collapsed group: inside it, and the way back
-        let g = try XCTUnwrap(((window()["points"] as? [String: Any])?["group:g1"] as? [String: Any])?["title"] as? [Double])
+        let g = try XCTUnwrap(reachable(app, canvas, "group:g1", "title"))
         at(g).doubleTap()
         wait("inside the group") { ($0["focus"] as? String) == "g1" && (($0["crumbs"] as? [String])?.count ?? 0) == 2 }
         shot("n4s3-ui-inside-group")
@@ -413,6 +523,7 @@ final class GestureTests: XCTestCase {
         wait("back on the graph") { $0["focus"] is NSNull || $0["focus"] == nil }
 
         // a double tap on the frame's tab: its title edited in place
+        reveal(app, canvas) { (self.window()["frameTabs"] as? [String: Any])?["f1"] as? [Double] }
         let tab = try XCTUnwrap((window()["frameTabs"] as? [String: Any])?["f1"] as? [Double])
         at(tab).doubleTap()
         let name = app.textFields["name-editor"]
@@ -422,7 +533,7 @@ final class GestureTests: XCTestCase {
         shot("n4s3-ui-frame-renamed")
 
         // a double tap on an output pin: the value pops out
-        let out = try XCTUnwrap((((window()["points"] as? [String: Any])?["n1"] as? [String: Any])?["out"] as? [[Double]])?.first)
+        let out = try XCTUnwrap(reachable(app, canvas, "n1", "out", 0))
         at(out).doubleTap()
         wait("a pop-out shown") { (($0["popouts"] as? [[String: Any]])?.first?["shown"] as? String).map { $0 != "none" } ?? false }
         let done = app.buttons["popout-done"]
@@ -432,7 +543,7 @@ final class GestureTests: XCTestCase {
         wait("the pop-out closed") { (($0["popouts"] as? [[String: Any]]) ?? []).isEmpty }
         // N4 slice 5 (the maintainer: "No way to close popout or get back to the main canvas"): the
         // graph is in front and takes a tap again: a tap on a face selects it
-        let n5 = try XCTUnwrap(((window()["points"] as? [String: Any])?["n5"] as? [String: Any])?["title"] as? [Double])
+        let n5 = try XCTUnwrap(reachable(app, canvas, "n5", "title"))
         at(n5).tap()
         wait("the graph takes a tap after the pop-out closed") { ($0["selection"] as? [String])?.contains("n5") == true }
     }
@@ -440,27 +551,30 @@ final class GestureTests: XCTestCase {
     /// N4 slice 5: every viewer by the path a person's finger takes: a double tap on each value's
     /// output pin pops it out (a sheet over the graph, the graph in sight above it), the viewer
     /// draws it, Done closes it at once, and the graph takes a tap again.
+    /// Works at any window size: each viewer's node is opened centred (`--then zoom:0.7:<node>`),
+    /// so its pin is in reach in a 375-point window as on the whole screen (B121).
     @MainActor
     func testEveryViewerByATap() throws {
         let env = ProcessInfo.processInfo.environment
-        statusPath = statusFilePath(env)
-        let app = XCUIApplication()
-        app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--then", "zoom:0.7:snd"]
-        adoptStatus(app)
-        app.launch()
-        defer { app.terminate() }
-        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
-        let canvas = app.otherElements["Canvas"]
-        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
-        let origin = canvas.coordinate(withNormalizedOffset: .zero)
-        func at(_ p: [Double]) -> XCUICoordinate { origin.withOffset(CGVector(dx: p[0], dy: p[1])) }
         // (node, the viewer it opens in, what the viewer says once it has drawn it)
         let kinds: [(String, String, String)] = [
             ("tab", "table.grid", "table"), ("js", "yaml", "yaml"), ("img", "picture", "picture"),
             ("snd", "audio", "audio"), ("m", "array.pictures", "picture|pictures"), ("svg", "svg", "picture"),
         ]
         for (node, viewer, drawn) in kinds {
-            let out = try XCTUnwrap((((window()["points"] as? [String: Any])?[node] as? [String: Any])?["out"] as? [[Double]])?.first, node)
+            statusPath = statusFilePath(env)
+            let app = XCUIApplication()
+            app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--then", "zoom:0.7:\(node)"]
+            adoptStatus(app)
+            app.launch()
+            defer { app.terminate() }
+            wait("the graph, ready, on \(node)", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil && abs((($0["zoom"] as? Double) ?? 0) - 0.7) < 0.01 }
+            let canvas = app.otherElements["Canvas"]
+            XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+            let origin = canvas.coordinate(withNormalizedOffset: .zero)
+            func at(_ p: [Double]) -> XCUICoordinate { origin.withOffset(CGVector(dx: p[0], dy: p[1])) }
+            // centred on the node; panned to only if its pin is still out of reach
+            let out = try XCTUnwrap(reachable(app, canvas, node, "out", 0), node)
             at(out).doubleTap()
             // a double tap the system took as two taps (the sheet just gone) is tried once more
             let deadline = Date().addingTimeInterval(8)
@@ -479,7 +593,7 @@ final class GestureTests: XCTestCase {
             shot("n4s5-ui-\(viewer)")
             done.tap()
             wait("\(node)'s pop-out closed") { (($0["popouts"] as? [[String: Any]]) ?? []).isEmpty }
-            let title = try XCTUnwrap(((window()["points"] as? [String: Any])?[node] as? [String: Any])?["title"] as? [Double])
+            let title = try XCTUnwrap(reachable(app, canvas, node, "title"))
             at(title).tap()
             wait("the graph takes a tap after \(node)'s pop-out") { ($0["selection"] as? [String]) == [node] }
         }
@@ -494,6 +608,128 @@ extension GestureTests {
     func coreWindows() -> [String: Any] { window()["coreWindows"] as? [String: Any] ?? [:] }
 
     /// A menu item by its label, wherever the system put it (a button or a menu item).
+    // MARK: Any window size (B119): what a person does when the window is small
+
+    /// The part of the canvas a finger can reach, in the canvas's own points: inside the window,
+    /// below the bar.
+    @MainActor
+    func visibleCanvas(_ app: XCUIApplication, _ canvas: XCUIElement) -> CGRect {
+        let c = canvas.frame
+        var v = c.intersection(app.windows.firstMatch.frame)
+        let bar = app.navigationBars.firstMatch
+        if bar.exists, bar.frame.maxY > v.minY {
+            v = CGRect(x: v.minX, y: bar.frame.maxY, width: v.width, height: max(0, v.maxY - bar.frame.maxY))
+        }
+        return v.offsetBy(dx: -c.minX, dy: -c.minY)
+    }
+
+    /// Where the faces are, roughly, in the canvas (from the status's points), for finding empty canvas.
+    func faceBoxes() -> [CGRect] {
+        guard let pts = window()["points"] as? [String: Any] else { return [] }
+        return pts.values.compactMap { v -> CGRect? in
+            guard let f = v as? [String: Any], let c = f["center"] as? [Double], c.count == 2 else { return nil }
+            // the app's own box when it says it (the whole face, previews included)
+            if let b = f["box"] as? [[Double]], b.count == 2, b[0].count == 2, b[1].count == 2 {
+                return CGRect(x: b[0][0] - 16, y: b[0][1] - 16, width: b[1][0] - b[0][0] + 32, height: b[1][1] - b[0][1] + 32)
+            }
+            var xs = [c[0]], ys = [c[1]]
+            for k in ["title", "more"] { if let p = f[k] as? [Double], p.count == 2 { xs.append(p[0]); ys.append(p[1]) } }
+            for k in ["in", "out"] { for p in (f[k] as? [[Double]]) ?? [] where p.count == 2 { xs.append(p[0]); ys.append(p[1]) } }
+            let top = ys.min() ?? c[1]
+            let bottom = max(ys.max() ?? c[1], 2 * c[1] - top)
+            let left = min(xs.min() ?? c[0], 2 * c[0] - (xs.max() ?? c[0]))
+            let right = max(xs.max() ?? c[0], 2 * c[0] - (xs.min() ?? c[0]))
+            return CGRect(x: left - 24, y: top - 28, width: right - left + 48, height: bottom - top + 56)
+        }
+    }
+
+    /// Points of empty canvas a finger can reach.
+    @MainActor
+    func emptyPoints(_ app: XCUIApplication, _ canvas: XCUIElement) -> [CGPoint] {
+        let v = visibleCanvas(app, canvas).insetBy(dx: 16, dy: 16)
+        let boxes = faceBoxes()
+        var out: [CGPoint] = []
+        for j in 0..<9 {
+            for i in 0..<7 {
+                let p = CGPoint(x: v.minX + v.width * (CGFloat(i) + 0.5) / 7, y: v.minY + v.height * (CGFloat(j) + 0.5) / 9)
+                if !boxes.contains(where: { $0.contains(p) }) { out.append(p) }
+            }
+        }
+        return out
+    }
+
+    /// A point of empty canvas a finger can reach (nil: none found).
+    @MainActor
+    func emptyCanvas(_ app: XCUIApplication, _ canvas: XCUIElement) -> CGPoint? { emptyPoints(app, canvas).first }
+
+    /// Bring a point of the canvas (a pin, a title) where a finger can reach it, as a person
+    /// would: a one-finger drag on empty canvas pans. `point` reads it afresh after each pan.
+    @MainActor
+    func reveal(_ app: XCUIApplication, _ canvas: XCUIElement, _ point: () -> [Double]?) {
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        for _ in 0..<6 {
+            guard let p = point(), p.count == 2 else { return }
+            let v = visibleCanvas(app, canvas)
+            // well inside: a drag that starts at the point (a wire from a pin) needs room too
+            if v.insetBy(dx: min(80, v.width / 4), dy: min(80, v.height / 4)).contains(CGPoint(x: p[0], y: p[1])) { return }
+            // the drag stays inside what a finger reaches: from the empty point that lets it go
+            // furthest toward bringing the point to the middle
+            func move(_ s: CGPoint) -> CGVector {
+                CGVector(dx: max(v.minX + 8 - s.x, min(v.maxX - 8 - s.x, v.midX - p[0])),
+                         dy: max(v.minY + 8 - s.y, min(v.maxY - 8 - s.y, v.midY - p[1])))
+            }
+            guard let s = emptyPoints(app, canvas).max(by: { hypot(move($0).dx, move($0).dy) < hypot(move($1).dx, move($1).dy) }) else {
+                print("WINDOW reveal: no empty canvas in \(v) to pan from, for \(p)")
+                return
+            }
+            let dx = move(s).dx, dy = move(s).dy
+            let undo0 = window()["undo"] as? String
+            defer {
+                // a drag that caught a face would move it, not pan: say so rather than go on astray
+                let undo1 = window()["undo"] as? String
+                XCTAssertTrue(undo1 == undo0 || undo1 != "Move Node", "reveal: the drag from \(s) moved a face instead of panning")
+            }
+            // slow, and held at the end, so the pan has no momentum to carry it past
+            origin.withOffset(CGVector(dx: s.x, dy: s.y)).press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: s.x + dx, dy: s.y + dy)),
+                                                               withVelocity: 400, thenHoldForDuration: 0.3)
+            // then until the pan stops changing
+            var last = (window()["pan"] as? [Double]) ?? [0, 0]
+            let until = Date().addingTimeInterval(4)
+            while Date() < until {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+                let q = (window()["pan"] as? [Double]) ?? last
+                if hypot(q[0] - last[0], q[1] - last[1]) < 0.5 { break }
+                last = q
+            }
+        }
+    }
+
+    /// A point of a face (`center`, `title`, or pin `k` of `in`/`out`), made reachable first.
+    @MainActor
+    func reachable(_ app: XCUIApplication, _ canvas: XCUIElement, _ id: String, _ what: String, _ k: Int = 0) -> [Double]? {
+        func p() -> [Double]? {
+            guard let f = (window()["points"] as? [String: Any])?[id] as? [String: Any] else { return nil }
+            if what == "center" || what == "title" || what == "more" { return f[what] as? [Double] }
+            return (f[what] as? [[Double]]).flatMap { $0.indices.contains(k) ? $0[k] : nil }
+        }
+        reveal(app, canvas, p)
+        return p()
+    }
+
+    /// A toolbar button, from the bar when it is there, else from the bar's More menu (a narrow
+    /// window keeps only some of the core's toolbar on the bar).
+    @MainActor
+    func toolbar(_ app: XCUIApplication, _ label: String) {
+        let b = app.buttons[label]
+        if b.exists, b.isHittable { b.tap(); return }
+        let more = app.buttons["tool.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "\(label): neither on the bar nor a More menu")
+        more.tap()
+        let it = item(app, label)
+        XCTAssertTrue(it.waitForExistence(timeout: 5), "\(label) in the More menu")
+        it.tap()
+    }
+
     /// B118: the on-screen keyboard is up only while a field is edited. After a launch with
     /// nothing edited there is none (the app's status says so, and so does what accessibility
     /// sees), and after a field's Done it goes away again. An open menu brings it (the system
@@ -536,7 +772,7 @@ extension GestureTests {
         let canvas = app.otherElements["Canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
         let origin = canvas.coordinate(withNormalizedOffset: .zero)
-        let (label, _) = try XCTUnwrap(row("w", 1))
+        let (label, _) = try XCTUnwrap(rowReachable(app, canvas, "w", 1))
         origin.withOffset(CGVector(dx: label.x, dy: label.y)).tap()
         wait("the text field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "text" }
         let field = app.textFields["row-editor"]
@@ -585,7 +821,14 @@ extension GestureTests {
         let app = XCUIApplication()
         app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--width-class", "compact"]
         app.launchEnvironment["PLUMCRAFT_ENGINE_FOLDER"] = engines
+        // the whole screen whatever PLUMCRAFT_WINDOW says: in a 375-point window the Engine menu
+        // is short, the system's keyboard covers its foot (B118) and a finger's scroll of it is
+        // taken as a press, which the test can't tell from the person's (B121)
+        windowNeeded = "full"
+        defer { windowNeeded = nil }
         adoptStatus(app)
+        // and upright, where the menu has room above the keyboard
+        XCUIDevice.shared.orientation = .portrait
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
@@ -600,8 +843,13 @@ extension GestureTests {
         for _ in 0..<4 where !copied.waitForExistence(timeout: 2) {
             // on an item the finger can reach (with the software keyboard on, the system brings
             // it up with any open menu, ours or a stock app's, and it covers the menu's foot: B118)
-            let top = item(app, "Reconnect")
-            (top.exists ? top : app).swipeUp()
+            // the menu's own items, the first still in sight once it has scrolled
+            // (an item's label carries its subtitle: "CADCraft, CADCraft: this device has…")
+            let items = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Reconnect' OR label CONTAINS 'this device has no'")).allElementsBoundByIndex
+            // (a swipe on the app would close the menu)
+            guard let anchor = items.last(where: { $0.exists && $0.isHittable }) else { continue }
+            // a finger's swipe up the menu from its lowest item in reach
+            anchor.swipeUp()
         }
         shot("n4h-ui-warned-engine")
         guard copied.waitForExistence(timeout: 10) else {
