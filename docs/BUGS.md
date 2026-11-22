@@ -18,19 +18,18 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: step 3, `ui.gesture {kind: "tap", at: [284.126, 14.0]}` on the more-button's part the shell had measured: the core answered `hit: none` and cleared the selection, so no node menu came back (54 of 55). The next three Mac runs that day passed every case. Possibly the tap arriving before the app reported the header's parts (`geometry.parts`); not looked into.
 - Issue: none
 
-### B94. The Windows palette's kinds had no names for UI Automation
+### B96. The wire tiles' moiré at low zoom differs slightly from the per-wire drawing (observation, low priority)
 
 - Reported: 2026-11-22
-- Report: found by the person check (`native/windows/person-check.ps1`, branch `native/n5-gate`): searching the palette for "Text" left one list item named "Text" (the family's heading) and every kind's row unnamed, so the check, or a screen reader, could not tell the kinds apart
-- Context: each kind's row is a `Grid` of text blocks, which UI Automation shows as a list item with no name.
-- Fixed: 2026-11-22, branch `native/n5-gate`: each row is named by its label and note (`Editors.cs`), and a family's heading is marked a heading. The person check's third run on 2026-11-22 picked "Text" from the palette by its name and passed every step it covers but one (its own reading of a field's value, since fixed).
+- Report: the N5 gate's pixel comparison (`claude-debug/native-n5/g-pixels.py`): at zoom 1 the tiles match the old drawing within 5 of 255; at zoom 0.37, 2.7% of pixels differ by more than 32, all inside dense bands of wires
+- Context: the maintainer: "note for future". Not a defect to fix now (note 24's open items).
 - Issue: none
 
-### B93. A graph opened from the Windows app's command line is titled Untitled
+### B95. The copied-manifest warning shows a Windows path with its `\\?\` prefix
 
-- Reported: 2026-11-21
-- Report: found setting up the sound for the maintainer to hear (`native/n5-gate`): `Plummer.exe --root <scratch> <graph>.json` showed the graph, and the window's title, its status file's `title` and UI Automation all said "Untitled - Plummer"; the same graph opened by File › Open is titled by its file
-- Context: the window titles itself from the document's state in the feed (`DocumentState.Name`, else `Path`); a graph opened with `document.open {path}` at launch comes with neither, it seems. Not looked into further: the VM stopped answering.
+- Reported: 2026-11-22
+- Report: seen in the engine cell's tooltip on the Windows test VM (`native/n5-gate-2`): "uv run --project . names \\?\C:\…\engines, with no pyproject.toml…"
+- Context: the core canonicalises the manifest's folder (`std::fs::canonicalize`, which on Windows gives a verbatim path) and puts it in the words a person reads (`crates/host/src/manifest.rs`). The fix is the core's (strip the prefix for display, as `dunce` does); not changed here.
 - Issue: none
 
 ### B92. A sound popped out by a double click on its pin started playing by itself, twice
@@ -145,6 +144,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B94. The Windows palette's kinds had no names for UI Automation
+
+- Reported: 2026-11-22
+- Report: found by the person check (`native/windows/person-check.ps1`, branch `native/n5-gate`): searching the palette for "Text" left one list item named "Text" (the family's heading) and every kind's row unnamed, so the check, or a screen reader, could not tell the kinds apart
+- Context: each kind's row is a `Grid` of text blocks, which UI Automation shows as a list item with no name.
+- Fixed: 2026-11-22, branch `native/n5-gate`: each row is named by its label and note (`Editors.cs`), and a family's heading is marked a heading. The person check's third run on 2026-11-22 picked "Text" from the palette by its name and passed every step it covers but one (its own reading of a field's value, since fixed).
+- Issue: none
+
+### B93. A graph opened from the Windows app's command line is titled Untitled
+
+- Reported: 2026-11-21
+- Report: found setting up the sound for the maintainer to hear (`native/n5-gate`): `Plummer.exe --root <scratch> <graph>.json` showed the graph, and the window's title, its status file's `title` and UI Automation all said "Untitled - Plummer"; the same graph opened by File › Open is titled by its file
+- Context: the window titles itself from the document's state in the feed (`DocumentState.Name`, else `Path`). The core announces a document's state when it opens it; the command line's graph is opened (`document.open {path}`) before its window's model follows the feed, so that announcement was missed and the window waited for the next. The Mac app titles its windows from NSDocument's file; egui from the core's title; the core's state was right.
+- Fixed: 2026-11-22, branch `native/n5-gate-2`: the model reads the document's state once from `ui.inspect` when it starts, as it already read the engine's (`DocumentModel.RefreshDocument`); a kit test (`AGraphOpenedBeforeItsModelIsKnownByItsFile`) and a person-check step (the saved graph opened from the command line is titled by its file) pin it. The person check passed it three times.
+- Issue: none
 
 ### B110. A node working on an engine that is killed mid-node kept its progress on its face for good
 
