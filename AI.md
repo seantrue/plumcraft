@@ -29,6 +29,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Not verified, and why.** The VM's console session wedged once (B55: a launch handed to Windows Terminal, as far as could be narrowed; scripted launches now run headless) and after a restart the VM stopped answering altogether. So: no panel timings, no 100,000-row scroll, three screenshots not retaken, and **no launch of the app as a person would**, the check the Mac app failed today. Sound has never been heard; Drag Out never dropped into Explorer. One app exit during testing is unexplained (B54).
 
 **Defects in the agent's own work, caught by its tests or pictures:** light cards and title bars in dark mode; a blank picture viewer; a misaligned table header; an outline showing type names; a marquee using a stale point; a runner settle that could pass on a stale measurement.
+### 2026-11-21 — The wire tiles confirmed on the iPad; the maintainer's 29 decisions recorded (Claude Fable 5.2)
+
+**What the maintainer said:** "Go for 146" (merge the wire tiles before the device trace), then "Go for trace".
+
+**The trace (controller, on the maintainer's iPad).** 500 nodes, 800 wires, two rounds of each drawing in one build: tiles 0.0 ms of hitch a second in every phase; the old drawing 142 to 156 panning; wires hidden 0.0. The agent's Mac offscreen measurement predicted this, and the device agrees.
+
+**A defect in earlier AI work, found here.** The bench was changed today to clean up each trace's working file after the disk filled; it does not: this run left six files, 19 GB (B76). The controller deleted them.
+
+**Not done.** The iPad's five UI tests: the iPad had locked by then.
+
+**Also recorded** (previous commit, without a ledger entry at the time): the maintainer's answers to 29 cards after B70 to B73, in note 24, in their words.
 
 ### 2026-11-21 — The iPad's wire hitches: cause found, wires drawn as tiles, not yet confirmed on the device (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

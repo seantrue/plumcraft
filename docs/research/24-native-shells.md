@@ -657,6 +657,42 @@ An audit of the egui editor against the floor and against what N3 and N4 gave th
 
 **The native Apple apps are Plummer** (card 3: "Plummer will be the new base app/platform"). The Mac app and the iPad and iPhone app are named Plummer: the bundle's name and display name, `Plummer.app` (the product name, so the Mac's program is `Contents/MacOS/Plummer`), the document type "Plummer Graph", the About title (the shells give the core `app.name`, which `app.about` already uses; the core's own default stays "PlumCraft", shared with the egui editor), the Mac's application menu, alerts, the Settings window's title and messages; the ids are `com.swapwizard.plummer.mac` and `com.swapwizard.plummer.pad`, with the UI tests at `….pad.uitests` and the scenes' activity types, menu identifiers and log subsystems derived from the bundle's own id at run time. The Mac app's caches (`~/Library/Caches/<id>`), logs (`~/Library/Logs/Plummer`), preferences folder (`~/Library/Application Support/Plummer`) and defaults domain follow; the iPad's folders live in a new container and are named `plummer` inside it. The release builds are `Plummer-<version>-<build>-macos.dmg` and `…-ios`. The Xcode projects and targets, the Swift package and modules (`PlumCraftFFI`, `PlumCraftShell`, …), the crates, the repository, the protocol and the egui editor (still PlumCraft, `com.swapwizard.plumcraft`) keep their names. The Windows app's rename is being done in its own slice.
 
+### Decisions after B70 to B73 (the maintainer, 2026-11-21)
+
+Asked as 29 cards after a day in which the maintainer's first hand use of the Mac app found that it could not make a new graph (B70), could not install an engine or offer installed ones (B71), and drew its forms wrongly (B73), none of which any test had launched. The answer line: "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15B; 16A; 17A; 18 \"[four of the names listed] are private\"; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29A". Earlier the same day: "Go for 146" merged the wire tiles before the iPad trace.
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 | How a floor row counts as met | Met only when a named test launched that path; re-walk the Mac, iPad and Windows tables on that rule |
+| 2 | A launch-as-a-person check | Add it to every shell's gate |
+| 3 | B72, a dead engine takes 30 s to fail | Fix now |
+| 4 | Install with no uv found | Keep: enabled, fails with where it looked |
+| 5 | Install form | Add the pick-list field kind |
+| 6 | Windows: install engines | Declare Python when uv is found, as part of N5 |
+| 7 | Scripted launches and the engines folder | Refuse without a scratch engines folder |
+| 8 | Scratch guard: the temporary folder | Accept |
+| 9 | B37 | Fix it the same way as B49 |
+| 10 | B38 | Investigate for the same cause |
+| 11 | The persist rule and memory stalls | Leave the rule |
+| 12 | Wires as tiles | Keep, if the iPad trace confirms it |
+| 13 | Wire tiles: look and memory | Accept both |
+| 14 | Wire bench switches | Keep as diagnostic options |
+| 15 | Windows canvas: wire tiles | Take the tiles now (the controller had recommended waiting for a Windows GPU measurement) |
+| 16 | B60 | Close as test timing if the next device run passes |
+| 17 | Equalize's method value | Rename it and keep reading the old value |
+| 18 | More names: are they private? | "[four of the names listed] are private" |
+| 19 | `claude-debug/dotcache-models.md` | Stop tracking it |
+| 20 | Mac: document windows through the core | Mac adopts it |
+| 21 | Windows: the banner | Float it over the canvas |
+| 22 | B52 | Make the test wait |
+| 23 | Windows test VM display | Set its display timeout to never |
+| 24 | Windows: the parameters inspector | Keep the docked pane |
+| 25 | Conformance runners: geometry | Make that the default for every runner |
+| 26 | Numbers grid: the 64-column window | Move it into the core |
+| 27 | Recipe in the viewer bar | Add it to the Apple apps |
+| 28 | Windows sound | Accept, after a person hears it |
+| 29 | B54 | Keep open until repeated runs are done |
+
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 
 The first piece of N5 as the maintainer changed it (the note under section 12): a native Windows shell in C# and WinUI 3 on the same core, playing the part N0 played for the Apple apps. Branch `native/n5-spike`, code in `native/windows/` (its README says what is spike and what is meant to stay). Report: `claude-debug/native-n5-spike.md`. Machine: the maintainer's Windows 11 Pro ARM64 virtual machine (UTM on the Mac, 4 cores, 8 GB, build 26200), .NET SDK 10.0.404, Windows App SDK 2.6.5, Win2D 1.4.0. No Rust in the workspace changed.
