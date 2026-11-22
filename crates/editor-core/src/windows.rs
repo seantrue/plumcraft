@@ -166,7 +166,7 @@ pub fn of(session: &Session) -> Windows {
 /// viewer, summary, media, value?, data?, picture?, excerpt?, error?, text: {wrap, mono, all},
 /// fit: "fit" | "1:1" | null}`, and since N4 slice 5 `state` (the viewer's: a table's sort and
 /// page, an outline's open members, play, a channel), `viewers` offered, `type`, `items`,
-/// `index`, `form`, `bytes`, `mediaType`, `handle`, `stats`, `views`, `peaks` and `sheet`
+/// `index`, `form`, `bytes`, `mediaType`, `handle`, `stats`, `views`, `peaks` and `sheet`, and `hasRecipe`
 /// ([`crate::viewers::popout_extra`]).
 pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
     crate::control::check_fields(params, &["id"])?;
@@ -183,6 +183,9 @@ pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
         v["stamp"] = json!(win.stamp);
     }
     v["text"] = serde_json::to_value(o.text).unwrap_or(Value::Null);
+    // whether the value has a recipe (only a lineage-tracking engine sends one, 2026-11-22): a
+    // shell offers its Recipe only then
+    v["hasRecipe"] = json!(d.as_ref().and_then(|d| d.recipe.as_ref()).is_some_and(Value::is_object));
     for (k, x) in crate::viewers::popout_extra(d, &o.state) {
         v[k] = x;
     }

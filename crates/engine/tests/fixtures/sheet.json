@@ -1,0 +1,5 @@
+{
+ "about": "The contact sheet of crates/engine/src/save.rs tests::sheet_items and python/tests/test_save.py, an (H, W, 3) |u1 array: its shape and the SHA-256 of its bytes. Both SDKs must make these exact pixels (decision 2A, 2026-11-22).",
+ "shape": [536, 536, 3],
+ "sha256": "36bcf15eb00438f9163bd4014306c4401fbfc821643bebe9a85f2b2fdc246090"
+}

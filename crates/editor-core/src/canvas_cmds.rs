@@ -115,7 +115,7 @@ const COMMANDS: &[CanvasCommand] = &[
         label: "Save Value As…",
         menu: &[],
         shortcut: None,
-        params: "{popout, path} -> run.save's reply (N4 slice 5: the engine writes the pop-out's value, its recipe included, by the extension; invoked, raises run.save's file.save ask, purpose result)",
+        params: "{popout, path} -> run.save's reply (N4 slice 5: the engine writes the pop-out's value, by the extension; invoked, raises run.save's file.save ask, purpose result)",
         enabled: has_popout,
         shell: false,
     },

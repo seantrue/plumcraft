@@ -25,6 +25,20 @@ pub fn root() -> PathBuf {
     .clone()
 }
 
+/// Whether this process is a test: a test binary cargo built (it lives in a `deps` folder of a
+/// target directory, as `cargo test` and nextest run it), or one run under a test environment
+/// (`COMMONKIT_TEST_RUN` set, as every scratch script and the Swift and C# test kits set it).
+/// What a person's files would hold (preferences, caches) goes under [`root`] then, never the
+/// home folder.
+pub fn testing() -> bool {
+    static TESTING: OnceLock<bool> = OnceLock::new();
+    *TESTING.get_or_init(|| {
+        let env = std::env::var_os("COMMONKIT_TEST_RUN").is_some_and(|v| !v.is_empty());
+        let deps = std::env::current_exe().ok().and_then(|p| p.parent().and_then(|d| d.file_name()).map(|n| n == "deps")).unwrap_or(false);
+        env || deps
+    })
+}
+
 /// A directory `name` under this process's root, created (what was there is kept).
 pub fn dir(name: &str) -> PathBuf {
     let d = root().join(name);

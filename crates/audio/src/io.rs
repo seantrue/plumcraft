@@ -342,11 +342,20 @@ pub(crate) fn save_formats() -> Vec<plumcraft_engine::save::Format> {
                 other => return Err(config(format!("{what}: no sample format {other:?}: one of {}", choices.join(", ")))),
             };
             let buf = AudioBuffer { sample_rate: a.sample_rate, channels: a.to_channels() };
-            soundcraft_audio_io::encode(&buf, &EncodeOptions { format, bit_depth, dither: false, bwf: None }).map_err(|e| op_error(format!("{what}: {e}")))
+            let bytes = soundcraft_audio_io::encode(&buf, &EncodeOptions { format, bit_depth, dither: false, bwf: None })
+                .map_err(|e| op_error(format!("{what}: {e}")))?;
+            // WAV has room for the workflow's name and graph hash (informational); FLAC and AIFF
+            // get none here
+            Ok(match (format, cx.info) {
+                (FileFormat::Wav, Some(i)) => plumcraft_engine::save::wav_with_info(&bytes, i),
+                _ => bytes,
+            })
         }
     };
     vec![
-        Format::new("wav", "WAV", &["wav", "wave"], &[Media::Audio], "audio/wav", encoder(FileFormat::Wav, DEPTHS, "WAV")).with_option(bits(DEPTHS, "float32")),
+        Format::new("wav", "WAV", &["wav", "wave"], &[Media::Audio], "audio/wav", encoder(FileFormat::Wav, DEPTHS, "WAV"))
+            .with_option(bits(DEPTHS, "float32"))
+            .stamping(),
         Format::new("flac", "FLAC", &["flac"], &[Media::Audio], "audio/flac", encoder(FileFormat::Flac, FLAC_DEPTHS, "FLAC"))
             .with_option(bits(FLAC_DEPTHS, "int24")),
         Format::new("aiff", "AIFF", &["aiff", "aif"], &[Media::Audio], "audio/aiff", encoder(FileFormat::Aiff, DEPTHS, "AIFF"))

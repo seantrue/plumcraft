@@ -939,7 +939,8 @@ pub fn status_messages(session: &Session, last_error: Option<&str>, app: Option<
                     (false, 0 | 1) => format!("saved {}", short_path(shown)),
                     (false, n) => format!("saved {n} files as {}", short_path(&ask.path)),
                 };
-                let text = if reply.recipe { text } else { format!("{text}, without its recipe") };
+                // no word when a file carries no recipe: none is embedded by default (2026-11-22)
+                let text = if reply.recipe { format!("{text}, with its recipe") } else { text };
                 Msg::new(Tone::Info, text).detail(reply.paths.join("\n"))
             }
             (Some(e), _) => Msg::new(Tone::Error, format!("not saved: {}", e.message)).detail(ask.path.clone()),

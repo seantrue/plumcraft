@@ -59,6 +59,22 @@ def _demo(package: str) -> Path | None:
     return path if path.is_file() else None
 
 
+def shown(p: Path | str) -> str:
+    """A path as a person reads it: without Windows' long-path prefix, as the Rust SDK's
+    `plumcraft_proto::programs::shown` (B95): `\\\\?\\C:\\x` shows as `C:\\x` and
+    `\\\\?\\UNC\\server\\share` as `\\\\server\\share`; anything else is unchanged. For messages
+    only: a path used to open, run or compare files keeps its prefix. Plain string handling, the
+    same on every platform."""
+    s = str(p)
+    if s.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + s[len("\\\\?\\UNC\\") :]
+    rest = s[len("\\\\?\\") :] if s.startswith("\\\\?\\") else None
+    # only a drive path loses it: `\\\\?\\GLOBALROOT\\…` and the like have no other spelling
+    if rest is not None and len(rest) > 1 and rest[1] == ":":
+        return rest
+    return s
+
+
 def _sdk_version() -> str:
     try:
         return metadata.version("plumcraft-engine")
@@ -83,7 +99,7 @@ def _unstartable(command: list[str]) -> str | None:
     if program.is_file() and os.access(program, os.X_OK):
         return None
     return (
-        f"the manifest would start {program}, which isn't a program this user can run; "
+        f"the manifest would start {shown(program)}, which isn't a program this user can run; "
         "run register from the engine's installed command, or from its project (`uv run <command> register`)"
     )
 
@@ -163,14 +179,14 @@ def register(cls: type, args: list[str], script: str) -> int:
         cached = uv_cache(_command(cls)[0])
         if cached is not None and cached[1]:
             print(
-                f"{script}: warning: this Python is a temporary environment in uv's cache ({cached[0]}), as `uv run --with` makes,"
+                f"{script}: warning: this Python is a temporary environment in uv's cache ({shown(cached[0])}), as `uv run --with` makes,"
                 " which uv removes when that command ends, so this manifest could never start it; register refuses to write it."
                 " Install the engine (`uv tool install <package>`) and run register from the command that installs",
                 file=sys.stderr,
             )
         elif cached is not None:
             print(
-                f"{script}: warning: this Python is in uv's cache ({cached[0]}), as `uvx` and `uv tool run` make: a cache clean"
+                f"{script}: warning: this Python is in uv's cache ({shown(cached[0])}), as `uvx` and `uv tool run` make: a cache clean"
                 " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
                 " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
                 file=sys.stderr,
@@ -184,7 +200,7 @@ def register(cls: type, args: list[str], script: str) -> int:
     cached = uv_cache(_command(cls)[0])
     if cached is not None and cached[1]:
         print(
-            f"{script}: not registered: this Python is a temporary environment in uv's cache ({cached[0]}), as `uv run --with` makes,"
+            f"{script}: not registered: this Python is a temporary environment in uv's cache ({shown(cached[0])}), as `uv run --with` makes,"
             " which uv removes when that command ends, so the manifest could never start it."
             " Install the engine (`uv tool install <package>`) and run register from the command that installs",
             file=sys.stderr,
@@ -192,15 +208,15 @@ def register(cls: type, args: list[str], script: str) -> int:
         return 1
     if cached is not None:
         print(
-            f"{script}: warning: this Python is in uv's cache ({cached[0]}), as `uvx` and `uv tool run` make: a cache clean"
+            f"{script}: warning: this Python is in uv's cache ({shown(cached[0])}), as `uvx` and `uv tool run` make: a cache clean"
             " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
             " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
             file=sys.stderr,
         )
     target = folder(args) / f"{cls.id}.toml"
     if (target.exists() or target.is_symlink()) and not _ours(target) and "--force" not in args:
-        what = f"a link to {os.path.realpath(target)} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"
-        print(f"{script}: {target} is {what}; leaving it. --force replaces it", file=sys.stderr)
+        what = f"a link to {shown(os.path.realpath(target))} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"
+        print(f"{script}: {shown(target)} is {what}; leaving it. --force replaces it", file=sys.stderr)
         return 1
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink():
@@ -208,17 +224,18 @@ def register(cls: type, args: list[str], script: str) -> int:
     tmp = target.with_suffix(".toml.tmp")
     tmp.write_text(text, "utf-8", newline="\n")
     tmp.replace(target)
-    print(f"registered {cls.id}: {target}\nA running editor offers it after Engine › Reload Engine List.")
+    print(f"registered {cls.id}: {shown(target)}\nA running editor offers it after Engine › Reload Engine List.")
     return 0
 
 
 def unregister(cls: type, args: list[str], script: str) -> int:
     target = folder(args) / f"{cls.id}.toml"
     if not (target.exists() or target.is_symlink()):
-        print(f"{script}: {cls.id} isn't registered ({target})", file=sys.stderr)
+        print(f"{script}: {cls.id} isn't registered ({shown(target)})", file=sys.stderr)
         return 1
     if not _ours(target):
-        print(f"{script}: {target} wasn't written by `{script} register`; leaving it (a checkout's link goes with its scripts/uninstall)", file=sys.stderr)
+        why = f"{shown(target)} wasn't written by `{script} register`; leaving it (a checkout's link goes with its scripts/uninstall)"
+        print(f"{script}: {why}", file=sys.stderr)
         return 1
     target.unlink()
     print(f"unregistered {cls.id}")

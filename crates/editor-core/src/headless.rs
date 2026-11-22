@@ -457,9 +457,6 @@ fn write_all(program: &str, ask: &Ask, kind: EngineKind, mode: Mode, extras: &[E
             for p in &reply.paths {
                 println!("{p}");
             }
-            if !reply.recipe {
-                eprintln!("{program}: {node}.{port}: saved without its recipe");
-            }
         }
     }
     drop(links);

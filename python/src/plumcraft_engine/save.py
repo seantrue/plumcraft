@@ -16,9 +16,17 @@ format by `format` (else the path's extension, else the node's first), checks th
 the format's (`config` otherwise) and fills in their defaults, encodes the value and writes it: to
 `path` when the request names one, else returns each file as a blob (`files`), which the editor
 writes (spec 13.2 step 8). A list saves as numbered files (`<stem>-00.<ext>`, …), or one item with
-`index`; `sheet` is refused with `config` (no default makes sheets). A failure is data: `ok:
-false` and the error, the node's own when computing it failed. The same bytes as the Rust SDK for
-text, CSV, WAV and `.npy`; pictures decode alike, and JSON matches but for how a float is spelled.
+`index`; `sheet` puts every item of a list on one picture (`contact_sheet`, the Rust SDK's exact
+pixels) for a format that makes sheets (PNG and JPEG), and is refused with `config` by any other.
+A failure is data: `ok: false` and the error, the node's own when computing it failed. The same
+bytes as the Rust SDK for text, CSV, WAV, `.npy` and the name and hash it writes; pictures decode
+alike, and JSON matches but for how a float is spelled.
+
+**No recipe** (the maintainer, 2026-11-22: "No embedding of recipes. It was ill conceived.";
+recipes stay with engines that track lineage). A file the defaults write carries, where its format
+has room, only the workflow's name and its graph's hash (`SaveRequest.graph_info`): PNG as two
+`iTXt` chunks, WAV as a `LIST` `INFO` `ICMT`, SVG as a `<metadata>` element; nothing else carries
+it. Nothing reads it back.
 """
 
 from __future__ import annotations
@@ -27,6 +35,7 @@ import io
 import itertools
 import json
 import os
+import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
 from typing import Any
@@ -45,11 +54,12 @@ MAX_READ = 1 << 30
 @dataclass(frozen=True)
 class SaveCx:
     """What an encoder is told besides the value: the format's options (checked, with their
-    defaults), what made the value (`recipe`: the whole workflow), and a list item's label."""
+    defaults), a list item's label, and the workflow's name and graph hash (`info`, a dict
+    `{name, hash}` or None) for a format with room for them (`Format.stamps`), never read back."""
 
     options: dict
-    recipe: Any = None
     label: str = ""
+    info: dict | None = None
 
 
 Encode = Callable[[Any, SaveCx], bytes]
@@ -58,7 +68,8 @@ Encode = Callable[[Any, SaveCx], bytes]
 @dataclass(frozen=True)
 class Format:
     """A save format: what the catalogue lists, and how it writes. `media_type` is the files'
-    (`image/png`), for a file returned as a blob; `recipe` says its files carry `SaveCx.recipe`."""
+    (`image/png`), for a file returned as a blob; `sheets` says it makes contact sheets (its encoder
+    given an (H, W, 3) uint8 array), `stamps` that it writes `SaveCx.info` into its files."""
 
     id: str
     label: str
@@ -67,15 +78,19 @@ class Format:
     media_type: str
     encode: Encode
     options: tuple[dict, ...] = field(default=())
-    recipe: bool = False
+    sheets: bool = False
+    stamps: bool = False
 
     def with_option(self, port: dict) -> Format:
         """With option `port` (a scalar port dict: `name`, `type`, `default`, `choices`, `min`, `max`)."""
         kept = tuple(p for p in self.options if p.get("name") != port.get("name"))
         return replace(self, options=(*kept, dict(port)))
 
-    def carrying_recipe(self) -> Format:
-        return replace(self, recipe=True)
+    def making_sheets(self) -> Format:
+        return replace(self, sheets=True)
+
+    def stamping(self) -> Format:
+        return replace(self, stamps=True)
 
     def definition(self) -> dict:
         """The catalogue's `save_formats` entry."""
@@ -186,6 +201,174 @@ def _picture(v: Any, fmt: str, quality: int = 90) -> bytes:
     return out.getvalue()
 
 
+MAX_INFO = 256  # GraphInfo::MAX_TEXT
+
+
+def _info_parts(info: dict) -> tuple[str, str]:
+    def clean(s: str) -> str:
+        return "".join(" " if (ord(c) < 32 or 127 <= ord(c) < 160) else c for c in s[:MAX_INFO])
+
+    return clean(str(info.get("name", ""))), clean(str(info.get("hash", "")))
+
+
+def info_line(info: dict) -> str:
+    """`PlumCraft graph "name", sha256:…` (GraphInfo::line)."""
+    name, h = _info_parts(info)
+    return f'PlumCraft graph "{name}", {h}'
+
+
+def _itxt(keyword: str, text: str) -> bytes:
+    body = b"iTXt" + keyword.encode() + b"\0\0\0\0\0" + text.encode("utf-8")
+    return (len(body) - 4).to_bytes(4, "big") + body + (zlib.crc32(body) & 0xFFFFFFFF).to_bytes(4, "big")
+
+
+def png_with_info(png: bytes, info: dict) -> bytes:
+    """Two `iTXt` chunks (`PlumCraft graph`, `PlumCraft graph hash`) before `IEND`, as the Rust
+    SDK; anything not a PNG ending in `IEND` as it came."""
+    if len(png) < 20 or not png.startswith(b"\x89PNG\r\n\x1a\n") or png[-8:-4] != b"IEND":
+        return png
+    name, h = _info_parts(info)
+    return png[:-12] + _itxt("PlumCraft graph", name) + _itxt("PlumCraft graph hash", h) + png[-12:]
+
+
+def wav_with_info(wav: bytes, info: dict) -> bytes:
+    """A `LIST` `INFO` `ICMT` of `info_line` at the end, the RIFF size counting it, as the Rust SDK."""
+    if len(wav) < 12 or not wav.startswith(b"RIFF") or wav[8:12] != b"WAVE":
+        return wav
+    name, h = _info_parts(info)
+    text = info_line({"name": name, "hash": h}).encode("utf-8") + b"\0"
+    if len(text) % 2:
+        text += b"\0"
+    out = bytearray(wav)
+    if len(out) % 2:
+        out += b"\0"
+    out += b"LIST" + (12 + len(text)).to_bytes(4, "little") + b"INFOICMT" + len(text).to_bytes(4, "little") + text
+    out[4:8] = min(len(out) - 8, 0xFFFFFFFF).to_bytes(4, "little")
+    return bytes(out)
+
+
+def svg_with_info(svg: bytes, info: dict) -> bytes:
+    """A `<metadata>` of `info_line` (escaped) just inside the root `<svg …>`, as the Rust SDK."""
+    try:
+        text = svg.decode("utf-8")
+    except UnicodeDecodeError:
+        return svg
+    start = -1
+    k = text.find("<svg")
+    while k >= 0:
+        nxt = text[k + 4 : k + 5]
+        if nxt and (nxt.isspace() or nxt in ">/"):
+            start = k
+            break
+        k = text.find("<svg", k + 1)
+    if start < 0:
+        return svg
+    quote, end = None, -1
+    for j in range(start, len(text)):
+        c = text[j]
+        if quote is not None:
+            if c == quote:
+                quote = None
+        elif c in "\"'":
+            quote = c
+        elif c == ">":
+            end = j
+            break
+    if end < 0:
+        return svg
+    name, h = _info_parts(info)
+    escaped = info_line({"name": name, "hash": h}).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    meta = f"<metadata>{escaped}</metadata>"
+    if text[:end].endswith("/"):
+        out = f"{text[: end - 1]}>{meta}</svg>{text[end + 1 :]}"
+    else:
+        out = f"{text[: end + 1]}{meta}{text[end + 1 :]}"
+    return out.encode("utf-8")
+
+
+SHEET_CELL = 256
+SHEET_GAP = 8
+SHEET_GROUND = (224, 224, 224)
+MAX_SHEET = 256
+
+
+def _picture_rgb(v: Any) -> np.ndarray:
+    """(h, w, 3) uint8: an IMAGE decoded, or a picture ARRAY as `png` writes it; alpha over white,
+    `(c·a + 255·(255 − a) + 127) // 255`, as the Rust SDK."""
+    from PIL import Image
+
+    if isinstance(v, Blob) and str(v.meta.get("media", "")).startswith("image/") and v.meta.get("media") != SVG_MEDIA:
+        try:
+            img = Image.open(io.BytesIO(v.data))
+            img.load()
+        except Exception as e:  # PIL raises many kinds for bytes it can't read
+            raise _config(f"not a picture this engine reads: {e}") from e
+        rgba = np.asarray(img.convert("RGBA"), dtype=np.uint8)
+    elif isinstance(v, np.ndarray):
+        px = _array_pixels(v)
+        if px.ndim == 2:
+            rgba = np.dstack([px, px, px, np.full(px.shape, 255, np.uint8)])
+        elif px.shape[2] == 2:
+            rgba = np.dstack([px[..., 0], px[..., 0], px[..., 0], px[..., 1]])
+        elif px.shape[2] == 3:
+            rgba = np.dstack([px, np.full(px.shape[:2], 255, np.uint8)])
+        else:
+            rgba = px
+    else:
+        raise _config("a contact sheet holds pictures: IMAGE values, or ARRAY values of (H, W) or (H, W, C)")
+    c = rgba[..., :3].astype(np.uint32)
+    a = rgba[..., 3:4].astype(np.uint32)
+    return ((c * a + 255 * (255 - a) + 127) // 255).astype(np.uint8)
+
+
+def _box_scale(px: np.ndarray, tw: int, th: int) -> np.ndarray:
+    """An exact box average to tw × th, `(sum + n // 2) // n` in integers, as the Rust SDK."""
+    h, w = px.shape[:2]
+    y0 = np.arange(th) * h // th
+    y1 = np.maximum((np.arange(th) + 1) * h // th, y0 + 1)
+    x0 = np.arange(tw) * w // tw
+    x1 = np.maximum((np.arange(tw) + 1) * w // tw, x0 + 1)
+    table = np.zeros((h + 1, w + 1, 3), dtype=np.int64)
+    table[1:, 1:] = px.astype(np.int64).cumsum(axis=0).cumsum(axis=1)
+    total = table[np.ix_(y1, x1)] - table[np.ix_(y0, x1)] - table[np.ix_(y1, x0)] + table[np.ix_(y0, x0)]
+    n = np.outer(y1 - y0, x1 - x0)[..., None]
+    return ((total + n // 2) // n).astype(np.uint8)
+
+
+def contact_sheet(items: list[Any]) -> np.ndarray:
+    """Every item on one picture, (H, W, 3) uint8, laid out as the Rust SDK's `contact_sheet`:
+    `cols` the least whole number whose square holds the items, cells of `min(256, the largest
+    side)` pixels with 8-pixel gaps on light grey, each item scaled down (never up) to fit and
+    centred. Labels are not drawn. At most 256 items."""
+    if not items:
+        raise _config("a contact sheet needs at least one item")
+    if len(items) > MAX_SHEET:
+        raise _config(f"a contact sheet holds at most {MAX_SHEET} items, not {len(items)}")
+    pictures = []
+    for k, v in enumerate(items):
+        try:
+            pictures.append(_picture_rgb(v))
+        except NodeError as e:
+            raise NodeError(e.kind, f"item {k}: {e.message}") from e
+    cell = max(1, min(SHEET_CELL, max(max(p.shape[0], p.shape[1]) for p in pictures)))
+    n = len(pictures)
+    cols = next(c for c in range(1, n + 1) if c * c >= n)
+    rows = -(-n // cols)
+    sw, sh = cols * cell + (cols + 1) * SHEET_GAP, rows * cell + (rows + 1) * SHEET_GAP
+    sheet = np.empty((sh, sw, 3), dtype=np.uint8)
+    sheet[...] = SHEET_GROUND
+    for k, p in enumerate(pictures):
+        h, w = p.shape[:2]
+        m = max(w, h, 1)
+        tw, th = (w, h) if m <= cell else (max(1, (w * cell + m // 2) // m), max(1, (h * cell + m // 2) // m))
+        scaled = p if (tw, th) == (w, h) else _box_scale(p, tw, th)
+        col, row = k % cols, k // cols
+        x0 = SHEET_GAP + col * (cell + SHEET_GAP) + (cell - tw) // 2
+        y0 = SHEET_GAP + row * (cell + SHEET_GAP) + (cell - th) // 2
+        sheet[y0 : y0 + th, x0 : x0 + tw] = scaled
+    return sheet
+
+
 def _txt(v: Any, _: SaveCx) -> bytes:
     if isinstance(v, str):
         return v.encode("utf-8")
@@ -202,10 +385,9 @@ def _json(v: Any, _: SaveCx) -> bytes:
     return (json.dumps(v, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
-def _png(v: Any, _: SaveCx) -> bytes:
-    if isinstance(v, Blob) and v.meta.get("media") == "image/png":
-        return bytes(v.data)
-    return _picture(v, "PNG")
+def _png(v: Any, cx: SaveCx) -> bytes:
+    b = bytes(v.data) if isinstance(v, Blob) and v.meta.get("media") == "image/png" else _picture(v, "PNG")
+    return png_with_info(b, cx.info) if cx.info is not None else b
 
 
 def _jpeg(v: Any, cx: SaveCx) -> bytes:
@@ -216,12 +398,13 @@ def _jpeg(v: Any, cx: SaveCx) -> bytes:
 def _wav(v: Any, cx: SaveCx) -> bytes:
     if not isinstance(v, AudioValue):
         raise _config("WAV saves audio")
-    return wav_bytes(v, cx.options.get("bits") == "int16")
+    b = wav_bytes(v, cx.options.get("bits") == "int16")
+    return wav_with_info(b, cx.info) if cx.info is not None else b
 
 
-def _svg(v: Any, _: SaveCx) -> bytes:
+def _svg(v: Any, cx: SaveCx) -> bytes:
     if isinstance(v, Blob) and v.meta.get("media") == SVG_MEDIA:
-        return bytes(v.data)
+        return svg_with_info(bytes(v.data), cx.info) if cx.info is not None else bytes(v.data)
     raise _config("SVG saves an SVG")
 
 
@@ -250,22 +433,22 @@ def json_format() -> Format:
 
 
 def png() -> Format:
-    return Format("png", "PNG", ("png",), ("image", "ndarray"), "image/png", _png)
+    return Format("png", "PNG", ("png",), ("image", "ndarray"), "image/png", _png).making_sheets().stamping()
 
 
 def jpeg() -> Format:
     return Format("jpeg", "JPEG", ("jpg", "jpeg"), ("image", "ndarray"), "image/jpeg", _jpeg).with_option(
         option("quality", "Quality", "INT", 90, min=1.0, max=100.0)
-    )
+    ).making_sheets()
 
 
 def wav() -> Format:
     bits = option("bits", "Sample format", "ENUM", "float32", choices=["float32", "int16"])
-    return Format("wav", "WAV", ("wav",), ("audio",), "audio/wav", _wav).with_option(bits)
+    return Format("wav", "WAV", ("wav",), ("audio",), "audio/wav", _wav).with_option(bits).stamping()
 
 
 def svg() -> Format:
-    return Format("svg", "SVG", ("svg",), ("vector",), SVG_MEDIA, _svg)
+    return Format("svg", "SVG", ("svg",), ("vector",), SVG_MEDIA, _svg).stamping()
 
 
 def npy() -> Format:
@@ -476,9 +659,14 @@ def _save(engine: Any, req: dict, memo: Any, plane: data.Plane, cancel: CancelTo
     index = req.get("index")
     if index is not None and (not isinstance(index, int) or isinstance(index, bool) or index < 0):
         raise _config('"index" must be a whole number')
-    if isinstance(value, List):
-        if req.get("sheet") is True:
+    sheet_of: tuple[int, list[str]] | None = None
+    if isinstance(value, List) and req.get("sheet") is True:
+        if not f.sheets:
             raise _config(f"{f.label} can't put a list on one sheet: save its {len(value.items)} items instead")
+        # a contact sheet: every item on one picture, the labels in the reply
+        sheet_of = (len(value.items), [value.label(i) for i in range(len(value.items))])
+        items, labels, is_list = [contact_sheet(value.items)], [""], False
+    elif isinstance(value, List):
         if index is not None:
             if index >= len(value.items):
                 raise _config(f"index {index} is past the list's end")
@@ -489,12 +677,13 @@ def _save(engine: Any, req: dict, memo: Any, plane: data.Plane, cancel: CancelTo
         if index not in (None, 0):
             raise _config(f"{node_id}.{port} is one value, not a list")
         items, labels, is_list = [value], [""], False
-    recipe = req.get("recipe_graph") if req.get("recipe_graph") is not None else wf
+    gi = req.get("graph_info")
+    info = {"name": str(gi.get("name") or ""), "hash": str(gi.get("hash") or "")} if isinstance(gi, dict) else None
     encoded = []
     for item, label in zip(items, labels, strict=True):
         if cancel.is_cancelled():
             raise NodeError.cancelled()
-        b = f.encode(item, SaveCx(opts, recipe, label))
+        b = f.encode(item, SaveCx(opts, label, info))
         if not isinstance(b, bytes | bytearray):
             raise NodeError(NodeError.OP, f"{f.label} made {type(b).__name__}, not bytes")
         encoded.append(bytes(b))
@@ -502,8 +691,12 @@ def _save(engine: Any, req: dict, memo: Any, plane: data.Plane, cancel: CancelTo
     base = os.path.basename(path) if path else ""
     base = base or (f"result.{ext}" if ext else "result")
     names = numbered(base, len(encoded), is_list)
-    out: dict[str, Any] = {"ok": True, "paths": [], "recipe": f.recipe, "items": len(encoded), "error": None}
-    if is_list:
+    out: dict[str, Any] = {"ok": True, "paths": [], "recipe": False, "items": len(encoded), "error": None}
+    if f.stamps and info is not None:
+        out["stamped"] = True
+    if sheet_of is not None:
+        out["items"], out["labels"] = sheet_of
+    elif is_list:
         out["labels"] = labels
     if path is not None:
         folder = os.path.dirname(path)

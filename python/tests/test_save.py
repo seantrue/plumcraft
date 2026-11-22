@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 import scratch
 
-from plumcraft_engine import AudioValue, Engine, List, NodeError, Text, node, save
+from plumcraft_engine import Array, AudioValue, Engine, List, NodeError, Text, node, save
 from plumcraft_engine.serve import serve_unix
 
 
@@ -46,6 +46,10 @@ class Saver(Engine):
     @node("Words")
     def words(self, word: str = "plum") -> Text:
         return List([word, "b"], labels=["one", "two"])
+
+    @node("Pictures")
+    def pics(self, word: str = "plum") -> Array:
+        return List([np.full((2, 2), v, dtype=np.uint8) for v in (10, 200, 90)], labels=["a 1", "a 2", "a 3"])
 
     @node("Fails")
     def fails(self) -> Text:
@@ -117,8 +121,8 @@ def _inline(ref):
 
 def test_the_catalogue_lists_its_formats_and_hello_says_it_saves(ui):
     s = ui.call("schema", {})["result"]
-    assert [f["id"] for f in s["save_formats"]] == ["txt", "shout"], "TEXT's default, then its own"
-    shout = s["save_formats"][1]
+    assert [f["id"] for f in s["save_formats"]] == ["txt", "png", "jpeg", "npy", "shout"], "TEXT and ARRAY defaults in order, then its own"
+    shout = s["save_formats"][-1]
     assert shout["options"][0]["choices"] == ["!", "?"] and shout["extensions"] == ["shout"] and shout["media"] == ["text"]
     loud = next(n for n in s["nodes"] if n["id"] == "t.loud")
     assert loud["save_formats"] == ["shout", "txt"]
@@ -221,3 +225,66 @@ def test_pictures_and_defaults_by_type():
     for bad in [{"quality": 0}, {"quality": 50.5}, {"quality": "best"}, {"nope": 1}]:
         with pytest.raises(NodeError):
             save.options(save.jpeg(), bad)
+
+
+def _sheet_items():
+    """The shared fixture's items, made by the same formula as the Rust SDK's `sheet_items`."""
+    a = np.array([[0, 50, 100], [150, 200, 250]], dtype=np.uint8)
+    y, x, c = np.mgrid[0:300, 0:100, 0:3]
+    b = ((y + 2 * x + 50 * c) % 256).astype(np.uint8)
+    yy, xx = np.mgrid[0:10, 0:10]
+    cc = np.dstack([xx * 25, yy * 25, np.full((10, 10), 128), (xx + yy) * 12]).astype(np.uint8)
+    return [a, b, cc]
+
+
+def test_a_contact_sheet_has_the_rust_sdks_exact_pixels():
+    """Decision 2A: the same sheet, pixel for pixel, as `crates/engine/src/save.rs` makes
+    (`crates/engine/tests/fixtures/sheet.json` holds its shape and SHA-256)."""
+    import hashlib
+    import pathlib
+
+    fixture = json.loads((pathlib.Path(__file__).parents[2] / "crates" / "engine" / "tests" / "fixtures" / "sheet.json").read_text())
+    sheet = save.contact_sheet(_sheet_items())
+    assert list(sheet.shape) == fixture["shape"]
+    assert hashlib.sha256(sheet.tobytes()).hexdigest() == fixture["sha256"]
+    with pytest.raises(NodeError, match="item 0:"):
+        save.contact_sheet(["text"])
+    with pytest.raises(NodeError):
+        save.contact_sheet([])
+
+
+def test_a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name(ui):
+    from io import BytesIO
+
+    from PIL import Image
+
+    d = scratch.mkdtemp("save-sheet-")
+    info = {"name": "Flow", "hash": "sha256:0123"}
+    r = ui.save("t.pics", path=os.path.join(d, "sheet.png"), sheet=True, graph_info=info)
+    assert r["ok"] and r["items"] == 3 and r["labels"] == ["a 1", "a 2", "a 3"] and len(r["paths"]) == 1 and r.get("stamped") and not r["recipe"], r
+    png = open(os.path.join(d, "sheet.png"), "rb").read()
+    img = np.asarray(Image.open(BytesIO(png)).convert("RGB"))
+    assert img.shape == (28, 28, 3) and img[8, 8].tolist() == [10] * 3 and img[8, 18].tolist() == [200] * 3 and img[18, 8].tolist() == [90] * 3
+    assert b"PlumCraft graph" in png
+    assert "sheet" in ui.save("t.pics", path=os.path.join(d, "sheet.npy"), sheet=True)["error"]["message"]
+    t = ui.save("t.text", path=os.path.join(d, "w.txt"), graph_info=info)
+    assert t["ok"] and not t.get("stamped") and open(os.path.join(d, "w.txt"), "rb").read() == b"plum"
+
+
+def test_the_workflows_name_and_hash_are_the_rust_sdks_bytes():
+    """The same chunks and fields as the Rust SDK's `png_with_info`, `wav_with_info`, `svg_with_info`."""
+    info = {"name": "Flow é<1>", "hash": "sha256:ab"}
+    png = save.png().encode(np.array([[0, 50, 100], [150, 200, 250]], dtype=np.uint8), save.SaveCx({}, "", info))
+    at = png.index(b"iTXt")
+    n = int.from_bytes(png[at - 4 : at], "big")
+    assert png[at + 4 : at + 4 + n] == "PlumCraft graph\0\0\0\0\0Flow é<1>".encode()
+    assert b"PlumCraft graph hash\0\0\0\0\0sha256:ab" in png and png.endswith(b"IEND\xae\x42\x60\x82")
+    assert save.png_with_info(b"not a png", info) == b"not a png"
+    wav = save.wav().encode(AudioValue(np.zeros(3, dtype="<f4"), 8000), save.SaveCx({"bits": "float32"}, "", info))
+    assert int.from_bytes(wav[4:8], "little") == len(wav) - 8 and len(wav) % 2 == 0
+    k = wav.index(b"LIST")
+    assert wav[k + 8 : k + 16] == b"INFOICMT" and wav[k + 20 :].startswith('PlumCraft graph "Flow é<1>", sha256:ab\0'.encode())
+    svg = b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" data-x="a>b"><rect width="4" height="4"/></svg>'
+    assert '"a>b"><metadata>PlumCraft graph "Flow é&lt;1&gt;", sha256:ab</metadata><rect' in save.svg_with_info(svg, info).decode()
+    assert save.svg_with_info(b'<svg xmlns="http://www.w3.org/2000/svg"/>', info).endswith(b"</metadata></svg>")
+    assert save.txt().encode("plum", save.SaveCx({}, "", info)) == b"plum"

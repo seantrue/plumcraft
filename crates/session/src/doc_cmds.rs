@@ -187,6 +187,10 @@ impl DocApps {
 /// its container's root, B42; a shell gives `dirs.caches` anyway), `%LOCALAPPDATA%` on Windows, else
 /// `$XDG_CACHE_HOME` or `~/.cache`.
 pub fn default_root() -> PathBuf {
+    // a test never writes a person's caches: its own, under its scratch root
+    if plumcraft_scratch::testing() {
+        return plumcraft_scratch::dir("open");
+    }
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let home = env("HOME").or_else(|| env("USERPROFILE")).unwrap_or_else(std::env::temp_dir);
     let cache = if cfg!(any(target_os = "macos", target_os = "ios")) {
@@ -642,6 +646,13 @@ mod tests {
             .collect();
         let reply = RunReply { run_id: req.run_id.clone(), generation: req.generation, ok: true, nodes, watch, ..Default::default() };
         assert!(s.run.apply_reply(&reply, Instant::now()));
+    }
+
+    /// A test's copies and exports go under its scratch root, never the person's caches (the
+    /// home-probe run of 2026-11-22 found exports under `Library/Caches/plumcraft/open`).
+    #[test]
+    fn a_tests_copies_and_exports_stay_in_its_scratch_root() {
+        assert!(default_root().starts_with(plumcraft_scratch::root()), "{}", default_root().display());
     }
 
     #[test]
