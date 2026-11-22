@@ -109,6 +109,10 @@ public static class Conformance
     static JsonElement Obj(params (string, JsonElement)[] f) => Jsonv.Object(f);
 
     /// <summary>Run one case on a new graph, or skip it when `d` lacks what it needs.</summary>
+    /// <summary>Where each case's `$scratch` folder is made (a test's scratch root, or `--scratch`).</summary>
+    public static string ScratchRoot { get; set; } = Path.Combine(Path.GetTempPath(), "plumcraft-conformance", Environment.ProcessId.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    static int caseCount;
+
     public static async Task<Outcome> RunCaseAsync(IConformanceDriver d, JsonElement c)
     {
         var name = c.Get("name").Str() ?? "(unnamed)";
@@ -118,6 +122,11 @@ public static class Conformance
                 if (n.ValueKind == JsonValueKind.String && !Has(d, n.GetString()!)) lacks.Add(n.GetString()!);
         if (lacks.Count > 0) return new Outcome(name, 0, null, $"{d.Name} lacks {string.Join(", ", lacks)}");
         var vars = new Dictionary<string, JsonElement>(StringComparer.Ordinal);
+        // `$scratch`: a folder of this case's own, made here, for what the shell writes (Save Result's
+        // files); on the machine the shell runs on, which for an app over its port is this one
+        var scratch = Path.Combine(ScratchRoot, $"case-{Interlocked.Increment(ref caseCount)}");
+        Directory.CreateDirectory(scratch);
+        vars["scratch"] = Jsonv.Of(scratch);
         var fresh = await d.CallAsync("command.run", Obj(("command", Jsonv.Of("graph.new")), ("params", Obj(("discard", Jsonv.True)))));
         if (!fresh.Get("ok").IsTrue()) return new Outcome(name, 0, $"graph.new: {fresh.Short()}", null);
         await d.SettleAsync();

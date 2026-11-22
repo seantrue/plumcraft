@@ -41,6 +41,12 @@ public sealed partial class CompositionCanvas
                 var row = e.Face.Outputs[k];
                 pins.Add(new CanvasPart($"out.{e.Nid}.{row.Key}", row.Label, "output", Pin(L.W, L.OutputPins[k]), row.Ty, []));
             }
+            // the footer's Save Result… line, a button on its face
+            foreach (var f in L.Footer.Where(f => f.Kind == "save" && f.Port is not null))
+            {
+                var ftl = View.ToView(new Vector2((float)(r.X + f.Rect.X), (float)(r.Y + f.Rect.Y)));
+                pins.Add(new CanvasPart($"save.{e.Nid}.{f.Port}", "Save Result…", "button", new WRect(ftl.X, ftl.Y, Math.Min(f.Rect.Width, 96) * View.Zoom, f.Rect.Height * View.Zoom), f.Port!, []));
+            }
             var lines = L.Footer.SelectMany(f => f.Lines).ToList();
             var state = e.Face.Header.State.Hover ?? e.Face.Header.State.Kind;
             o.Add(new CanvasPart($"node.{e.Nid}", e.Face.Header.Title.Text, "node", view, string.Join(" | ", lines.Prepend(state)), pins));

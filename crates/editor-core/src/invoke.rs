@@ -168,7 +168,7 @@ pub enum Then {
     /// `value.open` with the app chosen (Open With › Choose an App…).
     App { params: Value },
     /// `run.save` to the path chosen (Save Result…), asking the chosen format's options first.
-    SaveResult { params: Value, base: Option<PathBuf> },
+    SaveResult { params: Value },
     /// `run.save` with the options a form asked for (Save Result…'s second ask): `params` hold
     /// the path; `format` is the one its name chose, whose options read each answer.
     SaveOptions { params: Value, format: SaveFormat },
@@ -861,10 +861,11 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                 let _ = h.run("value.open", &params);
             }
         }
-        (Then::SaveResult { mut params, base }, a) => {
+        (Then::SaveResult { mut params }, a) => {
             if let Some(p) = path(&a) {
-                // (a `/` typed into macOS's save panel comes back as `:`: folders)
-                let p = paths::chosen_path(&p, base.as_deref(), true);
+                // where the person chose, as chosen (B98): not relative to the workflow's folder or with
+                // `/` between folders, as a workflow stores a path input; only macOS's `:` is repaired
+                let p = save_choice(&p);
                 if let Some(o) = params.as_object_mut() {
                     o.remove("ask");
                     o.insert("path".into(), Value::from(p));
@@ -1041,7 +1042,7 @@ pub fn save_result(h: &mut impl Host, params: Value, by: By) -> Option<AskId> {
         formats.iter().map(|f| json!({"label": f.label, "extensions": f.extensions.iter().map(|e| e.trim_start_matches('.')).collect::<Vec<_>>()})).collect();
     let p = json!({"purpose": "result", "title": "Save Result", "kinds": kinds, "formats": formats, "name": name, "suggested": folder.join(&name),
                    "startIn": start_in(h, prefs::keys::RESULT_WRITE)});
-    Some(raise(h, Kind::FileSave, p, by, Cont { then: Then::SaveResult { params, base }, remember: Some(prefs::keys::RESULT_WRITE) }))
+    Some(raise(h, Kind::FileSave, p, by, Cont { then: Then::SaveResult { params }, remember: Some(prefs::keys::RESULT_WRITE) }))
 }
 
 /// The format `run.save`'s `params` (with their `path`) would write: the one of the node's that
@@ -1148,8 +1149,40 @@ pub fn theme_file(h: &mut impl Host, import: bool, by: By) -> AskId {
     }
 }
 
+/// A Save Result's path as the person chose it (B98). A `/` typed into macOS's save panel comes
+/// back as `:` in the name and means folders, so it is turned back into them; nothing else
+/// changes (a Windows path keeps its drive and its `\`).
+fn save_choice(chosen: &Path) -> String {
+    let text = chosen.to_string_lossy();
+    let drive = text.as_bytes().get(1) == Some(&b':');
+    match (chosen.parent(), chosen.file_name().and_then(|n| n.to_str())) {
+        (Some(dir), Some(name)) if !drive && name.contains(':') => {
+            name.split(':').filter(|part| !part.is_empty()).fold(dir.to_path_buf(), |p, part| p.join(part)).display().to_string()
+        }
+        _ => text.into_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// B98: a Save Result's path is kept as chosen, inside the workflow's folder or not, with its
+    /// Windows separators; only macOS's `:` becomes folders.
+    #[test]
+    fn a_save_result_path_stays_as_chosen() {
+        // inside a workflow's folder (C:\work\flows) and outside it, Windows-style: unchanged
+        assert_eq!(save_choice(Path::new(r"C:\work\flows\out\plain.txt")), r"C:\work\flows\out\plain.txt");
+        assert_eq!(save_choice(Path::new(r"D:\elsewhere\plain.txt")), r"D:\elsewhere\plain.txt");
+        assert_eq!(save_choice(Path::new("/work/flows/out/x.txt")), "/work/flows/out/x.txt");
+        assert_eq!(save_choice(Path::new("/work/flows/prints:a.wav")), Path::new("/work/flows").join("prints").join("a.wav").display().to_string());
+        #[cfg(windows)]
+        {
+            // what the store's rule would have made of it inside the folder: relative, with `/`
+            let chosen = Path::new(r"C:\work\flows\out\plain.txt");
+            assert_eq!(paths::chosen_path(chosen, Some(Path::new(r"C:\work\flows")), true), "out/plain.txt");
+            assert_eq!(save_choice(chosen), r"C:\work\flows\out\plain.txt");
+        }
+    }
+
     use super::*;
     use plumcraft_proto::catalogue::SchemaReply;
 

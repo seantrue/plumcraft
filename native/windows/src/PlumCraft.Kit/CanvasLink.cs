@@ -65,13 +65,13 @@ public sealed class CanvasLink
 
     /// <summary>Report faces' header parts (geometry.parts): what the typed plum_geometry_set can't carry,
     /// after it (the same queue keeps them in order). Faces by graph id.</summary>
-    public static async Task ReportPartsAsync(PlumCore core, ulong? doc, IReadOnlyList<(string id, IReadOnlyDictionary<string, Rect> parts)> faces)
+    public static async Task ReportPartsAsync(PlumCore core, ulong? doc, IReadOnlyList<(string id, IReadOnlyDictionary<string, Rect> parts, IReadOnlyList<Rect?> footer)> faces)
     {
         if (faces.Count == 0) return;
         var list = Jsonv.Build(w =>
         {
             w.WriteStartArray();
-            foreach (var (id, parts) in faces)
+            foreach (var (id, parts, footer) in faces)
             {
                 w.WriteStartObject();
                 w.WriteString("node", id);
@@ -83,6 +83,23 @@ public sealed class CanvasLink
                     w.WriteNumberValue(r.Y0);
                     w.WriteNumberValue(r.X1);
                     w.WriteNumberValue(r.Y1);
+                    w.WriteEndArray();
+                }
+                // each footer line too, in the scene's order (null for one not drawn): a tap on Save Result…
+                // is the core's save (B122)
+                if (footer.Count > 0)
+                {
+                    w.WriteStartArray("footer");
+                    foreach (var f in footer)
+                    {
+                        if (f is not { } fr) { w.WriteNullValue(); continue; }
+                        w.WriteStartArray();
+                        w.WriteNumberValue(fr.X0);
+                        w.WriteNumberValue(fr.Y0);
+                        w.WriteNumberValue(fr.X1);
+                        w.WriteNumberValue(fr.Y1);
+                        w.WriteEndArray();
+                    }
                     w.WriteEndArray();
                 }
                 w.WriteEndObject();

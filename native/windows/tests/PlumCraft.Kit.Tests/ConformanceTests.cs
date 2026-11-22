@@ -26,8 +26,12 @@ public class Suite(ITestOutputHelper output)
 
     // the array engine's cases (a core opened on it runs them, below), and those for Install Engine…'s form
     // (`install`: these cores are not on a platform that installs engines, as the C ABI's Rust driver has it)
+    // the audio engine's (compiled in since the engine half: a core opened on it runs them, below), and the
+    // test engine's (`engine:ports`, installed only by an app's check, never in the kit's cores)
     static List<string> ArrayCases(List<JsonElement> cases) =>
-        [.. cases.Where(c => Runner.Needs(c, "engine:array") || Runner.Needs(c, "install")).Select(c => c.Get("name").Str()!)];
+        [.. cases.Where(c => Runner.Needs(c, "engine:array") || Runner.Needs(c, "engine:audio") || Runner.Needs(c, "engine:ports") || Runner.Needs(c, "install")).Select(c => c.Get("name").Str()!)];
+
+    static bool NotHere(JsonElement c) => Runner.Needs(c, "install") || Runner.Needs(c, "engine:ports");
 
     /// <summary>The gate: every case passes through the kit headless. The text engine's core runs every case
     /// but the array engine's, which a core opened on the array engine runs: all 51 pass between them, no
@@ -65,10 +69,19 @@ public class Suite(ITestOutputHelper output)
         }
         Assert.True(array.Count > 0 && array.All(o => o.Passed), Runner.Summary("the Windows kit (array engine)", array));
 
-        int passed = text.Count(o => o.Passed) + array.Count(o => o.Passed);
+        List<Outcome> audio;
+        using (var core = OpenCore("conf-kit-audio", ("engine", S("audio"))))
+        {
+            var d = new KitDriver(core, "audio");
+            audio = await Runner.RunAsync(d, cases.Where(c => Runner.Needs(c, "engine:audio")), null);
+            Report(d.Name + ", the audio engine's cases", audio, sw.Elapsed - t1);
+        }
+        Assert.True(audio.Count > 0 && audio.All(o => o.Passed), Runner.Summary("the Windows kit (audio engine)", audio));
+
+        int passed = text.Count(o => o.Passed) + array.Count(o => o.Passed) + audio.Count(o => o.Passed);
         Log(output, $"WHOLE SUITE through the Windows kit: {passed} of {cases.Count} cases passed in {sw.Elapsed.TotalSeconds:F1} s");
         // all but Install Engine…'s form, which needs a platform that installs (the app runs it: `--has install`)
-        Assert.Equal(cases.Count - cases.Count(c => Runner.Needs(c, "install")), passed);
+        Assert.Equal(cases.Count - cases.Count(NotHere), passed);
     });
 
     /// <summary>N3's gate half, alone: the read half needs nothing the editing half leaves behind.</summary>

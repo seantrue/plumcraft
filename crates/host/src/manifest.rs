@@ -194,7 +194,7 @@ pub fn folder_warnings(m: &EngineManifest, cwd: &Path) -> Vec<String> {
     }
     let Some(project) = option(args, "--project") else { return no_project_warnings(m, args, cwd) };
     let project = expand(project);
-    if !project.is_relative() {
+    if !from_here(&project) {
         return Vec::new();
     }
     let base = option(args, "--directory").map_or_else(|| cwd.to_path_buf(), |d| against(cwd, d));
@@ -209,13 +209,19 @@ pub fn folder_warnings(m: &EngineManifest, cwd: &Path) -> Vec<String> {
     }
 }
 
+/// Whether `p` is taken against the folder it is named from: relative, and on Windows without a root
+/// either (`\\elsewhere` names the current drive's root, never the manifest's folder; B97).
+fn from_here(p: &Path) -> bool {
+    p.is_relative() && !p.has_root()
+}
+
 /// [`folder_warnings`] for a `uv run` with no `--project`: uv's own search from where it runs.
 fn no_project_warnings(m: &EngineManifest, args: &[String], cwd: &Path) -> Vec<String> {
     let before: &[String] = args.split(|a| a == "--").next().unwrap_or_default();
     let own = before.iter().any(|a| OWN_ENVIRONMENT.iter().any(|o| a.starts_with(o)) || (a.starts_with("-p") && !a.starts_with("--")));
     let elsewhere = m.env.keys().any(|k| points_elsewhere(k)) || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(points_elsewhere));
     // relative paths only: an absolute cwd or --directory isn't the manifest's folder
-    let relative = expand(m.cwd.as_deref().unwrap_or(".")).is_relative() && option(args, "--directory").is_none_or(|d| expand(d).is_relative());
+    let relative = from_here(&expand(m.cwd.as_deref().unwrap_or("."))) && option(args, "--directory").is_none_or(|d| from_here(&expand(d)));
     let Some(module) = python_module(args).filter(|_| !own && !elsewhere && relative) else { return Vec::new() };
     let base = option(args, "--directory").map_or_else(|| cwd.to_path_buf(), |d| against(cwd, d));
     match std::fs::canonicalize(&base) {

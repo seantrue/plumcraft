@@ -363,6 +363,8 @@ public sealed class PortDriver : IConformanceDriver, IPortCheck, IDisposable
     public bool Has(string capability) => capability switch
     {
         "rows" => !Reports,
+        // the app's canvas measures its footer's lines too (`parts.footer`), so a tap can aim at one (B122)
+        "footer" => !Reports,
         "reports" => !Reports && SuiteGeometry,
         "media" => true,
         "port" => true,
