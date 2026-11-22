@@ -88,6 +88,44 @@ def _unstartable(command: list[str]) -> str | None:
     )
 
 
+#: What a cache folder's `CACHEDIR.TAG` starts with (the Cache Directory Tagging spec, which uv
+#: follows: it writes one at the root of its cache).
+CACHEDIR_SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55"
+
+
+def _bucket(name: str) -> bool:
+    """A uv cache bucket's name (`archive-v0`, `builds-v0`, `environments-v2`), or one of its
+    temporary folders (`.tmpXXXX`)."""
+    stem, _, version = name.rpartition("-v")
+    return name.startswith(".tmp") or (stem.replace("-", "").isalpha() and stem.islower() and version.isdigit())
+
+
+def uv_cache(program: str) -> tuple[Path, bool] | None:
+    """Where `program` is when it is inside uv's cache: the cache's root, and whether it is in a
+    temporary environment there (a `.tmp…` folder or `builds-v0`, as `uv run --with` makes and
+    removes when it ends). `None` when it isn't (a `uv tool install`, a project's `.venv`).
+
+    uv's cache is found by what it is, not by where uv says it is: a folder holding a
+    `CACHEDIR.TAG` whose child on the way down is a uv bucket. The folder holding the program
+    is taken as a real path (not the program, which in a virtual environment links to the base
+    interpreter), so a cache reached through a link is found too."""
+    try:
+        here = Path(program).parent.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    below: list[str] = []
+    for d in [here, *here.parents]:
+        tag = d / "CACHEDIR.TAG"
+        try:
+            tagged = tag.is_file() and tag.read_text("utf-8", errors="replace").startswith(CACHEDIR_SIGNATURE)
+        except OSError:
+            tagged = False
+        if tagged and below and _bucket(below[-1]):
+            return d, below[-1] == "builds-v0" or any(p.startswith(".tmp") for p in below)
+        below.append(d.name)
+    return None
+
+
 def manifest(cls: type, script: str) -> str:
     """The manifest for engine class `cls` as installed here."""
     package = _package(cls)
@@ -127,6 +165,22 @@ def register(cls: type, args: list[str], script: str) -> int:
         # a manifest that can't start is worse than none: the editor would offer a dead engine
         print(f"{script}: not registered: {why}", file=sys.stderr)
         return 1
+    cached = uv_cache(_command(cls)[0])
+    if cached is not None and cached[1]:
+        print(
+            f"{script}: not registered: this Python is a temporary environment in uv's cache ({cached[0]}), as `uv run --with` makes,"
+            " which uv removes when that command ends, so the manifest could never start it."
+            " Install the engine (`uv tool install <package>`) and run register from the command that installs",
+            file=sys.stderr,
+        )
+        return 1
+    if cached is not None:
+        print(
+            f"{script}: warning: this Python is in uv's cache ({cached[0]}), as `uvx` and `uv tool run` make: a cache clean"
+            " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
+            " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
+            file=sys.stderr,
+        )
     target = folder(args) / f"{cls.id}.toml"
     if (target.exists() or target.is_symlink()) and not _ours(target) and "--force" not in args:
         what = f"a link to {os.path.realpath(target)} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"

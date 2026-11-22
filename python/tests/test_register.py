@@ -88,6 +88,64 @@ def test_a_manifest_that_cannot_start_is_not_written(engines, capsys, monkeypatc
     assert tomllib.loads((engines / "text.toml").read_text())["command"] == [str(script.resolve())]
 
 
+def _fake_uv_cache(root: Path) -> Path:
+    """A folder laid out as uv's cache: its CACHEDIR.TAG, and the buckets register looks for."""
+    (root / "uv").mkdir(parents=True)
+    (root / "uv" / "CACHEDIR.TAG").write_text(register.CACHEDIR_SIGNATURE + "\n# This file is a cache directory tag created by uv.\n")
+    return root / "uv"
+
+
+def _python_in(env: Path) -> Path:
+    """An executable stand-in for an environment's interpreter, at `env/bin/python`."""
+    (env / "bin").mkdir(parents=True)
+    python = env / "bin" / "python"
+    python.write_text("#!/bin/sh\n")
+    python.chmod(0o755)
+    return python
+
+
+def test_uv_cache_is_found_by_its_tag_and_bucket():
+    root = Path(scratch.mkdtemp("uv-cache-"))
+    cache = _fake_uv_cache(root)
+    assert register.uv_cache(str(_python_in(cache / "archive-v0" / "AbC123"))) == (cache.resolve(), False), "uvx: lasting until a clean"
+    assert register.uv_cache(str(_python_in(cache / "environments-v2" / "w-1a2b"))) == (cache.resolve(), False)
+    assert register.uv_cache(str(_python_in(cache / "builds-v0" / ".tmpQx9"))) == (cache.resolve(), True), "uv run --with: removed at its end"
+    assert register.uv_cache(str(_python_in(cache / ".tmpZz"))) == (cache.resolve(), True)
+    # a tool install, a project's .venv, a tag that isn't a cache's, a folder not a bucket: not uv's cache
+    assert register.uv_cache(str(_python_in(root / "tools" / "w-engine"))) is None
+    assert register.uv_cache(str(_python_in(root / "project" / ".venv"))) is None
+    (root / "other").mkdir()
+    (root / "other" / "CACHEDIR.TAG").write_text("not a signature\n")
+    assert register.uv_cache(str(_python_in(root / "other" / "archive-v0" / "x"))) is None
+    assert register.uv_cache(str(_python_in(cache / "mine" / "x"))) is None
+    # reached through a link: the real folder is the cache's
+    os.symlink(cache, root / "linked")
+    assert register.uv_cache(str(root / "linked" / "archive-v0" / "AbC123" / "bin" / "python")) == (cache.resolve(), False)
+    assert register.uv_cache("") is None and register.uv_cache("\0") is None
+
+
+def test_register_from_uvs_cache_warns_and_from_a_temporary_one_refuses(engines, capsys, monkeypatch):
+    cache = _fake_uv_cache(Path(scratch.mkdtemp("uv-cache-reg-")))
+    lasting = _python_in(cache / "archive-v0" / "AbC123")
+    monkeypatch.setattr(sys, "executable", str(lasting))
+    assert run("register", folder=engines) == 0, "still written"
+    err = capsys.readouterr().err
+    assert "warning: this Python is in uv's cache" in err and "uv cache clean" in err, err
+    assert tomllib.loads((engines / "text.toml").read_text())["command"][0] == str(lasting)
+    (engines / "text.toml").unlink()
+    monkeypatch.setattr(sys, "executable", str(_python_in(cache / "builds-v0" / ".tmpQx9")))
+    assert run("register", folder=engines) == 1
+    err = capsys.readouterr().err
+    assert "not registered" in err and "temporary environment" in err, err
+    assert not (engines / "text.toml").exists()
+    # this test's own Python is no uv cache's: no warning
+    monkeypatch.undo()
+    monkeypatch.setattr(sys, "argv", ["text-engine"])
+    if register.uv_cache(sys.executable) is None:
+        assert run("register", folder=engines) == 0
+        assert "uv's cache" not in capsys.readouterr().err
+
+
 def test_anything_else_is_served():
     assert register.main(TextEngine, []) is None
     assert register.main(TextEngine, ["--listen", "127.0.0.1:0"]) is None

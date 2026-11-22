@@ -66,8 +66,14 @@ pub fn draw(ui: &mut egui::Ui, items: &[Item], style: Style<'_>) -> Option<Item>
     clicked
 }
 
-fn label(item: &Item) -> RichText {
-    let mut t = RichText::new(&item.label);
+/// The mark before the label of an item with a `warning` (an engine whose manifest warned).
+pub const WARNING_MARK: &str = "\u{26a0}";
+
+fn label(item: &Item, tokens: &Tokens) -> RichText {
+    let mut t = match &item.warning {
+        Some(_) => RichText::new(format!("{WARNING_MARK} {}", item.label)).color(tokens.warning),
+        None => RichText::new(&item.label),
+    };
     if item.strong {
         t = t.strong();
     }
@@ -83,7 +89,10 @@ fn draw_one(ui: &mut egui::Ui, item: &Item, style: Style<'_>) -> Option<Item> {
         let mut picked = None;
         let inner = Style { bar: false, ..style };
         let mut open = |ui: &mut egui::Ui| {
-            ui.menu_button(label(item), |ui| picked = draw(ui, &item.items, inner));
+            let r = ui.menu_button(label(item, style.tokens), |ui| picked = draw(ui, &item.items, inner)).response;
+            if let Some(w) = &item.warning {
+                r.on_hover_text(w);
+            }
         };
         // the Edit menu's Align and Distribute have always sat in an enabled scope of their own
         if !item.enabled || item.id == "edit.align" || item.id == "edit.distribute" {
@@ -119,8 +128,8 @@ fn draw_one(ui: &mut egui::Ui, item: &Item, style: Style<'_>) -> Option<Item> {
             scrolling(ui, "engine-choices", |ui| picked = draw(ui, &item.items, style));
             return picked;
         }
-        Look::Radio => ui.add_enabled(item.enabled, egui::RadioButton::new(item.checked == Some(true), label(item))),
-        Look::Choice => ui.add_enabled(item.enabled, egui::Button::selectable(item.checked == Some(true), label(item))),
+        Look::Radio => ui.add_enabled(item.enabled, egui::RadioButton::new(item.checked == Some(true), label(item, style.tokens))),
+        Look::Choice => ui.add_enabled(item.enabled, egui::Button::selectable(item.checked == Some(true), label(item, style.tokens))),
         Look::Selected => {
             let text = match item.color.as_deref() {
                 Some(hex) => RichText::new(&item.label).color(crate::theme::parse_hex(hex).unwrap_or(egui::Color32::GRAY)),
