@@ -26,6 +26,14 @@ final class MenuState {
     private(set) weak var source: DocumentModel?
     private(set) var items: [String: MenuItem] = [:]
     private var shape = ""
+    /// The items the menus drew with the warning mark (decision 17), for the status: the menu
+    /// bar's as the system built it, and the More menu's as it was shown.
+    private(set) var marked: Set<String> = []
+
+    func noteMarked(_ label: String) {
+        guard marked.insert(label).inserted else { return }
+        StatusFile.shared.set("menuMarked", .array(marked.sorted().map(JSONValue.string)))
+    }
 
     /// Show `model`'s menus (nil: the bar with no graph).
     func show(_ model: DocumentModel?) {
@@ -150,6 +158,7 @@ enum PadMenus {
             }
             // an engine whose manifest warned (decision 17): the symbol, the warning as subtitle
             let mark = it.warning.map { _ in UIImage(systemName: "exclamationmark.triangle") } ?? nil
+            if mark != nil { MenuState.shared.noteMarked(it.label) }
             if it.isSubmenu {
                 let sub = UIMenu(title: it.label, image: mark, children: elements(it.items, path: key, used: &used))
                 if let w = it.warning { sub.subtitle = w }
@@ -241,10 +250,12 @@ enum PadMenus {
             let a = UIAction(title: it.label, attributes: it.enabled ? [] : .disabled, state: it.checked == true ? .on : .off) { _ in dispatch(it) }
             if !it.enabled, let why = it.reason { a.subtitle = why }
             // an engine whose manifest warned (shell-interface 12.1, decision 17): the symbol as
-            // the action's image, the warning as its subtitle
+            // the action's image, the warning as its subtitle (after the reason when the item is
+            // disabled, as a process engine is on the iPad)
             if let w = it.warning {
                 a.image = UIImage(systemName: "exclamationmark.triangle")
-                if it.enabled { a.subtitle = w }
+                MenuState.shared.noteMarked(it.label)
+                a.subtitle = [it.enabled ? nil : it.reason, w].compactMap { $0 }.joined(separator: " · ")
             }
             group.append(a)
         }

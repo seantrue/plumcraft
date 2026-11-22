@@ -411,12 +411,14 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         l.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
         l.add(to: .main, forMode: .common)
         momentum = l
+        Activity.shared.count("momentum", 1)
     }
 
     func stopMomentum() {
         guard let m = momentum else { return }
         m.invalidate()
         momentum = nil
+        Activity.shared.count("momentum", 0)
     }
 
     @objc func onMomentum(_ l: CADisplayLink) {

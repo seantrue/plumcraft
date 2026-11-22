@@ -60,6 +60,19 @@ EOF
 printf '#!/bin/sh\necho '"'"'No module named copied_engine'"'"' >&2\nexit 1\n' >"$scratch/engines/uv"
 chmod 755 "$scratch/engines/uv"
 export PLUMCRAFT_ENGINE_FOLDER="$scratch/engines"
+# the test engine for the port and graph rows (crates/ports; never in the app), installed here as
+# a process of the app's from its program, copied into scratch; the runner claims engine:ports
+# only when it is there (cargo build --release -p plumcraft-ports)
+ports_has=()
+ports_src="${PORTS_BIN:-${CARGO_TARGET_DIR:-$root/target}/release/plumcraft-ports-engine}"
+if [ -x "$ports_src" ]; then
+  mkdir -p "$scratch/bin"
+  cp "$ports_src" "$scratch/bin/plumcraft-ports-engine"
+  printf 'id = "ports"\nname = "Ports (test engine)"\nmode = "process"\ncommand = ["%s"]\n' "$scratch/bin/plumcraft-ports-engine" >"$scratch/engines/ports.toml"
+  ports_has=(--engine ports --has ports_installed)
+else
+  echo "no test engine program at $ports_src: its cases are skipped"
+fi
 
 cd "$here"
 # APP: an app already built and signed (an exported Developer ID build, say), run as it is
@@ -112,7 +125,7 @@ done
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
 echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
-timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests --has copied_manifest --has install \
+timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --engine audio ${ports_has[@]+"${ports_has[@]}"} --has manifests --has copied_manifest --has install \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?
 set -e

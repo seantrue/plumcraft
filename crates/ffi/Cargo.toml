@@ -29,6 +29,10 @@ undocumented_unsafe_blocks = "deny"
 jni = ["dep:jni-sys"]
 
 [dependencies]
+# The audio engine, compiled in (mode 1; the maintainer, 2026-11-21: "Compile array,audio,text
+# in"): registered with the editor core at open, since the core, which is published, can't depend
+# on its SoundCraft git crates. This library is never published.
+plumcraft-audio = { workspace = true }
 plumcraft-automation = { workspace = true }
 # Engines added beside the first (engine.add) go behind one.
 plumcraft-coordinator = { workspace = true }

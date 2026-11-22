@@ -73,7 +73,9 @@ final class GestureTests: XCTestCase {
             if cond(window()) { return true }
             RunLoop.current.run(until: Date().addingTimeInterval(0.1))
         }
-        XCTFail("timed out waiting for \(what): \(window())")
+        // what the app was animating then (Activity: empty when idle), for B111's device re-run
+        let s = status()
+        XCTFail("timed out waiting for \(what): animating \(s["animating"] ?? "(not reported)"): \(window())")
         return false
     }
 
@@ -288,6 +290,16 @@ final class GestureTests: XCTestCase {
         shot("n4s2-ui-number-keyboard")
         app.buttons["row-editor-done"].tap()
         wait("count set to 7") { _ in self.value("w", 2) == "7" }
+        // B111: on the device the app never reported idle from here on. Whatever it animates
+        // must end: the status's `animating` empties within a few seconds of the number's Done
+        let calm = Date().addingTimeInterval(8)
+        var animating: [Any] = ["(not read)"]
+        while Date() < calm {
+            animating = (status()["animating"] as? [Any]) ?? ["(not reported)"]
+            if animating.isEmpty { break }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertTrue(animating.isEmpty, "B111: still animating 8 s after the number's Done: \(animating)")
 
         // a choice: the system's menu on the row
         let (mode, _) = try XCTUnwrap(row("w", 5))
@@ -482,6 +494,61 @@ extension GestureTests {
     func item(_ app: XCUIApplication, _ label: String) -> XCUIElement {
         let b = app.buttons[label]
         return b.exists ? b : app.menuItems[label]
+    }
+
+    /// Decision 17 on the iPad, launched: an engine whose manifest warned (a copy of a project's
+    /// manifest away from its project, in the app's engines folder) is marked in the Engine menu
+    /// reached from the compact bar's More menu: the item is there (disabled, since the iPad
+    /// starts no programs), drawn with the warning symbol (the app says which items it marked)
+    /// and its warning as its subtitle.
+    @MainActor
+    func testAWarnedEngineIsMarkedInTheMenu() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        // a folder the app can read: beside the status file the script names (a folder of the
+        // Mac's the simulator reaches), not this runner's own container
+        let base = env["PLUMCRAFT_STATUS"].map { ($0 as NSString).deletingLastPathComponent + "/" } ?? NSTemporaryDirectory()
+        let engines = base + "plumcraft-ui-engines-\(UUID().uuidString.prefix(8))"
+        try FileManager.default.createDirectory(atPath: engines, withIntermediateDirectories: true)
+        try "id = \"copied\"\nname = \"Copied Engine\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"copied_engine\"]\ncwd = \".\"\n"
+            .write(toFile: engines + "/copied.toml", atomically: true, encoding: .utf8)
+        // the program it names must be there for the manifest to load (never started on the iPad)
+        try "#!/bin/sh\nexit 1\n".write(toFile: engines + "/uv", atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: engines + "/uv")
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Viewers", "--status-file", statusPath, "--width-class", "compact"]
+        app.launchEnvironment["PLUMCRAFT_ENGINE_FOLDER"] = engines
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
+        // B118: a keyboard is up after this launch though nothing is edited; put it away, as a
+        // person would, so the menu has the screen
+        if app.keyboards.count > 0, app.buttons["Hide keyboard"].exists { app.buttons["Hide keyboard"].tap() }
+        let more = app.buttons["tool.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "the compact bar's More menu")
+        more.tap()
+        item(app, "Engine").tap()
+        // the item's label carries its subtitle; a disabled item may be a button or a menu item
+        let named = NSPredicate(format: "label BEGINSWITH %@", "Copied Engine")
+        let copied = app.descendants(matching: .any).matching(named).firstMatch
+        // the engines run past the menu's foot: it is scrolled as a finger scrolls it
+        for _ in 0..<4 where !copied.waitForExistence(timeout: 2) {
+            // on an item the finger can reach (the keyboard may cover the menu's foot, B118)
+            let top = item(app, "Reconnect")
+            (top.exists ? top : app).swipeUp()
+        }
+        shot("n4h-ui-warned-engine")
+        guard copied.waitForExistence(timeout: 10) else {
+            let names = app.descendants(matching: .any).allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
+            XCTFail("the warned engine in the Engine menu: not there; on screen \(names); status engine \(status()["engine"] ?? "-"), menuMarked \(status()["menuMarked"] ?? "-")")
+            return
+        }
+        let label = copied.label + " " + ((copied.value as? String) ?? "")
+        let marked = (status()["menuMarked"] as? [String]) ?? []
+        XCTAssertTrue(marked.contains("Copied Engine"), "drawn with the warning symbol: menuMarked \(marked)")
+        XCTAssertTrue(label.contains("may be a copy") || copied.debugDescription.contains("may be a copy"),
+                      "its warning as its subtitle: \(copied.debugDescription.prefix(400))")
     }
 
     @MainActor

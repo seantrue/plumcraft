@@ -943,12 +943,50 @@ fn resolve_inputs(
                 None => None,
             },
         };
+        // A choice with sub-ports (spec 7.6, `options`): the chosen option's ports arrive as
+        // `<port>.<sub>`, wired or from their widgets or defaults, and key the memo as inputs do.
+        // Found missing by the ports test engine (2026-11-22): the SDK's executor passed none.
+        let chosen = match &value {
+            Some(Data::Json(Value::String(s))) => Some(s.clone()),
+            Some(Data::Json(v)) if !v.is_null() => Some(v.to_string()),
+            _ => None,
+        };
         match value {
             Some(v) => {
                 inputs.insert(port.name.clone(), v);
             }
             None if port.optional => {}
             None => return Err(NodeError::new(NodeError::CONFIG, format!("input {:?} has no value", port.name))),
+        }
+        let subs = port.options.as_ref().zip(chosen.as_ref()).and_then(|(o, c)| o.get(c)).cloned().unwrap_or_default();
+        for sub in &subs {
+            let key = format!("{}.{}", port.name, sub.name);
+            let wired = match bound.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => upstream
+                    .iter()
+                    .find(|w| w.to.port == key)
+                    .and_then(|w| values.get(&w.from.node).and_then(|o| o.get(&w.from.port)).map(|v| w.deliver(v)))
+                    .transpose()?,
+            };
+            let numeric = match sub.ty.as_str() {
+                "INT" => Some(Numeric::Int),
+                "FLOAT" => Some(Numeric::Float),
+                _ => None,
+            };
+            let own = wn.values.get(&key).filter(|v| !v.is_null()).cloned().or_else(|| (!sub.default.is_null()).then(|| sub.default.clone()));
+            match (wired, own) {
+                (Some(v), _) => {
+                    inputs.insert(key, v);
+                }
+                (None, Some(v)) => {
+                    let v = memo::coerce(&v, numeric);
+                    params.insert(key.clone(), v.clone());
+                    inputs.insert(key, Data::Json(v));
+                }
+                (None, None) if sub.optional => {}
+                (None, None) => return Err(NodeError::new(NodeError::CONFIG, format!("input {key:?} has no value"))),
+            }
         }
     }
     Ok((inputs, params))

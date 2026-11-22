@@ -37,6 +37,7 @@
 
 import os
 import PlumCraft
+import PlumCraftCanvas
 import PlumCraftModels
 import PlumCraftShell
 import UIKit
@@ -312,6 +313,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
             f.hasPrefix("/") ? f : FileManager.default.temporaryDirectory.appendingPathComponent(f).path
         }
         StatusFile.shared.notePid()
+        // what is animating now, for scripts and the UI tests (empty when idle; Activity)
+        StatusFile.shared.set("animating", .array([]))
+        Activity.shared.onChange = { names in StatusFile.shared.set("animating", .array(names.map(JSONValue.string))) }
         #if DEBUG
         if CoreHost.options.statusElement { StatusElement.shared.start() }
         #endif

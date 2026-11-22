@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Audio compiled into the native apps; the engine half on the iPad; a test engine for ports (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "Compile array,audio,text in. Yes to the rest", to four questions: the iPad's engine half uses engines compiled into the app (against the controller's suggestion of attaching over HTTP), with audio joining text and array; Open Recent's menu items stay unseen by the person check; the apps report what is animating; a test engine with its own nodes covers the port and graph rows. The reading that the first sentence answers the iPad question is the controller's.
+
+**What the agent did.** The audio engine was process-only because its SoundCraft crates are git dependencies and the core is a published crate; so the application registers it and the C ABI library, never published, links it: the Mac, the iPad and Windows (on its next rebuild) offer audio in process, and egui keeps it as a process. Two conformance cases run the text engine's slow and failing nodes in process on every driver, the iPad simulator included. A new unpublished crate, `crates/ports`, is a test engine for variadic inputs, a choice's sub-port, external ports, lists and bundles, installed from a scratch folder for the launched Mac app. Both Apple apps report what is animating in their status, and the UI tests print it on a timeout. The iPad's menu marks a warned engine. Floor, on the launch rule: the Mac 50 met of 85 (was 43), the iPad 38 (was 28).
+
+**Defects found in earlier AI-written SDK code, by the new test engine:** the Rust SDK's executor passed no choice sub-port value to a node (B115), and the Python SDK passed neither that nor a variadic slot (B116). Both fixed with tests. **In the agent's own work:** a conformance case that failed on the iPad because the store kept a slow node's result from an earlier launch; person-check steps that failed on timing with the Mac's screen locked (B117).
+
+**Verified (agent, Mac).** nextest 1,609 of 1,610 (the known baseline failure); Python 235; swift test 97; the Mac gate three times with the screen unlocked (63 of 63 cases, the person check 50 steps passed, 1 not seen); iPad simulator conformance 59 of 59 with 4 skipped, and its UI tests 6 of 6. **Not verified:** the iPad device failures (B111 to B114), which still do not reproduce on the simulator; Windows.
+
 ### 2026-11-21 — Scripted launches as their own app; the decided core and Apple fixes; the engine half launched (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1-3 yes, 4 - background, 5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 yes. Do 19,20 ASAP" to twenty questions the controller put (its recommended option each time), and, after the defect below, "1,2 as you say": the stray file deleted and the person check never pressing Save or Open in a real panel. The maintainer also listened to the Windows app's sound ("440 works.") and ran the iPad device tests with the controller.

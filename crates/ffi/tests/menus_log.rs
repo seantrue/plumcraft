@@ -172,9 +172,20 @@ fn a_platform_that_cant_start_programs_lists_process_engines_disabled_with_why()
     assert_eq!((text["enabled"].clone(), text["checked"].clone()), (json!(true), json!(true)), "{text}");
     let array = find(&engine["items"], |i| i["params"] == json!({"engine": "array"})).expect("the array engine is listed");
     assert_eq!((array["enabled"].clone(), array["checked"].clone()), (json!(true), json!(false)), "{array}");
+    // the audio engine is compiled in too since 2026-11-21 ("Compile array,audio,text in"): a
+    // platform that starts no programs offers it, in process
     let audio = find(&engine["items"], |i| i["params"] == json!({"engine": "audio"})).expect("the audio engine is listed");
-    assert_eq!(audio["enabled"], false, "a process only: {audio}");
-    assert_eq!(audio["reason"], "this device can't start programs");
+    assert_eq!((audio["enabled"].clone(), audio["checked"].clone()), (json!(true), json!(false)), "compiled in: {audio}");
+    c.close();
+    // its process and HTTP hostings, picking by hand, are listed disabled with the reason
+    let mut c = Client::open(&json!({"store_root": store_root("menus-engines-audio"), "engines": {"auto": false}}));
+    let mut feed = Feed::default();
+    let bar = ok(&call(&mut c, &mut feed, "menu.get", json!({})));
+    let engine = bar["menus"].as_array().unwrap().iter().find(|m| m["label"] == "Engine").cloned().unwrap();
+    let inproc = find(&engine["items"], |i| i["params"] == json!({"engine": "audio", "mode": "inproc"})).expect("audio in process");
+    assert_eq!(inproc["enabled"], true, "{inproc}");
+    let process = find(&engine["items"], |i| i["params"] == json!({"engine": "audio", "mode": "process"})).expect("audio as a process");
+    assert_eq!((process["enabled"].clone(), process["reason"].clone()), (json!(false), json!("this device can't start programs")), "{process}");
     c.close();
 }
 

@@ -662,6 +662,8 @@ public final class LayerCanvas {
             placeFace(e)
         }
         noteRunFinished()
+        // what pulses without end, for the status (Activity)
+        Activity.shared.count("pulse", faces.values.reduce(0) { $0 + ($1.wash?.animation(forKey: "pulse") != nil ? 1 : 0) })
     }
 
     /// The run (or its replay) is over once no face shows waiting or running: hold the colours
@@ -703,6 +705,7 @@ public final class LayerCanvas {
         f.fillMode = .forwards
         f.isRemovedOnCompletion = false
         w.add(f, forKey: "fade")
+        Activity.shared.timed("fade", begin - CACurrentMediaTime() + f.duration)
     }
 
     // MARK: - Previews
@@ -1002,6 +1005,7 @@ public final class LayerCanvas {
     func applyTransform(animated: Bool = false) {
         CATransaction.begin()
         if animated {
+            Activity.shared.timed("viewport", 0.28)
             CATransaction.setAnimationDuration(0.28)
             CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeOut))
         } else {
@@ -1064,6 +1068,7 @@ public final class LayerCanvas {
                     a.duration = 0.25
                     a.repeatCount = 2
                     l.add(a, forKey: "reveal")
+                    Activity.shared.timed("reveal", 0.5)
                 }
             }
         }

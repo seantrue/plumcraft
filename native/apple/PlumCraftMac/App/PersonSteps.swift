@@ -124,6 +124,15 @@ enum PersonSteps {
             }
             await onRunLoop { b.performClick(nil) }
             return ["ok": true]
+        case "panel-cancel":
+            // the save or open panel cancelled from inside the app, when accessibility can't
+            // press its Cancel (the screen locked): never left open, never Save or Open
+            let open = (w.window?.attachedSheet as? NSSavePanel) ?? NSApp.windows.compactMap({ $0 as? NSOpenPanel }).first(where: \.isVisible)
+            guard let p = open else { return ["ok": false, "error": "no panel"] }
+            await onRunLoop {
+                if let sheetOf = p.sheetParent { sheetOf.endSheet(p, returnCode: .cancel) } else { p.cancel(nil) }
+            }
+            return ["ok": true]
         case "panel-at":
             // the next save or open panel opens at PATH's folder (a save panel with PATH's name),
             // set before it is shown (GraphDocument.prepareSavePanel, Asks): the scripted copy only
