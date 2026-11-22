@@ -29,6 +29,13 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Wrong on the way.** The agent first worked around B98 in the runner; the controller had the workaround dropped so the case passes because the bug is fixed. The Recipe change for Windows was built and run but not looked at on screen.
 
 **Verified (agent, on the Windows test VM).** The C# runner 64 of 64 cases on ARM64 and x64; the Swift runner from the Mac 60 of 60; the person check 18 of 18, three runs in a row; `dotnet test` 53 of 53. Windows floor: 53 met, 4 partly, 5 not met, 24 claimed on reading alone. **Not verified:** B99, one palette case that failed once in ten runs, cause not found; no timings, the VM's display is software rendering.
+### 2026-11-22 — The Recipe button only where there is a recipe; who wrote the stray preferences file (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the agent did.** The Mac and iPad viewer bar shows Recipe only when the core says the value has one, and the Mac person check expects no button for a built-in engine's value. The agent then found what wrote a default preferences file into the maintainer's Library (B124): not a test, but an old trial build of the Mac app left in a scratch folder, which the system started as a document's app; the system log shows that process at the second the file appeared. Two test suites and two simulator runs were first cleared by running each under a scratch home.
+
+**Wrong readings on the way.** The controller's guess was a Rust test using the default preferences path, and it set two other agents to probe their test runs; both came back clean. The agent's first run of the new Recipe step failed because the step read the wrong part of the app's status; fixed and the gate rerun.
+
+**Verified (agent, Mac, screen unlocked).** The Mac gate: 64 of 64 cases, person check 54 passed, 0 failed. iPad simulator conformance 59 of 59 with 5 skipped; UI tests 7 of 7. **Not verified:** the button present with a recipe, since no engine a launched app can run supplies one.
 
 ### 2026-11-22 — Contact sheets, no recipes in SDK saves, a name and graph hash instead; tests kept out of the real home (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
