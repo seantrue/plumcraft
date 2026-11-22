@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Paths shown to a person lose Windows' long-path prefix (B95) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1,2 yes, 3 leave it": fix B95, rewrite the two stale Windows scene step files, and leave the pick-list label under its field on Windows.
+
+**What the agent did (about 150 lines).** One helper in the protocol crate strips the prefix from a path a person reads; the copied-manifest warnings, the duplicate-engine problem and `register`'s uv-cache messages use it. Paths used for file operations are unchanged. Found B97: six Rust tests fail on Windows with or without this change (path and engine-program assumptions); nothing runs them, since CI is Linux only.
+
+**A defect in the agent's own run, caught by it:** its sync kept the Mac's file times, so the x64 core was not rebuilt and the first x64 conformance run used the old core; rebuilt and re-run.
+
+**Verified (agent).** On the Mac, nextest for the four touched crates, 377 passed. On the Windows test VM without GPU acceleration: both new tests; `dotnet test` 53 of 53; the person check 17 of 17 three times; the C# runner 57 of 57 on ARM64 and x64; the Swift runner 57 of 57. **Not verified:** the value-editor scene (no engine on the VM names an editor); the Python SDK's `register` on Windows.
+
 ### 2026-11-22 — N5 gate, second part: a command-line graph's title; the Windows floor at 44 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1 yes, 2 note for future, yes": the Windows test VM stays without GPU acceleration, the wire tiles' moiré at low zoom is noted for later (B96), B93 is fixed now and B92 waits until it reproduces.

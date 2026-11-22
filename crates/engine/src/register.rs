@@ -134,17 +134,17 @@ fn register_as(own: &Own, args: &[String], program: &str, exe: &Path) -> Result<
         // --print writes nothing, so there is nothing to refuse; it says the same (decision 18)
         Some((root, true)) if print => Some(format!(
             "this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so this manifest could never start it; register refuses to write it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
-            root.display()
+            plumcraft_proto::programs::shown(&root)
         )),
         Some((root, true)) => {
             return Err(format!(
                 "not registered: this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so the manifest could never start it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
-                root.display()
+                plumcraft_proto::programs::shown(&root)
             ));
         }
         Some((root, false)) => Some(format!(
             "this executable is in uv's cache ({}), as `uvx` and `uv tool run` make: a cache clean (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting. For an install that lasts, `uv tool install` (or `cargo install`) and run register from the installed command",
-            root.display()
+            plumcraft_proto::programs::shown(&root)
         )),
         None => None,
     };

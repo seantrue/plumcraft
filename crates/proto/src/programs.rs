@@ -49,6 +49,26 @@ pub fn expand_home(p: &str) -> PathBuf {
     }
 }
 
+/// A path as a person reads it (B95): Windows' long-path prefix taken off, so a canonicalised
+/// `\\?\C:\x` shows as `C:\x` and `\\?\UNC\server\share` as `\\server\share`. For messages,
+/// warnings, hovers and logs only: a path used to open, run or compare files keeps its prefix.
+/// Plain string handling, the same on every platform (anything else is unchanged).
+pub fn shown(p: &Path) -> String {
+    shown_str(&p.display().to_string())
+}
+
+/// [`shown`] for a path already in text.
+pub fn shown_str(s: &str) -> String {
+    if let Some(rest) = s.strip_prefix(r"\\?\UNC\") {
+        return format!(r"\\{rest}");
+    }
+    match s.strip_prefix(r"\\?\") {
+        // only a drive path loses it: `\\?\GLOBALROOT\…` and the like have no other spelling
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest.to_owned(),
+        _ => s.to_owned(),
+    }
+}
+
 /// The folders programs are usually installed in: under `home`, `bin`, `.local/bin` (uv's) and
 /// `.cargo/bin`, then on Unix Homebrew's and `/usr/local/bin`.
 fn usual_folders(home: Option<&Path>) -> Vec<PathBuf> {
@@ -198,6 +218,33 @@ pub fn apply(cmd: &mut Command) -> &mut Command {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_path_shown_to_a_person_has_no_long_path_prefix() {
+        assert_eq!(shown_str(r"\\?\C:\Users\me\engines"), r"C:\Users\me\engines");
+        assert_eq!(shown_str(r"\\?\UNC\server\share\engines"), r"\\server\share\engines");
+        // nothing else changes: plain Windows paths, UNC paths, Unix paths, other verbatim forms
+        assert_eq!(shown_str(r"C:\Users\me"), r"C:\Users\me");
+        assert_eq!(shown_str(r"\\server\share"), r"\\server\share");
+        assert_eq!(shown_str("/home/me/engines"), "/home/me/engines");
+        assert_eq!(shown_str(r"\\?\GLOBALROOT\Device\X"), r"\\?\GLOBALROOT\Device\X");
+        assert_eq!(shown_str(""), "");
+        assert_eq!(shown_str(r"\\?\"), r"\\?\");
+        assert_eq!(shown(Path::new("/tmp/x")), "/tmp/x");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_canonical_windows_path_is_shown_without_its_prefix() {
+        let dir = std::env::temp_dir();
+        let real = std::fs::canonicalize(&dir).unwrap();
+        assert!(real.display().to_string().starts_with(r"\\?\"), "{}", real.display());
+        let s = shown(&real);
+        assert!(!s.starts_with(r"\\?\") && s.as_bytes().get(1) == Some(&b':'), "{s}");
+        // the same folder
+        assert_eq!(std::fs::canonicalize(&s).unwrap(), real);
+    }
+
     use super::*;
 
     #[test]
