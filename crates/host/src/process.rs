@@ -556,8 +556,8 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
             // The work root's files are the engine's own, readable after the proof (spec 4.4).
             stores.extend(h.get("data").and_then(|d| d.get("work_root")).and_then(Value::as_str).filter(|w| !w.is_empty()).map(str::to_owned));
             *lock(&inner.data) = DataSession { shm, path: proof.client_proof_read, stores };
-            let _ = inner.request("session.confirm", json!({"shm": shm, "path": proof.client_proof_read}), CONNECT_TIMEOUT);
-            let schema = inner.request("schema", json!({}), CONNECT_TIMEOUT).ok();
+            let _ = inner.request_while("session.confirm", json!({"shm": shm, "path": proof.client_proof_read}), CONNECT_TIMEOUT, || exited().is_none());
+            let schema = inner.request_while("schema", json!({}), CONNECT_TIMEOUT, || exited().is_none()).ok();
             let nodes = schema.as_ref().and_then(|s| s.get("nodes")).and_then(Value::as_array).map_or(0, |n| n.len() as u64);
             let version = h.get("engine").and_then(|e| e.get("version")).and_then(Value::as_str).unwrap_or_default().to_owned();
             let caps = h.get("caps").cloned().and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default();
