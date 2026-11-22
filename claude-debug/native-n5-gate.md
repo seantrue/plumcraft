@@ -11,11 +11,11 @@ The person check exists and found two real defects that every earlier gate misse
 
 Under the strict rule, the Windows floor stands at:
 
-- 38 met;
+- 44 met;
 - 3 partly;
 - 5 not met;
 - 0 broken: F6 and F80;
-- 40 claimed on reading alone and not checked.
+- 34 claimed on reading alone and not checked.
 
 The maintainer restarted the VM. Later it stopped answering a second time: SSH accepted connections but sent nothing, then ping stopped too. So most of the gate is not taken.
 
@@ -109,7 +109,7 @@ A row is met only when a named test, case or script launched the real app and ex
 
 - **F6 and F80** were "Met", but the Engine menu showed no engine (B90).
 - **F80** also offered hostings that could not start (B91).
-- **40 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
+- **34 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
 
 | F | Item | Now | Evidence |
 |---|---|---|---|
@@ -139,16 +139,16 @@ A row is met only when a named test, case or script launched the real app and ex
 | F24 | Expansions | Claimed on reading alone, not checked | No case or check |
 | F25 | Style graphs | Claimed on reading alone, not checked | No case or check |
 | F26 | Run request | Met | PC run 3: Run on the toolbar ran Upper case to "HELLO PERSON" on the separate-process engine; SC 21 |
-| F27 | Targets | Claimed on reading alone, not checked | Run Selected was never pressed in a launched app |
+| F27 | Targets | Met | g-floor-checks.ps1 (2026-11-22, the launched app over its port): Run Selected ran the selected node and left the other "not run" |
 | F28 | Run identity, generation | Met | SC 21 |
-| F29 | Latest wins | Claimed on reading alone, not checked | No case or check |
-| F30 | Auto-run | Claimed on reading alone, not checked | No case or check |
+| F29 | Latest wins | Met | g-floor-checks.ps1 (2026-11-22, the launched app over its port): two edits and runs in a row; Upper case shows TWO, not ONE |
+| F30 | Auto-run | Met | g-floor-checks.ps1 (2026-11-22, the launched app over its port): Auto-run on, an edit ran by itself (Upper case: AUTO) |
 | F31 | Optimistic queued | Met | SC 21 (the run's states, queued first, in the scene the app draws) |
 | F32 | Run reply | Met | SC 21, SC 22 "a watched text value arrives as text.plain…" |
 | F33 | Per-node report | Met | PC run 1: Upper case's face read "error · config error: input "text" has no value"; SC 41 |
 | F34 | Errors as data | Met | PC run 1 (as F33); SC 49 "the Messages window is the core's…" |
-| F35 | Failure stands in for a reply | Claimed on reading alone, not checked | No case or check |
-| F36 | Cancel | Claimed on reading alone, not checked | No launched app cancelled a run |
+| F35 | Failure stands in for a reply | Met | g-floor-checks.ps1 (2026-11-22, the launched app over its port): a Fail node's run shows "op error: this node always fails" on its face |
+| F36 | Cancel | Met | g-floor-checks.ps1 (2026-11-22, the launched app over its port): a Slow node running ("running 24%") cancelled by run.cancel, its state "cancelled" |
 | F37 | Run summary for automation | Met | SC 21 and every run case over the app's port |
 | F38 | Status record stream | Met | SC 21 |
 | F39 | States emitted | Met | SC 21 |
@@ -168,7 +168,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F53 | Compare | Partly | SC 52 "Compare pins two values…"; the exact difference is the egui editor's |
 | F54 | Tables and scalars | Met | SC 42 "a table popped out by a person is sorted and paged by the core", SC 22 |
 | F55 | Sheet | Claimed on reading alone, not checked | The items viewer was never shown with content in a launched app |
-| F56 | Recipe display | Claimed on reading alone, not checked | Recipe on the bar was never pressed in a launched app |
+| F56 | Recipe display | Met | Scene recipe (2026-11-22, launched app, screenshot recipe-light looked at): Recipe on the bar says the value had none |
 | F57 | Picture window (T16) | Met | SC 35, SC 46; PC run 1's value window |
 | F58 | Missing data is a state | Met | SC 48 |
 | F59 | Curve editor | Not met | The research software's editor (N6) |
@@ -406,3 +406,60 @@ The VM was set up by the maintainer: TPM off, display "Red Hat VirtIO GPU DOD co
 - **The Swift runner against the Windows app** (rebuilt once the Mac's disk had 106 GB free, 10:24): read half 36 of 36 (456 of 461 steps, the copied-manifest steps not claimed), edit half 21 of 21.
 - **Not done:**
   - the other slice 4 retakes.
+
+## Fifth session (2026-11-22, branch `native/n5-gate-2`, from the dev branch at `8a983c2`)
+
+The VM had no TPM and the VirtIO GPU DOD display. A ping watcher ran from 10:31; no ping was lost.
+
+### Timeline
+
+| Time (Mac) | Step | Available MB |
+|---|---|---|
+| 10:31 | VM checkout reset to `8a983c2` and synced (648 files the same); app built | 7010 |
+| 10:32:09 to 10:32:56 | `dotnet test`: 53 of 53, with the B93 test | n/a |
+| 10:33:05 to 10:36:33 | person check three times: 17 of 17 each | 6977 to 6813 |
+| 10:36 to 10:39 | grid buttons, pick list, the warned engine in use and its tooltip, the one-line status bar: screenshots | n/a |
+| 10:39:59 to 10:46:05 | the slice 4 scenes retaken (light) | n/a |
+| 10:46 to 10:47 | floor checks in the launched app (`g-floor-checks.ps1`) | n/a |
+| 10:47:53 to 10:50:34 | C# runner ARM64 57 of 57; x64 built, 57 of 57; Swift runner 57 of 57 | n/a |
+
+### What was done and seen
+
+- **B93, fixed:**
+  - Cause: Windows only. The core announces a document's state when it opens it, and the command line's graph is opened before its window's model follows the feed, so the announcement was missed. The core's state was right. The Mac titles its windows from NSDocument's file and egui from the core's title, so neither had the bug.
+  - Fix: the model reads the document's state once from `ui.inspect` at start, as it did the engine's.
+  - Test: `AGraphOpenedBeforeItsModelIsKnownByItsFile`.
+  - Person-check step 14: the saved graph opened from the command line is titled "person check.json - Plummer", with both its nodes. Passed three times.
+  - No core change.
+- **The person check:** 17 of 17, three runs in a row on the final build.
+- **The numbers grid's window, looked at:**
+  - first window: caption "columns 0–63 of 150", ‹ disabled, › enabled;
+  - middle window: "64–127 of 150", both enabled;
+  - last window: "128–149 of 150", › disabled.
+  - Every step went through `viewer.grid {cols}`.
+- **Install Engine…'s pick list, looked at:**
+  - an editable ComboBox under its label "Repository", with the hint "owner/repo or https://github.com/owner/repo";
+  - dropped down by a click on its chevron, it lists DuckDB, OpenCV and Atlas.
+  - Without `other`: no form in the product has one (the install form is the only pick list), so it was not seen. The code draws it non-editable.
+- **The engine cell's warning, looked at:** a warned manifest that starts was used (`g-copied-ok.ps1`: the copied manifest's stand-in `uv` starts the text engine's own program). With that engine in use the status line read "engine: Text + Text 0.7.0 · 2 engines · connected · 47 nodes ⚠". Hovering the ⚠ showed the whole warning.
+  - The warning names the folder with Windows' `\\?\` prefix: **B95**, the core's, recorded.
+- **The status bar's message:** now one line, cut with an ellipsis, with the whole text on hover. Seen with the copied engine's error.
+- **Text's hosting in the Engine menu:** by design. The engine in use adds its mode to its heading (`menu::engine_items`: `"{label} · {mode_label}"` when it is the engine in use and live), so Text shows "Rust · in-process (mode 1)" and Array, not in use, shows its name. The Mac's menu draws the same label from the same model (from reading; the Mac app was not launched).
+- **Slice 4 scenes retaken in light:** compare, json (tree, YAML), marquee, media (audio, picture, svg, array, grid), params, picture, recipe, reports (messages, cache, graph parameters), settings (three pages), table, text and scalar; looked at as a contact sheet.
+  - Not retaken: the canvas tags and the value editor. Their steps files no longer suit the core (`net.connect` refused without a wire drawn through a net label; text.literal names no editor). The steps need rewriting, not the app.
+- **Floor checks in the launched app:**
+  - Run Selected (F27);
+  - latest wins (F29);
+  - auto-run (F30);
+  - a failure standing in for the reply (F35);
+  - cancel (F36), with the Slow node "running 24%" then "cancelled";
+  - plus the recipe scene (F56).
+- **The floor now:** 44 met, 3 partly, 5 not met, 34 claimed on reading alone. The rest of the reading rows have no case or check that launches the app on their path: core-only behaviour (F5, F40, F69, F84), the research software's (F65, F66), or kinds the text and array engines don't have (F14, F15, F17 to F20, F43 to F45, F55, F61 to F63).
+- **Gate:**
+  - `dotnet test`: 53 of 53;
+  - C# runner: ARM64 57 of 57, x64 57 of 57;
+  - Swift runner against the app: 57 of 57;
+  - person check: 17 of 17 three times;
+  - private strings: clean.
+
+  All on the display without GPU acceleration, so no timing here is smoothness evidence.

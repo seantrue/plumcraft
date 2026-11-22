@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — N5 gate, second part: a command-line graph's title; the Windows floor at 44 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1 yes, 2 note for future, yes": the Windows test VM stays without GPU acceleration, the wire tiles' moiré at low zoom is noted for later (B96), B93 is fixed now and B92 waits until it reproduces.
+
+**What the agent did (about 180 lines).** B93: a graph opened from the command line was titled Untitled, because the window's model began following the core's feed after the core had announced the document; the kit now reads that state once at start. A kit test and a person-check step pin it. Looked at for the first time and pictured: the grid window's column buttons in their three states, the Install Engine pick list, the engine cell's warning mark with a warned engine in use, the one-line status error. Found B95 (a warning shows a Windows path with its long-path prefix; the fix is the core's, not done). Six more floor rows checked in the launched app: 44 met, 3 partly, 5 not met, 34 claimed on reading alone.
+
+**Verified (agent, on the VM without GPU acceleration).** The person check 17 of 17 three times in a row; `dotnet test` 53 of 53; the C# runner 57 of 57 on ARM64 and x64; the Swift runner against the app 57 of 57. The controller looked at the pick list and warning pictures. **Not verified:** a pick list without free entry (no form has one); two scene retakes whose step files no longer match the core.
+
 ### 2026-11-22 — The Windows person check; five defects it found; why the Windows test VM froze (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer did.** Listened to the Windows app's sound twice ("Sound works. Not a tone, however. More like a sick bumblebee.", which was the right sound for that graph, and "440 works."). Restarted the Windows test VM after each of six freezes, turned its emulated TPM off on the controller's suggestion, reported "Frozen picture, clock stopped" when asked what the frozen VM showed, and then turned its GPU acceleration off.

@@ -56,7 +56,7 @@ public sealed class DocWindow : Window
     readonly InfoBar banner = new() { IsOpen = false, IsClosable = true };
     readonly TextBlock engineText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
     readonly FontIcon engineWarning = new() { Glyph = "\uE7BA", FontSize = 12, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 134, 0)) };
-    readonly TextBlock stateText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75 };
+    readonly TextBlock stateText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75, MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock zoomText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75 };
     readonly Microsoft.UI.Xaml.Shapes.Ellipse engineDot = new() { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center };
     bool closingFromCore, closed, viewSet;
@@ -293,7 +293,10 @@ public sealed class DocWindow : Window
         var name = s.Name.Length > 0 ? s.Name : s.Path is { } p ? Path.GetFileName(p) : "Untitled";
         Title = $"{(s.Dirty ? "*" : "")}{name} - {CoreHost.AppName}";
         titleText.Text = Title;
-        stateText.Text = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
+        // one line in the status bar, the whole text on hover (an engine's error can run to several lines)
+        var full = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
+        stateText.Text = string.Join(" · ", full.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
+        ToolTipService.SetToolTip(stateText, full.Length > 0 ? full : null);
         NoteStatus();
     }
 

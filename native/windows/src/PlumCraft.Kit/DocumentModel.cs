@@ -249,6 +249,31 @@ public sealed class DocumentModel : INotifyPropertyChanged
         _ = RefreshThemeAsync();
         RefreshMenus();
         RefreshEngine();
+        RefreshDocument();
+    }
+
+    /// <summary>Read the document's state once (ui.inspect's `document`, `path`, `dirty`, `undo`, `redo`): the
+    /// feed says when it changes, but a document opened before this model followed the feed (a graph named on
+    /// the command line, `document.open {path}` before the window) said so before it listened (B93: its window
+    /// was titled Untitled). A state the feed brought meanwhile is newer and wins.</summary>
+    public async void RefreshDocument()
+    {
+        try
+        {
+            var r = await Core.ResultAsync("ui.inspect", default, RequestDoc);
+            if (State.Gen > 0) return;
+            var st = new DocumentState
+            {
+                Gen = 0, Title = r.Get("title").Str() ?? "", Name = r.Get("document").Str() ?? "", Path = r.Get("path").Str(),
+                Dirty = r.Get("dirty").IsTrue(), Undo = r.Get("undo").Str(), Redo = r.Get("redo").Str(),
+            };
+            if (st == State) return;
+            State = st;
+            Notify(nameof(State));
+            StateChanged?.Invoke(st);
+        }
+        catch (Exception) { /* a closed core: nothing to say */ }
+        finally { Pulse(); }
     }
 
     /// <summary>Stop following the feed (the core stays open).</summary>

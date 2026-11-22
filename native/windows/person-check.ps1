@@ -465,6 +465,24 @@ function Run-Steps {
     $ended = Wait-Until { if (-not (Get-Process -Id $appPid -ErrorAction SilentlyContinue)) { 1 } } 20000
     $left = if (-not $ended) { (([P]::Everything($appPid) | Where-Object { [P]::Kind($_) -eq 'Window' -or [P]::Kind($_) -eq 'Button' } | ForEach-Object { [P]::Name($_) }) -join ', ') } else { '' }
     Step 'quit' ($null -ne $ended) $(if ($ended) { 'the app ended' } else { "still running; it shows: $left" })
+    if (-not $ended) { return }
+
+    # 14. the saved graph opened from the command line, as opening the file from Explorer does: its window is
+    # titled by its file (B93), with its nodes; then File > Quit again
+    Starting '14. the saved file opened from the command line'
+    $proc2 = Start-Process -FilePath $Exe -ArgumentList @('--root', "`"$root`"", "`"$file`"") -PassThru
+    $script:appPid = $proc2.Id
+    Set-Content $pidFile $appPid
+    $opened = Doc-Window '*Plummer' 60000
+    Start-Sleep 2
+    $title = if ($opened) { [P]::Name($opened) } else { '' }
+    $what = if ($opened) { Describe-Nodes $opened } else { '' }
+    Step 'open-from-command-line' ($title -like 'person check*' -and $what -like '*Upper case*') ("title: $title; its nodes: $what")
+    if ($opened) {
+        $it = Menu-Item $opened 'File' 'Quit*'
+        if ($it) { [P]::ClickOn($it) }
+        $null = Wait-Until { if (-not (Get-Process -Id $appPid -ErrorAction SilentlyContinue)) { 1 } } 20000
+    }
 }
 
 function Run-All { if ($Discover) { Discover } else { Run-Steps } }
