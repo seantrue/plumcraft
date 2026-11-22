@@ -24,8 +24,10 @@ public class Suite(ITestOutputHelper output)
             Log(output, $"CASE {driver} | {(o.Passed ? "pass" : o.Skipped is not null ? "skip" : "FAIL")} | {o.Name} | {o.Steps} steps{(o.Skipped is { } s ? " | " + s : "")}");
     }
 
+    // the array engine's cases (a core opened on it runs them, below), and those for Install Engine…'s form
+    // (`install`: these cores are not on a platform that installs engines, as the C ABI's Rust driver has it)
     static List<string> ArrayCases(List<JsonElement> cases) =>
-        [.. cases.Where(c => Runner.Needs(c, "engine:array")).Select(c => c.Get("name").Str()!)];
+        [.. cases.Where(c => Runner.Needs(c, "engine:array") || Runner.Needs(c, "install")).Select(c => c.Get("name").Str()!)];
 
     /// <summary>The gate: every case passes through the kit headless. The text engine's core runs every case
     /// but the array engine's, which a core opened on the array engine runs: all 51 pass between them, no
@@ -65,7 +67,8 @@ public class Suite(ITestOutputHelper output)
 
         int passed = text.Count(o => o.Passed) + array.Count(o => o.Passed);
         Log(output, $"WHOLE SUITE through the Windows kit: {passed} of {cases.Count} cases passed in {sw.Elapsed.TotalSeconds:F1} s");
-        Assert.Equal(cases.Count, passed);
+        // all but Install Engine…'s form, which needs a platform that installs (the app runs it: `--has install`)
+        Assert.Equal(cases.Count - cases.Count(c => Runner.Needs(c, "install")), passed);
     });
 
     /// <summary>N3's gate half, alone: the read half needs nothing the editing half leaves behind.</summary>
@@ -103,6 +106,28 @@ public class Suite(ITestOutputHelper output)
         Assert.True(outp.All(o => o.Error is null), Runner.Summary(d.Name, outp));
         // the port's driver has the text engine; the array engine's cases are the kit's (above)
         Assert.Equal(ArrayCases(cases), outp.Where(o => o.Skipped is not null).Select(o => o.Name).ToList());
+    });
+
+    /// <summary>The copied manifest's steps (`copied_manifest`): the kit's core on the suite's copied engines folder
+    /// marks the copied engine with a warning, in engine.list, ui.inspect and the Engine menu, and not the probe.</summary>
+    [Fact]
+    public Task TheCopiedManifestStepsPassThroughTheKit() => OnContext(async () =>
+    {
+        var root = Scratch("conf-copied");
+        var folder = CopiedManifest.Make(root, Fixture("crates/editor-core/fixtures/conformance/engines/probe.toml"));
+        string D(string x) { var p = Path.Combine(root, x); Directory.CreateDirectory(p); return p; }
+        using var core = OpenCore("conf-copied", ("dirs", O(("documents", S(D("documents"))), ("caches", S(D("caches"))), ("store", S(D("store"))),
+            ("scratch", S(D("scratch"))), ("prefs", S(D("prefs"))), ("logs", S(D("logs"))), ("engines", S(folder)))),
+            // the copied engine is offered only where programs start (as the Windows app declares)
+            ("platform", O(("os", S("windows")), ("subprocess", Jsonv.True))));
+        var d = new KitDriver(core, "text");
+        d.Also.Add("copied_manifest");
+        var cases = Runner.Cases(CasesPath).Where(c => Runner.Needs(c, "manifests")).ToList();
+        Assert.NotEmpty(cases);
+        var outp = await Runner.RunAsync(d, cases, null);
+        Report(d.Name + ", the copied manifest", outp, TimeSpan.Zero);
+        Assert.True(outp.All(o => o.Passed), Runner.Summary(d.Name, outp) + " " + string.Join("; ", outp.Select(o => o.Error)));
+        Assert.Equal(0, outp.Sum(o => o.StepsSkipped));
     });
 
     /// <summary>The runner is not vacuous: a wrong want, a wrong ok, a missing value each fail their case.</summary>

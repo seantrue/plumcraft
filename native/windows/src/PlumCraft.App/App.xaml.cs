@@ -42,6 +42,7 @@ public partial class App : Application
     {
         var o = Options.Parse(Environment.GetCommandLineArgs());
         CoreHost.Options = o;
+        Canvas.CompositionCanvas.WireLayers = o.WireLayers;
         CoreHost.Status.Path = o.Status;
         CoreHost.Mark("launched");
         try

@@ -48,7 +48,7 @@ public readonly record struct Viewport(Vector2 Pan, float Zoom)
 /// <summary>What the canvas did, for measurements.</summary>
 public sealed class CanvasCounts
 {
-    public int FacesLaidOut, FacesDrawn, Reports, WiresPathed, Batches, WorkerDrawFailures;
+    public int FacesLaidOut, FacesDrawn, Reports, WiresPathed, Batches, WorkerDrawFailures, TilesDrawn;
 }
 
 sealed class FaceEntry(ulong nid, Face face, SpriteVisual visual)
@@ -234,6 +234,7 @@ public sealed partial class CompositionCanvas
         NoteTagsAndMarks();
         Cull(true);
         Pump();
+        PumpTiles();
         if (Idle)
         {
             // an empty graph is drawn as soon as its scene is applied
@@ -254,6 +255,7 @@ public sealed partial class CompositionCanvas
             if (!working) DisposeRetired();
             return;
         }
+        if (!WireLayers && wireGeoms.ContainsKey(nid)) { DropTiledWire(nid); return; }
         if (wires.Remove(nid, out var w)) { wireLayer.Children.Remove(w.Visual); w.Visual.Dispose(); return; }
         if (frames.Remove(nid, out var f)) { frameLayer.Children.Remove(f); f.Dispose(); return; }
         if (groups.Remove(nid, out var g)) { frameLayer.Children.Remove(g); g.Dispose(); }
@@ -300,6 +302,7 @@ public sealed partial class CompositionCanvas
         UpdateWashes([.. faces.Keys]);
         NoteTagsAndMarks();
         Pump();
+        PumpTiles();
     }
 
     // ---------------- the view ----------------
@@ -310,6 +313,7 @@ public sealed partial class CompositionCanvas
         ViewSize = size;
         if (first) HonourFit();
         Cull(false);
+        if (first) PumpTiles();
     }
 
     public void SetView(Viewport v)
@@ -418,7 +422,8 @@ public sealed partial class CompositionCanvas
             if (e.Visual.IsVisible != show) e.Visual.IsVisible = show;
             if (!show) hidden++;
         }
-        foreach (var (nid, w) in wires)
+        if (!WireLayers) hidden += CullTiles(keep);
+        else foreach (var (nid, w) in wires)
         {
             var show = (!Culling || Meets(w.Bounds, keep)) && nid != pickedWire && !w.Bounds.IsEmpty;
             if (w.Visual.IsVisible != show) w.Visual.IsVisible = show;
@@ -442,7 +447,8 @@ public sealed partial class CompositionCanvas
                 n++;
             }
         var width = WireWidth;
-        foreach (var w in wires.Values) if (w.Shape.StrokeThickness != width) w.Shape.StrokeThickness = width;
+        if (WireLayers) { foreach (var w in wires.Values) if (w.Shape.StrokeThickness != width) w.Shape.StrokeThickness = width; }
+        else SettleTiles();
         Pump();
         return n;
     }
@@ -453,7 +459,7 @@ public sealed partial class CompositionCanvas
     // ---------------- laying out, reporting and drawing faces ----------------
 
     /// <summary>Nothing waits to be laid out or drawn, and no batch is out.</summary>
-    public bool Idle => !working && needLayout.Count == 0 && needDraw.Count == 0;
+    public bool Idle => !working && needLayout.Count == 0 && needDraw.Count == 0 && !tileWorking && (WireLayers || dirtyTiles.Count == 0);
 
     /// <summary>Every face the model has is laid out at its current `rev` (and so reported).</summary>
     public bool AllMeasured => Model.Faces.Order.All(n => faces.TryGetValue(n, out var e) && e.LaidRev == e.Face.Rev);
@@ -910,6 +916,12 @@ public sealed partial class CompositionCanvas
     /// wire drawn through a net.</summary>
     void PathWire(Wire w)
     {
+        Counts.WiresPathed++;
+        if (!WireLayers)
+        {
+            TileWire(w);
+            return;
+        }
         if (!wires.TryGetValue(w.Nid, out var e))
         {
             var shape = compositor.CreateSpriteShape();
@@ -921,7 +933,6 @@ public sealed partial class CompositionCanvas
             e = new WireEntry(v, shape);
             wires[w.Nid] = e;
         }
-        Counts.WiresPathed++;
         e.Shape.StrokeBrush = Brush(Colors.Of(w.Paint));
         e.Shape.StrokeThickness = WireWidth;
         if (w.KindWord == WireWord.Net || w.Path.Count < 4)

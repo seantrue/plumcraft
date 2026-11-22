@@ -39,5 +39,11 @@
   </PropertyGroup>
   <ItemGroup>
     <None Include="$(PlumFfiDir)\plumcraft_ffi.dll" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft_ffi.dll')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft_ffi.dll" />
+    <!-- the engines a person can host as a separate process (Engine › Text › process), beside the app where
+         the core looks for them (engine_binary), as the Mac app bundles them; built with the core
+         (cargo build -p plumcraft-text -p plumcraft-array for the same target). Without them those hostings
+         are offered and never connect (B91). -->
+    <None Include="$(PlumFfiDir)\plumcraft-text-engine.exe" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft-text-engine.exe')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft-text-engine.exe" />
+    <None Include="$(PlumFfiDir)\plumcraft-array-engine.exe" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft-array-engine.exe')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft-array-engine.exe" />
   </ItemGroup>
 </Project>

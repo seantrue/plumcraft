@@ -76,13 +76,24 @@ public sealed partial class CompositionCanvas
         moving.Clear();
         moveOffset = Vector2.Zero;
         foreach (var n in ns) if (faces.TryGetValue(n, out var e)) PlaceFace(e);
-        foreach (var w in movedWires) if (Model.Wires[w]?.Item is { } wire) PathWire(wire);
+        var moved = movedWires.ToList();
         movedWires.Clear();
+        foreach (var w in moved) if (Model.Wires[w]?.Item is { } wire) PathWire(wire);
+        PumpTiles();
     }
 
     /// <summary>A wire's visual drawn along `path` (graph units) for now; false for a wire not shown.</summary>
     bool ShowPath(ulong nid, List<Point> path)
     {
+        if (!WireLayers)
+        {
+            if (!wireGeoms.ContainsKey(nid) || path.Count < 4) return false;
+            var first = movedWires.Add(nid);
+            UpdateLive(nid, path);
+            if (hoverWire == nid) ShowHoverWire();
+            if (first) PumpTiles();
+            return true;
+        }
         if (!wires.TryGetValue(nid, out var e) || path.Count < 4) return false;
         var b = FaceRenderer.Bounds(path);
         var origin = new Vector2((float)b.X - 6, (float)b.Y - 6);
@@ -121,6 +132,16 @@ public sealed partial class CompositionCanvas
     /// <summary>Hide the wire whose end is picked up while it is dragged; null shows it again.</summary>
     public void PickUp(ulong? wire)
     {
+        if (!WireLayers)
+        {
+            var before = pickedWire;
+            pickedWire = wire;
+            if (before is { } o2 && o2 != wire) UpdateLive(o2, null);
+            if (wire is { } n2) UpdateLive(n2, null);
+            ShowHoverWire();
+            PumpTiles();
+            return;
+        }
         if (pickedWire is { } old && wires.TryGetValue(old, out var o) && !o.Bounds.IsEmpty) o.Visual.IsVisible = true;
         pickedWire = wire;
         if (wire is { } n && wires.TryGetValue(n, out var w)) w.Visual.IsVisible = false;

@@ -38,6 +38,8 @@ public sealed class Options
     public string? Bench;
     /// <summary>N5 slice 4: the panels' and viewers' bench instead of the canvas's (Bench.Panels.cs).</summary>
     public bool BenchPanels;
+    /// <summary>The old wire drawing, a visual per wire, for the bench (`--wire-layers`).</summary>
+    public bool WireLayers;
     public bool Exit;
     public double PhaseSeconds = 4;
     public List<string> Then = [];
@@ -73,6 +75,7 @@ public sealed class Options
                 case "--bench": o.Bench = Next(); break;
                 case "--exit": o.Exit = true; break;
                 case "--bench-panels": o.BenchPanels = true; break;
+                case "--wire-layers": o.WireLayers = true; break;
                 case "--phase-seconds": o.PhaseSeconds = double.TryParse(Next(), NumberStyles.Float, CultureInfo.InvariantCulture, out var ps) ? ps : 4; break;
                 case "--then": o.Then = [.. Next().Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)]; break;
                 default:
