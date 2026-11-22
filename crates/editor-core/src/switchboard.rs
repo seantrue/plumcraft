@@ -899,4 +899,39 @@ mod tests {
         assert!(d.board().begin().is_none(), "nothing more asked");
         worker.retire(d.switching.take_retired());
     }
+
+    /// B72: switching to an engine a manifest names, whose program exits at once (here as a
+    /// Python engine run from the wrong folder does), fails the switch at once in both hostings,
+    /// with its exit status and the end of its stderr; as a process it waited out its 60 s.
+    /// The program runs in the manifest's own folder (`cwd = "."`, spec 16.6), not this one.
+    #[test]
+    fn an_engine_that_exits_at_once_fails_the_switch_at_once_saying_why() {
+        let root = plumcraft_scratch::dir("b72-switch");
+        let project = std::fs::canonicalize(&root).unwrap().join("project");
+        std::fs::create_dir_all(&project).unwrap();
+        let command = if cfg!(windows) {
+            r#"["cmd", "/C", "cd 1>&2 & echo No module named opencv_engine 1>&2 & exit 1"]"#
+        } else {
+            r#"["/bin/sh", "-c", "pwd -P >&2; echo 'No module named opencv_engine' >&2; exit 1"]"#
+        };
+        std::fs::write(project.join("gone.toml"), format!("id = \"gone\"\nmode = \"process\"\ncommand = {command}\ncwd = \".\"\n")).unwrap();
+        assert_eq!(crate::engines::load_manifests(&[project.join("gone.toml")], None), Vec::<String>::new());
+        let launcher = Launcher::default();
+        let limit = if cfg!(windows) { std::time::Duration::from_secs(8) } else { std::time::Duration::from_secs(3) };
+        for mode in ["process", "http"] {
+            let mut d = Doc::default();
+            d.session.engines.choices = choices();
+            let t = std::time::Instant::now();
+            let (r, _) = d.command("engine.switch", json!({"engine": "gone", "mode": mode}), &launcher);
+            let took = t.elapsed();
+            let e = r.unwrap_err();
+            eprintln!("{mode} failed in {took:?}: {e}");
+            assert!(took < limit, "{mode}: {took:?}: {e}");
+            let before = if mode == "process" { "exited before connecting" } else { "exited before listening" };
+            assert!(e.contains(before) && e.contains("exit 1"), "{mode}: {e}");
+            assert!(e.contains("No module named opencv_engine"), "{mode}: its stderr: {e}");
+            assert!(e.contains(&project.display().to_string()), "{mode}: it ran in the manifest's folder: {e}");
+            assert!(d.link.is_none() && d.last_error.as_deref() == Some(e.as_str()));
+        }
+    }
 }

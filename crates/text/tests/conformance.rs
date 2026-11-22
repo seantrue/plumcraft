@@ -341,8 +341,11 @@ fn memo_reuses_unchanged_nodes(mk: fn() -> Conn) {
         if !memo.is_empty() {
             extra["memo"] = json!(memo);
         }
-        run(&h, id, generation, graph, extra);
+        // B38: timed from before the run is sent. The engine starts the graph before its
+        // acceptance reaches here, so timing from the acceptance took a slow one's lateness (a
+        // busy host) off the slow node's 300 ms.
         let t = Instant::now();
+        run(&h, id, generation, graph, extra);
         let (events, reply) = collect(&h, id, 0);
         (events, reply, t.elapsed())
     };
@@ -872,28 +875,36 @@ fn mode3_a_wrong_token_is_refused() {
 /// An engine that dies at once is reported down with its stderr, not hung on.
 #[test]
 fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
+    let starts = plumcraft_scratch::dir("b72-starts").join("starts");
     let m = Manifest {
         name: "broken".into(),
         command: if cfg!(windows) {
             vec!["cmd".into(), "/C".into(), "echo no models found 1>&2 & exit 3".into()]
         } else {
-            vec!["/bin/sh".into(), "-c".into(), "echo 'no models found' >&2; exit 3".into()]
+            vec!["/bin/sh".into(), "-c".into(), format!("echo start >> '{}'; echo 'no models found' >&2; exit 3", starts.display())]
         },
         env: Vec::new(),
         hint: "install the models".into(),
         store: None,
         cwd: None,
     };
-    let h = ProcessHost::start(m).unwrap();
     let t = Instant::now();
-    // Five starts and 1.5 s of backoff before the host gives up: under 3 s here, but a process
-    // start costs more on Windows.
-    let wait = if cfg!(windows) { Duration::from_secs(10) } else { Duration::from_secs(3) };
-    let state = h.wait_ready(wait);
-    assert!(t.elapsed() <= wait + Duration::from_secs(1));
-    assert!(!matches!(state, EngineState::Connected { .. }));
+    let h = ProcessHost::start(m).unwrap();
+    // B72: it exited before it ever connected, so the host gives up at once, with its last
+    // words, rather than restart it (and nobody waits out the wait given).
+    let why = h.wait_started(Duration::from_secs(60)).unwrap_err();
+    let limit = if cfg!(windows) { Duration::from_secs(5) } else { Duration::from_secs(2) };
+    assert!(t.elapsed() < limit, "{:?}", t.elapsed());
+    assert!(why.contains("exited before connecting") && why.contains("exit 3") && why.contains("no models found"), "{why}");
+    assert!(!matches!(h.wait_ready(Duration::from_secs(60)), EngineState::Connected { .. }));
+    assert!(t.elapsed() < limit, "wait_ready doesn't wait for an engine given up on: {:?}", t.elapsed());
+    // started once, never again (a restart would come after 100 ms)
+    std::thread::sleep(Duration::from_millis(500));
+    if !cfg!(windows) {
+        assert_eq!(std::fs::read_to_string(&starts).unwrap_or_default().lines().count(), 1, "it was started again");
+    }
     let EngineState::EngineDown { reason, stderr_tail, hint, .. } = h.state() else { panic!("{:?}", h.state()) };
-    assert!(reason.contains("exit 3"), "{reason}");
+    assert_eq!(reason, why);
     assert!(stderr_tail.unwrap_or_default().contains("no models found"));
     assert_eq!(hint, "install the models");
     assert!(h.call("schema", json!({})).is_err(), "calls fail at once while the engine is down");

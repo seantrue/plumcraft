@@ -130,7 +130,7 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
         }
         Mode::Socket { python } => {
             let host = ProcessHost::start(manifest(*python)?).map_err(|e| e.to_string())?;
-            match host.wait_ready(Duration::from_secs(10)) {
+            match host.wait_started(Duration::from_secs(10))? {
                 EngineState::Connected { .. } => {
                     eprintln!("({} engine process {} on a Unix socket)", lang(*python), host.pid().unwrap_or(0));
                     Ok(Box::new(host))
@@ -161,7 +161,7 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
                 let name = m.name.clone();
                 let host = ProcessHost::start(m).map_err(|e| e.to_string())?;
                 // uv may have an environment to build first
-                match host.wait_ready(Duration::from_secs(60)) {
+                match host.wait_started(Duration::from_secs(60))? {
                     EngineState::Connected { .. } => {
                         eprintln!("({name}, process {} on a Unix socket)", host.pid().unwrap_or(0));
                         Ok(Box::new(host))

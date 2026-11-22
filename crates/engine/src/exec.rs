@@ -446,9 +446,9 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
         let mut work_ms = 0.0;
         let result = resolved.and_then(|(inputs, _)| {
             let mut forward = |rec: StatusRecord| r.record(rec);
-            let t1 = Instant::now();
+            let t1 = engine.clock().now();
             let out = call(node, &def, id, &inputs, cancel, &mut forward, &mut setup).map(|o| name_lists(id, o));
-            work_ms = t1.elapsed().saturating_sub(setup).as_secs_f64() * 1000.0;
+            work_ms = engine.clock().now().saturating_sub(t1).saturating_sub(setup).as_secs_f64() * 1000.0;
             out
         });
         let ms = t0.elapsed().as_secs_f64() * 1000.0;

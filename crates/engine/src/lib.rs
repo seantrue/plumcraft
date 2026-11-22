@@ -12,6 +12,7 @@
 
 pub mod arrays;
 pub mod bind;
+pub mod clock;
 pub mod color;
 pub mod data;
 pub mod exec;
@@ -426,6 +427,8 @@ pub struct Engine {
     limits: Limits,
     work_root: Option<std::path::PathBuf>,
     persist_ms: Option<f64>,
+    /// What a node's own work is measured on (the real clock unless a test gives one).
+    clock: std::sync::Arc<dyn clock::Clock>,
     core: Option<CoreFactory>,
     catalogue: Option<SchemaReply>,
     pack_ops: BTreeMap<String, PackOp>,
@@ -469,6 +472,7 @@ impl Engine {
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
+            clock: std::sync::Arc::new(clock::RealClock::default()),
             core: None,
             catalogue: None,
             pack_ops: BTreeMap::new(),
@@ -517,6 +521,17 @@ impl Engine {
 
     pub fn persist_ms(&self) -> Option<f64> {
         self.persist_ms
+    }
+
+    /// Measure nodes' work on `clock` instead of the real one (tests: [`clock::VirtualClock`]).
+    pub fn with_clock(mut self, clock: std::sync::Arc<dyn clock::Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// The clock nodes' work is measured on.
+    pub fn clock(&self) -> &dyn clock::Clock {
+        self.clock.as_ref()
     }
 
     /// Declare a work root (spec 4.4): `path` locators under it are the engine's own files,

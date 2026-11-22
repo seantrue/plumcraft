@@ -25,32 +25,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `native/apple/PlumCraftPad/bench.sh`, `trace-wires` and `trace-device`.
 - Issue: none
 
-### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
-
-- Reported: 2026-11-21
-- Report: found by the controller checking B71: `engine.switch` to an engine whose program exits immediately (its Python module is not installed) got no reply for 30 s as a process; over HTTP the same engine failed in 0.2 s with "the engine exited before listening".
-- Context: `crates/editor-core`, the process start of an engine a manifest names.
-- Issue: none
-
-### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
-
-- Reported: 2026-11-20
-- Report: "record bugs"
-- Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
-- Seen again: 2026-11-20, in the full run for N3 slice 2 with nothing else building. It fails at `crates/engine/tests/persist.rs:166`, the "too big" case: a 60 ms node that makes 32 MB was persisted, where the test expects it not to be worth it. Passed 40 of 40 alone. The test's own comment says the margin is a matter of timing.
-- Seen again: 2026-11-20, on the Mac in N4 slice 2's gate, in the Python suite's test of the same name (`python/tests/test_persist.py`) while cargo was running in parallel. Passed 10 of 10 alone.
-- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run (the Rust test), together with B38. Both passed 10 of 10 alone afterwards.
-- Note: 2026-11-21, B49 found the Python test's cause: the work is measured on the wall clock, and allocating the big array can stall for over 150 ms while the kernel compacts memory, which makes a 60 ms node look worth persisting. The Rust test probably fails the same way; it has no virtual clock to pin the work, so its fix needs an injectable clock in the Rust executor or a much bigger margin. Not checked.
-- Issue: none
-
-### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
-
-- Reported: 2026-11-20
-- Report: "record bugs"
-- Context: `plumcraft-text::conformance mode2_process`, `crates/text/tests/conformance.rs:390`, "off really runs the slow node". Failed once in a full parallel run while three other builds were running on the host. Not looked into.
-- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run, together with B37. Passed 10 of 10 alone afterwards.
-- Issue: none
-
 ### B39. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -102,6 +76,43 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
+
+- Reported: 2026-11-21
+- Report: found by the controller checking B71: `engine.switch` to an engine whose program exits immediately (its Python module is not installed) got no reply for 30 s as a process; over HTTP the same engine failed in 0.2 s with "the engine exited before listening".
+- Context: `crates/editor-core`, the process start of an engine a manifest names.
+- Cause: the process host (`crates/host/src/process.rs`) saw the child exit before it connected within milliseconds, but treated it as a crash: it said `engine_down` and restarted it, five times in about 3 s, then stopped. `ProcessHost::wait_ready` kept waiting while the engine was down whether or not anything would restart it, so the editor core's start (`connect_external`, and `start` for the built-in engines' process mode) waited out its whole limit (60 s for a manifest's engine, uv may build an environment first; 10 s for the text and audio binaries), longer than the control channel's 30 s, and then made a link to a dead engine: the switch "worked". The child's stderr was kept, but on its own thread with nothing waiting for its last lines. Over HTTP the host already failed at once, but its stderr was inherited, so the reason had no last words.
+- Fix: 2026-11-21, branch `fix/b72-b37-b38`. An engine that exits (or can't be started) before it has ever connected is not restarted: the host gives up at once, with a reason that says how it exited and ends with the last five lines of its stderr (after waiting up to 1 s for the pipe to close), and `ProcessHost::wait_started` returns that reason as an error. `wait_ready` no longer waits for an engine supervision has given up on (this one, or one that crashed five times in a minute). `hello`, `session.confirm` and `schema` during a start give up as soon as the child exits, not after 10 s. One the host stops for not connecting within 10 s is restarted as before. The editor core's starts (a manifest's engine, the built-in engines and packs in process mode) and the CLI use `wait_started`, so `engine.switch` fails with the reason. An HTTP engine's stderr is now copied through as before and its end kept, so its "exited before listening" carries the same last words. `docs/interface.md` 16.3 says so.
+- The folder question: `docs/interface.md` 16.6 already says `cwd` is relative to the manifest's real folder (a link is followed back to the project), and `plumcraft_host::manifest::load` does that, so it is not a second bug. The installed OpenCV manifest (a link into its project) started fine from a folder that wasn't its project, as a process and over HTTP; a copy of it in another folder gave exactly the report's "No module named opencv_engine", in both hostings (`claude-debug/b72/opencv_cwd.sh`). The report's manifest was very likely a copy, not the link. `--project .` is uv's own argument and resolves against that `cwd`.
+- Verified: new tests, a manifest in a scratch folder whose command prints its folder and "No module named opencv_engine" to stderr and exits 1: `engine.switch` as a process failed in 10 ms and over HTTP in 26 ms, each with the exit status, the last words and the manifest's folder (`switchboard::tests::an_engine_that_exits_at_once_fails_the_switch_at_once_saying_why`). The same test against the old code waited 60 s and then the switch succeeded with a dead engine. A text or audio engine binary that exits at once fails the start within 3 s in both hostings (`engines::tests::a_built_in_engine_binary_that_exits_at_once_fails_the_start_at_once`). `mode2_an_engine_that_cannot_start_is_down_not_hung` now asserts the reason, that the start fails within 2 s and that the program was started once. On the Linux test host all of these passed 60 of 60 (30 quiet, 30 under load). Not checked on Windows (its variant of the switch test uses `cmd`).
+- Fixed: 2026-11-21
+- Issue: none
+
+### B37. `fast_never_session_too_big_and_setup_bound_results_are_not_persisted` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-engine::persist`. Failed once in a full parallel run while three other builds were running on the host; the message was not captured. Passed 3 of 3 alone. Not looked into.
+- Seen again: 2026-11-20, in the full run for N3 slice 2 with nothing else building. It fails at `crates/engine/tests/persist.rs:166`, the "too big" case: a 60 ms node that makes 32 MB was persisted, where the test expects it not to be worth it. Passed 40 of 40 alone. The test's own comment says the margin is a matter of timing.
+- Seen again: 2026-11-20, on the Mac in N4 slice 2's gate, in the Python suite's test of the same name (`python/tests/test_persist.py`) while cargo was running in parallel. Passed 10 of 10 alone.
+- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run (the Rust test), together with B38. Both passed 10 of 10 alone afterwards.
+- Note: 2026-11-21, B49 found the Python test's cause: the work is measured on the wall clock, and allocating the big array can stall for over 150 ms while the kernel compacts memory, which makes a 60 ms node look worth persisting. The Rust test probably fails the same way; it has no virtual clock to pin the work, so its fix needs an injectable clock in the Rust executor or a much bigger margin. Not checked.
+- Cause: as B49's. The test measures a node's work on the wall clock, and the "too big" case (about 32.18 MB of outputs, worth persisting after 321.8 ms of work) gave the rule 262 ms of room over a 60 ms node; when allocating the 32 MB array stalls past that on a busy host, the 60 ms node rightly looks worth persisting. Not reproduced on the Linux test host by load alone: under B49's load (32 niced spinners and 6 memory churners, load average 30 to 43, about 220,000 compaction stalls system-wide over the runs) the old test passed 30 of 30, and 30 of 30 quiet. The host's transparent huge pages are `madvise` only and Rust's 32 MB `malloc` never asks for them, so the stall that hit numpy doesn't hit this allocation in the same way; what stalled it in the full gate runs (the gate's own builds and 1,500 tests in parallel) wasn't captured. The rule stays as it is (the maintainer: "Leave the rule").
+- Fix: 2026-11-21, branch `fix/b72-b37-b38`, the smallest SDK change: `plumcraft_engine::clock` (a `Clock` trait, `now` and `sleep`; `RealClock`, the default; `VirtualClock` for tests) and `Engine::with_clock`; the executor measures a node's work on the engine's clock. No behaviour change in production. The persist tests' node sleeps on the clock it is given, and the not-persisted cases run on a virtual clock, on which a node's work is exactly the time it sleeps. A new test, `too_big_is_weighed_against_the_work_measured`, pins the rule either side of its limit: 32.18 MB after 300 ms of work is not persisted, after 345 ms it is, and a node that sleeps no time on a virtual clock did no work, whatever its allocation took.
+- Verified: on the Linux test host with a preloaded shim that makes every `malloc` of 16 MB or more wait 300 ms (`claude-debug/b72/stall.c`, `linux_stall.sh`): the old test failed 30 of 30, every time at `persist.rs:166` ("too big"), and the new file passed 30 of 30. Without the shim, old and new both passed 30 of 30 quiet and 30 of 30 under the load above. On the Mac, the engine crate's 72 tests and the full gate.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B38. `memo_reuses_unchanged_nodes` failed once on the Linux test host
+
+- Reported: 2026-11-20
+- Report: "record bugs"
+- Context: `plumcraft-text::conformance mode2_process`, `crates/text/tests/conformance.rs:390`, "off really runs the slow node". Failed once in a full parallel run while three other builds were running on the host. Not looked into.
+- Seen again: 2026-11-20, on the Linux test host in N4 slice 2's full run, together with B37. Passed 10 of 10 alone afterwards.
+- Cause: a timing race in the test, not a persist decision and not the process engine. The case ends by running the graph with `memo: off` and asserting that it took at least 300 ms, the slow node's sleep. Its stopwatch started after `run` returned, that is after the engine's acceptance had come back, but the engine starts the graph before that acceptance reaches the test. Any lateness in the acceptance (a busy host, where the reply waits for a thread to be scheduled) was taken off the 300 ms, so a run that really slept 300 ms could measure less. Every assertion before it (the states, the plan keys) had passed: the node did run.
+- Fix: 2026-11-21, branch `fix/b72-b37-b38`: the stopwatch starts before the run is sent, so a reply can't come back sooner than the slow node's own 300 ms. No retry, no wider margin.
+- Verified: on the Mac, with a 60 ms sleep put between the acceptance and the stopwatch (a late acceptance), the old timing failed in all six hostings (in-process, coordinated, process, Python process, HTTP, Python HTTP) at exactly "off really runs the slow node", and the new timing passed in all six with the same sleep. Not reproduced naturally: on the Linux test host the old test passed 30 of 30 quiet and 30 of 30 under load, as did the new. What would settle it further: a failure of the new test, which would mean the slow node returned early.
+- Fixed: 2026-11-21
 ### B53. The C# conformance runner passed a `holds` step on its first reply alone
 
 - Reported: 2026-11-21

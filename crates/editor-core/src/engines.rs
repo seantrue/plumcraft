@@ -759,7 +759,8 @@ pub fn start(kind: EngineKind, mode: Mode, waker: Option<Waker>, bin: Option<Pat
         Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?)
     } else if let Some(m) = manifest {
         let h = ProcessHost::start(m).map_err(|e| e.to_string())?;
-        h.wait_ready(kind.ready_wait());
+        // an engine that exits before it connects fails the start now, saying why (B72)
+        h.wait_started(kind.ready_wait())?;
         Arc::new(h)
     } else {
         // without a root given, the engine keeps its own (the shared default)
@@ -787,7 +788,7 @@ fn connect_external(e: &External, mode: Mode, wait: Duration, waker: Option<Wake
         }
         (Start::Command(m), _) => {
             let h = ProcessHost::start(with_store(m)).map_err(|e| e.to_string())?;
-            h.wait_ready(wait);
+            h.wait_started(wait)?;
             (Arc::new(h), "mode 2 · process")
         }
     };
@@ -883,6 +884,27 @@ mod tests {
         let ok = offers.iter().filter(|o| o.why_not.is_none()).map(id).collect();
         let refused = offers.iter().filter_map(|o| o.why_not.clone().map(|w| (id(o), w))).collect();
         (ok, refused)
+    }
+
+    /// B72, for the built-in engines: a text or audio engine binary that exits at once fails
+    /// the start at once as a process, with its stderr, as over HTTP.
+    #[cfg(unix)]
+    #[test]
+    fn a_built_in_engine_binary_that_exits_at_once_fails_the_start_at_once() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = plumcraft_scratch::dir("b72-builtin");
+        let bin = dir.join("broken-engine");
+        std::fs::write(&bin, "#!/bin/sh\necho 'cannot load the library' >&2\nexit 2\n").unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        for kind in [EngineKind::Text, EngineKind::Audio] {
+            let launcher = Launcher { binaries: vec![(kind, bin.clone())], ..Default::default() };
+            for (mode, before) in [(Mode::Rust, "exited before connecting"), (Mode::HttpRust, "exited before listening")] {
+                let t = std::time::Instant::now();
+                let e = launcher.connect_core(kind, mode, None).err().unwrap_or_default();
+                assert!(t.elapsed() < Duration::from_secs(3), "{kind:?} {mode:?}: {:?}", t.elapsed());
+                assert!(e.contains(before) && e.contains("exit 2") && e.contains("cannot load the library"), "{kind:?} {mode:?}: {e}");
+            }
+        }
     }
 
     #[test]
