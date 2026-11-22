@@ -107,6 +107,17 @@ cwd = "."
 EOF
 printf '#!/bin/sh\nexec "%s"\n' "$scratch/bin/person-text-engine" >"$scratch/engines/uv"
 chmod 755 "$scratch/engines/uv"
+# F19: the test engine (crates/ports; never in the app), installed as a process from its program
+# copied into scratch, for Save Result on its result node (cargo build --release -p plumcraft-ports)
+ports_src="${PORTS_BIN:-${CARGO_TARGET_DIR:-$root/target}/release/plumcraft-ports-engine}"
+person_ports=""
+if [ -x "$ports_src" ]; then
+  cp "$ports_src" "$scratch/bin/plumcraft-ports-engine"
+  printf 'id = "ports"\nname = "Ports (test engine)"\nmode = "process"\ncommand = ["%s"]\n' "$scratch/bin/plumcraft-ports-engine" >"$scratch/engines/ports.toml"
+  person_ports=1
+else
+  echo "no test engine program at $ports_src: the Save Result step is left out"
+fi
 # B87: a manifest the core can't read (its id has a hyphen), which must be said, not skipped
 cat >"$scratch/engines/broken.toml" <<EOF
 id = "person-broken"
@@ -165,7 +176,7 @@ pid=$!
 echo "PERSON launched $app (pid $pid) with nothing to open, in a bare environment, on scratch $scratch"
 
 set +e
-timeout 600 python3 "$here/person-check.py" --pid "$pid" --status "$status" --inbox "$scratch/inbox" --token "$scratch/token" \
+PERSON_PORTS="$person_ports" timeout 600 python3 "$here/person-check.py" --pid "$pid" --status "$status" --inbox "$scratch/inbox" --token "$scratch/token" \
   --ax "$ax" --scratch "$scratch" --shots "$shots" --engine-label "$label" --engine-bin "$scratch/bin/person-text-engine"
 py=$?
 [ "$py" -eq 0 ] || code=1

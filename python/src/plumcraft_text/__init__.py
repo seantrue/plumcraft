@@ -125,6 +125,21 @@ class TextEngine(Engine):
             time.sleep(0.01)
         return text
 
+    # Passes text through once the file `open` names exists (none named: at once), saying it is
+    # waiting, stopping on cancel, giving up after `timeout` seconds: a node that waits for a
+    # signal rather than a time (the person check's F29 and F36).
+    @node("Gate", category=("Text", "Testing"))
+    def gate(self, text: Text, open: str = "", timeout: Annotated[float, Range(0, 600, invalid="clamp")] = 60.0, *, cx: Cx) -> Text:
+        start = time.monotonic()
+        while open and not os.path.exists(open):
+            if cx.cancelled():
+                raise NodeError.cancelled()
+            if time.monotonic() - start > timeout:
+                raise OpError(f"the gate's file never came: {open}")
+            cx.progress(0.0, "waiting")
+            time.sleep(0.02)
+        return text
+
     # Every kind of widget a face can hold, for the editors' inline-edit tests (N4 slice 2): a
     # text, a whole and a fractional number with their ranges, a switch, a choice, several
     # choices, several lines and a colour. It says what it was given, one line a setting.

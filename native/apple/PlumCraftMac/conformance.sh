@@ -125,8 +125,10 @@ done
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
 echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
+# `saves`: the app writes each case's `$scratch` folder (Save Result's files), made under scratch
+mkdir -p "$scratch/cases"
 timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --engine audio ${ports_has[@]+"${ports_has[@]}"} --has manifests --has copied_manifest --has install \
-  --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
+  --has saves --scratch "$scratch/cases" --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?
 set -e
 quit

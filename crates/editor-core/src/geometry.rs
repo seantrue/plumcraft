@@ -577,6 +577,26 @@ struct SFace {
     rows: Vec<Option<Rect>>,
     /// Header parts, absolute.
     parts: Vec<(u32, i32, Rect)>,
+    /// What a tap on each footer item does, in the footer's order (the shell's `parts.footer[]`).
+    footer: Vec<FooterTap>,
+}
+
+/// What a tap on a face's footer item does (a core gesture, the same in every shell): Save
+/// Result… saves (and Contact Sheet…, on the line's right half, when offered); any other line
+/// watches the node, as before.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FooterTap {
+    Watch,
+    Save { port: String, sheet: bool },
+}
+
+impl FooterTap {
+    fn of(f: &crate::scene::Footer) -> FooterTap {
+        match f {
+            crate::scene::Footer::Save { port, sheet } => FooterTap::Save { port: port.clone(), sheet: *sheet },
+            _ => FooterTap::Watch,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -810,7 +830,8 @@ impl Snapshot {
                     r.widget.as_ref().map(|w| RowWidget { node: r.node.clone(), key: r.key.clone(), editable: crate::inline::editable(r), widget: w.clone() })
                 })
                 .collect();
-            faces.push(SFace { nid: f.nid, id: f.id.clone(), pos: f.pos, widgets, rect, header, inputs, outputs, rows, parts });
+            let footer = f.footer.iter().map(FooterTap::of).collect();
+            faces.push(SFace { nid: f.nid, id: f.id.clone(), pos: f.pos, widgets, rect, header, inputs, outputs, rows, parts, footer });
         }
         let face_at: HashMap<u64, usize> = faces.iter().enumerate().map(|(k, f)| (f.nid, k)).collect();
         let face_id: HashMap<String, usize> = faces.iter().enumerate().map(|(k, f)| (f.id.clone(), k)).collect();
@@ -1344,6 +1365,22 @@ impl Snapshot {
         self.face_by_nid(nid)?.parts.iter().find(|(c, _, _)| *c == code).map(|(_, _, r)| *r)
     }
 
+    /// What a tap on footer item `index` of face `nid` does, and that item's rect when the shell
+    /// measured it (absolute).
+    pub fn footer_tap(&self, nid: u64, index: i32) -> Option<(&FooterTap, Option<Rect>)> {
+        let f = self.face_by_nid(nid)?;
+        let t = f.footer.get(usize::try_from(index).ok()?)?;
+        let r = f.parts.iter().find(|(c, k, _)| *c == part::FOOTER && *k == index).map(|(_, _, r)| *r);
+        Some((t, r))
+    }
+
+    /// The rect of face `nid`'s Save Result… footer line, when it has one the shell measured.
+    pub fn save_footer_rect(&self, nid: u64) -> Option<Rect> {
+        let f = self.face_by_nid(nid)?;
+        let k = i32::try_from(f.footer.iter().position(|t| matches!(t, FooterTap::Save { .. }))?).ok()?;
+        f.parts.iter().find(|(c, i, _)| *c == part::FOOTER && *i == k).map(|(_, _, r)| *r)
+    }
+
     /// Row `row`'s widget on face `nid`, when it has one.
     pub fn row_widget(&self, nid: u64, row: i32) -> Option<&RowWidget> {
         let f = self.face_by_nid(nid)?;
@@ -1593,6 +1630,12 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
                         .map_or(Point::new(cx, y), |x| Point::new(x, y))
                 }
                 ("body", _) => Point::new(r.center().x, r.min.y + header + (r.height() - header) / 2.0),
+                // the footer's Save Result… line, on its left quarter (Contact Sheet…, when
+                // offered, is the right half): where the shell measured it
+                ("save", _) => snap
+                    .save_footer_rect(nid)
+                    .map(|f| Point::new(f.min.x + f.width() / 4.0, f.center().y))
+                    .ok_or_else(|| format!("face {} has no Save Result… line measured", crate::selection::shown_id(id)))?,
                 (other, _) => match PART_NAMES.iter().find(|(n, _)| *n == other) {
                     Some((_, code)) => snap
                         .part_rect(nid, *code)
@@ -1600,7 +1643,7 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
                         .ok_or_else(|| format!("face {} has no {other} measured", crate::selection::shown_id(id)))?,
                     None => {
                         return Err(format!(
-                            "part {:?}: center, header, body, or a part the shell measured (title, chevron, icon, menu, enter, preview)",
+                            "part {:?}: center, header, body, save, or a part the shell measured (title, chevron, icon, menu, enter, preview)",
                             other.chars().take(32).collect::<String>()
                         ));
                     }

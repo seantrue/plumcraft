@@ -495,7 +495,7 @@ public final class LayerCanvas {
                 reported = (try? core.geometrySet(doc: doc, faces: measured)) != nil
                 // the header's parts (the more-button, the title, the icon) after it, which the
                 // typed call can't carry (N4 slice 2)
-                let parts = zip(jobs, done).compactMap { j, d in j.relayout ? (id: j.face.id, parts: d.layout.parts) : nil }
+                let parts = zip(jobs, done).compactMap { j, d in j.relayout ? (id: j.face.id, parts: d.layout.parts, footer: d.layout.footerRects) : nil }
                 await CanvasLink.reportParts(core: core, doc: rdoc, faces: parts)
             }
             await self?.finish(done, laid: jobs.filter(\.relayout).count, reported: reported ? 1 : 0)

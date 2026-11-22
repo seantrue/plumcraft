@@ -625,6 +625,40 @@
    }
   },
   {
+   "id": "text.gate",
+   "display": "Gate",
+   "category": [
+    "Text",
+    "Testing"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "open",
+     "type": "STRING",
+     "default": ""
+    },
+    {
+     "name": "timeout",
+     "type": "FLOAT",
+     "default": 60.0,
+     "min": 0.0,
+     "max": 600.0
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
    "id": "text.join",
    "display": "Join",
    "category": [

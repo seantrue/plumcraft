@@ -84,6 +84,29 @@ public enum AskWords {
         let exts = (params["kinds"].array ?? []).flatMap { $0["extensions"].array ?? [] }.compactMap(\.string)
         return exts.contains("*") ? [] : exts
     }
+
+    /// A file ask's kinds, each a label and its extensions (Save Result…'s formats: "Quoted Text",
+    /// ["quoted"]), without the "any file" kind.
+    public static func kinds(_ params: JSONValue) -> [(label: String, extensions: [String])] {
+        (params["kinds"].array ?? []).compactMap { k in
+            let exts = (k["extensions"].array ?? []).compactMap(\.string).filter { $0 != "*" }
+            guard !exts.isEmpty else { return nil }
+            return (k["label"].string ?? exts[0].uppercased(), exts)
+        }
+    }
+
+    /// Which kind a file name picks: the one its extension is among, else the first.
+    public static func kindIndex(_ kinds: [(label: String, extensions: [String])], name: String) -> Int {
+        let ext = (name as NSString).pathExtension.lowercased()
+        return kinds.firstIndex { $0.extensions.map { $0.lowercased() }.contains(ext) } ?? 0
+    }
+
+    /// `name` with its extension made the kind's first (a name without one gets it).
+    public static func renamed(_ name: String, to kind: (label: String, extensions: [String])) -> String {
+        guard let ext = kind.extensions.first else { return name }
+        let stem = (name as NSString).deletingPathExtension
+        return (stem.isEmpty ? name : stem) + "." + ext
+    }
 }
 
 /// A watched value as text, the same on every Apple viewer.

@@ -69,6 +69,10 @@ public struct FaceLayout: Sendable, Equatable {
     /// Where the preview's picture goes.
     public var preview: CGRect?
     public var footer: [FooterPlan]
+    /// Each footer item's rect in the scene's order (face coordinates; nil for one not drawn),
+    /// reported as `parts.footer` so the core hit-tests a tap on a line (the Save Result… line's
+    /// tap is the core's save, B122).
+    public var footerParts: [CGRect?] = []
     // the header's pieces
     public var chevron: CGPoint?
     public var spot: CGRect
@@ -103,6 +107,11 @@ public struct FaceLayout: Sendable, Equatable {
         if let e = enter { out["enter"] = r(e.insetBy(dx: -2, dy: -2)) }
         if let p = preview { out["preview"] = r(p) }
         return out
+    }
+
+    /// The footer's items as `parts.footer` (scene order; nil where one isn't drawn).
+    public var footerRects: [Rect?] {
+        footerParts.map { $0.map { Rect(Double($0.minX), Double($0.minY), Double($0.maxX), Double($0.maxY)) } }
     }
 
     /// What `plum_geometry_set` takes for this face.
@@ -230,6 +239,7 @@ extension FaceLayout {
         }
 
         var footer: [FooterPlan] = []
+        var footerParts: [CGRect?] = []
         let textW = width - 16
         for item in face.footer {
             var lines: [String] = []
@@ -248,11 +258,14 @@ extension FaceLayout {
                 mono = true
                 lines = Self.wrap(text, fonts.mono, textW, 3)
             case .engineText(let text, _), .appText(let text, _): lines = Self.wrap(text, fonts.small, textW, 2)
-            case .unknown: continue
+            case .unknown:
+                footerParts.append(nil)
+                continue
             }
             let n = CGFloat(lines.count) + (progress != nil ? 0.6 : 0)
             let hgt = max(n, 1) * M.footerLine + 4
             footer.append(FooterPlan(rect: CGRect(x: 8, y: bottom + 2, width: textW, height: hgt), lines: lines, mono: mono, progress: progress))
+            footerParts.append(CGRect(x: 8, y: bottom + 2, width: textW, height: hgt))
             bottom += hgt + 2
         }
 
@@ -289,6 +302,7 @@ extension FaceLayout {
                           badges: badges.map { (text: $0.0, rect: $0.1) }, status: status, engine: engine, enter: enter,
                           icon: icon, more: more)
         made.titleWidth = titleW
+        made.footerParts = collapsed ? [] : footerParts
         return made
     }
 
