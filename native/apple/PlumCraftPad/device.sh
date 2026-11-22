@@ -114,7 +114,7 @@ ui() {
     -derivedDataPath "$pad/build-device/test" -destination "id=$dev" CODE_SIGN_STYLE=Automatic DEVELOPMENT_TEAM="$team" \
     -resultBundlePath "$result" test >"$out/ui-full-$run_id.log" 2>&1
   local code=$?
-  grep -E 'Test Case|error:|TEST (SUCCEEDED|FAILED)' "$out/ui-full-$run_id.log" | tee "$out/ui-$run_id.log"
+  grep -E 'Test Case|error:|^B111: |TEST (SUCCEEDED|FAILED)' "$out/ui-full-$run_id.log" | tee "$out/ui-$run_id.log"
   if locked "$out/ui-full-$run_id.log"; then echo "the iPad is locked: the UI tests didn't run (unlock it; Auto-Lock to Never)"; code=5; fi
   if grep -q 'Authentication canceled' "$out/ui-full-$run_id.log"; then
     echo "UI automation was refused: Settings > Developer > Enable UI Automation on the iPad, then run again"; code=6

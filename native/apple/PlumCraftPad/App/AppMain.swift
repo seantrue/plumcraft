@@ -131,6 +131,60 @@ struct Dirs {
     }
 }
 
+/// B118: the on-screen keyboard (`keyboard`: shown, its frame in the screen) and what holds the
+/// keyboard's focus (`firstResponder`: its type, and a text field's accessibility identifier),
+/// written to the status whenever the keyboard shows, hides or moves.
+@MainActor
+final class KeyboardWatch {
+    static let shared = KeyboardWatch()
+    private var frame: CGRect?
+
+    func start() {
+        let nc = NotificationCenter.default
+        for name in [UIResponder.keyboardDidShowNotification, UIResponder.keyboardDidHideNotification, UIResponder.keyboardDidChangeFrameNotification] {
+            nc.addObserver(forName: name, object: nil, queue: .main) { n in
+                let end = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect
+                let hidden = n.name == UIResponder.keyboardDidHideNotification
+                MainActor.assumeIsolated { KeyboardWatch.shared.note(hidden ? nil : end) }
+            }
+        }
+        note(nil)
+    }
+
+    func note(_ f: CGRect?) {
+        frame = f
+        let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen.bounds }.first ?? .zero
+        // a frame wholly off the bottom of the screen is a keyboard put away
+        let shown = f.map { $0.height > 0 && $0.minY < screen.maxY - 1 } ?? false
+        var k: [String: JSONValue] = ["shown": .bool(shown)]
+        if let f, shown { k["frame"] = .array([.double(f.minX), .double(f.minY), .double(f.width), .double(f.height)]) }
+        StatusFile.shared.set("keyboard", .object(k))
+        StatusFile.shared.set("firstResponder", Self.firstResponder())
+    }
+
+    /// The responder that has the keyboard's focus now: its type, and its identifier if any.
+    static func firstResponder() -> JSONValue {
+        FirstResponder.found = nil
+        UIApplication.shared.sendAction(#selector(UIResponder.plumcraftNoteFirstResponder(_:)), to: nil, from: nil, for: nil)
+        guard let r = FirstResponder.found else { return .null }
+        var o: [String: JSONValue] = ["type": .string(String(describing: type(of: r)))]
+        if let v = r as? UIView, let id = v.accessibilityIdentifier { o["id"] = .string(id) }
+        return .object(o)
+    }
+}
+
+@MainActor
+enum FirstResponder {
+    static weak var found: UIResponder?
+}
+
+extension UIResponder {
+    /// Sent to nil, it reaches the first responder, which notes itself (`KeyboardWatch`).
+    @objc func plumcraftNoteFirstResponder(_ sender: Any?) {
+        MainActor.assumeIsolated { FirstResponder.found = self }
+    }
+}
+
 #if DEBUG
 /// The status as an accessibility element (`--status-element`, debug builds only): a UI test on
 /// a device reads it with `XCUIApplication().descendants(matching: .any)["plumcraft-status"]`,
@@ -139,6 +193,7 @@ struct Dirs {
 /// above every sheet, a point square, untouchable and all but transparent, so a presented sheet
 /// (which hides what is under it from accessibility) never hides it; one per process, in the
 /// first scene. The value is the status file's text, whole.
+
 @MainActor
 final class StatusElement {
     static let shared = StatusElement()
@@ -316,6 +371,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // what is animating now, for scripts and the UI tests (empty when idle; Activity)
         StatusFile.shared.set("animating", .array([]))
         Activity.shared.onChange = { names in StatusFile.shared.set("animating", .array(names.map(JSONValue.string))) }
+        // B118: the on-screen keyboard and what holds the keyboard's focus, for scripts and the
+        // UI tests (a keyboard up with nothing being edited covers half the canvas)
+        KeyboardWatch.shared.start()
         #if DEBUG
         if CoreHost.options.statusElement { StatusElement.shared.start() }
         #endif

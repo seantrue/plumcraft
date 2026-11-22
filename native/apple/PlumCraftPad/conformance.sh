@@ -37,7 +37,7 @@ if [ "$half" = gestures ]; then
   shots="${SHOTS:-$root/claude-debug/native-n3/s5-shots}"; mkdir -p "$shots"
   TEST_RUNNER_PLUMCRAFT_STATUS="$scratch/ui-status.json" TEST_RUNNER_PLUMCRAFT_SHOTS="$shots" \
     timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug -derivedDataPath build \
-    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|TEST (SUCCEEDED|FAILED)'
+    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|^B111: |TEST (SUCCEEDED|FAILED)'
   exit "${PIPESTATUS[0]}"
 fi
 # a build that fails stops here (N4 slice 4: it used to go on, and ran the app installed before)
