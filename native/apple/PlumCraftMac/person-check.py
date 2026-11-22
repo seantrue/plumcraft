@@ -902,16 +902,23 @@ def main():
             val2 = json.dumps(port.call("ui.inspect", {}, doc=doc).get("watched"))[:300]
             say(bool(again and up and "ONCE MORE" in val2), "the installed engine's process killed: started again, runs again (F2)",
                 f"killed {old}; engine cell meanwhile {down}; new process {again}; engine {status().get('engine', {}).get('label')!r}; watched {val2}")
-        # the pop-out's bar: Recipe (decision 27), pressed as an assistive app presses it
+        # the pop-out's bar: no Recipe for a value of a built-in engine, which tracks no lineage
+        # (the maintainer: recipes only with lineage-tracking engines; `hasRecipe` false), read
+        # from the app's own report and, when it can see, through accessibility
         title = (pops or [{}])[0].get("title")
+        now = (win().get("popouts") or [{}])[0]
         if console_locked():
-            ax_blind("the pop-out's Recipe")
+            ax_blind("the pop-out's bar through accessibility")
             pr = None
         else:
             pr = subprocess.run([A.ax, "press", str(A.pid), "viewer-recipe", title or ""], capture_output=True, text=True, timeout=30).stdout.strip()
-        rec = wait(lambda: status().get("recipe"), 10, every=0.3)
-        if pr is not None:
-            say(bool(rec and rec.get("shown")), "the pop-out's Recipe", f"pressed {pr}; the app says {rec}")
+        try:
+            pressed = json.loads(pr).get("pressed") if pr else None
+        except ValueError:
+            pressed = None
+        say(now.get("hasRecipe") is False and pressed is not True and not status().get("recipe"),
+            "the pop-out's bar offers no Recipe for a built-in engine's value (no lineage)",
+            f"the app says hasRecipe {now.get('hasRecipe')!r}; a press of viewer-recipe through accessibility: {pr!r}; recipe shown {status().get('recipe')}")
 
         # the engine half (decision 10): the engine-interface rows on the installed engine
         engine_half(port, outside)

@@ -630,6 +630,9 @@ public struct PopoutValue: Codable, Hashable, Sendable {
     public var peaks: JSONValue?
     /// A list's items (`[{index, label, summary, thumb?: {ref, w, h}}]`).
     public var sheet: JSONValue?
+    /// The value has a recipe (only a lineage-tracking engine sends one): the viewer bar offers
+    /// its Recipe only then (absent from an older core: none).
+    public var hasRecipe: Bool?
 
     public struct OfferedViewer: Codable, Hashable, Sendable {
         public var id: String
