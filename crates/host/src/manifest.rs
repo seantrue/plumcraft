@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use plumcraft_proto::manifest::{EngineManifest, MAX_BYTES, Mode};
+use plumcraft_proto::programs;
 
 use crate::process::Manifest;
 
@@ -200,9 +201,9 @@ pub fn folder_warnings(m: &EngineManifest, cwd: &Path) -> Vec<String> {
     let dir = base.join(&project);
     let shown = project.display();
     match std::fs::canonicalize(&dir) {
-        Err(_) => vec![format!("uv run --project {shown} names {}, which doesn't exist: {COPY_ADVICE}", dir.display())],
+        Err(_) => vec![format!("uv run --project {shown} names {}, which doesn't exist: {COPY_ADVICE}", programs::shown(&dir))],
         Ok(real) if !has_pyproject(&real) => {
-            vec![format!("uv run --project {shown} names {}, with no pyproject.toml in it or above it: {COPY_ADVICE}", real.display())]
+            vec![format!("uv run --project {shown} names {}, with no pyproject.toml in it or above it: {COPY_ADVICE}", programs::shown(&real))]
         }
         Ok(_) => Vec::new(),
     }
@@ -218,10 +219,10 @@ fn no_project_warnings(m: &EngineManifest, args: &[String], cwd: &Path) -> Vec<S
     let Some(module) = python_module(args).filter(|_| !own && !elsewhere && relative) else { return Vec::new() };
     let base = option(args, "--directory").map_or_else(|| cwd.to_path_buf(), |d| against(cwd, d));
     match std::fs::canonicalize(&base) {
-        Err(_) => vec![format!("uv run (no --project) would run in {}, which doesn't exist: {COPY_ADVICE}", base.display())],
+        Err(_) => vec![format!("uv run (no --project) would run in {}, which doesn't exist: {COPY_ADVICE}", programs::shown(&base))],
         Ok(real) if !real.ancestors().any(|d| d.join("pyproject.toml").is_file() || d.join(".venv").is_dir()) => vec![format!(
             "uv run (no --project) runs in {}, with no pyproject.toml or .venv in it or above it, so uv runs a bare Python, very likely without {module}: {COPY_ADVICE}",
-            real.display()
+            programs::shown(&real)
         )],
         Ok(_) => Vec::new(),
     }
@@ -362,7 +363,9 @@ mod tests {
         let w = folder_warnings(&parsed(uv), &copy);
         assert_eq!(w.len(), 1, "{w:?}");
         assert!(w[0].contains("no pyproject.toml in it or above it") && w[0].contains(COPY_ADVICE), "{}", w[0]);
-        assert!(w[0].contains(&copy.display().to_string()), "it names the folder: {}", w[0]);
+        assert!(w[0].contains(&programs::shown(&copy)), "it names the folder: {}", w[0]);
+        // as a person reads it (B95): the folder is canonical, and on Windows that spells it \\?\C:\…
+        assert!(!w[0].contains(r"\\?\"), "{}", w[0]);
         assert_eq!(folder_warnings(&parsed(uv), &project), Vec::<String>::new());
         assert_eq!(folder_warnings(&parsed(uv), &project.join("sub")), Vec::<String>::new(), "uv walks up");
         // --project=DIR, uv.exe, and uv's --directory, which relative paths are taken against
