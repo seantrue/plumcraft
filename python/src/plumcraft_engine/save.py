@@ -35,6 +35,7 @@ import io
 import itertools
 import json
 import os
+import pathlib
 import zlib
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -80,6 +81,7 @@ class Format:
     options: tuple[dict, ...] = field(default=())
     sheets: bool = False
     stamps: bool = False
+    questions: bool = False
 
     def with_option(self, port: dict) -> Format:
         """With option `port` (a scalar port dict: `name`, `type`, `default`, `choices`, `min`, `max`)."""
@@ -91,6 +93,10 @@ class Format:
 
     def stamping(self) -> Format:
         return replace(self, stamps=True)
+
+    def questioning(self) -> Format:
+        """It writes pictures: a person is asked before an array not shaped like one is saved."""
+        return replace(self, questions=True)
 
     def definition(self) -> dict:
         """The catalogue's `save_formats` entry."""
@@ -202,6 +208,39 @@ def _picture(v: Any, fmt: str, quality: int = 90) -> bytes:
 
 
 MAX_INFO = 256  # GraphInfo::MAX_TEXT
+PICTURE_ASPECT = 16
+PICTURE_MIN_SIDE = 64
+PICTURE_MAX_CHANNELS = 4
+
+
+def picture_shape(a: np.ndarray) -> str | None:
+    """Why an array isn't shaped like a picture, or None (decisions 2A and 3A), as the Rust SDK:
+    a table; not (H, W) or (H, W, C); more than 4 channels; a side under 64; or its longer side
+    more than 16 times its shorter."""
+    dims = " by ".join(str(int(n)) for n in a.shape)
+    if arrays.meta(a)[2]:
+        return f"this {dims} array is a table, not a picture"
+    if a.ndim not in (2, 3):
+        return f"this {dims} array has {a.ndim} dimensions; a picture has 2 or 3"
+    h, w = int(a.shape[0]), int(a.shape[1])
+    c = int(a.shape[2]) if a.ndim == 3 else 1
+    lo, hi = min(h, w), max(h, w)
+    if c > PICTURE_MAX_CHANNELS:
+        return f"this {dims} array has {c} channels; a picture has at most {PICTURE_MAX_CHANNELS}"
+    if lo < PICTURE_MIN_SIDE:
+        return f"this {dims} array is {lo} pixels on its shorter side; a picture has at least {PICTURE_MIN_SIDE}"
+    if hi > lo * PICTURE_ASPECT:
+        return f"this {dims} array is more than {PICTURE_ASPECT} times as long as it is wide"
+    return None
+
+
+def _shape_question(v: Any) -> dict | None:
+    if isinstance(v, np.ndarray) and not isinstance(v, AudioValue):
+        why = picture_shape(v)
+        return None if why is None else {"text": why, "shape": [int(n) for n in v.shape], "offer": "npy"}
+    if isinstance(v, List):
+        return next((q for q in (_shape_question(x) for x in v.items) if q is not None), None)
+    return None
 
 
 def _info_parts(info: dict) -> tuple[str, str]:
@@ -335,11 +374,43 @@ def _box_scale(px: np.ndarray, tw: int, th: int) -> np.ndarray:
     return ((total + n // 2) // n).astype(np.uint8)
 
 
-def contact_sheet(items: list[Any]) -> np.ndarray:
+SHEET_MIN_CELL = 64
+SHEET_LABEL_BAND = 15
+SHEET_INK = (32, 32, 32)
+
+
+def _sheet_font() -> dict:
+    """The label font (decision 4B), the same data as the Rust SDK's `sheet_font.json`."""
+    global _FONT
+    if _FONT is None:
+        _FONT = json.loads((pathlib.Path(__file__).parent / "sheet_font.json").read_text("utf-8"))
+    return _FONT
+
+
+_FONT: dict | None = None
+
+
+def _draw_label(sheet: np.ndarray, x: int, y: int, text: str) -> None:
+    f = _sheet_font()
+    w, first, glyphs = f["width"], f["first"], f["glyphs"]
+    for k, c in enumerate(text):
+        i = ord(c) - first
+        glyph = glyphs[i] if 0 <= i < len(glyphs) else glyphs[ord("?") - first]
+        for row, bits in enumerate(glyph[: f["height"]]):
+            for col in range(w):
+                if bits >> (w - 1 - col) & 1:
+                    yy, xx = y + row, x + k * w + col
+                    if 0 <= yy < sheet.shape[0] and 0 <= xx < sheet.shape[1]:
+                        sheet[yy, xx] = SHEET_INK
+
+
+def contact_sheet(items: list[Any], labels: list[str] | None = None) -> np.ndarray:
     """Every item on one picture, (H, W, 3) uint8, laid out as the Rust SDK's `contact_sheet`:
-    `cols` the least whole number whose square holds the items, cells of `min(256, the largest
-    side)` pixels with 8-pixel gaps on light grey, each item scaled down (never up) to fit and
-    centred. Labels are not drawn. At most 256 items."""
+    `cols` the least whole number whose square holds the items, square cells of the largest side
+    held to 64 to 256 pixels with 8-pixel gaps on light grey, each item scaled down (never up) to
+    fit and centred; when any item has a label, a 15-pixel band under each cell with its label in
+    the shared bitmap font, centred, cut to what the cell's width holds. At most 256 items."""
+    labels = list(labels or [])
     if not items:
         raise _config("a contact sheet needs at least one item")
     if len(items) > MAX_SHEET:
@@ -350,22 +421,27 @@ def contact_sheet(items: list[Any]) -> np.ndarray:
             pictures.append(_picture_rgb(v))
         except NodeError as e:
             raise NodeError(e.kind, f"item {k}: {e.message}") from e
-    cell = max(1, min(SHEET_CELL, max(max(p.shape[0], p.shape[1]) for p in pictures)))
+    cell = max(SHEET_MIN_CELL, min(SHEET_CELL, max(max(p.shape[0], p.shape[1]) for p in pictures)))
+    band = SHEET_LABEL_BAND if any(labels) else 0
     n = len(pictures)
     cols = next(c for c in range(1, n + 1) if c * c >= n)
     rows = -(-n // cols)
-    sw, sh = cols * cell + (cols + 1) * SHEET_GAP, rows * cell + (rows + 1) * SHEET_GAP
+    sw, sh = cols * cell + (cols + 1) * SHEET_GAP, rows * (cell + band) + (rows + 1) * SHEET_GAP
     sheet = np.empty((sh, sw, 3), dtype=np.uint8)
     sheet[...] = SHEET_GROUND
+    fw = _sheet_font()["width"]
     for k, p in enumerate(pictures):
         h, w = p.shape[:2]
         m = max(w, h, 1)
         tw, th = (w, h) if m <= cell else (max(1, (w * cell + m // 2) // m), max(1, (h * cell + m // 2) // m))
         scaled = p if (tw, th) == (w, h) else _box_scale(p, tw, th)
         col, row = k % cols, k // cols
-        x0 = SHEET_GAP + col * (cell + SHEET_GAP) + (cell - tw) // 2
-        y0 = SHEET_GAP + row * (cell + SHEET_GAP) + (cell - th) // 2
+        cx, cy = SHEET_GAP + col * (cell + SHEET_GAP), SHEET_GAP + row * (cell + band + SHEET_GAP)
+        x0, y0 = cx + (cell - tw) // 2, cy + (cell - th) // 2
         sheet[y0 : y0 + th, x0 : x0 + tw] = scaled
+        if band and k < len(labels) and labels[k]:
+            text = labels[k][: cell // fw]
+            _draw_label(sheet, cx + (cell - len(text) * fw) // 2, cy + cell + 2, text)
     return sheet
 
 
@@ -433,13 +509,13 @@ def json_format() -> Format:
 
 
 def png() -> Format:
-    return Format("png", "PNG", ("png",), ("image", "ndarray"), "image/png", _png).making_sheets().stamping()
+    return Format("png", "PNG", ("png",), ("image", "ndarray"), "image/png", _png).making_sheets().stamping().questioning()
 
 
 def jpeg() -> Format:
     return Format("jpeg", "JPEG", ("jpg", "jpeg"), ("image", "ndarray"), "image/jpeg", _jpeg).with_option(
         option("quality", "Quality", "INT", 90, min=1.0, max=100.0)
-    ).making_sheets()
+    ).making_sheets().questioning()
 
 
 def wav() -> Format:
@@ -659,13 +735,20 @@ def _save(engine: Any, req: dict, memo: Any, plane: data.Plane, cancel: CancelTo
     index = req.get("index")
     if index is not None and (not isinstance(index, int) or isinstance(index, bool) or index < 0):
         raise _config('"index" must be a whole number')
+    # a person saving an array not shaped like a picture as one is asked first (decision 2A)
+    if req.get("ask") is True and f.questions:
+        q = _shape_question(value)
+        if q is not None:
+            out = failed(_config(f"{q['text']}: save it as NumPy (.npy)"))
+            out["question"] = q
+            return out
     sheet_of: tuple[int, list[str]] | None = None
     if isinstance(value, List) and req.get("sheet") is True:
         if not f.sheets:
             raise _config(f"{f.label} can't put a list on one sheet: save its {len(value.items)} items instead")
         # a contact sheet: every item on one picture, the labels in the reply
         sheet_of = (len(value.items), [value.label(i) for i in range(len(value.items))])
-        items, labels, is_list = [contact_sheet(value.items)], [""], False
+        items, labels, is_list = [contact_sheet(value.items, sheet_of[1])], [""], False
     elif isinstance(value, List):
         if index is not None:
             if index >= len(value.items):

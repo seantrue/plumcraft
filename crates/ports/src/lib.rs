@@ -16,12 +16,16 @@
 //! - `ports.items` and `ports.count`: a list output and a list input (F20), and what a wire's
 //!   slice takes from a list (F21: `[:-1]` keeps a list, `-1` one item);
 //! - `ports.tune` and `ports.ink`: a bundle of settings and a node whose `ink.width` is bound to
-//!   one of them (`param_ref`, the `bundle_port` flag, F13); wired, the bundle's value wins.
+//!   one of them (`param_ref`, the `bundle_port` flag, F13); wired, the bundle's value wins;
+//! - `ports.strip`: a result node whose ARRAY isn't shaped like a picture (4 by 1000), so Save
+//!   Result as PNG asks first (the save's question);
+//! - `ports.traced`: a node that tracks lineage, its text coming with a recipe (`Display.recipe`,
+//!   F56), so a viewer offers Recipe.
 //!
 //! It is never compiled into an app: it is installed from a scratch engines folder as a separate
 //! process (its program, `plumcraft-ports-engine`, built with the workspace).
 
-use plumcraft_engine::{Cx, Data, Engine, Inputs, List, Node, Outputs};
+use plumcraft_engine::{Array, Cx, Data, Engine, Inputs, List, Node, Outputs};
 use plumcraft_proto::catalogue::{MemoSpec, NodeDef, NodeFlags, PathFilter, PathHint, Port, Socket, Variadic, WireType, core_types};
 use plumcraft_proto::error::NodeError;
 use plumcraft_proto::session::EngineInfo;
@@ -219,6 +223,38 @@ impl Node for Ink {
     }
 }
 
+/// `ports.strip`: a result whose value is an ARRAY not shaped like a picture, 4 by 1000 (a side
+/// under 64, 250:1), so Save Result as PNG asks first (decisions 2A and 3A, 2026-11-22).
+struct Strip;
+impl Node for Strip {
+    fn def(&self) -> NodeDef {
+        let mut d = def("ports.strip", "Strip", vec![widget("level", "FLOAT", json!(0.5))], vec![port("strip", core_types::ARRAY)]);
+        d.flags = NodeFlags { result: true, ..Default::default() };
+        d
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let level = number(i, "level").unwrap_or(0.5) as f32;
+        let values: Vec<f32> = (0..4000u32).map(|k| level * (k % 1000) as f32 / 999.0).collect();
+        Ok([("strip".to_owned(), Data::Array(Array::from_f32(vec![4, 1000], &values)))].into_iter().collect())
+    }
+}
+
+/// `ports.traced`: a node that tracks lineage (decision 7A, 2026-11-22): its text comes with what
+/// made it (`Display.recipe`, `{style, params}`), so a viewer offers its Recipe.
+struct Traced;
+impl Node for Traced {
+    fn def(&self) -> NodeDef {
+        def("ports.traced", "Traced", vec![widget("seed", "STRING", json!("plum"))], vec![port("text", TEXT)])
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let seed = text(i, "seed");
+        let recipe = json!({"style": "traced", "params": {"seed": seed}});
+        Ok([("text".to_owned(), Data::Json(json!(format!("traced {seed}")))), (plumcraft_engine::exec::RECIPE_KEY.to_owned(), Data::Json(recipe))]
+            .into_iter()
+            .collect())
+    }
+}
+
 /// The save format of its own (F19, Save Result): text between a pair of `mark`s, an option
 /// the editor asks for (`"` or `'`), as a `.quoted` file.
 const QUOTED: &str = "quoted";
@@ -247,6 +283,7 @@ pub fn engine() -> Engine {
     let scalar = |id: &str| WireType { id: id.into(), media: plumcraft_proto::catalogue::Media::Scalar, ..Default::default() };
     let mut e = Engine::new(info)
         .with_wire_type(core_types::text())
+        .with_wire_type(core_types::array())
         .with_wire_type(scalar("STRING"))
         .with_wire_type(scalar("INT"))
         .with_wire_type(scalar("FLOAT"))
@@ -262,6 +299,8 @@ pub fn engine() -> Engine {
         Box::new(Count),
         Box::new(Tune),
         Box::new(Ink),
+        Box::new(Strip),
+        Box::new(Traced),
     ];
     for n in nodes {
         e = e.with_node(n);

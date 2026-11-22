@@ -820,6 +820,10 @@ impl EditorApp {
             let files = files.clone();
             return self.uploads_modal(ctx, &files);
         }
+        if matches!(prompt, Prompt::SaveShape { .. }) {
+            let prompt = prompt.clone();
+            return self.answers_modal(ctx, &prompt);
+        }
         let text = prompt.text();
         let mut answer = None;
         let modal =
@@ -838,6 +842,34 @@ impl EditorApp {
                     }
                     if ui.button("Cancel").clicked() {
                         answer = Some(PromptAnswer::Cancel);
+                    }
+                });
+            });
+        if modal.should_close() && answer.is_none() {
+            answer = Some(PromptAnswer::Cancel);
+        }
+        if let Some(a) = answer {
+            self.answer_prompt(a);
+        }
+    }
+
+    /// A prompt drawn from what the core says of it: its title, text and a button per answer,
+    /// each with the core's label ([`Prompt::SaveShape`]).
+    fn answers_modal(&mut self, ctx: &egui::Context, prompt: &Prompt) {
+        let mut answer = None;
+        let modal = egui::Modal::new(egui::Id::new(("plumcraft-prompt", prompt.kind())))
+            .frame(egui::Frame::popup(&ctx.global_style()).fill(self.tokens.panel))
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.heading(egui::RichText::new(prompt.title()).color(self.tokens.text));
+                ui.add_space(6.0);
+                ui.label(egui::RichText::new(prompt.text()).color(self.tokens.text));
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    for a in prompt.answers().iter().filter_map(|a| PromptAnswer::from_name(a)) {
+                        if ui.button(a.label()).clicked() {
+                            answer = Some(a);
+                        }
                     }
                 });
             });

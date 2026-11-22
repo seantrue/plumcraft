@@ -34,3 +34,18 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
+
+## The contact sheet's label font (licence NOT verified: a release blocker, B125)
+
+`crates/engine/src/sheet_font.json` and `python/src/plumcraft_engine/sheet_font.json` (identical)
+hold the glyphs the engine SDKs draw contact sheet labels with: printable ASCII, 6 by 11 pixels,
+one bit a pixel. They were extracted once, on 2026-11-22, from **Pillow's built-in default bitmap
+font** (`PIL.ImageFont.load_default_imagefont()`, Pillow 13.0.0) by a scratch script,
+`make_sheet_font.py`, which drew each character with that font and kept its pixels.
+
+**Where those glyphs come from upstream, and under what terms, is NOT yet verified.** The
+controller believes Pillow's default bitmap font is Adobe's Courier bitmap from the X11
+distribution, under Adobe's own notice terms rather than Pillow's licence; that is unverified.
+The maintainer (2026-11-22): "Just use the Pillow font. We will deal with issues before Plummer is
+released to public." Verify its licence, or replace it, before a public release (`docs/BUGS.md`
+B125).

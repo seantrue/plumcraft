@@ -98,7 +98,39 @@ fn engine() -> Engine {
             },
             formats: None,
         }))
+        .with_node(Box::new(Make {
+            id: "t.strip",
+            ty: core_types::ARRAY,
+            value: |_| Ok(Data::Array(Array::from_f32(vec![4, 1000], &[0.5; 4000]))),
+            formats: None,
+        }))
         .with_save_format(shout)
+}
+
+/// Decisions 2A and 3A: a person's save of an array not shaped like a picture, as PNG or JPEG,
+/// is answered with a question and writes nothing; a script's save (no `ask`) and an explicit
+/// NumPy save are never asked; the rule's edges.
+#[test]
+fn a_persons_save_of_a_non_picture_shape_is_asked_about_first() {
+    use plumcraft_engine::save::picture_shape;
+    let h = host(engine);
+    let dir = plumcraft_scratch::dir("sdk-save-question");
+    let r = save(&h, "t.strip", json!({"path": dir.join("s.png"), "ask": true}));
+    let q = r.question.clone().unwrap_or_else(|| panic!("{r:?}"));
+    assert!(!r.ok && q.shape == [4, 1000] && q.offer == "npy" && q.text.contains("shorter side"), "{r:?}");
+    assert_eq!(r.error.map(|e| e.kind).as_deref(), Some("config"), "an old editor shows why");
+    assert!(!dir.join("s.png").exists(), "nothing written");
+    assert!(save(&h, "t.strip", json!({"path": dir.join("s.png")})).ok, "a script's save writes it");
+    assert!(save(&h, "t.strip", json!({"path": dir.join("s.npy"), "ask": true})).ok, "NumPy is never asked");
+    assert!(engine().caps().has("output.save.question"));
+    let a = |shape: Vec<u64>| Array::new("|u1", shape.clone(), vec![0u8; shape.iter().product::<u64>() as usize]);
+    assert_eq!(picture_shape(&a(vec![64, 64])), None);
+    assert_eq!(picture_shape(&a(vec![64, 1024, 4])), None, "16:1 is still a picture");
+    assert!(picture_shape(&a(vec![64, 1025])).is_some_and(|w| w.contains("16 times")));
+    assert!(picture_shape(&a(vec![63, 63])).is_some());
+    assert!(picture_shape(&a(vec![64, 64, 5])).is_some_and(|w| w.contains("5 channels")));
+    assert!(picture_shape(&a(vec![4096])).is_some_and(|w| w.contains("1 dimensions")));
+    assert!(picture_shape(&Array { table: true, ..a(vec![100, 3]) }).is_some_and(|w| w.contains("table")));
 }
 
 /// Contact Sheet… on an SDK engine (decision 2A): every picture of a list on one PNG, the
@@ -113,9 +145,11 @@ fn a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name() {
     assert!(r.ok && r.items == 3 && r.labels == ["a 1", "a 2", "a 3"] && r.paths.len() == 1 && r.stamped && !r.recipe, "{r:?}");
     let png = std::fs::read(dir.join("sheet.png")).unwrap();
     let img = image::load_from_memory(&png).unwrap().to_rgb8();
-    // two columns, two rows of 2-pixel cells, 8-pixel gaps
-    assert_eq!((img.width(), img.height()), (2 * 2 + 3 * 8, 2 * 2 + 3 * 8));
-    assert_eq!((img.get_pixel(8, 8).0, img.get_pixel(18, 8).0, img.get_pixel(8, 18).0), ([10; 3], [200; 3], [90; 3]));
+    // two columns, two rows of 64-pixel cells (the least), each with its label band, 8-pixel gaps
+    assert_eq!((img.width(), img.height()), (2 * 64 + 3 * 8, 2 * (64 + 15) + 3 * 8));
+    assert_eq!((img.get_pixel(39, 39).0, img.get_pixel(111, 39).0, img.get_pixel(39, 126).0), ([10; 3], [200; 3], [90; 3]));
+    let inked = (74..85).any(|y| (8..72).any(|x| img.get_pixel(x, y).0 == [32; 3]));
+    assert!(inked, "the first label, drawn in its band");
     assert!(png.windows(15).any(|w| w == b"PlumCraft graph"), "the name and hash, informational");
     assert!(save(&h, "t.pics", json!({"path": dir.join("sheet.jpg"), "sheet": true})).ok, "JPEG makes sheets too");
     assert!(save(&h, "t.pics", json!({"path": dir.join("sheet.npy"), "sheet": true})).error.unwrap().message.contains("sheet"));

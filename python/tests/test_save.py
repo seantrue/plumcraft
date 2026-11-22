@@ -51,6 +51,10 @@ class Saver(Engine):
     def pics(self, word: str = "plum") -> Array:
         return List([np.full((2, 2), v, dtype=np.uint8) for v in (10, 200, 90)], labels=["a 1", "a 2", "a 3"])
 
+    @node("Strip")
+    def strip(self, word: str = "plum") -> Array:
+        return np.full((4, 1000), 0.5, dtype=np.float32)
+
     @node("Fails")
     def fails(self) -> Text:
         raise NodeError(NodeError.OP, "it broke")
@@ -244,7 +248,7 @@ def test_a_contact_sheet_has_the_rust_sdks_exact_pixels():
     import pathlib
 
     fixture = json.loads((pathlib.Path(__file__).parents[2] / "crates" / "engine" / "tests" / "fixtures" / "sheet.json").read_text())
-    sheet = save.contact_sheet(_sheet_items())
+    sheet = save.contact_sheet(_sheet_items(), fixture["labels"])
     assert list(sheet.shape) == fixture["shape"]
     assert hashlib.sha256(sheet.tobytes()).hexdigest() == fixture["sha256"]
     with pytest.raises(NodeError, match="item 0:"):
@@ -264,7 +268,9 @@ def test_a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name(u
     assert r["ok"] and r["items"] == 3 and r["labels"] == ["a 1", "a 2", "a 3"] and len(r["paths"]) == 1 and r.get("stamped") and not r["recipe"], r
     png = open(os.path.join(d, "sheet.png"), "rb").read()
     img = np.asarray(Image.open(BytesIO(png)).convert("RGB"))
-    assert img.shape == (28, 28, 3) and img[8, 8].tolist() == [10] * 3 and img[8, 18].tolist() == [200] * 3 and img[18, 8].tolist() == [90] * 3
+    assert img.shape == (2 * (64 + 15) + 24, 2 * 64 + 24, 3)
+    assert img[39, 39].tolist() == [10] * 3 and img[39, 111].tolist() == [200] * 3 and img[126, 39].tolist() == [90] * 3
+    assert (img[74:85, 8:72] == 32).all(axis=2).any(), "the first label, drawn in its band"
     assert b"PlumCraft graph" in png
     assert "sheet" in ui.save("t.pics", path=os.path.join(d, "sheet.npy"), sheet=True)["error"]["message"]
     t = ui.save("t.text", path=os.path.join(d, "w.txt"), graph_info=info)
@@ -288,3 +294,24 @@ def test_the_workflows_name_and_hash_are_the_rust_sdks_bytes():
     assert '"a>b"><metadata>PlumCraft graph "Flow é&lt;1&gt;", sha256:ab</metadata><rect' in save.svg_with_info(svg, info).decode()
     assert save.svg_with_info(b'<svg xmlns="http://www.w3.org/2000/svg"/>', info).endswith(b"</metadata></svg>")
     assert save.txt().encode("plum", save.SaveCx({}, "", info)) == b"plum"
+
+
+def test_a_persons_save_of_a_non_picture_shape_is_asked_about_first(ui):
+    """Decisions 2A and 3A, as the Rust SDK: the question instead of a file; a script's save and
+    NumPy are never asked; the rule's edges."""
+    d = scratch.mkdtemp("save-question-")
+    r = ui.save("t.strip", path=os.path.join(d, "s.png"), ask=True)
+    q = r.get("question")
+    assert r["ok"] is False and q["shape"] == [4, 1000] and q["offer"] == "npy" and "shorter side" in q["text"], r
+    assert r["error"]["kind"] == "config" and not os.path.exists(os.path.join(d, "s.png"))
+    assert ui.save("t.strip", path=os.path.join(d, "s.png"))["ok"], "a script's save writes it"
+    assert ui.save("t.strip", path=os.path.join(d, "s.npy"), ask=True)["ok"], "NumPy is never asked"
+    assert "output.save.question" in ui.caps
+    z = lambda *shape: np.zeros(shape, dtype=np.uint8)  # noqa: E731
+    assert save.picture_shape(z(64, 64)) is None and save.picture_shape(z(64, 1024, 4)) is None
+    assert "16 times" in save.picture_shape(z(64, 1025))
+    assert save.picture_shape(z(63, 63)) is not None and "5 channels" in save.picture_shape(z(64, 64, 5))
+    assert "1 dimensions" in save.picture_shape(z(4096))
+    from plumcraft_engine import ArrayValue
+
+    assert "table" in save.picture_shape(ArrayValue(z(100, 3), table=True))

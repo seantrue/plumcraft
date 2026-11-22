@@ -1242,6 +1242,19 @@ fn pump_saves<H: Holder>(h: &mut H, t: &mut Turn) {
         }
     }
     d.saving = None;
+    // the engine asked instead of writing (decision 2A): the person who started it answers
+    if let Some((ask, reply)) = d.session.save.last.clone()
+        && let (Some(q), Some(by)) = (reply.question, ask.question.as_deref())
+    {
+        let mut params = json!({"node": ask.node, "port": ask.port, "path": ask.path, "sheet": ask.sheet});
+        if let Some(i) = ask.index {
+            params["index"] = json!(i);
+        }
+        let npy = std::path::Path::new(&ask.path).with_extension("npy").display().to_string();
+        let prompt = Prompt::SaveShape { params: params.to_string(), why: q.text, shape: q.shape, npy };
+        invoke::raise_prompt(h, prompt, if by == "person" { By::Person } else { By::Script });
+        t.asked = true;
+    }
 }
 
 /// Run housekeeping after the shell's own: an "Open in …" or Open With waiting for its value, a

@@ -1,5 +1,6 @@
 {
- "about": "The contact sheet of crates/engine/src/save.rs tests::sheet_items and python/tests/test_save.py, an (H, W, 3) |u1 array: its shape and the SHA-256 of its bytes. Both SDKs must make these exact pixels (decision 2A, 2026-11-22).",
- "shape": [536, 536, 3],
- "sha256": "36bcf15eb00438f9163bd4014306c4401fbfc821643bebe9a85f2b2fdc246090"
+ "about": "The contact sheet of crates/engine/src/save.rs tests::sheet_items with these labels (and python/tests/test_save.py), an (H, W, 3) |u1 array: its shape and the SHA-256 of its bytes. Both SDKs must make these exact pixels, labels drawn with the shared bitmap font (decisions 2A and 4B, 2026-11-22; the font's licence is unverified, B125).",
+ "labels": ["dim 1", "x=2.5", "Sweep: 3 é"],
+ "shape": [566, 536, 3],
+ "sha256": "87438c6f0443c09691990f523e992069b13d35815e4e43ccf5582ae1079ee7f8"
 }

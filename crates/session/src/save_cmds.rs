@@ -32,6 +32,11 @@ pub struct SaveAsk {
     pub path: String,
     /// Every item of a list on one picture, labelled with what varied.
     pub sheet: bool,
+    /// Who may be asked about it (`person` or `script`, the ask chain that started it), so the
+    /// engine may answer with a question (`output.save.question`); `None`, a scripted save,
+    /// never asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 /// The save in flight, and the last outcome.
@@ -209,12 +214,11 @@ fn can_save(s: &Session) -> std::result::Result<(), String> {
 }
 
 /// What a saved file says of the workflow (spec 15, `graph_info`; purely informational): the
-/// document's name (its file's name without the extension, or `Untitled`) and `sha256:` of the
-/// open graph's JSON, the hash the trust file keeps ([`crate::trust::graph_hash`]).
+/// document's name (its file's name without the extension, or `Untitled`) and the hash of what
+/// makes its result ([`crate::trust::result_hash`]: kinds, values, pins and wires; decision 1B).
 pub fn graph_info(s: &Session) -> GraphInfo {
     let name = s.path().and_then(Path::file_stem).map_or_else(|| "Untitled".to_owned(), |n| n.to_string_lossy().into_owned());
-    let hex = crate::trust::graph_hash(s.graph());
-    GraphInfo { name, hash: if hex.is_empty() { String::new() } else { format!("sha256:{hex}") } }
+    GraphInfo { name, hash: crate::trust::result_hash(s.graph()) }
 }
 
 /// `run.save {node, port?, index?, sheet?, path, options?}`.
@@ -235,6 +239,11 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         Some(v) => Some(v.as_i64().filter(|i| *i >= 0).ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?),
     };
     let sheet = crate::commands::opt_bool_param(p, "sheet", false)?;
+    let question = match p.get("question") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(by)) if by == "person" || by == "script" => Some(by.clone()),
+        Some(_) => return Err(SessionError::Params("\"question\" is who may be asked: \"person\" or \"script\"".into())),
+    };
     if sheet && index.is_some() {
         return Err(SessionError::Params("\"sheet\" takes every item: leave \"index\" out".into()));
     }
@@ -265,7 +274,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         s.run.ask_review();
         return Err(SessionError::Params("this workflow came from elsewhere: review it before saving a result (graph.review, then graph.trust)".into()));
     }
-    let ask = SaveAsk { node: node.0.clone(), port: port.clone(), index, path: path.clone(), sheet };
+    let ask = SaveAsk { node: node.0.clone(), port: port.clone(), index, path: path.clone(), sheet, question: question.clone() };
     let graph_info = Some(graph_info(s));
     s.save.outbox.push(SaveRequest {
         graph: GraphRef::Inline { graph },
@@ -277,6 +286,7 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         options,
         sheet,
         graph_info,
+        ask: question.is_some(),
         ..Default::default()
     });
     s.save.pending = Some(ask.clone());
@@ -289,7 +299,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label: "Save Result…",
         menu: &[],
         shortcut: None,
-        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats)} -> {pending} (the engine writes the file by the extension, with the workflow's name and graph hash where the format has room; the reply arrives later: ui.inspect's save)",
+        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats), question? (person or script: a save the Save Result… chain started, which the engine may answer with a question instead of writing; a scripted save leaves it out and is never asked)} -> {pending} (the engine writes the file by the extension, with the workflow's name and graph hash where the format has room; the reply arrives later: ui.inspect's save)",
         enabled: can_save,
         run: save,
         journal: false,
@@ -362,7 +372,7 @@ mod tests {
         // the workflow's name and its graph's hash, informational (2026-11-22)
         let info = body.graph_info.clone().unwrap();
         assert_eq!(info.name, "Untitled");
-        assert_eq!(info.hash, format!("sha256:{}", crate::trust::graph_hash(s.graph())));
+        assert_eq!(info.hash, crate::trust::result_hash(s.graph()));
         assert_eq!(info.hash.len(), "sha256:".len() + 64);
         let path = PathBuf::from(body.path.clone().unwrap());
         assert!(path.is_absolute() && path.ends_with("prints/one.pic"), "{}", path.display());

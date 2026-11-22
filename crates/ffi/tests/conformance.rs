@@ -269,7 +269,8 @@ fn save_result_passes_through_the_c_abi() {
     )
     .unwrap();
     let mut d = Ports(Abi(Client::open(&json!({"store_root": root.join("store"), "dirs": {"engines": folder}, "platform": {"subprocess": true}})), "text"));
-    let cases: Vec<Value> = conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("saves")))).collect();
+    let cases: Vec<Value> =
+        conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:ports")))).collect();
     assert!(!cases.is_empty());
     let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
     assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));

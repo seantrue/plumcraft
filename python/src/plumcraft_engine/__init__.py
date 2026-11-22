@@ -43,7 +43,7 @@ UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save"}
+_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question"}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1
@@ -511,7 +511,8 @@ class Engine:
         if hi < lo:
             raise ProtoError(VERSION, f"engine speaks protocol {PROTOCOL}–{PROTOCOL}, this app {rng.get('min')}–{rng.get('max')}")
         client = req.get("caps") if isinstance(req.get("caps"), list) else []
-        offered = set(self.caps) | ({"output.save"} if self.all_save_formats() else set())
+        formats = self.all_save_formats()
+        offered = set(self.caps) | ({"output.save"} if formats else set()) | ({"output.save.question"} if any(f.questions for f in formats) else set())
         caps = sorted(c for c in offered if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
         reply = {"v": PROTOCOL, "protocol": hi, "session": session, "engine": self.info, "caps": caps}
         # spec 4.3: the one algorithm this process hashes in, which the client must share (D8)
