@@ -214,6 +214,68 @@ fn a_copied_manifest_is_marked_through_the_c_abi() {
     d.0.0.close();
 }
 
+/// The C ABI headless with the test engine (`crates/ports`) installed from its engines folder: an
+/// HTTP engine this test serves on loopback (mode 3, its token in a file), which the case starts
+/// with `engine.use` (`ports_installed`). `saves`: the case's `$scratch` is this machine's.
+struct Ports(Abi);
+
+impl Driver for Ports {
+    fn name(&self) -> String {
+        "the C ABI, headless, with the test engine over HTTP".into()
+    }
+    fn call(&mut self, method: &str, params: Value) -> Value {
+        self.0.call(method, params)
+    }
+    fn reports(&self) -> bool {
+        true
+    }
+    fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
+        self.0.report_geometry(faces)
+    }
+    fn has(&self, capability: &str) -> bool {
+        matches!(capability, "engine:ports" | "ports_installed" | "saves")
+    }
+    fn pause(&mut self) {
+        self.0.pause();
+    }
+}
+
+/// Save Result (F19) through the real exported functions: the test engine's result node saved in
+/// both its formats, its options asked for with the core's form, the bytes read back by the
+/// engine. The engine is a separate binding (HTTP), so the save crosses the protocol.
+#[test]
+fn save_result_passes_through_the_c_abi() {
+    let root = std::fs::canonicalize(store_root("conformance-ports")).unwrap();
+    let folder = root.join("engines");
+    std::fs::create_dir_all(&folder).unwrap();
+    let token_file = root.join("token");
+    std::fs::write(&token_file, "conformance-ports-token").unwrap();
+    let port_file = root.join("port");
+    let pf = port_file.display().to_string();
+    std::thread::spawn(move || {
+        let _ = plumcraft_engine::http::serve_http(Box::new(|| Ok(plumcraft_ports::engine())), "127.0.0.1:0", "conformance-ports-token", Some(&pf), false);
+    });
+    let t0 = Instant::now();
+    let addr = loop {
+        if let Ok(a) = std::fs::read_to_string(&port_file) {
+            break a;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(20), "the test engine never listened");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    std::fs::write(
+        folder.join("ports.toml"),
+        format!("id = \"ports\"\nname = \"Ports (test engine)\"\nmode = \"http\"\nurl = \"http://{addr}\"\ntoken_file = \"{}\"\n", token_file.display()),
+    )
+    .unwrap();
+    let mut d = Ports(Abi(Client::open(&json!({"store_root": root.join("store"), "dirs": {"engines": folder}, "platform": {"subprocess": true}})), "text"));
+    let cases: Vec<Value> = conformance::cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("saves")))).collect();
+    assert!(!cases.is_empty());
+    let out: Vec<conformance::Outcome> = cases.iter().map(|c| conformance::run_case(&mut d, c)).collect();
+    assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", conformance::summary(&d.name(), &out));
+    d.0.0.close();
+}
+
 /// A script on the core's control port: the protocol's JSON lines, as a Swift or Kotlin shell's
 /// test harness would drive its own core.
 struct Port {

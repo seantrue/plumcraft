@@ -116,6 +116,14 @@ def run(
 ) -> dict:
     """Run a request to completion and return the authoritative reply. A bad graph is a reply with a
     `graph` error, never an exception."""
+    return run_values(engine, req, emit, cancel, publisher, store, plane)[0]
+
+
+def run_values(
+    engine: Engine, req: dict, emit: Callable[[dict], None], cancel: CancelToken, publisher: str, store: Memo | None = None, plane: data.Plane | None = None
+) -> tuple[dict, dict[str, dict]]:
+    """`run`, and the values each node that finished made, by node id (what `output.save` writes,
+    `plumcraft_engine.save`)."""
     started = time.monotonic()
     reply: dict[str, Any] = {"v": PROTOCOL, "run_id": req.get("run_id", ""), "generation": req.get("generation", 0), "ok": False, "nodes": {}, "order": []}
     targets = [t for t in req.get("targets") or [] if isinstance(t, str)]
@@ -127,7 +135,7 @@ def run(
         reply["error"] = e.to_json()
         reply["watch"] = []
         reply["elapsed_ms"] = 0.0
-        return reply
+        return reply, {}
     # Bindings (spec 7.6 rule 10) replace the wires into the ports they name, so what fed those
     # ports is neither waited for nor computed.
     bound = bind.by_node(req.get("inputs"), lambda n: n in nodes)
@@ -327,7 +335,7 @@ def run(
     if engine.store_root is not None:
         stats.update(data.store_stats(engine.store_root))
     reply["stats"] = stats
-    return reply
+    return reply, values
 
 
 def _offered_choices(engine: Engine, nodes: dict[str, dict], wires: list[dict], nid: str) -> list[Any]:

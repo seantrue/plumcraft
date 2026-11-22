@@ -18,6 +18,8 @@ const SEEDS: &[&str] = &[
     r#"{"stream": "append", "node_id": "n", "port": "p", "offset": 5, "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e"}}"#,
     r#"{"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}, "title": "t"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "a", "port": "q"}, "slice": ":-1"}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["a", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "l", "min": 0}], "checkpoints": ["a"], "outputs": [{"from": {"node": "a", "port": "p"}, "name": "n"}]}}"#,
     r#"{"labels": {"x": "Ex", "a": {"y": "Why", "x": 3}}, "v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}]}"#,
+    r#"{"v": 2, "save_formats": [{"id": "txt", "label": "Text", "extensions": ["txt"], "media": ["text"], "options": [{"name": "upper", "type": "BOOL", "default": false}]}, {"id": "png", "extensions": [".png"], "media": ["image", "ndarray"]}], "wire_types": [{"id": "TEXT", "media": "text"}], "nodes": [{"id": "r", "outputs": [{"name": "text", "type": "TEXT"}, {"name": "x", "type": "ARRAY"}], "save_formats": ["png", "txt", "txt", "nope"]}]}"#,
+    r#"{"ok": true, "paths": [], "files": [{"name": "a-00.txt", "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e", "at": [{"kind": "inline", "b64": ""}]}}, {"name": "../x", "ref": null}], "recipe": false, "items": 2, "error": null}"#,
     r#"{"format": "plumcraft.expansion", "version": 1, "display": "My group", "description": "d", "expansion": {"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}}, "b": {"kind": "t.b"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "b", "port": "q"}}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["b", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "s"}], "checkpoints": ["a"]}}}"#,
 ];
 
@@ -58,6 +60,12 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<SaveRequest>(text);
     let _ = serde_json::from_str::<SaveReply>(text);
     if let Ok(mut c) = serde_json::from_str::<SchemaReply>(text) {
+        // a node's save formats are looked up in a hostile catalogue without panicking
+        for n in &c.nodes {
+            for p in &n.outputs {
+                let _ = c.save_formats_for(n, &p.name);
+            }
+        }
         // a catalogue's conversion marks are hostile too: searching them never panics
         let _ = c.convert_paths("D", "AUDIO");
         let _ = c.convert_path_of("D", &["b".to_owned(), "w".to_owned()]);
@@ -93,6 +101,24 @@ fn junk_never_panics() {
     }
     all_parsers(&deep(10_000));
     all_parsers(&format!("{{\"v\": 2, \"nodes\": [{}]}}", deep(200)));
+}
+
+/// A node's own list of save formats picks from the catalogue's, in its order, once each, by
+/// what its output shows; without one it offers every format that takes its media.
+#[test]
+fn a_nodes_save_formats_come_from_the_catalogue() {
+    let seed = SEEDS.iter().find(|s| s.contains("\"save_formats\"")).unwrap();
+    let c: SchemaReply = serde_json::from_str(seed).unwrap();
+    let r = &c.nodes[0];
+    let ids = |port: &str| c.save_formats_for(r, port).iter().map(|f| f.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids("text"), ["txt"], "png doesn't take text; a repeat and an unknown id are skipped");
+    assert_eq!(ids("x"), ["png"], "ARRAY is ndarray, a core type even undeclared");
+    assert!(ids("nope").is_empty());
+    let mut open = r.clone();
+    open.save_formats = None;
+    assert_eq!(c.save_formats_for(&open, "text").iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["txt"]);
+    open.save_formats = Some(Vec::new());
+    assert!(c.save_formats_for(&open, "text").is_empty(), "an empty list offers none");
 }
 
 #[test]

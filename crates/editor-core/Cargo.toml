@@ -43,3 +43,5 @@ required-features = ["schema"]
 
 [dev-dependencies]
 serde_yaml = "0.9"
+# The test engine for the port and graph rows (Save Result's case on the core's own document)
+plumcraft-ports = { path = "../ports" }

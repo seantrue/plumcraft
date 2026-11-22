@@ -1214,7 +1214,9 @@ fn pump_saves<H: Holder>(h: &mut H, t: &mut Turn) {
             let answer = serde_json::to_value(&req)
                 .map_err(|e| e.to_string())
                 .and_then(|body| conn.call("output.save", body).map_err(|e| e.message))
-                .and_then(|v| serde_json::from_value::<SaveReply>(v).map_err(|e| format!("the save reply: {e}")));
+                .and_then(|v| serde_json::from_value::<SaveReply>(v).map_err(|e| format!("the save reply: {e}")))
+                // a remote engine's files, written where the person chose (spec 13.2 step 8)
+                .map(|reply| crate::saved::write_returned(conn.as_ref(), &req, reply));
             let _ = tx.send(answer);
             if let Some(w) = wake {
                 w.wake();

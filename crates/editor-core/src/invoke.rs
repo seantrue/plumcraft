@@ -167,8 +167,11 @@ pub enum Then {
     Files { node: String, port: String, base: Option<PathBuf> },
     /// `value.open` with the app chosen (Open With › Choose an App…).
     App { params: Value },
-    /// `run.save` to the path chosen (Save Result…).
+    /// `run.save` to the path chosen (Save Result…), asking the chosen format's options first.
     SaveResult { params: Value, base: Option<PathBuf> },
+    /// `run.save` with the options a form asked for (Save Result…'s second ask): `params` hold
+    /// the path; `format` is the one its name chose, whose options read each answer.
+    SaveOptions { params: Value, format: SaveFormat },
     /// `theme.import {path}`.
     ThemeImport,
     /// `theme.export {path}`.
@@ -511,6 +514,12 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
             }
             Err(e) => h.say(e),
         },
+        // Save Result… and Contact Sheet… (a result node's menu and footer, the Watched panel):
+        // the core asks where (the format by its name) and the format's options, then saves;
+        // every shell gets it by invoking the menu item's params (golden rule 4)
+        "run.save" if params.get("ask").and_then(Value::as_bool) == Some(true) => {
+            save_result(h, params.clone(), by);
+        }
         "value.saveAs" => {
             let pid = params.get("popout").and_then(Value::as_u64);
             let target =
@@ -860,7 +869,32 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                     o.remove("ask");
                     o.insert("path".into(), Value::from(p));
                 }
-                let _ = h.run("run.save", &params);
+                // the format the name chose: its options asked for in a form, then the save
+                match save_format_of(h.session(), &params).filter(|f| !f.options.is_empty()) {
+                    Some(format) => {
+                        let form = save_options_form(&format, &Map::new(), None);
+                        raise(h, Kind::Form, form, by, Cont::new(Then::SaveOptions { params, format }));
+                    }
+                    None => {
+                        if let Err(e) = h.run("run.save", &params) {
+                            h.say(format!("can't save: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+        (Then::SaveOptions { mut params, format }, Answer::Values(given)) => {
+            let refused = match save_options_read(&format.options, &given) {
+                Err(why) => Some(why),
+                Ok(values) => {
+                    params["options"] = Value::Object(values);
+                    h.run("run.save", &params).err()
+                }
+            };
+            // refused: the form stays open, saying why, with what was given
+            if let Some(why) = refused {
+                let ask = Ask { params: save_options_form(&format, &given, Some(&why)), ..ask };
+                h.asks().reopen(ask, Cont::new(Then::SaveOptions { params, format }));
             }
         }
         (Then::ThemeImport, a) => {
@@ -985,12 +1019,21 @@ pub fn save_result(h: &mut impl Host, params: Value, by: By) -> Option<AskId> {
     let index = params.get("index").and_then(Value::as_i64);
     let sheet = params.get("sheet").and_then(Value::as_bool).unwrap_or(false);
     let s = h.session();
+    let port =
+        params.get("port").and_then(Value::as_str).map(str::to_owned).or_else(|| plumcraft_session::run_cmds::default_output(s, &node)).unwrap_or_default();
+    // what this output saves as (spec 7.3): the node's own list, or every format taking its media
+    let formats: Vec<SaveFormat> = plumcraft_session::save_cmds::formats_for(s, &node, &port).into_iter().cloned().collect();
+    if formats.is_empty() {
+        h.say(format!("can't save: {node}.{port} has no save format"));
+        return None;
+    }
+    let s = h.session();
     let title = plumcraft_session::node_title(s.graph(), s.catalog(), &node);
     let stem = if sheet { format!("{title} sheet") } else { title };
-    let name = plumcraft_session::save_cmds::suggested_name(s.catalog(), &stem, index);
+    let first = plumcraft_session::save_cmds::first_extension(&formats.iter().collect::<Vec<_>>()).map(str::to_owned);
+    let name = plumcraft_session::save_cmds::suggested_name_as(s.catalog(), &stem, index, first.as_deref());
     let base = paths::base_folder(s.path());
     let last = s.save.last.as_ref().filter(|(_, r)| r.ok).and_then(|(ask, _)| Path::new(&ask.path).parent().map(Path::to_path_buf));
-    let formats: Vec<SaveFormat> = s.catalog().save_formats.clone();
     // the last save's folder, then the one a save last used in an earlier run
     let remembered = h.prefs().and_then(|p| p.dir(prefs::keys::RESULT_WRITE));
     let folder = last.or(remembered).or_else(|| base.clone()).unwrap_or_default();
@@ -999,6 +1042,99 @@ pub fn save_result(h: &mut impl Host, params: Value, by: By) -> Option<AskId> {
     let p = json!({"purpose": "result", "title": "Save Result", "kinds": kinds, "formats": formats, "name": name, "suggested": folder.join(&name),
                    "startIn": start_in(h, prefs::keys::RESULT_WRITE)});
     Some(raise(h, Kind::FileSave, p, by, Cont { then: Then::SaveResult { params, base }, remember: Some(prefs::keys::RESULT_WRITE) }))
+}
+
+/// The format `run.save`'s `params` (with their `path`) would write: the one of the node's that
+/// takes the path's extension.
+fn save_format_of(s: &Session, params: &Value) -> Option<SaveFormat> {
+    let node = plumcraft_graph::NodeId(params.get("node").and_then(Value::as_str)?.to_owned());
+    let port = params.get("port").and_then(Value::as_str).map(str::to_owned).or_else(|| plumcraft_session::run_cmds::default_output(s, &node))?;
+    let path = PathBuf::from(params.get("path").and_then(Value::as_str)?);
+    let formats = plumcraft_session::save_cmds::formats_for(s, &node, &port);
+    plumcraft_session::save_cmds::format_in(&formats, &path).cloned()
+}
+
+/// An option's value as a form's field shows it.
+fn option_text(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The form Save Result… asks a format's options with (`form`'s params, as [`form_params`]): a
+/// pick list for a choice or a switch, a line for a number or text, each filled in with
+/// `given` or else its default, and `error` when the last answer was refused.
+pub fn save_options_form(format: &SaveFormat, given: &Map<String, Value>, error: Option<&str>) -> Value {
+    use plumcraft_proto::catalogue::scalars;
+    let mut values = Map::new();
+    let fields: Vec<Value> = format
+        .options
+        .iter()
+        .map(|o| {
+            let label = o.label.clone().unwrap_or_else(|| o.name.clone());
+            let choices: Option<Vec<Value>> = match o.choices.as_ref().filter(|c| !c.is_empty()) {
+                Some(c) => Some(c.iter().map(|v| json!({"value": option_text(v), "label": option_text(v), "hint": ""})).collect()),
+                None if o.ty == scalars::BOOL => {
+                    Some(vec![json!({"value": "true", "label": "Yes", "hint": ""}), json!({"value": "false", "label": "No", "hint": ""})])
+                }
+                None => None,
+            };
+            let range = match (o.min, o.max) {
+                (Some(lo), Some(hi)) => format!("from {lo} to {hi}"),
+                (Some(lo), None) => format!("at least {lo}"),
+                (None, Some(hi)) => format!("at most {hi}"),
+                (None, None) => String::new(),
+            };
+            let hint = match o.ty.as_str() {
+                scalars::INT => format!("a whole number {range}"),
+                scalars::FLOAT => format!("a number {range}"),
+                _ => o.tooltip.clone().unwrap_or_default(),
+            };
+            let shown = given.get(&o.name).map_or_else(|| option_text(&o.default), option_text);
+            values.insert(o.name.clone(), Value::from(shown));
+            let mut f = json!({"key": o.name, "label": label, "hint": hint.trim(), "kind": if choices.is_some() { "pick" } else { "line" }, "required": false});
+            if let Some(c) = choices {
+                f["choices"] = Value::Array(c);
+                f["other"] = json!(false);
+            }
+            f
+        })
+        .collect();
+    let mut p = json!({"command": "run.save", "title": format!("Save as {}", format.label), "intro": format!("{} options for this file.", format.label),
+                       "fields": fields, "submit": "Save", "values": values});
+    if let Some(e) = error {
+        p["error"] = json!(e);
+    }
+    p
+}
+
+/// A form's answers read by the options they answer: each as its type, a blank one left to its
+/// default; `Err` says which isn't one.
+pub fn save_options_read(options: &[plumcraft_proto::catalogue::Port], given: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+    use plumcraft_proto::catalogue::scalars;
+    let mut out = Map::new();
+    for o in options {
+        let Some(text) = given.get(&o.name).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) else { continue };
+        let label = o.label.clone().unwrap_or_else(|| o.name.clone());
+        let v = if let Some(c) = o.choices.as_ref().filter(|c| !c.is_empty()) {
+            c.iter().find(|v| option_text(v) == text).cloned().ok_or_else(|| format!("{label} must be one of the choices offered"))?
+        } else {
+            match o.ty.as_str() {
+                scalars::INT => text.parse::<i64>().map(Value::from).map_err(|_| format!("{label} must be a whole number"))?,
+                scalars::FLOAT => text.parse::<f64>().ok().filter(|n| n.is_finite()).map(Value::from).ok_or_else(|| format!("{label} must be a number"))?,
+                scalars::BOOL => match text {
+                    "true" => Value::Bool(true),
+                    "false" => Value::Bool(false),
+                    _ => return Err(format!("{label} must be yes or no")),
+                },
+                _ => Value::from(text),
+            }
+        };
+        out.insert(o.name.clone(), v);
+    }
+    Ok(out)
 }
 
 /// Settings › Appearance › Import… (`import`) or Export…: a theme file.
@@ -1169,5 +1305,32 @@ mod tests {
         tidy(&mut h);
         assert!(h.asks.get(id).is_none());
         assert!(answer(&mut h, id, &json!({"paths": ["/a"]})).unwrap_err().contains("withdrawn"));
+    }
+
+    /// Save Result…'s options form: each option a field as its type asks, filled in with its
+    /// default; what comes back read as that type, a blank left to the default.
+    #[test]
+    fn a_formats_options_are_asked_and_read_by_their_types() {
+        let f: SaveFormat = serde_json::from_value(json!({"id": "x", "label": "X", "extensions": ["x"], "options": [
+            {"name": "q", "type": "INT", "label": "Quality", "default": 90, "min": 1, "max": 100},
+            {"name": "mode", "type": "ENUM", "default": "a", "choices": ["a", "b"]},
+            {"name": "alpha", "type": "BOOL", "default": true},
+            {"name": "gamma", "type": "FLOAT", "default": 2.2},
+            {"name": "note", "type": "STRING", "default": ""}]}))
+        .unwrap();
+        let p = save_options_form(&f, &Map::new(), None);
+        assert_eq!((p["command"].as_str(), p["title"].as_str(), p["submit"].as_str()), (Some("run.save"), Some("Save as X"), Some("Save")));
+        let kinds: Vec<&str> = p["fields"].as_array().unwrap().iter().filter_map(|f| f["kind"].as_str()).collect();
+        assert_eq!(kinds, ["line", "pick", "pick", "line", "line"]);
+        assert_eq!(p["fields"][0]["hint"], "a whole number from 1 to 100");
+        assert_eq!(p["values"], json!({"q": "90", "mode": "a", "alpha": "true", "gamma": "2.2", "note": ""}));
+        let given = |v: Value| v.as_object().cloned().unwrap();
+        let read = save_options_read(&f.options, &given(json!({"q": " 7 ", "mode": "b", "alpha": "false", "gamma": "1.5", "note": "hi"}))).unwrap();
+        assert_eq!(Value::Object(read), json!({"q": 7, "mode": "b", "alpha": false, "gamma": 1.5, "note": "hi"}));
+        assert!(save_options_read(&f.options, &given(json!({"q": ""}))).unwrap().is_empty(), "a blank is the default");
+        for bad in [json!({"q": "seven"}), json!({"q": "1.5"}), json!({"mode": "c"}), json!({"alpha": "maybe"}), json!({"gamma": "inf"})] {
+            assert!(save_options_read(&f.options, &given(bad.clone())).is_err(), "{bad}");
+        }
+        assert_eq!(save_options_form(&f, &Map::new(), Some("no"))["error"], "no");
     }
 }

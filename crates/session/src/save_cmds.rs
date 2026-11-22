@@ -84,8 +84,33 @@ fn bare(ext: &str) -> &str {
 
 /// The format that writes files with `path`'s extension.
 pub fn format_of<'a>(catalog: &'a SchemaReply, path: &Path) -> Option<&'a SaveFormat> {
+    format_in(&catalog.save_formats.iter().collect::<Vec<_>>(), path)
+}
+
+/// The format of `formats` that writes files with `path`'s extension.
+pub fn format_in<'a>(formats: &[&'a SaveFormat], path: &Path) -> Option<&'a SaveFormat> {
     let ext = path.extension()?.to_str()?;
-    catalog.save_formats.iter().find(|f| f.extensions.iter().any(|e| bare(e).eq_ignore_ascii_case(ext)))
+    formats.iter().find(|f| f.extensions.iter().any(|e| bare(e).eq_ignore_ascii_case(ext))).copied()
+}
+
+/// The formats `node`'s output `port` saves as, its default first (spec 7.1, 15: the node's own
+/// list, or every format whose media takes the port's). Empty for a node not in the graph.
+pub fn formats_for<'a>(s: &'a Session, node: &NodeId, port: &str) -> Vec<&'a SaveFormat> {
+    let Some(kind) = s.graph().node(node).map(|n| n.kind.clone()) else { return Vec::new() };
+    // a Convert's value is its last step's (spec 7.3): that step's output saves it
+    if kind == plumcraft_proto::convert::KIND
+        && let Some((step_kind, step_output)) = s.graph().convert_path(s.catalog(), node).and_then(|p| p.last().map(|l| (l.kind, l.output)))
+        && let Some(def) = s.catalog().node(step_kind)
+    {
+        return s.catalog().save_formats_for(def, step_output);
+    }
+    let Some(def) = s.catalog().node(&kind) else { return Vec::new() };
+    s.catalog().save_formats_for(def, port)
+}
+
+/// The extension a bare name gets among `formats`: the first's first.
+pub fn first_extension<'a>(formats: &[&'a SaveFormat]) -> Option<&'a str> {
+    formats.first().and_then(|f| f.extensions.first()).map(|e| bare(e)).filter(|e| !e.is_empty())
 }
 
 /// Does some format write a value of kind `media`?
@@ -110,8 +135,14 @@ pub fn save_path(path: &str, base: Option<&Path>, extension: Option<&str>) -> Pa
 }
 
 /// The file name offered for a save: the node's title without the catalogue's result prefix,
-/// made safe for a file name, with the list item's number when there is one.
+/// made safe for a file name, with the list item's number when there is one, and the catalogue's
+/// first format's extension.
 pub fn suggested_name(catalog: &SchemaReply, title: &str, index: Option<i64>) -> String {
+    suggested_name_as(catalog, title, index, default_extension(catalog))
+}
+
+/// [`suggested_name`] with extension `ext` (a node's first format's, [`first_extension`]).
+pub fn suggested_name_as(catalog: &SchemaReply, title: &str, index: Option<i64>, ext: Option<&str>) -> String {
     let prefix = catalog.text(texts::RESULT_PREFIX).unwrap_or_default().trim();
     let stem = title.trim();
     let stem = if prefix.is_empty() { stem } else { [prefix, prefix.trim_end_matches(':')].iter().find_map(|p| stem.strip_prefix(p)).unwrap_or(stem).trim() };
@@ -119,7 +150,7 @@ pub fn suggested_name(catalog: &SchemaReply, title: &str, index: Option<i64>) ->
     let safe = safe.trim_matches(|c: char| c == '.' || c == '-' || c.is_whitespace());
     let name = if safe.is_empty() { "result" } else { safe };
     let numbered = index.map_or_else(|| name.to_owned(), |i| format!("{name}-{i:02}"));
-    match default_extension(catalog) {
+    match ext {
         Some(e) => format!("{numbered}.{e}"),
         None => numbered,
     }
@@ -203,8 +234,13 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(SessionError::Params("\"path\" names where to save".into()));
     }
     let base = crate::paths::base_folder(s.path());
-    let path = save_path(raw, base.as_deref(), default_extension(s.catalog()));
-    let format = format_of(s.catalog(), &path);
+    // what this output saves as: the node's own list, or every format that takes its media
+    let offered = formats_for(s, &node, &port);
+    if offered.is_empty() {
+        return Err(SessionError::Params(format!("{node}.{port} has no save format: nothing its engine saves takes this value")));
+    }
+    let path = save_path(raw, base.as_deref(), first_extension(&offered));
+    let format = format_in(&offered, &path);
     let options = options(p, format)?;
     let format = format.map(|f| f.id.clone()).unwrap_or_default();
     let path = path.to_string_lossy().into_owned();
@@ -359,6 +395,35 @@ mod tests {
         let mut empty = Session::new(catalog());
         empty.connected = true;
         assert!(empty.execute("run.save", &json!({"node": "n", "path": "a.pic"})).unwrap_err().to_string().contains("empty"));
+    }
+
+    /// Spec 7.3 `save_formats`: each output offers the formats that take its media, or the
+    /// node's own list in its order; the first names a bare file, and one with none refuses.
+    #[test]
+    fn each_output_offers_its_own_formats() {
+        let (mut s, id) = session();
+        let ids = |s: &Session, port: &str| formats_for(s, &NodeId::from(id.as_str()), port).iter().map(|f| f.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&s, "picture"), ["pic", "rough"]);
+        assert_eq!(ids(&s, "note"), ["rough"], "TEXT isn't what Picture writes");
+        s.execute("run.save", &json!({"node": id, "port": "note", "path": "n"})).unwrap();
+        let out = s.save.take_outbox();
+        assert!(out[0].path.as_deref().is_some_and(|p| p.ends_with("n.rgh")) && out[0].format == "rough", "{:?}", out[0].path);
+        s.save.fail("done");
+        // a node's own list
+        let mut c = catalog();
+        c.nodes[0].save_formats = Some(vec!["rough".into(), "pic".into()]);
+        c.nodes.push(serde_json::from_value(json!({"id": "t.none", "outputs": [{"name": "picture", "type": "ARRAY"}], "save_formats": []})).unwrap());
+        let mut s = Session::new(c);
+        s.connected = true;
+        let a = s.execute("node.add", &json!({"kind": "t.out"})).unwrap()["id"].as_str().unwrap().to_owned();
+        let b = s.execute("node.add", &json!({"kind": "t.none"})).unwrap()["id"].as_str().unwrap().to_owned();
+        assert_eq!(formats_for(&s, &NodeId::from(a.as_str()), "picture").iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["rough", "pic"]);
+        s.execute("run.save", &json!({"node": a, "path": "p"})).unwrap();
+        assert_eq!(s.save.take_outbox()[0].format, "rough", "the node's first");
+        s.save.fail("done");
+        let e = s.execute("run.save", &json!({"node": b, "path": "p.pic"})).unwrap_err().to_string();
+        assert!(e.contains("no save format"), "{e}");
+        assert_eq!(suggested_name_as(&s.catalog().clone(), "Out: x", None, Some("rgh")), "x.rgh");
     }
 
     #[test]

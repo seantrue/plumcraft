@@ -43,7 +43,7 @@ UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas"}
+_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save"}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1
@@ -343,6 +343,11 @@ class Engine:
     vary: ClassVar[bool] = False
     # Offer every building block (`with_building_blocks`: Vary, sequences, files) too.
     building_blocks: ClassVar[bool] = False
+    # Save formats of its own (`plumcraft_engine.save.Format`), beside (or in place of) the SDK's
+    # defaults for the core types its nodes output (Save Result, `output.save`).
+    save_formats: ClassVar[tuple[Any, ...]] = ()
+    # Offer the SDK's default save formats.
+    default_save_formats: ClassVar[bool] = True
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -375,6 +380,10 @@ class Engine:
         self.persist_ms: float | None = persist_ms_from_env()
         # what a node's own work is measured on (the real clock unless a test gives one)
         self.clock: Clock = RealClock()
+        # Save Result: its own formats, the defaults' ids it took away, and whether it has them
+        self._own_formats: list[Any] = list(type(self).save_formats)
+        self._removed_formats: list[str] = []
+        self._default_formats = bool(type(self).default_save_formats)
         from .declare import bind
 
         bind(self)
@@ -439,6 +448,37 @@ class Engine:
         self.nodes[n.definition["id"]] = n
         return self
 
+    def with_save_format(self, f: Any) -> Engine:
+        """Offer save format `f` (a `plumcraft_engine.save.Format`): added, or in place of a
+        format of the same id, the SDK's defaults' included."""
+        self._removed_formats = [i for i in self._removed_formats if i != f.id]
+        self._own_formats = [x for x in self._own_formats if x.id != f.id] + [f]
+        return self
+
+    def without_save_format(self, format_id: str) -> Engine:
+        """Don't offer the save format `format_id` (a default, or one of its own)."""
+        self._own_formats = [x for x in self._own_formats if x.id != format_id]
+        if format_id not in self._removed_formats:
+            self._removed_formats.append(format_id)
+        return self
+
+    def without_default_save_formats(self) -> Engine:
+        """Offer none of the SDK's default save formats, only its own."""
+        self._default_formats = False
+        return self
+
+    def all_save_formats(self) -> list[Any]:
+        """The save formats it offers (`plumcraft_engine.save.formats_of`): the SDK's defaults for
+        the core types its nodes output, then its own."""
+        from . import save
+
+        types: list[str] = []
+        for k in sorted(self.nodes):
+            for o in self.nodes[k].definition.get("outputs", []):
+                if o.get("type") not in types:
+                    types.append(o.get("type"))
+        return save.formats_of(types, self._own_formats, self._removed_formats, self._default_formats)
+
     def wire_type(self, type_id: str) -> dict | None:
         return next((w for w in self.wire_types if w["id"] == type_id), None)
 
@@ -449,6 +489,9 @@ class Engine:
             "wire_types": self.wire_types,
             "nodes": [self.nodes[k].definition for k in sorted(self.nodes)],
         }
+        formats = self.all_save_formats()
+        if formats:
+            out["save_formats"] = [f.definition() for f in formats]
         # With ANY declared: the base conversions, plus every type to and from ANY.
         if self.wire_type(ANY) is not None:
             compat = [{"from": f, "to": t} for f, t in (("INT", "FLOAT"), ("STRING", "ENUM"), ("ENUM", "STRING"))]
@@ -468,7 +511,8 @@ class Engine:
         if hi < lo:
             raise ProtoError(VERSION, f"engine speaks protocol {PROTOCOL}–{PROTOCOL}, this app {rng.get('min')}–{rng.get('max')}")
         client = req.get("caps") if isinstance(req.get("caps"), list) else []
-        caps = sorted(c for c in self.caps if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
+        offered = set(self.caps) | ({"output.save"} if self.all_save_formats() else set())
+        caps = sorted(c for c in offered if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
         reply = {"v": PROTOCOL, "protocol": hi, "session": session, "engine": self.info, "caps": caps}
         # spec 4.3: the one algorithm this process hashes in, which the client must share (D8)
         reply["data"] = {"algos": [ck_digest.current()]}

@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Save Result as a basic feature of both engine SDKs (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** asked whether to add save formats to the Rust SDK or leave floor row F19 unmet, and told which SDK was meant: "Make the save an basic feature."
+
+**What the agent did.** An engine built on either SDK (Rust `crates/engine`, Python `plumcraft_engine`) now offers Save Result with no code: default formats per core type (text, CSV and JSON for tables, PNG and JPEG for pictures and arrays, NumPy files, SVG, WAV), which an engine can add to, replace or remove, per engine or per node. The audio engine declares WAV, FLAC and AIFF this way. On the editor side the agent found and fixed five gaps: Save Result… worked only in egui (the core now asks for the file and the format's options itself, so every shell gets it); options were never asked for; formats were offered catalogue-wide, not per output; a remote engine's returned files were never written to disk; egui's form window drew only static forms. The interface gained an optional `save_formats` on a node definition and the save's rules spelled out; all additive.
+
+**Defects in the agent's own work, caught by tests:** a Python method shadowed by a class attribute of the same name; eight egui save tests broken by the new options form until they went through it; an early version that used an engine's file names as paths, replaced by numbering from the name the person chose; four tests that asserted the text engine could not save.
+
+**Verified (agent, Mac).** nextest 1,634 of 1,635 (the known baseline failure); Python 242; a conformance case that saves a result node's value in two formats and reads the bytes back, on the core's document, the C ABI and egui. **Not verified:** any launched app (F19 stays not met by the launch rule); a save across two engines; the returned-files route end to end.
 ### 2026-11-22 — The iPad's stray keyboard is the system's, not the app's (B118); keyboard and first responder in the status (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1 - leave as process; 2 - leave as mac only; 3 - which rust sdk?; 4 - look now": egui keeps audio as a process, the test engine stays Mac-only, and B118 is looked into now. Question 3 was answered later ("Make the save an basic feature.").

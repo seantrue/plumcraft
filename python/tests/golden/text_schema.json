@@ -1662,6 +1662,88 @@
    ]
   }
  ],
+ "save_formats": [
+  {
+   "id": "txt",
+   "label": "Text",
+   "extensions": [
+    "txt"
+   ],
+   "options": [],
+   "media": [
+    "text"
+   ]
+  },
+  {
+   "id": "csv",
+   "label": "CSV",
+   "extensions": [
+    "csv"
+   ],
+   "options": [],
+   "media": [
+    "table"
+   ]
+  },
+  {
+   "id": "json",
+   "label": "JSON",
+   "extensions": [
+    "json"
+   ],
+   "options": [],
+   "media": [
+    "tree",
+    "table"
+   ]
+  },
+  {
+   "id": "png",
+   "label": "PNG",
+   "extensions": [
+    "png"
+   ],
+   "options": [],
+   "media": [
+    "image",
+    "ndarray"
+   ]
+  },
+  {
+   "id": "jpeg",
+   "label": "JPEG",
+   "extensions": [
+    "jpg",
+    "jpeg"
+   ],
+   "options": [
+    {
+     "name": "quality",
+     "type": "INT",
+     "label": "Quality",
+     "default": 90,
+     "min": 1.0,
+     "max": 100.0
+    }
+   ],
+   "media": [
+    "image",
+    "ndarray"
+   ]
+  },
+  {
+   "id": "npy",
+   "label": "NumPy array",
+   "extensions": [
+    "npy"
+   ],
+   "options": [],
+   "media": [
+    "ndarray",
+    "audio"
+   ]
+  }
+ ],
  "compat": [
   {
    "from": "INT",

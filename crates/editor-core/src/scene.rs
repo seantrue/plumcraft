@@ -1628,9 +1628,11 @@ fn run_footer(cx: &Ctx<'_>, id: &NodeId, def: Option<&NodeDef>, n: &NodeRun, ful
         out.push(Footer::Error { text: short, full, paint: cx.tok(token) });
     }
     // A result that has run: save it with its recipe; a list of them also as one contact sheet.
-    if !cx.i.catalog.save_formats.is_empty()
-        && matches!(n.state, Some(NodeState::Done | NodeState::Cached))
-        && let Some(port) = def.filter(|d| d.flags.result).and_then(|d| d.outputs.first()).map(|o| o.name.clone())
+    if matches!(n.state, Some(NodeState::Done | NodeState::Cached))
+        && let Some(d) = def.filter(|d| d.flags.result)
+        && let Some(port) = d.outputs.first().map(|o| o.name.clone())
+        // something its engine saves takes this value (spec 7.3 save_formats)
+        && !cx.i.catalog.save_formats_for(d, &port).is_empty()
     {
         let items = match &n.thumb {
             Some(Rendition::Rgba8 { items, .. }) => *items,

@@ -320,6 +320,7 @@ class _Mark:
     converts: bool | tuple[str, str] | None = None
     lossless: bool = False
     shape: str | None = None
+    save_formats: tuple[str, ...] | None = None
 
 
 def node(
@@ -338,6 +339,7 @@ def node(
     converts: bool | tuple[str, str] | None = None,
     lossless: bool = False,
     shape: str | None = None,
+    save_formats: Iterable[str] | None = None,
 ) -> Any:
     """Mark a method as a node. Bare (`@node`) or with options (`@node("Upper case")`).
 
@@ -357,6 +359,9 @@ def node(
       `("WAV", "AUDIO")`. `lossless=True` says the inverse gives the value back. `shape`
       (`"image"`, `"series"` or `"video"`) says what its ARRAY end is, so a path never hands a picture to
       a step that wants a signal or a table.
+    - `save_formats`: the save formats (by id) its outputs save as, in order, the first the
+      default (Save Result, `NodeDef.save_formats`); default every format whose media takes the
+      output's, `[]` none.
 
     The decorator only tags the function (as impressionist's `@checkpoint` does); the engine
     class compiles it.
@@ -370,7 +375,12 @@ def node(
         raise DeclarationError("converts must be True or a (from, to) pair of type ids")
     if shape is not None and (not converts or shape not in SHAPES):
         raise DeclarationError(f"shape is one of {', '.join(SHAPES)}, on a node that converts")
-    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x, converts or None, bool(lossless), shape)
+    if isinstance(save_formats, str):
+        raise DeclarationError("save_formats is a list of format ids, not one")
+    formats = tuple(save_formats) if save_formats is not None else None
+    if formats is not None and not all(isinstance(f, str) for f in formats):
+        raise DeclarationError("save_formats is a list of format ids")
+    mark = _Mark(display, id, cat, description, out, family, icon, version, memo, flags, x, converts or None, bool(lossless), shape, formats)
 
     def tag(fn: F) -> F:
         if not inspect.isfunction(fn):
@@ -665,6 +675,8 @@ def _compile_node(ctx: _Ctx, cls: type, method: str, fn: Callable[..., Any], mar
         d["x"] = dict(mark.x)
     if mark.converts:
         d["converts"] = _converts(where, mark.converts, mark.lossless, inputs, outs, mark.shape)
+    if mark.save_formats is not None:
+        d["save_formats"] = list(mark.save_formats)
     return NodeSpec(method, fn, d, params, cx_arg, names, tuple_out)
 
 

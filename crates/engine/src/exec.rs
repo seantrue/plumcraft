@@ -287,20 +287,34 @@ impl Run<'_> {
 /// Run a request to completion and return the authoritative reply. Never panics on a bad graph:
 /// that is a reply with a `graph` error.
 pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &CancelToken, publisher: &str, memo: &mut Memo, plane: &Plane<'_>) -> RunReply {
+    run_values(engine, req, emit, cancel, publisher, memo, plane).0
+}
+
+/// [`run`], and the values each node that finished made, by node id (what `output.save` writes,
+/// [`crate::save`]).
+pub fn run_values(
+    engine: &Engine,
+    req: &RunRequest,
+    emit: &mut dyn Emit,
+    cancel: &CancelToken,
+    publisher: &str,
+    memo: &mut Memo,
+    plane: &Plane<'_>,
+) -> (RunReply, BTreeMap<String, Outputs>) {
     let started = Instant::now();
     let mut reply = RunReply { v: PROTOCOL, run_id: req.run_id.clone(), generation: req.generation, ..Default::default() };
     let mut workflow = match parse(engine, req) {
         Ok(w) => w,
         Err(e) => {
             reply.error = Some(e);
-            return reply;
+            return (reply, BTreeMap::new());
         }
     };
     let order = match topo_order(&workflow) {
         Ok(o) => o,
         Err(e) => {
             reply.error = Some(e);
-            return reply;
+            return (reply, BTreeMap::new());
         }
     };
     // Bindings (spec 7.6 rule 10) replace the wires into the ports they name, so what fed those
@@ -531,7 +545,7 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
         stats.tree = Some(st.usage());
     }
     reply.stats = Some(stats);
-    reply
+    (reply, values)
 }
 
 /// The input key under which a Vary Choices node gets the choices of the inputs it feeds.

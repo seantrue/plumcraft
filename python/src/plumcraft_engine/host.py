@@ -23,6 +23,7 @@ from collections.abc import Callable
 from typing import Any
 
 from . import BAD_PARAMS, NOT_FOUND, PROTOCOL, UNAVAILABLE, UNKNOWN_OP, CancelToken, Engine, NodeError, ProtoError, data, exec, now_ts
+from . import save as save_mod
 
 Factory = Callable[[], Engine]
 
@@ -34,6 +35,16 @@ MAX_WAIT_MS = 30_000
 # How long `hello` waits for the engine to be built (the Rust host's `HELLO_WAIT`).
 HELLO_WAIT_S = 8.0
 TERMINAL = {"done", "cached", "error", "skipped", "cancelled"}
+# The longest a save may take, its wait behind a run included (spec 6.1).
+SAVE_WAIT_S = 300.0
+
+
+class _SaveJob:
+    """An `output.save` for the worker, and where its answer goes."""
+
+    def __init__(self, req: dict):
+        self.req = req
+        self.answer: queue.Queue[dict] = queue.Queue(maxsize=1)
 
 
 def _write_nonce(root: str) -> tuple[str, str] | None:
@@ -111,7 +122,7 @@ class Host:
         self._same_host = {"shm": in_process, "path": in_process}
         self._nonce_path: str | None = None
         self._urls = False
-        self._jobs: queue.Queue[tuple[dict, CancelToken] | None] = queue.Queue()
+        self._jobs: queue.Queue[tuple[dict, CancelToken] | _SaveJob | None] = queue.Queue()
         self.session = f"s-{os.getpid()}"
         self._worker = threading.Thread(target=self._worker_loop, name="plumcraft-engine", daemon=True)
         self._worker.start()
@@ -241,6 +252,18 @@ class Host:
         self._jobs.put((req, cancel))
         return {"accepted": True, "run_id": run_id, "queued_behind": queued_behind}
 
+    def save(self, req: dict) -> dict:
+        """`output.save` (spec 15), waiting for the worker: it takes its turn behind any run and
+        answers when the files are written, or after `SAVE_WAIT_S` (spec 6.1). A failure is data."""
+        if not self._worker.is_alive():
+            return save_mod.failed(NodeError(NodeError.ENGINE, "the engine has stopped"))
+        job = _SaveJob(req)
+        self._jobs.put(job)
+        try:
+            return job.answer.get(timeout=SAVE_WAIT_S)
+        except queue.Empty:
+            return save_mod.failed(NodeError(NodeError.ENGINE, f"no answer in {int(SAVE_WAIT_S)} s"))
+
     def cancel(self, run_id: str) -> None:
         """Cancel at once, off the run path. Idempotent; an unknown run leaves a tombstone (spec 11)."""
         with self._lock:
@@ -317,6 +340,8 @@ class Host:
             return self.get(s("run_id"))
         if method == "events.poll":
             return self.poll(n("since"), n("wait_ms"), s("run_id") or None)
+        if method == "output.save":
+            return self.save(p)
         raise ProtoError(UNKNOWN_OP, f"unknown op {exec.quoted(method[:64])}")
 
     def shutdown(self, wait: bool = True) -> None:
@@ -353,6 +378,19 @@ class Host:
             job = self._jobs.get()
             if job is None:
                 break
+            if isinstance(job, _SaveJob):
+                with self._lock:
+                    engine, shm = self._engine, self._same_host["shm"]
+                if engine is None:
+                    job.answer.put(save_mod.failed(NodeError(NodeError.ENGINE, "the engine has stopped")))
+                    continue
+                plane = data.Plane(engine.store_root, shm, engine.limits["max_inline"], urls=self._urls)
+                try:
+                    job.answer.put(save_mod.save(engine, job.req, store, plane, CancelToken(), publisher))
+                except Exception as e:  # a bug in the SDK, not a node: the engine carries on
+                    traceback.print_exc()
+                    job.answer.put(save_mod.failed(NodeError(NodeError.ENGINE, f"the save failed ({type(e).__name__}: {e})")))
+                continue
             req, cancel = job
             run_id, generation = req["run_id"], req.get("generation", 0)
             with self._lock:
@@ -397,6 +435,8 @@ class Host:
                 job = self._jobs.get_nowait()
             except queue.Empty:
                 break
-            if job is not None:
+            if isinstance(job, _SaveJob):
+                job.answer.put(save_mod.failed(NodeError(NodeError.ENGINE, "the engine has stopped")))
+            elif job is not None:
                 req, _ = job
                 self._finish(failed_reply(req["run_id"], req.get("generation", 0), NodeError(NodeError.ENGINE, "the engine has stopped")))

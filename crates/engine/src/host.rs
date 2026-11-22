@@ -518,7 +518,7 @@ fn set_state(shared: &Shared, state: EngineState) {
 /// either fails.
 fn build(shared: &Shared, factory: &mut Factory) -> Option<Option<Box<dyn EngineCore>>> {
     let built = factory().and_then(|engine| {
-        let state = EngineState::Connected { version: engine.info().version.clone(), nodes: engine.schema().nodes.len() as u64, caps: engine.caps().clone() };
+        let state = EngineState::Connected { version: engine.info().version.clone(), nodes: engine.schema().nodes.len() as u64, caps: engine.caps() };
         let core = engine.core().map(|make| make()).transpose()?;
         {
             let mut t = shared.lock();
@@ -602,7 +602,8 @@ fn worker_loop(shared: &Shared, mut factory: Factory, jobs: &Receiver<Work>) {
                 let plane = plane_of(shared, &engine);
                 let result = catch_unwind(AssertUnwindSafe(|| match core.as_mut() {
                     Some(c) => c.save(*req, &plane, &CancelToken::default()),
-                    None => SaveReply::unsupported(),
+                    // this crate's executor saves with the engine's formats (crate::save)
+                    None => crate::save::save(&engine, *req, &mut memo, &plane, &CancelToken::default(), &publisher),
                 }));
                 let failure = match result {
                     Ok(answer) => {
@@ -779,12 +780,12 @@ mod core_tests {
     }
 
     #[test]
-    fn an_engine_with_no_core_of_its_own_says_it_cannot_save() {
+    fn an_engine_on_the_executor_refuses_what_it_cannot_save_as_config() {
         let info = EngineInfo { id: "plain".into(), name: "Plain".into(), ..Default::default() };
         let h = Host::start(Box::new(move || Ok(Engine::new(info.clone()).with_store(None))), None);
         h.wait_ready(Duration::from_secs(5));
         let r = saved(&h, "n");
-        assert!(!r.ok && r.error.unwrap().message.contains("not supported"));
+        assert!(!r.ok && r.error.as_ref().is_some_and(|e| e.kind == NodeError::CONFIG), "{r:?}");
     }
 
     #[test]

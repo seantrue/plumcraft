@@ -18,3 +18,4 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }
+plumcraft-store = { workspace = true }

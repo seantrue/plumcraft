@@ -96,11 +96,13 @@ fn copy_puts_the_value_on_the_clipboard_through_the_core() {
 fn save_as_goes_through_the_cores_save() {
     let (mut h, seen, _) = rig();
     click(&mut h, popouts::SAVE_AS);
-    // value.saveAs is run.save's: the text engine writes no files (no `output.save`), so the core
-    // says why and asks nothing; an engine that writes gets the save dialog (kittest_save)
-    assert!(seen.saves.lock().unwrap().is_empty());
-    let said = h.state().last_error.clone().unwrap_or_default();
-    assert!(said.starts_with("can't save:"), "{said}");
+    // value.saveAs is run.save's: the text engine saves TEXT through the SDK's defaults (Save
+    // Result as a basic feature, 2026-11-22), so the core asks where, offering the node's title
+    // as a .txt file (this dialog cancels; kittest_save follows one to the file)
+    let saves = seen.saves.lock().unwrap().clone();
+    assert_eq!(saves.len(), 1, "the save dialog, once");
+    assert_eq!(saves[0].extension().and_then(|e| e.to_str()), Some("txt"), "{saves:?}");
+    assert!(h.state().session.save.pending.is_none(), "cancelled: nothing saved");
 }
 
 #[test]

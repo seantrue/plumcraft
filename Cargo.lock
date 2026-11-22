@@ -3048,6 +3048,7 @@ dependencies = [
  "plumcraft-graph",
  "plumcraft-host",
  "plumcraft-media",
+ "plumcraft-ports",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
@@ -3083,9 +3084,11 @@ dependencies = [
  "plumcraft-automation",
  "plumcraft-coordinator",
  "plumcraft-editor-core",
+ "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
  "plumcraft-media",
+ "plumcraft-ports",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
@@ -3142,6 +3145,7 @@ dependencies = [
  "plumcraft-engine",
  "plumcraft-proto",
  "plumcraft-scratch",
+ "plumcraft-store",
  "serde_json",
 ]
 

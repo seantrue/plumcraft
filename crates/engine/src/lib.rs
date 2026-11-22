@@ -23,6 +23,7 @@ pub mod local;
 pub mod persist;
 pub mod register;
 pub mod rpc;
+pub mod save;
 pub mod seq;
 pub mod serve;
 pub mod vary;
@@ -432,6 +433,10 @@ pub struct Engine {
     core: Option<CoreFactory>,
     catalogue: Option<SchemaReply>,
     pack_ops: BTreeMap<String, PackOp>,
+    /// Save formats of its own ([`save`]), and the defaults' ids it took away.
+    save_formats: Vec<save::Format>,
+    removed_formats: Vec<String>,
+    default_formats: bool,
 }
 
 /// A pack operation's handler (spec `x.<pack>.<op>`, section 15): its params in, its result out.
@@ -476,6 +481,58 @@ impl Engine {
             core: None,
             catalogue: None,
             pack_ops: BTreeMap::new(),
+            save_formats: Vec::new(),
+            removed_formats: Vec::new(),
+            default_formats: true,
+        }
+    }
+
+    /// Offer save format `f` (Save Result, [`save`]): added, or in place of a format of the same
+    /// id, the SDK's defaults' included.
+    pub fn with_save_format(mut self, f: save::Format) -> Self {
+        self.removed_formats.retain(|id| *id != f.def.id);
+        self.save_formats.retain(|x| x.def.id != f.def.id);
+        self.save_formats.push(f);
+        self
+    }
+
+    /// Don't offer the save format `id` (a default, or one of its own).
+    pub fn without_save_format(mut self, id: &str) -> Self {
+        self.save_formats.retain(|x| x.def.id != id);
+        if !self.removed_formats.iter().any(|r| r == id) {
+            self.removed_formats.push(id.to_owned());
+        }
+        self
+    }
+
+    /// Offer none of the SDK's default save formats, only its own.
+    pub fn without_default_save_formats(mut self) -> Self {
+        self.default_formats = false;
+        self
+    }
+
+    /// The save formats it offers ([`save::formats_of`]): the SDK's defaults for the core types
+    /// its nodes output, then its own. An engine with a core of its own offers its catalogue's.
+    pub fn save_formats(&self) -> Vec<save::Format> {
+        if self.catalogue.is_some() {
+            return Vec::new();
+        }
+        let mut types: Vec<String> = Vec::new();
+        for n in self.nodes.values() {
+            for o in n.def().outputs {
+                if !types.contains(&o.ty) {
+                    types.push(o.ty);
+                }
+            }
+        }
+        save::formats_of(&types, &self.save_formats, &self.removed_formats, self.default_formats)
+    }
+
+    /// Whether it saves results (`output.save`): it lists a save format.
+    fn saves(&self) -> bool {
+        match &self.catalogue {
+            Some(c) => !c.save_formats.is_empty(),
+            None => !self.save_formats().is_empty(),
         }
     }
 
@@ -625,8 +682,13 @@ impl Engine {
         &self.info
     }
 
-    pub fn caps(&self) -> &Caps {
-        &self.caps
+    /// Its capabilities: those declared, and `output.save` when it lists a save format.
+    pub fn caps(&self) -> Caps {
+        let mut caps = self.caps.clone();
+        if self.saves() {
+            caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
+        }
+        caps
     }
 
     pub fn schema(&self) -> SchemaReply {
@@ -648,6 +710,7 @@ impl Engine {
             wire_types: self.wire_types.clone(),
             compat,
             nodes: self.nodes.values().map(|n| n.def()).collect(),
+            save_formats: self.save_formats().into_iter().map(|f| f.def).collect(),
             ..Default::default()
         }
     }
@@ -662,7 +725,7 @@ impl Engine {
             protocol,
             session: session.into(),
             engine: self.info.clone(),
-            caps: Caps::negotiate(&req.caps, &self.caps),
+            caps: Caps::negotiate(&req.caps, &self.caps()),
             limits: self.limits,
             // spec 4.3: the one algorithm it hashes in (commonkit's switch), which the client
             // must share exactly (D8)

@@ -23,7 +23,8 @@
 //! rows, `crates/ports`, is connected or installed: never in a shipped app), `media` (it serves `media.get`), `reports` (the suite gives it its
 //! measurements), `manifests` (its engines folder is the suite's), `install` (its platform can
 //! install engines and its core asks Install Engine… with the core's form: a shell with no
-//! install window of its own; decision 5, N4 person gate). A case a driver can't run is skipped, and the outcome says so.
+//! install window of its own; decision 5, N4 person gate), `saves` (its shell can write the
+//! case's `$scratch` folder, below: Save Result's files). A case a driver can't run is skipped, and the outcome says so.
 //!
 //! A step is one of:
 //!
@@ -44,7 +45,8 @@
 //! - `only: capability` (or a list) on any step runs it only on a driver that has it.
 //!
 //! **Values.** A string `"$v"` is the saved value `v` (any JSON); `$v` inside a longer string is
-//! its text. An object `{"$locate": {node | wire | frame, part?, pin?}, "$plus"?: [dx, dy]}` is
+//! its text. `$scratch` is a folder the runner makes for each case (an absolute path, under the
+//! test process's scratch root), for files the shell writes. An object `{"$locate": {node | wire | frame, part?, pin?}, "$plus"?: [dx, dy]}` is
 //! the point `geometry.locate` gives, moved by `$plus`: so a case aims at what the shell
 //! measured, whatever its sizes. A want is a value (numbers equal within 1e-3), or one of
 //! `{"$len": n}`, `{"$exists": bool}`, `{"$contains": v}`, `{"$deep": {k: v}}` (some object in
@@ -204,6 +206,13 @@ pub fn run_case(d: &mut dyn Driver, case: &Value) -> Outcome {
         return Outcome { name, steps: 0, error: None, skipped: Some(format!("{} lacks {}", d.name(), lacks.join(", "))) };
     }
     let mut vars = Map::new();
+    // `$scratch`: a folder of this case's own, made by the runner, for what a shell writes
+    // (`saves`: Save Result's files), never the person's own
+    static CASES_RUN: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = CASES_RUN.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let scratch = plumcraft_scratch::dir(&format!("conformance-case-{n}"));
+    let scratch = std::fs::canonicalize(&scratch).unwrap_or(scratch);
+    vars.insert("scratch".into(), Value::from(scratch.display().to_string()));
     let fresh = d.call("command.run", json!({"command": "graph.new", "params": {"discard": true}}));
     if fresh["ok"] != true {
         return Outcome { name, steps: 0, error: Some(format!("graph.new: {fresh}")), skipped: None };
@@ -668,5 +677,69 @@ mod tests {
         let steps: usize = out.iter().map(|o| o.steps).sum();
         assert!(out.len() >= 15 && steps >= 150, "{} cases, {steps} steps", out.len());
         eprintln!("{} ({steps} steps)", summary(&d.name(), &out));
+    }
+
+    /// [`DocDriver`] linked to the test engine (`crates/ports`) in process: its turn pumps the
+    /// save, and the case's `$scratch` is this machine's (`saves`).
+    struct PortsDoc(DocDriver);
+
+    impl Driver for PortsDoc {
+        fn name(&self) -> String {
+            "the core's document, linked to the test engine".into()
+        }
+        /// Every request as a shell's control port takes it (`ui.waitRun` waits, answered by
+        /// the document's turns and the control's tick), for at most 70 s.
+        fn call(&mut self, method: &str, params: Value) -> Value {
+            let (tx, rx) = std::sync::mpsc::channel();
+            crate::control::handle(
+                &mut self.0.0,
+                method,
+                &params,
+                Box::new(move |v| {
+                    let _ = tx.send(v);
+                }),
+            );
+            let t0 = std::time::Instant::now();
+            loop {
+                if let Ok(v) = rx.try_recv() {
+                    return v;
+                }
+                if t0.elapsed() > std::time::Duration::from_secs(70) {
+                    return json!({"ok": false, "error": format!("{method}: no reply in 70 s")});
+                }
+                crate::document::turn(&mut self.0.0);
+                crate::control::tick(&mut self.0.0);
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        fn reports(&self) -> bool {
+            true
+        }
+        fn pause(&mut self) {
+            self.0.pause();
+        }
+        fn report_geometry(&mut self, faces: &Value) -> Result<(), String> {
+            let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
+            if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
+        }
+        fn has(&self, capability: &str) -> bool {
+            matches!(capability, "engine:ports" | "saves")
+        }
+    }
+
+    /// Save Result (F19) on the core's own document: the test engine's cases, the save's among
+    /// them, as every shell's control port runs them.
+    #[test]
+    fn the_ports_cases_pass_on_the_cores_own_document() {
+        let host = plumcraft_engine::host::Host::start(Box::new(|| Ok(plumcraft_ports::engine())), None);
+        host.wait_ready(std::time::Duration::from_secs(20));
+        let conn: std::sync::Arc<dyn plumcraft_host::Connection> = std::sync::Arc::new(plumcraft_host::InProc(host));
+        let mut doc = crate::document::Document::new(plumcraft_session::Session::new(plumcraft_ports::engine().schema()));
+        doc.link_now(crate::link::Link::start(conn, "in-process", None).unwrap());
+        let mut d = PortsDoc(DocDriver(doc));
+        let cases: Vec<Value> = cases().unwrap().into_iter().filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("engine:ports")))).collect();
+        assert!(cases.iter().any(|c| c["needs"].as_array().is_some_and(|n| n.contains(&json!("saves")))), "the save's case is among them");
+        let out: Vec<Outcome> = cases.iter().map(|c| run_case(&mut d, c)).collect();
+        assert!(out.iter().all(|o| o.error.is_none() && o.skipped.is_none()), "{}", summary(&d.name(), &out));
     }
 }

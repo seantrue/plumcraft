@@ -72,8 +72,9 @@ impl Driver for Egui {
         Ok(())
     }
     /// The engine it was linked to. Its control port has no `media.get`.
+    /// `saves`: the case's `$scratch` folder is this machine's, which the editor writes.
     fn has(&self, capability: &str) -> bool {
-        capability == "manifests" || capability.strip_prefix("engine:") == Some(self.1)
+        capability == "manifests" || capability == "saves" || capability.strip_prefix("engine:") == Some(self.1)
     }
     /// A frame, and a moment for the engine's events to arrive.
     fn pause(&mut self) {

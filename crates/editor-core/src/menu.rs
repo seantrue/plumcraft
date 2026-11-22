@@ -1085,9 +1085,11 @@ fn node_menu(parts: &Parts<'_>, facts: &Facts, id: &NodeId) -> Vec<Item> {
     }
     // a result node's Save Result…, once a run made it and the engine has somewhere to put it
     if let Some(run) = parts.run.node(&id.0)
-        && !catalog.save_formats.is_empty()
         && matches!(run.state, Some(NodeState::Done | NodeState::Cached))
-        && let Some(port) = def.filter(|d| d.flags.result).and_then(|d| d.outputs.first()).map(|o| o.name.clone())
+        && let Some(d) = def.filter(|d| d.flags.result)
+        && let Some(port) = d.outputs.first().map(|o| o.name.clone())
+        // something its engine saves takes this value (spec 7.3 save_formats)
+        && !catalog.save_formats_for(d, &port).is_empty()
     {
         out.push(Item::run("run.save", SAVE_RESULT, json!({"node": id, "port": port, "sheet": false, "ask": true})).hover(SAVE_HELP));
         let items = match &run.thumb {
