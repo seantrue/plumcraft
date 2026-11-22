@@ -693,6 +693,16 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | 28 | Windows sound | Accept, after a person hears it |
 | 29 | B54 | Keep open until repeated runs are done |
 
+### Follow-ups to B72, B37 and B49 (the maintainer, 2026-11-21)
+
+Asked three questions after B72's fix: 1, keep the rule that an engine which exits before it ever connects is not restarted; 2, warn when a manifest's relative `cwd` holds no project; 3, give the Python SDK the same injectable clock as Rust. The answer: "1,2,3 yes".
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 | An engine that exits before it ever connects | Keep: not restarted (`docs/interface.md` 16.3 already says so; nothing to build) |
+| 2 | A manifest whose relative folder holds no project | Warn when the manifest is loaded, add an actionable line to a failed start, and have `register` refuse to write such a manifest (`docs/interface.md` 16.6) |
+| 3 | The Python SDK's clock | Give it the injectable clock the Rust executor has (`Clock`, `RealClock`, `VirtualClock`), and move the persist tests onto it |
+
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 
 The first piece of N5 as the maintainer changed it (the note under section 12): a native Windows shell in C# and WinUI 3 on the same core, playing the part N0 played for the Apple apps. Branch `native/n5-spike`, code in `native/windows/` (its README says what is spike and what is meant to stay). Report: `claude-debug/native-n5-spike.md`. Machine: the maintainer's Windows 11 Pro ARM64 virtual machine (UTM on the Mac, 4 cores, 8 GB, build 26200), .NET SDK 10.0.404, Windows App SDK 2.6.5, Win2D 1.4.0. No Rust in the workspace changed.

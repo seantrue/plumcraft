@@ -260,9 +260,10 @@ def run(
         try:
             if resolve_error is not None:
                 raise resolve_error
-            t1 = time.monotonic()
+            # the node's own work, on the engine's clock (a test's virtual one: B49)
+            t1 = engine.clock.now()
             outputs = _name_lists(nid, _call(node, d, nid, inputs, cancel, r.record, setup))
-            work_ms = max(0.0, time.monotonic() - t1 - setup[0]) * 1000.0
+            work_ms = max(0.0, engine.clock.now() - t1 - setup[0]) * 1000.0
             error = None
         except NodeError as e:
             outputs, error = None, e
