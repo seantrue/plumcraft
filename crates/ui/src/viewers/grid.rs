@@ -211,8 +211,31 @@ impl Viewer for ArrayGrid {
             .small()
             .color(tokens.text_faint),
         );
+        // a pop-out's window of columns is the core's (viewer.grid {cols}, decision 26): 64 at a
+        // time, stepped by these buttons; elsewhere (the Watched panel) every column scrolls
+        let mut asks = Vec::new();
+        let (w0, w1) = match v.grid_col {
+            Some(c) => {
+                let cols = l.cols as u64;
+                let c0 = c.min(plumcraft_session::viewer_state::last_window(cols));
+                let c1 = (c0 + plumcraft_session::viewer_state::GRID_COLUMNS).min(cols);
+                (usize::try_from(c0).unwrap_or(0), usize::try_from(c1).unwrap_or(l.cols))
+            }
+            None => (0, l.cols),
+        };
+        if w1 - w0 < l.cols {
+            ui.horizontal(|ui| {
+                if ui.add_enabled(w0 > 0, egui::Button::new("◀")).on_hover_text("viewer.grid {cols: \"prev\"}").clicked() {
+                    asks.push(("viewer.grid", json!({"cols": "prev"})));
+                }
+                ui.label(egui::RichText::new(format!("columns {}–{} of {}", w0, w1.saturating_sub(1), l.cols)).small().color(tokens.text_dim));
+                if ui.add_enabled(w1 < l.cols, egui::Button::new("▶")).on_hover_text("viewer.grid {cols: \"next\"}").clicked() {
+                    asks.push(("viewer.grid", json!({"cols": "next"})));
+                }
+            });
+        }
         let row_h = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
-        let content = egui::vec2(HEADER_W + l.cols as f32 * CELL_W, row_h * (l.rows as f32 + 1.0));
+        let content = egui::vec2(HEADER_W + (w1 - w0) as f32 * CELL_W, row_h * (l.rows as f32 + 1.0));
         let font = egui::FontId::monospace(12.0);
         let (fmt, colored) = (self.format.clone(), self.colored);
         let slice = self.slice.clone();
@@ -220,13 +243,13 @@ impl Viewer for ArrayGrid {
             let (rect, _) = ui.allocate_exact_size(content, egui::Sense::hover());
             let p = ui.painter_at(rect.intersect(ui.clip_rect()));
             let origin = rect.min;
-            let c0 = ((view.min.x - HEADER_W) / CELL_W).floor().max(0.0) as usize;
-            let c1 = (((view.max.x - HEADER_W) / CELL_W).ceil().max(0.0) as usize).min(l.cols);
+            let c0 = w0 + ((view.min.x - HEADER_W) / CELL_W).floor().max(0.0) as usize;
+            let c1 = (w0 + ((view.max.x - HEADER_W) / CELL_W).ceil().max(0.0) as usize).min(w1);
             let r0 = ((view.min.y - row_h) / row_h).floor().max(0.0) as usize;
             let r1 = (((view.max.y - row_h) / row_h).ceil().max(0.0) as usize).min(l.rows);
             // Column headers, then row headers, then the cells.
             for c in c0..c1 {
-                let x = origin.x + HEADER_W + c as f32 * CELL_W;
+                let x = origin.x + HEADER_W + (c - w0) as f32 * CELL_W;
                 let label = names.get(c).filter(|_| l.extra.is_empty()).cloned().unwrap_or_else(|| c.to_string());
                 p.text(
                     egui::pos2(x + CELL_W - 6.0, origin.y + view.min.y.max(0.0) + row_h / 2.0),
@@ -246,7 +269,7 @@ impl Viewer for ArrayGrid {
                     tokens.text_dim,
                 );
                 for c in c0..c1 {
-                    let x = origin.x + HEADER_W + c as f32 * CELL_W;
+                    let x = origin.x + HEADER_W + (c - w0) as f32 * CELL_W;
                     let cell = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(CELL_W, row_h));
                     let value = dt.read(&b.bytes, l.index(r, c, &slice));
                     if colored
@@ -260,7 +283,7 @@ impl Viewer for ArrayGrid {
                 }
             }
         });
-        Vec::new()
+        asks
     }
 
     fn inspect(&self) -> Value {

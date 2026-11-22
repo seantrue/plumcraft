@@ -106,8 +106,7 @@ final class AskPresenter {
             if let start = p["startIn"].string { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
             let exts = AskWords.extensions(p)
             if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
-            closeSheet = { [weak window, weak panel] in if let panel { window?.endSheet(panel, returnCode: .cancel) } }
-            panel.beginSheetModal(for: window) { [weak self] r in
+            let finish: (NSApplication.ModalResponse) -> Void = { [weak self] r in
                 guard let self else { return }
                 self.done(a)
                 guard r == .OK else { return self.cancel(a) }
@@ -118,6 +117,15 @@ final class AskPresenter {
                 } else {
                     self.cancel(a)
                 }
+            }
+            if a.kind.word == .fileOpen && p["purpose"].string == "workflow" {
+                // File › Open… (the core's graph.open, decision 20): the Mac's Open panel is a
+                // window of its own, as NSDocumentController's is, not a sheet on one graph
+                closeSheet = { [weak panel] in panel?.cancel(nil) }
+                panel.begin(completionHandler: finish)
+            } else {
+                closeSheet = { [weak window, weak panel] in if let panel { window?.endSheet(panel, returnCode: .cancel) } }
+                panel.beginSheetModal(for: window, completionHandler: finish)
             }
             onSheet?(a)
         case .fileSave?:
@@ -158,7 +166,8 @@ final class AskPresenter {
             let alert = NSAlert()
             alert.messageText = p["title"].string ?? "Plummer"
             alert.informativeText = p["intro"].string ?? p["hint"].string ?? p["label"].string ?? ""
-            var fields: [(String, NSTextField)] = []
+            // each field: its key, its control, and what it answers
+            var fields: [(String, NSControl, () -> String)] = []
             // a form is a grid, as the system's own are: each label right-aligned beside its
             // field, on the field's baseline (B73: the labels were stacked above all the fields)
             var rows: [[NSView]] = []
@@ -166,24 +175,62 @@ final class AskPresenter {
             if a.kind.word == .text {
                 let f = NSTextField(string: p["text"].string ?? "")
                 f.placeholderString = p["placeholder"].string
-                fields.append(("text", f))
+                f.toolTip = p["placeholder"].string
+                fields.append(("text", f, { f.stringValue }))
                 rows.append([f])
             } else {
                 for fd in p["fields"].array ?? [] {
                     guard let key = fd["key"].string else { continue }
-                    let f: NSTextField = fd["kind"].string == "secret" ? NSSecureTextField() : NSTextField()
-                    f.stringValue = p["values"][key].string ?? ""
-                    f.placeholderString = fd["hint"].string
-                    let label = NSTextField(labelWithString: (fd["label"].string ?? key) + ":")
+                    let name = fd["label"].string ?? key
+                    let given = p["values"][key].string ?? ""
+                    let control: NSControl
+                    let value: () -> String
+                    if let pick = AskWords.pick(fd) {
+                        // the pick-list field (decision 5): a pop-up of the choices, or a combo
+                        // box when any other text may be typed; it answers a choice's value
+                        if pick.other {
+                            let c = NSComboBox()
+                            c.addItems(withObjectValues: pick.choices.map(\.label))
+                            c.completes = true
+                            c.numberOfVisibleItems = max(3, min(pick.choices.count, 10))
+                            c.stringValue = AskWords.pickShown(fd, value: given)
+                            c.placeholderString = fd["hint"].string
+                            control = c
+                            value = { AskWords.pickAnswer(fd, shown: c.stringValue) }
+                        } else {
+                            let b = NSPopUpButton()
+                            b.addItems(withTitles: pick.choices.map(\.label))
+                            for (k, ch) in pick.choices.enumerated() { b.item(at: k)?.toolTip = ch.hint }
+                            if let k = pick.choices.firstIndex(where: { $0.value == given }) { b.selectItem(at: k) }
+                            control = b
+                            value = { AskWords.pickAnswer(fd, shown: b.titleOfSelectedItem ?? "") }
+                        }
+                    } else {
+                        let f: NSTextField = fd["kind"].string == "secret" ? NSSecureTextField() : NSTextField()
+                        f.stringValue = given
+                        f.placeholderString = fd["hint"].string
+                        control = f
+                        value = { f.stringValue }
+                    }
+                    // the whole hint on hover, where a placeholder is cut off at the field's width
+                    control.toolTip = fd["hint"].string
+                    let label = NSTextField(labelWithString: name + ":")
                     label.alignment = .right
-                    f.setAccessibilityLabel(fd["label"].string ?? key)
-                    fields.append((key, f))
-                    rows.append([label, f])
+                    control.setAccessibilityLabel(name)
+                    fields.append((key, control, value))
+                    rows.append([label, control])
                 }
             }
-            for (_, f) in fields {
+            // wide enough for the longest hint, so a placeholder isn't cut off (B82), up to 440
+            var width = fieldWidth
+            for (_, f, _) in fields {
+                guard let t = (f as? NSTextField)?.placeholderString, let font = f.font else { continue }
+                let need = (t as NSString).size(withAttributes: [.font: font]).width + (f is NSComboBox ? 44 : 16)
+                width = min(max(width, ceil(need)), 440)
+            }
+            for (_, f, _) in fields {
                 f.translatesAutoresizingMaskIntoConstraints = false
-                f.widthAnchor.constraint(equalToConstant: fieldWidth).isActive = true
+                f.widthAnchor.constraint(equalToConstant: width).isActive = true
             }
             let grid = NSGridView(views: rows)
             grid.rowSpacing = 8
@@ -191,7 +238,7 @@ final class AskPresenter {
             grid.rowAlignment = .firstBaseline
             if grid.numberOfColumns > 1 { grid.column(at: 0).xPlacement = .trailing }
             // each field tabs to the next, and the last back to the first
-            for (k, (_, f)) in fields.enumerated() where fields.count > 1 { f.nextKeyView = fields[(k + 1) % fields.count].1 }
+            for (k, (_, f, _)) in fields.enumerated() where fields.count > 1 { f.nextKeyView = fields[(k + 1) % fields.count].1 }
             grid.translatesAutoresizingMaskIntoConstraints = true
             grid.frame = NSRect(origin: .zero, size: grid.fittingSize)
             alert.accessoryView = grid
@@ -204,10 +251,10 @@ final class AskPresenter {
                 self.done(a)
                 guard r == .alertFirstButtonReturn else { return self.cancel(a) }
                 if a.kind.word == .text {
-                    self.answer(a, ["text": .string(fields.first?.1.stringValue ?? "")])
+                    self.answer(a, ["text": .string(fields.first?.2() ?? "")])
                 } else {
                     var values: [String: JSONValue] = [:]
-                    for (k, f) in fields { values[k] = .string(f.stringValue) }
+                    for (k, _, v) in fields { values[k] = .string(v()) }
                     self.answer(a, ["values": .object(values)])
                 }
             }

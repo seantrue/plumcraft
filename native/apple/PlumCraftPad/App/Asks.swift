@@ -39,6 +39,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     private var shown: UIViewController?
     private var handled: Set<UInt64> = []
     private var picking: Ask?
+    /// The delegates that keep a closed pick field to its choices, while its form is up.
+    var pickGuards: [PickOnly] = []
 
     init(model: DocumentModel) {
         self.model = model
@@ -182,10 +184,29 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
                 for fd in p["fields"].array ?? [] {
                     guard let key = fd["key"].string else { continue }
                     keys.append(key)
-                    alert.addTextField { f in
-                        f.text = p["values"][key].string
+                    let pick = AskWords.pick(fd)
+                    alert.addTextField { [weak self] f in
+                        f.text = pick == nil ? p["values"][key].string : AskWords.pickShown(fd, value: p["values"][key].string ?? "")
                         f.placeholder = fd["label"].string ?? fd["hint"].string ?? key
                         f.isSecureTextEntry = fd["kind"].string == "secret"
+                        f.accessibilityLabel = fd["label"].string ?? key
+                        guard let pick else { return }
+                        // the pick-list field (decision 5): the choices in the field's menu
+                        // button; typing only when any other text may be given (`other`)
+                        let b = UIButton(type: .system)
+                        b.setImage(UIImage(systemName: "chevron.up.chevron.down"), for: .normal)
+                        b.accessibilityLabel = "Choices for \(fd["label"].string ?? key)"
+                        b.showsMenuAsPrimaryAction = true
+                        b.menu = UIMenu(children: pick.choices.map { ch in
+                            UIAction(title: ch.label, subtitle: ch.hint) { [weak f] _ in f?.text = ch.label }
+                        })
+                        f.rightView = b
+                        f.rightViewMode = .always
+                        if !pick.other {
+                            let guardDelegate = PickOnly()
+                            f.delegate = guardDelegate
+                            self?.pickGuards.append(guardDelegate)
+                        }
                     }
                 }
             }
@@ -201,7 +222,9 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
                     self.answer(a, ["text": .string(texts.first ?? "")])
                 } else {
                     var values: [String: JSONValue] = [:]
-                    for (k, t) in zip(keys, texts) { values[k] = .string(t) }
+                    let byKey = Dictionary((p["fields"].array ?? []).compactMap { fd in fd["key"].string.map { ($0, fd) } }, uniquingKeysWith: { a, _ in a })
+                    for (k, t) in zip(keys, texts) { values[k] = .string(byKey[k].map { AskWords.pickAnswer($0, shown: t) } ?? t) }
+                    self.pickGuards = []
                     self.answer(a, ["values": .object(values)])
                 }
             })
@@ -290,4 +313,10 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             answer(a, ["error": .string("\(error)")])
         }
     }
+}
+
+/// A pick field with no other text allowed: its text comes from its choices menu only.
+@MainActor
+final class PickOnly: NSObject, UITextFieldDelegate {
+    func textField(_ textField: UITextField, shouldChangeCharactersIn range: NSRange, replacementString string: String) -> Bool { false }
 }

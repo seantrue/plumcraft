@@ -57,6 +57,9 @@ pub struct ViewInput<'a> {
     /// A pop-out's picture channel, the core's (`viewer.picture`); `None` where there is no
     /// pop-out to keep one (the Watched panel, a wire's preview).
     pub channel: Option<plumcraft_session::viewer_state::Channel>,
+    /// A pop-out's first grid column shown, the core's (`viewer.grid {col, cols}`, decision 26);
+    /// `None` where there is no pop-out (every column scrolls).
+    pub grid_col: Option<u64>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -222,7 +225,7 @@ pub fn aim(asks: Vec<Action>, role: WatchRole) -> Vec<Action> {
     let WatchRole::Popout(id) = role else { return asks };
     asks.into_iter()
         .map(|(cmd, mut p)| {
-            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet" | "viewer.picture")
+            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet" | "viewer.picture" | "viewer.grid")
                 && let Some(o) = p.as_object_mut()
             {
                 o.insert("popout".into(), json!(id));
@@ -247,6 +250,8 @@ pub struct Pane {
     pub chosen: Option<String>,
     /// A pop-out's picture channel, the core's ([`ViewInput::channel`]).
     pub channel: Option<plumcraft_session::viewer_state::Channel>,
+    /// A pop-out's first grid column, the core's ([`ViewInput::grid_col`]).
+    pub grid_col: Option<u64>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -312,6 +317,7 @@ impl Pane {
             offered_views: &self.offered_views,
             tools: self.tools,
             channel: self.channel,
+            grid_col: self.grid_col,
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -378,6 +384,7 @@ impl Pane {
             offered_views: &self.offered_views,
             tools: self.tools,
             channel: self.channel,
+            grid_col: self.grid_col,
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -396,6 +403,7 @@ impl Pane {
             offered_views: &self.offered_views,
             tools: self.tools,
             channel: self.channel,
+            grid_col: self.grid_col,
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);

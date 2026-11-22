@@ -20,6 +20,19 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — The floor re-walked honestly; a person's-launch check for the Mac; five decided changes (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided**, after finding by hand that the Mac app could not make a new graph or install an engine: a floor row is met only when a named test launched that path; every shell's gate gets a launch as a person would; plus a pick-list form field, a required scratch engines folder for scripted launches, the Mac taking document windows from the core, Recipe in the Apple viewer bar, and the numbers grid's column window in the core.
+
+**The re-walk.** On that rule the Mac app has 32 of 85 rows met, 2 partly, 51 not; the controller had reported 77 met. The iPad and iPhone: 28 met, 1 partly, 56 not, against a reported 76. Most of the fallen rows are engine-interface behaviour that only the core's and engines' own tests cover; three were called met from reading or pictures. This is the size of the overclaim in the earlier N4 reports, all AI-written and accepted by the controller.
+
+**The person check (agent).** `person-check.sh` launches the built Mac app bare (no file, no engine flag), picks real menu items, fills real sheets, drags on the canvas, uses an engine from a manifest folder as a separate process, kills it and sees it come back, saves and reopens, and reads the result from outside through accessibility. 26 steps pass, three runs. It found **B80**: the Apple apps' Engine menu hid every engine in an untitled submenu, part of what the maintainer met as "no engines available"; and B82 (the Install form cut its hint off). Both fixed. Open: B81, B83 to B88.
+
+**The decided changes (agent).** All five built; the Mac's document windows only for New and Open in a window, the rest left to AppKit and listed for the maintainer. `viewer.grid` is new; `viewer.data` no longer takes `cols`, which breaks the Windows grid until its shell follows.
+
+**Harm done to the maintainer's own files by the agent's runs:** a stray `Untitled.json` saved into a folder in their home, and one value in the app's defaults changed to a scratch path. Reported, not undone. The check no longer drives the Save and Open panels or Open Recent for this reason (B81, B84).
+
+**Verified (agent).** nextest 1,580 of 1,581 (the known baseline failure); Python 225; `swift test` 94; Mac conformance 57 of 57, three runs; iPad simulator 56 of 56 with one skipped. **Not verified:** the iPad's drawing of the new pieces; the iPad has no person check; recipe text has never been seen.
 ### 2026-11-21 — A copied engine manifest says so; the Python SDK's clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1,2,3 yes" to keeping B72's no-restart rule, warning about a manifest whose folder holds no project, and giving the Python SDK the Rust SDK's injectable clock.

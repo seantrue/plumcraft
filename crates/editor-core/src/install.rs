@@ -14,6 +14,8 @@ use std::sync::mpsc::{Receiver, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use plumcraft_session::commands::PickChoice;
+
 use crate::engines::Capabilities;
 use crate::link::Waker;
 
@@ -22,11 +24,13 @@ use crate::link::Waker;
 /// or why it failed. [`Setup::installer`] is PlumCraft's; tests give stand-ins.
 pub type Installer = Arc<dyn Fn(&str, &Progress) -> Result<String, String> + Send + Sync>;
 
-/// Public engines the Install Engine… window offers, as `(label, owner/repo)`.
-pub const KNOWN_ENGINES: &[(&str, &str)] = &[
-    ("DuckDB: data files into tables, reshaped with SQL", "seantrue/plumcraft-duckdb-engine"),
-    ("OpenCV: filters, edges, thresholds, morphology, geometry", "seantrue/plumcraft-opencv-engine"),
-    ("Atlas: a sample engine with every type", "seantrue/plumcraft-atlas-engine"),
+/// Public engines Install Engine… offers, as its form's pick list (decision 5, N4 person gate:
+/// one list, in the core, which every shell draws from the form; `value` is the repository,
+/// `owner/repo` on GitHub). Any other repository is typed in the field's text alternative.
+pub const KNOWN_ENGINES: &[PickChoice] = &[
+    PickChoice { value: "seantrue/plumcraft-duckdb-engine", label: "DuckDB", hint: "data files into tables, reshaped with SQL" },
+    PickChoice { value: "seantrue/plumcraft-opencv-engine", label: "OpenCV", hint: "filters, edges, thresholds, morphology, geometry" },
+    PickChoice { value: "seantrue/plumcraft-atlas-engine", label: "Atlas", hint: "a sample engine with every type" },
 ];
 
 /// The longest one step of an install (`uv tool install`, a `register`) may take before it is

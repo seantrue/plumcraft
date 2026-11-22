@@ -107,7 +107,8 @@ fn the_suite_passes_on_the_egui_editor() {
     let arrays: Vec<String> = conformance::cases()
         .unwrap()
         .into_iter()
-        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array"))))
+        // and those for Install Engine…'s form (`install`: egui has its own Install window, not the core's form)
+        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array")) || n.contains(&serde_json::json!("install"))))
         .filter_map(|c| c["name"].as_str().map(str::to_owned))
         .collect();
     assert!(arrays.len() >= 5);

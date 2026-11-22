@@ -19,6 +19,8 @@
 //   end-sheet                 close the window's sheet (Cancel)
 //   theme:dark|light          the app's appearance
 //   quit                      quit
+//   inbox:DIR                 run the steps a script writes as DIR/<k>.step, one at a time
+//                             (the person check, PersonSteps.swift)
 //   press, moveto, release, release-cancel, palette, type, pick, dismiss: the editing gestures'
 //                             steps (PlumCraftShell's CanvasSteps, shared with the iPad)
 
@@ -51,11 +53,14 @@ struct Script {
         Status.shared.set("script", "done")
     }
 
-    private func one(_ step: String) async {
+    func one(_ step: String) async {
         let parts = step.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
         guard let head = parts.first, let v = window.canvasView else { return }
         let m = v.model
         switch head {
+        case "inbox" where parts.count >= 2:
+            // the person check's steps, written by the script one at a time (PersonSteps.swift)
+            await PersonSteps.inbox(parts[1...].joined(separator: ":"), first: window)
         case "run":
             window.runGraph(nil)
         case "watch" where parts.count >= 3:

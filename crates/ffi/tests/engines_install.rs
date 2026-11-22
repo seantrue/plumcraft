@@ -98,6 +98,12 @@ fn a_platform_that_can_offers_its_manifests_engines_and_installs_through_the_cor
     let r = c.call("ui.invoke", json!({"command": "engine.install"}));
     let ask = r["result"]["asks"].as_array().and_then(|a| a.iter().find(|x| x["kind"] == "form").cloned()).unwrap_or_else(|| panic!("no form: {r}"));
     assert_eq!(ask["params"]["command"], "engine.install");
+    // decision 5 (N4 person gate): the repository is a pick list of the public engines, with
+    // any other typed; the list is the core's
+    let repo = &ask["params"]["fields"][0];
+    assert_eq!((repo["key"].as_str(), repo["kind"].as_str(), repo["other"].as_bool()), (Some("repo"), Some("pick"), Some(true)), "{repo}");
+    let values: Vec<&str> = repo["choices"].as_array().into_iter().flatten().filter_map(|c| c["value"].as_str()).collect();
+    assert_eq!(values, plumcraft_editor_core::install::KNOWN_ENGINES.iter().map(|c| c.value).collect::<Vec<_>>());
     let a = c.call("ask.answer", json!({"ask": ask["ask"], "answer": {"values": {"repo": "someone/plumcraft-stub-engine"}}}));
     assert_eq!(a["ok"], true, "{a}");
     let done = document_changed(&mut c, |x| x["lastError"].as_str().is_some_and(|e| e.contains("Installed and registered")));

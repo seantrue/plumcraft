@@ -49,7 +49,10 @@ fn the_window_installs_a_public_engine_in_the_background_then_reloads() {
     h.state_mut().invoke("engine.install");
     h.run_steps(3);
     h.get_by_label("Install an Engine");
-    h.get_by_label("DuckDB: data files into tables, reshaped with SQL").click();
+    // the core's pick list (decision 5): the combo box, then the public engine
+    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    h.run_steps(2);
+    h.get_by_label("DuckDB").click();
     h.run_steps(2);
     h.get_by_label("Install").click();
     h.run_steps(2);

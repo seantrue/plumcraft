@@ -693,6 +693,117 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | 28 | Windows sound | Accept, after a person hears it |
 | 29 | B54 | Keep open until repeated runs are done |
 
+### The floor re-walked, the person check, and decisions 5, 7, 20, 26 and 27 (2026-11-21, branch `native/n4-person-gate`)
+
+**Decision 1, "Met only when a named test launched that path".** The Mac and iPad tables of slice 6 are re-walked on that rule: a row is met only where a named conformance case, UI test or the person check launched the app and went down that path (the Mac's conformance ran 57 of 57 today, the person check ran on the Mac today, the iPad's simulator conformance as reported below); "the core does it", "the command exists" and pictures do not count. Slice 6 said 77 met on the Mac and 76 on the iPad and iPhone. On this rule: **the Mac 32 met (three of them only in part: F2's backoff not timed, F5 accepting only, F39 two of nine states), 2 partly (F53, F56), 51 not met; the iPad 28 met, 1 partly (F53), 56 not met.** Most of the fall is the engine interface's rows (F13 to F25, F27 to F31, F40, F43 to F48, F61 to F72, F84), which the core's and the engines' own tests cover but no launched app does, and four rows slice 6 called met on reading (F22 partly, F42, F78, F79) that no test launches. Rows checked today by launching the app (the person check): F1, F2, F9, F11, F12, F56, F76, F83 on the Mac.
+
+| F | Item | Mac | iPad and iPhone | Evidence (a named test that launched the app, or what was run today) |
+|---|---|---|---|---|
+| F1 | Engine connection state | Met | Met | Mac: person check, "Engine › the installed engine: started as a separate process" (the engine cell's words and state) and the F2 step (the engine up again after its process was killed; the cell was not seen to say it was down). iPad: `PlumCraftPad/conformance.sh` waits on the status file's `engine` before any case |
+| F2 | Reconnect with backoff | Met (a process engine restarted) | Not met | Mac: person check, "the installed engine's process killed: started again, runs again (F2)": a new process within seconds and the next run computed on it. Not seen: the engine cell saying it was down meanwhile, and the backoff's timing. iPad: engines are in process there; no launched test drops an attached engine |
+| F3 | Liveness / health | Not met | Not met | No launched test sees a ping or a health answer; the core's tests only |
+| F4 | Catalog fetch | Met | Met | Conformance "a new wire dropped on nothing opens the palette for what takes it" (Mac and iPad simulator); person check "the palette adds a Text and an Upper case node" (Mac, from the installed process engine too) |
+| F5 | Version gate | Met, accepting only | Met, accepting only | Every launch's engine handshake (person check: a process engine's hello accepted); no launched test offers an engine a protocol it refuses |
+| F6 | Engine identity, capabilities | Met | Met | Conformance "Install Engine… is offered as the platform allows, by the core" (enabled on the Mac, refused with the reason on the iPad) |
+| F7 | Catalog hook | Not met | Not met | Claimed on reading (moved to the core in N1); no launched test |
+| F8 | NodeDef core | Met | Met | Conformance "a shell's measurements are what the core hits" and every case that draws faces |
+| F9 | Wire types | Met | Met | Conformance "a wire dragged from an output to an input is one undo step", "a drop where a wire doesn't fit is refused with the reason"; person check "a wire dragged from Text to Upper case" (Mac) |
+| F10 | Families and icons | Met | Met | Conformance "the scene's colours are tokens alone or colours alone…", "the more-button opens the node's menu" |
+| F11 | Port widget fields | Met | Met | Conformance "every widget kind is set through its row…"; iPad UI test `testInlineEdits`; person check "a value typed into the Text node's field" (Mac) |
+| F12 | Socket modes | Met (checked today) | Not met | Claimed in slice 6 on reading. Person check: a widget input typed into and a socket input wired (Mac). iPad: no launched test tells the two apart |
+| F13 | Setting binding | Not met | Not met | No launched test has a `param_ref` port |
+| F14 | Variadic inputs | Not met | Not met | No launched test |
+| F15 | Choice-dependent sub-ports | Not met | Not met | Conformance sets a choice on Every widget but asserts no port appearing |
+| F16 | Path hints | Not met | Not met | The path widget's file ask is not in any launched test |
+| F17 | External ports | Not met | Not met | No launched test |
+| F18 | Machine-dependent choices | Not met | Not met | No launched test |
+| F19 | Node flags | Not met | Not met | No launched test |
+| F20 | List typing | Not met | Not met | No launched test runs a list |
+| F21 | Wire slices | Not met | Not met | No launched test slices a wire |
+| F22 | Custom editors | Not met | Not met | Slice 6 said "partly": the value editor's JSON is drawn by the Mac's and iPad's windows, but no launched test opens one |
+| F23 | Codegen metadata | Not met | Not met | Core only |
+| F24 | Expansions | Not met | Not met | No launched test expands a node |
+| F25 | Style graphs | Not met | Not met | No launched test |
+| F26 | Run request | Met | Met | Conformance "a run's state arrives in the scene"; person check Run (Mac, on the process engine) |
+| F27 | Targets | Not met | Not met | Run Selected's state is checked (the toolbar case), no launched test runs it |
+| F28 | Run identity, generation | Not met | Not met | Core only |
+| F29 | Latest wins | Not met | Not met | Core only |
+| F30 | Auto-run | Not met | Not met | No launched test turns it on |
+| F31 | Optimistic queued | Not met | Not met | No launched test looks at a queued face |
+| F32 | Run reply | Met | Met | Conformance "a run's state arrives in the scene"; person check's value (Mac) |
+| F33 | Per-node report | Met | Met | The same: each face done or cached |
+| F34 | Errors as data | Not met | Not met | No launched test runs a failing node |
+| F35 | Failure stands in for a reply | Not met | Not met | The person check kills the engine between runs, not during one |
+| F36 | Cancel | Not met | Not met | No launched test cancels a run |
+| F37 | Run summary for automation | Met | Met | Every conformance run's `ui.waitRun` over the control port |
+| F38 | Status record stream | Met | Met | Conformance "a run's state arrives in the scene" (through the feed) |
+| F39 | States emitted | Met, done and cached only | Met, done and cached only | The same case; the other seven states are not seen in a launched test |
+| F40 | Reducer rules | Not met | Not met | Core only |
+| F41 | Canvas status display | Met | Met | The run case's scene state per face |
+| F42 | Per-node timing | Not met | Not met | Slice 6 cited pictures; no launched test asserts the timing text |
+| F43 | Parameter wires, bundles | Not met | Not met | No launched test |
+| F44 | Provenance | Not met | Not met | Core only |
+| F45 | Stale tracking | Not met | Not met | No launched test |
+| F46 | Text on nodes | Not met | Not met | The watched text is checked in a pop-out ("a watched text value arrives as text.plain…"); the face's text is not |
+| F47 | Thumbnails in flight | Not met | Not met | No launched test |
+| F48 | Texture cache | Not met | Not met | The kit's unit tests only |
+| F49 | Inspect piggybacks on runs | Met | Met | Conformance "a watched text value arrives as text.plain, and a scalar as scalar"; person check "Run, and the value popped out" (Mac) |
+| F50 | Display payload | Met | Met | Conformance's pop-out cases (table, JSON, sound, array, picture, SVG); iPad `testEveryViewerByATap` |
+| F51 | View modes | Met | Met | Conformance "an SVG popped out … with its source a viewer away", the JSON case's Tree offered beside YAML |
+| F52 | Pixel probe | Met | Met | Conformance "a picture popped out by a person shows a channel, reads its own numbers and asks for detail" |
+| F53 | Compare | Partly | Partly | Conformance "Compare pins two values popped out by a person…": pins, sides; the exact difference is not drawn |
+| F54 | Tables and scalars | Met | Met | Conformance "a table popped out by a person is sorted and paged by the core", the scalar case |
+| F55 | Sheet | Not met | Not met | No launched test opens `viewer.sheet` |
+| F56 | Recipe display | Partly (built today) | Not met (built today) | Decision 27: the viewer bar's Recipe. Mac: person check "the pop-out's Recipe" pressed it through accessibility and the popover showed; the text engine sends no recipe, so no recipe's text has been seen in a launched app. iPad: the same SwiftUI bar, built, not launched |
+| F57 | Picture window (T16) | Met | Met | Conformance "a value popped out is a window of the core's…"; iPad `testEveryViewerByATap` |
+| F58 | Missing data is a state | Met | Met | Conformance "a value read as what it isn't is refused with a reason, and the core still serves" |
+| F59 | Curve editor | Not met | Not met | The research software's (N6) |
+| F60 | Mask editor | Not met | Not met | The research software's (N6) |
+| F61 | List mapping with axes | Not met | Not met | Core only |
+| F62 | Vary nodes | Not met | Not met | Core only |
+| F63 | Lineage | Not met | Not met | Core only |
+| F64 | Save picture with recipe | Not met | Not met | `value.saveAs` raises a save panel; no launched test saves through it (B84) |
+| F65 | Export group as plugin | Not met | Not met | The research software's pack |
+| F66 | Deliver plugin | Not met | Not met | The research software's pack |
+| F67 | Plugin round trip | Not met | Not met | Core only |
+| F68 | Arrays never in messages | Not met (exercised, not asserted) | Not met (exercised, not asserted) | The array cases read pages by handle; nothing asserts no array crossed in a message |
+| F69 | Content addressing | Not met (exercised, not asserted) | Not met (exercised, not asserted) | Every run uses the store; nothing in a launched test checks a digest |
+| F70 | Hostile `.npy` and keys | Not met | Not met | Crate tests only |
+| F71 | Engine memo | Met | Met | Conformance "the Cache Report and the graph's Parameters window are the core's…" and the run case (cached faces) |
+| F72 | Partial re-run | Not met | Not met | No launched test checks what re-ran |
+| F73 | Preview latency path | Met | Met | Every conformance run is on in-process engines over the C ABI |
+| F74 | Full resolution on demand | Met | Met | The picture case asks for detail |
+| F75 | Pictures as engine-side files | Met | Met | The picture case reads the picture file's own numbers |
+| F76 | Workflow JSON is the payload | Met (checked today) | Not met | Person check: saved (the core's `graph.saveAs`), closed, opened again as the Finder opens it, and through the core's File › Open… (Mac). iPad: no launched test reopens a file |
+| F77 | Recipes in pictures | Not met | Not met | No launched test |
+| F78 | Bundles | Not met | Not met | Slice 6 said met on the Mac; no launched test exports a bundle |
+| F79 | Insert graph or group | Not met | Not met | Slice 6 said met; no launched test inserts |
+| F80 | Engine-touching commands | Met | Met | Conformance's Install case; person check's Engine menu as AppKit validated it (Mac) |
+| F81 | Control channel | Met | Met | Every conformance run; "the control port asks for its token, whatever address it listens on". But it answers for the first document only (B83) |
+| F82 | Headless CLI catalog | Not met (not the apps') | Not met (not the apps') | The CLI's, not an app path |
+| F83 | Config by environment | Met (checked today) | Not met | Person check: launched with nothing but the environment (store, preferences, engines folder), and refused without a scratch engines folder (decision 7) (Mac) |
+| F84 | Single-threaded engines | Not met | Not met | Core only |
+| F85 | Local model management | Not met | Not met | The research software's CLI |
+
+**Decision 2, a launch-as-a-person check, in the Mac's gate.** `native/apple/PlumCraftMac/person-check.sh` launches the built app as the Finder does: its program itself (never `open`, which could hand the request to a copy the person has running), in a bare environment (HOME, USER, LOGNAME, SHELL, TMPDIR, PATH=/usr/bin:/bin:/usr/sbin:/sbin; no shell PATH), with no file, no `--engine`, no `--no-open-panel`. It is kept off the person's data by `--scratch-state` and the scratch environment alone (store, marks, caches, log, preferences, craft root, test run, and the engines folder, which holds one engine of the check's own: the text engine's program as a process, `Person Check Text`). It drives the app where a person does, through the app's own steps (`--then inbox:DIR`, `App/PersonSteps.swift`): a menu item of the real menu bar is performed as a pick of it is (validated, then its action sent to its target or down the main window's responder chain), a node's context menu is built as a secondary click builds it and an item picked, a sheet's controls are read and clicked, the palette, the field editor and the canvas's drags are the editing gestures' steps; it looks from outside through accessibility where it can (`person-check-ax.swift`: the windows, a sheet's elements and their frames, a button pressed as an assistive app presses it), from the app's own windows (the status file; a sheet's controls with their frames and a picture of the sheet from its own drawing, which needs no awake display), and from the control port only to read. Each step prints PASS, FAIL or SEE (what it cannot see). It checks: the scripted launch refuses without a scratch engines folder, and with the person's; one untitled window at launch (B70); File › New makes another, through the core (decision 20); the Engine menu lists the built-in engines and the installed one by name (B80); the installed engine, picked there, starts as a process of the app's and its nodes run there (each node's Run on); a node from the palette, a value typed on its face, a wire dragged, Run, the value popped out by a click on its pin (`HELLO PERSON`); the process killed by its PID, started again and run again (F2; the engine cell is not seen to say down meanwhile); the pop-out's Recipe (decision 27); Engine › Attach… and Install Engine… as real sheets, their pictures kept, every label beside its own field and wholly shown (from the app's frames and again from accessibility), Install's repository a pick list (decision 5), Cancel closing each; File › Save As…'s panel seen through accessibility and cancelled; the graph saved, closed, opened again as the Finder and Open Recent open a file, then closed and opened through the core's File › Open…; every window closed and the Dock icon making a new graph; Quit from the menu, the app gone by itself, the installed engine's process gone with it; the person's Library (`library-check.sh`) and engines folder unchanged. It never activates the app and quits it by its PID when Quit didn't. `conformance.sh gate` runs the suite and the person check together.
+
+What it still cannot see, or doesn't: the app being activated and taking the keyboard (forbidden here; menu picks are performed, not clicked, and keys are the steps' own); the Save and Open panels' own use (saving through the panel writes the person's defaults or their folders, B84: the file is written by the core's `graph.saveAs` and Open is answered by the script); File › Open Recent's items (a scripted launch keeps none, B50, and filling the menu rewrote the person's list on a new build, B81); window restoration (a scripted launch ignores saved state); the alerts a person would get for an error (a scripted launch logs them); what the window server draws (pictures are the sheets' own drawing); and the iPad, which has no person check yet.
+
+What `--scratch-state` changes that a person would see, kept because each keeps the person's data or keyboard safe: the app is not activated; no recent document is noted or kept (B50); saved state is neither restored nor written; pop-out and Settings windows don't remember their frames; an error is logged, not shown as an alert; TERM and Quit don't ask about unsaved changes; a Dock click is AppKit's (the check calls the app's reopen itself); and the launch refuses any write location outside scratch (now the engines folder too). No narrower switch was needed: none of these changes what the check looks at, and the environment already redirects the store, preferences and engines folder.
+
+**A scripted ask now shows its sheet.** An ask a script starts (`by: "script"`, every `ui.invoke` over the control port) shows no sheet on purpose (`Asks.swift`); the control channel refuses `by`. The person check therefore never raises an ask over the port: it picks the menu item, whose dispatch is the person's (`ui.invoke {by: "person"}` from the shell), so the sheet is the one a person's pick shows. No test-only switch was added.
+
+**Decision 7, "Refuse without a scratch engines folder".** The Mac's scratch guard (`scratchRefusal`) now refuses a scripted launch whose `PLUMCRAFT_ENGINE_FOLDER` is unset (the core would read and install into `~/.config/plumcraft/engines`) or outside scratch, as it does the store. `conformance.sh` copies the suite's engines folder into its scratch, `bench.sh` gives an empty one, the person check its own; the person check launches the refusals and reads their words.
+
+**Decision 5, the pick-list field.** The core's form gains `kind: "pick"` (`choices: [{value, label, hint}]`, `other`), the three public engines are one list in the core (`install::KNOWN_ENGINES`), Install Engine…'s repository is one, egui's Install window draws the core's form, a closed pick refuses other text, and the contract, a conformance case and hostile answers cover it. The Mac draws a combo box (other text allowed) or a pop-up beside its label in the form's grid; the iPad a field with a menu of the choices (typing only when `other`). **Windows must draw** a ComboBox beside the label, editable when `other`, its items the choices' labels with their hints, answering with the chosen choice's `value` (or the text typed), preselecting the choice whose value is `values[key]`.
+
+**Decision 20, the Mac adopts `platform.document_windows`.** File › New and Open… in a window are the core's commands; the feed's `window` change brings an NSDocument and its window (`App/DocumentWindows.swift`); a file the core opens into the untouched window moves that window's file, title and proxy icon there; Open's panel is a window of its own. The person check's New and Open go this way. **What could not hold, left as a decision:** with no window open there is no document to run New or Open in, so NSDocumentController does them (as it does the Dock's reopen, the launch, Finder and Open Recent and drops, each then `document.open`); closing a window stays NSDocument's (its Save, Don't Save, Cancel sheet, which runs the Save panel for an untitled graph; the core's own close prompt would replace the Mac's standard sheet); Quit stays AppKit's (its review of unsaved documents, through which the system's own quit at log out also goes; the core's `app.quit` could be bridged with `applicationShouldTerminate` answering later, not built). **The iPad** does not declare it: its windows are scenes the document browser makes; adopting it would mean the core's New and Open making documents that the app turns into scenes (`UIApplication.requestSceneSessionActivation`) and the document browser's own create and open going to the core; a decision.
+
+**Decision 26, the numbers grid's window is the core's.** `viewer.grid {cols: "next" | "prev" | "first" | "last", col?}` steps the 64 columns shown; the page says `firstCol`, `endCol`, `colsShown`, `prevCols`, `nextCols`; `viewer.data` no longer takes `cols`. egui and both Apple apps step it through the command. **Windows must** stop sending `cols` to `viewer.data` (it is refused now), step with `viewer.grid {cols}` and enable its buttons from `prevCols` and `nextCols`.
+
+**Decision 27, Recipe in the viewer bar.** Both Apple apps' pop-out bars have Recipe: `viewer.recipe {popout}` in a popover (a sheet in compact width), the recipe as JSON, Copy through `viewer.recipe {copy: true}`; "No recipe" when the engine sent none. Built against the dev branch's `viewer.recipe`; nothing core-side was missing.
+
+Report: `claude-debug/native-n4-person-gate.md`.
 ### Follow-ups to B72, B37 and B49 (the maintainer, 2026-11-21)
 
 Asked three questions after B72's fix: 1, keep the rule that an engine which exits before it ever connects is not restarted; 2, warn when a manifest's relative `cwd` holds no project; 3, give the Python SDK the same injectable clock as Rust. The answer: "1,2,3 yes".

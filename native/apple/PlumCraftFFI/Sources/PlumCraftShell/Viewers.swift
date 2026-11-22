@@ -139,6 +139,8 @@ public struct ViewerBar: SwiftUI.View {
             .fixedSize()
             .help("Pin this value as A or B and compare")
             .accessibilityIdentifier("viewer-compare")
+            // what made the value (decision 27, F56): the core's `viewer.recipe`
+            RecipeButton(popout: p)
             Button { Task { await p.takeOut("value.copy") } } label: { Label("Copy", systemImage: "doc.on.doc") }
                 .labelStyle(.iconOnly).help("Copy the value").accessibilityIdentifier("viewer-copy")
             Button { Task { await p.takeOut("value.share") } } label: { Label("Share…", systemImage: "square.and.arrow.up") }
@@ -155,6 +157,62 @@ public struct ViewerBar: SwiftUI.View {
         guard i >= 0, UInt64(i) < n else { return }
         let p = box.popout
         Task { await p.command("run.item", ["index": .int(i)]) }
+    }
+}
+
+/// The viewer bar's Recipe (decision 27; floor F56): what made the value, as the core gives it
+/// (`viewer.recipe {popout}`: `{recipe: {style?, params, settings, graph}}`, or null when the
+/// engine sent none), shown in a popover (a sheet in compact width), with Copy
+/// (`viewer.recipe {copy: true}`, the core's clipboard ask).
+struct RecipeButton: SwiftUI.View {
+    let popout: PopoutModel
+    @State private var shown = false
+    @State private var text: String?
+
+    var body: some SwiftUI.View {
+        Button {
+            let p = popout
+            Task {
+                let r = await p.command("viewer.recipe")
+                let recipe = r?["recipe"]
+                text = (recipe == nil || recipe?.isNull == true) ? nil : recipe.map { v in
+                    let o = try? JSONSerialization.jsonObject(with: v.serialized(), options: [.fragmentsAllowed])
+                    let d = o.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]) }
+                    return d.map { String(decoding: $0, as: UTF8.self) } ?? v.text
+                }
+                shown = true
+                StatusFile.shared.set("recipe", ["popout": .uint(p.id), "shown": true, "has": .bool(text != nil)])
+            }
+        } label: { Label("Recipe", systemImage: "list.bullet.rectangle") }
+            .labelStyle(.iconOnly)
+            .help("What made this value")
+            .accessibilityIdentifier("viewer-recipe")
+            .popover(isPresented: $shown) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text("Recipe").font(.headline)
+                        Spacer()
+                        if text != nil {
+                            Button("Copy") {
+                                let p = popout
+                                Task { await p.takeOut("viewer.recipe", ["copy": true]) }
+                            }
+                            .accessibilityIdentifier("recipe-copy")
+                        }
+                    }
+                    if let text {
+                        ScrollView {
+                            Text(text).font(.caption.monospaced()).textSelection(.enabled)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .accessibilityIdentifier("recipe-text")
+                    } else {
+                        Text("No recipe: the engine sent none for this value.").foregroundStyle(.secondary)
+                    }
+                }
+                .padding(14)
+                .frame(minWidth: 320, idealWidth: 420, maxWidth: 560, minHeight: 120, idealHeight: 320, maxHeight: 560)
+            }
     }
 }
 
@@ -459,11 +517,10 @@ struct PageGrid: SwiftUI.View {
 struct GridViewer: SwiftUI.View {
     let box: ViewerBox
     @State private var loader = PageLoader()
-    @State private var firstCol: UInt64 = 0
 
     var body: some SwiftUI.View {
         let st = box.state("grid")
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": st, "c": .uint(firstCol)]
+        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": st]
         VStack(spacing: 0) {
             if let e = loader.error {
                 ViewerMessage(text: "These numbers can't be shown: \(e)")
@@ -487,10 +544,20 @@ struct GridViewer: SwiftUI.View {
                         }).font(.caption).fixedSize()
                     }
                     Spacer()
-                    if let all = page["cols"].uint64, all > UInt64(width) {
-                        Button { firstCol = c0 >= 64 ? c0 - 64 : 0 } label: { Image(systemName: "chevron.left") }.disabled(c0 == 0)
-                        Text("columns \(c0)–\(c0 + UInt64(max(width, 1)) - 1) of \(all)").font(.caption).monospacedDigit()
-                        Button { firstCol = c0 + 64 } label: { Image(systemName: "chevron.right") }.disabled(c0 + UInt64(width) >= all)
+                    // which columns are shown is the core's window (decision 26): its page says
+                    // where it is and whether it can step; the buttons step it (viewer.grid cols)
+                    let prev = page["prevCols"].bool ?? false, next = page["nextCols"].bool ?? false
+                    if let all = page["cols"].uint64, prev || next {
+                        let end = page["endCol"].uint64 ?? (c0 + UInt64(width))
+                        Button {
+                            let p = box.popout
+                            Task { await p.command("viewer.grid", ["cols": "prev"]) }
+                        } label: { Image(systemName: "chevron.left") }.disabled(!prev).accessibilityLabel("Previous columns")
+                        Text("columns \(c0)–\(end > 0 ? end - 1 : 0) of \(all)").font(.caption).monospacedDigit()
+                        Button {
+                            let p = box.popout
+                            Task { await p.command("viewer.grid", ["cols": "next"]) }
+                        } label: { Image(systemName: "chevron.right") }.disabled(!next).accessibilityLabel("Next columns")
                     }
                 }
                 .buttonStyle(.borderless)
@@ -523,8 +590,8 @@ struct GridViewer: SwiftUI.View {
                 ProgressView("Reading the numbers…").frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .onAppear { loader.load(box, "grid", key: key, extra: ["cols": .uint(firstCol)]) }
-        .onChange(of: key) { _, k in loader.load(box, "grid", key: k, extra: ["cols": .uint(firstCol)]) }
+        .onAppear { loader.load(box, "grid", key: key) }
+        .onChange(of: key) { _, k in loader.load(box, "grid", key: k) }
     }
 }
 

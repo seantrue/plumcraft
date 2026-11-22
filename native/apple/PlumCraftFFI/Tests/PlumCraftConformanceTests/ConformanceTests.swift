@@ -64,7 +64,9 @@ func log(_ driver: String, _ out: [Outcome]) {
         #expect(out.allSatisfy { $0.error == nil }, "\(Conformance.summary(d.name, out))")
         #expect(out.count == cases.filter { $0["half"] == "read" }.count && out.count >= 12)
         let skipped = out.filter { $0.skipped != nil }.map(\.name)
-        let arrays = cases.filter { $0["half"] == "read" && $0["needs"].array?.contains("engine:array") == true }.compactMap { $0["name"].string }
+        // the array engine's cases, and those that need a core that installs engines (this one is
+        // given no platform that can: decision 5's pick-list case)
+        let arrays = cases.filter { $0["half"] == "read" && ($0["needs"].array?.contains("engine:array") == true || $0["needs"].array?.contains("install") == true) }.compactMap { $0["name"].string }
         #expect(skipped == arrays && arrays.count >= 5, "only the array engine's cases are skipped: \(skipped)")
         // the document model kept up with every case's scene
         let full = try await core.request(Scene.self, "scene.get")
@@ -99,7 +101,9 @@ func log(_ driver: String, _ out: [Outcome]) {
         log(d.name, out)
         #expect(out.allSatisfy { $0.error == nil }, "\(Conformance.summary(d.name, out))")
         let skipped = out.filter { $0.skipped != nil }.map(\.name)
-        let arrays = cases.filter { $0["half"] == "read" && $0["needs"].array?.contains("engine:array") == true }.compactMap { $0["name"].string }
+        // the array engine's cases, and those that need a core that installs engines (this one is
+        // given no platform that can: decision 5's pick-list case)
+        let arrays = cases.filter { $0["half"] == "read" && ($0["needs"].array?.contains("engine:array") == true || $0["needs"].array?.contains("install") == true) }.compactMap { $0["name"].string }
         #expect(skipped == arrays, "\(skipped)")
     }
 

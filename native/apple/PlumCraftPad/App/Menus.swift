@@ -141,6 +141,13 @@ enum PadMenus {
             }
             // the system has no Settings, About or Quit place here yet
             if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about { continue }
+            if it.isSection {
+                // B80: inline, under its heading (it was an untitled submenu holding every engine)
+                flush()
+                group.append(UIMenu(title: it.label, options: .displayInline, children: elements(it.items, path: key, used: &used)))
+                flush()
+                continue
+            }
             if it.isSubmenu {
                 group.append(UIMenu(title: it.label, children: elements(it.items, path: key, used: &used)))
                 continue
@@ -212,6 +219,11 @@ enum PadMenus {
         for it in list {
             if it.separator {
                 flush()
+                continue
+            }
+            if it.isSection {
+                flush()
+                out.append(UIMenu(title: it.label, options: .displayInline, children: actions(it.items, model: model, dispatch: dispatch)))
                 continue
             }
             if it.isSubmenu {

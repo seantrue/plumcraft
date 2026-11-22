@@ -43,6 +43,7 @@ pub const START_WAIT: Duration = document::START_WAIT;
 
 pub use plumcraft_editor_core::install::{Installer, Installing, KNOWN_ENGINES, Progress};
 pub use plumcraft_editor_core::switchboard::Reloader;
+use plumcraft_session::commands::FieldKind;
 
 /// Starts engine `engine` hosted as `mode` (one of the app's [`EngineChoice`]s) and links to it;
 /// `repaint` is woken when its events arrive. It is called on the editor's engine worker, so it
@@ -154,14 +155,21 @@ impl EditorApp {
                     egui::RichText::new("A Python engine from GitHub, installed with uv and registered, so every editor offers it.")
                         .color(self.tokens.text_dim),
                 );
-                ui.horizontal(|ui| {
-                    ui.label("Repository");
-                    ui.add(egui::TextEdit::singleline(&mut form.repo).hint_text("owner/repo").desired_width(320.0));
-                });
-                ui.add_space(4.0);
-                for (label, repo) in KNOWN_ENGINES {
-                    if ui.radio(form.repo == *repo, *label).on_hover_text(format!("https://github.com/{repo}")).clicked() {
-                        form.repo = (*repo).to_owned();
+                // the core's form (invoke::engine_form): its pick list of the public engines, with
+                // any other repository typed (decision 5), as every shell draws it
+                if let Some(f) = plumcraft_editor_core::invoke::engine_form("engine.install") {
+                    for field in f.fields.iter().filter(|f| f.key == "repo") {
+                        ui.horizontal(|ui| {
+                            ui.label(field.label);
+                            match field.kind {
+                                FieldKind::Pick { choices, other } => {
+                                    crate::form_view::pick_field(ui, "plumcraft-install-repo", choices, other, &mut form.repo, field.hint, 320.0);
+                                }
+                                _ => {
+                                    ui.add(egui::TextEdit::singleline(&mut form.repo).hint_text(field.hint).desired_width(320.0));
+                                }
+                            }
+                        });
                     }
                 }
                 ui.add_space(4.0);
