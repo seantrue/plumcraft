@@ -101,7 +101,7 @@ None known left.
 ## Unverified
 
 - No launched app: the Mac and iPad apps, the Windows app and the person checks weren't run (`native/` untouched). Their Swift and C# runners skip the new case until they claim `saves`.
-- No Linux run (yellowfin) of this branch.
+- No run on the Linux test host of this branch.
 - The C ABI case's HTTP engine passed the same-host proof here, so the engine wrote `path` itself; the returned-files route is covered by `saved.rs`'s unit test and the SDK tests without `path`, not end to end through an HTTP engine that fails the proof.
 - egui's options form is driven by kittest (values set on the model, the button clicked), not by typing into its fields.
 - The coordinator with several engines saving one engine's node is unchanged code; no new test drives a save across two engines.
