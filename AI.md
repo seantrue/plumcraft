@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — The iPad's stray keyboard is the system's, not the app's (B118); keyboard and first responder in the status (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1 - leave as process; 2 - leave as mac only; 3 - which rust sdk?; 4 - look now": egui keeps audio as a process, the test engine stays Mac-only, and B118 is looked into now. Question 3 was answered later ("Make the save an basic feature.").
+
+**What the agent did (about 250 lines of Swift and scripts).** The iPad app writes the keyboard's state and the first responder to its status; UI-test time-outs print them with what is animating. On the simulator a keyboard appears whenever any menu is open and goes when it closes, as it does in the stock Files app: not the app's doing. A new UI test asserts no keyboard after launch, after a menu, and after a field's Done.
+
+**A wrong claim by the agent, corrected by it:** its earlier "the keyboard is up after launch" came from pictures taken with a menu open. B118 explains none of the device failures B111 to B114; the device log shows the app stopped reporting idle a fraction of a second after a digit reached a number field.
+
+**Verified (agent, Mac, screen unlocked).** The Mac gate once (63 of 63 cases, the person check 50 steps); iPad simulator conformance 59 of 59 with 4 skipped; its UI tests 7 of 7. **Not verified:** the device.
 ### 2026-11-22 — Paths shown to a person lose Windows' long-path prefix (B95) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1,2 yes, 3 leave it": fix B95, rewrite the two stale Windows scene step files, and leave the pick-list label under its field on Windows.

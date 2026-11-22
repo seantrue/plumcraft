@@ -917,6 +917,33 @@ The controller asked four questions, each with its recommendation: (1) Open Rece
 
 **Floor counts after this branch:** the Mac **50 met, 3 partly, 32 not met** (from 43, 2, 40); the iPad **38 met, 1 partly, 46 not met** (from 28, 1, 56).
 
+### Decisions after the engine half (the maintainer, 2026-11-22)
+
+The controller asked: (1) egui and audio: publish SoundCraft's crates so egui can link the audio engine, or leave egui with audio as a process? (2) The test engine on the iPad: a separate test-only framework, or Mac-only? (3) F19: add save formats to the Rust SDK, or leave the row unmet? (4) B118: look into the stray keyboard now, or after the device re-run (recommended: now)? The answer: "1 - leave as process; 2 - leave as mac only; 3 - which rust sdk?; 4 - look now". Question 3 is still open: the controller has explained that it means `crates/engine` and that neither SDK (Rust nor Python) can declare save formats; nothing is built for it.
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | egui and the audio engine | Leave it as a process |
+| 2 | The test engine on the iPad | Leave it Mac-only |
+| 3 | F19, save formats in the Rust SDK | Open ("which rust sdk?": `crates/engine`; neither SDK declares save formats) |
+| 4 | B118, the stray keyboard | Look now |
+
+### The stray keyboard, and the next device run (2026-11-22, branch `native/n4-keyboard`)
+
+**B118 is the system's.** The iPad app now writes the on-screen keyboard and what holds the keyboard's focus to its status (`keyboard`: `shown` and its frame; `firstResponder`: the type and a field's identifier), in debug and release builds. On the iPad Pro 11-inch (M5) simulator with the software keyboard on, there is no keyboard after a launch; one comes up whenever a menu is open (the bar's More menu, the title menu) and goes when it closes. The stock Files app's More menu does the same in the same simulator, and taking away the graph controller's first responder, key commands or editing-interaction setting changes nothing, so it is not the app's. The earlier pictures were taken with the More menu open. The new UI test `testNoKeyboardWithNothingEdited` asserts no keyboard after the launch, after a menu opened and closed, and after a field's Done (and one while the field is edited). Proposed: close B118 (the maintainer's decision).
+
+**B111 to B114 in that light.** B118 explains none of them. In the device log every idle wait is in `testInlineEdits`, from a fraction of a second after `7` is typed into the number field (the typing's own idle wait ended; the next, before the tap on Done, never did; the field still open, no menu), and the next test's launch has none; the element lists at the B112 to B114 failures show no keyboard, and B113's missing Select button was the bar's overflow (the More button was there), a width matter. Both candidates for B111 (the keyboard lift and the number keyboard's frame changes feeding each other, or a face left running) now show in the status the tests print on any time-out: `animating`, `keyboard`, `firstResponder`.
+
+**The next device run, in one command** (the iPad connected, unlocked, Auto-Lock Never, UI Automation on, VPN off; from a checkout of this branch once merged):
+
+```sh
+DEVICE=<the iPad's UDID> TEAM=<team id> OUT=claude-debug/native-n4/s10-device native/apple/PlumCraftPad/device.sh ui
+```
+
+- The build it installs: the branch's Debug build of the app and its UI-test runner, built by `xcodebuild test` into `native/apple/PlumCraftPad/build-device/test` and signed with the team's existing identity (nothing asked of Apple); the runner is uninstalled after.
+- The tests, seven: `testCompactWindowsByATap`, `testEveryViewerByATap` (B112), `testInlineEdits` (B111), `testTouchGestures` (B113), `testWindowsAndNames` (B114), and the two new ones, `testNoKeyboardWithNothingEdited` (B118) and `testAWarnedEngineIsMarkedInTheMenu`, which skips itself on a device (it writes an engine manifest the app must read, and on a device the runner's files are in its own sandbox; it runs on the simulator).
+- What it prints (`OUT/ui-<run>.log`, and on screen): each test's start and result; every failure, where a "timed out waiting" now carries `animating`, `keyboard` and `firstResponder` as well as the window's status; and one line `B111: animating 8 s after the number's Done: [...]` from `testInlineEdits`, empty (`[]`) when the app went idle. If B111 happens again, that line and the failures say what was animating (`keyboard-lift`, `pulse`, `fade`, `viewport`, `reveal`, `momentum`) and whether a keyboard was up. The pictures and the result bundle are in `OUT`.
+
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 
 The first piece of N5 as the maintainer changed it (the note under section 12): a native Windows shell in C# and WinUI 3 on the same core, playing the part N0 played for the Apple apps. Branch `native/n5-spike`, code in `native/windows/` (its README says what is spike and what is meant to stay). Report: `claude-debug/native-n5-spike.md`. Machine: the maintainer's Windows 11 Pro ARM64 virtual machine (UTM on the Mac, 4 cores, 8 GB, build 26200), .NET SDK 10.0.404, Windows App SDK 2.6.5, Win2D 1.4.0. No Rust in the workspace changed.

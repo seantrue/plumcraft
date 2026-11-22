@@ -75,7 +75,8 @@ final class GestureTests: XCTestCase {
         }
         // what the app was animating then (Activity: empty when idle), for B111's device re-run
         let s = status()
-        XCTFail("timed out waiting for \(what): animating \(s["animating"] ?? "(not reported)"): \(window())")
+        // and the keyboard with what had its focus (B118, B111)
+        XCTFail("timed out waiting for \(what): animating \(s["animating"] ?? "(not reported)"), keyboard \(s["keyboard"] ?? "(not reported)"), first responder \(s["firstResponder"] ?? "(not reported)"): \(window())")
         return false
     }
 
@@ -299,7 +300,9 @@ final class GestureTests: XCTestCase {
             if animating.isEmpty { break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
-        XCTAssertTrue(animating.isEmpty, "B111: still animating 8 s after the number's Done: \(animating)")
+        XCTAssertTrue(animating.isEmpty, "B111: still animating 8 s after the number's Done: \(animating); keyboard \(status()["keyboard"] ?? "-"), first responder \(status()["firstResponder"] ?? "-")")
+        // said either way, for the device run's log
+        print("B111: animating 8 s after the number's Done: \(animating)")
 
         // a choice: the system's menu on the row
         let (mode, _) = try XCTUnwrap(row("w", 5))
@@ -491,6 +494,63 @@ extension GestureTests {
     func coreWindows() -> [String: Any] { window()["coreWindows"] as? [String: Any] ?? [:] }
 
     /// A menu item by its label, wherever the system put it (a button or a menu item).
+    /// B118: the on-screen keyboard is up only while a field is edited. After a launch with
+    /// nothing edited there is none (the app's status says so, and so does what accessibility
+    /// sees), and after a field's Done it goes away again. An open menu brings it (the system
+    /// does that for every app's menus when the software keyboard is on: the stock Files app's
+    /// too); closing the menu puts it away. Launched as the warned-engine test is (no `--then`,
+    /// the compact bar), where it was seen.
+    @MainActor
+    func testNoKeyboardWithNothingEdited() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--width-class", "compact"]
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["rows"] != nil }
+        func keyboardShown() -> Bool { ((status()["keyboard"] as? [String: Any])?["shown"] as? Bool) ?? false }
+        func noKeyboard(_ when: String) {
+            // a keyboard that is coming shows within a moment of what brings it
+            let settle = Date().addingTimeInterval(3)
+            while Date() < settle, !keyboardShown(), app.keyboards.count == 0 { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            let s = status()
+            XCTAssertFalse(keyboardShown(), "B118: the keyboard is up \(when): keyboard \(s["keyboard"] ?? "-"), first responder \(s["firstResponder"] ?? "-")")
+            XCTAssertEqual(app.keyboards.count, 0, "B118: accessibility sees a keyboard \(when): first responder \(s["firstResponder"] ?? "-")")
+        }
+        shot("n4k-ui-launched")
+        noKeyboard("after the launch, nothing edited")
+
+        // a menu opened and closed leaves none
+        let more = app.buttons["tool.more"]
+        XCTAssertTrue(more.waitForExistence(timeout: 10), "the bar's More menu")
+        more.tap()
+        XCTAssertTrue(item(app, "Settings").waitForExistence(timeout: 10), "the More menu open")
+        app.otherElements["Canvas"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.3)).tap()
+        let closed = Date().addingTimeInterval(10)
+        while Date() < closed, item(app, "Settings").exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        noKeyboard("after a menu was opened and closed")
+
+        // a text field: the keyboard comes with it, and goes with its Done
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        let (label, _) = try XCTUnwrap(row("w", 1))
+        origin.withOffset(CGVector(dx: label.x, dy: label.y)).tap()
+        wait("the text field open") { (($0["editor"] as? [String: Any])?["kind"] as? String) == "text" }
+        let field = app.textFields["row-editor"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        let up = Date().addingTimeInterval(10)
+        while Date() < up, !keyboardShown() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        XCTAssertTrue(keyboardShown(), "the keyboard up while the field is edited: \(status()["keyboard"] ?? "-")")
+        field.typeText("no keyboard")
+        app.buttons["row-editor-done"].tap()
+        wait("the field gone") { (($0["editor"] as? [String: Any])?["open"] as? Bool) == false }
+        shot("n4k-ui-after-done")
+        noKeyboard("after the field's Done")
+    }
+
     func item(_ app: XCUIApplication, _ label: String) -> XCUIElement {
         let b = app.buttons[label]
         return b.exists ? b : app.menuItems[label]
@@ -503,6 +563,13 @@ extension GestureTests {
     /// and its warning as its subtitle.
     @MainActor
     func testAWarnedEngineIsMarkedInTheMenu() throws {
+        #if targetEnvironment(simulator)
+        let shared = true
+        #else
+        let shared = false
+        #endif
+        // on a device the runner's files are in its own sandbox, where the app can't read them
+        try XCTSkipUnless(shared, "needs a folder both the runner and the app can read: the simulator only")
         let env = ProcessInfo.processInfo.environment
         statusPath = statusFilePath(env)
         // a folder the app can read: beside the status file the script names (a folder of the
@@ -522,9 +589,6 @@ extension GestureTests {
         app.launch()
         defer { app.terminate() }
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
-        // B118: a keyboard is up after this launch though nothing is edited; put it away, as a
-        // person would, so the menu has the screen
-        if app.keyboards.count > 0, app.buttons["Hide keyboard"].exists { app.buttons["Hide keyboard"].tap() }
         let more = app.buttons["tool.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 10), "the compact bar's More menu")
         more.tap()
@@ -534,7 +598,8 @@ extension GestureTests {
         let copied = app.descendants(matching: .any).matching(named).firstMatch
         // the engines run past the menu's foot: it is scrolled as a finger scrolls it
         for _ in 0..<4 where !copied.waitForExistence(timeout: 2) {
-            // on an item the finger can reach (the keyboard may cover the menu's foot, B118)
+            // on an item the finger can reach (with the software keyboard on, the system brings
+            // it up with any open menu, ours or a stock app's, and it covers the menu's foot: B118)
             let top = item(app, "Reconnect")
             (top.exists ? top : app).swipeUp()
         }
