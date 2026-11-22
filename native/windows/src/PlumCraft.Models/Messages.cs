@@ -627,6 +627,8 @@ public sealed record PopoutValue
     /// <summary>The viewer's state, the core's ({table, tree, audio, picture, grid, hex}).</summary>
     public JsonElement? State { get; init; }
     public List<OfferedViewer>? Viewers { get; init; }
+    /// <summary>The value has a recipe (2026-11-22: only a lineage-tracking engine's), so Recipe is offered.</summary>
+    public bool? HasRecipe { get; init; }
     public string? Type { get; init; }
     public ulong? Items { get; init; }
     public long? Index { get; init; }

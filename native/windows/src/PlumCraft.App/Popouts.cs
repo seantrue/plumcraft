@@ -328,9 +328,10 @@ public sealed class ValueWindow : Window
             LastRecipe = has;
         };
         recipe.Flyout = recipeFly;
-        bar.PrimaryCommands.Add(recipe);
+        // only a value with a recipe offers it (`hasRecipe`)
+        if (v.HasRecipe == true) bar.PrimaryCommands.Add(recipe);
         bar.PrimaryCommands.Add(Out("Copy", Ui.G.Copy, "Copy the value", "value.copy"));
-        bar.PrimaryCommands.Add(Out("Save As…", Ui.G.Save, "Save the value to a file, its recipe included", "value.saveAs"));
+        bar.PrimaryCommands.Add(Out("Save As…", Ui.G.Save, "Save the value to a file", "value.saveAs"));
         var share = Out("Share…", Ui.G.Share, shareRefused ?? "Share the value", "value.share");
         if (shareRefused is { } why)
         {

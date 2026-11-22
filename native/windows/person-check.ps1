@@ -182,6 +182,17 @@ $engines = Join-Path $Work 'engines'
 Remove-Item -Recurse -Force $root, $engines -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $root, $engines, (Join-Path $Work 'tmp') | Out-Null
 Copy-Item (Join-Path $checkout 'crates\editor-core\fixtures\conformance\engines\probe.toml') $engines
+# the test engine (crates/ports), when it was built with the core: installed in the scratch engines folder as a
+# person's engine would be, for Save Result's step (its result node saves in its own format, with an option)
+$portsExe = Join-Path $checkout 'target\aarch64-pc-windows-msvc\release\plumcraft-ports-engine.exe'
+if ($Exe -like '*\x64\*') { $portsExe = Join-Path $checkout 'target\x86_64-pc-windows-msvc\release\plumcraft-ports-engine.exe' }
+$hasPorts = Test-Path $portsExe
+if ($hasPorts) {
+    $pbin = Join-Path $Work 'bin'
+    New-Item -ItemType Directory -Force $pbin | Out-Null
+    Copy-Item $portsExe $pbin -Force
+    Set-Content -Encoding ascii (Join-Path $engines 'ports.toml') "id = `"ports`"`nname = `"Ports (test engine)`"`nmode = `"process`"`ncommand = ['$pbin\plumcraft-ports-engine.exe']`n"
+}
 $env:PLUMCRAFT_ENGINE_FOLDER = $engines
 $env:TEMP = Join-Path $Work 'tmp'; $env:TMP = $env:TEMP
 Get-ChildItem $Work -Filter '*.png' | Remove-Item -ErrorAction SilentlyContinue
@@ -252,11 +263,12 @@ function Add-From-Palette($w, [double]$fx, [double]$fy, [string]$query, [string]
     # the kind, not a section heading of the same name (a family's heading is a caption row before its kinds):
     # of the rows named so, the last
     Start-Sleep -Milliseconds 300
-    $pick = @([P]::All($w) | Where-Object { [P]::Kind($_) -eq 'ListItem' -and [P]::Name($_) -eq $name }) | Select-Object -Last 1
+    # (a kind of an engine not started yet reads "Edge, starts the ports engine")
+    $pick = @([P]::All($w) | Where-Object { [P]::Kind($_) -eq 'ListItem' -and ([P]::Name($_) -eq $name -or [P]::Name($_) -like "$name, *") }) | Select-Object -Last 1
     if (-not $pick) { $pick = In $w { param($e) [P]::Kind($e) -eq 'ListItem' -and [P]::Name($e) -like "$name*" } 3000 }
     if ($pick) { [P]::ClickOn($pick) } else { [P]::Key(0x0D) }
     $n = Wait-Until { Node $w $name } 15000
-    return @{ node = $n; search = $(if ($search) { [P]::Name($search) } else { 'none' }); list = ($items | Select-Object -First 6) -join ' / ' }
+    return @{ node = $n; search = $(if ($search) { [P]::Name($search) } else { 'none' }); list = ($items | Select-Object -First 6) -join ' / '; picked = $(if ($pick) { [P]::Name($pick) } else { 'none (Enter)' }) }
 }
 
 function Run-Steps {
@@ -441,10 +453,19 @@ function Run-Steps {
     if ($it) { [P]::ClickOn($it) }
     $blank = Doc-Window 'Untitled*' 15000
     Front $w
+    # read the button where it is now (bringing the window forward may have changed its placement)
+    Start-Sleep -Milliseconds 700
     $close = Close-Button $w
-    if ($close) { [P]::ClickOn($close) }
+    $closeAt = if ($close) { [P]::Box($close).ToString() } else { 'none' }
+    # a person closes the window in front with Alt+F4, or clicks its close button where it shows
+    $front = [P]::GetForegroundWindow().ToInt64() -eq [long]$w.Current.NativeWindowHandle
+    if ($front) { [P]::Chord(0x12, 0x73); $closeAt += " (Alt+F4, the window in front)" }
+    elseif ($close) { [P]::ClickOn($close) }
+    Start-Sleep -Milliseconds 1200
+    [P]::Shot((Join-Path $Work 'close-after-click.png'))
     $gone = Wait-Until { if ((Titles) -notlike '*person check*') { 1 } } 10000
-    Step 'close' ($null -ne $gone -and $null -ne $blank) ("windows after closing it: " + (Titles))
+    $asks = if (-not $gone) { ((@([P]::All($w)) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -notlike '* - Plummer' }) | ForEach-Object { [P]::Name($_) }) -join ', ' } else { '' }
+    Step 'close' ($null -ne $gone -and $null -ne $blank) ("close button at $closeAt; windows after closing it: " + (Titles) + $(if ($asks) { "; showing: $asks" } else { '' }))
     $reopened = $null
     if ($blank) {
         $it = Menu-Item $blank 'File' 'Open*'
@@ -478,6 +499,71 @@ function Run-Steps {
     $title = if ($opened) { [P]::Name($opened) } else { '' }
     $what = if ($opened) { Describe-Nodes $opened } else { '' }
     Step 'open-from-command-line' ($title -like 'person check*' -and $what -like '*Upper case*') ("title: $title; its nodes: $what")
+
+    # 15. Save Result from a result node's footer (the test engine's Result: its own format first, with an
+    # option): the file picker with the output's formats, the format's options in the core's form, the file read back
+    if ($opened -and $hasPorts) {
+        Starting '15. Save Result from the footer'
+        # step 4 turned Pick Engines Automatically off (kept in the root's preferences): a person turns it
+        # back on, so the palette offers the test engine's kinds (it starts that engine for them)
+        $it = Menu-Item $opened 'File' 'Settings*'
+        if ($it) { [P]::ClickOn($it) }
+        $sw = Wait-Until { Other-Windows | Where-Object { [P]::Name($_) -like '*Settings*' } | Select-Object -First 1 } 10000
+        if ($sw) {
+            $nav = In $sw { param($e) [P]::Id($e) -eq 'settings.section.engines' } 5000
+            if ($nav) { [P]::ClickOn($nav); Start-Sleep 1 }
+            $tg = In $sw { param($e) [P]::Id($e) -eq 'setting.autoEngines' } 5000
+            if ($tg -and [P]::Name($tg) -like '*Off*') { [P]::ClickOn($tg); Start-Sleep 1 }
+            $c = Close-Button $sw; if ($c) { [P]::ClickOn($c) }
+            Start-Sleep 1
+        }
+        # the test engine is an engine of the engines folder: the palette offers its kinds once it is in use,
+        # so a person picks it in the Engine menu first
+        $pe = Menu-Item $opened 'Engine' 'Ports*'
+        if ($pe) { [P]::ClickOn($pe); Start-Sleep -Milliseconds 600 }
+        # (with engines not picked automatically the item is a submenu of hostings: the process)
+        $host1 = In $opened { param($e) [P]::Kind($e) -eq 'MenuItem' -and [P]::Enabled($e) -and [P]::Name($e) -like '*Process*' } 1500
+        if ($host1) { [P]::ClickOn($host1) }
+        $null = Wait-Until { $t = Status-Text $opened; if ($t -like '*Ports*connected*' -or $t -like '*ports*connected*') { $t } } 30000
+        $ed = Add-From-Palette $opened 0.12 0.72 'Edge' 'Edge'
+        $rs = Add-From-Palette $opened 0.5 0.72 'Result' 'Result'
+        $saw = ''
+        if ($ed.node -and $rs.node) {
+            $fb = [P]::Box((Pin (Node $opened 'Edge') 'out')); $tb = [P]::Box((Pin (Node $opened 'Result') 'in'))
+            [P]::Drag($fb.X + $fb.Width / 2, $fb.Y + $fb.Height / 2, $tb.X + $tb.Width / 2, $tb.Y + $tb.Height / 2)
+            Start-Sleep 1
+            $run = In $opened { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Run' }
+            if ($run) { [P]::ClickOn($run) }
+            $btn = Wait-Until { $n = Node $opened 'Result'; if ($n) { [P]::All($n) | Where-Object { [P]::Id($_) -like 'save.*' } | Select-Object -First 1 } } 45000
+            $saved = Join-Path $Work 'saved\result.quoted'
+            Remove-Item $saved -ErrorAction SilentlyContinue
+            if ($btn) {
+                [P]::ClickOn($btn)
+                $dlg = Wait-Until { @([P]::All($opened)) + @(Other-Windows) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -like 'Save*' -and [P]::Name($_) -notlike 'Save as *' } | Select-Object -First 1 } 15000
+                $types = ''
+                if ($dlg) {
+                    Start-Sleep 1
+                    $types = ((@([P]::All($dlg) | Where-Object { [P]::Kind($_) -eq 'ComboBox' -and [P]::Name($_) -like 'Save as type*' }) | ForEach-Object { [P]::Value($_) }) -join ' / ')
+                    [P]::Shot((Join-Path $Work 'save-picker.png'))
+                    $field = In $dlg { param($e) [P]::Kind($e) -eq 'Edit' -and [P]::Name($e) -like 'File name*' } 5000
+                    if ($field) { [P]::ClickOn($field); [P]::Chord(0x11, 0x41); [P]::Type($saved); Start-Sleep -Milliseconds 300; [P]::Key(0x0D) }
+                }
+                # the format's options: the core's form, drawn by the app
+                $form = Wait-Until { [P]::All($opened) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -like 'Save as *' } | Select-Object -First 1 } 15000
+                $fields = ''
+                if ($form) {
+                    Start-Sleep 1
+                    $fields = ((@([P]::All($form) | Where-Object { [P]::Kind($_) -in 'ComboBox', 'Edit' }) | ForEach-Object { [P]::Kind($_) + " '" + [P]::Name($_) + "'" }) -join ', ')
+                    [P]::Shot((Join-Path $Work 'save-options.png'))
+                    $ok = In $form { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Save' } 3000
+                    if ($ok) { [P]::ClickOn($ok) }
+                }
+                $wrote = Wait-Until { if (Test-Path $saved) { Get-Content $saved -Raw } } 20000
+                $saw = "picker: " + $(if ($dlg) { [P]::Name($dlg) + " (type: $types)" } else { 'none' }) + "; options form: " + $(if ($form) { [P]::Name($form) + " ($fields)" } else { 'none' }) + "; the file reads: $wrote"
+            } else { $saw = "no Save Result on the Result face; it reads: " + [P]::Status((Node $opened 'Result')) }
+        } else { $saw = "palette for Edge: [" + $ed.list + "] picked " + $ed.picked + "; for Result: [" + $rs.list + "] picked " + $rs.picked + "; nodes: " + (Describe-Nodes $opened) }
+        Step 'save-result' ($saw -like '*the file reads: "*') $saw
+    }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'
         if ($it) { [P]::ClickOn($it) }

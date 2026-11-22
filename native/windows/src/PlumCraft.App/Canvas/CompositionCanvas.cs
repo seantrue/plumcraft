@@ -527,7 +527,7 @@ public sealed partial class CompositionCanvas
                 {
                     var st = core.GeometrySet(hot, measured);
                     if (st != PlumStatus.Ok) throw new PlumException(PlumErrorKind.Status, $"plum_geometry_set: {PlumStatus.Word(st)}");
-                    parts = CanvasLink.ReportPartsAsync(core, doc, [.. jobs.Where(j => j.Relayout).Select(j => (j.Face.Id, (IReadOnlyDictionary<string, MRect>)j.Laid!.Parts()))]);
+                    parts = CanvasLink.ReportPartsAsync(core, doc, [.. jobs.Where(j => j.Relayout).Select(j => (j.Face.Id, (IReadOnlyDictionary<string, MRect>)j.Laid!.Parts(), (IReadOnlyList<MRect?>)j.Laid!.FooterParts(j.Face.Footer.Count)))]);
                 }
                 if (offscreen)
                     Parallel.ForEach(jobs, opts, j =>

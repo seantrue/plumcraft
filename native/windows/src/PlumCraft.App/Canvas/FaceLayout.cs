@@ -24,7 +24,15 @@ public static class FaceMetrics
 
 public sealed record PlacedText(string Text, float X, TextStyle Style, float Max, bool Right = false);
 
-public sealed record FooterPlan(WRect Rect, List<string> Lines, bool Mono, double? Progress);
+public sealed record FooterPlan(WRect Rect, List<string> Lines, bool Mono, double? Progress)
+{
+    /// <summary>The footer item's kind and port (a `save` item is Save Result…, clicked through the core's command).</summary>
+    public string Kind { get; init; } = "";
+    public string? Port { get; init; }
+    public bool Sheet { get; init; }
+    /// <summary>Its index in the scene's footer list (`parts.footer[k]`).</summary>
+    public int Index { get; init; }
+}
 
 public sealed class FaceLayout
 {
@@ -46,6 +54,16 @@ public sealed class FaceLayout
 
     /// <summary>The header's parts the core hit-tests (geometry.parts): the title, the chevron, the icon,
     /// the more-button, the enter button, the preview.</summary>
+    /// <summary>Each footer item's rect in the scene's order (null for one not drawn), reported as
+    /// `parts.footer` so the core hit-tests a tap on a line: Save Result… is the core's save (B122).</summary>
+    public List<MRect?> FooterParts(int count)
+    {
+        var o = Enumerable.Repeat<MRect?>(null, count).ToList();
+        foreach (var f in Footer)
+            if (f.Index >= 0 && f.Index < count) o[f.Index] = new MRect(f.Rect.X, f.Rect.Y, f.Rect.X + f.Rect.Width, f.Rect.Y + f.Rect.Height);
+        return o;
+    }
+
     public Dictionary<string, MRect> Parts()
     {
         static MRect R(WRect c) => new(c.X, c.Y, c.X + c.Width, c.Y + c.Height);
@@ -213,7 +231,7 @@ public sealed class FaceLayout
                 }
                 var n = lines.Count + (progress is not null ? 0.6f : 0);
                 var hg = Math.Max(n, 1) * FaceMetrics.FooterLine + 4;
-                L.Footer.Add(new FooterPlan(new WRect(8, bottom + 2, textW, hg), lines, mono, progress));
+                L.Footer.Add(new FooterPlan(new WRect(8, bottom + 2, textW, hg), lines, mono, progress) { Kind = item.Kind, Port = item.Port, Sheet = item.Sheet == true, Index = face.Footer.FindIndex(x => ReferenceEquals(x, item)) });
                 bottom += hg + 2;
             }
         }

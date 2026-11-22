@@ -998,8 +998,13 @@ mod tests {
     fn a_desktop_offers_every_hosting_as_before() {
         assert_eq!(Capabilities::default(), Capabilities::DESKTOP);
         let all = offers(&Capabilities::DESKTOP);
-        assert!(all.iter().all(|o| o.why_not.is_none()));
-        assert_eq!(choices(), all.into_iter().map(|o| o.choice).collect::<Vec<_>>());
+        // nothing refused but a built-in engine's program that this build hasn't made (B97: a test
+        // of this crate alone, on Windows, builds no engine programs beside it)
+        let missing = EngineKind::all().into_iter().flat_map(|k| Mode::ALL.into_iter().filter(move |m| k.hosts(*m)).map(move |m| missing_program(k, m)));
+        for (o, why) in all.iter().zip(missing) {
+            assert_eq!(o.why_not, why, "{}/{}", o.choice.engine, o.choice.mode);
+        }
+        assert_eq!(choices(), all.into_iter().filter(|o| o.why_not.is_none()).map(|o| o.choice).collect::<Vec<_>>());
         assert_eq!(Launcher::default().choices(), choices());
     }
 

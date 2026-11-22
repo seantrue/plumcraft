@@ -46,6 +46,8 @@ var doc = Value("--doc") is { } ds && ulong.TryParse(ds, out var dn) ? dn : (ulo
 var halfWord = Value("--half") ?? "read";
 var only = Value("--case");
 var needing = Value("--needing");
+// where each case's `$scratch` folder goes (Save Result's files; `--has saves`)
+if (Value("--scratch") is { } scr) Conformance.ScratchRoot = scr;
 if (portText is null || !int.TryParse(portText, out var port) || tokenFile is null || (!call && casesPath is null))
 {
     Console.Error.WriteLine("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--case NAME] [--needing CAPABILITY]");

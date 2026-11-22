@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Save Result on Windows; a re-slashed save path (B98); six Windows-only Rust test failures (B97) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** B97: "7A" (fix them). They also restarted the Windows test VM after the Mac hibernated on a flat battery and took it down.
+
+**What the agent did.** Save Result works on Windows through the core's footer tap: the canvas reports its footer lines, the system's Save As dialog offers the output's formats as file types, and the core's options form follows. The agent's own earlier shell-side click was removed once the core's gesture merged. The C# runner gives each case a scratch folder and installs the test engine. A person-check step saves a result node from its footer through the real dialogs on the test VM and reads the file back. Running it found B98: the core reported a saved file's path made relative and re-slashed, as if it were a path stored in a workflow; a Save Result path is now kept as chosen. The six Windows-only Rust test failures (B97) are fixed at source, one a real rule (a rooted path with no drive is not the manifest's folder), the rest tests that assumed a Unix layout.
+
+**Wrong on the way.** The agent first worked around B98 in the runner; the controller had the workaround dropped so the case passes because the bug is fixed. The Recipe change for Windows was built and run but not looked at on screen.
+
+**Verified (agent, on the Windows test VM).** The C# runner 64 of 64 cases on ARM64 and x64; the Swift runner from the Mac 60 of 60; the person check 18 of 18, three runs in a row; `dotnet test` 53 of 53. Windows floor: 53 met, 4 partly, 5 not met, 24 claimed on reading alone. **Not verified:** B99, one palette case that failed once in ten runs, cause not found; no timings, the VM's display is software rendering.
+
 ### 2026-11-22 — Contact sheets, no recipes in SDK saves, a name and graph hash instead; tests kept out of the real home (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** On the recipe in saved files: "No embedding of recipes. It was ill conceived."; asked how far that reaches: "everywhere. Let's store a name and a hash of graph instead. Purely informational."; and, shown that four of the research software's floor rows depend on recipes, between dropping those rows and keeping recipes for lineage-tracking engines only: "go with 2 less risk." On an array's default format: PNG first, and "Also question saving non image shapes (mindim < 64, channels > 4, extreme aspect ratios)". After a preferences file appeared in their real Library, asked whether to delete it: "keep".

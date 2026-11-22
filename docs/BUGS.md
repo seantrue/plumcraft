@@ -42,19 +42,18 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: step 3, `ui.gesture {kind: "tap", at: [284.126, 14.0]}` on the more-button's part the shell had measured: the core answered `hit: none` and cleared the selection, so no node menu came back (54 of 55). The next three Mac runs that day passed every case. Possibly the tap arriving before the app reported the header's parts (`geometry.parts`); not looked into.
 - Issue: none
 
+### B99. The suite's case "a kind chosen from a dropped wire's palette…" failed once against the Windows app: the palette's item had no port
+
+- Reported: 2026-11-22
+- Report: one of four ARM64 runs of the edit half on `native/n5-save`: step 14, `palette.items {query: "text"}` gave `text.literal` with no `port` (the palette for the dropped wire had become the plain palette); the next three runs passed it
+- Context: not reproduced; the test engine was installed in that app's engines folder for the first time in these runs. Cause not found.
+- Issue: none
+
 ### B96. The wire tiles' moiré at low zoom differs slightly from the per-wire drawing (observation, low priority)
 
 - Reported: 2026-11-22
 - Report: the N5 gate's pixel comparison (`claude-debug/native-n5/g-pixels.py`): at zoom 1 the tiles match the old drawing within 5 of 255; at zoom 0.37, 2.7% of pixels differ by more than 32, all inside dense bands of wires
 - Context: the maintainer: "note for future". Not a defect to fix now (note 24's open items).
-- Issue: none
-
-### B97. Some core tests fail on Windows: Unix-style absolute paths, and engine programs a test expects beside it
-
-- Reported: 2026-11-22
-- Report: found running the touched crates' tests on the Windows test VM for B95 (`native/n5-gate-3`); the same tests fail with B95's change taken out, so they were failing before it
-- Context: `plumcraft-host` `manifest::tests::a_uv_project_folder_with_no_pyproject_warns` and `a_uv_run_with_no_project_from_a_folder_with_none_warns` (`/nowhere/at/all` and `/elsewhere` are not absolute on Windows, so the rule judges them); `plumcraft-engine` `register::tests::register_from_uvs_cache_warns_and_from_a_temporary_one_refuses` (register.rs:311); `plumcraft-editor-core` `engines::tests::a_desktop_offers_every_hosting_as_before` (engines.rs:964, the engine programs aren't beside a debug test), `switchboard::tests::an_engine_that_exits_at_once_fails_the_switch_at_once_saying_why` (switchboard.rs:950) and `switching_adding_and_clearing_without_a_window` (switchboard.rs:818). CI is Linux only, so nothing runs these on Windows. Not changed.
-- Approved: 2026-11-22, the maintainer (decision 7A): fix it. Needs the Windows test VM, which is down
 - Issue: none
 
 ### B92. A sound popped out by a double click on its pin started playing by itself, twice
@@ -195,6 +194,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B98. A Save Result path came back with `/` between its folders on Windows, inside the start folder made relative first
+
+- Reported: 2026-11-22
+- Report: found by the suite's case "ports: Save Result writes a result node's value in each of its formats" against the Windows app (`native/n5-save`): the file was written where chosen, but `ui.inspect`'s `save.last.paths[0]`, what the person reads, was `C:\…\n5-scratch\conform-scratch/case-18/plain.txt` (the chosen folder inside the folder the app started in) or `C:/Users/…/plain.txt` (outside it)
+- Context: `invoke.rs` passed the chosen path through `paths::chosen_path`, the rule for a path input a workflow stores (relative to the workflow's folder, `/` between folders so the workflow opens on any platform). A save is not stored in the workflow.
+- Fixed: 2026-11-22, branch `native/n5-save`: a Save Result's path stays as chosen (`save_choice`: only the macOS save panel's `:` becomes folders), with a unit test of a Windows-style path inside a folder and outside it. The case then passed against the Windows app with its scratch folder inside the app's start folder. Other chosen paths read back were checked by reading: Save As of a workflow and Export Bundle pass the chosen path as it is; a viewer's Save As goes through Save Result (fixed with it); Drag Out writes a file the core names; path inputs keep the stored form (`/`) on purpose, as the workflow stores them.
+- Issue: none
+
+### B97. Some core tests fail on Windows: Unix-style absolute paths, and engine programs a test expects beside it
+
+- Reported: 2026-11-22
+- Report: found running the touched crates' tests on the Windows test VM for B95 (`native/n5-gate-3`); the same tests fail with B95's change taken out, so they were failing before it
+- Context: `plumcraft-host` `manifest::tests::a_uv_project_folder_with_no_pyproject_warns` and `a_uv_run_with_no_project_from_a_folder_with_none_warns` (`/nowhere/at/all` and `/elsewhere` are not absolute on Windows, so the rule judges them); `plumcraft-engine` `register::tests::register_from_uvs_cache_warns_and_from_a_temporary_one_refuses` (register.rs:311); `plumcraft-editor-core` `engines::tests::a_desktop_offers_every_hosting_as_before` (engines.rs:964, the engine programs aren't beside a debug test), `switchboard::tests::an_engine_that_exits_at_once_fails_the_switch_at_once_saying_why` (switchboard.rs:950) and `switching_adding_and_clearing_without_a_window` (switchboard.rs:818). CI is Linux only, so nothing ran these on Windows.
+- Fixed: 2026-11-22, branch `native/n5-save` (the maintainer: "7A"), at source: `plumcraft-host`'s rule now treats a path with a root but no drive (`\elsewhere` on Windows) as not the manifest's folder, as it treats an absolute one (`from_here`, `crates/host/src/manifest.rs`); `register`'s test reads the written manifest as TOML (its `\` are escaped in the file); `a_desktop_offers_every_hosting_as_before` expects a built-in engine's process hosting disabled exactly when this build hasn't made its program; `switching_adding_and_clearing_without_a_window` adds the text engine's process hosting as a choice before refusing it; the exit-at-once test compares the engine's printed folder with the path as shown (`programs::shown`). All six pass on the Windows test VM; on the Mac, clippy and nextest of editor-core, host, engine and proto pass (396).
+- Issue: none
 
 ### B91. The Windows app offers Text and Array as a separate process but ships no engine program, so the engine never connects
 

@@ -11,11 +11,11 @@ The person check exists and found two real defects that every earlier gate misse
 
 Under the strict rule, the Windows floor stands at:
 
-- 44 met;
-- 3 partly;
+- 53 met;
+- 4 partly;
 - 5 not met;
 - 0 broken: F6 and F80;
-- 34 claimed on reading alone and not checked.
+- 24 claimed on reading alone and not checked.
 
 The maintainer restarted the VM. Later it stopped answering a second time: SSH accepted connections but sent nothing, then ping stopped too. So most of the gate is not taken.
 
@@ -109,7 +109,7 @@ A row is met only when a named test, case or script launched the real app and ex
 
 - **F6 and F80** were "Met", but the Engine menu showed no engine (B90).
 - **F80** also offered hostings that could not start (B91).
-- **34 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
+- **24 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
 
 | F | Item | Now | Evidence |
 |---|---|---|---|
@@ -126,14 +126,14 @@ A row is met only when a named test, case or script launched the real app and ex
 | F11 | Port widget fields | Met | SC 26 "every widget kind is set through its row…"; PC screenshot 10 shows the fields |
 | F12 | Socket modes | Met | SC 31 "the parameters inspector lists every input…" |
 | F13 | Setting binding | Met | SC 31 |
-| F14 | Variadic inputs | Claimed on reading alone, not checked | No case or check |
-| F15 | Choice-dependent sub-ports | Claimed on reading alone, not checked | SC 26 sets choices but no choice adds ports |
-| F16 | Path hints | Partly | Reading: a path is typed in a field; no Browse button |
-| F17 | External ports | Claimed on reading alone, not checked | No case or check |
-| F18 | Machine-dependent choices | Claimed on reading alone, not checked | No case or check |
+| F14 | Variadic inputs | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a variadic input, a choice's sub-port, and a choice this machine can't take" |
+| F15 | Choice-dependent sub-ports | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a choice's sub-port) |
+| F16 | Path hints | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case sets a path input and the engine reads it; no Browse button beside it on Windows |
+| F17 | External ports | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a setting bound to a bundle, and external ports on a collapsed group" |
+| F18 | Machine-dependent choices | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a choice this machine can't take, refused with its reason) |
 | F19 | Node flags | Claimed on reading alone, not checked | No case or check |
-| F20 | List typing | Claimed on reading alone, not checked | No case runs a list through the app |
-| F21 | Wire slices | Claimed on reading alone, not checked | Slice 3 ran it through the port without a named case |
+| F20 | List typing | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a list, a wire's slice of it, and a path input" |
+| F21 | Wire slices | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a wire's slice) |
 | F22 | Custom editors | Partly | Reading: the value editor window was never opened in a launched app (no engine here names an editor) |
 | F23 | Codegen metadata | Claimed on reading alone, not checked | No case or check |
 | F24 | Expansions | Claimed on reading alone, not checked | No case or check |
@@ -155,9 +155,9 @@ A row is met only when a named test, case or script launched the real app and ex
 | F40 | Reducer rules | Claimed on reading alone, not checked | The core's |
 | F41 | Canvas status display | Met | PC screenshot 10: "not run" in the face's header, looked at; PC read the faces' states |
 | F42 | Per-node timing | Met | Slice 4's scene screenshots (`cached · 0.21 ms` on faces, looked at) |
-| F43 | Parameter wires, bundles | Claimed on reading alone, not checked | No case or check |
+| F43 | Parameter wires, bundles | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a setting bound to a bundle) |
 | F44 | Provenance | Claimed on reading alone, not checked | No case or check |
-| F45 | Stale tracking | Claimed on reading alone, not checked | No case or check |
+| F45 | Stale tracking | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "the engine's run changed while it goes: stale, cancel, latest wins, a partial re-run, auto-run" |
 | F46 | Text on nodes | Met | SC 41 "a number shows the same text everywhere…" |
 | F47 | Thumbnails in flight | Met | SC 23 "a watched picture arrives as picture"; slice 4's screenshots of picture previews and waveforms, looked at |
 | F48 | Texture cache | Claimed on reading alone, not checked | Pictures are cached in the app; nothing checks a second ask is served from it |
@@ -176,7 +176,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F61 | List mapping with axes | Claimed on reading alone, not checked | No case or check |
 | F62 | Vary nodes | Claimed on reading alone, not checked | No case or check |
 | F63 | Lineage | Claimed on reading alone, not checked | No case or check |
-| F64 | Save picture with recipe | Claimed on reading alone, not checked | A viewer's Save As… was never used in a launched app |
+| F64 | Save picture with recipe | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: Save Result writes a result node's value in each of its formats" (the file picker's kinds, the options form, both files read back); the person check's step 15 from the footer; no recipe, since no engine here tracks lineage |
 | F65 | Export group as plugin | Not met | The research software's pack |
 | F66 | Deliver plugin | Not met | As F65 |
 | F67 | Plugin round trip | Claimed on reading alone, not checked | No case or check |
@@ -184,7 +184,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F69 | Content addressing | Claimed on reading alone, not checked | The core's |
 | F70 | Hostile `.npy` and keys | Claimed on reading alone, not checked | Rust tests, not a launched app |
 | F71 | Engine memo | Met | SC 50 "the Cache Report and the graph's Parameters window are the core's…" |
-| F72 | Partial re-run | Claimed on reading alone, not checked | No case or check |
+| F72 | Partial re-run | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a partial re-run) |
 | F73 | Preview latency path | Met | SC 21 to 23 with the in-process engines |
 | F74 | Full resolution on demand | Met | SC 46 ("…and asks for detail") |
 | F75 | Pictures as engine-side files | Claimed on reading alone, not checked | The core's |
@@ -516,3 +516,65 @@ Gate:
 The x64 run had to be repeated. The first x64 core build failed to compile: the sync keeps the Mac's file times, older than the VM's last x64 build, so cargo had not rebuilt `plumcraft-proto`. That x64 conformance run therefore used the old core. After touching the file, the x64 core and app were rebuilt and the suite run again: 57 of 57.
 
 No ping was lost; available memory stayed between 6.8 and 6.9 GB.
+
+## Seventh session (2026-11-22, branch `native/n5-save`, on the dev branch at `709a2a7`)
+
+The VM had no TPM and the display without GPU acceleration. It was restarted at midday, after the Mac hibernated on a flat battery. The ping watcher ran from 15:20:50; no ping was lost.
+
+### Save Result on Windows
+
+- **The footer tap is the core's (B122, merged as PR #166).** The Windows canvas now reports each footer line as `parts.footer[k]` (`FaceLayout.FooterParts`, `CanvasLink.ReportPartsAsync`). I removed the shell-side click I had written before the core's change, and the `ask: true` special case in `DocumentModel.ActivateAsync`. The C# runner claims `footer`.
+- **The rest needed no new drawing.** The core's `file.save` ask shows as Windows' Save As dialog, with the output's formats as file types ("Quoted Text", then "Text"). The options form shows as a dialog: "Save as Quoted Text", with its Quote mark as a pick list. Both are pictured in `g5-pc-shots/save-picker.png` and `save-options.png`, and I looked at them.
+- **The C# runner** gives each case a `$scratch` folder (`--scratch`) and claims `saves`. The test engine (`plumcraft-ports-engine.exe`, built with the core) is installed in the app's engines folder for the launched runs (`g-ports.ps1`), with `--engine ports --has ports_installed`. The audio engine runs in process (`--engine audio`).
+- **Person check, step 15.** In the graph reopened from the command line:
+  - turn Pick Engines Automatically back on;
+  - choose Engine › Ports (test engine);
+  - add Edge and Result from the palette, wire them, Run;
+  - click Result's Save Result… line;
+  - in the Save As dialog, type the path;
+  - accept the options form's default quote mark;
+  - read the file back: `"[edge]"`.
+
+### B98, in the core
+
+Save Result's path went through the rule for a path a workflow stores: relative to the workflow's or start folder, with `/` between folders. On Windows the person read `C:\…\conform-scratch/case-18/plain.txt` (inside the start folder) or `C:/Users/…` (outside it).
+
+The fix, at the one place in `invoke.rs`: `save_choice` keeps the path as chosen; only macOS's `:` becomes folders. It has a unit test with Windows-style paths inside and outside a folder.
+
+Other chosen paths a person reads back, checked by reading:
+
+- Save As of a workflow and Export Bundle pass the chosen path as it is;
+- a viewer's Save As goes through Save Result, so it is fixed with it;
+- Drag Out writes a file the core names;
+- path inputs keep the stored form on purpose.
+
+The case passed against the app with its scratch folder inside the start folder.
+
+### B97, fixed at source
+
+All six now pass on the Windows test VM. On the Mac, fmt, clippy (`-D warnings`) and nextest of editor-core, host, engine and proto pass: 400, after merging the dev branch.
+
+| Test | Fix |
+|---|---|
+| host: the two absolute-path cases | the rule treats a path with a root but no drive (`\elsewhere`) as not the manifest's folder (`from_here`) |
+| engine: register from uv's cache | reads the written manifest as TOML |
+| editor-core: a desktop offers every hosting | expects a process hosting disabled exactly when this build hasn't made its program |
+| editor-core: switching without a window | adds the process hosting as a choice before refusing it |
+| editor-core: the exit-at-once test | compares the printed folder with `programs::shown` |
+
+### Also
+
+- **PR #167:** the pop-out's Recipe shows only when `hasRecipe`. Save As's tooltip promises no recipe. Neither was looked at.
+- **The Python SDK's `register` on Windows:** given `--folder \\?\C:\…\eng`, it printed `registered weather: C:\…\eng\weather.toml` (`g5-pyreg.ps1`).
+- **B124 probe:** my Mac nextest run of editor-core, host and engine, with a scratch home, wrote no preferences under it.
+- **B99:** one edit-half run (the second of four on ARM64) failed "a kind chosen from a dropped wire's palette…" at step 14, with no `port` on the palette's item. It was not seen again in the next six runs on ARM64 and x64.
+
+### Results
+
+| Check | Result |
+|---|---|
+| `dotnet test` | 53 of 53, three times this session |
+| C# runner against the app, test engine installed | ARM64 64 of 64 (936 of 941 steps, the five copied-manifest steps not claimed), three runs on the final build; x64 64 of 64, two runs |
+| Swift runner against the app from the Mac | 60 of 60, the four ports cases skipped (no test engine in that launch, and its `$scratch` would be on the Mac) |
+| Person check on the final build | 18 of 18, three runs in a row (16:22:01, 16:24:06, 16:26:01 Mac clock) |
+| Floor | 53 met, 4 partly, 5 not met, 24 claimed on reading alone. Newly met: F14, F15, F17, F18, F20, F21, F43, F45, F72; F16 and F64 partly |

@@ -308,7 +308,9 @@ mod tests {
         let (said, warning) = register_as(&own(), &a(&[]), "river-engine", &lasting).unwrap();
         assert!(said.starts_with("registered river"), "{said}");
         assert!(warning.as_deref().is_some_and(|w| w.contains("uv's cache") && w.contains("uv cache clean")), "{warning:?}");
-        assert!(std::fs::read_to_string(dir.join("river.toml")).unwrap().contains(&lasting.display().to_string()), "still written");
+        // the manifest names it (read as TOML: on Windows its `\` are escaped in the file; B97)
+        let written = plumcraft_proto::manifest::EngineManifest::parse(&std::fs::read_to_string(dir.join("river.toml")).unwrap()).unwrap();
+        assert_eq!(written.command.first().map(String::as_str), Some(lasting.display().to_string().as_str()), "still written");
         std::fs::remove_file(dir.join("river.toml")).unwrap();
         let temporary = in_uv_cache(&root.join("uv"), "builds-v0/.tmpQx");
         let e = register_as(&own(), &a(&[]), "river-engine", &temporary).unwrap_err();

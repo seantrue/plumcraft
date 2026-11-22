@@ -852,6 +852,16 @@ mod tests {
 
         // a failed connect says why and leaves the graph and catalogue
         let refusing = Launcher { caps: crate::engines::Capabilities::NONE, ..Default::default() };
+        // the hosting is a choice whether or not this build made the engine's program (B97: a test
+        // of this crate alone, on Windows, builds none, and the core then offers it disabled)
+        let process = crate::engines::offers(&crate::engines::Capabilities::DESKTOP)
+            .into_iter()
+            .map(|o| o.choice)
+            .find(|c| c.engine == "text" && c.mode == "process")
+            .unwrap();
+        if !d.session.engines.choices.contains(&process) {
+            d.session.engines.choices.push(process);
+        }
         let (r, fx) = d.command("engine.switch", json!({"engine": "text", "mode": "process"}), &refusing);
         let e = r.unwrap_err();
         assert!(e.contains("this device can't start programs"), "{e}");
@@ -947,7 +957,8 @@ mod tests {
             let before = if mode == "process" { "exited before connecting" } else { "exited before listening" };
             assert!(e.contains(before) && e.contains("exit 1"), "{mode}: {e}");
             assert!(e.contains("No module named opencv_engine"), "{mode}: its stderr: {e}");
-            assert!(e.contains(&project.display().to_string()), "{mode}: it ran in the manifest's folder: {e}");
+            // (as the engine's own `cd` prints it: on Windows without the canonical path's `\\?\`, B97)
+            assert!(e.contains(&plumcraft_proto::programs::shown(&project)), "{mode}: it ran in the manifest's folder: {e}");
             assert!(d.link.is_none() && d.last_error.as_deref() == Some(e.as_str()));
         }
     }
