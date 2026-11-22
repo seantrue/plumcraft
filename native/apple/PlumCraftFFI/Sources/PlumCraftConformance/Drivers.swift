@@ -229,7 +229,15 @@ public final class PortDriver: ConformanceDriver {
                     break
                 }
             }
-            if all { return }
+            if all {
+                let scene = await call("scene.get", [:])
+                for f in list {
+                    guard let id = f["node"].string, let sz = f["size"].array, sz.count == 2, let w = sz[0].double, let h = sz[1].double,
+                          let face = (scene["result"]["nodes"].array ?? []).first(where: { $0["id"].string == id }) else { continue }
+                    overridden[id] = Override(rev: face["rev"].uint64 ?? 0, w: w, h: h, since: nil)
+                }
+                return
+            }
             if ContinuousClock.now > deadline { throw ConformanceError("the app's own measurements kept replacing the suite's") }
             try? await Task.sleep(for: .milliseconds(20))
             round += 1
@@ -246,10 +254,43 @@ public final class PortDriver: ConformanceDriver {
         if reports { return }
         let deadline = ContinuousClock.now + settleLimit
         while ContinuousClock.now < deadline {
-            if await everyFaceMeasured() { return }
+            if await everyFaceMeasured(), await overridesSettled() { return }
             try? await Task.sleep(for: .milliseconds(10))
         }
         settleTimeouts += 1
+    }
+
+    /// Faces whose measurements the suite reported over the app's: the face's `rev` then and the suite's
+    /// size. Once the face changes, the app measures it again; until its own measurement replaces the
+    /// suite's (the size differs, or 3 s pass), a settle isn't done, or a step would aim at the
+    /// suite's rows while the core hits the app's (N5 slice 4: a scrub on the Mac app began on a body).
+    struct Override { var rev: UInt64; var w: Double; var h: Double; var since: ContinuousClock.Instant? }
+    private var overridden: [String: Override] = [:]
+
+    func overridesSettled() async -> Bool {
+        if overridden.isEmpty { return true }
+        let scene = await call("scene.get", [:])
+        for (id, was) in overridden {
+            var o = was
+            guard let face = (scene["result"]["nodes"].array ?? []).first(where: { $0["id"].string == id }) else {
+                overridden[id] = nil
+                continue
+            }
+            if (face["rev"].uint64 ?? 0) == o.rev { continue }
+            if o.since == nil {
+                o.since = ContinuousClock.now
+                overridden[id] = o
+            }
+            let rect = await call("geometry.locate", ["node": .string(id)])["result"]["rect"].array ?? []
+            let w = rect.count == 4 ? (rect[2].double ?? 0) - (rect[0].double ?? 0) : 0
+            let h = rect.count == 4 ? (rect[3].double ?? 0) - (rect[1].double ?? 0) : 0
+            if abs(w - o.w) > 1e-3 || abs(h - o.h) > 1e-3 || ContinuousClock.now - (o.since ?? ContinuousClock.now) > .seconds(3) {
+                overridden[id] = nil
+            } else {
+                return false
+            }
+        }
+        return true
     }
 
     func everyFaceMeasured() async -> Bool {

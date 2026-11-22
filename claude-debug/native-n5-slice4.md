@@ -1,6 +1,8 @@
 # N5 slice 4: panels and viewers (Plummer for Windows)
 
-2026-11-21, branch `native/n5-panels`, from `feat/native-n0` at `6f2d2c6`, then fast-forwarded to the dev branch's `8820a35`. The slice's work is uncommitted. Note 24 section 21 has the summary. This report has the gate, the floor walk, the screenshots, what looked wrong, and what wasn't taken.
+2026-11-21, branch `native/n5-panels`, from `feat/native-n0` at `6f2d2c6`. The work was committed as one local working commit and merged with the dev branch at `09a9b1d` (a local merge commit; nothing pushed); the changes after the merge are uncommitted. Note 24 section 21 has the summary. This report has the gate, the floor walk, the screenshots, what looked wrong, and what wasn't taken.
+
+The slice ran in two parts. The first stopped when the Windows test VM's console session wedged at 15:17 (B55). The maintainer restarted the VM, and the second part finished the conformance gate on it. Then the VM stopped answering (no ping, no SSH, from about 20:45), and I left it as it was.
 
 ## Answer
 
@@ -12,44 +14,61 @@ Plummer for Windows now has every window and viewer the Apple shells have. Each 
 - **Every viewer is in a pop-out:** picture, SVG, an array's pictures and its numbers, text, scalar, table, JSON (YAML and the outline), bytes, items, sound, and what no viewer draws.
 - **The canvas** draws net tags, the hover ring, the faces a marquee touches and waveform thumbnails.
 
-**The suite skips no step.** Against the app it passes 53 of 53 cases with **729 of 729 steps run** from the C# runner on the VM. Before this slice a measured run skipped 18 steps (7 `geometry`, 4 `hot`, 5 `media`, 2 `reports`). Making them run took two small additions to the control port and a change to both runners. The C# runner also lacked the `holds` step form (B53, fixed). `dotnet test` passes 47 of 47.
+**The suite runs with no step skipped, now 55 cases and 738 steps.** On the final ARM64 build, the C# runner on the VM passed 55 of 55 cases with **738 of 738 steps run** in four runs. The Swift runner on the Mac, over a forwarded port, also passed 55 of 55 with 738 of 738.
 
-**Not all of the gate was taken.** At 15:17 the Windows test VM's console session stopped starting programs. An app process, and every scheduled task's process after it, stuck where nothing could end them, and Windows logged a LiveKernelEvent at 15:31 (B55). As the brief says, I didn't restart the VM. Left untaken because of it:
+On x64 under emulation the first run passed 54 of 55 and the second 55 of 55. The failure was the sound case: its 64 ms sound ended between two steps, the app reported the end, and the step saw `seq` 3 where it wanted 2 (B56).
 
-- the x64 run;
-- the Swift runner against the Windows app;
-- repeated runs;
-- the panel and 100,000-row table benchmarks (written, never run);
-- three of the slice 3 screenshot retakes (`edit-number`, `edit-choice`, `context`).
+Before this slice a measured run skipped 18 steps (7 `geometry`, 4 `hot`, 5 `media`, 2 `reports`). Making them run took two small additions to the control port and changes to both runners. The C# runner also lacked the `holds` step form (B53, fixed). `dotnet test` passes 47 of 47.
+
+**The two new cases from the dev branch both run on Windows:**
+
+- "Install Engine… is offered as the platform allows, by the core" needs nothing and runs on every shell. The Windows app declares `subprocess: true, python: false` (unchanged), so the core offers no install and says why; the app's menu shows that reason as the disabled item's tooltip.
+- "an engine a manifest in the engines folder names is offered" needs `manifests`. It runs because the scripted launches set `PLUMCRAFT_ENGINE_FOLDER` to the suite's folder (the app's config names no `dirs.engines`, so the core reads that variable), and the runner is told so with `--has manifests` (new in the C# runner).
+
+**Not taken, because the VM stopped answering after the conformance gate:**
+
+- the 500-node panel timings and the 100,000-row table scroll;
+- the three screenshot retakes (`edit-number`, `edit-choice`, `context`);
+- the check of the app launched as a person would launch it (File › New, the Engine menu, Attach…, a node added and run).
 
 ## Gate
 
 | Check | Where | Result |
 |---|---|---|
-| The suite, C# runner, against the app (ARM64), the read half | Windows test VM | 32 of 32 cases; 419 of 419 steps, none skipped (a mid-slice build, 14:3x) |
-| The suite, C# runner, against the app (ARM64), the edit half | Windows test VM | 21 of 21 cases; 310 of 310 steps, none skipped (the same build) |
-| The suite, C# runner, x64 under emulation | Windows test VM | **Not taken** (B55) |
-| The suite, Swift runner on the Mac against the Windows app | Mac, forwarded port | **Not taken** (B55) |
-| The suite against the Mac app (`conformance.sh all`, the Swift runner with this slice's changes) | Mac | 53 of 53 cases, 729 of 729 steps, none skipped; "the person's Library is unchanged" |
-| `dotnet test` (final sources, after the merge) | Windows test VM | 47 of 47 (41 before, 6 new in `PanelsTests.cs`); one earlier run of the 6 new tests also passed |
-| `cargo nextest run --all-features --no-fail-fast` | Mac | 1,569 of 1,570; the known `hidden_params_match_the_baseline` |
-| `cargo test -p plumcraft-ffi --test conformance --test geometry` | Mac | 6 of 6; the port run now includes the media and `hot` steps |
-| clippy `-D warnings`, `fmt --check`, `check-hash-gates.sh`, `check-core-toolkit-free.sh` | Mac | Clean |
-| Python (`pytest -q`, `ruff check`) | Mac | 224 passed; clean |
-| `build-xcframework.sh`, then `swift test` in `PlumCraftFFI` | Mac | Every run passes (31, 9, 14, 5 and 22 tests) |
-| The VM's checkout against this worktree | Hashing (`r4-hash.sh`) | 639 of 639 files under `crates/` and `native/windows/` identical |
-| `check-private-strings.sh` | Worktree | Right after the merge: "private strings: no match in 1242 tracked files". Again after the pattern file was extended at 18:08: 336 lines over 10 patterns, every one already on the dev branch (none in a line this slice added, and none in its new files: `r4-private.sh`); the files this slice touched that carry such lines are `docs/BUGS.md`, `docs/STATUS.md` and note 24, and I left those lines for the cleanup that owns them |
+| The suite, C# runner, against the final ARM64 build, both halves, four runs | Windows test VM | Each run: 34 of 34 read and 21 of 21 edit cases; 428 of 428 and 310 of 310 steps (738 of 738), none skipped |
+| The suite, C# runner, x64 under emulation, two runs | Windows test VM | First run: 54 of 55 cases, 738 steps run, none skipped (B56: the sound case's `seq`). Second run: 55 of 55, 738 of 738 |
+| The suite, Swift runner on the Mac against the Windows app (ARM64) | Mac, forwarded port | 55 of 55 cases, 738 of 738 steps, none skipped |
+| The suite against the Mac app (`conformance.sh all`) | Mac | First run after the merge: 54 of 55 (the scrub case, see below). After the fix: 55 of 55, 738 of 738, none skipped; "the person's Library is unchanged"; the real Library's locations unchanged since the run began |
+| `dotnet test` (after the merge) | Windows test VM | 47 of 47 (41 before, 6 new in `PanelsTests.cs`); the kit's whole-suite tests now run 55 cases with the suite's engines folder |
+| `build-xcframework.sh` (macOS arm64), `swift test` | Mac | 31, 16, 14, 5 and 28 tests pass |
+| `cargo nextest run -p plumcraft-ffi -p plumcraft-editor-core` after the merge | Mac | 258 of 258 |
+| clippy (those crates, `-D warnings`), `fmt --check` | Mac | Clean |
+| The whole workspace's nextest, Python, hash and core gates | Mac | Before the merge: 1,569 of 1,570 (the known local failure), 224 passed, clean. Not run again after the merge (only the two crates above changed in this slice) |
+| `check-private-strings.sh` | Worktree, after the merge | "private strings: no match in 1264 tracked files" |
 
-**Steps run of the suite's total.** Against the Windows app, 729 of 729. Before this slice, a measured run against an app skipped 18 of 729.
+**The Mac app's one failure, and its fix.** After the merge the Mac app failed "a tap flips a switch and a drag on a number scrubs it" once: the drag began on the face's body, not its row.
+
+- **The cause.** With the suite's geometry reported over the app's, a tap that flips a switch changes the face. The app then measures it again. A settle counted the face as measured on the suite's old report, the next step aimed at the suite's rows, and the core then hit the app's.
+- **The fix, in both runners.** They now remember the faces whose geometry they reported over the app's. After such a face changes, a settle waits (at most 3 s) until the app's own measurement has replaced the suite's.
+
+**Steps run of the suite's total.** Against the Windows app, 738 of 738 from both runners.
 
 **How each skip was made to run:**
 
 - **`media` (5 steps).** A C ABI core's control port now serves `media.get` (`crates/ffi/src/core.rs`). The C#, Swift and Rust port drivers say `media`.
 - **`hot` (4 steps).** These are the typed drag move, `plum_gesture_move`. Its JSON form is now `geometry.dragMove {at, slop?}` (`crates/editor-core/src/control.rs`, `gesture::typed_json`), and port drivers call it.
-- **`geometry` (7) and `only: "reports"` (2).** A measured driver over an app's port first waits until the app has measured those faces. It then reports the suite's measurements over them and waits until the core holds them. The app reports a face again only when its `rev` changes. `--own-geometry` keeps the old skip.
+- **`geometry` (7) and `only: "reports"` (2).** A measured driver over an app's port first waits until the app has measured those faces. It then reports the suite's measurements over them and waits until the core holds them. After such a face changes, it waits for the app's own measurement again. `--own-geometry` keeps the old skip.
 - **`holds` (3 steps, B53).** These were never skipped, but the C# runner wasn't checking them.
+- **`manifests` (1 case).** Runs with the suite's engines folder and `--has manifests`.
 
-## The floor walk (plan section 9)
+## B55 and B54 after the restart
+
+- **B55.** The logs say a kernel resource was held too long: `LiveKernelEvent` `1cc` at 15:20, three minutes after the stuck launch, with its live dump in `C:\WINDOWS\LiveKernelReports\`. More of them came at 15:30 and 15:31, with hang reports for two system apps.
+  - There was no crash or hang report for the stuck Plummer, no WerFault and no debugger. The app never wrote its first window to its status file, so it stuck before any window or sheet of its own was shown: not on a modal sheet, and not in a crashed composition thread.
+  - Every launch then went through `cmd /c` in a console that Windows handed to Windows Terminal (its default terminal). Windows Terminal, OpenConsole and conhost from that launch were among the processes nothing could end.
+  - Since the restart every scripted launch runs under `conhost.exe --headless`, so no terminal is started. It did not recur in the seven suite runs since. The dump was not opened.
+- **B54.** Not reproduced. Seven runs of the whole suite (four ARM64, two x64, one from the Mac's runner) ran with every exception logged as it was thrown. Not one ended with a stowed exception or an app exit.
+
 
 The core is the same C ABI core the Apple apps use. So for an item of the engine interface the core's tests and the suite are the evidence; for a UI item the evidence is the command, the test or a screenshot.
 
@@ -158,7 +177,7 @@ Counts: **77 met, 3 partly met (F16, F22, F53), 5 not met (F59, F60, F65, F66, F
 - a 100,000-row table's page scrolled a move a frame for the phase's seconds, three times, counting frames and late frames;
 - five page turns through `viewer.table`.
 
-It never ran: the VM's console session had stopped starting programs before it was reached (B55). The canvas budgets of slice 3 were not taken again either.
+It never ran. In the first part the VM's console session had stopped starting programs before it was reached (B55); in the second the VM stopped answering after the conformance gate, before the bench. The canvas budgets of slice 3 were not taken again either.
 
 Two numbers did come from the kit tests and scenes, as glimpses rather than measurements:
 
@@ -323,13 +342,15 @@ Compared with the Mac's (`claude-debug/native-n4/s5-shots/mac-table-light.png` a
 | The marquee's touched faces never showed: the throttled ask sent a stale point and dropped the latest | The marquee shot, then the trace | The latest point is read after the wait |
 | `run.start` called as a method in the kit tests | The first test run | `command.run` |
 | Several build errors: an ambiguous `Border`, `FontFeatures` (no such property), a shadowed name | The build | Fixed |
-| The first run of the read half against the app ended in a stowed exception (B54) | The suite | Not reproduced since; windows now drop late replies, and viewers catch and log their faults |
+| The first run of the read half against the app ended in a stowed exception (B54) | The suite | Not reproduced in seven runs since; windows now drop late replies, and viewers catch and log their faults |
+| After the merge, the Mac app failed the scrub case once: the runners' geometry over an app's let a settle pass on the suite's stale report once the face had changed | `conformance.sh all` | A settle now waits for the app's own measurement of a face whose geometry the runner reported (C# and Swift) |
+| Every scripted launch went through a console that Windows hands to Windows Terminal; in B55 those processes were among the stuck ones | Reading the stuck process list after the restart | Launches, the injector and the screenshots now run under `conhost.exe --headless` (scripts only) |
 
 ## Unverified
 
-- **No VM run after the final build.** The final build (the outline's template, the table's alignment, waveform thumbnails, Recipe, title bars, the picture's fit) was used only for screenshots. The suite ran on a mid-slice build. The changes since were in drawing, not commands, but no run checked that.
-- **The x64 build.** Not built or run this slice.
-- **Every timing in the brief's "Numbers" list.**
+- **The final build in screenshots.** The suite ran on the final build (four ARM64 runs, two x64, one from the Mac), but the screenshots after the outline, table, picture and title-bar fixes were taken before the merge, and the three retakes (`edit-number`, `edit-choice`, `context`) were not taken.
+- **Every timing in the brief's "Numbers" list:** the 500-node panel timings and the 100,000-row table scroll.
+- **The app launched as a person would.** Not checked: File › New, the Engine menu and switching to an engine, Engine › Attach…'s form laid out, a node added and run. The app has no way to launch without touching `%LOCALAPPDATA%\Plummer` but `--root` (a test flag that only moves the data folder), so that check would have used `--root` alone. Attach…'s form was seen earlier in a scripted run (`attach-*`): its labels sit above their own fields (WinUI's `Header`), not the B73 layout.
 - **Sound through the audio device.** Every run was scripted, so muted. Windows' MediaPlayer playing the WAVE was never heard.
 - **Drag Out dropped into File Explorer.** Not tried.
 - **Viewers not exercised with real content:** a value editor (no node names one), a list's `items` viewer, bytes (`hex`), and an application's marks (no engine here makes them).
@@ -341,21 +362,20 @@ Compared with the Mac's (`claude-debug/native-n4/s5-shots/mac-table-light.png` a
 
 - **Free space:** 65.87 GB before, 64.92 GB after.
 - **The checkout:** `git checkout -- .`, `git clean -fd` of slice 3's copies, `git fetch origin feat/native-n0` and `git checkout --detach 6f2d2c6`, then `r4-sync.sh` (every file this worktree changed or added since `6f2d2c6`, the dev branch's merge included). Verified by hashing: 639 of 639 files under `crates/` and `native/windows/` the same on both sides. The core DLL was rebuilt after the merge.
-- **Left behind:** no scheduled task of this slice. These processes could not be ended from the SSH session, and they are still running:
-  - `Plummer.exe` (started 15:17);
-  - the `cmd.exe`, PowerShell, `conhost.exe`, OpenConsole and Windows Terminal processes launched with it;
-  - one `taskhostw.exe`.
-
-  The console session starts no new program (B55). The VM was not restarted.
+- **First part, left behind:** the processes stuck in B55 (`Plummer.exe` from 15:17, the cmd, PowerShell, conhost, OpenConsole and Windows Terminal processes launched with it, one `taskhostw.exe`); the maintainer's restart cleared them.
+- **Second part:** at the start, the console session active, no Plummer, no scheduled task of this slice, 64.97 GB free. The checkout brought to the merged branch by `r4-sync.sh` (138 files changed or added since `6f2d2c6`); the core DLL rebuilt for ARM64 (84 s) and x64 (74 s); the app built for both. After the last suite run (20:4x), each app was stopped by its PID and its task removed (`r4-stop.ps1` said so for every run). Free space then: 64.96 GB.
+- **Then the VM stopped answering:** no ping and no SSH from about 20:45, after the three repeated ARM64 runs had finished. Nothing of this slice was in flight then. I left it as it was and couldn't check it afterwards for processes left running.
 
 **The Mac:**
 
-- **Free space:** 62 GB at the start, 25 GB at the end (other agents' builds included; the brief's floor, so no further build was started).
+- **Free space:** 62 GB at the start; 25 GB at the end of the first part (other agents' builds); 69 GB at the start of the second and 57 GB at its end.
+- **Processes:** at the second part's end, none of mine running; an `xcodebuild` of PlumCraftPad in the main checkout and a `cargo build -p plumcraft-ffi` were running, started by someone else (not signalled).
 - **Real Library locations:** checked before and after the Mac app's suite run (`r4-mac-before.txt`, `r4-mac-after.txt`), and `conformance.sh`'s own check said "the person's Library is unchanged".
   - `com.swapwizard.plummer.mac`'s caches, logs and preferences were last modified at 17:50 to 17:51, before this slice's run.
   - `com.plumcraft.mac`'s were older still.
   - The real store and `Application Support/Plummer` were modified at 17:58:32, before my Mac app run. I didn't launch the Mac app then; my Python tests were running at about that time under the scratch environment, which refuses the real store. Another agent or a device pass may have written them.
   - Nothing in those locations changed during or after my run.
+  - Second part: the Mac app's suite run twice more (`r4-mac-conform-m3.log` and the run before it); `conformance.sh` said "the person's Library is unchanged" both times, and `r4-mac-snap.sh` found no file changed in those locations since each run began.
 
 ## Scripts (`claude-debug/native-n5/`, untracked)
 
@@ -378,5 +398,9 @@ Logs: `r4-nextest*.log`, `r4-clippy.log`, `r4-swift-test.txt`, `r4-mac-conform.l
 3. **The numbers grid's 64-column window is the shell's,** as on the Apple apps, treated as a scroll. Make it the core's (`viewer.grid {cols}`), under "no exceptions"?
 4. **Recipe on the viewer's bar exists only on Windows.** Add it to the Apple apps (F56 is "does not" there)?
 5. **Sound plays through MediaPlayer from a 16-bit WAVE.** Accept that, or play float samples through AudioGraph (more code)?
-6. **B55.** The Windows test VM's console session needs a person to sign out or restart it before N5 goes on. The untaken gate items (x64, the Swift runner against the Windows app, the benchmarks, three retakes) wait on it.
-7. **B54.** Keep it open until repeated runs have been taken, or close it as not reproduced?
+6. **The VM stopped answering** at about 20:45 (no ping, no SSH), after the conformance gate. The benchmarks, the three retakes and the check of the app launched by a person wait on it. Look at the VM, and restart it if it is down?
+7. **B54.** Close it as not reproduced (seven runs since, with every exception logged)?
+8. **B55.** Keep the scripted launches under `conhost.exe --headless`, and close B55 once a long run of screenshots passes? The cause stays a kernel resource timeout whose dump nobody has opened.
+9. **B56.** Make the sound case independent of speed (loop set before play, or a longer sound), or leave it?
+10. **`manifests` on Windows.** The app names no `dirs.engines`, so it reads the shared folder `~/.config/plumcraft/engines` that every PlumCraft editor shares (and the variable when a script sets it). Keep that, or give Plummer its own engines folder under its data folder?
+11. **Python on Windows.** Left `python: false` as asked: Install Engine… stays disabled there, with the core's reason.

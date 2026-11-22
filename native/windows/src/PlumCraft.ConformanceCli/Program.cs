@@ -2,7 +2,7 @@
 //
 //   plumcraft-conformance --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all]
 //                         [--measured] [--engine text]... [--case NAME] [--needing CAPABILITY]
-//                         [--host H] [--no-prefs] [--own-geometry]
+//                         [--host H] [--no-prefs] [--own-geometry] [--has CAPABILITY]
 //   plumcraft-conformance call --port N --token-file F [--doc D] METHOD [PARAMS-JSON | @FILE]
 //
 // The Swift kit's command (native/apple/PlumCraftFFI, plumcraft-conformance) with the same flags and the
@@ -35,6 +35,9 @@ var measured = Flag("--measured");
 var prefs = !Flag("--no-prefs");
 // N5 slice 4: a measured app still runs the suite's geometry steps (the suite's measurements over its own)
 var ownGeometry = Flag("--own-geometry");
+// what else the app has (`--has manifests`: its engines folder is the suite's, B71)
+var also = new HashSet<string>();
+while (Value("--has") is { } h) also.Add(h);
 var host = Value("--host") ?? "127.0.0.1";
 var portText = Value("--port");
 var tokenFile = Value("--token-file");
@@ -54,6 +57,7 @@ try
     var token = File.ReadAllText(tokenFile).Trim();
     using var d = await PortDriver.ConnectAsync(port, token, host, reports: !measured, doc: doc, engines: engines.Count == 0 ? ["text"] : engines, prefs: prefs);
     d.SuiteGeometry = !ownGeometry;
+    d.Also.UnionWith(also);
     if (call)
     {
         if (argv.Count == 0) { Console.Error.WriteLine("call: which method?"); return 2; }
