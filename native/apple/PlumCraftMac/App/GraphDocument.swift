@@ -83,6 +83,18 @@ final class GraphDocument: NSDocument {
         }
     }
 
+    /// The save panel, before it is shown: the folder and name the person check asked for
+    /// (`panel-at:PATH`, the scripted copy only), so the panel (out of process) opens there.
+    /// Setting them once it shows reached the app's own object but not the panel a person sees
+    /// (the first run of the scripted copy saved into the panel's default folder).
+    override func prepareSavePanel(_ panel: NSSavePanel) -> Bool {
+        if let u = PersonSteps.takePanelAt() {
+            panel.directoryURL = u.deletingLastPathComponent()
+            panel.nameFieldStringValue = u.lastPathComponent
+        }
+        return super.prepareSavePanel(panel)
+    }
+
     /// Revert to Saved: the core opens the file again, dropping what changed.
     override func revert(toContentsOf url: URL, ofType typeName: String) throws {
         guard let model else { return }
@@ -563,11 +575,31 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         // an engine install under way (B71): said here while it runs, what it is doing on hover
         // (the core's words; Engine › Cancel Install stops it)
         let installing = canvasView?.model.state.installing
-        engineLabel.stringValue = installing == nil ? text : "Installing an engine…"
+        // decision 17: an engine in use whose manifest warned is marked here as in its menu: the
+        // warning symbol before the words, the warning first in the tooltip
+        if installing == nil, let w = e.warning {
+            let s = NSMutableAttributedString()
+            if let img = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: w) {
+                let a = NSTextAttachment()
+                a.image = img
+                s.append(NSAttributedString(attachment: a))
+                s.append(NSAttributedString(string: " "))
+            }
+            s.append(NSAttributedString(string: text))
+            s.addAttributes([.font: engineLabel.font ?? NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), .foregroundColor: NSColor.systemOrange],
+                            range: NSRange(location: 0, length: s.length))
+            engineLabel.attributedStringValue = s
+            engineLabel.setAccessibilityHelp(w)
+        } else {
+            engineLabel.stringValue = installing == nil ? text : "Installing an engine…"
+            engineLabel.textColor = .labelColor
+            engineLabel.setAccessibilityHelp(nil)
+        }
         engineDot.layer?.backgroundColor = (installing == nil ? color : .systemOrange).cgColor
-        engineLabel.toolTip = [installing?.status ?? installing?.repo, e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: "\n")
+        engineLabel.toolTip = [e.warning, installing?.status ?? installing?.repo, e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: "\n")
         Status.shared.set("engine", ["connected": .bool(e.connected), "ready": .bool(e.ready), "label": .string(e.label), "shown": .string(engineLabel.stringValue),
-                                     "installing": installing.map { .string($0.status ?? $0.repo) } ?? .null])
+                                     "installing": installing.map { .string($0.status ?? $0.repo) } ?? .null,
+                                     "warning": e.warning.map(JSONValue.string) ?? .null, "tooltip": .string(engineLabel.toolTip ?? "")])
         window?.toolbar?.validateVisibleItems()
     }
 
@@ -704,7 +736,8 @@ final class ContextMenu: NSMenu, NSMenuItemValidation {
             mi.tag = entries.count
             entries.append(it)
             mi.state = it.checked == true ? .on : .off
-            mi.toolTip = it.enabled ? it.hover : (it.reason ?? it.hover)
+            mi.toolTip = it.enabled ? (it.warning ?? it.hover) : (it.reason ?? it.hover)
+            MenuBar.markWarning(it, mi)
             if it.isSubmenu {
                 let sub = NSMenu(title: it.label)
                 fill(sub, it.items)

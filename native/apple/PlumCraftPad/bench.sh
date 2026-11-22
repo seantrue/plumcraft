@@ -57,6 +57,8 @@ for q in json.load(open('$scratch/ps.json'))['result']['runningProcesses']:
       timeout 60 xcrun devicectl device process terminate --device "$dev" --pid "$q" >/dev/null 2>&1 && echo "quit a bench app on the device ($q)"
     done
   fi
+  # B76: a recording's raw kernel trace, which DTServiceHub leaves in the per-user temporary folder
+  [ -f "$scratch/ktrace-before" ] && "$here/../ktrace-sweep.sh" remove "$scratch/ktrace-before"
   rm -rf "$scratch"
 }
 trap cleanup EXIT INT TERM
@@ -77,11 +79,14 @@ locked() { grep -qE 'BSErrorCodeDescription = Locked|could not be, unlocked|devi
 # exported tables beside it (NAME-os-signpost.xml, NAME-hitches.xml). The recording stops when the
 # app exits (each bench exits once done), or at 120 s. A trace with no phases is not a result.
 #
-# xctrace writes a raw kernel trace (instruments*.ktrace, 2 to 8 GB) into TMPDIR and leaves it there
-# when a save stalls; on 2026-11-21 fifteen of them filled the Mac's disk. So each recording gets a
-# folder of its own under this run's scratch, given to xctrace alone as TMPDIR, and removed (with
-# the trace) once the tables are exported, or by the EXIT trap on a failure, a time limit or ^C; and
-# no recording starts with less than MIN_FREE_GB (15) free where the scratch is.
+# A recording leaves a raw kernel trace (instruments*.ktrace, 2 to 8 GB); on 2026-11-21 fifteen of
+# them filled the Mac's disk, and six more (19 GB) were left after each recording was given its own
+# TMPDIR (B76): the file is written by Xcode's DTServiceHub, which launchd starts and which never
+# sees xctrace's TMPDIR, into the per-user temporary folder, and left there. So the raw traces there
+# are listed before each recording, and every new one is removed when the recording's tables are
+# out, or by the EXIT trap on a failure, a time limit or ^C (../ktrace-sweep.sh); each recording
+# still gets a folder of its own under this run's scratch for the trace itself; and no recording
+# starts with less than MIN_FREE_GB (15) free where the scratch is.
 min_free_gb="${MIN_FREE_GB:-15}"
 free_gb() { df -Pk "$1" | awk 'NR == 2 { print int($4 / 1048576) }'; }
 trace_device() {
@@ -96,6 +101,7 @@ trace_device() {
   local xt; xt="$(mktemp -d "$scratch/x.XXXX")"
   local t="$xt/t.trace"
   rm -f "$out/$name-hitches.md" "$out/$name-os-signpost.xml" "$out/$name-hitches.xml" "$out/$name-xctrace.log"
+  "$here/../ktrace-sweep.sh" list > "$scratch/ktrace-before"
   TMPDIR="$xt/" timeout 400 xcrun xctrace record --device "$dev" --template 'Animation Hitches' --instrument 'Points of Interest' \
     --time-limit 120s --output "$t" --launch -- "$b" "$@" > "$out/$name-xctrace.log" 2>&1 || echo "xctrace record: exit $?" >> "$out/$name-xctrace.log"
   if locked "$out/$name-xctrace.log"; then echo "the iPad is locked: the trace didn't launch (unlock it; Auto-Lock to Never)"; exit 5; fi
@@ -104,8 +110,10 @@ trace_device() {
     TMPDIR="$xt/" timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" \
       > "$out/$name-$s.xml" 2>> "$out/$name-xctrace.log" || echo "xctrace export $s: exit $?" >> "$out/$name-xctrace.log"
   done
-  # the trace and any raw kernel trace xctrace left: gone now the tables are out
+  # the trace, and the raw kernel trace DTServiceHub left in the per-user temporary folder (B76):
+  # gone now the tables are out
   rm -rf "$xt"
+  "$here/../ktrace-sweep.sh" remove "$scratch/ktrace-before" | tee -a "$out/$name-xctrace.log"
   python3 "$here/hitches.py" "$proc" "$out/$name-os-signpost.xml" "$out/$name-hitches.xml" | tee "$out/$name-hitches.md"
   grep -q '^| [^P-][^|]* | [0-9]' "$out/$name-hitches.md" || { echo "the trace has no phases: not a result"; exit 4; }
 }

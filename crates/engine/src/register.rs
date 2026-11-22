@@ -129,10 +129,13 @@ fn register(own: &Own, args: &[String], program: &str) -> Result<String, String>
 /// [`register`] for the executable `exe`: what to print, and a warning for stderr.
 fn register_as(own: &Own, args: &[String], program: &str, exe: &Path) -> Result<(String, Option<String>), String> {
     let text = manifest(own, program, exe);
-    if args.iter().any(|a| a == "--print") {
-        return Ok((text, None));
-    }
+    let print = args.iter().any(|a| a == "--print");
     let warning = match uv_cache(exe) {
+        // --print writes nothing, so there is nothing to refuse; it says the same (decision 18)
+        Some((root, true)) if print => Some(format!(
+            "this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so this manifest could never start it; register refuses to write it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
+            root.display()
+        )),
         Some((root, true)) => {
             return Err(format!(
                 "not registered: this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so the manifest could never start it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
@@ -145,6 +148,9 @@ fn register_as(own: &Own, args: &[String], program: &str, exe: &Path) -> Result<
         )),
         None => None,
     };
+    if print {
+        return Ok((text, warning));
+    }
     let dir = folder(args).ok_or("no HOME: give --folder")?;
     let target = dir.join(format!("{}.toml", own.id));
     if (target.exists() || target.is_symlink()) && !ours(&target) && !args.iter().any(|a| a == "--force") {
@@ -308,8 +314,14 @@ mod tests {
         let e = register_as(&own(), &a(&[]), "river-engine", &temporary).unwrap_err();
         assert!(e.starts_with("not registered") && e.contains("temporary environment"), "{e}");
         assert!(!dir.join("river.toml").exists(), "nothing written");
-        // --print writes nothing, and says nothing about where it is
-        assert_eq!(register_as(&own(), &a(&["--print"]), "river-engine", &temporary).unwrap().1, None);
+        // --print writes nothing, but says the same about where it is (decision 18): the
+        // manifest on stdout, the warning beside it
+        let (text, w) = register_as(&own(), &a(&["--print"]), "river-engine", &temporary).unwrap();
+        assert!(text.contains("river") && w.as_deref().is_some_and(|w| w.contains("temporary environment") && w.contains("could never start")), "{w:?}");
+        let (_, w) = register_as(&own(), &a(&["--print"]), "river-engine", &lasting).unwrap();
+        assert!(w.as_deref().is_some_and(|w| w.contains("uv cache clean")), "{w:?}");
+        assert!(!dir.join("river.toml").exists(), "--print wrote nothing");
+        assert_eq!(register_as(&own(), &a(&["--print"]), "river-engine", &root.join("bin/engine")).unwrap().1, None, "elsewhere: nothing to say");
         // elsewhere: no warning
         let plain = root.join("bin/engine");
         assert_eq!(register_as(&own(), &a(&[]), "river-engine", &plain).unwrap().1, None);

@@ -146,6 +146,22 @@ def test_register_from_uvs_cache_warns_and_from_a_temporary_one_refuses(engines,
         assert "uv's cache" not in capsys.readouterr().err
 
 
+def test_print_from_uvs_cache_warns_too(engines, capsys, monkeypatch):
+    """Decision 18: `register --print` writes nothing, but says on stderr what register would
+    about uv's cache; the manifest alone is on stdout."""
+    cache = _fake_uv_cache(Path(scratch.mkdtemp("uv-cache-print-")))
+    monkeypatch.setattr(sys, "executable", str(_python_in(cache / "archive-v0" / "AbC123")))
+    assert run("register", "--print", folder=engines) == 0
+    out, err = capsys.readouterr()
+    assert out.startswith("# Written by `") and "uv's cache" not in out, out
+    assert "warning: this Python is in uv's cache" in err and "uv cache clean" in err, err
+    monkeypatch.setattr(sys, "executable", str(_python_in(cache / "builds-v0" / ".tmpQx9")))
+    assert run("register", "--print", folder=engines) == 0
+    err = capsys.readouterr().err
+    assert "temporary environment" in err and "could never start" in err, err
+    assert not (engines / "text.toml").exists(), "--print wrote nothing"
+
+
 def test_anything_else_is_served():
     assert register.main(TextEngine, []) is None
     assert register.main(TextEngine, ["--listen", "127.0.0.1:0"]) is None

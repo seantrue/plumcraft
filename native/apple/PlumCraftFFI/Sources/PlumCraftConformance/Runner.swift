@@ -315,7 +315,8 @@ public enum Conformance {
     static func deepHas(_ v: JSONValue, _ fields: [String: JSONValue]) -> Bool {
         switch v {
         case .object(let o):
-            fields.allSatisfy { k, w in o[k].map { $0.same(w) } ?? false } || o.values.contains { deepHas($0, fields) }
+            // a field's want may be a matcher (`{"$includes": "…"}`), as at a pointer
+            fields.allSatisfy { k, w in (try? matches(o[k], w)) != nil } || o.values.contains { deepHas($0, fields) }
         case .array(let a):
             a.contains { deepHas($0, fields) }
         default:
@@ -331,6 +332,8 @@ public enum Conformance {
             case "$len":
                 let n = got.flatMap { $0.array?.count ?? $0.object?.count }
                 ok = n.map(UInt64.init) == arg.uint64
+            // text that holds the text given (only text: a number is not its digits)
+            case "$includes": ok = arg.string.map { a in got?.string?.contains(a) ?? false } ?? false
             case "$contains": ok = got?.array?.contains { $0.same(arg) } ?? false
             case "$deep": ok = arg.object.map { f in got.map { deepHas($0, f) } ?? false } ?? false
             case "$not": ok = got.map { !$0.same(arg) } ?? true

@@ -83,8 +83,10 @@ impl PaletteIndex {
         self.order = order;
     }
 
-    /// Node indices matching every word of `query` (case-insensitive), in category order, at
-    /// most `cap`. The second value is the total number of matches.
+    /// Node indices matching every word of `query` (case-insensitive): those whose title is the
+    /// query itself (case and spaces aside) first, then the rest, each in category order; at
+    /// most `cap`. The second value is the total number of matches. (Decision 13 after the person
+    /// check: typing "Text" finds the Text node first, not whatever category sorts before it.)
     pub fn filter(&self, query: &str, cap: usize) -> (Vec<usize>, usize) {
         self.filter_in(query, cap, |_| true)
     }
@@ -92,18 +94,19 @@ impl PaletteIndex {
     /// [`PaletteIndex::filter`] among the nodes `keep` takes (a dropped wire's [`fitting`]).
     pub fn filter_in(&self, query: &str, cap: usize, keep: impl Fn(usize) -> bool) -> (Vec<usize>, usize) {
         let words: Vec<String> = query.split_whitespace().map(str::to_lowercase).collect();
-        let mut shown = Vec::new();
-        let mut total = 0;
+        let whole = words.join(" ");
+        let (mut exact, mut rest) = (Vec::new(), Vec::new());
         for &i in &self.order {
-            let Some((hay, _, _)) = self.entries.get(i) else { continue };
+            let Some((hay, _, display)) = self.entries.get(i) else { continue };
             if keep(i) && words.iter().all(|w| hay.contains(w.as_str())) {
-                total += 1;
-                if shown.len() < cap {
-                    shown.push(i);
-                }
+                let title: Vec<String> = display.split_whitespace().map(str::to_lowercase).collect();
+                if !whole.is_empty() && title.join(" ") == whole { exact.push(i) } else { rest.push(i) }
             }
         }
-        (shown, total)
+        let total = exact.len() + rest.len();
+        exact.extend(rest);
+        exact.truncate(cap);
+        (exact, total)
     }
 
     /// Node `i`'s category path as indexed (empty past the end).
@@ -223,6 +226,29 @@ mod tests {
         assert_eq!(index.filter("nothing like it", 100), (vec![], 0));
         let (capped, total) = index.filter("", 2);
         assert_eq!((capped.len(), total), (2, 4));
+    }
+
+    /// Decision 13: a title the query is (case and spaces aside) comes first; the rest keep
+    /// their category order; a word that only begins the title, or a cap of one, still works.
+    #[test]
+    fn an_exact_title_comes_first() {
+        let c: SchemaReply = serde_json::from_str(
+            r#"{"v": 2, "engine": {"schema_digest": "e"}, "nodes": [
+              {"id": "a.text_join", "display": "Join text", "category": ["Arrays"]},
+              {"id": "a.to_text", "display": "Array to Text", "category": ["Arrays"]},
+              {"id": "text.literal", "display": "Text", "category": ["Text"]},
+              {"id": "text.upper", "display": "Upper case", "category": ["Text"]}
+            ]}"#,
+        )
+        .unwrap();
+        let mut index = PaletteIndex::default();
+        index.refresh(&c);
+        assert_eq!(names(&c, &index.filter("", 10).0), ["a.to_text", "a.text_join", "text.literal", "text.upper"], "no query: category order");
+        assert_eq!(names(&c, &index.filter("text", 10).0), ["text.literal", "a.to_text", "a.text_join", "text.upper"]);
+        assert_eq!(names(&c, &index.filter("  TEXT ", 10).0), ["text.literal", "a.to_text", "a.text_join", "text.upper"]);
+        assert_eq!(index.filter("text", 1), (vec![2], 4), "the cap keeps the exact one");
+        assert_eq!(names(&c, &index.filter("array  to text", 10).0), ["a.to_text"]);
+        assert_eq!(names(&c, &index.filter("tex", 10).0), ["a.to_text", "a.text_join", "text.literal", "text.upper"], "not a whole title: category order");
     }
 
     #[test]

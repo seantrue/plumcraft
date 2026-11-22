@@ -46,7 +46,7 @@ final class MenuState {
             for (k, it) in list.enumerated() {
                 let key = path.isEmpty ? "\(k)" : "\(path)/\(k)"
                 flat[key] = it
-                sig += "\(key)|\(it.id)|\(it.label)|\(it.command ?? "")|\(it.separator)|\(it.isSubmenu)|\(it.shortcut.map { "\($0.mods)\($0.key)" } ?? "")\n"
+                sig += "\(key)|\(it.id)|\(it.label)|\(it.command ?? "")|\(it.separator)|\(it.isSubmenu)|\(it.shortcut.map { "\($0.mods)\($0.key)" } ?? "")|\(it.warning ?? "")\n"
                 walk(it.items, key)
             }
         }
@@ -148,8 +148,12 @@ enum PadMenus {
                 flush()
                 continue
             }
+            // an engine whose manifest warned (decision 17): the symbol, the warning as subtitle
+            let mark = it.warning.map { _ in UIImage(systemName: "exclamationmark.triangle") } ?? nil
             if it.isSubmenu {
-                group.append(UIMenu(title: it.label, children: elements(it.items, path: key, used: &used)))
+                let sub = UIMenu(title: it.label, image: mark, children: elements(it.items, path: key, used: &used))
+                if let w = it.warning { sub.subtitle = w }
+                group.append(sub)
                 continue
             }
             let action: Selector = switch it.role?.word {
@@ -163,9 +167,13 @@ enum PadMenus {
             // the standard actions carry no property list (the system's own edit menu has them)
             let plist: Any? = action == run ? key : nil
             if let sc = it.shortcut, let (input, mods) = keyEquivalent(sc), used.insert("\(input)|\(mods.rawValue)").inserted {
-                group.append(UIKeyCommand(title: it.label, action: action, input: input, modifierFlags: mods, propertyList: plist))
+                let c = UIKeyCommand(title: it.label, image: mark, action: action, input: input, modifierFlags: mods, propertyList: plist)
+                if let w = it.warning { c.discoverabilityTitle = w }
+                group.append(c)
             } else {
-                group.append(UICommand(title: it.label, action: action, propertyList: plist))
+                let c = UICommand(title: it.label, image: mark, action: action, propertyList: plist)
+                if let w = it.warning { c.discoverabilityTitle = w }
+                group.append(c)
             }
         }
         flush()
@@ -232,6 +240,12 @@ enum PadMenus {
             }
             let a = UIAction(title: it.label, attributes: it.enabled ? [] : .disabled, state: it.checked == true ? .on : .off) { _ in dispatch(it) }
             if !it.enabled, let why = it.reason { a.subtitle = why }
+            // an engine whose manifest warned (shell-interface 12.1, decision 17): the symbol as
+            // the action's image, the warning as its subtitle
+            if let w = it.warning {
+                a.image = UIImage(systemName: "exclamationmark.triangle")
+                if it.enabled { a.subtitle = w }
+            }
             group.append(a)
         }
         flush()

@@ -429,6 +429,7 @@ impl Switchboard<'_> {
         let (choices, problems) = reload();
         let engines = choices.iter().map(|c| c.engine.as_str()).collect::<std::collections::BTreeSet<_>>().len();
         self.session.engines.choices = choices;
+        self.session.engines.manifest_problems = problems.clone();
         *self.last_error = problems.first().map(|p| format!("engine manifests: {p}"));
         Ok(json!({"engines": engines, "problems": problems}))
     }
@@ -693,6 +694,18 @@ pub fn engine_title_connecting(session: &Session, linked: bool, connecting: bool
 }
 
 /// The status bar's engine label.
+/// The warning of an engine in use whose manifest warned (decision 17 after the person check:
+/// "mark a warned engine outside the menu too"): `"<name>: <warning>"`, the first such engine's,
+/// or `None`. The engine cell, the status line and `ui.inspect`'s `engine.warning` show it, as
+/// the Engine menu's items do (`docs/shell-interface.md` 12.1).
+pub fn engine_warning(session: &Session) -> Option<String> {
+    let e = &session.engines;
+    e.engine_ids().into_iter().find_map(|id| {
+        let c = e.choices.iter().find(|c| c.engine == id && c.warning.is_some())?;
+        Some(format!("{}: {}", c.engine_label, c.warning.as_deref().unwrap_or_default()))
+    })
+}
+
 pub fn engine_label(session: &Session, link: Option<&Link>, state: &EngineState) -> String {
     engine_label_connecting(session, link, state, false)
 }
@@ -753,6 +766,10 @@ pub fn inspect(session: &Session, link: Option<&Link>, state: &EngineState, coor
         v["hosting"] = json!(target_label(session, t));
     }
     v["warnings"] = json!(coordinator.map(|c| c.warnings()).unwrap_or_default());
+    // B87: what the engine manifests' last read couldn't use or warned about
+    v["manifestProblems"] = json!(e.manifest_problems);
+    // decision 17: an engine in use whose manifest warned, marked outside the menu too
+    v["warning"] = json!(engine_warning(session));
     // Every engine and its state: the coordinator's, or the one engine's.
     v["engines"] = match coordinator {
         Some(c) => c.states().into_iter().map(|(id, state)| json!({"id": id, "state": state})).collect(),

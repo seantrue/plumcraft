@@ -470,6 +470,24 @@ impl Document {
         self.installer = if refused.is_none() { Some(launcher.install_setup().installer()) } else { None };
         self.session.engines.can_install = refused.is_none();
         self.session.engines.install_refused = refused;
+        self.note_manifest_problems();
+    }
+
+    /// What the last read of the engine manifests couldn't use or warned about (B87): in the
+    /// engine's state (`engine.list`, `ui.inspect`'s `engine.manifestProblems`) and, when the
+    /// status bar has nothing else to say, there: a manifest left out is never left out silently.
+    /// (They are in the log already, where the read put them.)
+    pub fn note_manifest_problems(&mut self) {
+        let problems = crate::engines::manifest_problems();
+        if let Some(first) = problems.first()
+            && self.last_error.is_none()
+        {
+            self.last_error = Some(match problems.len() {
+                1 => format!("engine manifests: {first}"),
+                n => format!("engine manifests: {n} problems; the first: {first}"),
+            });
+        }
+        self.session.engines.manifest_problems = problems;
     }
 
     /// Offer the choices there are now on this platform, when another document of this core has
@@ -481,6 +499,7 @@ impl Document {
             return false;
         }
         *reads = now;
+        self.session.engines.manifest_problems = crate::engines::manifest_problems();
         let choices = crate::engines::choices_for(&self.caps);
         if choices == self.session.engines.choices {
             return false;
@@ -1271,6 +1290,11 @@ pub fn turn<H: Holder>(h: &mut H) -> Turn {
         t.again(d);
     }
     let d = h.doc_mut();
+    // B87: the startup's own commands (the first graph's open) clear the status line, so what
+    // the manifests' read couldn't use is said again once the document has settled
+    if ready {
+        d.note_manifest_problems();
+    }
     d.feed_asks();
     t.events = events;
     t.reread = reread;

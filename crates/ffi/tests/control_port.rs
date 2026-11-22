@@ -228,3 +228,48 @@ fn a_bad_control_config_is_refused_and_none_means_no_port() {
         c.close();
     }
 }
+
+/// B83: a request on the port that names a document (`doc`, as `plum_request` takes it) is
+/// answered for that document; one that names none, for the first; one that names a document
+/// that isn't open is refused (`unknown_doc`), never answered for another.
+#[test]
+fn the_control_port_honours_the_document_a_request_names() {
+    let dir = PathBuf::from(store_root("control-port-doc"));
+    let token_file = dir.join("control.token");
+    let mut c = Client::open(&json!({"store_root": dir, "control": {"port": 0, "token_file": token_file}}));
+    let port = c.call("core.control", json!({}))["result"]["port"].as_u64().unwrap() as u16;
+    let token = std::fs::read_to_string(&token_file).unwrap().trim().to_owned();
+    let first = c.call("document.list", json!({}))["result"]["docs"][0]["doc"].as_u64().unwrap();
+    let second = c.call("document.open", json!({}))["result"]["doc"].as_u64().unwrap();
+    assert_ne!(first, second);
+    let mut s = Conn::open(port, &token);
+    let on = |s: &mut Conn, doc: Value, method: &str, params: Value| -> Value {
+        s.next += 1;
+        let r = s.line(&json!({"id": s.next, "method": method, "params": params, "doc": doc}).to_string());
+        assert_eq!(r["id"], s.next, "{r}");
+        r
+    };
+    // a node added in the second document only
+    let r = on(&mut s, json!(second), "command.run", json!({"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}));
+    assert_eq!(r["ok"], true, "{r}");
+    let nodes = |r: &Value| r["result"]["graph"]["nodes"].as_array().map_or(0, Vec::len);
+    assert_eq!(nodes(&on(&mut s, json!(second), "ui.inspect", json!({}))), 1, "the second document has the node");
+    assert_eq!(nodes(&on(&mut s, json!(first), "ui.inspect", json!({}))), 0, "the first has none");
+    assert_eq!(nodes(&on(&mut s, Value::Null, "ui.inspect", json!({}))), 0, "doc null: the first");
+    assert_eq!(nodes(&s.call("ui.inspect", json!({}))), 0, "no doc field at all: the first");
+    // what plum_request answers for the same document agrees
+    let id = c.send(&json!({"method": "graph.get", "params": {}, "doc": second}));
+    let via_c = c.wait_reply(id, Duration::from_secs(30));
+    assert_eq!(via_c["result"]["nodes"].as_object().map(|n| n.len()), Some(1), "{via_c}");
+    // a document that isn't open, or isn't a number, is refused
+    for (bad, code) in [(json!(9999), "unknown_doc"), (json!("x"), "bad_params")] {
+        let r = on(&mut s, bad.clone(), "ui.inspect", json!({}));
+        assert_eq!((r["ok"].as_bool(), r["code"].as_str()), (Some(false), Some(code)), "{bad}: {r}");
+    }
+    // closed: refused from then on
+    let r = c.call("document.close", json!({"doc": second, "discard": true}));
+    assert_eq!(r["ok"], true, "{r}");
+    let r = on(&mut s, json!(second), "ui.inspect", json!({}));
+    assert_eq!(r["code"], "unknown_doc", "{r}");
+    c.close();
+}

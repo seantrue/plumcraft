@@ -38,6 +38,9 @@ const TOKEN_HEX_LEN: usize = 64;
 pub struct ControlRequest {
     pub method: String,
     pub params: Value,
+    /// The request's `doc` (B83): the document it names, or null for none. A host with more than
+    /// one document answers for that one, and refuses a document it doesn't have; never another.
+    pub doc: Value,
     /// Send `{"ok": true, "result"}` or `{"ok": false, "error"}`; the server adds the id.
     pub reply: Sender<Value>,
     /// A request still queued at this instant is answered with a timeout instead of run.
@@ -47,7 +50,14 @@ pub struct ControlRequest {
 impl ControlRequest {
     pub fn new(method: impl Into<String>, params: Value) -> (Self, Receiver<Value>) {
         let (tx, rx) = channel();
-        (ControlRequest { method: method.into(), params, reply: tx, deadline: Instant::now() + REPLY_DEADLINE }, rx)
+        (ControlRequest { method: method.into(), params, doc: Value::Null, reply: tx, deadline: Instant::now() + REPLY_DEADLINE }, rx)
+    }
+
+    /// The same, naming document `doc` (the request's top-level `doc`).
+    pub fn for_doc(method: impl Into<String>, params: Value, doc: Value) -> (Self, Receiver<Value>) {
+        let (mut r, rx) = Self::new(method, params);
+        r.doc = doc;
+        (r, rx)
     }
 
     /// Has the transport stopped waiting for this one?
@@ -418,7 +428,8 @@ pub fn serve(stream: TcpStream, token: &str, tx: &Sender<ControlRequest>, wake: 
                     json!({"ok": false, "error": "already authenticated"})
                 } else {
                     let params = msg.get("params").cloned().unwrap_or(json!({}));
-                    let (req, rx) = ControlRequest::new(method, params);
+                    let doc = msg.get("doc").cloned().unwrap_or(Value::Null);
+                    let (req, rx) = ControlRequest::for_doc(method, params, doc);
                     let deadline = req.deadline;
                     if tx.send(req).is_err() {
                         break;
@@ -526,8 +537,13 @@ mod tests {
         let ui = std::thread::spawn(move || {
             let req = rx.recv_timeout(Duration::from_secs(10)).unwrap();
             assert_eq!(req.method, "ui.inspect");
+            assert_eq!(req.doc, Value::Null, "no doc named");
             assert!(!req.expired());
             req.reply.send(json!({"ok": true, "result": {"nodes": 0}})).unwrap();
+            // B83: the request's top-level doc reaches the host
+            let req = rx.recv_timeout(Duration::from_secs(10)).unwrap();
+            assert_eq!(req.doc, json!(7));
+            req.reply.send(json!({"ok": true, "result": {"doc": req.doc}})).unwrap();
         });
         let (mut s, mut r) = connect(port);
         let denied = roundtrip(&mut s, &mut r, json!({"id": 1, "method": "ui.inspect"}));
@@ -540,6 +556,8 @@ mod tests {
         assert_eq!(again["error"], "already authenticated");
         let reply = roundtrip(&mut s, &mut r, json!({"id": 3, "method": "ui.inspect"}));
         assert_eq!(reply, json!({"id": 3, "ok": true, "result": {"nodes": 0}}));
+        let named = roundtrip(&mut s, &mut r, json!({"id": 4, "method": "ui.inspect", "doc": 7}));
+        assert_eq!(named, json!({"id": 4, "ok": true, "result": {"doc": 7}}));
         writeln!(s, "{{not json").unwrap();
         let mut line = String::new();
         r.read_line(&mut line).unwrap();

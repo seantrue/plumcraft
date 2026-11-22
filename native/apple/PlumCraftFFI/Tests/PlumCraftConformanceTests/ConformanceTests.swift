@@ -46,6 +46,22 @@ func openCore(_ name: String, _ extra: [String: JSONValue] = [:]) throws -> Plum
     return try PlumCore(config: .object(config))
 }
 
+/// The engines folder of a driver with `copied_manifest`, as `conformance::copied_manifest_folder`
+/// makes it (`root/engines`: the suite's probe.toml, copied.toml away from its project, and a
+/// stand-in `uv` that fails as Python does there).
+func copiedManifestFolder(_ root: String) throws -> String {
+    let folder = root + "/engines"
+    let fm = FileManager.default
+    try fm.createDirectory(atPath: folder, withIntermediateDirectories: true)
+    try? fm.removeItem(atPath: folder + "/probe.toml")
+    try fm.copyItem(atPath: suiteEngines + "/probe.toml", toPath: folder + "/probe.toml")
+    try "id = \"copied\"\nname = \"Copied Engine\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"copied_engine\"]\ncwd = \".\"\n"
+        .write(toFile: folder + "/copied.toml", atomically: true, encoding: .utf8)
+    try "#!/bin/sh\necho 'No module named copied_engine' >&2\nexit 1\n".write(toFile: folder + "/uv", atomically: true, encoding: .utf8)
+    try fm.setAttributes([.posixPermissions: 0o755], ofItemAtPath: folder + "/uv")
+    return folder
+}
+
 /// The outcomes as one line each, printed for the report.
 func log(_ driver: String, _ out: [Outcome]) {
     print(Conformance.summary(driver, out))
@@ -118,6 +134,49 @@ func log(_ driver: String, _ out: [Outcome]) {
         log(d.name + ", every case", out)
         #expect(out.allSatisfy { $0.error == nil }, "\(Conformance.summary(d.name, out))")
         #expect(out.count == cases.count)
+    }
+
+    /// Decision 16: the copied-manifest steps (`only: copied_manifest`), which need `$includes`
+    /// and a matcher as a `$deep` field, run through the kit on a core whose engines folder is the
+    /// one `conformance::copied_manifest_folder` makes (made here the same way, in scratch); and
+    /// they fail on the suite's own folder, so they are not vacuous.
+    @Test func theCopiedManifestStepsPassThroughTheKit() async throws {
+        let folder = try copiedManifestFolder(scratch("conf-copied"))
+        let cases = try Conformance.cases(at: casesURL).filter { $0["name"].string?.hasPrefix("an engine a manifest") == true }
+        #expect(cases.count == 1)
+        // a platform that starts programs (the copied engine is a process), as the Mac app is
+        let core = try openCore("conf-copied", ["dirs": ["engines": .string(folder)], "platform": ["os": "macos", "subprocess": true]])
+        defer { core.close() }
+        let d = KitDriver(core: core, engine: "text")
+        d.also = ["manifests", "copied_manifest"]
+        let out = await Conformance.run(d, cases: cases, half: nil)
+        log(d.name + ", a copied manifest", out)
+        #expect(out.count == 1 && out.allSatisfy(\.passed) && (out.first?.steps ?? 0) >= 9, "\(out)")
+        let plain = try openCore("conf-copied-plain", ["platform": ["os": "macos", "subprocess": true]])
+        defer { plain.close() }
+        let p = KitDriver(core: plain, engine: "text")
+        p.also = ["manifests", "copied_manifest"]
+        let failed = await Conformance.run(p, cases: cases, half: nil)
+        #expect(failed.first?.error?.hasPrefix("step 5:") == true, "\(failed)")
+    }
+
+    /// The matchers a copied-manifest step uses: `$includes` holds for text only, and a `$deep`
+    /// field may be a matcher.
+    @Test func includesAndMatcherFieldsInDeep() async throws {
+        let core = try openCore("conf-matchers")
+        defer { core.close() }
+        let d = KitDriver(core: core, engine: "text")
+        let steps: [(JSONValue, Bool)] = [
+            (["call": "ui.inspect", "expect": ["/result/title": ["$includes": "Untitled"]]], true),
+            (["call": "ui.inspect", "expect": ["/result/title": ["$includes": "nowhere in it"]]], false),
+            (["call": "ui.inspect", "expect": ["/result/graph/wires": ["$includes": "0"]]], false),
+            (["call": "menu.get", "expect": ["/result/menus": ["$deep": ["label": ["$includes": "Engine"], "submenu": true]]]], true),
+            (["call": "menu.get", "expect": ["/result/menus": ["$deep": ["label": ["$includes": "Nonesuch"]]]]], false),
+        ]
+        for (step, holds) in steps {
+            let o = await Conformance.runCase(d, ["name": "m", "about": "-", "half": "read", "steps": [step]])
+            #expect(o.passed == holds, "\(step): \(o.error ?? "passed")")
+        }
     }
 
     /// The runner is not vacuous: a wrong want, a wrong ok, a missing value each fail their case.

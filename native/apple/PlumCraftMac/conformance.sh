@@ -26,9 +26,12 @@ root="$(cd "$here/../../.." && pwd)"
 kit="$here/../PlumCraftFFI"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-mac-conformance.XXXXXX")"
 pid=""
-# the app goes on every way out (a failure, a time limit, ^C), by its PID
+copy=""
+# the app goes on every way out (a failure, a time limit, ^C), by its PID; the scripted copy and
+# what the system kept for its id go with it (B84)
 cleanup() {
   if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then kill -TERM "$pid" 2>/dev/null; sleep 2; kill -9 "$pid" 2>/dev/null || true; fi
+  [ -n "$copy" ] && "$here/scripted-app.sh" clean "$copy"
   rm -rf "$scratch"
 }
 trap cleanup EXIT INT TERM
@@ -43,6 +46,19 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
 # into the folder
 mkdir -p "$scratch/engines"
 cp "$root/crates/editor-core/fixtures/conformance/engines/"*.toml "$scratch/engines/"
+# decision 16: the folder conformance::copied_manifest_folder makes, so the runner claims
+# `copied_manifest` and runs those steps: beside the probe, copied.toml, a copy of a project's
+# manifest away from its project (no pyproject.toml in scratch or above it), and a stand-in uv
+# that fails as Python does there
+cat >"$scratch/engines/copied.toml" <<'EOF'
+id = "copied"
+name = "Copied Engine"
+mode = "process"
+command = ["./uv", "run", "--project", ".", "python", "-m", "copied_engine"]
+cwd = "."
+EOF
+printf '#!/bin/sh\necho '"'"'No module named copied_engine'"'"' >&2\nexit 1\n' >"$scratch/engines/uv"
+chmod 755 "$scratch/engines/uv"
 export PLUMCRAFT_ENGINE_FOLDER="$scratch/engines"
 
 cd "$here"
@@ -59,6 +75,13 @@ else
   case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
   app="$derived/Build/Products/Release/Plummer.app/Contents/MacOS/Plummer"
 fi
+# B84: the app runs as a copy under the scripted bundle id (scripted-app.sh); the build under the
+# person's own id refuses --scratch-state
+person_bundle="$(cd "$(dirname "$app")/../.." && pwd)"
+person_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$person_bundle/Contents/Info.plist")
+"$here/scripted-app.sh" clean "$person_id.scripted"
+copy=$("$here/scripted-app.sh" make "$person_bundle" "$scratch/app") || { echo "could not make the scripted copy"; exit 2; }
+app="$copy/Contents/MacOS/Plummer"
 (cd "$kit" && timeout 900 swift build -c release --product plumcraft-conformance -q)
 runner="$kit/.build/release/plumcraft-conformance"
 
@@ -89,7 +112,7 @@ done
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
 echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
-timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests --has install \
+timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests --has copied_manifest --has install \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?
 set -e
@@ -101,8 +124,9 @@ echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.json"
 failed=0
 # B50: the person's Library (defaults domain, saved state, recent documents, caches, logs) is
 # snapshotted before the app starts and compared after it quits; any change fails the run
-bundle_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$(dirname "$app")/../Info.plist")
-"$here/library-check.sh" snapshot "$bundle_id" "$scratch/library-before.txt"
+person_ids="$person_id com.swapwizard.plumcraft"
+"$here/library-check.sh" snapshot "$person_ids" "$scratch/library-before.txt"
+"$here/library-check.sh" home "$scratch/home-before.txt"
 # every case on one app, as it opens every document: the empty graph on the text engine alone, and
 # the picture case's first array node starts the array engine (decision 8C: engines start as the
 # graph comes to use them), so no case is skipped for want of an engine
@@ -110,6 +134,8 @@ run_on text array || failed=1
 # cfprefsd and the shared file list's daemon write their files a few seconds after the process
 # asked (a recent document noted by the app landed 3 to 8 s after it quit, B50)
 sleep "${SETTLE:-10}"
-"$here/library-check.sh" snapshot "$bundle_id" "$scratch/library-after.txt"
+"$here/library-check.sh" snapshot "$person_ids" "$scratch/library-after.txt"
 "$here/library-check.sh" compare "$scratch/library-before.txt" "$scratch/library-after.txt" || failed=1
+"$here/library-check.sh" home "$scratch/home-after.txt"
+"$here/library-check.sh" home-compare "$scratch/home-before.txt" "$scratch/home-after.txt" || failed=1
 exit $failed

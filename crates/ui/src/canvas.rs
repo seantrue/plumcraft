@@ -246,6 +246,8 @@ pub struct RunView<'a> {
     pub docs: &'a [plumcraft_session::DocApp],
     /// Apps chosen before with Open with… (`value.open`), most recent first.
     pub recent_apps: &'a [std::path::PathBuf],
+    /// The engines a person can choose, for their names in Run on (B86).
+    pub engines: &'a [plumcraft_session::EngineChoice],
     /// The latest run's replay ([`crate::run_anim`]); `None` when run colours are off.
     pub anim: Option<&'a crate::run_anim::RunAnim>,
     /// The faces as the core's scene has them, by id (N2 slice 2): their words, colours, rows,
@@ -710,6 +712,7 @@ impl Canvas {
             source: runs.source,
             docs: runs.docs,
             recent_apps: runs.recent_apps,
+            engines: runs.engines,
             pins: self.pins.clone(),
             wire_clicked: None,
             port_hovered: None,
@@ -838,7 +841,7 @@ impl Canvas {
             let area = egui::Area::new(egui::Id::new("plumcraft-wire-menu")).order(egui::Order::Foreground).fixed_pos(menu.screen_pos).show(&ctx, |ui| {
                 egui::Frame::menu(ui.style()).show(ui, |ui| {
                     // the core's menu model, with where Add Bend Point would put the point
-                    let parts = menu_view::Parts { graph, catalog, run: runs.run, doc_apps: runs.docs, recent_apps: runs.recent_apps };
+                    let parts = menu_view::Parts { graph, catalog, run: runs.run, doc_apps: runs.docs, recent_apps: runs.recent_apps, engines: runs.engines };
                     let cx = menu_view::Context::Wire { to: menu.to.clone(), bend: bend.as_ref().map(|via| json!(via)) };
                     let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &cx);
                     let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens, bar: false, close: false }) else { return };
@@ -940,6 +943,7 @@ struct NodeViewer<'a> {
     source: &'a dyn plumcraft_media::Source,
     docs: &'a [plumcraft_session::DocApp],
     recent_apps: &'a [std::path::PathBuf],
+    engines: &'a [plumcraft_session::EngineChoice],
     pins: PinSink,
     /// A wire right-clicked this frame.
     wire_clicked: Option<(PortRef, PortRef)>,
@@ -1036,7 +1040,14 @@ impl<'a> NodeViewer<'a> {
         // a caption only senses hover; its menu needs the secondary click
         let r = r.interact(egui::Sense::click());
         r.context_menu(|ui| {
-            let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+            let parts = menu_view::Parts {
+                graph: self.graph,
+                catalog: self.catalog,
+                run: self.run,
+                doc_apps: self.docs,
+                recent_apps: self.recent_apps,
+                engines: self.engines,
+            };
             let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &menu_view::Context::Input { port: at.clone() });
             let Some(item) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }) else { return };
             if let Some(a) = menu_view::action(&item) {
@@ -1179,7 +1190,14 @@ impl<'a> NodeViewer<'a> {
             self.actions.push(("run.watch", json!({"node": at.node, "port": at.port})));
         }
         r.context_menu(|ui| {
-            let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+            let parts = menu_view::Parts {
+                graph: self.graph,
+                catalog: self.catalog,
+                run: self.run,
+                doc_apps: self.docs,
+                recent_apps: self.recent_apps,
+                engines: self.engines,
+            };
             let cx = menu_view::Context::Output { port: at.clone() };
             let items = plumcraft_editor_core::menu::context(&parts, &menu_view::Facts::default(), &cx);
             if let Some(a) = menu_view::draw(ui, &items, menu_view::Style { tokens: self.tokens, bar: false, close: true }).as_ref().and_then(menu_view::action)
@@ -1307,7 +1325,14 @@ impl<'a> NodeViewer<'a> {
             Some(p) => menu_view::Context::Proxy { group: p.group.clone() },
             None => menu_view::Context::Node { node: n.id.clone() },
         };
-        let parts = menu_view::Parts { graph: self.graph, catalog: self.catalog, run: self.run, doc_apps: self.docs, recent_apps: self.recent_apps };
+        let parts = menu_view::Parts {
+            graph: self.graph,
+            catalog: self.catalog,
+            run: self.run,
+            doc_apps: self.docs,
+            recent_apps: self.recent_apps,
+            engines: self.engines,
+        };
         let facts = menu_view::Facts {
             selected: self.selected.clone(),
             selected_groups: self.selected_groups.clone(),

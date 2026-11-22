@@ -964,11 +964,21 @@ pub struct Parts<'a> {
     pub run: &'a plumcraft_session::RunState,
     pub doc_apps: &'a [plumcraft_session::DocApp],
     pub recent_apps: &'a [std::path::PathBuf],
+    /// The engines a person can choose, for their names (B86: Run on names engines as the Engine
+    /// menu does).
+    pub engines: &'a [EngineChoice],
 }
 
 impl<'a> Parts<'a> {
     pub fn of(session: &'a Session) -> Parts<'a> {
-        Parts { graph: session.graph(), catalog: session.catalog(), run: &session.run, doc_apps: &session.docs.apps, recent_apps: &session.docs.recent_apps }
+        Parts {
+            graph: session.graph(),
+            catalog: session.catalog(),
+            run: &session.run,
+            doc_apps: &session.docs.apps,
+            recent_apps: &session.docs.recent_apps,
+            engines: &session.engines.choices,
+        }
     }
 }
 
@@ -1054,7 +1064,9 @@ fn node_menu(parts: &Parts<'_>, facts: &Facts, id: &NodeId) -> Vec<Item> {
         let mut items: Vec<Item> = offered
             .iter()
             .map(|e| {
-                Item::run("node.engine", e.clone(), json!({"nodes": targets, "engine": e}))
+                // the engine's name, as the Engine menu and the engine cell give it (B86)
+                let name = parts.engines.iter().find(|c| &c.engine == e).map_or(e.as_str(), |c| c.engine_label.as_str());
+                Item::run("node.engine", name, json!({"nodes": targets, "engine": e}))
                     .hover(format!("node.engine {{engine: {e:?}}}"))
                     .look(Look::Choice, &engine == e && pin.is_some())
             })
@@ -1615,6 +1627,46 @@ mod tests {
         let engine = bar_menu(&s, &desk, "Engine");
         let one = engine.walk().into_iter().find(|i| i.params == Some(json!({"engine": "copied"}))).unwrap();
         assert_eq!(one.warning.as_deref(), Some("it may be a copy"));
+    }
+
+    /// Decision 17: an engine in use whose manifest warned is marked outside the menu too:
+    /// `switchboard::engine_warning`, which `ui.inspect`'s `engine.warning` and the C ABI feed's
+    /// engine change carry; none while only another engine is in use.
+    #[test]
+    fn a_warned_engine_in_use_carries_its_warning_outside_the_menu() {
+        let mut s = Session::default();
+        let warned = EngineChoice { warning: Some("it may be a copy".into()), ..choice("copied", "Copied", "process", "Process (mode 2)") };
+        s.engines.choices = vec![choice("text", "Text", "inproc", "Rust · in-process"), warned];
+        s.engines.current = Some(EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() });
+        assert_eq!(crate::switchboard::engine_warning(&s), None, "not in use");
+        s.engines.added.push(EngineTarget::Choice { engine: "copied".into(), mode: "process".into() });
+        assert_eq!(crate::switchboard::engine_warning(&s).as_deref(), Some("Copied: it may be a copy"));
+    }
+
+    /// B86: a node's Run on names each engine as the Engine menu does (its label), and runs
+    /// `node.engine` with its id; an engine with no choice of its own keeps its id.
+    #[test]
+    fn run_on_names_engines_by_their_labels() {
+        let mut cat = plumcraft_text::engine().schema();
+        for n in &mut cat.nodes {
+            n.engines = if n.id == "text.upper" { vec!["text".into(), "person_text".into(), "bare".into()] } else { vec!["text".into()] };
+        }
+        let mut s = Session::new(cat);
+        s.engines.choices =
+            vec![choice("text", "Text", "inproc", "Rust · in-process"), choice("person_text", "Person Check Text", "process", "Process (mode 2)")];
+        let u = s.execute("node.add", &json!({"kind": "text.upper", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+        let menu = context(&Parts::of(&s), &Facts::default(), &Context::Node { node: NodeId::from(u.as_str()) });
+        let run_on = menu.iter().find(|i| i.label == "Run on").expect("Run on");
+        let got: Vec<(String, Option<Value>)> = run_on.items.iter().map(|i| (i.label.clone(), i.params.as_ref().map(|p| p["engine"].clone()))).collect();
+        assert_eq!(
+            got,
+            vec![
+                ("Text".into(), Some(json!("text"))),
+                ("Person Check Text".into(), Some(json!("person_text"))),
+                ("bare".into(), Some(json!("bare"))),
+                ("Any".into(), Some(Value::Null)),
+            ]
+        );
     }
 
     #[test]

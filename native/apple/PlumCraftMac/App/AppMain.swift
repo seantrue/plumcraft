@@ -221,24 +221,37 @@ enum CoreHost {
 }
 
 /// The app's document controller: AppKit's, except that a scripted launch (`--scratch-state`)
-/// never notes a document in the person's recent documents (the system keeps them outside the
-/// app, in the shared file list, so a scratch graph stayed in File › Open Recent: B50), and keeps
-/// none (a count of 0): AppKit then leaves the list alone, where with its own count the first
-/// launch of each new build rewrote the list's properties (the code requirement it carries). Made
-/// in `main` before AppKit's first use, so it is `NSDocumentController.shared`.
+/// under the person's own bundle id would never note a document in the recent documents (the
+/// system keeps them outside the app, in the shared file list, so a scratch graph stayed in
+/// File › Open Recent: B50) and keep none (a count of 0: with its own count the first launch of
+/// each new build rewrote the list's properties, B81). Such a launch now refuses to start (B84):
+/// a scripted launch runs as the scripted copy, whose recent documents are its own list (the
+/// scripts remove it when they end), so there File › Open Recent works as a person's does and
+/// the person's list is never touched. Made in `main` before AppKit's first use, so it is
+/// `NSDocumentController.shared`.
 ///
 /// `recentDocumentURLs` is left as AppKit's: overriding it to an empty list made AppKit write the
 /// empty list back over the person's (B50's first try).
 final class PlummerDocumentController: NSDocumentController {
-    /// Read from the arguments, not `CoreHost.options`: AppKit may ask before the delegate parses them.
-    static let scratch = CommandLine.arguments.contains("--scratch-state")
+    /// Read from the arguments, not `CoreHost.options`: AppKit may ask before the delegate parses
+    /// them. True only for a scripted launch that is not the scripted copy (which then refuses).
+    nonisolated static let scratch = CommandLine.arguments.contains("--scratch-state")
+        && ScratchGuard.bundleRefusal(Bundle.main.bundleIdentifier) != nil
 
     override func noteNewRecentDocumentURL(_ url: URL) {
         if Self.scratch { return }
         super.noteNewRecentDocumentURL(url)
     }
 
-    override var maximumRecentDocumentCount: Int { Self.scratch ? 0 : super.maximumRecentDocumentCount }
+    /// AppKit asks this from a queue of its own once a recent document is noted
+    /// (`_NSRecentItemsMenuController`, an NSOperation), so it is nonisolated: as a main-actor
+    /// getter it stopped the app in Swift's isolation check the first time the scripted copy
+    /// noted a document (the person check after B84). AppKit's own count is its default (10) or
+    /// the `NSRecentDocumentsLimit` default, read here without the main actor.
+    nonisolated override var maximumRecentDocumentCount: Int {
+        if Self.scratch { return 0 }
+        return (UserDefaults.standard.object(forKey: "NSRecentDocumentsLimit") as? Int) ?? 10
+    }
 }
 
 /// What the app writes to `--status-file` for the scripts that drive it (the kit's, shared with the
@@ -261,7 +274,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "light"?: NSApp.appearance = NSAppearance(named: .aqua)
         default: break
         }
-        if CoreHost.options.scratchState, let why = Self.scratchRefusal(CoreHost.options, ProcessInfo.processInfo.environment) {
+        // B84: a scripted launch runs only as the scripted copy (its own bundle id), so the
+        // panels, recent documents and saved state it leaves are the copy's, never the person's
+        if CoreHost.options.scratchState, let why = ScratchGuard.bundleRefusal(Bundle.main.bundleIdentifier)
+            ?? Self.scratchRefusal(CoreHost.options, ProcessInfo.processInfo.environment) {
             // loud, and no dialog: a scripted launch that would reach the Mac's own store stops here
             FileHandle.standardError.write(Data("Plummer: \(why)\n".utf8))
             exit(3)

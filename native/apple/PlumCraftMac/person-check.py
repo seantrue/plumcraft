@@ -169,6 +169,93 @@ def layout_ok(sheet, axsheets):
     return problems, seen_ax
 
 
+def axrun(*a):
+    try:
+        return json.loads(subprocess.run([A.ax, *a], capture_output=True, text=True, timeout=30).stdout)
+    except (subprocess.SubprocessError, ValueError, OSError) as e:
+        return {"error": str(e)}
+
+
+def panel_fields(sheet):
+    """A panel's own fields as accessibility reads them from outside the app (the panel runs out
+    of process, so what the app's object says is not what a person sees): the save panel's name
+    field and folder pop-up (a sheet), or the open panel's folder pop-ups (a window of its own)."""
+    if sheet:
+        els = [e for s in axrun("sheet", str(A.pid)).get("sheets", []) for e in s.get("elements", [])]
+    else:
+        ws = axrun("all", str(A.pid)).get("windows", [])
+
+        # the open panel: the window that has the panel's Open button (its identifier)
+        def mark(e):
+            return e.get("role") == "AXButton" and e.get("identifier") == "OKButton"
+        panels = [w for w in ws if any(mark(e) for e in w.get("elements", []))]
+        seen_ws = [(w.get("title"), w.get("subrole"), len(w.get("elements", [])),
+                    sorted({e.get("identifier") for e in w.get("elements", []) if e.get("identifier")})[:12]) for w in ws]
+        if not panels:
+            return {"windows": seen_ws}
+        els = [e for w in panels for e in w.get("elements", [])]
+    name = next((e.get("value", "") for e in els if e.get("identifier") == "saveAsNameTextField"), None)
+    where = next((e.get("value", "") for e in els if e.get("identifier") == "where popup"), None)
+    pops = [e.get("value") for e in els if e.get("role") == "AXPopUpButton" and e.get("value")]
+    out = {"name": name, "folder": where, "folders": pops}
+    if not sheet:
+        out["windows"] = seen_ws
+    return out
+
+
+SCRATCH_PREFIX = "person-scratch-"
+
+
+def may_press(seen_name, seen_folder, want, scratch, env):
+    """Whether Save (or Open) may be pressed in a real panel, and why not. Never, unless
+    PERSON_PRESS_SAVE=1 (set by no script: the maintainer, 2026-11-21) and the panel itself shows
+    the wanted name in the wanted folder, a folder inside the scratch whose name (person-scratch-
+    and eight hex digits) no folder of a person's has."""
+    if env.get("PERSON_PRESS_SAVE") != "1":
+        return False, "PERSON_PRESS_SAVE is not 1 (the person check never presses Save in a real panel)"
+    folder = os.path.dirname(os.path.realpath(want))
+    root = os.path.realpath(scratch)
+    if not folder.startswith(root + os.sep):
+        return False, f"{folder} is not inside the scratch {root}"
+    base = os.path.basename(folder)
+    tail = base[len(SCRATCH_PREFIX):]
+    if not base.startswith(SCRATCH_PREFIX) or len(tail) != 8 or any(c not in "0123456789abcdef" for c in tail):
+        return False, f"{base!r} is not a scratch folder's name ({SCRATCH_PREFIX}<8 hex>)"
+    if seen_name is None or seen_folder is None:
+        return False, "the panel's own name field or folder could not be read"
+    if seen_name != os.path.basename(want):
+        return False, f"the panel's name field says {seen_name!r}, not {os.path.basename(want)!r}"
+    if seen_folder != base:
+        return False, f"the panel's folder is {seen_folder!r}, not {base!r}"
+    return True, "both fields are the scratch ones"
+
+
+def self_test():
+    """may_press's refusals (person-check.sh runs this before it launches anything)."""
+    s = os.path.realpath(os.environ.get("TMPDIR", "/tmp"))
+    good = os.path.join(s, "person-scratch-0a1b2c3d", "person.json")
+    on = {"PERSON_PRESS_SAVE": "1"}
+    cases = [
+        (("person.json", "person-scratch-0a1b2c3d", good, s, {}), False),
+        (("person.json", "person-scratch-0a1b2c3d", good, s, {"PERSON_PRESS_SAVE": "yes"}), False),
+        (("person.json", "person-scratch-0a1b2c3d", good, s, on), True),
+        (("Untitled", "person-scratch-0a1b2c3d", good, s, on), False),
+        (("person.json", "Documents", good, s, on), False),
+        ((None, "person-scratch-0a1b2c3d", good, s, on), False),
+        (("person.json", None, good, s, on), False),
+        (("person.json", "Documents", os.path.expanduser("~/Documents/person.json"), s, on), False),
+        (("person.json", "saved", os.path.join(s, "saved", "person.json"), s, on), False),
+        (("person.json", "person-scratch-0a1b2c3d", os.path.join(s, "person-scratch-0a1b2c3d", "..", "person.json"), s, on), False),
+        (("person.json", "person-scratch-zzzzzzzz", os.path.join(s, "person-scratch-zzzzzzzz", "person.json"), s, on), False),
+        (("person.json", "person-scratch-0a1b2c3d", "/elsewhere/person-scratch-0a1b2c3d/person.json", s, on), False),
+    ]
+    bad = [(c, want) for c, want in cases if may_press(*c)[0] is not want]
+    for c, want in bad:
+        print(f"PERSON FAIL | may_press{c[:3]} | wanted {want}, got {may_press(*c)}")
+    print(f"PERSON {'PASS' if not bad else 'FAIL'} | the refusal before any Save press | {len(cases) - len(bad)} of {len(cases)} cases")
+    return not bad
+
+
 def check_sheet(name, opener, shot):
     r = step(f"menu-pick:{opener}")
     if not r.get("ok"):
@@ -189,11 +276,239 @@ def check_sheet(name, opener, shot):
     return s["sheet"]
 
 
+
+
+# The engine half (decision 10 after the person check: "add a launched test engine so the apps
+# cover them"): the engine-interface floor rows driven through the launched app, on the installed
+# engine (the text engine's program as a separate process, from the scratch engines folder), and
+# asserted from what the app shows: the scene its canvas draws (read over the port), its engine
+# cell and banner (the status file). A graph of the text engine's own testing nodes (text.slow
+# reports progress and stops on cancel; text.fail always fails), each pinned to the installed
+# engine, is opened as the Finder opens a file; Run, Cancel Run and Auto-Run are picked in the
+# real Run menu; values are typed into the faces' fields. Each step names the floor rows it meets.
+ENGINE_GRAPH = {
+    "version": 1,
+    "engines": ["person_text"],
+    "nodes": {
+        "story": {"kind": "text.literal", "pos": [0, 0], "engine": "person_text", "values": {"text": "a corgi naps"}},
+        "think": {"kind": "text.slow", "pos": [320, 0], "engine": "person_text", "values": {"seconds": 3.0}},
+        "rep": {"kind": "text.repeat", "pos": [640, 0], "engine": "person_text", "values": {"times": 2}},
+        "shout": {"kind": "text.upper", "pos": [960, 0], "engine": "person_text"},
+        "broken": {"kind": "text.fail", "pos": [320, 300], "engine": "person_text"},
+        "after": {"kind": "text.lower", "pos": [640, 300], "engine": "person_text"},
+    },
+    "wires": [
+        {"from": {"node": "story", "port": "text"}, "to": {"node": "think", "port": "text"}},
+        {"from": {"node": "think", "port": "text"}, "to": {"node": "rep", "port": "text"}},
+        {"from": {"node": "rep", "port": "text"}, "to": {"node": "shout", "port": "text"}},
+        {"from": {"node": "story", "port": "text"}, "to": {"node": "broken", "port": "text"}},
+        {"from": {"node": "broken", "port": "text"}, "to": {"node": "after", "port": "text"}},
+    ],
+}
+
+
+def engine_half(port, outside):
+    path = os.path.join(A.scratch, "engine-check.json")
+    with open(path, "w") as f:
+        json.dump(ENGINE_GRAPH, f)
+    r = step(f"open:{path}")
+    mine = wait(lambda: [d for d in docs() if d["path"] and os.path.realpath(d["path"]) == os.path.realpath(path) and d["ready"]], 30, every=0.3)
+    if not (r.get("ok") and mine):
+        say(False, "the engine half: the test graph opened", f"open {r}; documents {docs()}")
+        return
+    doc = mine[0]["doc"]
+    k = next(i for i, d in enumerate(docs()) if d["doc"] == doc)
+    step(f"use:{k}")
+
+    def faces():
+        try:
+            return {n["id"]: n for n in port.call("scene.get", {}, doc=doc).get("nodes", [])}
+        except RuntimeError:
+            return {}
+
+    def state(fs, n):
+        return (fs.get(n, {}).get("run") or {}).get("state")
+
+    def inspect_run():
+        return port.call("ui.inspect", {}, doc=doc).get("run", {})
+
+    def engine_up():
+        e = port.call("ui.inspect", {}, doc=doc).get("engine", {})
+        return e if e.get("connected") and any(x.get("id") == "person_text" and (x.get("state") or {}).get("state") == "connected" for x in e.get("engines", [])) else None
+
+    up = wait(engine_up, 60, every=0.5)
+    say(bool(up), "the engine half: the test graph's engine, the installed one, connected in its window",
+        f"engines {[(x.get('id'), (x.get('state') or {}).get('state')) for x in (up or {}).get('engines', [])]}")
+
+    def watch_run(secs, stop=None):
+        """Every state each face shows while the run goes, sampled every 50 ms; ends when the run
+        has ended (ui.inspect's run.running false after it started), or at secs."""
+        seen = {}
+        frames = {}
+        t0 = time.time()
+        started = False
+        gen = None
+        while time.time() - t0 < secs:
+            fs = faces()
+            for n, f in fs.items():
+                st = state(fs, n)
+                if st and (not seen.get(n) or seen[n][-1] != st):
+                    seen.setdefault(n, []).append(st)
+                fr = (f.get("run") or {}).get("fraction")
+                if fr is not None:
+                    frames.setdefault(n, []).append(fr)
+            ir = inspect_run()
+            running = ir.get("running")
+            # a run that ended before the first look: its generation moved on (or its faces done)
+            gen = ir.get("generation") if gen is None else gen
+            started = started or bool(running) or (time.time() - t0 > 1.0 and ir.get("generation") != gen)
+            ended = {"done", "cached", "error", "skipped", "cancelled"}
+            if not running and time.time() - t0 > 1.5 and fs and all(state(fs, n) in ended for n in fs if state(fs, n)):
+                started = True
+            if stop and stop(fs):
+                break
+            if started and not running:
+                break
+            time.sleep(0.05)
+        # the scene a moment after the run ends (it follows the run's last records): until no
+        # face is still queued or working, at most 5 s
+        busy = {"queued", "started", "running", "progress"}
+        last = wait(lambda: (lambda f: f if f and not any(state(f, n) in busy for n in f) else None)(faces()), 5, every=0.1) or faces()
+        for n in last:
+            st = state(last, n)
+            if st and (not seen.get(n) or seen[n][-1] != st):
+                seen.setdefault(n, []).append(st)
+        return seen, frames, last
+
+    # E1. Run from the Run menu: queued faces before the engine says anything (F31), states
+    # streaming as the engine reports them (F38, F39), progress (F38), an error as data on its
+    # face (F34), the node after it skipped (F39), the text on the face (F46), the time each took
+    # (F42), the run's identity (F28)
+    gen0 = inspect_run().get("generation", 0)
+    r = step("menu-pick:Run/Run")
+    seen, frames, fs = watch_run(30)
+    run1 = inspect_run()
+    say(bool(r.get("ok")) and "queued" in seen.get("shout", []) and seen.get("shout", [""])[-1] == "done",
+        "F31 optimistic queued: the faces show queued as Run is picked, before the engine reports them",
+        f"pick {r.get('ok')} {r.get('error') or ''}; states shout {seen.get('shout')}, rep {seen.get('rep')}")
+    prog = [x for x in frames.get("think", []) if 0 < x < 1]
+    say(("progress" in seen.get("think", [])) and len(set(prog)) >= 2,
+        "F38 status stream, F39 progress: the slow node's face shows its progress as the engine streams it",
+        f"think's states {seen.get('think')}; fractions seen {sorted(set(round(x, 2) for x in prog))[:12]}")
+    br = fs.get("broken", {})
+    err = next((x for x in br.get("footer", []) if x.get("kind") == "error"), None)
+    say(state(fs, "broken") == "error" and bool(err) and "always fails" in (err or {}).get("full", "") + (err or {}).get("text", ""),
+        "F34 errors as data, F39 error: the failing node's face shows its error from the engine",
+        f"broken {seen.get('broken')}; its footer {err}")
+    say(state(fs, "after") == "skipped", "F39 skipped: the node after the failing one is skipped, not run",
+        f"after {seen.get('after')}")
+    ex = next((x for x in fs.get("shout", {}).get("footer", []) if x.get("kind") == "excerpt"), None)
+    say(bool(ex) and "A CORGI NAPS" in ex.get("text", ""), "F46 text on nodes: the result's text is on its face",
+        f"shout's excerpt {ex}")
+    hs = [s.get("text", "") for s in fs.get("think", {}).get("header", {}).get("status", [])]
+    timed = [t for t in hs if any(c.isdigit() for c in t) and ("s" in t)]
+    say(bool(timed), "F42 per-node timing: the slow node's face says how long it took", f"think's status {hs}")
+    gen1 = run1.get("generation", 0)
+    say(gen1 > gen0 and run1.get("runId") is not None, "F28 run identity: the run has an id and the generation rose",
+        f"generation {gen0} -> {gen1}, runId {run1.get('runId')}")
+
+    # E2. F45: an edit upstream makes what it feeds stale on the face before anything runs
+    step("edit:story.text")
+    step("field:a corgi sleeps")
+    step("return")
+    stale = wait(lambda: (lambda f: f if (f.get("shout", {}).get("run") or {}).get("stale") else None)(faces()), 10, every=0.2)
+    say(bool(stale) and not inspect_run().get("running"), "F45 stale tracking: an edit upstream marks what it feeds stale, nothing run",
+        f"shout's run {(faces().get('shout') or {}).get('run')}")
+
+    # E3. F36 Cancel: Run, then Run › Cancel Run while the slow node works: it stops (cancelled)
+    # and nothing after it runs
+    step("menu-pick:Run/Run")
+    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    t0 = time.time()
+    c = step("menu-pick:Run/Cancel Run")
+    seen, _, fs = watch_run(10)
+    took = time.time() - t0
+    say(bool(c.get("ok")) and state(fs, "think") == "cancelled" and state(fs, "shout") != "done" and took < 3,
+        "F36 cancel: Run › Cancel Run stops the slow node at once; nothing after it runs",
+        f"pick {c.get('ok')} {c.get('error') or ''}; think {seen.get('think')}, shout {seen.get('shout')}; ended {took:.1f} s after the pick")
+
+    # E4. F29 latest wins: Run, then an edit and Run again before it ends: the first is
+    # superseded, the result is the last edit's
+    sup0 = inspect_run().get("superseded", 0)
+    step("menu-pick:Run/Run")
+    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    step("edit:story.text")
+    step("field:a corgi wakes")
+    step("return")
+    step("menu-pick:Run/Run")
+    seen, _, fs = watch_run(30)
+    ex = next((x for x in fs.get("shout", {}).get("footer", []) if x.get("kind") == "excerpt"), {})
+    sup1 = inspect_run().get("superseded", 0)
+    say(sup1 > sup0 and "A CORGI WAKES" in ex.get("text", "") and state(fs, "shout") == "done",
+        "F29 latest wins: a run started over one under way supersedes it; the faces show the last edit's result",
+        f"superseded {sup0} -> {sup1}; shout {seen.get('shout')}, its text {ex.get('text')!r}")
+
+    # E5. F72 partial re-run: a value changed after the slow node: only it and what it feeds run;
+    # the slow node is cached
+    step("edit:rep.times")
+    step("field:3")
+    step("return")
+    step("menu-pick:Run/Run")
+    seen, _, fs = watch_run(20)
+    say(state(fs, "think") == "cached" and state(fs, "rep") == "done" and state(fs, "story") == "cached",
+        "F72 partial re-run: after a change downstream, only what it touches runs; the slow node is cached",
+        f"story {seen.get('story')}, think {seen.get('think')}, rep {seen.get('rep')}, shout {seen.get('shout')}")
+
+    # E6. F30 Auto-run: Run › Auto-Run on, an edit runs by itself; then off
+    a = step("menu-pick:Run/Auto-Run")
+    checked = [i.get("checked") for i in step("menu:Run").get("items", []) if i.get("title") == "Auto-Run"]
+    step("edit:rep.times")
+    step("field:4")
+    step("return")
+    auto = wait(lambda: (lambda f: f if state(f, "rep") == "done" and "a corgi wakes" * 4 in json.dumps(f.get("rep", {})) or (state(f, "shout") == "done" and "A CORGI WAKES" * 4 in json.dumps(f.get("shout", {}))) else None)(faces()), 20, every=0.2)
+    step("menu-pick:Run/Auto-Run")
+    off = [i.get("checked") for i in step("menu:Run").get("items", []) if i.get("title") == "Auto-Run"]
+    say(bool(a.get("ok") and checked == [True] and auto and off == [False]),
+        "F30 auto-run: with Run › Auto-Run checked an edit runs by itself; unchecked again",
+        f"pick {a.get('ok')}; checked {checked} then {off}; ran by itself {bool(auto)}")
+
+    # E7. F35 a failure stands in for a reply: the engine's process killed in the middle of the
+    # slow node's work: the run ends (it doesn't wait for a reply that can't come), the face says
+    # so, and the engine comes back
+    step("edit:story.text")
+    step("field:a corgi dreams")
+    step("return")
+    step("menu-pick:Run/Run")
+    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    pids, _ = outside()
+    for p in pids:
+        try:
+            os.kill(int(p), 9)
+        except OSError:
+            pass
+    t0 = time.time()
+    seen, _, fs = watch_run(30)
+    took = time.time() - t0
+    back = wait(engine_up, 30, every=0.5)
+    say(bool(pids) and state(fs, "think") in ("error", "cancelled") and took < 15 and bool(back),
+        "F35 a failure stands in for a reply: the engine killed mid-node ends the run with the face saying so; the engine starts again",
+        f"killed {pids}; think {seen.get('think')} ({next((x.get('text') for x in fs.get('think', {}).get('footer', []) if x.get('kind') == 'error'), None)!r}); "
+        f"the run ended {took:.1f} s after; engine back {bool(back)}; banner {status().get('banner')!r}")
+
+    # the window goes as it came: saved (to scratch) so it closes without asking, then closed
+    port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, "engine-check-saved.json")}}, doc=doc)
+    wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
+    step("menu-pick:File/Close")
+    wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
+    step("use:0")
+
+
 def main():
     global A
     p = argparse.ArgumentParser()
     for a in ("pid", "status", "inbox", "token", "ax", "scratch", "shots", "engine-label", "engine-bin"):
         p.add_argument("--" + a, required=True)
+    p.add_argument("--self-test", action="store_true")
     A = p.parse_args()
     A.pid = int(A.pid)
     os.makedirs(A.shots, exist_ok=True)
@@ -209,6 +524,14 @@ def main():
         "launch: an untitled graph window", f"documents {[(d['title'], d['path'] or 'no file', 'visible' if d['visible'] else 'hidden') for d in ds]}"
         + (f"; accessibility: windows {[w.get('title') for w in axw]}" if axw is not None else "; accessibility not trusted"))
     port = Port()
+
+    # 1b. B87: the engines folder's unreadable manifest is said: the engine's state and the
+    # window's banner (the core's status line, which the Mac shows as its banner)
+    eng = port.call("ui.inspect", {}).get("engine", {})
+    probs = eng.get("manifestProblems") or []
+    banner = wait(lambda: (lambda b: b if b and "broken.toml" in b else None)(status().get("banner")), 15, every=0.3)
+    say(any("broken.toml" in p for p in probs) and bool(banner), "an unreadable manifest is said at launch (B87)",
+        f"manifestProblems {probs}; the window's banner {status().get('banner')!r}")
 
     # 2. File › New makes another (B70)
     r = step("menu-pick:File/New Graph")
@@ -268,13 +591,13 @@ def main():
     up = next((n for n in new if g[n].get("kind") == "text.upper"), None)
     say(bool(lit and up), "the palette adds a Text and an Upper case node", f"new nodes {[(n, g[n].get('kind'), g[n].get('pos')) for n in new]}")
     if lit and up:
-        ran_on = [step(f"context-pick:{n}:Run on/person_text") for n in (lit, up)]
+        ran_on = [step(f"context-pick:{n}:Run on/{A.engine_label}") for n in (lit, up)]
         def engines_shown():
             scene = port.call("scene.get", {}, doc=doc)
             return {n["id"]: n["header"]["engine"]["text"] for n in scene.get("nodes", []) if n["id"] in (lit, up)}
         hdr = wait(lambda: (lambda h: h if len(h) == 2 and all("person_text" in t for t in h.values()) else None)(engines_shown()), 10, every=0.3) or engines_shown()
         say(all(x.get("ok") for x in ran_on) and len(hdr) == 2 and all("person_text" in t for t in hdr.values()),
-            "each node's context menu › Run on › person_text", f"picks {[x.get('ok') or x.get('error') for x in ran_on]}; faces say {hdr}")
+            f"each node's context menu › Run on › {A.engine_label} (by its name, B86)", f"picks {[x.get('ok') or x.get('error') for x in ran_on]}; faces say {hdr}")
         step(f"edit:{lit}.text")
         step("field:hello person")
         step("return")
@@ -316,6 +639,9 @@ def main():
         rec = wait(lambda: status().get("recipe"), 10, every=0.3)
         say(bool(rec and rec.get("shown")), "the pop-out's Recipe", f"pressed {pr}; the app says {rec}")
 
+        # the engine half (decision 10): the engine-interface rows on the installed engine
+        engine_half(port, outside)
+
     # 6, 7. Attach… and Install Engine… show real sheets, labels beside their fields (B73)
     check_sheet("Engine › Attach…: a real sheet", "Engine/Attach…", "attach-sheet.png")
     inst = check_sheet("Engine › Install Engine…: a real sheet", "Engine/Install Engine…", "install-sheet.png")
@@ -323,73 +649,127 @@ def main():
     say(bool(combo) and len(combo[0].get("choices", [])) >= 3, "Install Engine…: the repository is a pick list with any other typed (decision 5)",
         f"{combo[0]['kind']} with {combo[0].get('choices')}" if combo else f"no pick list: {[(c['kind'], c.get('axLabel')) for c in (inst or {}).get('controls', [])]}")
 
-    # 8. Save As: the panel is seen, then cancelled. AppKit's save panel keeps the folder it shows
-    # in the app's defaults domain (NSOSPLastRootDirectory), which can't be pointed elsewhere
-    # (B50), so moving it to a scratch folder changes the person's Library, and saving where it
-    # opens writes into a folder of the person's. The file is written by the core's graph.saveAs.
-    path = os.path.join(A.scratch, "person.json")
+    # 8. File › Save As…: the real save panel, set before it shows to a scratch folder of a name
+    # no folder of the person's has, read through accessibility (the panel's own name field and
+    # folder, from outside: the panel runs out of process), asserted, then cancelled. Save is never
+    # pressed (the maintainer, 2026-11-21: "1,2 as you say"; a save once landed in ~/Documents):
+    # may_press refuses unless PERSON_PRESS_SAVE=1, which no script sets, and both fields are the
+    # scratch ones. The file is written by the core's graph.saveAs, to that scratch folder.
+    folder = os.path.join(A.scratch, f"person-scratch-{os.urandom(4).hex()}")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, "person.json")
 
-    def axrun(*a):
-        try:
-            return json.loads(subprocess.run([A.ax, *a], capture_output=True, text=True, timeout=30).stdout)
-        except (subprocess.SubprocessError, ValueError) as e:
-            return {"error": str(e)}
+    def opened(p):
+        return [x for x in docs() if x["path"] and os.path.realpath(x["path"]) == os.path.realpath(p) and x["ready"]]
+
+    def faces_of(d):
+        return next((w.get("faces") for w in status().get("windows", []) if w.get("doc") == d), None)
+
+    at = step(f"panel-at:{path}")
     r = step("menu-pick:File/Save As…")
     panel = wait(lambda: (lambda d: d if d.get("ok") and "Panel" in d["sheet"]["class"] else None)(step("sheet")), 15, every=0.3)
-    seen = []
+    seen = {}
     if panel:
-        time.sleep(0.5)
-        els = [e for s in axrun("sheet", str(A.pid)).get("sheets", []) for e in s.get("elements", [])]
-        seen = [e.get("identifier") for e in els if e.get("identifier") in ("saveAsNameTextField", "where popup", "OKButton", "CancelButton")]
-        axrun("press", str(A.pid), "Cancel")
+        seen = wait(lambda: (lambda f: f if f.get("name") is not None and f.get("folder") is not None else None)(panel_fields(sheet=True)), 10, every=0.5) or panel_fields(sheet=True)
+    allowed, why = may_press(seen.get("name"), seen.get("folder"), path, A.scratch, os.environ)
+    if allowed:
+        # never reached by any script (PERSON_PRESS_SAVE is set by none)
+        axrun("press", str(A.pid), "OKButton")
+    else:
+        axrun("press", str(A.pid), "CancelButton")
     gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
-    say(bool(panel and len(seen) == 4 and gone), "File › Save As…: the save panel, then Cancel",
-        f"pick {r.get('ok')}; panel {panel['sheet']['class'] if panel else None}; accessibility shows {seen}; cancelled {bool(gone)}")
-    say(None, "File › Save As…: saving through the panel",
-        "not done: the panel would write the person's defaults (its folder) or save into a folder of theirs; the core's graph.saveAs writes the file")
+    say(bool(at.get("ok") and panel and seen.get("name") == "person.json" and seen.get("folder") == os.path.basename(folder) and gone and not allowed),
+        "File › Save As…: the save panel opens on the scratch folder with the name, read from the panel itself, then Cancel",
+        f"pick {r.get('ok')}; panel {panel['sheet']['class'] if panel else None}; the panel's own name field {seen.get('name')!r}, "
+        f"folder {seen.get('folder')!r} (wanted {os.path.basename(folder)!r}); Save not pressed: {why}; cancelled {bool(gone)}")
     port.call("command.run", {"command": "graph.saveAs", "params": {"path": path}}, doc=doc)
     on_disk = wait(lambda: os.path.exists(path) and "nodes" in open(path).read(), 10, every=0.3)
-    clean = wait(lambda: (lambda d: d if d and not d[0]["edited"] else None)(docs()), 10, every=0.3)
-    say(bool(on_disk and clean), "the graph saved (graph.saveAs) and the window's edited dot cleared", f"on disk {bool(on_disk)}; document {docs()[0] if docs() else None}")
+    clean = wait(lambda: (lambda d: d if d and not d[0]["edited"] and os.path.realpath(d[0]["path"] or "/nonexistent") == os.path.realpath(path) else None)(docs()), 10, every=0.3)
+    # the app noted the file as a recent document (AppKit asks the count from a queue of its own:
+    # the scripted copy's first such note stopped the app before the count was nonisolated)
+    time.sleep(1.5)
+    say(bool(on_disk and clean and alive()), "the graph saved (graph.saveAs, to scratch), the edited dot cleared, the app still running after noting it as recent",
+        f"on disk {bool(on_disk)}; document {(docs() or [None])[0]}; alive {alive()}")
 
-    # 9. close it, 10. open it again
+    # 9. close it
     r = step("menu-pick:File/Close")
     closed = wait(lambda: (lambda d: d if len(d) == 1 else None)(docs()), 15, every=0.3)
     say(bool(r.get("ok") and closed), "File › Close", f"documents {[d['title'] for d in docs()]}")
-    # File › Open Recent is not opened: a scripted launch keeps no recent documents (B50), and
-    # filling its menu on the first launch of a new build rewrote the person's list (B81)
-    say(None, "File › Open Recent", "not seen: a scripted launch notes no recent document (B50); the check opens the file as Open Recent and the Finder do")
-    r = step(f"open:{path}")
-    back = wait(lambda: (lambda d: [x for x in d if x["path"] and os.path.realpath(x["path"]) == os.path.realpath(path) and x["ready"]])(docs()), 20, every=0.3)
-    n = None
-    if back:
-        # what the window shows (the control channel answers for the first document only, B83)
-        def count():
-            return next((w.get("faces") for w in status().get("windows", []) if w.get("doc") == back[0]["doc"]), None)
-        n = wait(lambda: count() == 2 and 2, 30, every=0.5) or count()
-    say(bool(r.get("ok") and back and n == 2), "the saved graph opened again (as the Finder and Open Recent open it)", f"open {r.get('ok')} {r.get('error') or ''}; documents {[(d['title'], d['path'], d['ready']) for d in docs()]}; nodes {n}")
 
-    # 10b. File › Open… is the core's (decision 20): closed again, then opened through the core's
-    # graph.open, whose Open panel a script answers (the panel itself is not driven: AppKit keeps
-    # its folder in the person's defaults); the core opens it into the untouched window or makes
-    # a document whose window the feed's window domain brings
+    # 10. File › Open Recent: the saved graph is listed (the scripted copy's own list, B81), picked
+    name = os.path.basename(path)
+
+    def recent():
+        return [i.get("title") for i in step("menu:File/Open Recent").get("items", []) if i.get("title")]
+    # AppKit fills the menu from the list it reads in the background: asked again until it shows
+    titles = wait(lambda: (lambda t: t if name in t else None)(recent()), 10, every=0.5) or recent()
+    listed = step("menu:File/Open Recent").get("recent") or []
+    mine = [p for p in listed if os.path.realpath(p) == os.path.realpath(path)]
+    if name in titles:
+        rp = step(f"menu-pick:File/Open Recent/{name}")
+    elif mine:
+        # AppKit fills Open Recent's items only while the menu tracks (a person's click), which
+        # this check may not start (it never takes the pointer): the item it would show is the
+        # document controller's entry, opened as the item opens it
+        say(None, "File › Open Recent's items", f"the menu outside tracking shows {titles}; its list (the document controller's) {listed}")
+        rp = step(f"open:{mine[0]}")
+    else:
+        rp = {"ok": False, "error": f"not listed: menu {titles}, list {listed}"}
+    back = wait(lambda: opened(path), 20, every=0.3)
+    n = (wait(lambda: faces_of(back[0]["doc"]) == 2 and 2, 30, every=0.5) or faces_of(back[0]["doc"])) if back else None
+    say(bool(mine and rp.get("ok") and back and n == 2), "File › Open Recent: the saved graph in the scripted copy's own recent list, opened from it, and shown",
+        f"items {titles}; the document controller's list {listed}; open {rp.get('ok')} {rp.get('error') or ''}; documents {[(d['title'], d['path'], d['ready']) for d in docs()]}; faces {n}")
+
+    # 10b. File › Open… (the core's graph.open, decision 20): closed again; the real open panel
+    # shown at the scratch folder, its folder read from the panel itself, cancelled; then the
+    # core's graph.open answered by the script opens the file
     if back:
-        k = next((i for i, d in enumerate(docs()) if d["doc"] == back[0]["doc"]), 0)
-        step(f"use:{k}")
+        kk = next((i for i, d in enumerate(docs()) if d["doc"] == back[0]["doc"]), 0)
+        step(f"use:{kk}")
         step("menu-pick:File/Close")
         wait(lambda: all(d["doc"] != back[0]["doc"] for d in docs()), 15, every=0.3)
-        step("use:0")
-        inv = port.call("ui.invoke", {"command": "graph.open"})
-        ask = next((a for a in inv.get("asks", []) if a.get("kind") == "file.open"), None)
-        if ask:
-            port.call("ask.answer", {"ask": ask["ask"], "answer": {"paths": [path]}})
-        got = wait(lambda: (lambda d: [x for x in d if x["path"] and os.path.realpath(x["path"]) == os.path.realpath(path) and x["ready"]])(docs()), 20, every=0.3)
-        faces = None
-        if got:
-            faces = wait(lambda: (lambda f: f if f == 2 else None)(next((w.get("faces") for w in status().get("windows", []) if w.get("doc") == got[0]["doc"]), None)), 30, every=0.5)
-        say(bool(ask and got and faces == 2), "File › Open… through the core: the window shows the file",
-            f"ask {ask and ask.get('kind')} ({ask and ask.get('params', {}).get('purpose')}); documents {[(d['title'], d['path']) for d in docs()]}; "
-            f"the app's last core-made window {status().get('documentWindows')}; faces {faces}")
+    step("use:0")
+    step(f"panel-at:{path}")
+    r = step("menu-pick:File/Open…")
+    last = {}
+
+    def open_panel():
+        last.clear()
+        last.update(panel_fields(sheet=False))
+        return last if last.get("folders") else None
+    wait(open_panel, 15, every=0.5)
+    oseen = dict(last)
+    axrun("press", str(A.pid), "CancelButton")
+    closed_panel = wait(lambda: not panel_fields(sheet=False).get("folders"), 10, every=0.5)
+    say(bool(r.get("ok") and os.path.basename(folder) in (oseen.get("folders") or []) and closed_panel),
+        "File › Open…: the open panel opens on the scratch folder, read from the panel itself, then Cancel",
+        f"pick {r.get('ok')} ({r.get('target') or r.get('error')}); the panel's own folder pop-up(s) {oseen.get('folders')}; Open not pressed; cancelled {bool(closed_panel)}"
+        + ("" if oseen.get("folders") else f"; windows seen {oseen.get('windows')}"))
+    inv = port.call("ui.invoke", {"command": "graph.open"})
+    ask = next((a for a in inv.get("asks", []) if a.get("kind") == "file.open"), None)
+    if ask:
+        port.call("ask.answer", {"ask": ask["ask"], "answer": {"paths": [path]}})
+    got = wait(lambda: opened(path), 20, every=0.3)
+    faces = wait(lambda: (lambda f: f if f == 2 else None)(faces_of(got[0]["doc"])), 30, every=0.5) if got else None
+    say(bool(ask and got and faces == 2), "File › Open… through the core: the window shows the file",
+        f"ask {ask and ask.get('kind')} ({ask and ask.get('params', {}).get('purpose')}); documents {[(d['title'], d['path']) for d in docs()]}; "
+        f"the app's last core-made window {status().get('documentWindows')}; faces {faces}")
+
+    # 10c. decision 17: the copied manifest's engine is marked in the Engine menu (the warning
+    # symbol as the item's image, the warning as its tooltip) and, picked so it is in use, in the
+    # engine cell (its stand-in uv starts the text engine's program, so it does start)
+    step("use:0")
+    items = step("menu:Engine").get("items", [])
+    cp = next((i for i in items if i.get("title") == "Copied Engine"), {})
+    plain = next((i for i in items if (i.get("title") or "").startswith("Text")), {})
+    say(bool(cp.get("image") and "may be a copy" in (cp.get("image") or "") and "may be a copy" in (cp.get("tooltip") or "") and cp.get("enabled") and not plain.get("image")),
+        "the Engine menu marks the copied manifest's engine (decision 17)",
+        f"Copied Engine: image {cp.get('image')!r}, tooltip {(cp.get('tooltip') or '')[:120]!r}, enabled {cp.get('enabled')}; Text's image {plain.get('image')!r}")
+    r = step("menu-pick:Engine/Copied Engine")
+    cell = wait(lambda: (lambda e: e if e and "Copied Engine" in (e.get("warning") or "") else None)(status().get("engine")), 20, every=0.3) or status().get("engine", {})
+    say(bool(r.get("ok") and cell.get("warning") and "may be a copy" in (cell.get("tooltip") or "")),
+        "the engine cell marks the copied engine once it is in use (decision 17)",
+        f"pick {r.get('ok')} {r.get('error') or ''}; engine cell {cell.get('shown')!r}, warning {cell.get('warning')!r}, tooltip {(cell.get('tooltip') or '')[:160]!r}")
 
     # 11. every window closed, then a click on the Dock icon: a new untitled graph (B70)
     for _ in range(len(docs())):
@@ -408,5 +788,7 @@ def main():
 
 
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        sys.exit(0 if self_test() else 1)
     main()
     sys.exit(1 if any(r is False for r in results) or not results else 0)

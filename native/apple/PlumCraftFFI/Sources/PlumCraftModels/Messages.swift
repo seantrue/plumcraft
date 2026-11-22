@@ -73,6 +73,11 @@ public struct MenuItem: Codable, Hashable, Sendable, Identifiable {
     public var strong: Bool
     /// A toolbar button's icon (N4 slice 3): a Lucide name from the core's set.
     public var icon: String?
+    /// Something wrong with what the item stands for that doesn't disable it (shell-interface
+    /// 12.1, 2026-11-21): an engine whose manifest warned. The Mac draws the
+    /// `exclamationmark.triangle` symbol as the item's image and this as its tooltip; the iPad
+    /// the symbol as the action's image and this as its subtitle.
+    public var warning: String?
 
     /// A section (`look: section`, never a submenu): its items belong inline in the menu it is
     /// in, under its label when it has one (the Engine menu's engines, B80).
@@ -98,6 +103,7 @@ public struct MenuItem: Codable, Hashable, Sendable, Identifiable {
         color = try c.decodeIfPresent(String.self, forKey: .color)
         strong = try c.decodeIfPresent(Bool.self, forKey: .strong) ?? false
         icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        warning = try c.decodeIfPresent(String.self, forKey: .warning)
     }
 }
 
@@ -414,6 +420,9 @@ public struct Changed: Codable, Hashable, Sendable {
     public var connected: Bool?
     public var label: String?
     public var ready: Bool?
+    /// An engine change: the warning of an engine in use whose manifest warned, as
+    /// `"<name>: <warning>"` (decision 17, 2026-11-21), or null.
+    public var warning: String?
     public var closing: Bool?
     public var title: String?
     public var document: String?

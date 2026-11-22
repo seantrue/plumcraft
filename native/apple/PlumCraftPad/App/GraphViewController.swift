@@ -604,10 +604,21 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             if !e.connected && e.ready { ("Engine down", .systemRed) }
             else if !e.connected { ("Engines starting…", .systemOrange) }
             else { ("Engines ready", .systemGreen) }
-        engineLabel.text = compact ? nil : text
-        engineDot.backgroundColor = color
-        engineLabel.superview?.accessibilityLabel = [text, e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: ". ")
-        StatusFile.shared.set("engine", ["connected": .bool(e.connected), "ready": .bool(e.ready), "label": .string(e.label), "shown": .string(text)])
+        // decision 17: an engine in use whose manifest warned is marked as in its menu: the
+        // warning symbol before the words, the warning first for VoiceOver
+        if e.warning != nil, !compact {
+            let s = NSMutableAttributedString(attachment: NSTextAttachment(image: UIImage(systemName: "exclamationmark.triangle") ?? UIImage()))
+            s.append(NSAttributedString(string: " \(text)"))
+            s.addAttribute(.foregroundColor, value: UIColor.systemOrange, range: NSRange(location: 0, length: s.length))
+            engineLabel.attributedText = s
+        } else {
+            engineLabel.attributedText = nil
+            engineLabel.text = compact ? nil : text
+        }
+        engineDot.backgroundColor = e.warning == nil ? color : .systemOrange
+        engineLabel.superview?.accessibilityLabel = [e.warning, text, e.label, (!e.connected && e.ready) ? err : nil].compactMap { $0 }.joined(separator: ". ")
+        StatusFile.shared.set("engine", ["connected": .bool(e.connected), "ready": .bool(e.ready), "label": .string(e.label), "shown": .string(text),
+                                         "warning": e.warning.map(JSONValue.string) ?? .null])
         validateBar()
     }
 

@@ -104,6 +104,8 @@ final class AskPresenter {
             panel.canChooseFiles = a.kind.word != .folderPick
             panel.allowsMultipleSelection = p["multiple"].bool ?? false
             if let start = p["startIn"].string { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
+            // the person check's folder (`panel-at:`), set before the panel shows
+            if let u = PersonSteps.takePanelAt() { panel.directoryURL = u.deletingLastPathComponent() }
             let exts = AskWords.extensions(p)
             if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
             let finish: (NSApplication.ModalResponse) -> Void = { [weak self] r in
@@ -133,6 +135,10 @@ final class AskPresenter {
             panel.message = p["title"].string ?? ""
             panel.nameFieldStringValue = p["name"].string ?? "untitled"
             if let start = p["startIn"].string { panel.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
+            if let u = PersonSteps.takePanelAt() {
+                panel.directoryURL = u.deletingLastPathComponent()
+                panel.nameFieldStringValue = u.lastPathComponent
+            }
             let exts = AskWords.extensions(p)
             if !exts.isEmpty { panel.allowedContentTypes = exts.compactMap { .init(filenameExtension: $0) } }
             panel.canCreateDirectories = true

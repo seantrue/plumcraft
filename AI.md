@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — Scripted launches as their own app; the decided core and Apple fixes; the engine half launched (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1-3 yes, 4 - background, 5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 yes. Do 19,20 ASAP" to twenty questions the controller put (its recommended option each time), and, after the defect below, "1,2 as you say": the stray file deleted and the person check never pressing Save or Open in a real panel. The maintainer also listened to the Windows app's sound ("440 works.") and ran the iPad device tests with the controller.
+
+**What the agent did.** A scripted launch of the Mac app runs only as a re-signed copy under its own bundle id, made and cleaned by a script; the app refuses its scratch flag under any other id. The control port honours a request's document (B83). Run on names engines by label and an unreadable manifest is reported (B86, B87). The palette ranks an exact title match first. A built-in engine hosting whose program is missing is disabled with the reason (the core half of B91). The Mac and iPad draw a warned engine's mark, in the menu and in the engine cell. The Swift runner learned the two new matchers; the Mac runs the copied-manifest steps. `register --print` warns. The sound case no longer depends on speed (B56). The bench scripts remove each recording's raw trace (B76; cause found: the trace service writes to the per-user temporary folder whatever the recorder's own is). Eleven engine-interface floor rows are now met on the Mac by a launched separate-process engine: 43 met of 85 (was 32); this found and fixed B110. The iPad device run (2 of 5 passed) is recorded as B111 to B114; none reproduces on the simulator.
+
+**Defects in AI work.** The agent's first run of the new person check pressed Save in a real Save panel that had not received the scratch folder (the panel is another process; the check trusted what the app reported) and wrote a test graph into the maintainer's Documents folder: the second such stray write in one day, the first from an earlier agent's run. The controller's brief had asked for the real press. Caught by the run's own before-and-after home listing; the agent stopped and reported. The same run crashed the scripted copy (a main-actor override read from a background queue), fixed. A menu step that switched the menu bar to another window, caught by the check.
+
+**Verified (agent, Mac).** nextest 1,604 of 1,605 (the known baseline failure); Python 230; swift test 97; the Mac gate three times (57 of 57 cases, the person check 47 steps passed, 1 not seen); iPad simulator conformance 56 of 56 with 1 skipped. **Not verified:** B76 on a device; the iPad marks with a warned engine; the four device failures; anything on Windows.
+
 ### 2026-11-21 — The Engine menu marks an engine whose manifest warned; register and uv's cache (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided:** "1,2,3 yes" again, to marking such an engine in the Engine menu itself, warning when `register` runs from a throwaway uv environment, and judging `uv run` with no `--project` from a folder with no project.
