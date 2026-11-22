@@ -29,7 +29,7 @@ use plumcraft_proto::event::{Event, NodeState};
 use plumcraft_proto::run::{RunReply, SaveReply};
 use plumcraft_proto::session::EngineState;
 use plumcraft_session::run::Outgoing;
-use plumcraft_session::save_cmds::{format_of, suggested_name};
+use plumcraft_session::save_cmds::{format_of, suggested_name_as};
 use plumcraft_session::{EngineTarget, Session};
 use serde_json::{Value, json};
 
@@ -179,9 +179,11 @@ fn targets(s: &Session, ask: &Ask) -> Result<Vec<(NodeId, String)>, String> {
 
 /// Where `node`'s file goes: the name Save Result… offers, with `--format`'s extension, and the
 /// node's id when two would collide.
-fn file_for(s: &Session, ask: &Ask, node: &NodeId, taken: &mut Vec<PathBuf>) -> PathBuf {
+fn file_for(s: &Session, ask: &Ask, node: &NodeId, port: &str, taken: &mut Vec<PathBuf>) -> PathBuf {
     let title = plumcraft_session::node_title(s.graph(), s.catalog(), node);
-    let name = PathBuf::from(suggested_name(s.catalog(), &title, None));
+    // the extension of the output's first format (spec 7.3 save_formats)
+    let formats = plumcraft_session::save_cmds::formats_for(s, node, port);
+    let name = PathBuf::from(suggested_name_as(s.catalog(), &title, None, plumcraft_session::save_cmds::first_extension(&formats)));
     let name = ask.format.as_deref().map_or_else(|| name.clone(), |e| name.with_extension(e.trim_start_matches('.')));
     let mut path = ask.out.join(&name);
     if taken.contains(&path) {
@@ -440,12 +442,13 @@ fn write_all(program: &str, ask: &Ask, kind: EngineKind, mode: Mode, extras: &[E
     std::fs::create_dir_all(&ask.out).map_err(|e| format!("{}: {e}", ask.out.display()))?;
     let mut taken = Vec::new();
     for (node, port) in chosen {
-        let path = std::path::absolute(file_for(&s, ask, &node, &mut taken)).map_err(|e| e.to_string())?;
+        let path = std::path::absolute(file_for(&s, ask, &node, &port, &mut taken)).map_err(|e| e.to_string())?;
         s.execute("run.save", &json!({"node": node, "port": port, "path": path, "sheet": ask.sheet})).map_err(|e| e.to_string())?;
         for req in s.save.take_outbox() {
             let body = serde_json::to_value(&req).map_err(|e| e.to_string())?;
             let reply = conn.call("output.save", body).map_err(|e| format!("{node}.{port}: {}", e.message))?;
             let reply: SaveReply = serde_json::from_value(reply).map_err(|e| format!("the save reply: {e}"))?;
+            let reply = crate::saved::write_returned(conn.as_ref(), &req, reply);
             s.save.apply_reply(reply.clone());
             if !reply.ok {
                 let why = reply.error.map_or_else(|| "not saved".to_owned(), |e| e.message);

@@ -1707,6 +1707,16 @@
           "description": "`cpu`, `gpu`, `mlx`, …",
           "type": "string"
         },
+        "save_formats": {
+          "description": "The `save_formats` (by id) its outputs save as, the first the one a bare name gets (spec\n7.1, 15). `None`: every format of the catalogue whose `media` takes the output's. An empty\nlist: it offers none. Ids the catalogue doesn't list are skipped.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "version": {
           "default": 1,
           "description": "Part of the memo key; absent → 1.",

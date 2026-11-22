@@ -46,10 +46,16 @@ fn a_run_says_what_stops_it() {
     let w = d.join("w.json");
     std::fs::write(&w, r#"{"version": 1, "nodes": {"a": {"kind": "text.literal", "values": {"text": "hi"}}}, "wires": []}"#).unwrap();
     let w = w.to_str().unwrap();
-    // an engine with no way to write: the session's own reason
+    // the text engine saves TEXT through the SDK's defaults (Save Result as a basic feature,
+    // 2026-11-22): the file is the text; a format it doesn't have is refused, naming those it has
     let o = editor(&["run", w, "--node", "a.text", "--out", d.join("out").to_str().unwrap()]);
+    assert_eq!(o.status.code(), Some(0), "{}", says(&o));
+    let written = String::from_utf8_lossy(&o.stdout).lines().next().map(PathBuf::from).unwrap_or_default();
+    assert_eq!(std::fs::read_to_string(&written).ok().as_deref(), Some("hi"), "{}", says(&o));
+    assert_eq!(written.extension().and_then(|e| e.to_str()), Some("txt"));
+    let o = editor(&["run", w, "--node", "a.text", "--format", "xyz", "--out", d.join("out").to_str().unwrap()]);
     assert_eq!(o.status.code(), Some(1), "{}", says(&o));
-    assert!(says(&o).contains("doesn't save files"), "{}", says(&o));
+    assert!(says(&o).contains("no format xyz") && says(&o).contains("txt"), "{}", says(&o));
     let o = editor(&["run", w]);
     assert_eq!(o.status.code(), Some(1), "{}", says(&o));
     assert!(says(&o).contains("no Result node"), "{}", says(&o));

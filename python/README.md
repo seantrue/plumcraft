@@ -77,6 +77,22 @@ Outputs come from the return annotation:
 
 Engine class attributes: `id`, `name`, `version`, `salt` (default `py:<id>+<version>`), `dependencies` (the packages results depend on, such as `("opencv-python-headless",)`: their versions join the memo salt, so an upgrade never reuses an old result), `category`, `family`, `icon`, and `wires`: the wire types in catalogue order. Without `wires`, the catalogue lists the types in the order the nodes first use them; with it, a node using a type not listed is a `DeclarationError`. Subclasses inherit nodes and may override them.
 
+## Save Result
+
+An engine gets Save Result with no code: a node that outputs a core type offers the SDK's formats for it, and the editor's Save Result… (a result node's menu and footer, the Watched panel) writes the file through the engine. TEXT saves as `.txt`; TABLE as `.csv` or `.json`; JSON as `.json`; IMAGE as `.png` or `.jpg` (with a quality); ARRAY as `.png` (its pixels when 8-bit, else the viewer's `auto` view), `.jpg` or `.npy`; SVG as `.svg`; AUDIO as `.wav` (32-bit float or 16-bit) or `.npy`. The first format a node offers is what a bare file name gets. A format of your own is a `Format`, its options ports the editor asks for with a form:
+
+```python
+from plumcraft_engine import Engine, Text, node, save
+
+fmt = save.Format("shout", "Shouted Text", ("shout",), ("text",), "text/plain", lambda v, cx: (v.upper() + cx.options["mark"]).encode())
+class Loud(Engine):
+    id, save_formats = "loud", (fmt.with_option(save.option("mark", "Mark", "ENUM", "!", choices=["!", "?"])),)
+    @node("Shout", save_formats=["shout", "txt"])
+    def shout(self, text: str = "plum") -> Text: return text
+```
+
+`save_formats` on the class adds formats (one with a default's id replaces it); `@node(save_formats=[...])` gives a node its own list, in order (`[]` offers none); `engine.without_save_format("jpeg")` and `engine.without_default_save_formats()` take formats away. A save runs the graph for the node (a memo hit after a run), writes to the path the editor names (or returns the file, which the editor writes, when the engine is remote), saves a list as numbered files, and reports a failure as data (`docs/interface.md` section 15).
+
 ## Values and errors
 
 Before the method runs, every input is checked against its port:

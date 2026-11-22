@@ -152,6 +152,8 @@ impl Node for ResultNode {
     fn def(&self) -> NodeDef {
         let mut d = def("ports.result", "Result", vec![socket("text", TEXT)], vec![port("text", TEXT)]);
         d.flags = NodeFlags { result: true, ..Default::default() };
+        // Save Result (F19): its own list, the engine's format first, then the SDK's text
+        d.save_formats = Some(vec![QUOTED.into(), "txt".into()]);
         d
     }
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
@@ -217,6 +219,21 @@ impl Node for Ink {
     }
 }
 
+/// The save format of its own (F19, Save Result): text between a pair of `mark`s, an option
+/// the editor asks for (`"` or `'`), as a `.quoted` file.
+const QUOTED: &str = "quoted";
+
+fn quoted() -> plumcraft_engine::save::Format {
+    use plumcraft_engine::save::{Format, option};
+    let mark = Port { choices: Some(vec![json!("\""), json!("'")]), ..option("mark", "Quote mark", "ENUM", json!("\"")) };
+    Format::new(QUOTED, "Quoted Text", &[QUOTED], &[plumcraft_proto::catalogue::Media::Text], "text/plain; charset=utf-8", |v, cx| {
+        let s = v.as_str().ok_or_else(|| NodeError::new(NodeError::CONFIG, "Quoted Text saves text"))?;
+        let m = cx.options.get("mark").and_then(Value::as_str).unwrap_or("\"");
+        Ok(format!("{m}{s}{m}").into_bytes())
+    })
+    .with_option(mark)
+}
+
 /// The engine, ready to host.
 pub fn engine() -> Engine {
     let version = env!("CARGO_PKG_VERSION");
@@ -249,7 +266,7 @@ pub fn engine() -> Engine {
     for n in nodes {
         e = e.with_node(n);
     }
-    e
+    e.with_save_format(quoted())
 }
 
 #[cfg(test)]
@@ -269,5 +286,31 @@ mod tests {
         assert!(node("ports.result").flags.result);
         assert!(node("ports.items").outputs[0].list && node("ports.count").inputs[0].list);
         assert!(node("ports.ink").inputs[1].param_ref.is_some());
+        let offered: Vec<&str> = s.save_formats_for(&node("ports.result"), "text").iter().map(|f| f.id.as_str()).collect();
+        assert_eq!(offered, ["quoted", "txt"], "the result node saves in its own format first, then as text");
+        assert!(e.caps().has("output.save"));
+    }
+
+    /// Save Result in both of the result node's formats, through the host: the bytes each writes.
+    #[test]
+    fn the_result_node_saves_quoted_and_as_text() {
+        let h = plumcraft_engine::host::Host::start(Box::new(|| Ok(engine().with_store(None))), None);
+        h.wait_ready(std::time::Duration::from_secs(5));
+        let g = json!({"kind": "inline", "graph": {"nodes": {"e": {"kind": "ports.edge", "values": {"seed": "plum"}}, "r": {"kind": "ports.result"}},
+                        "wires": [{"from": {"node": "e", "port": "text"}, "to": {"node": "r", "port": "text"}}]}});
+        let save = |extra: Value| -> plumcraft_proto::run::SaveReply {
+            let mut p = json!({"graph": g, "node": "r", "port": "text"});
+            for (k, v) in extra.as_object().cloned().unwrap_or_default() {
+                p[k] = v;
+            }
+            serde_json::from_value(h.dispatch("output.save", p).unwrap()).unwrap()
+        };
+        let bytes = |r: &plumcraft_proto::run::SaveReply| plumcraft_store::read_inline(r.files[0].data.as_ref().unwrap()).unwrap().bytes.to_vec();
+        let q = save(json!({"format": "quoted", "options": {"mark": "'"}}));
+        assert!(q.ok, "{q:?}");
+        let edge = String::from_utf8(bytes(&save(json!({"format": "txt"})))).unwrap();
+        assert_eq!(String::from_utf8(bytes(&q)).unwrap(), format!("'{edge}'"));
+        assert_eq!(q.files[0].name, "result.quoted");
+        assert!(!save(json!({"format": "quoted", "options": {"mark": "`"}})).ok, "a mark it doesn't offer");
     }
 }

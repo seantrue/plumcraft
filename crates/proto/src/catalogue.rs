@@ -516,6 +516,18 @@ pub struct NodeDef {
     #[serde(default, with = "crate::convert::marks", skip_serializing_if = "Vec::is_empty")]
     #[cfg_attr(feature = "schema", schemars(with = "serde_json::Value"))]
     pub converts: Vec<crate::convert::Converts>,
+    /// The `save_formats` (by id) its outputs save as, the first the one a bare name gets (spec
+    /// 7.1, 15). `None`: every format of the catalogue whose `media` takes the output's. An empty
+    /// list: it offers none. Ids the catalogue doesn't list are skipped.
+    #[serde(default, deserialize_with = "lenient_opt_strings", skip_serializing_if = "Option::is_none")]
+    pub save_formats: Option<Vec<String>>,
+}
+
+/// A list of strings, or `None`: anything else (a number, a map) is `None`, and items that
+/// aren't strings are dropped (hostile input, spec 18).
+fn lenient_opt_strings<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<Vec<String>>, D::Error> {
+    let v = Value::deserialize(d).unwrap_or(Value::Null);
+    Ok(v.as_array().map(|items| items.iter().filter_map(Value::as_str).filter(|s| !s.is_empty()).take(256).map(str::to_owned).collect()))
 }
 
 impl Default for NodeDef {
@@ -538,6 +550,7 @@ impl Default for NodeDef {
             x: BTreeMap::new(),
             engines: Vec::new(),
             converts: Vec::new(),
+            save_formats: None,
         }
     }
 }
@@ -654,6 +667,33 @@ impl SchemaReply {
 
     pub fn wire_type(&self, id: &str) -> Option<&WireType> {
         self.wire_types.iter().find(|w| w.id == id)
+    }
+
+    /// How values of wire type `ty` are shown: its declaration's, a core type's when it isn't
+    /// declared, else `bytes`.
+    pub fn media_of(&self, ty: &str) -> Media {
+        self.wire_type(ty).map(|w| w.media).or_else(|| core_types::wire_type(ty).map(|w| w.media)).unwrap_or_default()
+    }
+
+    /// The save formats output `port` of node `def` offers (spec 7.1, 15), the default first:
+    /// the node's `save_formats` in its order (or every format the catalogue lists), those whose
+    /// `media` takes the port's. Empty when it has no such output, or nothing saves it.
+    pub fn save_formats_for(&self, def: &NodeDef, port: &str) -> Vec<&SaveFormat> {
+        let Some(out) = def.output(port) else { return Vec::new() };
+        let media = self.media_of(&out.ty);
+        let takes = |f: &&SaveFormat| f.media.is_empty() || f.media.contains(&media);
+        match &def.save_formats {
+            Some(ids) => {
+                let mut out: Vec<&SaveFormat> = Vec::new();
+                for f in ids.iter().filter_map(|id| self.save_formats.iter().find(|f| &f.id == id)).filter(takes) {
+                    if !out.iter().any(|o| o.id == f.id) {
+                        out.push(f);
+                    }
+                }
+                out
+            }
+            None => self.save_formats.iter().filter(takes).collect(),
+        }
     }
 
     /// The conversions in force: the engine's, or the base defaults.

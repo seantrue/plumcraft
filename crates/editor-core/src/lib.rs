@@ -75,6 +75,7 @@ pub mod reports;
 pub mod rows;
 pub mod run_anim;
 pub mod run_text;
+pub mod saved;
 pub mod scene;
 pub mod selection;
 pub mod settings;

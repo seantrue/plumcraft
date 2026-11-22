@@ -222,13 +222,12 @@ impl EditorApp {
                 }
             }
             Kind::Form => {
+                // the form is the ask's params: a command's own, or one the core built (Save
+                // Result…'s format options)
                 self.presented.ids.insert(a.id);
-                if let Some(form) = a.param_str("command").and_then(plumcraft_session::commands::form) {
-                    let values = form.fields.iter().map(|f| a.params["values"].get(f.key).and_then(Value::as_str).unwrap_or_default().to_owned()).collect();
-                    let mut d = crate::form_view::FormDialog::new(form, values);
-                    d.ask = Some(a.id);
-                    self.command_form = Some(d);
-                }
+                let mut d = crate::form_view::FormDialog::from_params(&a.params);
+                d.ask = Some(a.id);
+                self.command_form = Some(d);
             }
             // started here, as the session started it before (decision 19)
             Kind::OpenExternal => {

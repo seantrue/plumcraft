@@ -39,7 +39,7 @@ fn names_are_x_pack_op() {
 #[test]
 fn a_pack_op_is_advertised_and_answered() {
     let h = host();
-    let caps = engine().caps().clone();
+    let caps = engine().caps();
     assert!(caps.has("x.t.echo") && caps.has("x.t.boom"));
     assert!(!caps.has("not.a.pack.op") && !caps.has("x.t.too.long"), "malformed names aren't registered");
     assert_eq!(h.dispatch("x.t.echo", json!({"a": 1})).unwrap(), json!({"echo": {"a": 1}}));

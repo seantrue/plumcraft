@@ -132,8 +132,15 @@ fn child_takes_values_out_with_home_read_only() {
     let shared = cl.run("value.share", json!({"popout": p}));
     assert!(inside(Path::new(shared["file"].as_str().unwrap()), &dir("caches")), "{shared}");
     // Save As writes through the engine to the path the shell's file.save ask gave (Documents on
-    // the iPad); the compiled-in engines save no formats, so it is not taken here
-    assert!(cl.call("command.run", json!({"command": "value.saveAs", "params": {"popout": p, "path": dir("documents").join("x.txt")}}))["ok"] == false);
+    // the iPad): the compiled-in text engine saves TEXT through the SDK's defaults (2026-11-22)
+    let saved_as = dir("documents").join("x.txt");
+    let r = cl.call("command.run", json!({"command": "value.saveAs", "params": {"popout": p, "path": saved_as}}));
+    assert!(r["ok"] == true, "{r}");
+    let t0 = Instant::now();
+    while std::fs::read_to_string(&saved_as).ok().as_deref() != Some("CORGI") {
+        assert!(t0.elapsed() < Duration::from_secs(60), "the save never came: {}", cl.call("ui.inspect", json!({}))["result"]["save"]);
+        std::thread::sleep(Duration::from_millis(100));
+    }
     // the graph saved into Documents and shared
     let graph = dir("documents").join("corgi.json");
     cl.run("graph.saveAs", json!({"path": graph}));

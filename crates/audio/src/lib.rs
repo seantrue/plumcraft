@@ -92,6 +92,10 @@ pub fn engine() -> Engine {
     for n in nodes() {
         e = e.with_node(n);
     }
+    // Save Result: SoundCraft's encoders in place of the SDK's WAV, and FLAC and AIFF beside it
+    for f in io::save_formats() {
+        e = e.with_save_format(f);
+    }
     e.with_building_blocks()
 }
 
