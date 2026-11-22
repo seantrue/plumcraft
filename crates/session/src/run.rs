@@ -702,10 +702,23 @@ impl RunState {
                     n.thumb = self.reducer.node(&id).and_then(|v| v.thumb.clone());
                     n.thumb_generation = self.generation;
                 }
-            } else if let Some(n) = self.nodes.get_mut(&id).filter(|n| n.is_active()) {
-                // Not part of the run (the engine ran only what the targets needed), or the run
-                // failed as a whole.
-                n.state = None;
+            }
+            // The run is over, so nothing more comes for a node still marked active. Queued
+            // only: not part of the run (the engine ran only what the targets needed), or the run
+            // failed as a whole: unmarked. Working (started, progress, preview) when a failed
+            // run's reply came: its engine went away mid-node (a coordinator's reply carries
+            // the engines that answered), and the face would show its last progress for good
+            // (B110): the run's error stands in for the node's own (F35, "failure stands in for
+            // a reply").
+            if let Some(n) = self.nodes.get_mut(&id).filter(|n| n.is_active()) {
+                n.fraction = None;
+                match (&reply.error, n.state) {
+                    (Some(e), Some(NodeState::Started | NodeState::Progress | NodeState::Preview)) => {
+                        n.state = Some(NodeState::Error);
+                        n.error = Some(NodeError::new(NodeError::ENGINE, e.message.clone()));
+                    }
+                    _ => n.state = None,
+                }
             }
             if let Some(n) = self.nodes.get_mut(&id)
                 && n.stale_since.is_some_and(|since| since < self.edits_at_request)
@@ -1030,6 +1043,39 @@ mod not_run_tests {
             assert!(n.is_stale(), "{state:?}: the edit is still tracked");
             assert!(n.is_not_run(), "{state:?}: but it has no result to be stale: not run");
         }
+    }
+
+    /// B110 (F35, found by the person check's engine half): a failed run's reply that carries no
+    /// final word for a node still working (its engine killed mid-node, the other engines'
+    /// reply coming back) leaves it in error with the run's error, not in progress for good; a
+    /// node only queued is unmarked; a node the reply finished keeps what it says.
+    #[test]
+    fn a_node_still_working_when_a_failed_run_ends_is_in_error() {
+        let now = Instant::now();
+        let g = Graph::from_json(r#"{"version": 1, "nodes": {"n1": {"kind": "k"}, "n2": {"kind": "k"}, "n3": {"kind": "k"}}, "wires": []}"#).unwrap();
+        let mut run = RunState::default();
+        let req = run.request(&g, Vec::new(), Vec::new(), now);
+        run.nodes.get_mut("n1").unwrap().state = Some(NodeState::Progress);
+        run.nodes.get_mut("n1").unwrap().fraction = Some(0.4);
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: [("n3".to_owned(), NodeReport { state: NodeState::Done, ..Default::default() })].into(),
+            error: Some(NodeError::new(NodeError::ENGINE, "the engine person_text went away")),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, now));
+        let n1 = run.node("n1").unwrap();
+        assert_eq!((n1.state, n1.fraction), (Some(NodeState::Error), None));
+        assert!(n1.error.as_ref().is_some_and(|e| e.message.contains("went away")), "{:?}", n1.error);
+        assert_eq!(run.node("n2").unwrap().state, None, "only queued: unmarked");
+        assert_eq!(run.node("n3").unwrap().state, Some(NodeState::Done));
+        // a reply with no error leaves nothing working either, and marks nothing in error
+        let req = run.request(&g, Vec::new(), Vec::new(), now);
+        run.nodes.get_mut("n1").unwrap().state = Some(NodeState::Progress);
+        let ok = RunReply { run_id: req.run_id.clone(), generation: req.generation, ..Default::default() };
+        assert!(run.apply_reply(&ok, now));
+        assert_eq!(run.node("n1").unwrap().state, None);
     }
 
     #[test]

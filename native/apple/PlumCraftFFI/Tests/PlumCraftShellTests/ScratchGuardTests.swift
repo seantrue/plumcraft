@@ -69,6 +69,18 @@ import Testing
         #expect(ScratchGuard.refusal([.init("the caches folder", home + "/Library/Caches/x")], inside: ScratchGuard.temporaryFolders()) != nil)
     }
 
+    @Test func aScriptedLaunchRunsOnlyAsAScriptedCopy() {
+        // B84: the person's ids are refused, with the copy to use named
+        let why = ScratchGuard.bundleRefusal("com.swapwizard.plummer.mac")
+        #expect(why?.contains("com.swapwizard.plummer.mac.scripted") == true)
+        #expect(why?.contains("scripted-app.sh") == true)
+        #expect(ScratchGuard.bundleRefusal("com.swapwizard.plummer.mac.scripted") == nil)
+        #expect(ScratchGuard.bundleRefusal("com.swapwizard.plummer.mac.scriptedx") != nil, "only the suffix itself")
+        #expect(ScratchGuard.bundleRefusal(".scripted") != nil, "the suffix alone is no id")
+        #expect(ScratchGuard.bundleRefusal(nil) != nil)
+        #expect(ScratchGuard.bundleRefusal("") != nil)
+    }
+
     @Test func theTemporaryFolderIsAllowedAndRootIsNot() {
         let t = ScratchGuard.temporaryFolders([:])
         #expect(ScratchGuard.refusal([.init("x", NSTemporaryDirectory() + "plumcraft-guard/store")], inside: t) == nil)

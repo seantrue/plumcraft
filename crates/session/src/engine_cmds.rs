@@ -91,6 +91,10 @@ pub struct Engines {
     /// Why installing isn't offered, in words a person reads (a disabled Install Engine… says
     /// it): "This device can't install engines: …". `None`: nothing more to say.
     pub install_refused: Option<String>,
+    /// What the last read of the engine manifests couldn't use, or warned about (B87): one line a
+    /// manifest, `path: why`. A manifest the core can't read is left out of the menu, and said
+    /// here, in the status bar and in the log, never skipped without a word.
+    pub manifest_problems: Vec<String>,
     /// The repository being installed, while it is.
     pub installing: Option<String>,
     /// What the install under way is doing ("uv is downloading and building it…"), while it is.
@@ -540,7 +544,7 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let added: Vec<Value> = e.added.iter().map(EngineTarget::to_json).collect();
     Ok(
         json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install,
-               "installRefused": e.install_refused, "installing": e.installing, "installStatus": e.install_status, "pending": e.is_pending()}),
+               "installRefused": e.install_refused, "installing": e.installing, "installStatus": e.install_status, "pending": e.is_pending(), "manifestProblems": e.manifest_problems}),
     )
 }
 
@@ -665,7 +669,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Engines",
             menu: &[],
             shortcut: None,
-            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel, warning?}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending}",
+            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel, warning?}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending, manifestProblems: [text] (what the last read of the engine manifests could not use or warned about, B87)}",
             enabled: always,
             run: list,
             journal: false,

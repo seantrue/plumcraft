@@ -169,6 +169,7 @@
         {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"node": "$b", "pin": {"side": "in", "index": 0}}}, "slop": 4}, "expect": {"/result/drag/kind": "wire", "/result/drag/from/side": "in"}},
         {"gesture": {"kind": "drag", "phase": "end", "at": [300, 700]}, "expect": {"/result/commands/0/params/wire": {"to": {"node": "$b", "port": "text"}}}},
         {"call": "palette.items", "params": {"query": "text"}, "expect": {"/result/items": {"$find": {"where": {"kind": "text.literal"}, "want": {"/port": "text"}}}}},
+        {"call": "palette.items", "params": {"query": " TEXT "}, "expect": {"/result/items/0/kind": "text.literal", "/result/items/0/label": "Text"}},
         {"call": "command.run", "params": {"command": "palette.choose", "params": {"kind": "text.literal"}}, "save": {"d": "/result/id"}},
         {"call": "graph.get", "expect": {"/result/wires": {"$len": 1}, "/result/wires/0/to": {"node": "$b", "port": "text"}, "/result/wires/0/from": {"node": "$d", "port": "text"}}},
         {"call": "command.run", "params": {"command": "palette.choose", "params": {"kind": "text.lower"}}, "ok": false},
@@ -1219,7 +1220,7 @@
     },
     {
       "name": "a sound popped out by a person plays, pauses and seeks through the core, with its waveform and spectrogram",
-      "about": "N4 slice 5: an AUDIO value (Array to Audio) popped out opens the audio viewer; viewer.audio plays, seeks, loops and sets the level, the state the core's (popout.get), seq rising with each start or seek; the waveform and spectrogram are made from the full samples on the media workers (media.get waveform, spectrogram), never on a shell's thread",
+      "about": "N4 slice 5: an AUDIO value (Array to Audio) popped out opens the audio viewer; viewer.audio plays, seeks, loops and sets the level, the state the core's (popout.get), seq rising with each start or seek; the waveform and spectrogram are made from the full samples on the media workers (media.get waveform, spectrogram), never on a shell's thread. B56 (decision 15): the loop is set before play, so a shell that reports a sound's end (its player, or a muted clock, reaching the end tells the core, which raises seq) never does during the case, however long its steps take: the 64 ms sound no longer has to outlast two steps",
       "half": "read",
       "needs": ["engine:array"],
       "steps": [
@@ -1232,7 +1233,8 @@
         {"call": "scene.get", "expect": {"/result/view/windows/popouts": {"$len": 1}}},
         {"call": "ui.waitRun", "params": {"timeout": 120}},
         {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewer": "audio"}, "timeout": 120, "expect": {"/result/media": "audio", "/result/form/kind": "audio", "/result/form/frames": 3072, "/result/state/audio/playing": false}, "save": {"h": "/result/handle"}},
-        {"call": "command.run", "params": {"command": "viewer.audio", "params": {"popout": "$p", "play": true}}, "expect": {"/result/playing": true, "/result/seq": 1}},
+        {"call": "command.run", "params": {"command": "viewer.audio", "params": {"popout": "$p", "loop": true}}, "expect": {"/result/playing": false, "/result/loop": true}},
+        {"call": "command.run", "params": {"command": "viewer.audio", "params": {"popout": "$p", "play": true}}, "expect": {"/result/playing": true, "/result/loop": true, "/result/seq": 1}},
         {"call": "command.run", "params": {"command": "viewer.audio", "params": {"popout": "$p", "at": 0.03, "level": 0.5, "loop": true}}, "expect": {"/result/at": 0.03, "/result/level": 0.5, "/result/loop": true, "/result/seq": 2}},
         {"call": "command.run", "params": {"command": "viewer.audio", "params": {"popout": "$p", "play": false}}, "expect": {"/result/playing": false}},
         {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/state/audio/playing": false, "/result/state/audio/at": 0.03, "/result/state/audio/loop": true}},

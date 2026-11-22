@@ -131,9 +131,12 @@ public struct EngineState: Sendable, Equatable {
     public var connected = false
     public var ready = false
     public var label = ""
+    /// An engine in use whose manifest warned (decision 17): `"<name>: <warning>"`, else nil.
+    /// The engine cell marks it.
+    public var warning: String?
 
-    public init(connected: Bool = false, ready: Bool = false, label: String = "") {
-        self.connected = connected; self.ready = ready; self.label = label
+    public init(connected: Bool = false, ready: Bool = false, label: String = "", warning: String? = nil) {
+        self.connected = connected; self.ready = ready; self.label = label; self.warning = warning
     }
 }
 
@@ -248,7 +251,8 @@ public final class DocumentModel {
     public func refreshEngine() {
         Task {
             guard let r = try? await core.request("ui.inspect", [:], doc: requestDoc), let connected = r["engine"]["connected"].bool else { return }
-            let e = EngineState(connected: connected, ready: engine.ready || connected, label: r["engine"]["label"].string ?? engine.label)
+            let e = EngineState(connected: connected, ready: engine.ready || connected, label: r["engine"]["label"].string ?? engine.label,
+                                warning: r["engine"]["warning"].string)
             // the feed's word, if it came meanwhile, is newer
             if engine == EngineState() && e != engine {
                 engine = e
@@ -279,7 +283,7 @@ public final class DocumentModel {
             case .scene?: refreshScene()
             case .menus?: if c.gen != menuGen { refreshMenus() }
             case .engine?:
-                let e = EngineState(connected: c.connected ?? engine.connected, ready: c.ready ?? engine.ready, label: c.label ?? engine.label)
+                let e = EngineState(connected: c.connected ?? engine.connected, ready: c.ready ?? engine.ready, label: c.label ?? engine.label, warning: c.warning)
                 if e != engine {
                     engine = e
                     onEngine?(e)

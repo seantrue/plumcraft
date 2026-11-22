@@ -575,6 +575,8 @@ N4 is not closed: its last two parts go to Apple, which only the maintainer does
 
 **B60 (2026-11-21, the same branch).** On the iPad, `testWindowsAndNames` could not find Show on Face (`face.count`) in the parameters popover straight after a hidden value was set there. Not reproduced in an iPad Pro 11-inch simulator in portrait, with the software keyboard up and the status read from the accessibility element as on a device, at five text sizes; no app defect found. The test now waits for the button as its other steps wait, looks for it in the list, and attaches a screenshot and the app's element tree if it is still missing, so the next `device.sh ui` either passes or says why. `docs/BUGS.md` B60.
 
+**The iPad UI tests on the device after the wire tiles (2026-11-21, the controller, the maintainer present; the main checkout's build).** 5 tests: 2 passed (`testCompactWindowsByATap` 37 s; `testInlineEdits`, but in 863 s: after a number was typed into a face the app never reported idle, so XCTest waited 60 s on every later step, 14 times, B111), 3 failed (`testEveryViewerByATap`: the table's pin double-tapped popped nothing out, B112; `testTouchGestures`: the pinch did not zoom, then the palette, the marquee and the Select button, B113; `testWindowsAndNames`: not inside the group, no `crumb.0`, B114), 11 failures, 1,185 s. On an iPad Pro 11-inch (M5) simulator in portrait, booted headless so the software keyboard shows, all five passed twice (status by file, then by the accessibility element as the device reads it; branch `native/n4-decided-2`): none reproduces, so each needs a device re-run (`docs/BUGS.md`).
+
 **Apple prep (2026-11-21, branch `native/n4-apple-prep`, nothing sent to Apple).** The maintainer: "Prepare everything, then ask again before each upload", and on export compliance, "Check the binaries and report before setting it". **The hardened runtime is on** in the Mac app (`native/apple/Config/Mac.xcconfig`), for every build, with **no entitlements** (`PlumCraftMac/PlumCraft.entitlements` is empty): under it, signed with Developer ID, the app passes the suite (52 of 52, ad hoc and Developer ID alike), starts the text, audio and array engines as processes from its bundle and runs a graph on them, maps the store's files shared, opens its loopback control port and plays audio (a probe signed the same way played a silent buffer through AVAudioEngine; the app itself never opens the device in a scripted run). The exceptions it might have needed were each shown to be unneeded: JIT memory is refused under the runtime and nothing uses it; library validation refuses a library of another signer and the app loads only the system's; DYLD variables are dropped and nothing uses them; nothing records. **The engines go in the Mac app:** a build for distribution carried none, so the audio engine and process hosting would have failed on another Mac (B47); `native/apple/release.sh mac` builds them for both Macs and the target's Bundle engines phase puts them in `Contents/MacOS`, signed before the app seals them. **No App Sandbox:** Developer ID distribution doesn't need it; the Mac App Store and TestFlight for the Mac do, and the sandbox would stop engines and craft apps started from outside the bundle, engine manifests in the home folder, Install Engine…, and a store outside the container (the external volume), so a Mac App Store build would be the iPad's model (in-process engines only); a decision for the maintainer. **Privacy manifests** in both apps (`App/PrivacyInfo.xcprivacy`, in both bundles): no tracking, nothing collected; user defaults (CA92.1), file timestamps (C617.1, 3B52.1) and disk space (E174.1, 85F4.1), found in the binaries (`stat` and `statvfs` in the core and engines, `NSUserDefaults` in the shells); no system boot time (no `mach_absolute_time` or `systemUptime`) and no keyboards. **Encryption:** the apps contain no TLS stack (`ureq` without TLS: engines over plain HTTP; an `https://` engine can't be attached), no OS encryption calls (only `CCRandomGenerateBytes`, for random numbers), hashing (BLAKE3, SHA-256 and MD5 in commonkit), and one bundled decryptor: `hayro-syntax` (the array engine's PDF reader) decrypts encrypted PDFs (AES, RC4), its only purpose reading a document; `ITSAppUsesNonExemptEncryption` is not set, pending the maintainer. **Icons:** asset catalogs in both apps with a placeholder (a plum tile with two faces and a wire) from `native/apple/Icons/make-icons.sh`, which takes one 1024 px picture for the real icon. **Versions:** the marketing version is the workspace's (Cargo.toml) and the build number `release.sh`'s `--build`, by default the UTC time (YYYYMMDDHHMM), the same for both apps; `Config/Version.xcconfig` only labels local builds, and the apps report the bundle's version to the core instead of a written-in "0.7.0". **Signing and export:** `native/apple/release.sh mac|ios|both [--build N] [--local]` (team from `PLUMCRAFT_TEAM_ID`, nothing team-specific committed; an untracked `Config/Signing.local.xcconfig` for Xcode) makes the Mac archive, signs the app and its engines by hand (nested first, hardened, Apple's timestamp, or none with `--local`), a signed DMG, and prints the `notarytool` and `stapler` commands; and the iOS archive, its App Store export (`Config/ExportOptions-ios-app-store.plist`, never `upload`) and the upload command. With `--local`, both were made here; `spctl` rejects the Mac app as "Unnotarized Developer ID", as it should. The Release builds of both apps carry no local-network text and never bind beyond loopback. Report and the maintainer's checklist: `claude-debug/native-n4-apple-prep.md`.
 
 ### N4's decisions (asked 2026-11-21 as cards, with the Windows spike's)
@@ -726,25 +728,25 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F25 | Style graphs | Not met | Not met | No launched test |
 | F26 | Run request | Met | Met | Conformance "a run's state arrives in the scene"; person check Run (Mac, on the process engine) |
 | F27 | Targets | Not met | Not met | Run Selected's state is checked (the toolbar case), no launched test runs it |
-| F28 | Run identity, generation | Not met | Not met | Core only |
-| F29 | Latest wins | Not met | Not met | Core only |
-| F30 | Auto-run | Not met | Not met | No launched test turns it on |
-| F31 | Optimistic queued | Not met | Not met | No launched test looks at a queued face |
+| F28 | Run identity, generation | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F28 run identity": the run has an id and the generation rose, read from the launched app's core. iPad: no launched test |
+| F29 | Latest wins | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F29 latest wins": a run started over one under way (Run picked in the Run menu twice, an edit between) supersedes it; the faces show the last edit's result. iPad: no launched test |
+| F30 | Auto-run | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F30 auto-run": Run › Auto-Run checked, a value typed into a face runs by itself; unchecked again. iPad: no launched test |
+| F31 | Optimistic queued | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F31 optimistic queued": the faces show queued as Run is picked, before the engine reports them. iPad: no launched test |
 | F32 | Run reply | Met | Met | Conformance "a run's state arrives in the scene"; person check's value (Mac) |
 | F33 | Per-node report | Met | Met | The same: each face done or cached |
-| F34 | Errors as data | Not met | Not met | No launched test runs a failing node |
-| F35 | Failure stands in for a reply | Not met | Not met | The person check kills the engine between runs, not during one |
-| F36 | Cancel | Not met | Not met | No launched test cancels a run |
+| F34 | Errors as data | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F34 errors as data": `text.fail` on the installed process engine shows its error on its face ("op error: this node always fails"). iPad: no launched test |
+| F35 | Failure stands in for a reply | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F35 a failure stands in for a reply": the engine's process killed mid-node ends the run within 2 s, the face goes to error with the engine's reason, the engine starts again (found B110, fixed). iPad: engines are in process there |
+| F36 | Cancel | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F36 cancel": Run › Cancel Run while `text.slow` works: it is cancelled at once and nothing after it runs. iPad: no launched test |
 | F37 | Run summary for automation | Met | Met | Every conformance run's `ui.waitRun` over the control port |
 | F38 | Status record stream | Met | Met | Conformance "a run's state arrives in the scene" (through the feed) |
-| F39 | States emitted | Met, done and cached only | Met, done and cached only | The same case; the other seven states are not seen in a launched test |
+| F39 | States emitted | Met, 7 of 9 states (queued, progress, done, cached, error, skipped, cancelled) | Met, done and cached only | Mac: conformance "a run's state arrives in the scene" and the person check's engine half (decision 10, `native/n4-decided-2`); `started` and `preview` are not seen in a launched app (the text engine sends progress at once, and no preview). iPad: done and cached only |
 | F40 | Reducer rules | Not met | Not met | Core only |
 | F41 | Canvas status display | Met | Met | The run case's scene state per face |
-| F42 | Per-node timing | Not met | Not met | Slice 6 cited pictures; no launched test asserts the timing text |
+| F42 | Per-node timing | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F42 per-node timing": the slow node's face says how long it took ("3.01 s"). iPad: no launched test |
 | F43 | Parameter wires, bundles | Not met | Not met | No launched test |
 | F44 | Provenance | Not met | Not met | Core only |
-| F45 | Stale tracking | Not met | Not met | No launched test |
-| F46 | Text on nodes | Not met | Not met | The watched text is checked in a pop-out ("a watched text value arrives as text.plain…"); the face's text is not |
+| F45 | Stale tracking | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F45 stale tracking": a value typed upstream marks what it feeds stale, nothing run. iPad: no launched test |
+| F46 | Text on nodes | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F46 text on nodes": the result's text is on its face (its excerpt). iPad: no launched test |
 | F47 | Thumbnails in flight | Not met | Not met | No launched test |
 | F48 | Texture cache | Not met | Not met | The kit's unit tests only |
 | F49 | Inspect piggybacks on runs | Met | Met | Conformance "a watched text value arrives as text.plain, and a scalar as scalar"; person check "Run, and the value popped out" (Mac) |
@@ -770,7 +772,7 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F69 | Content addressing | Not met (exercised, not asserted) | Not met (exercised, not asserted) | Every run uses the store; nothing in a launched test checks a digest |
 | F70 | Hostile `.npy` and keys | Not met | Not met | Crate tests only |
 | F71 | Engine memo | Met | Met | Conformance "the Cache Report and the graph's Parameters window are the core's…" and the run case (cached faces) |
-| F72 | Partial re-run | Not met | Not met | No launched test checks what re-ran |
+| F72 | Partial re-run | Met (launched) | Not met | Mac: person check's engine half (decision 10, `native/n4-decided-2`), "F72 partial re-run": after a change downstream of the slow node only what it touches runs; the slow node is cached. iPad: no launched test |
 | F73 | Preview latency path | Met | Met | Every conformance run is on in-process engines over the C ABI |
 | F74 | Full resolution on demand | Met | Met | The picture case asks for detail |
 | F75 | Pictures as engine-side files | Met | Met | The picture case reads the picture file's own numbers |
@@ -779,7 +781,7 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F78 | Bundles | Not met | Not met | Slice 6 said met on the Mac; no launched test exports a bundle |
 | F79 | Insert graph or group | Not met | Not met | Slice 6 said met; no launched test inserts |
 | F80 | Engine-touching commands | Met | Met | Conformance's Install case; person check's Engine menu as AppKit validated it (Mac) |
-| F81 | Control channel | Met | Met | Every conformance run; "the control port asks for its token, whatever address it listens on". But it answers for the first document only (B83) |
+| F81 | Control channel | Met | Met | Every conformance run; "the control port asks for its token, whatever address it listens on". Since B83's fix a request's `doc` is honoured (the person check's engine half reads its own window's scene by it) |
 | F82 | Headless CLI catalog | Not met (not the apps') | Not met (not the apps') | The CLI's, not an app path |
 | F83 | Config by environment | Met (checked today) | Not met | Person check: launched with nothing but the environment (store, preferences, engines folder), and refused without a scratch engines folder (decision 7) (Mac) |
 | F84 | Single-threaded engines | Not met | Not met | Core only |
@@ -822,6 +824,73 @@ Asked three questions after the copied-manifest warning merged (#154): 1, mark s
 | 1 | The warning in the Engine menu | Yes: on the engine's items, in `engine.list` and `ui.inspect` too |
 | 2 | `register` from a throwaway uv environment | Yes: warn, still write the manifest |
 | 3 | `uv run` with no `--project` and a relative `cwd` | Yes: judged as uv searches, only where it certainly fails |
+
+### Decisions after the floor re-walk and the person check (the maintainer, 2026-11-21)
+
+Asked twenty questions after the person check and the copied-manifest warning. The answer line: "1-3 yes, 4 - background, 5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20 yes. Do 19,20 ASAP". Where the answer is "yes", the row gives the option the controller had recommended when it asked. 1 to 3 were merges and a cleanup; 19 and 20 are device checks the controller runs.
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 to 3 | Merges and a cleanup | Yes |
+| 4 | Gate waits | Run them in the background |
+| 5 | Mac Close and Quit | Leave them to AppKit |
+| 6 | iPad document windows | Keep the document browser for now |
+| 7 | B84 | Scripted launches get their own bundle id, so the person check can use the Save and Open panels |
+| 8 | B83 | The control channel honours the document a request names |
+| 9 | B81 | Leave Open Recent empty in scripted launches without touching the person's list |
+| 10 | The engine-interface floor rows | Add a launched test engine so the apps cover them |
+| 11 | B86 and B87 | Fix now |
+| 12 | B91 | Ship the engine programs with the Windows app, and the core disables any process hosting whose program is missing, with the reason |
+| 13 | The palette's order | An exact title match first |
+| 14 | Windows and the engines folder | Keep reading the shared engines folder (as built) |
+| 15 | B56 | Make the suite's sound case independent of speed |
+| 16 | The Swift and C# runners | Learn the two new matchers and run the copied-manifest steps |
+| 17 | A warned engine | Marked outside the menu too |
+| 18 | `register --print` | Also prints the uv-cache warning |
+| 19, 20 | Device checks | Yes, the controller runs them, as soon as possible |
+
+The first run of the scripted copy's person check saved a graph into the person's `~/Documents` (the save panel's folder and name were set in process after the panel showed, and the panel, out of process, kept its default; see B84). The controller then asked: "1. Delete ~/Documents/Untitled.json? 2. Should the person check ever press Save in a real panel? I'd say no for now: reading the panel's fields and cancelling covers most of the value, and this has now gone wrong twice." The answer: "1,2 as you say".
+
+| # | Decision | Answer |
+|---|---|---|
+| 1 | The stray `~/Documents/Untitled.json` | Deleted (by the controller) |
+| 2 | Pressing Save or Open in a real panel | No, for now: the person check opens the panel, reads the panel's own fields through accessibility, asserts them and cancels; the press stays behind a switch that is off and that no script sets |
+
+### The decided batch built (2026-11-21, branch `native/n4-decided-2`)
+
+**Decision 7 (B84), scripted launches under their own bundle id.** A scripted launch (`--scratch-state`) of the Mac app runs only as a copy of the build under `com.swapwizard.plummer.mac.scripted` (`native/apple/PlumCraftMac/scripted-app.sh make`: a clone of the bundle, its id changed, signed again ad hoc for this Mac only); the app refuses `--scratch-state` under any other id (`ScratchGuard.bundleRefusal`), so no scripted launch can write the person's defaults, saved state, recent documents or panel folders. A launch-time defaults switch was not taken: the panels run out of process and keep their folder in the defaults domain of the app's bundle id (B50 found `CFFIXED_USER_HOME` and `__CFPREFERENCES_AVOID_DAEMON` don't move it), and the copy's run showed it: `NSOSPLastRootDirectory` and `NSNavPanelExpandedSizeForOpenMode` landed in the scripted id's domain, the recent list in its own `.sfl4`. `scripted-app.sh clean` removes everything the system kept for the scripted id (refusing any other id) and unregisters and removes the copy; `conformance.sh`, `person-check.sh` and the Mac `bench.sh` make and clean it, and each takes a listing of the person's home top level, `~/workspace` top level, `~/Documents` and `~/Desktop` before and after and fails loudly when a name came or went or a file in the last two changed (`library-check.sh home`), besides the person's Library for both ids (`com.swapwizard.plummer.mac`, `com.swapwizard.plumcraft`). The panels are set before they show (`GraphDocument.prepareSavePanel`; the core's file asks in `Asks.swift`), from the person check's `panel-at:` step, and read from outside (the save panel's name field and folder pop-up, the open panel's folder pop-up) in a scratch folder named `person-scratch-<8 hex>`, then cancelled; by decision 2 above nothing is pressed: the press is behind `PERSON_PRESS_SAVE=1`, refused by `person-check.sh`, and `may_press` (12 cases, run before every check) refuses unless both fields are the scratch ones. The file is saved by the core's `graph.saveAs`; Open Recent then lists it (the copy's own list), and B81 falls out: the person's list is unchanged byte for byte. Found on the way: the first such run's save landed in `~/Documents` (the reason for decision 2), and the copy stopped in Swift's isolation check when AppKit read the recent documents' count from a queue of its own (`maximumRecentDocumentCount` is `nonisolated` now).
+
+**Decision 8 (B83).** A control request's top-level `doc` is honoured on the C ABI's port (`unknown_doc` for one not open), refused by the egui editor, which has one document. No conformance case: a driver over the port can't open a second document.
+
+**Decision 11 (B86, B87).** Run on names engines by their labels. What the manifests' last read couldn't use is in `engine.manifestProblems` (`engine.list`, `ui.inspect`), the log, and a new document's status line once it has settled (the Mac shows it as its banner).
+
+**Decision 13, the palette's order.** The core's `PaletteIndex::filter_in` (every shell's ranking: egui's palette, `palette.items` for the Apple and Windows apps) puts a kind whose title is the query (case and runs of spaces aside) first, then the rest in category order. A conformance step: "TEXT" gives Text first.
+
+**Decision 12 (B91), the core's half.** A built-in engine's process or HTTP hosting whose program is neither beside the app nor in the build's profile folder is listed disabled: "This app doesn't include the Text engine program (plumcraft-text-engine)" (`engines::missing_program`, in `Capabilities::refuses`). **The Windows app must ship** `plumcraft-text-engine.exe` and `plumcraft-array-engine.exe` beside `Plummer.exe` (as B91's partial fix does), and the audio and craft engines' programs if it is to offer them as processes; until then those show disabled with the reason. Not edited: `native/windows`.
+
+**Decision 17, the warning outside the menu, and the menu marks on Apple.** The Mac draws an item's `warning` as the `exclamationmark.triangle` symbol (its image) with the warning as its tooltip, in the menu bar and context menus; the iPad as the action's image and subtitle (and its menu bar's commands' image). The core's `engine.warning` (`ui.inspect`, the C ABI feed's engine change: `"<name>: <warning>"` for an engine in use whose manifest warned, else null) is shown by egui (⚠ before the engine cell's words, in the warning colour, the warning first in its hover), the Mac's engine cell (the symbol before its words, orange, the warning first in its tooltip) and the iPad's (the symbol, an orange dot, the warning first for VoiceOver).
+
+**Decision 16, the Swift half.** The Swift runner has `$includes` and a matcher as a `$deep` field; a Swift test runs the copied-manifest steps through the kit on a folder made as `conformance::copied_manifest_folder` makes it, and they fail on the suite's own folder; `PlumCraftMac/conformance.sh` makes that folder and claims `copied_manifest`, so the gated steps run on the Mac app. The iPad does not claim it: it can't start programs, so the copied engine is listed disabled, and the step that wants it enabled can't hold there (the other gated steps would). **The C# runner needs** the same two matchers (`$includes`: the got value is text holding the text given; in `$deep`, each field's want matched as at a pointer, so a matcher works there), and `--has copied_manifest` with the folder made by its script as above (the stand-in `uv.cmd` on Windows).
+
+**Decision 18.** `register --print` prints the manifest and, on stderr, the uv-cache warning, for a temporary environment too (which `register` refuses), in both SDKs.
+
+**Decision 15 (B56).** The sound case sets the loop before play.
+
+**B76.** The raw kernel trace is DTServiceHub's, in the per-user temporary folder whatever TMPDIR says; `native/apple/ktrace-sweep.sh` removes each recording's when it ends. Verified on a Mac recording, not on a device.
+
+**Decision 10, the engine half, launched.** The engine-interface rows need a launched app driving an engine it started and showing what that engine did. The test engine is the text engine's own program installed from the person check's scratch engines folder as a separate process (`Person Check Text`), whose testing kinds do what the rows need: `text.slow` reports progress in steps and stops on cancel, `text.fail` always fails. The person check opens a graph of them, each node pinned to the installed engine (a file opened as the Finder opens one), picks Run, Cancel Run and Auto-Run in the real Run menu, types values into the faces' fields, kills the engine's process by its PID, and asserts what the app shows: the scene its canvas draws (read over the port, by `doc` since B83), its status (`run`), the engine cell and the banner (the status file). Each step names its rows:
+
+| Step | Rows met on the Mac |
+|---|---|
+| Run from the Run menu | F31 (queued before the engine reports), F38 and F39 progress (fractions streamed), F34 and F39 error (`text.fail`'s error on its face), F39 skipped, F46 (the result's text on its face), F42 (the slow node's time, "3.01 s"), F28 (the run's id, the generation) |
+| A value typed upstream | F45 (what it feeds marked stale, nothing run) |
+| Run › Cancel Run mid-node | F36 (cancelled at once, nothing after it runs), F39 cancelled |
+| Run, an edit, Run again | F29 (the first superseded, the last edit's result shown) |
+| A value changed after the slow node | F72 (only what it touches runs; the slow node cached), F39 cached |
+| Run › Auto-Run | F30 (an edit runs by itself) |
+| The engine killed mid-node | F35 (the run ends within 2 s, the face says why, the engine comes back; found B110, fixed) |
+
+So the Mac is now **43 met, 2 partly, 40 not met** (from 32, 2, 51). **Still not met, and what each needs:** F3 (a ping or health answer seen in the app: an engine that stops answering pings, a hung test node), F7, F23, F28's journal side, F40, F44, F61 to F63, F67, F84 (core only: a launched test would need a graph and an assertion for each; F40's reducer rules and F84's single-threaded engines are the engine's own), F13 to F21, F24, F25 (port and graph features: a test engine with a `param_ref` port, variadic inputs, choice-dependent sub-ports, path hints, external ports, machine-dependent choices, node flags, list typing and slices, an expansion and a style graph; the text engine has none of these, so the test engine needs nodes of its own for them, the next piece of this half), F22 (a custom editor opened in the app), F27 (Run Selected through the menu, asserting what ran), F39 `started` and `preview` (an engine that sends a start before progress and a preview), F43 (parameter wires and bundles), F47 and F48 (thumbnails in flight: a picture engine, the array engine, as a process), F55 (the sheet), F59, F60, F65, F66, F85 (the research software's), F64 and F77 (saving a picture with its recipe through a save panel, which decision 2 keeps unpressed), F68 to F70 (asserting no array crossed a message, a digest, hostile `.npy`: a probe on the app's own traffic), F78, F79 (export a bundle, insert a graph), F82 (the CLI's). The iPad gains none here: it starts no programs, so its engine half would need an engine attached over HTTP (the conformance probe's kind of engine, running for real) or one compiled in with the testing kinds.
 
 ## 20. N5 (Windows): what the spike found (2026-11-21)
 

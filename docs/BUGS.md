@@ -4,27 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B81. Opening File › Open Recent in a scripted launch of a newly built Mac app rewrites the person's recent-documents list
-
-- Reported: 2026-11-21
-- Report: found by the person check's first runs (branch `native/n4-person-gate`); recorded under the standing "record bugs"
-- Context: `native/apple/PlumCraftMac`. After a scripted launch (`--scratch-state`, which notes no recent document and keeps none, B50) of a build launched for the first time, `library-check.sh` found `~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/com.swapwizard.plummer.mac.sfl4` rewritten: the same size, a new time and hash. Seen in four runs that filled the File › Open Recent menu (the check read its items) on a new build; not seen in two runs of the same build, nor in three runs of new builds that did not open that menu, nor in the conformance suite, which never opens it. Probably AppKit rewriting the list's properties (the code requirement it carries) when the document controller fills the menu for a new signature, which B50's fix (a count of 0) does not stop. The list's entries were not compared, only the file. Not fixed: the person check no longer opens the menu; a scripted launch could leave Open Recent's menu empty without asking the document controller to fill it.
-- Issue: none
-
-### B83. The control channel acts on the first document only, and ignores a request's `doc` without saying so
-
-- Reported: 2026-11-21
-- Report: found by the person check (branch `native/n4-person-gate`)
-- Context: `crates/ffi/src/core.rs` `control_requests`: every request from the control port goes to `self.target(None)`, the first document open, as the comment says ("the control protocol names none"). A request that names `doc` (the Swift runner's `--doc`, the person check's first reads) gets the first document's answer, with no error. So a script reading a second window read the first, and saw "no nodes" in a graph that had two. The conformance runner's `--doc` only works because the document it names is the first. Not fixed: either the port refuses `doc` as unknown, or it takes it (the request's `doc`, as `plum_request` does); a contract decision. The person check reads other windows from the app's status file.
-- Issue: none
-
-### B84. A scripted launch that shows the Mac's Save or Open panel changes the person's defaults, or saves into their folders
-
-- Reported: 2026-11-21
-- Report: found by the person check's first runs (branch `native/n4-person-gate`), each time by the check's own doing
-- Context: AppKit's save and open panels run out of process and keep the folder they show in the app's defaults domain (`NSOSPLastRootDirectory` in `com.swapwizard.plummer.mac`), which can't be pointed elsewhere (B50). A first run pressed Save in a panel the app had been told (in process) to show in scratch: the panel, out of process, had kept the person's last folder, and the graph was saved as `Untitled.json` in that folder (a folder of the maintainer's, outside the repository; left there, not deleted). A later run started the panel in scratch (`prepareSavePanel`), which changed `NSOSPLastRootDirectory` in the person's defaults to that scratch folder (since removed); that change was not undone. Both changes are reported, not repaired. Not fixed: the person check now only opens the Save panel, reads it through accessibility and cancels it (no folder change, so no write), and answers Open through the core; a scripted launch could run under a bundle id of its own so its panels have a defaults domain of their own (a decision).
-- Issue: none
-
 ### B85. Plummer crashed twice in Swift's main-actor check from an AppKit callback while a script step drove a panel from inside a task
 
 - Reported: 2026-11-21
@@ -39,41 +18,12 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: step 3, `ui.gesture {kind: "tap", at: [284.126, 14.0]}` on the more-button's part the shell had measured: the core answered `hit: none` and cleared the selection, so no node menu came back (54 of 55). The next three Mac runs that day passed every case. Possibly the tap arriving before the app reported the header's parts (`geometry.parts`); not looked into.
 - Issue: none
 
-### B86. A node's Run on menu names engines by their ids, not their names
-
-- Reported: 2026-11-21
-- Report: found by the person check (branch `native/n4-person-gate`)
-- Context: `crates/editor-core/src/menu.rs`, the node context menu's Run on: an engine installed with the name "Person Check Text" is offered as `person_text`, the built-in text engine as `text`, while the Engine menu and the engine cell use names. Not fixed.
-- Issue: none
-
-### B87. An engine manifest the core can't read is skipped without a word to the person
-
-- Reported: 2026-11-21
-- Report: found by the person check (branch `native/n4-person-gate`)
-- Context: a manifest with an id the core refuses (`person-text`: "lower-case letters, digits and _, starting with a letter, at most 32") was left out of the Engine menu silently at start; only Engine › Reload Engine List's reply carries `problems`, and the Mac shows no reply. A person who installs or writes a manifest by hand sees nothing. Not fixed.
-- Issue: none
-
-### B56. The sound case races a shell that reports a sound's end: under emulation the 64 ms sound ends between two steps
-
-- Reported: 2026-11-21
-- Report: found by N5 slice 4's gate: the conformance suite against the x64 Windows app under emulation on the Windows test VM, one run of two
-- Context: "a sound popped out by a person plays, pauses and seeks through the core" plays a sound of 3,072 frames at 48 kHz (64 ms) with `viewer.audio {play: true}` (`seq` 1), then seeks with `{at: 0.03, level: 0.5, loop: true}` and wants `seq` 2. A shell whose sound (or muted clock) reaches the end tells the core (`viewer.audio {play: false, at: 0}`, as the Apple apps' `SoundPlayer` does and the Windows app now does), which raises `seq`. On a fast machine the two steps come within 64 ms; under x64 emulation they didn't, the app reported the end between them, and the step saw `seq` 3. The second x64 run and every ARM64 run passed.
-- Not changed: the case (shared by every shell) or the shells. Setting `loop: true` before `play`, or a longer sound, would make the case independent of speed; that is for the maintainer.
-- Issue: none
-
 ### B55. On the Windows test VM a Plummer process stuck where nothing could end it, and the console session stopped starting programs
 
 - Reported: 2026-11-21
 - Report: found while taking N5 slice 4's screenshots (`native/n5-panels`); recorded under the standing "record bugs"
 - Context: a screenshot run launched the app (`edit-number`, 15:17) through a one-shot Interactive scheduled task, as every run does. It never wrote its first window to its status file. From then on no program started in the console session: every later scheduled task's process (cmd, PowerShell, the screenshot and input injectors) stayed at its start, and the app's process and the console host and terminal processes launched with it couldn't be ended (`Stop-Process` and `taskkill` reported success or access denied, and the processes stayed). Windows logged a `LiveKernelEvent` (code `1cc`) at 15:31 and an application hang in another app. A program started from the SSH session (session 0) still runs. The VM was not restarted (the brief: never restart it); the stuck processes are still there. Whether the app caused it, or the VM's display driver did and the app was the first to meet it, is not known.
 - Looked at after the maintainer restarted the VM: Windows logged `LiveKernelEvent` `1cc` (a kernel resource held too long, a live dump in `C:\WINDOWS\LiveKernelReports\ResourceTimeout-20261121-1520.dmp`) at 15:20, three minutes after the stuck launch, and again at 15:30 and 15:31 with hang reports for two system apps (the Store, the AAD broker). There was no crash or hang report for the stuck Plummer itself, no WerFault and no debugger attached, and the app never wrote its first window to its status file, so it stuck before any window, sheet or dialog of its own was shown, not on a modal sheet and not in a crashed composition thread. Every launch then went through `cmd /c` in a console that Windows handed to Windows Terminal (its default terminal), and Windows Terminal, OpenConsole and conhost started with that launch were among the processes nothing could end. Since the restart every scripted launch runs under `conhost.exe --headless`, so no terminal is started; it did not recur in the seven launches for the suite after the restart (four on ARM64, two on x64, one from the Mac's runner); later the VM stopped answering altogether (no ping, no SSH), and was left so. The dump was not opened (no kernel debugger on the VM).
-### B76. The iPad bench leaves each Instruments trace's working file in the temporary folder
-
-- Reported: 2026-11-21
-- Report: found by the controller after the wire trace: six `instruments*.ktrace` files, 19 GB together, were left in the temporary folder by six traces, although `bench.sh` was changed earlier the same day to give each trace its own temporary folder and delete it. The earlier run of this fault filled the Mac's disk.
-- Context: `native/apple/PlumCraftPad/bench.sh`, `trace-wires` and `trace-device`.
-- Issue: none
-
 ### B39. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -103,12 +53,42 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `native/windows/tests/PlumCraft.Kit.Tests/CoreTests.cs:149`, the Windows kit's test that sends 500 requests at once to a core just opened. In one of four `dotnet test` runs on the Windows 11 ARM64 test machine (40 of 41 passed) the core refused one with "busy: the document's engine is still connecting": the C ABI core holds at most 256 requests for a document whose engine hasn't connected yet (`MAX_HELD`, `crates/ffi/src/core.rs`), and the test doesn't wait for the engine before sending them. The run before and the two after passed 41 of 41. Not changed: the test or the limit, whichever is wrong, is for the maintainer.
 - Issue: none
 
+### B111. On the iPad, after a number typed into a face's field, the app never reports idle (XCTest waited 60 s on every step)
+
+- Reported: 2026-11-21
+- Report: the controller's device run of the iPad UI tests (the maintainer present; built from the main checkout, `build-device/test`): `testInlineEdits` passed but took 863 s; "App animations complete notification not received" 14 times in the run
+- Context: the log shows the first field (text) typed into and Done tapped normally; then `7` typed into the `count` row's number field (the numbers-and-punctuation keyboard), and from the tap on `row-editor-done` that follows the app never reported idle again: every later step waited 60 s first. So something starts animating or redrawing with the number field's editor and doesn't stop after it closes; a battery defect on a device too.
+- Looked into (branch `native/n4-decided-2`, no device use): **not reproduced** on an iPad Pro 11-inch (M5) simulator booted headless (the software number keyboard shows, as on the device), in portrait, with the status read from the file and again from the accessibility element as the device read it: `testInlineEdits` passed in 21 s and 22 s, no idle wait. What runs without end in the iPad's canvas: only a running face's wash pulse (`LayerCanvas`, `repeatCount = .infinity`, while a face shows running); the pan momentum's display link stops itself; the wire tiles have no timer; the keyboard's lift (`FieldEditorHost.keepAboveKeyboard`) animates the viewport once per keyboard frame change. Candidates on a device: a face left showing running (its pulse), or the keyboard lift and the keyboard's frame notifications feeding each other at the device's keyboard height. Needs the device: re-run with the app reporting what animates (a pulse, the momentum link, a viewport animation) in its status.
+- Issue: none
+
+### B112. On the iPad, the table viewer's output pin double-tapped did not pop it out (`testEveryViewerByATap`)
+
+- Reported: 2026-11-21
+- Report: the controller's device run: "timed out waiting for tab popped out in table.grid", "tab: the pop-outs were []", then no `popout-done`
+- Looked into: **not reproduced** on the simulator (status by file and by element): the test passed in 28 s and 30 s, the table first. The test predates today's pop-out and grid-window changes, but it passes against them here; the device ran the main checkout's build, not this branch. The first viewer is the one a double tap right after launch hits: on a device the first double tap may land before the faces' parts are measured (as B88 on the Mac), or the system takes it as two taps (the test retries once after 8 s). Needs a device re-run.
+- Issue: none
+
+### B113. On the iPad, `testTouchGestures` failed: the pinch did not zoom, the palette was not dismissed, the marquee selected nothing, no Select button
+
+- Reported: 2026-11-21
+- Report: the controller's device run: "timed out waiting for zoomed in by the pinch" (zoom stayed 1), "the palette dismissed", "the marquee selected", and `GestureTests.swift:122` and `:226` (no "Select" button)
+- Looked into: **not reproduced** on the simulator: passed in 39 s and 40 s. The later failures follow the first (the zoom never changed, so the points the test aims at were elsewhere). The Select button is the toolbar's Select mode (`canvas.selectMode`, N4 slice 3); a device window narrower than regular width puts it in the More menu, where the test doesn't look. Needs a device re-run, with the window's width class and the toolbar's items in the failure's attachments.
+- Issue: none
+
+### B114. On the iPad, `testWindowsAndNames` failed: not inside the group, no `crumb.0` button
+
+- Reported: 2026-11-21
+- Report: the controller's device run: "timed out waiting for inside the group", no `crumb.0` button (`GestureTests.swift:397`)
+- Looked into: **not reproduced** on the simulator: passed in 20 s both times (B60's step, Show on Face after a hidden value is set, passed too). Entering the group is a double tap on its face; the breadcrumb appears only inside. Needs a device re-run.
+- Issue: none
+
 ### B60. `testWindowsAndNames` fails on the iPad: Show on Face not found after editing a hidden value
 
 - Reported: 2026-11-21
 - Report: the controller, from the iPad UI test run on the maintainer's iPad (portrait, 834 by 1210 points, the dev branch at `50b8aec`)
 - Context: `native/apple/PlumCraftPad/UITests/GestureTests.swift:359`. Four of five UI tests passed on the device (`testCompactWindowsByATap`, `testEveryViewerByATap`, `testInlineEdits`, `testTouchGestures`); `testWindowsAndNames` failed. After the parameters popover opened on node `w`, the field `edit.count` was found, tapped and typed into (`5\n`; the status then said "Set Value"), and `app.buttons["face.count"].tap()` failed with "Failed to get matching snapshot: No matches found for Elements matching predicate '"face.count" IN identifiers'". The test passes in the simulator.
 - Looked into (2026-11-21, branch `native/n4-wire-hitches`): **not reproduced, cause not found.** In an iPad Pro 11-inch (M4) simulator in portrait, booted headless so the software keyboard shows as on the iPad, with the status read from the accessibility element as on a device, the test passed every time: at the default text size, at the three largest standard sizes and at Accessibility Large. The popover opens above `w`, in the space between the toolbar and the node, and shows about three rows; while the count field is edited UIKit keeps its row in view, and after Return and the list's reload the row and its Show on Face button are still there. Nothing in the popover's code (`PlumCraftPad/App/Parameters.swift`) dismisses it on Return or changes on a device. Ruled out in the simulator: the software keyboard, a larger text size, the status element. Not ruled out: timing on the device (the test tapped `face.count` the moment the status said "Set Value", while the keyboard was going and the list reloading; every other step of the test waits for its element), and anything the device does that the simulator doesn't. **The test now waits for the button (10 s), looks for it in the list both ways if it isn't in view, and attaches a screenshot (`b60-face-count-missing`) and the app's element tree (`b60-element-tree`) when it still can't find it,** with screenshots while the keyboard is up (`n4s3-ui-count-typing`) and once the value is set (`n4s3-ui-count-set`). No app change: no app defect was shown. To confirm: `native/apple/PlumCraftPad/device.sh ui` on the iPad; if `testWindowsAndNames` passes, the cause was the tap's timing; if it fails, the two attachments show what the popover held.
+- The device run after it (2026-11-21, the controller, the maintainer present; the main checkout's build): `testWindowsAndNames` failed again, but earlier, at entering the group (B114), before the step B60 is about, so this run says nothing of B60. Five tests: 2 passed (`testCompactWindowsByATap`, `testInlineEdits`, the latter in 863 s, B111), 3 failed (`testEveryViewerByATap` B112, `testTouchGestures` B113, `testWindowsAndNames` B114), 11 failures, 1,185 s. On an iPad Pro 11-inch (M5) simulator in portrait (branch `native/n4-decided-2`) all five passed twice, the status read from the file and from the accessibility element. Still open: a device re-run decides it.
 - Issue: none
 
 ## Closed, not reproduced
@@ -125,6 +105,81 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B110. A node working on an engine that is killed mid-node kept its progress on its face for good
+
+- Reported: 2026-11-21
+- Report: found by the person check's engine half (decision 10, branch `native/n4-decided-2`): the installed engine's process killed while `text.slow` was at 40%
+- Context: `crates/session/src/run.rs` `apply_reply`. With more than one engine in the document (the built-in text engine and the installed one), the coordinator answered the run with the engines that were still there and the run's error; the slow node had no final record and was in the reply's nodes, so its state stayed `progress` (its fraction too) after the run ended: the face showed a node still working that nothing would ever finish. `RunState::fail` (the document's only engine gone) unmarks such nodes, but it is not called while another engine is connected.
+- Fix: when a run's reply comes, a node still marked working (started, progress, preview) in a failed run is in error with the run's error (`engine` kind: "the engine stopped (signal 9); restarting"), and one only queued is unmarked, whatever the reply says of it.
+- Verified: `run::not_run_tests::a_node_still_working_when_a_failed_run_ends_is_in_error`; the person check's F35 step on the launched Mac app (the face goes from progress to error, "engine error: the engine stopped (signal 9); restarting", the run ends 1.6 s after the kill, the engine comes back).
+- Fixed: 2026-11-21
+- Issue: none
+
+### B87. An engine manifest the core can't read is skipped without a word to the person
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Context: a manifest with an id the core refuses was left out of the Engine menu silently at start; only Engine › Reload Engine List's reply carried `problems`, and the Mac shows no reply.
+- Fix (decision 11, "fix B86 and B87 now"): what the last read of the manifests couldn't use or warned about is kept with the engines (`engine.list`'s and `ui.inspect`'s `engine.manifestProblems`, one line a manifest), put in the status line of a document opened after the read once its startup has settled (`engine manifests: …`, or `engine manifests: N problems; the first: …`), and in the log as before; Reload Engine List updates both (`Document::note_manifest_problems`). `docs/interface.md` 16.6.
+- Verified: `engines::tests::an_unreadable_manifest_is_reported_to_the_person`, `engines_install::an_unreadable_manifest_is_said_to_the_first_document` (C ABI: the feed's document state and `ui.inspect`); the person check: a manifest with a hyphenated id in the scratch engines folder is in `manifestProblems` and the Mac window's banner at launch.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B86. A node's Run on menu names engines by their ids, not their names
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Context: `crates/editor-core/src/menu.rs`, the node context menu's Run on: an installed engine was offered as `person_text`, the built-in one as `text`.
+- Fix: Run on names each engine as the Engine menu does (its choice's label; an engine with no choice keeps its id); the command and its params are unchanged (`menu::Parts` carries the engine choices; egui's canvas passes them).
+- Verified: `menu::tests::run_on_names_engines_by_their_labels`; the person check picks Run on › Person Check Text on both nodes of the launched Mac app.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B84. A scripted launch that shows the Mac's Save or Open panel changes the person's defaults, or saves into their folders
+
+- Reported: 2026-11-21
+- Report: found by the person check's first runs (branch `native/n4-person-gate`)
+- Context: AppKit's panels run out of process and keep their folder in the app's defaults domain, which can't be pointed elsewhere (B50).
+- Fix (decision 7, "scripted launches get their own bundle id"): `native/apple/PlumCraftMac/scripted-app.sh` makes a copy of the built app under `com.swapwizard.plummer.mac.scripted` (a clone, signed again ad hoc for this Mac only) and, when the run ends, removes what the system kept for that id (defaults, saved state, recent documents, caches, HTTP storage, WebKit, the temporary folder's state) and unregisters and removes the copy; the app refuses `--scratch-state` under any id that is not a scripted copy's (`ScratchGuard.bundleRefusal`); `conformance.sh`, `person-check.sh` and the Mac `bench.sh` run the copy, and every one lists the person's home top level, `~/workspace` top level, `~/Documents` and `~/Desktop` before and after and fails loudly when anything came or went (`library-check.sh home`), besides the person's Library for both their ids. The panels are set before they show (`GraphDocument.prepareSavePanel`, the core's file asks), read from outside through accessibility (the panel's own name field and folder) and cancelled: **no real Save or Open is pressed** (the maintainer, 2026-11-21: "1,2 as you say"); the press is behind `PERSON_PRESS_SAVE=1`, which no script sets and `person-check.sh` refuses, and `may_press` (tested, 12 cases, each run) refuses unless both fields are a scratch folder's.
+- Found on the way: the scripted copy's first save through the real panel, set after the panel showed, landed in the person's `~/Documents` as `Untitled.json` (the run's home listing caught it; deleted by the controller); that is why nothing is pressed. And the scripted copy, noting a recent document, stopped in Swift's isolation check: `PlummerDocumentController.maximumRecentDocumentCount` is read by AppKit from a queue of its own; it is `nonisolated` now, and the person check checks the app is alive after a recent document is noted.
+- Verified: the person check, three runs in the Mac gate: the person's build refuses a scripted launch; the save panel opens on the scratch folder with the name (from the panel itself); the open panel opens on the scratch folder; the person's Library for both ids, the home listings and the engines folder unchanged; the scripted id's Library as before after the cleanup.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B83. The control channel acts on the first document only, and ignores a request's `doc` without saying so
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Fix (decision 8, "the control channel honours the document a request names"): the control server passes a request's top-level `doc` on (`ControlRequest.doc`); the C ABI core answers for that document (the first with none), and refuses one that isn't open (`code: "unknown_doc"`) or isn't a number (`bad_params`); the egui editor, which serves one document, refuses any `doc` (`unknown_doc`). `docs/control-protocol.md` and `docs/shell-interface.md` 4.1. No conformance case: a driver over the port can't open a second document.
+- Verified: `server::tests::auth_first_then_requests_reach_the_ui`, `control_port::the_control_port_honours_the_document_a_request_names`, egui `control::a_request_naming_a_document_is_refused_not_answered_for_this_one`; the person check's engine half reads its own window's scene by `doc`.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B81. Opening File › Open Recent in a scripted launch of a newly built Mac app rewrites the person's recent-documents list
+
+- Reported: 2026-11-21
+- Fix: falls out of B84 (decision 9, "leave Open Recent empty in scripted launches without touching the person's list"): a scripted launch is the scripted copy, whose recent documents are its own list (it starts empty, the script removes it at the end).
+- Verified: the person check: the saved graph is in the copy's own recent list and opened from it; the person's `com.swapwizard.plummer.mac.sfl4` byte for byte unchanged (`library-check.sh`, size, time and hash). Not seen: Open Recent's menu items, which AppKit fills only while the menu tracks (the check never takes the pointer), so the check opens the list's entry as the item does (a SEE line).
+- Fixed: 2026-11-21
+- Issue: none
+
+### B76. The iPad bench leaves each Instruments trace's working file in the temporary folder
+
+- Reported: 2026-11-21
+- Cause: the raw kernel trace (`instruments*.ktrace`) is written by Xcode's `DTServiceHub`, a service launchd starts, into the per-user temporary folder (`getconf DARWIN_USER_TEMP_DIR`), never into the TMPDIR given to xctrace, and is left there (still open in DTServiceHub, which lingers). Shown without a device: a three-second System Trace of `/bin/sleep` with TMPDIR set left a 386 MB `instruments….ktrace` there and nothing in xctrace's folder (`claude-debug/n4-decided-2/b76-probe.sh`).
+- Fix: `native/apple/ktrace-sweep.sh` lists the raw traces there before a recording and removes every new one once its tables are exported, or on any way out (the EXIT trap); `PlumCraftPad/bench.sh` and `PlumCraftMac/bench.sh` use it.
+- Verified: on the Mac, a recording with the sweep around it as the scripts use it: one new 257 MB raw trace, removed, none left (`claude-debug/n4-decided-2/b76-verify.sh`). Not verified: a device trace (no device use allowed); the space of a removed file comes back when DTServiceHub closes it.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B56. The sound case races a shell that reports a sound's end: under emulation the 64 ms sound ends between two steps
+
+- Reported: 2026-11-21
+- Fix (decision 15): the case sets `loop` before `play`, so no shell reports the sound's end while the case runs, however slow (the Apple apps' player and muted clock report no end while looping); the case still checks play, seek, level, loop and pause.
+- Verified: the core's document, the C ABI and the egui editor (`cargo nextest`, the conformance tests), the Mac app (`conformance.sh`, 57 of 57). Not run: Windows under emulation.
+- Fixed: 2026-11-21
+- Issue: none
 
 ### B80. The Apple apps' Engine menu put every engine in a submenu with no title
 

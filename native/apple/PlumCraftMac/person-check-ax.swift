@@ -7,6 +7,7 @@
 //   person-check-ax press PID T   press the button titled T in a sheet (AXPress)
 //   person-check-ax sheet PID     every sheet's elements: role, title, value, description, frame
 //                                 (screen points), depth first
+//   person-check-ax all PID       every window's elements, the same way
 //
 // Prints JSON; {"trusted": false} when this process may not use accessibility (System Settings ›
 // Privacy & Security › Accessibility, for the terminal that runs the check).
@@ -87,6 +88,15 @@ if AXIsProcessTrusted() {
             }
         }
         result["sheets"] = sheets
+    case "all":
+        // every window's elements (a panel that is a window of its own, File › Open…'s)
+        result["windows"] = windows.map { w -> [String: Any] in
+            var els: [[String: Any]] = []
+            walk(w, 0, into: &els)
+            var d = describe(w)
+            d["elements"] = els
+            return d
+        }
     case "set" where args.count >= 5:
         // a sheet's text field (by its accessibility identifier) given a value, as dictation or
         // an assistive app types it

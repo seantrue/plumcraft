@@ -49,6 +49,28 @@ echo "Installed 1 executable: $name" >&2
 
 /// Poll until a `changed` entry of domain `document` matches `want` (one polled already while
 /// waiting for a reply counts), taking it and those before it: the entry.
+/// B87 on the C ABI: a manifest the core can't read is said at start: the first document's status
+/// line (`lastError`, in the feed's document state and `ui.inspect`) and the engine's
+/// `manifestProblems`, as a shell shows them, never skipped without a word.
+#[test]
+fn an_unreadable_manifest_is_said_to_the_first_document() {
+    let dir = PathBuf::from(store_root("engines-unreadable"));
+    let folder = dir.join("engines");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(folder.join("broken.toml"), "id = \"person-broken\"\nmode = \"process\"\ncommand = [\"x\"]\n").unwrap();
+    let mut c = Client::open(&json!({"store_root": dir.join("store"), "platform": {"os": "macos", "subprocess": true}, "dirs": {"engines": folder}}));
+    let i = c.call("ui.inspect", json!({}));
+    assert!(i["result"]["engine"]["manifestProblems"][0].as_str().is_some_and(|p| p.contains("broken.toml") && p.contains("lower-case")), "{i}");
+    assert!(
+        i["result"]["lastError"].as_str().is_some_and(|e| e.starts_with("engine manifests: ") && e.contains("broken.toml")),
+        "{}",
+        i["result"]["lastError"]
+    );
+    let st = document_changed(&mut c, |x| x["lastError"].as_str().is_some_and(|e| e.contains("broken.toml")));
+    assert!(st["lastError"].as_str().unwrap().starts_with("engine manifests: "), "{st}");
+    c.close();
+}
+
 fn document_changed(c: &mut Client, want: impl Fn(&Value) -> bool) -> Value {
     let t0 = Instant::now();
     loop {

@@ -203,6 +203,14 @@ impl EditorApp {
                 let _ = req.reply.send(err("timeout: the request expired before it ran"));
                 continue;
             }
+            // B83: the egui editor has one document and names none; a request naming one is
+            // refused, never answered for this one as if it were the one named
+            if !req.doc.is_null() {
+                let mut e = err(format!("no document {} is open: the egui editor serves one document and takes no doc", req.doc));
+                e["code"] = json!("unknown_doc");
+                let _ = req.reply.send(e);
+                continue;
+            }
             let reply = req.reply.clone();
             self.handle_control(
                 ctx,

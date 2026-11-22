@@ -17,17 +17,34 @@ derived="${DERIVED:-build}"
 case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
 timeout 900 xcodebuild -project PlumCraftMac.xcodeproj -scheme PlumCraftMac -configuration Release \
   -derivedDataPath "$derived" -destination 'platform=macOS,arch=arm64' build -quiet 2>&1 | grep -v 'DVTProvisioning\|IDERunDestination' || true
-app="$derived/Build/Products/Release/Plummer.app/Contents/MacOS/Plummer"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-mac-bench.XXXXXX")"
-# a copy left running (a time limit, ^C) is quit by the PID it wrote
+copy=""
+# a copy left running (a time limit, ^C) is quit by the PID it wrote; then the person's folders
+# are compared with how they were (a change fails the run loudly) and the scripted copy goes
 cleanup() {
+  local code=$?
   # every copy the app started for this status file wrote its pid (a tracer may start several)
   for pid in $(cat "$scratch/status.json.pids" 2>/dev/null); do
     if kill -0 "$pid" 2>/dev/null; then kill -9 "$pid"; echo "cleared a copy left running ($pid)"; fi
   done
+  if [ -f "$scratch/home-before.txt" ]; then
+    "$here/library-check.sh" home "$scratch/home-after.txt"
+    "$here/library-check.sh" home-compare "$scratch/home-before.txt" "$scratch/home-after.txt" || code=1
+  fi
+  [ -n "$copy" ] && "$here/scripted-app.sh" clean "$copy"
+  # B76: a recording's raw kernel trace, which DTServiceHub leaves in the per-user temporary folder
+  [ -f "$scratch/ktrace-before" ] && "$here/../ktrace-sweep.sh" remove "$scratch/ktrace-before"
   rm -rf "$scratch"
+  exit $code
 }
 trap cleanup EXIT INT TERM
+# B84: a scripted launch runs as a copy under the scripted bundle id (scripted-app.sh)
+person_bundle="$derived/Build/Products/Release/Plummer.app"
+person_id=$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$person_bundle/Contents/Info.plist")
+"$here/scripted-app.sh" clean "$person_id.scripted"
+copy=$("$here/scripted-app.sh" make "$person_bundle" "$scratch/app") || { echo "could not make the scripted copy"; exit 2; }
+app="$copy/Contents/MacOS/Plummer"
+"$here/library-check.sh" home "$scratch/home-before.txt"
 # results are named for the slice that took them (PREFIX, default s4)
 p="${PREFIX:-s4}"
 export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_STORE_MIN_FREE_GB=2 \
@@ -63,6 +80,9 @@ trace)
   t="$xt/t.trace"; marker="$scratch/marker"; touch "$marker"
   before=" $(pgrep -x Plummer | tr '\n' ' ' || true) "
   args[1]="$out/$p-bench-$n-traced.json"
+  # B76: the raw kernel trace is DTServiceHub's, in the per-user temporary folder whatever TMPDIR
+  # says; the ones there now are listed, and every new one removed when the tables are out
+  "$here/../ktrace-sweep.sh" list > "$scratch/ktrace-before"
   TMPDIR="$xt/" timeout 300 xcrun xctrace record --template 'Animation Hitches' --instrument 'Points of Interest' \
     --time-limit 90s --output "$t" --launch -- "$app" "${args[@]}" | grep -v '^BENCH ' || true
   # xctrace may leave a copy behind, stopped before it ran a line (so it wrote no pid): any process
@@ -84,8 +104,10 @@ trace)
   for s in os-signpost hitches; do
     TMPDIR="$xt/" timeout 300 xcrun xctrace export --input "$t" --xpath "/trace-toc/run[@number=\"1\"]/data/table[@schema=\"$s\"]" > "$scratch/$s.xml" || true
   done
-  # the trace and any raw kernel trace xctrace left in its folder: gone now the tables are out
+  # the trace, and the raw kernel trace DTServiceHub left in the per-user temporary folder: gone
+  # now the tables are out
   rm -rf "$xt"
+  "$here/../ktrace-sweep.sh" remove "$scratch/ktrace-before"
   # the exports are kept beside the table (a trace with no phases says why), read by s6-hitches.py,
   # which reads every table of an export (s3-hitches.py read only the fullest)
   for s in os-signpost hitches; do cp "$scratch/$s.xml" "$out/$p-trace-$n-$s.xml" 2>/dev/null || true; done

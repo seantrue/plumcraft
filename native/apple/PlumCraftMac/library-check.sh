@@ -2,8 +2,13 @@
 # B50's check: a scripted launch (--scratch-state) of the Mac app leaves the person's own Library
 # exactly as it was. Reads only; never changes or removes anything it looks at.
 #
-#   library-check.sh snapshot BUNDLE_ID OUT     write what the Library holds for the app to OUT
+#   library-check.sh snapshot "ID [ID…]" OUT     write what the Library holds for each app id to OUT
 #   library-check.sh compare  BEFORE AFTER      exit 1 (and show the difference) when they differ
+#   library-check.sh home OUT                   the person's folders a run must not write in (B84):
+#                                               the home folder's and ~/workspace's top level (names),
+#                                               ~/Documents and ~/Desktop (names, sizes, times)
+#   library-check.sh home-compare BEFORE AFTER  exit 1 when a name came or went, or a file in
+#                                               ~/Documents or ~/Desktop changed
 #
 # What it looks at, for BUNDLE_ID: the defaults domain (as cfprefsd answers for it, and its plist's
 # size, modification time and hash, ByHost files too), the saved application state (and what
@@ -33,8 +38,8 @@ files() {
 }
 
 snapshot() {
-  local id="$1" out="$2"
-  {
+  local ids="$1" out="$2" id
+  for id in $ids; do
     echo "== defaults $id"
     # cfprefsd's answer (what the app would read back), then the file it keeps
     defaults export "$id" - 2>/dev/null | plutil -p - 2>/dev/null || echo "(no domain)"
@@ -53,11 +58,36 @@ snapshot() {
     echo "== caches, logs, application support"
     files "$L/Caches/$id" "$L/Logs/Plummer" "$L/Application Support/Plummer" "$L/Application Support/$id" \
       "$L/HTTPStorages/$id" "$L/HTTPStorages/$id.binarycookies" "$L/WebKit/$id" "$L/Cookies/$id.binarycookies"
-  } >"$out"
+  done >"$out"
+}
+
+# names only for the busy top levels (a time there moves with anything the person does); names,
+# sizes and times for the two folders a stray save lands in
+home() {
+  {
+    echo "== home top level"
+    ls -1A "$HOME" | sed 's/^/name /'
+    echo "== workspace top level"
+    [ -d "$HOME/workspace" ] && ls -1A "$HOME/workspace" | sed 's/^/name /'
+    for d in Documents Desktop; do
+      echo "== $d"
+      find "$HOME/$d" -maxdepth 1 -mindepth 1 -print0 2>/dev/null | sort -z | while IFS= read -r -d '' f; do
+        printf 'file %s %s\n' "$f" "$(stat -f '%z %m' "$f" 2>/dev/null)"
+      done
+    done
+  } >"$1"
 }
 
 case "${1:-}" in
 snapshot) snapshot "$2" "$3" ;;
+home) home "$2" ;;
+home-compare)
+  if diff -u "$2" "$3"; then
+    echo "HOME nothing came or went in the home folder's or ~/workspace's top level, ~/Documents or ~/Desktop"
+  else
+    echo "HOME FAILED: the run changed the person's folders (above, - before, + after); nothing was removed"
+    exit 1
+  fi ;;
 compare)
   if diff -u "$2" "$3"; then
     echo "LIBRARY the person's Library is unchanged"
@@ -67,5 +97,5 @@ compare)
     [ -n "$others" ] && echo "LIBRARY note: other copies of Plummer are running (pids $others); a change may be theirs"
     exit 1
   fi ;;
-*) echo "usage: $0 snapshot BUNDLE_ID OUT | compare BEFORE AFTER"; exit 2 ;;
+*) echo "usage: $0 snapshot \"ID [ID…]\" OUT | compare BEFORE AFTER | home OUT | home-compare BEFORE AFTER"; exit 2 ;;
 esac

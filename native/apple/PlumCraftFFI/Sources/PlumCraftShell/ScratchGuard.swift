@@ -22,6 +22,25 @@ public enum ScratchGuard {
         }
     }
 
+    /// The suffix of a scripted copy's bundle id (B84, decision 7 after the person check:
+    /// "scripted launches get their own bundle id").
+    public static let scriptedSuffix = ".scripted"
+
+    /// Why a scripted launch must not run as the app whose bundle id is `id`, or nil when `id` is
+    /// a scripted copy's. What the system keeps for an app by its id (the defaults domain the
+    /// Save and Open panels write their folder to, the recent documents, saved state) can't be
+    /// pointed elsewhere from inside the app (B50, B84), so a scripted launch runs only as a copy
+    /// under an id of its own (`native/apple/PlumCraftMac/scripted-app.sh`).
+    public static func bundleRefusal(_ id: String?) -> String? {
+        guard let id, !id.isEmpty else {
+            return "--scratch-state refuses: the app has no bundle id, so what the system keeps for it can't be told from the person's"
+        }
+        if id.hasSuffix(scriptedSuffix) && id.count > scriptedSuffix.count { return nil }
+        return "--scratch-state refuses to run as \(id): a scripted launch runs only as a scripted copy "
+            + "(\(id)\(scriptedSuffix), made by native/apple/PlumCraftMac/scripted-app.sh), so the panels' folders, "
+            + "the recent documents and the saved state it leaves are the copy's, never the person's"
+    }
+
     /// Why the launch must not start, or nil when every location is inside one of `allowed`.
     /// Both sides are compared resolved (`resolved(_:)`); an allowed folder that resolves to `/`
     /// allows nothing.

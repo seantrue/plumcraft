@@ -159,6 +159,22 @@ def register(cls: type, args: list[str], script: str) -> int:
     text = manifest(cls, script)
     if "--print" in args:
         sys.stdout.write(text)
+        # it writes nothing, but says what register would about where it is (decision 18)
+        cached = uv_cache(_command(cls)[0])
+        if cached is not None and cached[1]:
+            print(
+                f"{script}: warning: this Python is a temporary environment in uv's cache ({cached[0]}), as `uv run --with` makes,"
+                " which uv removes when that command ends, so this manifest could never start it; register refuses to write it."
+                " Install the engine (`uv tool install <package>`) and run register from the command that installs",
+                file=sys.stderr,
+            )
+        elif cached is not None:
+            print(
+                f"{script}: warning: this Python is in uv's cache ({cached[0]}), as `uvx` and `uv tool run` make: a cache clean"
+                " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
+                " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
+                file=sys.stderr,
+            )
         return 0
     why = _unstartable(_command(cls))
     if why is not None:

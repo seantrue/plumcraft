@@ -1511,7 +1511,8 @@ impl Worker {
             if t.ready || !t.outcomes.is_empty() {
                 d.generation += 1;
                 let changed = json!({"doc": id, "domain": "engine", "gen": d.generation, "connected": d.doc.session.connected,
-                                     "label": switchboard::engine_label(&d.doc.session, d.doc.link.as_ref(), &d.doc.engine), "ready": t.ready || d.ready});
+                                     "label": switchboard::engine_label(&d.doc.session, d.doc.link.as_ref(), &d.doc.engine), "ready": t.ready || d.ready,
+                                     "warning": switchboard::engine_warning(&d.doc.session)});
                 lock(&self.shared.outbox).changed.push(changed.to_string());
             }
             if t.ready && !d.ready {
@@ -1683,8 +1684,10 @@ impl Worker {
         Box::new(move |v: Value| shared.push_reply(framed(id, tag.as_ref(), v)))
     }
 
-    /// The control channel's requests, through the same dispatcher, for the first document (the
-    /// control protocol names none), held while its engine connects.
+    /// The control channel's requests, through the same dispatcher, for the document a request
+    /// names (its top-level `doc`, as `plum_request` takes it; B83), or the first one open when
+    /// it names none; a document that isn't open is refused (`unknown_doc`), never answered for
+    /// another. Held while its engine connects.
     fn control_requests(&mut self) {
         let Some(rx) = &self.control_rx else { return };
         let requests: Vec<ControlRequest> = rx.try_iter().collect();
@@ -1693,7 +1696,7 @@ impl Worker {
                 let _ = req.reply.send(control::err("timeout: the request expired before it ran"));
                 continue;
             }
-            let id = match self.target(None) {
+            let id = match self.target(Some(&req.doc)) {
                 Ok(id) => id,
                 Err(e) => {
                     let _ = req.reply.send(e);

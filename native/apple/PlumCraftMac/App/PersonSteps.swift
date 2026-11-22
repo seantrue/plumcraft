@@ -24,9 +24,12 @@
 //   sheet-set:LABEL=VALUE    type VALUE into the sheet's field labelled LABEL (a pop-up: choose the
 //                            item with that title)
 //   sheet-press:TITLE        click the sheet's button TITLE
-//   sheet-save:PATH          the save panel's folder and name set to PATH (Save is then pressed
-//                            through accessibility: person-check-ax press)
-//   context-pick:NODE:PATH   pick PATH (`Run on/person_text`) in NODE's context menu, the menu a
+//   panel-at:PATH            the next save or open panel is set, before it shows, to open at
+//                            PATH's folder (a save panel with PATH's name); the scripted copy
+//                            only. The person check reads the panel's own fields through
+//                            accessibility and cancels: it never presses Save or Open (the
+//                            maintainer, 2026-11-21, after a save landed in ~/Documents)
+//   context-pick:NODE:PATH   pick PATH (`Run on/Person Check Text`) in NODE's context menu, the menu a
 //                            secondary click on its face shows
 //   open:PATH                open PATH as the Finder and Open Recent do
 //   dock-reopen              what a click on the Dock icon does with no window showing
@@ -38,6 +41,14 @@ import PlumCraftShell
 
 @MainActor
 enum PersonSteps {
+    /// Where the next panel opens (`panel-at:PATH`), taken once by the panel that uses it.
+    static var panelAt: URL?
+
+    static func takePanelAt() -> URL? {
+        defer { panelAt = nil }
+        return panelAt
+    }
+
     /// The graph windows, in the order their documents were opened.
     static func graphWindows() -> [GraphWindowController] {
         NSDocumentController.shared.documents.compactMap { ($0.windowControllers.first as? GraphWindowController) }
@@ -89,8 +100,13 @@ enum PersonSteps {
             return ["ok": true, "docs": .array(docs())]
         case "menu":
             guard let m = menu(at: arg) else { return ["ok": false, "error": .string("no menu \(arg)")] }
+            // Open Recent is AppKit's: its delegate fills it as opening it does (the app's own
+            // menus are the menu bar's, rebuilt for the window in use: never asked here, or the
+            // bar follows another window)
+            if arg.hasSuffix("Open Recent") { m.delegate?.menuNeedsUpdate?(m) }
             m.update()
-            return ["ok": true, "items": .array(m.items.filter { !$0.isHidden }.map { describe($0, w) })]
+            return ["ok": true, "items": .array(m.items.filter { !$0.isHidden }.map { describe($0, w) }),
+                    "recent": .array(NSDocumentController.shared.recentDocumentURLs.map { .string($0.path) })]
         case "menu-pick":
             return await pick(arg, window: w)
         case "sheet":
@@ -108,17 +124,14 @@ enum PersonSteps {
             }
             await onRunLoop { b.performClick(nil) }
             return ["ok": true]
-        case "sheet-save":
-            guard let p = w.window?.attachedSheet as? NSSavePanel else { return ["ok": false, "error": "no save panel on the window"] }
-            let u = URL(fileURLWithPath: arg)
-            // the folder and the name, as a person would choose and type them; Save is pressed from
-            // outside (the panel runs out of process; its ok(_:) called from a task's job was
-            // followed by the app's crash)
-            await onRunLoop {
-                p.directoryURL = u.deletingLastPathComponent()
-                p.nameFieldStringValue = u.lastPathComponent
+        case "panel-at":
+            // the next save or open panel opens at PATH's folder (a save panel with PATH's name),
+            // set before it is shown (GraphDocument.prepareSavePanel, Asks): the scripted copy only
+            guard ScratchGuard.bundleRefusal(Bundle.main.bundleIdentifier) == nil else {
+                return ["ok": false, "error": "panel-at: only the scripted copy points its panels"]
             }
-            return ["ok": true, "name": .string(p.nameFieldStringValue), "folder": .string(p.directoryURL?.path ?? "")]
+            panelAt = URL(fileURLWithPath: arg)
+            return ["ok": true]
         case "open":
             let url = URL(fileURLWithPath: arg).standardizedFileURL
             let r: [String: JSONValue] = await withCheckedContinuation { c in
@@ -134,7 +147,7 @@ enum PersonSteps {
             return r
         case "context-pick":
             // NODE:PATH: the node's context menu as the app builds it for a secondary click, and
-            // the item at PATH (`Run on/person_text`) picked in it
+            // the item at PATH (`Run on/Person Check Text`) picked in it
             let (node, path) = split(arg)
             guard let m = w.canvasView?.model, let items = try? await m.contextMenu(["kind": "node", "node": .string(node)]) else {
                 return ["ok": false, "error": .string("no context menu for \(node)")]
@@ -227,7 +240,9 @@ enum PersonSteps {
         if mi.isSeparatorItem { return ["separator": true] }
         if mi.isSectionHeader { return ["heading": .string(mi.title)] }
         return ["title": .string(mi.title), "enabled": .bool(enabled(mi, w)), "tooltip": mi.toolTip.map(JSONValue.string) ?? .null,
-                "checked": .bool(mi.state == .on), "submenu": .bool(mi.submenu != nil)]
+                "checked": .bool(mi.state == .on), "submenu": .bool(mi.submenu != nil),
+                // the item's image as drawn (a warned engine's symbol carries its warning)
+                "image": mi.image.map { .string($0.accessibilityDescription ?? "image") } ?? .null]
     }
 
     /// Where a pick of `mi` goes: its target, AppKit's answer, or the chain from `w`.

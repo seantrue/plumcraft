@@ -293,8 +293,21 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         if mi.title != title { mi.title = title }
         let state: NSControl.StateValue = it.checked == true ? .on : .off
         if mi.state != state { mi.state = state }
-        let tip = it.enabled ? it.hover : (it.reason ?? it.hover)
+        let tip = it.enabled ? (it.warning ?? it.hover) : (it.reason ?? it.hover)
         if mi.toolTip != tip { mi.toolTip = tip }
+        Self.markWarning(it, mi)
+    }
+
+    /// An item whose engine's manifest warned (shell-interface 12.1, decision 17): the
+    /// `exclamationmark.triangle` symbol as its image, the warning as its tooltip.
+    static func markWarning(_ it: MenuItem, _ mi: NSMenuItem) {
+        if let w = it.warning {
+            if mi.image == nil || mi.image?.accessibilityDescription != w {
+                mi.image = NSImage(systemSymbolName: "exclamationmark.triangle", accessibilityDescription: w)
+            }
+        } else if mi.image != nil {
+            mi.image = nil
+        }
     }
 
     func modelItem(_ mi: NSMenuItem) -> MenuItem? {

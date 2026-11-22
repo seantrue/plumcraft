@@ -1247,10 +1247,18 @@ impl EditorApp {
             ui.painter().circle_filled(rect.center(), 5.0, dot);
             let tokens = &self.tokens;
             let sub = status.as_ref().map(|(text, tone)| move |ui: &mut egui::Ui| engine_status_line(ui, text, *tone, tokens));
+            // decision 17: an engine in use whose manifest warned is marked here too, as in its menu
+            let warned = plumcraft_editor_core::switchboard::engine_warning(&self.doc.session);
             status_cell(
                 ui,
-                |ui| {
-                    ui.label(self.engine_short_label()).on_hover_text(self.engine_label());
+                |ui| match &warned {
+                    Some(w) => {
+                        let text = egui::RichText::new(format!("⚠ {}", self.engine_short_label())).color(self.tokens.warning);
+                        ui.label(text).on_hover_text(format!("{w}\n\n{}", self.engine_label()));
+                    }
+                    None => {
+                        ui.label(self.engine_short_label()).on_hover_text(self.engine_label());
+                    }
                 },
                 sub,
             );
@@ -1520,6 +1528,7 @@ impl EditorApp {
             source: &source,
             docs: &self.doc.session.docs.apps,
             recent_apps: &self.doc.session.docs.recent_apps,
+            engines: &self.doc.session.engines.choices,
             anim: (!self.doc.session.views.run_colors_off || self.doc.run_anim.is_replay()).then_some(&self.doc.run_anim),
             faces: &faces,
             frames: &scene.frames,

@@ -123,7 +123,31 @@ impl Capabilities {
         if kind.spawns(mode) && !self.subprocess {
             return Some("this device can't start programs".into());
         }
-        None
+        missing_program(kind, mode)
+    }
+}
+
+/// Why `kind` hosted as `mode` can't start because its program isn't there (decision 12 after
+/// the person check, B91): a built-in engine as a process or over HTTP starts its program,
+/// found beside the app or, for a cargo build, in the build's profile folder
+/// ([`engine_binary`]). Without it the hosting is offered disabled, with this reason, rather
+/// than chosen and never connecting. `None` when it is there, or the hosting starts no
+/// program of ours (compiled in, Python, an engine a manifest names, one already running).
+pub fn missing_program(kind: EngineKind, mode: Mode) -> Option<String> {
+    let exe = std::env::current_exe().ok();
+    missing_program_for(exe.as_deref(), kind, mode)
+}
+
+/// [`missing_program`] for a program at `exe` (`None`: where this one is can't be told).
+pub fn missing_program_for(exe: Option<&Path>, kind: EngineKind, mode: Mode) -> Option<String> {
+    if !matches!(mode, Mode::Rust | Mode::HttpRust) || !kind.spawns(mode) {
+        return None;
+    }
+    let (_, name, ..) = kind.binary()?;
+    let found = exe.map(|e| engine_binary_from(e, &format!("{name}{}", std::env::consts::EXE_SUFFIX)));
+    match found {
+        Some(p) if p.is_file() => None,
+        _ => Some(format!("This app doesn't include the {} engine program ({name})", kind.label())),
     }
 }
 
@@ -216,6 +240,15 @@ thread_local! {
     /// The engines manifests name. On the thread where engines are chosen and started: built at
     /// startup, read again by `engine.manifests.reload`.
     static EXTERNALS: RefCell<Vec<External>> = const { RefCell::new(Vec::new()) };
+    /// What the last [`load_manifests`] on this thread couldn't use or warned about (B87).
+    static PROBLEMS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// What the last read of the engine manifests on this thread couldn't use or warned about, one
+/// line a manifest (B87: [`crate::document::Document::offer_installs`] puts them in the engine's
+/// state and the status bar).
+pub fn manifest_problems() -> Vec<String> {
+    PROBLEMS.with_borrow(Clone::clone)
 }
 
 fn external(i: u16) -> Option<External> {
@@ -298,6 +331,7 @@ pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
         }
     }
     EXTERNALS.with_borrow_mut(|e| *e = loaded);
+    PROBLEMS.with_borrow_mut(|p| p.clone_from(&problems));
     MANIFEST_READS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
     problems
 }
@@ -1008,5 +1042,69 @@ mod tests {
         let r = link.conn.call("hello", serde_json::json!({"protocol": 2})).unwrap();
         let hello: plumcraft_proto::session::HelloReply = serde_json::from_value(r).unwrap();
         assert_eq!(hello.data.stores, [root.display().to_string()], "{hello:?}");
+    }
+
+    /// Decision 12 (B91, the core's half): a built-in engine's process or HTTP hosting is refused,
+    /// with a reason a person reads, when its program is neither beside the app nor in the
+    /// build's profile folder; an app bundle with its engines in `Contents/MacOS` and a cargo
+    /// build keep offering it; hostings that start no program of ours are never judged so.
+    #[test]
+    fn a_hosting_whose_program_is_missing_is_refused_with_the_reason() {
+        let root = plumcraft_scratch::dir("engines-missing-program");
+        let macos = root.join("Plummer.app/Contents/MacOS");
+        std::fs::create_dir_all(&macos).unwrap();
+        let app = macos.join("Plummer");
+        std::fs::write(&app, "").unwrap();
+        let name = format!("plumcraft-text-engine{}", std::env::consts::EXE_SUFFIX);
+        // the bundle without the program
+        let why = missing_program_for(Some(&app), EngineKind::Text, Mode::Rust).unwrap();
+        assert_eq!(why, "This app doesn't include the Text engine program (plumcraft-text-engine)");
+        assert!(missing_program_for(Some(&app), EngineKind::Text, Mode::HttpRust).is_some(), "HTTP starts the program too");
+        assert!(missing_program_for(Some(&app), EngineKind::Array, Mode::Rust).unwrap().contains("Array engine program"));
+        assert_eq!(missing_program_for(Some(&app), EngineKind::Text, Mode::InProc), None, "compiled in: no program");
+        assert_eq!(missing_program_for(Some(&app), EngineKind::Text, Mode::Python), None, "Python's, not ours");
+        assert!(missing_program_for(None, EngineKind::Text, Mode::Rust).is_some(), "nowhere to look: missing");
+        // the bundle with it, as release.sh builds it
+        std::fs::write(macos.join(&name), "").unwrap();
+        assert_eq!(missing_program_for(Some(&app), EngineKind::Text, Mode::Rust), None);
+        // a cargo build's test program: the profile folder has it (every workspace build builds it)
+        let exe = std::env::current_exe().unwrap();
+        if profile_dir(&exe).is_some_and(|d| d.join(&name).is_file()) {
+            assert_eq!(missing_program(EngineKind::Text, Mode::Rust), None);
+            assert!(choices_for(&Capabilities::DESKTOP).iter().any(|c| c.engine == "text" && c.mode == "process"));
+        }
+        // a cargo layout without it: refused, and the Engine menu lists it disabled with the reason
+        let deps = root.join("target/debug/deps");
+        std::fs::create_dir_all(&deps).unwrap();
+        assert!(missing_program_for(Some(&deps.join("t")), EngineKind::Text, Mode::Rust).is_some());
+        std::fs::write(root.join("target/debug").join(&name), "").unwrap();
+        assert_eq!(missing_program_for(Some(&deps.join("t")), EngineKind::Text, Mode::Rust), None);
+    }
+
+    /// B87: a manifest the core can't read is said, not skipped silently: in the engine's state
+    /// (`engine.list`, `ui.inspect`), in the status bar of a document opened after the read, and
+    /// again after a reload; a read with nothing wrong clears it.
+    #[test]
+    fn an_unreadable_manifest_is_reported_to_the_person() {
+        let folder = plumcraft_scratch::dir("engines-unreadable");
+        std::fs::write(folder.join("person.toml"), "id = \"person-text\"\nmode = \"process\"\ncommand = [\"x\"]\n").unwrap();
+        let launcher = Launcher { folder: Some(folder.clone()), ..Default::default() };
+        let problems = launcher.load_manifests();
+        assert!(problems.len() == 1 && problems[0].contains("person.toml"), "{problems:?}");
+        assert_eq!(manifest_problems(), problems);
+        let mut d = crate::document::Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()));
+        d.offer_installs(&launcher);
+        let said = d.last_error.clone().unwrap_or_default();
+        assert!(said.starts_with("engine manifests: ") && said.contains("person.toml"), "{said}");
+        let listed = d.session.execute("engine.list", &serde_json::Value::Null).unwrap();
+        assert_eq!(listed["manifestProblems"], serde_json::json!(problems));
+        let inspected = crate::control::inspect_core(&d);
+        assert_eq!(inspected["engine"]["manifestProblems"], serde_json::json!(problems), "{}", inspected["engine"]);
+        // mended, read again: nothing to say
+        std::fs::remove_file(folder.join("person.toml")).unwrap();
+        assert_eq!(launcher.load_manifests(), Vec::<String>::new());
+        let mut fresh = crate::document::Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()));
+        fresh.offer_installs(&launcher);
+        assert_eq!((fresh.last_error.clone(), fresh.session.engines.manifest_problems.clone()), (None, Vec::<String>::new()));
     }
 }
