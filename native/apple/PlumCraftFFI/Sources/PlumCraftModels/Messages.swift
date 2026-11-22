@@ -74,7 +74,10 @@ public struct MenuItem: Codable, Hashable, Sendable, Identifiable {
     /// A toolbar button's icon (N4 slice 3): a Lucide name from the core's set.
     public var icon: String?
 
-    public var isSubmenu: Bool { submenu || !items.isEmpty }
+    /// A section (`look: section`, never a submenu): its items belong inline in the menu it is
+    /// in, under its label when it has one (the Engine menu's engines, B80).
+    public var isSection: Bool { look.word == .section && !submenu }
+    public var isSubmenu: Bool { submenu || (!items.isEmpty && !isSection) }
 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
@@ -398,7 +401,7 @@ public struct GeometrySetReply: Codable, Hashable, Sendable {
 
 // MARK: - The feed (7.1, as built on the C ABI)
 
-public enum DomainWord: String, Sendable, CaseIterable { case engine, document, menus, scene, prefs }
+public enum DomainWord: String, Sendable, CaseIterable { case engine, document, menus, scene, prefs, window }
 public typealias Domain = Open<DomainWord>
 
 /// A domain of a document that changed. Engine changes carry `connected`, `label`, `ready`; a
@@ -423,6 +426,12 @@ public struct Changed: Codable, Hashable, Sendable {
     public var autosave: AutosaveState?
     /// An engine install under way (B71): `{repo, status}`; absent or null when none is.
     public var installing: InstallState?
+    /// The `window` domain (`platform.document_windows`, contract 4.3): a document New or Open
+    /// made (`open: true`; `doc` is the new document), in document `from`, for the `person` or a
+    /// `script` (`by`), with its file (`path`) when Open made it.
+    public var open: Bool?
+    public var from: UInt64?
+    public var by: String?
 }
 
 /// An engine install under way (B71; contract 7.2's `document` domain): the repository and what

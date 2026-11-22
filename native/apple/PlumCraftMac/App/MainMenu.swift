@@ -155,7 +155,10 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         recent.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
         let r = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
         r.submenu = recent
-        let openAt = m.items.firstIndex { $0.action == #selector(NSDocumentController.openDocument(_:)) }.map { $0 + 1 } ?? m.items.count
+        // after Open… (the core's, a model item with the open role; NSDocumentController's when
+        // no document is open)
+        let openAt = m.items.firstIndex { $0.action == #selector(NSDocumentController.openDocument(_:)) || modelItem($0)?.role?.word == .open }
+            .map { $0 + 1 } ?? m.items.count
         m.insertItem(r, at: openAt)
         let close = NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
         m.insertItem(close, at: openAt + 1)
@@ -184,6 +187,13 @@ final class MenuBar: NSObject, NSMenuItemValidation {
             }
             // the application menu has Settings…; the bar's own place for it is dropped
             if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about { continue }
+            if it.isSection {
+                // B80: inline, under its heading (it was an untitled submenu holding every engine)
+                if !(m.items.last?.isSeparatorItem ?? true) { m.addItem(.separator()) }
+                if !it.label.isEmpty { m.addItem(NSMenuItem.sectionHeader(title: it.label)) }
+                fillSection(m, it.items, path: key)
+                continue
+            }
             if it.isSubmenu {
                 let sub = NSMenu(title: it.label)
                 let mi = NSMenuItem(title: it.label, action: nil, keyEquivalent: "")
@@ -198,12 +208,20 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         while m.items.last?.isSeparatorItem == true { m.removeItem(at: m.items.count - 1) }
     }
 
+    /// A section's items, appended where the section is (their model keys under the section's).
+    private func fillSection(_ m: NSMenu, _ list: [MenuItem], path: String) {
+        let sub = NSMenu()
+        fill(sub, list, path: path)
+        for mi in sub.items {
+            sub.removeItem(mi)
+            m.addItem(mi)
+        }
+    }
+
     /// One model item as an NSMenuItem: a role the Mac places is its standard action; anything
     /// else dispatches its command through `run(_:)`.
     private func item(_ it: MenuItem, key: String) -> NSMenuItem {
         let action: Selector = switch it.role?.word {
-        case .new?: #selector(NSDocumentController.newDocument(_:))
-        case .open?: #selector(NSDocumentController.openDocument(_:))
         case .save?: #selector(NSDocument.save(_:))
         case .saveAs?: #selector(NSDocument.saveAs(_:))
         case .undo?: #selector(UndoActions.undo(_:))
@@ -336,14 +354,8 @@ final class MenuBar: NSObject, NSMenuItemValidation {
             v.openPalette()
             return
         }
-        if command == "graph.new" {
-            NSDocumentController.shared.newDocument(nil)
-            return
-        }
-        if command == "graph.open" {
-            NSDocumentController.shared.openDocument(nil)
-            return
-        }
+        // New and Open are the core's (decision 20, platform.document_windows): it makes the
+        // document and the feed's window domain brings its window (DocumentWindows)
         Task {
             do {
                 _ = try await model.activate(it, person: true)

@@ -557,6 +557,7 @@ mod tests {
                 offered_views: &[],
                 tools: Default::default(),
                 channel: None,
+                grid_col: None,
             }
         }
         let mut view = Yaml::default();

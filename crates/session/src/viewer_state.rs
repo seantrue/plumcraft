@@ -12,8 +12,10 @@
 //!   (continuous motion, as a picture's scroll is); what is asked of it is here.
 //! - `viewer.picture {popout, channel?}`: all channels, or one (`r`, `g`, `b`, `a`), or the colour
 //!   without alpha (`rgb`).
-//! - `viewer.grid {popout, plane?, page?}`: the plane of a 3-D or deeper array shown as a grid,
-//!   and its page of rows.
+//! - `viewer.grid {popout, plane?, page?, col?, cols?}`: the plane of a 3-D or deeper array shown
+//!   as a grid, its page of rows, and its window of columns ([`GRID_COLUMNS`] at a time, from a
+//!   multiple of it: `col` names a column to show, `cols` steps `next`, `prev`, `first` or `last`;
+//!   decision 26, N4 person gate: which columns are shown is the core's, not each shell's).
 //! - `viewer.hex {popout, page?}`: the page of a value's bytes shown.
 //!
 //! Where the line falls between a command and the shell's own motion: anything that changes what
@@ -31,6 +33,8 @@ use crate::{Result, Session, SessionError};
 
 /// Rows of a table (or of an array's grid) on one page.
 pub const TABLE_PAGE: u64 = 500;
+/// Columns of an array's grid shown at once: the window `viewer.grid {col, cols}` moves.
+pub const GRID_COLUMNS: u64 = 64;
 /// Bytes of a hex view on one page.
 pub const HEX_PAGE: u64 = 4096;
 /// The most outline members kept open.
@@ -89,6 +93,8 @@ pub struct ViewerState {
     pub channel: Channel,
     /// The plane of an array shown as a grid.
     pub plane: u64,
+    /// The first column of an array's grid shown, a multiple of [`GRID_COLUMNS`].
+    pub col: u64,
     /// The page of a hex view shown.
     pub hex_page: u64,
     /// Rises with every seek or play: a shell restarts its clock from `at_ms` when it does.
@@ -110,6 +116,7 @@ impl Default for ViewerState {
             level: 100,
             channel: Channel::Rgba,
             plane: 0,
+            col: 0,
             hex_page: 0,
             seq: 0,
         }
@@ -124,7 +131,7 @@ impl ViewerState {
             "tree": {"expanded": self.expanded},
             "audio": {"playing": self.playing, "at": self.at_ms as f64 / 1000.0, "loop": self.looped, "level": f64::from(self.level) / 100.0, "seq": self.seq},
             "picture": {"channel": self.channel},
-            "grid": {"plane": self.plane, "page": self.page, "pageRows": TABLE_PAGE},
+            "grid": {"plane": self.plane, "page": self.page, "pageRows": TABLE_PAGE, "col": self.col, "colsShown": GRID_COLUMNS},
             "hex": {"page": self.hex_page, "pageBytes": HEX_PAGE},
         })
     }
@@ -271,9 +278,21 @@ fn picture(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn grid(s: &mut Session, p: &Value) -> Result<Value> {
-    only(p, "viewer.grid", &["plane", "page"])?;
+    only(p, "viewer.grid", &["plane", "page", "col", "cols"])?;
     let plane = whole(p, "plane", u64::from(u32::MAX))?;
     let page = whole(p, "page", u64::from(u32::MAX))?;
+    let col = whole(p, "col", u64::from(u32::MAX))?;
+    let step = match p.get("cols") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(w)) if ["next", "prev", "first", "last"].contains(&w.as_str()) => Some(w.clone()),
+        Some(_) => return Err(SessionError::Params("\"cols\" is next, prev, first or last".into())),
+    };
+    if col.is_some() && step.is_some() {
+        return Err(SessionError::Params("viewer.grid takes col or cols, not both".into()));
+    }
+    // the array's columns, where its shape is known before its bytes are read: the window never
+    // starts past the last one (viewer.data holds it there too, for a value not yet shaped)
+    let total = p.get("popout").and_then(Value::as_u64).and_then(|id| grid_columns(s, id));
     let (id, st) = state_mut(s, p)?;
     if let Some(n) = plane {
         st.plane = n;
@@ -281,7 +300,33 @@ fn grid(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(n) = page {
         st.page = n;
     }
-    Ok(json!({"popout": id, "plane": st.plane, "page": st.page}))
+    let last = total.map(last_window);
+    let mut c = st.col;
+    match (col, step.as_deref()) {
+        (Some(n), _) => c = n - n % GRID_COLUMNS,
+        (_, Some("next")) => c = c.saturating_add(GRID_COLUMNS),
+        (_, Some("prev")) => c = c.saturating_sub(GRID_COLUMNS),
+        (_, Some("first")) => c = 0,
+        (_, Some("last")) => c = last.unwrap_or(c),
+        _ => {}
+    }
+    st.col = last.map_or(c, |l| c.min(l));
+    Ok(json!({"popout": id, "plane": st.plane, "page": st.page, "col": st.col}))
+}
+
+/// The first column of the last window of an array `cols` wide.
+pub fn last_window(cols: u64) -> u64 {
+    let l = cols.saturating_sub(1);
+    l - l % GRID_COLUMNS
+}
+
+/// The columns of pop-out `id`'s array, from the shape its value says (`[rows, cols, …]`).
+fn grid_columns(s: &Session, id: u64) -> Option<u64> {
+    let (_, d) = s.run.entry(crate::run::WatchRole::Popout(id))?;
+    match &d?.full.as_ref()?.meta.form {
+        plumcraft_proto::data::Form::Array { shape, .. } => Some(shape.get(1).copied().unwrap_or(1)),
+        _ => None,
+    }
 }
 
 fn hex(s: &mut Session, p: &Value) -> Result<Value> {
@@ -328,7 +373,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         spec(
             "viewer.grid",
             "Grid Plane",
-            "{popout, plane?, page?} -> {popout, plane, page}: the plane of a 3-D or deeper array a pop-out's grid shows, and its page of 500 rows; viewer.data {part: \"grid\"} reads them",
+            "{popout, plane?, page?, col?, cols?: \"next\" | \"prev\" | \"first\" | \"last\"} -> {popout, plane, page, col}: the plane of a 3-D or deeper array a pop-out's grid shows, its page of 500 rows, and its window of 64 columns (col: a column to show, from the multiple of 64 at or below it; cols: a step; never past the last window); viewer.data {part: \"grid\"} reads them",
             grid,
         ),
         spec(
@@ -353,6 +398,47 @@ mod tests {
         let inside = "/a/".to_owned();
         st.expanded.retain(|e| e != "/a" && !e.starts_with(&inside));
         assert_eq!(st.expanded.iter().cloned().collect::<Vec<_>>(), vec!["".to_owned(), "/ab".to_owned()]);
+    }
+
+    /// Decision 26 (N4 person gate): `viewer.grid {col, cols}` moves the grid's window of columns
+    /// by whole windows, from multiples of 64; refuses what isn't a column or a step, and both.
+    #[test]
+    fn the_grids_window_of_columns_steps_and_refuses_junk() {
+        let mut s = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
+        s.views.popouts.push(crate::view_cmds::Popout {
+            id: 7,
+            viewer: Some("array.grid".into()),
+            tools: Default::default(),
+            raised: 0,
+            text: Default::default(),
+            fit: None,
+            state: ViewerState::default(),
+        });
+        let mut col = |p: Value| grid(&mut s, &p).map(|r| r["col"].as_u64().unwrap_or(u64::MAX));
+        assert_eq!(col(json!({"popout": 7})).unwrap(), 0);
+        assert_eq!(col(json!({"popout": 7, "cols": "next"})).unwrap(), 64);
+        assert_eq!(col(json!({"popout": 7, "cols": "next"})).unwrap(), 128, "no shape known yet: viewer.data holds it to the last window");
+        assert_eq!(col(json!({"popout": 7, "cols": "prev"})).unwrap(), 64);
+        assert_eq!(col(json!({"popout": 7, "col": 200})).unwrap(), 192, "the window that shows column 200");
+        assert_eq!(col(json!({"popout": 7, "cols": "first"})).unwrap(), 0);
+        assert_eq!(col(json!({"popout": 7, "cols": "prev"})).unwrap(), 0);
+        for bad in [
+            json!({"popout": 7, "cols": "up"}),
+            json!({"popout": 7, "cols": 1}),
+            json!({"popout": 7, "col": -1}),
+            json!({"popout": 7, "col": 1.5}),
+            json!({"popout": 7, "col": u64::MAX}),
+            json!({"popout": 7, "col": 3, "cols": "next"}),
+            json!({"popout": 7, "firstCol": 3}),
+            json!({"popout": 8, "cols": "next"}),
+        ] {
+            assert!(grid(&mut s, &bad).is_err(), "{bad}");
+        }
+        assert_eq!(s.views.popouts[0].state.col, 0, "a refusal changes nothing");
+        assert_eq!(last_window(0), 0);
+        assert_eq!(last_window(64), 0);
+        assert_eq!(last_window(65), 64);
+        assert_eq!(last_window(150), 128);
     }
 
     #[test]

@@ -1266,6 +1266,37 @@
       ]
     },
     {
+      "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
+      "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
+      "half": "read",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "width", "value": 150}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "height", "value": 8}}},
+        {"gesture": {"kind": "doubleTap", "at": {"$locate": {"node": "$m", "pin": {"side": "out", "index": 0}}}, "slop": 4}, "expect": {"/result/commands/0/command": "view.popout", "/result/commands/0/ok": true}, "save": {"p": "/result/commands/0/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/form/shape/1": 150}, "timeout": 120, "expect": {"/result/state/grid/col": 0, "/result/state/grid/colsShown": 64}},
+        {"call": "command.run", "params": {"command": "view.viewer", "params": {"popout": "$p", "viewer": "array.grid"}}},
+        {"call": "viewer.data", "params": {"popout": "$p", "part": "grid"}, "until": {"/result/status": {"$one": ["ready", "failed", "missing"]}}, "timeout": 120, "expect": {"/result/status": "ready", "/result/cols": 150, "/result/firstCol": 0, "/result/endCol": 64, "/result/colsShown": 64, "/result/prevCols": false, "/result/nextCols": true, "/result/cells/0": {"$len": 64}}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "next"}}, "expect": {"/result/col": 64}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "next"}}, "expect": {"/result/col": 128}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "next"}}, "expect": {"/result/col": 128}},
+        {"call": "viewer.data", "params": {"popout": "$p", "part": "grid"}, "until": {"/result/status": {"$one": ["ready", "failed", "missing"]}}, "timeout": 120, "expect": {"/result/firstCol": 128, "/result/endCol": 150, "/result/prevCols": true, "/result/nextCols": false, "/result/cells/0": {"$len": 22}}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "col": 70}}, "expect": {"/result/col": 64}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "first"}}, "expect": {"/result/col": 0}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "last"}}, "expect": {"/result/col": 128}},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/state/grid/col": 128}},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "cols": "sideways"}}, "ok": false},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "col": -64}}, "ok": false},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "col": 3, "cols": "next"}}, "ok": false},
+        {"call": "command.run", "params": {"command": "viewer.grid", "params": {"popout": "$p", "firstCol": 0}}, "ok": false},
+        {"call": "viewer.data", "params": {"popout": "$p", "part": "grid", "cols": 0}, "ok": false},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/state/grid/col": 128}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$p"}}}
+      ]
+    },
+    {
       "name": "a picture popped out by a person shows a channel, reads its own numbers and asks for detail",
       "about": "N4 slice 5: an IMAGE popped out: viewer.picture shows one channel (the state the core's), viewer.data's probe reads the picture file's own numbers at a pixel (never the 8-bit picture's), and a zoom past its pixels asks for detail (viewer.zoom detail); the picture file decodes larger on the media workers (media.get image)",
       "half": "read",
@@ -1474,6 +1505,18 @@
         {"call": "menu.get", "expect": {"/result/menus": {"$deep": {"command": "engine.install.cancel", "enabled": false}}}},
         {"call": "ui.inspect", "expect": {"/result/engine/canInstall": "$can", "/result/engine/installRefused": "$why", "/result/engine/installing": null}},
         {"call": "command.run", "params": {"command": "engine.install.cancel", "params": {}}, "ok": false}
+      ]
+    },
+    {
+      "name": "Install Engine…'s form offers the public engines as a pick list, with any other repository typed",
+      "about": "Decision 5 (N4 person gate, the maintainer: 'Add the pick-list field kind'): the form the core asks Install Engine… with has its repository as a pick field (kind pick, the public engines as choices, other: true), drawn by every shell as a pop-up or combo box beside its label with a line of text for any other; the list is the core's alone. Run where the platform can install and the core asks with its form (`install`); cancelling the ask installs nothing",
+      "half": "read",
+      "needs": ["install"],
+      "steps": [
+        {"call": "ui.invoke", "params": {"command": "engine.install"}, "expect": {"/result/asks": {"$find": {"where": {"kind": "form"}, "want": {"/params/command": "engine.install", "/params/fields/0/key": "repo", "/params/fields/0/kind": "pick", "/params/fields/0/other": true, "/params/fields/0/required": true, "/params/fields/0/choices": {"$len": 3}}}}}, "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ui.inspect", "expect": {"/result/asks/0/params/fields/0/choices": {"$find": {"where": {"value": "seantrue/plumcraft-duckdb-engine"}, "want": {"/label": "DuckDB"}}}}},
+        {"call": "ask.answer", "params": {"ask": "$a", "cancel": true}},
+        {"call": "ui.inspect", "expect": {"/result/asks": {"$len": 0}, "/result/engine/installing": null}}
       ]
     },
     {

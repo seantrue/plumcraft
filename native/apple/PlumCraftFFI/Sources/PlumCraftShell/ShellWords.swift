@@ -45,6 +45,29 @@ public enum ShellCommands {
 }
 
 public enum AskWords {
+    /// A form's pick field (`kind: "pick"`, decision 5): its choices as `(value, label, hint)`
+    /// and whether any other text may be typed (`other`).
+    public static func pick(_ field: JSONValue) -> (choices: [(value: String, label: String, hint: String?)], other: Bool)? {
+        guard field["kind"].string == "pick" else { return nil }
+        let choices = (field["choices"].array ?? []).compactMap { c -> (String, String, String?)? in
+            guard let v = c["value"].string else { return nil }
+            return (v, c["label"].string ?? v, c["hint"].string)
+        }
+        return (choices.map { (value: $0.0, label: $0.1, hint: $0.2) }, field["other"].bool ?? false)
+    }
+
+    /// What a pick field answers for the text shown: a choice's value when the text is its label
+    /// (or its value), else the text as typed.
+    public static func pickAnswer(_ field: JSONValue, shown: String) -> String {
+        guard let p = pick(field) else { return shown }
+        return p.choices.first { $0.label == shown || $0.value == shown }?.value ?? shown
+    }
+
+    /// The label a pick field shows for a value it is given (a choice's label, else the value).
+    public static func pickShown(_ field: JSONValue, value: String) -> String {
+        pick(field)?.choices.first { $0.value == value }?.label ?? value
+    }
+
     /// The Apple platforms' words for the core's answers to a `prompt` (Save, Don't Save, Cancel).
     public static func buttonTitle(_ answer: String, kind: String?) -> String {
         switch answer {

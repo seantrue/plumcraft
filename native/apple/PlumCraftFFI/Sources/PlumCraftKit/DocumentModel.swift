@@ -298,6 +298,8 @@ public final class DocumentModel {
                     Task { await refreshTheme() }
                     onPrefs?()
                 }
+            case .window?:
+                break  // the app's to follow (a new document's window), not a document's
             case nil:
                 break  // a domain this kit doesn't know: skipped
             }

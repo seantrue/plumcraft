@@ -5,13 +5,23 @@
 # run the cases over the port, quit the app by its PID, and check that the person's Library is as
 # it was (library-check.sh, B50). Local runs only (no macOS CI).
 #
-#   native/apple/PlumCraftMac/conformance.sh [read|edit|all]      (default read)
+#   native/apple/PlumCraftMac/conformance.sh [read|edit|all|gate]  (default read; gate: all, then person-check.sh)
 #   APP=path/Plummer.app native/apple/PlumCraftMac/conformance.sh all    (that app, not a fresh build)
 #
 # Prints a CASE line per case and "N of M cases passed, K skipped"; exits non-zero when one failed.
 set -euo pipefail
 half="${1:-read}"
 here="$(cd "$(dirname "$0")" && pwd)"
+# the Mac shell's gate (decision 2 after B70 to B73): every case, then the person check, which
+# launches the same build as the Finder does and uses it as a person does (person-check.sh)
+if [ "$half" = gate ]; then
+  code=0
+  "$0" all || code=1
+  derived="${DERIVED:-build}"
+  case "$derived" in /*) ;; *) derived="$here/$derived" ;; esac
+  APP="${APP:-$derived/Build/Products/Release/Plummer.app}" "$here/person-check.sh" || code=1
+  exit $code
+fi
 root="$(cd "$here/../../.." && pwd)"
 kit="$here/../PlumCraftFFI"
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-mac-conformance.XXXXXX")"
@@ -28,8 +38,12 @@ export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_
   COMMONKIT_STORE_ROOT="$scratch/store" COMMONKIT_MARK_DIR="$scratch/marks" COMMONKIT_TEST_RUN="$scratch/run" \
   PLUMCRAFT_CRAFT_ROOT="$scratch/craft"
 # B71: the engines folder is the suite's (one engine running elsewhere, `probe`), never the
-# person's ~/.config/plumcraft/engines; the runner is told (--has manifests)
-export PLUMCRAFT_ENGINE_FOLDER="$root/crates/editor-core/fixtures/conformance/engines"
+# person's ~/.config/plumcraft/engines; the runner is told (--has manifests). A copy in scratch:
+# a scripted launch refuses an engines folder outside it (decision 7), since an install registers
+# into the folder
+mkdir -p "$scratch/engines"
+cp "$root/crates/editor-core/fixtures/conformance/engines/"*.toml "$scratch/engines/"
+export PLUMCRAFT_ENGINE_FOLDER="$scratch/engines"
 
 cd "$here"
 # APP: an app already built and signed (an exported Developer ID build, say), run as it is
@@ -75,7 +89,7 @@ done
 port=$(python3 -c "import json; print(json.load(open('$status'))['port'])")
 echo "the app on the $1 engine, $2 to start when a case uses it: pid $pid, control port $port, document $doc"
 set +e
-timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests \
+timeout 600 "$runner" --port "$port" --token-file "$scratch/token" --doc "$doc" --measured --engine "$1" --engine "$2" --has manifests --has install \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?
 set -e
