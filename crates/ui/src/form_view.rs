@@ -7,7 +7,7 @@
 //! The control channel, scripts and the CLI run the command with its params directly; the form
 //! is only how a person gives them.
 
-use plumcraft_session::commands::{CommandForm, FieldKind};
+use plumcraft_session::commands::{CommandForm, FieldKind, PickChoice};
 
 use crate::EditorApp;
 
@@ -51,12 +51,12 @@ impl EditorApp {
                     for (i, (field, value)) in dialog.form.fields.iter().zip(dialog.values.iter_mut()).enumerate() {
                         let label = if field.required { format!("{} *", field.label) } else { field.label.to_owned() };
                         ui.label(label);
-                        let edit = match field.kind {
-                            FieldKind::Line => egui::TextEdit::singleline(value),
-                            FieldKind::Secret => egui::TextEdit::singleline(value).password(true),
-                            FieldKind::Text => egui::TextEdit::multiline(value).desired_rows(3),
+                        let r = match field.kind {
+                            FieldKind::Line => ui.add(egui::TextEdit::singleline(value).hint_text(field.hint).desired_width(width)),
+                            FieldKind::Secret => ui.add(egui::TextEdit::singleline(value).password(true).hint_text(field.hint).desired_width(width)),
+                            FieldKind::Text => ui.add(egui::TextEdit::multiline(value).desired_rows(3).hint_text(field.hint).desired_width(width)),
+                            FieldKind::Pick { choices, other } => pick_field(ui, (dialog.form.command, field.key), choices, other, value, field.hint, width),
                         };
-                        let r = ui.add(edit.hint_text(field.hint).desired_width(width));
                         if i == 0 && !dialog.focused {
                             r.request_focus();
                             dialog.focused = true;
@@ -98,4 +98,38 @@ impl EditorApp {
             }
         }
     }
+}
+
+/// A pick-list field (decision 5, N4 person gate; contract 11, `kind: "pick"`): a combo box of
+/// the core's choices and, with `other`, a line of text below it for any other value. `value` is
+/// the param: a choice's `value`, or what was typed. The response is the text line's (or the
+/// combo box's when there is none), so Enter in it runs the form.
+pub fn pick_field(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    choices: &[PickChoice],
+    other: bool,
+    value: &mut String,
+    hint: &str,
+    width: f32,
+) -> egui::Response {
+    let picked = choices.iter().find(|c| c.value == value.trim());
+    let shown = match picked {
+        Some(c) => c.label.to_owned(),
+        None if other && !value.trim().is_empty() => "Other".to_owned(),
+        None => "Choose…".to_owned(),
+    };
+    ui.vertical(|ui| {
+        let combo = egui::ComboBox::from_id_salt(id).selected_text(shown).width(width).show_ui(ui, |ui| {
+            for c in choices {
+                let r = ui.selectable_label(picked.is_some_and(|p| p.value == c.value), c.label);
+                let r = if c.hint.is_empty() { r } else { r.on_hover_text(c.hint) };
+                if r.clicked() {
+                    *value = c.value.to_owned();
+                }
+            }
+        });
+        if other { ui.add(egui::TextEdit::singleline(value).hint_text(hint).desired_width(width)) } else { combo.response }
+    })
+    .inner
 }

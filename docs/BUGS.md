@@ -4,6 +4,55 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B81. Opening File › Open Recent in a scripted launch of a newly built Mac app rewrites the person's recent-documents list
+
+- Reported: 2026-11-21
+- Report: found by the person check's first runs (branch `native/n4-person-gate`); recorded under the standing "record bugs"
+- Context: `native/apple/PlumCraftMac`. After a scripted launch (`--scratch-state`, which notes no recent document and keeps none, B50) of a build launched for the first time, `library-check.sh` found `~/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/com.swapwizard.plummer.mac.sfl4` rewritten: the same size, a new time and hash. Seen in four runs that filled the File › Open Recent menu (the check read its items) on a new build; not seen in two runs of the same build, nor in three runs of new builds that did not open that menu, nor in the conformance suite, which never opens it. Probably AppKit rewriting the list's properties (the code requirement it carries) when the document controller fills the menu for a new signature, which B50's fix (a count of 0) does not stop. The list's entries were not compared, only the file. Not fixed: the person check no longer opens the menu; a scripted launch could leave Open Recent's menu empty without asking the document controller to fill it.
+- Issue: none
+
+### B83. The control channel acts on the first document only, and ignores a request's `doc` without saying so
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Context: `crates/ffi/src/core.rs` `control_requests`: every request from the control port goes to `self.target(None)`, the first document open, as the comment says ("the control protocol names none"). A request that names `doc` (the Swift runner's `--doc`, the person check's first reads) gets the first document's answer, with no error. So a script reading a second window read the first, and saw "no nodes" in a graph that had two. The conformance runner's `--doc` only works because the document it names is the first. Not fixed: either the port refuses `doc` as unknown, or it takes it (the request's `doc`, as `plum_request` does); a contract decision. The person check reads other windows from the app's status file.
+- Issue: none
+
+### B84. A scripted launch that shows the Mac's Save or Open panel changes the person's defaults, or saves into their folders
+
+- Reported: 2026-11-21
+- Report: found by the person check's first runs (branch `native/n4-person-gate`), each time by the check's own doing
+- Context: AppKit's save and open panels run out of process and keep the folder they show in the app's defaults domain (`NSOSPLastRootDirectory` in `com.swapwizard.plummer.mac`), which can't be pointed elsewhere (B50). A first run pressed Save in a panel the app had been told (in process) to show in scratch: the panel, out of process, had kept the person's last folder, and the graph was saved as `Untitled.json` in that folder (a folder of the maintainer's, outside the repository; left there, not deleted). A later run started the panel in scratch (`prepareSavePanel`), which changed `NSOSPLastRootDirectory` in the person's defaults to that scratch folder (since removed); that change was not undone. Both changes are reported, not repaired. Not fixed: the person check now only opens the Save panel, reads it through accessibility and cancels it (no folder change, so no write), and answers Open through the core; a scripted launch could run under a bundle id of its own so its panels have a defaults domain of their own (a decision).
+- Issue: none
+
+### B85. Plummer crashed twice in Swift's main-actor check from an AppKit callback while a script step drove a panel from inside a task
+
+- Reported: 2026-11-21
+- Report: found by the person check's first runs (branch `native/n4-person-gate`)
+- Context: two crash reports (`Plummer-2026-11-21-210954.ips`, `…-211213.ips`, SIGSEGV): `swift_task_isCurrentExecutor` read a bad executor in `@objc CanvasView.isFlipped.getter` (during a menu's tracking) and in `@objc GraphWindowController.validateToolbarItem(_:)` (a toolbar validation timer), each right after the check's step had called the save panel's `ok(_:)` from inside the inbox's main-actor task. The likely cause: AppKit work that runs the run loop (a panel, a menu's tracking) inside a task's job lets other main-actor code run with that task's executor still current. A person's pick never runs inside a task, so this is probably the check's own defect; not shown to be impossible for the app (the `--then` steps' `menu:` and `context:` holds also run inside a task). Since the person check's steps run from the run loop itself (`PersonSteps.onRunLoop`), ten runs have not crashed.
+- Issue: none
+
+### B88. The Mac conformance case "the more-button opens the node's menu" failed once: the tap hit nothing
+
+- Reported: 2026-11-21
+- Report: the person gate branch's baseline run of `native/apple/PlumCraftMac/conformance.sh all` on the dev branch as it was (`d59d5ba`), before any change
+- Context: step 3, `ui.gesture {kind: "tap", at: [284.126, 14.0]}` on the more-button's part the shell had measured: the core answered `hit: none` and cleared the selection, so no node menu came back (54 of 55). The next three Mac runs that day passed every case. Possibly the tap arriving before the app reported the header's parts (`geometry.parts`); not looked into.
+- Issue: none
+
+### B86. A node's Run on menu names engines by their ids, not their names
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Context: `crates/editor-core/src/menu.rs`, the node context menu's Run on: an engine installed with the name "Person Check Text" is offered as `person_text`, the built-in text engine as `text`, while the Engine menu and the engine cell use names. Not fixed.
+- Issue: none
+
+### B87. An engine manifest the core can't read is skipped without a word to the person
+
+- Reported: 2026-11-21
+- Report: found by the person check (branch `native/n4-person-gate`)
+- Context: a manifest with an id the core refuses (`person-text`: "lower-case letters, digits and _, starting with a letter, at most 32") was left out of the Engine menu silently at start; only Engine › Reload Engine List's reply carries `problems`, and the Mac shows no reply. A person who installs or writes a manifest by hand sees nothing. Not fixed.
+- Issue: none
+
 ### B72. Starting a manifest engine as a process that exits at once takes 30 s to fail
 
 - Reported: 2026-11-21
@@ -42,6 +91,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-20
 - Report: "record bugs" (the maintainer's standing instruction for failures found in gate runs)
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
+- Seen again (a neighbour): 2026-11-21, `kittest_viewer_tools::a_click_pins_the_probe_and_the_command_does_the_same` failed once in a full parallel run on the Mac (the person gate branch's core work) and passed alone; the message was not kept.
 - Issue: none
 
 ### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
@@ -73,6 +123,26 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B80. The Apple apps' Engine menu put every engine in a submenu with no title
+
+- Reported: 2026-11-21
+- Report: found by the person check, the floor re-walk's first launch as a person (branch `native/n4-person-gate`)
+- Context: the core's Engine menu ends with a section (`look: "section"`, not a submenu, no label) that holds every engine (Text, Audio, Array, the craft engines, the installed ones). The kit's `MenuItem.isSubmenu` counted any item with items as a submenu, so the Mac drew the engines under a blank item at the foot of the Engine menu, and the iPad's menu bar and More menu did the same. A person saw Reconnect, Attach…, Reload Engine List, Clear Engines, Install Engine… and Cancel Install, and one unlabelled arrow: the engines, installed ones included, were there only to someone who opened it. Part of what B71's "no engines available" saw.
+- Fix: `MenuItem.isSection`; a section's items are drawn inline in the menu they are in, under a heading when it has a label (Mac menu bar and context menus, the iPad's menu bar and More menu).
+- Verified: the person check lists the Engine menu as AppKit validated it: every engine by name at the menu's level, the installed one with them, no untitled item (`native/apple/PlumCraftMac/person-check.sh`). The iPad's drawing was built for the simulator and a device (iOS Release) but not looked at.
+- Fixed: 2026-11-21
+- Issue: none
+
+### B82. The Mac's Install Engine… form cut its hint off
+
+- Reported: 2026-11-21
+- Report: the person check's picture of the Install sheet (branch `native/n4-person-gate`)
+- Context: the repository field's hint, "owner/repo or https://github.com/owner/repo", was wider than the field (280 points), so a person read "…github.com/owner/".
+- Fix: a form's fields are as wide as their longest hint needs, up to 440 points, and every field carries its whole hint as its tooltip (`native/apple/PlumCraftMac/App/Asks.swift`).
+- Verified: the person check's picture of the sheet (`claude-debug/native-n4-person-gate.md`).
+- Fixed: 2026-11-21
+- Issue: none
 
 ### B73. The Mac app's forms put every label above the wrong field, the first one clipped
 

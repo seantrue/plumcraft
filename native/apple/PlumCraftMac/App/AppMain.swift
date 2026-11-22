@@ -24,7 +24,8 @@
 //                                 left alone; `-ApplePersistenceIgnoreState YES` would do it too,
 //                                 but AppKit then offers the `YES` as a file to open). A scripted
 //                                 launch: it refuses to start unless everything it would write
-//                                 (the store, marks, caches, log, preferences, craft root) is
+//                                 (the store, marks, caches, log, preferences, craft root, the
+//                                 engines folder) is
 //                                 inside --scratch-root or the system's temporary folder
 //   --scratch-root D              a scratch folder outside the temporary folder that a scripted
 //                                 launch may write in (default: none, only the temporary folder)
@@ -182,8 +183,11 @@ enum CoreHost {
         config.moreContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
         config.reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
         config.reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
+        // document_windows (decision 20, "Mac adopts it"): New and Open in a window are the
+        // core's commands, and the feed's `window` domain says which windows to make
+        // (DocumentWindows); NSDocument keeps the title bar, Save, Revert, close and Quit
         config.platform = ["os": "macos", "subprocess": true, "craft_apps": true, "python": true, "multi_window": true,
-                           "pointer": true, "keyboard": true, "hover": true]
+                           "pointer": true, "keyboard": true, "hover": true, "document_windows": true]
         config.displayScale = Double(NSScreen.main?.backingScaleFactor ?? 2)
         config.frameMs = 8.3
         config.engine = options.engine
@@ -204,6 +208,7 @@ enum CoreHost {
         do {
             let (c, r) = try ShellCore.open(config)
             core = c
+            DocumentWindows.follow(c)
             ready = Task {
                 let port = await r.value
                 if let port { Status.shared.set("port", .uint(port)) }
@@ -305,6 +310,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .init("PLUMCRAFT_CRAFT_ROOT", env["PLUMCRAFT_CRAFT_ROOT"],
                   ifUnset: "the craft apps' stores would go to ~/Library/Caches/plumcraft/craft"),
             .init("COMMONKIT_TEST_RUN", env["COMMONKIT_TEST_RUN"]),
+            // decision 7 ("Refuse without a scratch engines folder"): the engines folder the core
+            // reads manifests from and Install Engine… registers into (B71) is the person's
+            // ~/.config/plumcraft/engines unless named; the app sets no dirs.engines of its own
+            .init("PLUMCRAFT_ENGINE_FOLDER", env["PLUMCRAFT_ENGINE_FOLDER"],
+                  ifUnset: "the engines folder would be the person's ~/.config/plumcraft/engines (an install would register there)"),
             .init(options.storeRoot == nil ? "the store root (the caches' store)" : "--store-root", l.store),
             .init("the caches folder", l.caches),
             .init("the log folder", l.logs),
@@ -356,7 +366,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// left and closed): the graphs' windows come back, or, with none open, a new graph, so a
     /// running app is never left with nothing to click (N4 slice 4).
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        if flag || CoreHost.options.scratchState { return true }
+        if CoreHost.options.scratchState { return true }
+        return reopen(hasVisibleWindows: flag)
+    }
+
+    /// What a Dock click does (the person check calls it on a scripted launch, whose own Dock
+    /// clicks are left to AppKit).
+    @discardableResult
+    func reopen(hasVisibleWindows flag: Bool) -> Bool {
+        if flag { return true }
         let docs = NSDocumentController.shared.documents
         if docs.isEmpty {
             NSDocumentController.shared.newDocument(nil)

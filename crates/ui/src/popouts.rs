@@ -30,16 +30,16 @@ pub struct PopoutWindow {
 impl EditorApp {
     /// Match the windows to the session's pop-outs, and give each its port's newest display.
     pub fn sync_popouts(&mut self, ctx: &egui::Context) {
-        let open: Vec<(u64, Option<String>, _, _)> = self
+        let open: Vec<(u64, Option<String>, _, _, _)> = self
             .session
             .views
             .popouts
             .iter_mut()
-            .map(|o| (o.id, o.viewer.clone(), plumcraft_session::viewer_cmds::Tools { zoom: o.tools.zoom.take(), ..o.tools }, o.state.channel))
+            .map(|o| (o.id, o.viewer.clone(), plumcraft_session::viewer_cmds::Tools { zoom: o.tools.zoom.take(), ..o.tools }, o.state.channel, o.state.col))
             .collect();
         self.popouts.retain(|w| open.iter().any(|(id, ..)| *id == w.id));
         let source = self.source();
-        for (id, viewer, tools, channel) in open {
+        for (id, viewer, tools, channel, col) in open {
             let role = WatchRole::Popout(id);
             let (title, display) = match self.doc.session.run.entry(role) {
                 Some((w, d)) => (format!("{}.{}", w.node, w.port), d.cloned()),
@@ -57,6 +57,7 @@ impl EditorApp {
             w.title = title;
             w.pane.chosen = viewer;
             w.pane.channel = Some(channel);
+            w.pane.grid_col = Some(col);
             if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
                 self.doc.rerun_pending = true;
             }

@@ -448,13 +448,21 @@ fn parse(ask: &Ask, v: &Value) -> Result<Answer, String> {
         Kind::Form => {
             let o = fields(v, &["values"])?;
             let values = o.get("values").and_then(Value::as_object).ok_or("values must be an object of text by field key")?;
-            let keys: Vec<&str> =
-                ask.params.get("fields").and_then(Value::as_array).into_iter().flatten().filter_map(|f| f.get("key").and_then(Value::as_str)).collect();
+            let fields: Vec<&Value> = ask.params.get("fields").and_then(Value::as_array).into_iter().flatten().collect();
             for (k, v) in values {
-                if !keys.contains(&k.as_str()) {
+                let Some(field) = fields.iter().find(|f| f.get("key").and_then(Value::as_str) == Some(k.as_str())) else {
                     return Err(format!("the form has no field {:?}", k.chars().take(64).collect::<String>()));
+                };
+                let text = text_of(Some(v), k)?;
+                // a pick list without other text takes one of its own choices (decision 5)
+                if field.get("kind").and_then(Value::as_str) == Some("pick") && field.get("other").and_then(Value::as_bool) != Some(true) {
+                    let t = text.trim();
+                    let offered =
+                        field.get("choices").and_then(Value::as_array).into_iter().flatten().any(|c| c.get("value").and_then(Value::as_str) == Some(t));
+                    if !t.is_empty() && !offered {
+                        return Err(format!("{k} must be one of the choices offered"));
+                    }
                 }
-                text_of(Some(v), k)?;
             }
             Ok(Answer::Values(values.clone()))
         }
@@ -530,7 +538,10 @@ mod tests {
         let save = q.raise(Kind::FileSave, json!({}), By::Script, ()).0;
         let open = q.raise(Kind::FileOpen, json!({"multiple": false}), By::Script, ()).0;
         let prompt = q.raise(Kind::Prompt, json!({"answers": ["save", "discard", "cancel"]}), By::Script, ()).0;
-        let form = q.raise(Kind::Form, json!({"fields": [{"key": "name"}]}), By::Script, ()).0;
+        // a pick list without other text (decision 5) and one with it
+        let fields = json!([{"key": "name"}, {"key": "pick", "kind": "pick", "choices": [{"value": "a/one"}, {"value": 3}], "other": false},
+                            {"key": "free", "kind": "pick", "choices": "junk", "other": true}]);
+        let form = q.raise(Kind::Form, json!({"fields": fields}), By::Script, ()).0;
         let bad: Vec<(AskId, Value)> = vec![
             (save, json!(null)),
             (save, json!([1])),
@@ -550,6 +561,9 @@ mod tests {
             (form, json!({"values": {"nope": "x"}})),
             (form, json!({"values": {"name": 1}})),
             (form, json!({"values": []})),
+            (form, json!({"values": {"pick": "a/two"}})),
+            (form, json!({"values": {"pick": "3"}})),
+            (form, json!({"values": {"pick": ["a/one"]}})),
         ];
         for (id, v) in bad {
             let r = q.answer(id, &v);
@@ -558,7 +572,7 @@ mod tests {
         assert_eq!(q.len(), 4, "every ask is still open");
         assert!(q.answer(open, &json!({"paths": ["/a"]})).is_ok());
         assert!(q.answer(prompt, &json!({"answer": "discard"})).is_ok());
-        assert!(q.answer(form, &json!({"values": {"name": "Ada"}})).is_ok());
+        assert!(q.answer(form, &json!({"values": {"name": "Ada", "pick": " a/one ", "free": "any/thing"}})).is_ok());
     }
 
     #[test]

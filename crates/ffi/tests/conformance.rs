@@ -138,7 +138,8 @@ fn the_suite_passes_through_the_c_abi() {
     let arrays: Vec<String> = conformance::cases()
         .unwrap()
         .into_iter()
-        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array"))))
+        // and those for Install Engine…'s form (`install`: this core is not on a platform that installs engines)
+        .filter(|c| c["needs"].as_array().is_some_and(|n| n.contains(&serde_json::json!("engine:array")) || n.contains(&serde_json::json!("install"))))
         .filter_map(|c| c["name"].as_str().map(str::to_owned))
         .collect();
     assert!(arrays.len() >= 5);

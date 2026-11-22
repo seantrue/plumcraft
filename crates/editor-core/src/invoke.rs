@@ -596,7 +596,10 @@ pub fn engine_form(command: &str) -> Option<plumcraft_session::commands::Command
             command: "engine.install",
             title: "Install Engine",
             intro: "Download a Python engine from GitHub and install it. It runs the package's code: install only what you trust.",
-            fields: vec![line("repo", "Repository", "owner/repo or https://github.com/owner/repo", true)],
+            fields: vec![FormField {
+                kind: FieldKind::Pick { choices: crate::install::KNOWN_ENGINES, other: true },
+                ..line("repo", "Repository", "owner/repo or https://github.com/owner/repo", true)
+            }],
             submit: "Install",
             prefill: None,
         }),
@@ -614,8 +617,15 @@ pub fn form_params(form: &plumcraft_session::commands::CommandForm, values: &[St
                 FieldKind::Line => "line",
                 FieldKind::Secret => "secret",
                 FieldKind::Text => "text",
+                FieldKind::Pick { .. } => "pick",
             };
-            json!({"key": f.key, "label": f.label, "hint": f.hint, "kind": kind, "required": f.required})
+            let mut field = json!({"key": f.key, "label": f.label, "hint": f.hint, "kind": kind, "required": f.required});
+            // a pick list (decision 5): its choices in order, and whether other text is taken
+            if let FieldKind::Pick { choices, other } = f.kind {
+                field["choices"] = choices.iter().map(|c| json!({"value": c.value, "label": c.label, "hint": c.hint})).collect();
+                field["other"] = json!(other);
+            }
+            field
         })
         .collect();
     let values: Map<String, Value> = form.fields.iter().zip(values).map(|(f, v)| (f.key.to_owned(), json!(v))).collect();

@@ -32,7 +32,9 @@ trap cleanup EXIT INT TERM
 p="${PREFIX:-s4}"
 export PLUMCRAFT_EDITOR_PREFS="$scratch/prefs.json" COMMONKIT_HASH=b3 COMMONKIT_STORE_MIN_FREE_GB=2 \
   COMMONKIT_STORE_ROOT="$scratch/store" COMMONKIT_MARK_DIR="$scratch/marks" COMMONKIT_TEST_RUN="$scratch/run" \
-  PLUMCRAFT_CRAFT_ROOT="$scratch/craft"
+  PLUMCRAFT_CRAFT_ROOT="$scratch/craft" PLUMCRAFT_ENGINE_FOLDER="$scratch/engines"
+# a scripted launch refuses without an engines folder of its own (decision 7): an empty one
+mkdir -p "$scratch/engines"
 args=(--bench "$out/$p-bench-$n.json" --nodes "$n" --wires "$m" --phase-seconds "$secs" --status-file "$scratch/status.json"
       --store-root "$scratch/store" --scratch-state --no-open-panel)
 # EXTRA: more app arguments (say --engines-also none, to compare)

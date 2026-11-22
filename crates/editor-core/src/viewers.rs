@@ -19,11 +19,9 @@ use plumcraft_proto::data::{DataRef, Form};
 use plumcraft_proto::display::{Display, Rendition};
 use plumcraft_session::Session;
 use plumcraft_session::run::WatchRole;
-use plumcraft_session::viewer_state::{HEX_PAGE, TABLE_PAGE, ViewerState};
+use plumcraft_session::viewer_state::{GRID_COLUMNS, HEX_PAGE, TABLE_PAGE, ViewerState, last_window};
 use serde_json::{Map, Value, json};
 
-/// The most columns a grid page carries.
-pub const GRID_COLUMNS: usize = 64;
 /// The most children of one outline member listed (the rest are counted).
 pub const MAX_CHILDREN: usize = 1000;
 /// The most characters of YAML given.
@@ -194,10 +192,10 @@ fn whole(p: &Value, k: &str) -> Result<Option<u64>, String> {
 
 /// `viewer.data {popout, part, …}`: a page of what a pop-out's viewer shows (module docs).
 /// Parts: `table` (the state's sort and page), `tree` (every open member's children), `grid` (the
-/// state's plane and page; `cols?` from the first), `hex` (the state's page), `probe` (`row`, `col`:
+/// state's plane, page and window of columns), `hex` (the state's page), `probe` (`row`, `col`:
 /// the exact values there), `yaml`.
 pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<Value, String> {
-    crate::control::check_fields(params, &["popout", "part", "row", "col", "cols"])?;
+    crate::control::check_fields(params, &["popout", "part", "row", "col"])?;
     let id = params.get("popout").and_then(Value::as_u64).ok_or("popout must be a pop-out's id")?;
     let o = session.views.popout(id).ok_or_else(|| format!("no pop-out {id}"))?;
     let (_, d) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
@@ -207,7 +205,7 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
         "table" => table(d, media, &o.state),
         "tree" => tree(d, media, &o.state),
         "yaml" => yaml(d, media),
-        "grid" => grid(d, media, &o.state, whole(params, "cols")?.unwrap_or(0)),
+        "grid" => grid(d, media, &o.state),
         "hex" => hex(d, media, o.state.hex_page),
         "probe" => {
             let row = whole(params, "row")?.ok_or("probe needs row and col")?;
@@ -370,7 +368,7 @@ fn array_bytes(d: &Display, media: &MediaService) -> Result<(Arc<plumcraft_store
     }
 }
 
-fn grid(d: &Display, media: &MediaService, st: &ViewerState, first_col: u64) -> Value {
+fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
     let (b, names) = match array_bytes(d, media) {
         Ok(x) => x,
         Err(e) => return e,
@@ -392,8 +390,9 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState, first_col: u64) -> 
     let page = st.page.min(pages - 1);
     let start = page * TABLE_PAGE;
     let end = (start + TABLE_PAGE).min(rows);
-    let c0 = first_col.min(cols.saturating_sub(1));
-    let c1 = (c0 + GRID_COLUMNS as u64).min(cols);
+    // the core's window of columns (viewer.grid {col, cols}; decision 26), held to the last one
+    let c0 = st.col.min(last_window(cols));
+    let c1 = (c0 + GRID_COLUMNS).min(cols);
     let int = dtype.integer();
     let mut cells = Vec::new();
     for r in start..end {
@@ -407,7 +406,8 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState, first_col: u64) -> 
     }
     let plane_name = names.get(plane as usize).cloned();
     json!({"shape": shape, "dtype": b.dtype, "rows": rows, "cols": cols, "planes": planes, "plane": plane, "planeName": plane_name,
-           "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start, "firstCol": c0, "cells": cells})
+           "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start, "end": end,
+           "firstCol": c0, "endCol": c1, "colsShown": GRID_COLUMNS, "prevCols": c0 > 0, "nextCols": c1 < cols, "cells": cells})
 }
 
 fn hex(d: &Display, media: &MediaService, page: u64) -> Value {
@@ -543,7 +543,7 @@ mod tests {
         let (m, r) = media_with(vec![1, 2, 3], "<f4", vec![2, 2]);
         let mut a = display(Media::Ndarray, None);
         a.full = Some(r);
-        assert_eq!(until(|| grid(&a, &m, &ViewerState::default(), 0))["status"], "failed");
+        assert_eq!(until(|| grid(&a, &m, &ViewerState::default()))["status"], "failed");
         assert!(until(|| hex(&a, &m, 0))["lines"][0].as_str().unwrap().starts_with("00000000  01 02 03"));
     }
 
@@ -569,9 +569,32 @@ mod tests {
         let mut d = display(Media::Ndarray, None);
         d.full = Some(r);
         let mut st = ViewerState { plane: 1, ..Default::default() };
-        let g = until(|| grid(&d, &m, &st, 0));
+        let g = until(|| grid(&d, &m, &st));
         assert_eq!(g["cells"][1][2], "13");
         st.plane = 9;
-        assert_eq!(until(|| grid(&d, &m, &st, 2))["plane"], 1);
+        assert_eq!(until(|| grid(&d, &m, &st))["plane"], 1);
+    }
+
+    /// Decision 26 (N4 person gate): which columns a grid shows is the core's window, 64 at a
+    /// time, never past the last one, with whether there is more either side.
+    #[test]
+    fn a_wide_grid_shows_the_cores_window_of_columns() {
+        let (rows, cols) = (2u64, 150u64);
+        let vals: Vec<u8> = (0..rows * cols).flat_map(|i| (i as f32).to_le_bytes()).collect();
+        let (m, r) = media_with(vals, "<f4", vec![rows, cols]);
+        let mut d = display(Media::Ndarray, None);
+        d.full = Some(r);
+        let mut st = ViewerState::default();
+        let g = until(|| grid(&d, &m, &st));
+        assert_eq!((g["firstCol"].as_u64(), g["endCol"].as_u64(), g["cols"].as_u64()), (Some(0), Some(64), Some(150)));
+        assert_eq!((g["prevCols"].as_bool(), g["nextCols"].as_bool(), g["colsShown"].as_u64()), (Some(false), Some(true), Some(64)));
+        assert_eq!(g["cells"][0].as_array().map(Vec::len), Some(64));
+        st.col = 128;
+        let g = until(|| grid(&d, &m, &st));
+        assert_eq!((g["firstCol"].as_u64(), g["endCol"].as_u64(), g["nextCols"].as_bool()), (Some(128), Some(150), Some(false)));
+        assert_eq!(g["cells"][1][0], "278", "row 1, column 128");
+        // a window past the end (a value replaced by a narrower one) is held to the last
+        st.col = 1 << 20;
+        assert_eq!(until(|| grid(&d, &m, &st))["firstCol"], 128);
     }
 }

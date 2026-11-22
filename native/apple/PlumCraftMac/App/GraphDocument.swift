@@ -43,6 +43,16 @@ final class GraphDocument: NSDocument {
 
     /// The core's dirty state, as the feed said it.
     func follow(_ st: DocumentState) {
+        // the core's file for this document, when the core moved it (Open into an untouched
+        // window, a script's graph.saveAs): the title, proxy icon and Save follow it
+        if let p = st.path, !p.isEmpty, fileURL?.standardizedFileURL.path != URL(fileURLWithPath: p).standardizedFileURL.path {
+            let url = URL(fileURLWithPath: p)
+            fileURL = url
+            fileType = "Plummer Graph"
+            fileModificationDate = (try? FileManager.default.attributesOfItem(atPath: p)[.modificationDate]) as? Date
+            NSDocumentController.shared.noteNewRecentDocumentURL(url)
+            for wc in windowControllers { wc.synchronizeWindowTitleWithDocumentName() }
+        }
         if st.dirty && !isDocumentEdited {
             updateChangeCount(.changeDone)
         } else if !st.dirty && isDocumentEdited {
@@ -225,8 +235,16 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             _ = await CoreHost.ready?.value
             guard let self else { return }
             do {
-                let r = try await core.request("document.open", path.map { ["path": .string($0)] } ?? [:])
-                guard let doc = r["doc"].uint64 else { throw PlumError(.decode, "document.open gave no doc") }
+                // a document the core made (New or Open in a window, DocumentWindows) is shown as
+                // it is; any other is opened in the core now
+                let doc: UInt64
+                if let made = document.doc {
+                    doc = made
+                } else {
+                    let r = try await core.request("document.open", path.map { ["path": .string($0)] } ?? [:])
+                    guard let d = r["doc"].uint64 else { throw PlumError(.decode, "document.open gave no doc") }
+                    doc = d
+                }
                 document.doc = doc
                 let model = DocumentModel(core: core, doc: doc)
                 document.model = model
@@ -673,6 +691,12 @@ final class ContextMenu: NSMenu, NSMenuItemValidation {
         for it in items {
             if it.separator {
                 if !(into.items.last?.isSeparatorItem ?? true) { into.addItem(.separator()) }
+                continue
+            }
+            if it.isSection {
+                // B80: a section's items go inline, under its heading
+                if !it.label.isEmpty { into.addItem(NSMenuItem.sectionHeader(title: it.label)) }
+                fill(into, it.items)
                 continue
             }
             let mi = NSMenuItem(title: it.label, action: it.command == nil || it.isSubmenu ? nil : #selector(choose(_:)), keyEquivalent: "")
