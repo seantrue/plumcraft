@@ -953,6 +953,26 @@ pub fn update_value(snap: &Snapshot, u: &Update) -> Value {
     update_json(snap, u)
 }
 
+/// `plum_gesture_move`'s typed answer word for word, as JSON (`geometry.dragMove`, N5 slice 4):
+/// `{status, kind, serial, dx, dy, target: {kind, nid, pin, fits, at}, rect?, value?}`, the
+/// numbers the C ABI's struct carries (`kind` 1 to 8; a target's `kind` the hit's word), so a
+/// driver over the control port checks the same as one holding the C ABI.
+pub fn typed_json(u: &Update) -> Value {
+    const KINDS: [&str; 8] = ["none", "node", "pin", "wire", "bend", "tag", "frame", "group"];
+    let t = &u.target;
+    let mut v = json!({
+        "status": 0, "kind": u.code, "serial": u.serial, "dx": u.dx, "dy": u.dy,
+        "target": {"kind": KINDS.get(t.kind as usize).copied().unwrap_or("?"), "nid": t.node, "pin": t.pin, "fits": t.fits, "at": [t.x, t.y]},
+    });
+    if let Some(r) = u.rect {
+        v["rect"] = json!([r.min.x, r.min.y, r.max.x, r.max.y]);
+    }
+    if let Some(value) = u.value {
+        v["value"] = json!(value);
+    }
+    v
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

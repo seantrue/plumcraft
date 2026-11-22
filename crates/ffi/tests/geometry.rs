@@ -193,6 +193,10 @@ fn hostile_hot_calls_get_an_error_not_a_crash() {
         ("geometry.wireTarget", json!({"at": [1, 1], "from": {"node": "n999", "side": "out", "pin": 0}})),
         ("geometry.wirePaths", json!({"nodes": "n1"})),
         ("geometry.wirePaths", json!({"nodes": [], "offset": [1]})),
+        // the typed drag move's JSON form (N5 slice 4): no drag under way, or no point
+        ("geometry.dragMove", json!({"at": [1, 1]})),
+        ("geometry.dragMove", json!({})),
+        ("geometry.dragMove", json!({"at": [1, 1], "slop": "far"})),
     ] {
         let r = c.call(m, p.clone());
         assert_eq!(r["ok"], false, "{m} {p}: {r}");

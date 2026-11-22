@@ -196,9 +196,16 @@ impl Driver for Port {
         let r = self.call("command.run", json!({"command": "geometry.set", "params": {"faces": faces}}));
         if r["ok"] == true { Ok(()) } else { Err(format!("geometry.set: {r}")) }
     }
-    /// The text engine (the core's default); the port doesn't serve `media.get`.
+    /// The text engine (the core's default), and `media.get`, which the port serves since N5
+    /// slice 4.
     fn has(&self, capability: &str) -> bool {
-        capability == "engine:text"
+        capability == "engine:text" || capability == "media"
+    }
+    /// The typed move's JSON form (`geometry.dragMove`, N5 slice 4): the suite's `hot` steps run
+    /// over the port too.
+    fn hot_move(&mut self, at: [f32; 2], slop: f32) -> Option<Value> {
+        let r = self.call("geometry.dragMove", json!({"at": at, "slop": slop}));
+        Some(if r["ok"] == true { r["result"].clone() } else { json!({"status": -1, "error": r["error"]}) })
     }
     /// A script on a socket has no wake to wait for: a moment before it asks again.
     fn pause(&mut self) {

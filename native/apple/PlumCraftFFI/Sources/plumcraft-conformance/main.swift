@@ -3,8 +3,9 @@
 //   plumcraft-conformance --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all]
 //                         [--measured] [--engine text]... [--case NAME] [--needing engine:array]
 //
-// `--measured`: the shell measures its own faces (an app with a canvas), so the suite's geometry
-// steps are skipped and each settle waits until every face is measured. Prints one CASE line per
+// `--measured`: the shell measures its own faces (an app with a canvas): the suite's geometry
+// steps report its measurements over the app's (N5 slice 4; `--own-geometry` skips them, as
+// before) and each settle waits until every face is measured. Prints one CASE line per
 // case and a summary; exits 0 when no case failed (skipped cases are reported, never passed).
 
 import Foundation
@@ -26,6 +27,7 @@ func run() async -> Int32 {
     // the app's core keeps its preferences in a file (every app launched by the scripts does);
     // --no-prefs for one that doesn't
     let prefs = !args.contains("--no-prefs")
+    let ownGeometry = args.contains("--own-geometry")
     let host = value("--host") ?? "127.0.0.1"
     guard let portText = value("--port"), let port = UInt16(portText), let tokenFile = value("--token-file"), let casesPath = value("--cases") else {
         FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--case NAME] [--needing CAPABILITY]\n".utf8))
@@ -42,13 +44,14 @@ func run() async -> Int32 {
         if let only { cases = cases.filter { $0["name"].string == only } }
         if let needing { cases = cases.filter { ($0["needs"].array ?? []).contains { $0.string == needing } } }
         let d = try await PortDriver(host: host, port: port, token: token, reports: !measured, doc: doc, engines: engines.isEmpty ? ["text"] : engines, prefs: prefs)
+        d.suiteGeometry = !ownGeometry
         defer { d.close() }
         let t0 = ContinuousClock.now
         let out = await Conformance.run(d, cases: cases, half: half)
         let took = ContinuousClock.now - t0
         for o in out {
             let word = o.passed ? "pass" : o.skipped != nil ? "skip" : "FAIL"
-            print("CASE \(word) | \(o.name) | \(o.steps) steps\(o.skipped.map { " | \($0)" } ?? "")\(o.error.map { " | \($0)" } ?? "")")
+            print("CASE \(word) | \(o.name) | \(o.steps) steps\(o.stepsSkipped > 0 ? " (\(o.stepsSkipped) skipped)" : "")\(o.skipped.map { " | \($0)" } ?? "")\(o.error.map { " | \($0)" } ?? "")")
         }
         print(Conformance.summary(d.name, out))
         print("settle timeouts: \(d.settleTimeouts); took \(took)")

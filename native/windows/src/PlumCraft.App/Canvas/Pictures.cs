@@ -54,25 +54,37 @@ public sealed class Pictures(DocumentModel model, long budget = 128L << 20)
     /// <summary>The handle a value reference names (a preview's `handle`, a watched picture's `ref`).</summary>
     public static string? HandleOf(JsonElement r) => r.ValueKind == JsonValueKind.String ? r.GetString() : r.Get("handle").Str();
 
-    public Task<CanvasBitmap?> LoadAsync(string handle, TimeSpan? timeout = null)
+    /// <summary>A picture the core makes of `handle` (N5 slice 4: any `want` that comes back as RGBA8: `rgba`, the
+    /// engine's rendition; `image`, a picture file decoded at most `px` a side; `svg`, drawn at `px`;
+    /// `spectrogram`), cached by what was asked.</summary>
+    public Task<CanvasBitmap?> LoadAsync(string handle, TimeSpan? timeout = null, string want = "rgba", int? px = null)
     {
-        if (cache.TryGetValue(handle, out var b))
+        var k = want == "rgba" && px is null ? handle : $"{want}@{px}:{handle}";
+        if (cache.TryGetValue(k, out var b))
         {
-            order.Remove(handle);
-            order.AddFirst(handle);
+            order.Remove(k);
+            order.AddFirst(k);
             return Task.FromResult<CanvasBitmap?>(b);
         }
-        if (loading.TryGetValue(handle, out var t)) return t;
-        t = Fetch(handle, timeout ?? TimeSpan.FromSeconds(30));
-        loading[handle] = t;
+        if (loading.TryGetValue(k, out var t)) return t;
+        t = Fetch(k, handle, want, px, timeout ?? TimeSpan.FromSeconds(30));
+        loading[k] = t;
         return t;
     }
 
-    async Task<CanvasBitmap?> Fetch(string handle, TimeSpan timeout)
+    public Task<CanvasBitmap?> LoadAsync(string handle, string want, int? px = null) => LoadAsync(handle, null, want, px);
+
+    /// <summary>Why the last picture of each handle couldn't be had.</summary>
+    public Dictionary<string, string> Failures { get; } = new(StringComparer.Ordinal);
+
+    async Task<CanvasBitmap?> Fetch(string k, string handle, string want, int? px, TimeSpan timeout)
     {
+        LastFailure = null;
         try
         {
-            var note = await model.Core.RequestAsync<MediaNote>("media.get", Jsonv.Object(("handle", Jsonv.Of(handle)), ("want", Jsonv.Of("rgba"))), model.RequestDoc);
+            var ask = new List<(string, JsonElement)> { ("handle", Jsonv.Of(handle)), ("want", Jsonv.Of(want)) };
+            if (px is { } p) ask.Add(("px", Jsonv.Of((long)p)));
+            var note = await model.Core.RequestAsync<MediaNote>("media.get", Jsonv.Object([.. ask]), model.RequestDoc);
             var key = note.Key;
             if (note.StatusWord == MediaWord.Pending)
             {
@@ -83,7 +95,7 @@ public sealed class Pictures(DocumentModel model, long budget = 128L << 20)
             if (note.StatusWord != MediaWord.Ready || note.W is not { } w || note.H is not { } h) { LastFailure = note.Reason ?? $"the picture is {note.Status}"; return null; }
             var core = model.Core;
             // the bytes, straight RGBA (10.2), premultiplied into BGRA for Direct2D on a worker
-            var px = await Task.Run(() =>
+            var pixels = await Task.Run(() =>
             {
                 using var lease = core.Blob(key, out _);
                 if (lease is null || lease.Length < (long)w * h * 4) return null;
@@ -96,9 +108,9 @@ public sealed class Pictures(DocumentModel model, long budget = 128L << 20)
                 }
                 return dst;
             });
-            if (px is null) { LastFailure = "the bytes went before they were read"; return null; }
-            var bmp = CanvasBitmap.CreateFromBytes(CanvasDevice.GetSharedDevice(), px, (int)w, (int)h, Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
-            Put(handle, bmp, (long)w * h * 4);
+            if (pixels is null) { LastFailure = "the bytes went before they were read"; return null; }
+            var bmp = CanvasBitmap.CreateFromBytes(CanvasDevice.GetSharedDevice(), pixels, (int)w, (int)h, Windows.Graphics.DirectX.DirectXPixelFormat.B8G8R8A8UIntNormalized, 96, CanvasAlphaMode.Premultiplied);
+            Put(k, bmp, (long)w * h * 4);
             return bmp;
         }
         catch (Exception e)
@@ -108,7 +120,43 @@ public sealed class Pictures(DocumentModel model, long budget = 128L << 20)
         }
         finally
         {
-            loading.Remove(handle);
+            loading.Remove(k);
+            if (LastFailure is { } why) Failures[handle] = why;
+        }
+    }
+
+    /// <summary>What the core makes of `handle` as bytes (N5 slice 4: a waveform's peaks, a sound's samples,
+    /// a value's own bytes), copied out of the lent buffer on a worker, with the note that says their shape;
+    /// null when they couldn't be had (`Failures` says why). At most `cap` bytes.</summary>
+    public async Task<(MediaNote note, byte[] bytes)?> LendAsync(string handle, string want, int? px = null, long cap = 512L << 20, TimeSpan? timeout = null)
+    {
+        try
+        {
+            var ask = new List<(string, JsonElement)> { ("handle", Jsonv.Of(handle)), ("want", Jsonv.Of(want)) };
+            if (px is { } p) ask.Add(("px", Jsonv.Of((long)p)));
+            var note = await model.Core.RequestAsync<MediaNote>("media.get", Jsonv.Object([.. ask]), model.RequestDoc);
+            var key = note.Key;
+            if (note.StatusWord == MediaWord.Pending)
+            {
+                var ok = await model.WaitAsync(() => model.Media.TryGetValue(key, out var m) && m.StatusWord != MediaWord.Pending, timeout ?? TimeSpan.FromSeconds(60));
+                if (!ok || !model.Media.TryGetValue(key, out var m2)) { Failures[handle] = "it didn't come in time"; return null; }
+                note = m2;
+            }
+            if (note.StatusWord != MediaWord.Ready) { Failures[handle] = note.Reason ?? $"it is {note.Status}"; return null; }
+            var core = model.Core;
+            var copy = await Task.Run(() =>
+            {
+                using var lease = core.Blob(key, out _);
+                if (lease is null || lease.Length > cap) return null;
+                return lease.Span.ToArray();
+            });
+            if (copy is null) { Failures[handle] = "the bytes went before they were read, or are too many"; return null; }
+            return (note, copy);
+        }
+        catch (Exception e)
+        {
+            Failures[handle] = e.Message;
+            return null;
         }
     }
 

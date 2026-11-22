@@ -23,6 +23,8 @@
 //   click:PLACE  dclick:PLACE                 a click, a double click
 //   rclick:PLACE                              a right click (the core's context menu)
 //   escape                                    Escape on the canvas (a drag cancelled)
+//   item:COMMAND                              a menu item without params chosen by the person (N5 slice 4)
+//   hover:PLACE                               the mouse hovering there, nothing pressed (N5 slice 4)
 //   type:TEXT                                 the focused text field's text
 //   new  quit                                 File › New, File › Exit (the core's graph.new, app.quit)
 //   add:KIND@X,Y=ID                           a script's node.add, remembered as ID for the places above
@@ -44,7 +46,7 @@ public static class Script
         {
             foreach (var step in o.Then) await Step(w, step);
             CoreHost.Status.Set("then", "done");
-            if (o.Bench is not null) await Bench.Run(w);
+            if (o.Bench is not null) { if (o.BenchPanels) await PanelBench.Run(w); else await Bench.Run(w); }
         }
         catch (Exception e)
         {
@@ -187,6 +189,13 @@ public static class Script
                 break;
             case "rclick":
                 await w.CanvasView.ContextAt(Place(w, arg));
+                break;
+            case "item":
+                // a menu item chosen by the person (the menu bar's path: ui.invoke for the person)
+                _ = w.Dispatch(new MenuItem { Id = arg, Command = arg, Label = arg, Enabled = true }, true);
+                break;
+            case "hover":
+                w.CanvasView.HoverAt(Place(w, arg));
                 break;
             case "escape":
                 await w.CanvasView.CancelDragAsync();
