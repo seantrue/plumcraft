@@ -4,6 +4,23 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B122. Save Result… did nothing from a node's menu or its face's footer in the native shells
+
+- Reported: 2026-11-22
+- Report: the Windows agent's reading (relayed by the controller): a menu item whose params carry `ask: true` (the node menu's Save Result…) runs with `command.run`, so `run.save` ran with no path and failed; the footer's Save Result… line is drawn but a tap on it is taken as a watch; no `run.save` anywhere under `native/`. Confirmed on the Mac by reading: `DocumentModel.activate` runs an item with params by `command.run`, and the core's tap on any footer item was `run.watch`
+- Context: before the Save Result branch the core's `run.save` with `ask: true` worked only through `ui.invoke` (egui intercepted it itself). The maintainer's rule: a shell-side user action is a defect; the fix is the core's
+- Fixed: 2026-11-22, branch `native/n4-save`, in the core, so no shell needs code: a tap on a footer item is decided by the item's kind (`geometry::FooterTap`): the `save` line's tap is `run.save {node, port, sheet, ask: true}` (Contact Sheet… on its right half when offered), invoked as the menu item is; `command.run run.save {…, ask: true}` is invoked too (replies `{invoked}`); a shell's own `ui.gesture` and such a `command.run` are its person's (the C ABI), so the shell shows the asks; over the control port they are a script's. `geometry.locate` takes `part: "save"`. Conformance: the save case now runs the menu item's way (`command.run`) and, where the shell measures its footer (`footer`: the Apple apps), taps the line and sees `file.save` asked. Windows can drop its shell-side dispatch (below, in the report)
+- Issue: none
+
+### B123. The person check failed one run in two under load: B87's banner, F36 cancel, F29 latest wins
+
+- Reported: 2026-11-22
+- Report: the controller's gate on the Save Result branch (screen locked, other heavy work on the Mac): three FAILs ("an unreadable manifest is said at launch (B87)" with `manifestProblems` present but no banner; "F36 cancel" "pick False disabled: no run in progress", the 6 s slow node already done; "F29 latest wins" "superseded 0 -> 0"); the next run, same code, passed
+- Context: each step leaned on time. F36 and F29 waited at most 10 s for the slow node to show progress and then acted, so on a busy machine the node had finished (or not started) when Cancel or the second Run came. B87 compared the window's last banner, set only if the window saw the core's status line before a command cleared it, and any later banner replaced it
+- Fixed: 2026-11-22, branch `native/n4-save`: the text engine has `text.gate` (passes its text once a file exists, stops on cancel; Rust and Python; a test each way), and the check's graph waits at it: the check removes the file, starts the run, waits on the face's state (`started`, `progress`) as long as the machine needs, cancels or starts the run over it (waiting on the core's `superseded` count), then puts the file back. F35's engine kill waits at the gate too. B87: the Mac reads the problems from the engine's state (`ui.inspect`'s `engine.manifestProblems`, which the core keeps) as its window comes up and says them in the banner; the status keeps every banner (`banners`), and the check looks for the problem among them
+- Verified: the Mac gate five times in a row (screen unlocked; runs 2 and 4 with a busy loop per core beside them): 54 passed, 0 failed each time, B87, F29, F35 and F36 among them
+- Issue: none
+
 ### B85. Plummer crashed twice in Swift's main-actor check from an AppKit callback while a script step drove a panel from inside a task
 
 - Reported: 2026-11-21

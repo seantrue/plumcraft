@@ -33,10 +33,11 @@ func run() async -> Int32 {
     let ownGeometry = args.contains("--own-geometry")
     let host = value("--host") ?? "127.0.0.1"
     guard let portText = value("--port"), let port = UInt16(portText), let tokenFile = value("--token-file"), let casesPath = value("--cases") else {
-        FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--has CAPABILITY] [--case NAME] [--needing CAPABILITY]\n".utf8))
+        FileHandle.standardError.write(Data("usage: plumcraft-conformance [--host H] --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all] [--measured] [--engine text] [--has CAPABILITY] [--scratch DIR] [--case NAME] [--needing CAPABILITY]\n".utf8))
         return 2
     }
     let doc = value("--doc").flatMap(UInt64.init)
+    let scratch = value("--scratch")
     let halfWord = value("--half") ?? "read"
     let only = value("--case")
     let needing = value("--needing")
@@ -50,6 +51,8 @@ func run() async -> Int32 {
         d.suiteGeometry = !ownGeometry
         defer { d.close() }
         d.also = also
+        // each case's `$scratch` folder under this (`--has saves`: the app writes there)
+        if let s = scratch { d.scratchRoot = URL(fileURLWithPath: s, isDirectory: true) }
         let t0 = ContinuousClock.now
         let out = await Conformance.run(d, cases: cases, half: half)
         let took = ContinuousClock.now - t0

@@ -80,6 +80,8 @@ store=$(python3 -c "import json; print(json.load(open('$status'))['store'])")
 case "$store" in "$data"/*) ;; *) echo "the app's store is outside its container: $store"; exit 1 ;; esac
 echo "the iPad app in the simulator on the text engine with array beside it: control port $port, document $doc, store in its container"
 set +e
+# not `saves`: the one case that needs it also needs the test engine, which is Mac-only
+# (decision 2), so nothing here has shown the simulator's app writing a case's `$scratch`
 timeout 600 "$runner" --port "$port" --token-file "$t/token" --doc "$doc" --measured --engine text --engine array --engine audio --has manifests \
   --cases "$root/crates/editor-core/fixtures/conformance/cases.json" --half "$half"
 code=$?

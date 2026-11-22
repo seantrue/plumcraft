@@ -149,6 +149,10 @@ public struct CanvasSteps {
         case "node", "head":
             let r = try? await canvas.link.locate(["node": .string(v), "part": .string(k == "head" ? "header" : "center")])
             return r.map { view($0.at) }
+        case "save":
+            // the footer's Save Result… line, where the canvas measured it
+            let r = try? await canvas.link.locate(["node": .string(v), "part": "save"])
+            return r.map { view($0.at) }
         case "out", "in":
             guard let dot = v.lastIndex(of: "."), let i = Int(v[v.index(after: dot)...]) else { return nil }
             let id = String(v[..<dot])

@@ -1,6 +1,7 @@
 //! The text engine: the thin engine PlumCraft's interface is proven on (plan milestone S4). No
-//! domain knowledge in the editor, no the research software: a handful of text nodes, plus two that exist for
-//! the conformance suite (`text.slow`, which reports progress and honours cancel, and
+//! domain knowledge in the editor, no the research software: a handful of text nodes, plus three that exist for
+//! the conformance suite (`text.slow`, which reports progress and honours cancel, `text.gate`, which
+//! waits for a file and honours cancel, and
 //! `text.fail`).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
@@ -138,6 +139,7 @@ fn nodes() -> Vec<Box<dyn Node>> {
             f: |_| Err(NodeError::new(NodeError::OP, "this node always fails")),
         }),
         Box::new(Slow),
+        Box::new(Gate),
         Box::new(Widgets),
         Box::new(Simple {
             id: "text.repeat",
@@ -354,6 +356,48 @@ fn title_case(t: &str) -> String {
         }
     }
     out
+}
+
+/// Passes text through once the file `open` names exists: a node that waits for a signal rather
+/// than a time, so a check that cancels it or starts another run over it does so while it is
+/// certainly working, however busy the machine (the person check's F29 and F36). It says it is
+/// waiting (`progress` 0, stage "waiting"), stops on cancel, and gives up with an error after
+/// `timeout` seconds. No file named: it passes at once.
+struct Gate;
+
+impl Node for Gate {
+    fn def(&self) -> NodeDef {
+        NodeDef {
+            id: "text.gate".into(),
+            display: "Gate".into(),
+            category: vec!["Text".into(), "Testing".into()],
+            inputs: vec![
+                socket("text"),
+                Port { name: "open".into(), ty: STRING.into(), default: json!(""), ..Default::default() },
+                Port { name: "timeout".into(), ty: FLOAT.into(), default: json!(60.0), min: Some(0.0), max: Some(600.0), ..Default::default() },
+            ],
+            outputs: vec![Port { name: "text".into(), ty: TEXT.into(), ..Default::default() }],
+            family: "text".into(),
+            ..Default::default()
+        }
+    }
+
+    fn run(&self, inputs: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
+        let open = s(inputs, "open");
+        let timeout = inputs.get("timeout").and_then(Data::json).and_then(Value::as_f64).unwrap_or(60.0).clamp(0.0, 600.0);
+        let start = Instant::now();
+        while !open.is_empty() && !std::path::Path::new(&open).exists() {
+            if cx.cancelled() {
+                return Err(NodeError::cancelled());
+            }
+            if start.elapsed().as_secs_f64() > timeout {
+                return Err(NodeError::new(NodeError::OP, format!("the gate's file never came: {open}")));
+            }
+            cx.progress(0.0, Some("waiting"));
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        Ok(Outputs::from([("text".to_owned(), Data::Json(json!(s(inputs, "text"))))]))
+    }
 }
 
 /// Passes text through after `seconds`, reporting progress in tenths and stopping early on

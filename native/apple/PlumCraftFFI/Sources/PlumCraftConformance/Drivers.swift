@@ -67,13 +67,15 @@ public final class KitDriver: ConformanceDriver {
         }
         try canvas.report(typed)
         // the header's parts after it, as the canvas sends them (the typed call has none)
-        let parts: [(id: String, parts: [String: Rect])] = list.compactMap { f in
+        func rect(_ v: JSONValue) -> Rect? {
+            guard let a = v.array, a.count == 4, let x0 = a[0].double, let y0 = a[1].double, let x1 = a[2].double, let y1 = a[3].double else { return nil }
+            return Rect(x0, y0, x1, y1)
+        }
+        let parts: [(id: String, parts: [String: Rect], footer: [Rect?])] = list.compactMap { f in
             guard let id = f["node"].string, let o = f["parts"].object else { return nil }
             var m: [String: Rect] = [:]
-            for (k, v) in o {
-                if let a = v.array, a.count == 4, let x0 = a[0].double, let y0 = a[1].double, let x1 = a[2].double, let y1 = a[3].double { m[k] = Rect(x0, y0, x1, y1) }
-            }
-            return (id: id, parts: m)
+            for (k, v) in o where k != "footer" { if let r = rect(v) { m[k] = r } }
+            return (id: id, parts: m, footer: (o["footer"]?.array ?? []).map(rect))
         }
         await CanvasLink.reportParts(core: core, doc: nil, faces: parts)
         // the core has them once a request after them sees them measured (they apply in order)
@@ -310,14 +312,20 @@ public final class PortDriver: ConformanceDriver {
     }
 
     /// What else the app or core has (`--has`): `manifests` when its engines folder is the
-    /// suite's (B71: `PLUMCRAFT_ENGINE_FOLDER`, or a config's `dirs.engines`).
+    /// suite's (B71: `PLUMCRAFT_ENGINE_FOLDER`, or a config's `dirs.engines`); `saves` when the
+    /// app can write each case's `$scratch` folder (Save Result's files).
     public var also: Set<String> = []
+
+    /// Where each case's `$scratch` folder is made (`--scratch`), a folder the app can write.
+    public var scratchRoot: URL?
 
     /// The engines the core has; `media.get` (a C ABI core's port serves it since N5 slice 4);
     /// an app's canvas measures its rows' widgets and header parts (`rows`), and with
     /// `suiteGeometry` the suite's measurements are reported over its own (`reports`).
     public func has(_ capability: String) -> Bool {
         if capability == "rows" { return !reports }
+        // the app's canvas measures its footer's lines too (`parts.footer`), so a tap can aim at one
+        if capability == "footer" { return !reports }
         if capability == "reports" { return !reports && suiteGeometry }
         if capability == "media" { return true }
         if capability == "port" { return true }

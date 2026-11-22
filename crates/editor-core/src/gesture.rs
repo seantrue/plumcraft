@@ -32,7 +32,7 @@ use plumcraft_graph::{GroupId, NodeId, PortRef};
 use serde_json::{Value, json};
 
 use crate::control::check_fields;
-use crate::geometry::{Hit, Snapshot, kind, part};
+use crate::geometry::{FooterTap, Hit, Snapshot, kind, part};
 use crate::plain::{Point, Rect};
 
 /// The hit distance when a gesture gives none (graph units; the egui canvas's wire hit at zoom 1).
@@ -449,7 +449,7 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
                 // an open group's band: its chevron collapses it (N4 slice 3), selecting nothing
                 p.commands.push(("group.collapse", json!({"group": g, "collapsed": true})));
             } else {
-                tap(f, snap, &h, mods, &mut p.commands);
+                tap(f, snap, &h, at, mods, &mut p.commands);
             }
         }
         Gesture::DoubleTap { at, .. } => {
@@ -487,7 +487,7 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
     Ok(p)
 }
 
-fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, mods: Mods, out: &mut Vec<(&'static str, Value)>) {
+fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, at: Point, mods: Mods, out: &mut Vec<(&'static str, Value)>) {
     match h.kind {
         kind::PIN => {
             // a pin watches its value: an output's own, a wired input's source (an input with no
@@ -525,6 +525,18 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, mods: Mods, out: &mut Vec<(&'sta
                     out.push(select(id, mods));
                     if let Some(cmd) = edit_row(snap, h) {
                         out.push(cmd);
+                    }
+                }
+                // the footer's Save Result… line saves the value, as its menu item does: the core
+                // asks where (and the format's options), in every shell alike; Contact Sheet…,
+                // offered on the same line for a list, is its right half
+                part::FOOTER
+                    if !mods.shift && !mods.primary && group.is_none() && matches!(snap.footer_tap(h.node, h.index), Some((FooterTap::Save { .. }, _))) =>
+                {
+                    out.push(select(id, mods));
+                    if let Some((FooterTap::Save { port, sheet }, rect)) = snap.footer_tap(h.node, h.index) {
+                        let right = rect.is_some_and(|r| at.x > (r.min.x + r.max.x) / 2.0);
+                        out.push(("run.save", json!({"node": id, "port": port, "sheet": *sheet && right, "ask": true})));
                     }
                 }
                 _ => {

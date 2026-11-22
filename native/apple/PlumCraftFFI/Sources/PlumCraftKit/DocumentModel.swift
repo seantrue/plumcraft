@@ -567,6 +567,11 @@ public final class DocumentModel {
         return r
     }
 
+    /// `ui.inspect`: the window's state as the core has it now (the save under way, `save`).
+    public func inspect() async throws -> JSONValue {
+        try await core.request("ui.inspect", [:], doc: requestDoc)
+    }
+
     /// A request this model's shell sent was answered: fetch the scene now, once it has one.
     public func afterOwnRequest() {
         if applied > 0 && feedTask != nil { refreshScene() }

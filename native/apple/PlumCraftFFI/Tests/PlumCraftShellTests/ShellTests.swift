@@ -147,6 +147,15 @@ let testEnvironment: Void = {
         #expect(AskWords.extensions(["kinds": [["label": "W", "extensions": ["json", "zip"]]]]) == ["json", "zip"])
         #expect(AskWords.extensions(["kinds": [["label": "Any", "extensions": ["*"]]]]) == [])
         #expect(AskWords.extensions(.null) == [])
+        // Save Result…'s formats: a kind each, the name's extension picking one, renamed by another
+        let save: JSONValue = ["kinds": [["label": "Quoted Text", "extensions": ["quoted"]], ["label": "Text", "extensions": ["txt"]], ["label": "Any", "extensions": ["*"]]]]
+        let kinds = AskWords.kinds(save)
+        #expect(kinds.map(\.label) == ["Quoted Text", "Text"])
+        #expect(AskWords.kindIndex(kinds, name: "Result.quoted") == 0)
+        #expect(AskWords.kindIndex(kinds, name: "plain.TXT") == 1)
+        #expect(AskWords.kindIndex(kinds, name: "nothing") == 0)
+        #expect(AskWords.renamed("Result.quoted", to: kinds[1]) == "Result.txt")
+        #expect(AskWords.renamed("Result", to: kinds[0]) == "Result.quoted")
     }
 }
 

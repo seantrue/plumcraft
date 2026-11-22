@@ -1890,6 +1890,20 @@ impl Worker {
                     if method == "menu.get" {
                         d.menus_watched = true;
                     }
+                    // a gesture a shell sends is its person's (a tap on the canvas): what it asks
+                    // (the footer's Save Result…) is the shell's to show; the control port's
+                    // gestures are a script's, as every port request is
+                    // so is a menu item's command that asks first (`command.run run.save {ask: true}`,
+                    // the node menu's Save Result…)
+                    let asks_first = method == "command.run"
+                        && params.get("command").and_then(Value::as_str) == Some("run.save")
+                        && params.get("params").and_then(|p| p.get("ask")).and_then(Value::as_bool) == Some(true);
+                    if method == "ui.gesture" || asks_first {
+                        d.doc.invoke_by = By::Person;
+                        control::handle(&mut d.doc, method, params, reply);
+                        d.doc.invoke_by = By::Script;
+                        return;
+                    }
                     // `ui.invoke {by: "person"}`: the shell invokes for the person at it (its menu,
                     // its toolbar), so what the command asks is the shell's to show (N3 slice 4).
                     // Only a shell's own requests may say so; the control channel's are a script's

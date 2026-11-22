@@ -262,6 +262,16 @@ pub fn gesture<S: Shell>(s: &mut S, params: &Value) -> Value {
     };
     let mut commands = Vec::with_capacity(plan.commands.len());
     for (command, p) in plan.commands {
+        // what asks first (the footer's Save Result…, `ask: true`) is invoked, as its menu item
+        // is: the core asks where, for whoever made the gesture (the person at a shell's canvas,
+        // a script over the port)
+        if command == "run.save" && p.get("ask").and_then(Value::as_bool) == Some(true) {
+            let by = s.invoke_by();
+            invoke::invoke_with(s, command, &p, by);
+            s.presented();
+            commands.push(json!({"command": command, "params": p, "ok": true, "result": {"invoked": command}}));
+            continue;
+        }
         let r = s.run(command, &p);
         commands.push(match r {
             Ok(v) => json!({"command": command, "params": p, "ok": true, "result": v}),
@@ -445,6 +455,16 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 return err("params.command must be a command id");
             };
             let p = params.get("params").cloned().unwrap_or(Value::Null);
+            // a command whose params say it asks first (the result node's Save Result…, its menu
+            // item's `run.save {…, ask: true}`) is invoked, as `ui.invoke` does: a shell that
+            // runs its menu items with `command.run` gets the asks, not a save with no path
+            if command == "run.save" && p.get("ask").and_then(Value::as_bool) == Some(true) {
+                let by = s.invoke_by();
+                invoke::invoke_with(s, command, &p, by);
+                s.presented();
+                s.redraw();
+                return ok(json!({"invoked": command}));
+            }
             let r = s.run(command, &p);
             s.redraw();
             match r {

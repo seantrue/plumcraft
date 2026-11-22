@@ -213,7 +213,9 @@ def panel_fields(sheet):
     name = next((e.get("value", "") for e in els if e.get("identifier") == "saveAsNameTextField"), None)
     where = next((e.get("value", "") for e in els if e.get("identifier") == "where popup"), None)
     pops = [e.get("value") for e in els if e.get("role") == "AXPopUpButton" and e.get("value")]
-    out = {"name": name, "folder": where, "folders": pops}
+    # a save panel's Format pop-up (the app's accessory: Save Result…'s formats)
+    fmt = next((e.get("value", "") for e in els if e.get("identifier") == "save-format"), None)
+    out = {"name": name, "folder": where, "folders": pops, "format": fmt}
     if not sheet:
         out["windows"] = seen_ws
     return out
@@ -307,14 +309,19 @@ ENGINE_GRAPH = {
     "engines": ["person_text"],
     "nodes": {
         "story": {"kind": "text.literal", "pos": [0, 0], "engine": "person_text", "values": {"text": "a corgi naps"}},
-        "think": {"kind": "text.slow", "pos": [320, 0], "engine": "person_text", "values": {"seconds": 6.0}},
+        # waits while its file (`open`, set when the graph is written) is away: the steps that
+        # cancel a run, start one over another or kill the engine mid-node do it while this node
+        # certainly works, however busy the machine (the check sends the signal, not a clock)
+        "hold": {"kind": "text.gate", "pos": [160, 160], "engine": "person_text", "values": {"open": "", "timeout": 120.0}},
+        "think": {"kind": "text.slow", "pos": [320, 0], "engine": "person_text", "values": {"seconds": 3.0}},
         "rep": {"kind": "text.repeat", "pos": [640, 0], "engine": "person_text", "values": {"times": 2}},
         "shout": {"kind": "text.upper", "pos": [960, 0], "engine": "person_text"},
         "broken": {"kind": "text.fail", "pos": [320, 300], "engine": "person_text"},
         "after": {"kind": "text.lower", "pos": [640, 300], "engine": "person_text"},
     },
     "wires": [
-        {"from": {"node": "story", "port": "text"}, "to": {"node": "think", "port": "text"}},
+        {"from": {"node": "story", "port": "text"}, "to": {"node": "hold", "port": "text"}},
+        {"from": {"node": "hold", "port": "text"}, "to": {"node": "think", "port": "text"}},
         {"from": {"node": "think", "port": "text"}, "to": {"node": "rep", "port": "text"}},
         {"from": {"node": "rep", "port": "text"}, "to": {"node": "shout", "port": "text"}},
         {"from": {"node": "story", "port": "text"}, "to": {"node": "broken", "port": "text"}},
@@ -325,8 +332,20 @@ ENGINE_GRAPH = {
 
 def engine_half(port, outside):
     path = os.path.join(A.scratch, "engine-check.json")
+    # the gate's signal: open while this file is there
+    gate = os.path.join(A.scratch, "engine-check-open")
+    open(gate, "w").close()
+
+    def gate_open(on):
+        if on:
+            open(gate, "w").close()
+        elif os.path.exists(gate):
+            os.remove(gate)
+
+    graph = json.loads(json.dumps(ENGINE_GRAPH))
+    graph["nodes"]["hold"]["values"]["open"] = gate
     with open(path, "w") as f:
-        json.dump(ENGINE_GRAPH, f)
+        json.dump(graph, f)
     r = step(f"open:{path}")
     mine = wait(lambda: [d for d in docs() if d["path"] and os.path.realpath(d["path"]) == os.path.realpath(path) and d["ready"]], 30, every=0.3)
     if not (r.get("ok") and mine):
@@ -438,31 +457,39 @@ def engine_half(port, outside):
 
     # E3. F36 Cancel: Run, then Run › Cancel Run while the slow node works: it stops (cancelled)
     # and nothing after it runs
+    # the gate shut first: the run waits at it however long the machine takes to get there, and
+    # Cancel Run is picked once its face says it works (state, never a time)
+    busy = {"started", "running", "progress"}
+    gate_open(False)
     step("menu-pick:Run/Run")
-    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    held = wait(lambda: state(faces(), "hold") in busy, 60, every=0.05)
     t0 = time.time()
     c = step("menu-pick:Run/Cancel Run")
-    seen, _, fs = watch_run(10)
+    seen, _, fs = watch_run(30)
     took = time.time() - t0
-    say(bool(c.get("ok")) and state(fs, "think") == "cancelled" and state(fs, "shout") != "done" and took < 3,
-        "F36 cancel: Run › Cancel Run stops the slow node at once; nothing after it runs",
-        f"pick {c.get('ok')} {c.get('error') or ''}; think {seen.get('think')}, shout {seen.get('shout')}; ended {took:.1f} s after the pick")
+    say(bool(held) and bool(c.get("ok")) and state(fs, "hold") == "cancelled" and state(fs, "shout") != "done",
+        "F36 cancel: Run › Cancel Run stops the node at work; nothing after it runs",
+        f"working {bool(held)}; pick {c.get('ok')} {c.get('error') or ''}; hold {seen.get('hold')}, shout {seen.get('shout')}; ended {took:.1f} s after the pick")
 
     # E4. F29 latest wins: Run, then an edit and Run again before it ends: the first is
     # superseded, the result is the last edit's
+    # the gate still shut: the first run waits at it, the second is started over it (superseded,
+    # read from the core's count), and only then the gate opens for the second to finish
     sup0 = inspect_run().get("superseded", 0)
     step("menu-pick:Run/Run")
-    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    held = wait(lambda: state(faces(), "hold") in busy, 60, every=0.05)
     step("edit:story.text")
     step("field:a corgi wakes")
     step("return")
     step("menu-pick:Run/Run")
-    seen, _, fs = watch_run(30)
+    over = wait(lambda: (lambda n: n if n > sup0 else None)(inspect_run().get("superseded", 0)), 30, every=0.1)
+    gate_open(True)
+    seen, _, fs = watch_run(60)
     ex = next((x for x in fs.get("shout", {}).get("footer", []) if x.get("kind") == "excerpt"), {})
     sup1 = inspect_run().get("superseded", 0)
-    say(sup1 > sup0 and "A CORGI WAKES" in ex.get("text", "") and state(fs, "shout") == "done",
+    say(bool(held) and bool(over) and "A CORGI WAKES" in ex.get("text", "") and state(fs, "shout") == "done",
         "F29 latest wins: a run started over one under way supersedes it; the faces show the last edit's result",
-        f"superseded {sup0} -> {sup1}; shout {seen.get('shout')}, its text {ex.get('text')!r}")
+        f"working {bool(held)}; superseded {sup0} -> {sup1}; shout {seen.get('shout')}, its text {ex.get('text')!r}")
 
     # E5. F72 partial re-run: a value changed after the slow node: only it and what it feeds run;
     # the slow node is cached
@@ -497,8 +524,10 @@ def engine_half(port, outside):
     step("edit:story.text")
     step("field:a corgi dreams")
     step("return")
+    # the gate shut, so the engine is killed while a node certainly works on it
+    gate_open(False)
     step("menu-pick:Run/Run")
-    wait(lambda: state(faces(), "think") == "progress", 10, every=0.05)
+    wait(lambda: state(faces(), "hold") in busy, 60, every=0.05)
     pids, _ = outside()
     for p in pids:
         try:
@@ -509,13 +538,159 @@ def engine_half(port, outside):
     seen, _, fs = watch_run(30)
     took = time.time() - t0
     back = wait(engine_up, 30, every=0.5)
-    say(bool(pids) and state(fs, "think") in ("error", "cancelled") and took < 15 and bool(back),
+    gate_open(True)
+    # the run ends on the failure, not on any reply's timeout (minutes): within the watch's 30 s
+    say(bool(pids) and state(fs, "hold") in ("error", "cancelled") and took < 30 and bool(back),
         "F35 a failure stands in for a reply: the engine killed mid-node ends the run with the face saying so; the engine starts again",
-        f"killed {pids}; think {seen.get('think')} ({next((x.get('text') for x in fs.get('think', {}).get('footer', []) if x.get('kind') == 'error'), None)!r}); "
+        f"killed {pids}; hold {seen.get('hold')} ({next((x.get('text') for x in fs.get('hold', {}).get('footer', []) if x.get('kind') == 'error'), None)!r}); "
         f"the run ended {took:.1f} s after; engine back {bool(back)}; banner {status().get('banner')!r}")
 
     # the window goes as it came: saved (to scratch) so it closes without asking, then closed
     port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, "engine-check-saved.json")}}, doc=doc)
+    wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
+    step("menu-pick:File/Close")
+    wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
+    step("use:0")
+
+
+# F19, Save Result (the maintainer: "Make the save an basic feature"): the test engine's result
+# node (crates/ports: its own Quoted Text format, with a `mark` option, then the SDK's Text),
+# installed from the scratch engines folder as `ports`.
+SAVE_GRAPH = {
+    "version": 1,
+    "engines": ["ports"],
+    "nodes": {
+        "e": {"kind": "ports.edge", "pos": [0, 0], "engine": "ports", "values": {"seed": "plum"}},
+        "r": {"kind": "ports.result", "pos": [420, 0], "engine": "ports"},
+    },
+    "wires": [{"from": {"node": "e", "port": "text"}, "to": {"node": "r", "port": "text"}}],
+}
+
+
+def save_result(port):
+    """Run, then a click on the result's footer line Save Result… (the core's gesture): the real
+    save panel opens on a scratch folder with the name and the Format pop-up, read through
+    accessibility and cancelled, never pressed. Then the same click again, the panel's ask answered
+    by the script with a scratch path (the core then closes the panel, never pressed), the format's
+    options asked in the app's own sheet (its form view), set and sent there; the file is read
+    back."""
+    if not os.environ.get("PERSON_PORTS"):
+        return say(None, "F19 Save Result", "not done: no test engine program installed (cargo build --release -p plumcraft-ports)")
+    path = os.path.join(A.scratch, "save-check.json")
+    with open(path, "w") as f:
+        json.dump(SAVE_GRAPH, f)
+    step(f"open:{path}")
+    mine = wait(lambda: [d for d in docs() if d["path"] and os.path.realpath(d["path"]) == os.path.realpath(path) and d["ready"]], 30, every=0.3)
+    if not mine:
+        return say(False, "F19 Save Result: the test graph opened", f"documents {docs()}")
+    doc = mine[0]["doc"]
+    step(f"use:{next(i for i, d in enumerate(docs()) if d['doc'] == doc)}")
+
+    def face(n):
+        try:
+            return next((x for x in port.call("scene.get", {}, doc=doc).get("nodes", []) if x["id"] == n), {})
+        except RuntimeError:
+            return {}
+
+    def engine_up():
+        e = port.call("ui.inspect", {}, doc=doc).get("engine", {})
+        return any(x.get("id") == "ports" and (x.get("state") or {}).get("state") == "connected" for x in e.get("engines", []))
+
+    up = wait(engine_up, 60, every=0.5)
+    step("menu-pick:Run/Run")
+    offered = wait(lambda: (lambda f: f if (f.get("run") or {}).get("state") == "done" and any(x.get("kind") == "save" for x in f.get("footer", [])) else None)(face("r")), 60, every=0.2)
+    say(bool(up and offered), "F19: the result node, run on the test engine, offers Save Result… on its face",
+        f"engine up {bool(up)}; the result's footer {[x.get('kind') for x in (offered or face('r')).get('footer', [])]}")
+    if not offered:
+        return
+
+    # the canvas has measured the line (it reports its footer's lines after drawing the face)
+    def located():
+        try:
+            return port.call("geometry.locate", {"node": "r", "part": "save"}, doc=doc).get("at")
+        except RuntimeError:
+            return None
+    measured = wait(located, 20, every=0.2)
+    say(bool(measured), "F19: the canvas measured the footer's Save Result… line (geometry.locate part save)", f"at {measured}")
+
+    def asks():
+        return port.call("ui.inspect", {}, doc=doc).get("asks", [])
+
+    def ask_of(kind):
+        return next((a for a in asks() if a.get("kind") == kind), None)
+
+    # 1. the person's click: the real panel, read, cancelled
+    folder = os.path.join(A.scratch, f"person-scratch-{os.urandom(4).hex()}")
+    os.makedirs(folder, exist_ok=True)
+    at = step(f"panel-at:{os.path.join(folder, 'Result.quoted')}")
+    tap = step("tap:save=r")
+    panel = wait(lambda: (lambda d: d if d.get("ok") and "Panel" in d["sheet"]["class"] else None)(step("sheet")), 15, every=0.3)
+    asked = ask_of("file.save") or {}
+    seen = {}
+    if panel and not console_locked():
+        seen = wait(lambda: (lambda f: f if f.get("name") is not None and f.get("folder") is not None else None)(panel_fields(sheet=True)), 10, every=0.5) or panel_fields(sheet=True)
+        # a picture of the window with the panel on it (the screen's, as a person sees it)
+        wn = next((d.get("window") for d in docs() if d.get("doc") == doc), None)
+        if wn:
+            subprocess.run(["screencapture", "-x", "-o", "-l", str(wn), os.path.join(A.shots, "save-panel.png")], capture_output=True, timeout=30)
+    if not console_locked():
+        axrun("press", str(A.pid), "CancelButton")
+    gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
+    if panel and not gone:
+        step("panel-cancel")
+        gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
+    kinds = [k.get("label") for k in (asked.get("params") or {}).get("kinds", [])]
+    if console_locked():
+        ax_blind("F19: the save panel's own fields")
+        say(bool(at.get("ok") and tap and panel and gone and asked.get("by") == "person" and kinds[:2] == ["Quoted Text", "Text"]),
+            "F19: a click on the footer's Save Result… opens the save panel for the person with the node's formats; cancelled (not pressed)",
+            f"ask {asked.get('kind')} by {asked.get('by')}, kinds {kinds}; panel {panel['sheet']['class'] if panel else None}; cancelled {bool(gone)}")
+    else:
+        say(bool(at.get("ok") and panel and seen.get("name") == "Result.quoted" and seen.get("folder") == os.path.basename(folder)
+                 and (seen.get("format") or "").startswith("Quoted Text") and gone),
+            "F19: a click on the footer's Save Result… opens the save panel with the name and the Format pop-up, read from the panel itself; cancelled (not pressed)",
+            f"ask by {asked.get('by')}, kinds {kinds}; the panel's name {seen.get('name')!r}, folder {seen.get('folder')!r}, format {seen.get('format')!r}; cancelled {bool(gone)}")
+
+    # 2. the same click; the panel's ask answered by the script (a scratch path), the options in
+    # the app's own sheet, set and sent there; the file read back
+    out = os.path.join(folder, "marked.quoted")
+    step("tap:save=r")
+    a = wait(lambda: ask_of("file.save"), 15, every=0.3)
+    if a:
+        port.call("ask.answer", {"ask": a["ask"], "answer": {"path": out}}, doc=doc)
+    # what the window showed meanwhile (the sheet, and the ask the app says it shows), for the
+    # failure's text
+    trail = []
+
+    def options_sheet():
+        d = step("sheet")
+        note = (d["sheet"]["class"] if d.get("ok") else None, (status().get("asking") or {}).get("kind"), [x.get("kind") + "/" + str(x.get("by")) for x in asks()])
+        if not trail or trail[-1] != note:
+            trail.append(note)
+        # the app's own sheet (an alert, `_NSAlertPanel`), not the system's save or open panel
+        return d if d.get("ok") and "SavePanel" not in d["sheet"]["class"] and "OpenPanel" not in d["sheet"]["class"] else None
+    form = wait(options_sheet, 20, every=0.3)
+    pic = step(f"sheet:{os.path.join(A.shots, 'save-options.png')}").get("picture") if form else None
+    ctl = [c for c in (form or {}).get("sheet", {}).get("controls", []) if c["kind"] in ("popup", "combo")]
+    choice = next((ch for c in ctl for ch in c.get("choices", []) if "'" in ch), None)
+    sets = step(f"sheet-set:{ctl[0].get('axLabel')}={choice}") if ctl and choice else {"ok": False}
+    sent = step("sheet-press:Save") if form else {"ok": False}
+    saved = wait(lambda: (lambda s: s if s.get("pending") is None and (s.get("last") or {}).get("ok") else None)(port.call("ui.inspect", {}, doc=doc).get("save", {})), 30, every=0.3)
+    body = open(out).read() if os.path.exists(out) else None
+    say(bool(a and form and sets.get("ok") and sent.get("ok") and saved and (body or "").strip() == "'[plum]'"),
+        "F19: Save Result writes the value in the chosen format: the path answered by the script, the format's options asked in the app's own sheet, the file read back",
+        f"ask {bool(a)}; options sheet {(form or {}).get('sheet', {}).get('class')} with {[(c.get('axLabel'), c.get('choices')) for c in ctl]}, picture {pic}; "
+        f"set {sets.get('ok')} {sets.get('error') or ''}; sent {sent.get('ok')}; saved {(saved or {}).get('last', {}).get('paths') if saved else None}; the file says {body!r}; "
+        f"the window meanwhile (sheet, asking, asks) {trail}")
+    # nothing left open, whatever happened: a sheet of the app's own cancelled from inside it
+    if step("sheet").get("ok"):
+        step("sheet-press:Cancel")
+        step("panel-cancel")
+    for x in asks():
+        port.call("ask.answer", {"ask": x["ask"], "cancel": True}, doc=doc)
+
+    # the window goes as it came
+    port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, "save-check-saved.json")}}, doc=doc)
     wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
     step("menu-pick:File/Close")
     wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
@@ -617,11 +792,15 @@ def main():
 
     # 1b. B87: the engines folder's unreadable manifest is said: the engine's state and the
     # window's banner (the core's status line, which the Mac shows as its banner)
+    # what was compared: the core's engine state (it keeps the problems) and what the window's
+    # banner said since launch (`banners`: every banner, not only the last, which a later one
+    # replaces); the app reads the problems from the engine's state as its window comes up, so it
+    # doesn't depend on catching the core's status line before a command clears it
     eng = port.call("ui.inspect", {}).get("engine", {})
     probs = eng.get("manifestProblems") or []
-    banner = wait(lambda: (lambda b: b if b and "broken.toml" in b else None)(status().get("banner")), 15, every=0.3)
-    say(any("broken.toml" in p for p in probs) and bool(banner), "an unreadable manifest is said at launch (B87)",
-        f"manifestProblems {probs}; the window's banner {status().get('banner')!r}")
+    said = wait(lambda: (lambda bs: [b for b in bs if "broken.toml" in b] or None)(status().get("banners") or []), 30, every=0.3)
+    say(any("broken.toml" in p for p in probs) and bool(said), "an unreadable manifest is said at launch (B87)",
+        f"manifestProblems {probs}; the window's banners {status().get('banners')!r}")
 
     # 2. File › New makes another (B70)
     r = step("menu-pick:File/New Graph")
@@ -736,6 +915,9 @@ def main():
 
         # the engine half (decision 10): the engine-interface rows on the installed engine
         engine_half(port, outside)
+
+        # F19: Save Result from a result node's footer, on the test engine
+        save_result(port)
 
         # the audio engine compiled in, and its viewer
         audio_viewer(port)

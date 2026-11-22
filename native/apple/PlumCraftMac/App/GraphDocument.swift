@@ -366,6 +366,10 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         bannerLabel.stringValue = "  \(s)  "
         bannerLabel.isHidden = false
         Status.shared.set("banner", .string(s))
+        // and every one said since launch (the last 30), so a check reads what was said, not
+        // only the last (B87's step raced a later banner)
+        Self.said = Array((Self.said + [s]).suffix(30))
+        Status.shared.set("banners", .array(Self.said.map(JSONValue.string)))
         bannerTask?.cancel()
         bannerTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(5))
@@ -566,7 +570,34 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         MenuBar.shared.dispatch(it, model: m)
     }
 
+    /// What the banners said, every window's, oldest first.
+    static var said: [String] = []
+
+    /// Whether this window has read the engine manifests' problems from the core yet.
+    var manifestProblemsRead = false
+
+    /// B87: the engine manifests the core couldn't use are said in the banner once the window
+    /// has its model, read from the engine's state (`ui.inspect`'s `engine.manifestProblems`),
+    /// which keeps them. The core also puts them in its status line, but only until a command
+    /// clears it; a window that came up while the machine was busy could miss that (the person
+    /// check saw it once, the banner never set).
+    func sayManifestProblems() {
+        guard !manifestProblemsRead, let m = canvasView?.model else { return }
+        manifestProblemsRead = true
+        Task { [weak self] in
+            guard let s = try? await m.inspect() else { return }
+            let probs = (s["engine"]["manifestProblems"].array ?? []).compactMap(\.string)
+            guard let first = probs.first, let self else { return }
+            let said = probs.count == 1 ? "engine manifests: \(first)" : "engine manifests: \(probs.count) problems; the first: \(first)"
+            if self.lastErrorShown != said {
+                self.lastErrorShown = said
+                self.banner(said)
+            }
+        }
+    }
+
     func showEngine(_ e: EngineState) {
+        sayManifestProblems()
         let err = canvasView?.model.state.lastError
         let (text, color): (String, NSColor) =
             if !e.connected && e.ready { ("Engine down", .systemRed) }

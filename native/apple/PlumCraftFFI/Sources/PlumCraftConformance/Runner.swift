@@ -28,6 +28,12 @@ public protocol ConformanceDriver: AnyObject {
     func has(_ capability: String) -> Bool
     /// Let the shell get on before a request is sent again (`until`).
     func pause() async
+    /// Where each case's `$scratch` folder is made (nil: this process's temporary folder).
+    var scratchRoot: URL? { get }
+}
+
+extension ConformanceDriver {
+    public var scratchRoot: URL? { nil }
 }
 
 /// The halves of the suite (16.1).
@@ -108,6 +114,13 @@ public enum Conformance {
             return Outcome(name: name, steps: 0, error: nil, skipped: "\(d.name) lacks \(lacks.joined(separator: ", "))")
         }
         var vars: [String: JSONValue] = [:]
+        // `$scratch`: a folder of this case's own, made by the runner, for what the shell writes
+        // (Save Result's files); under the driver's scratch root, else this process's temporary one
+        let root = d.scratchRoot ?? FileManager.default.temporaryDirectory.appendingPathComponent("plumcraft-conformance-\(ProcessInfo.processInfo.processIdentifier)")
+        let slug = String(name.lowercased().map { $0.isLetter || $0.isNumber ? $0 : "-" }.prefix(48))
+        let scratch = root.appendingPathComponent("case-\(slug)-\(UUID().uuidString.prefix(6))", isDirectory: true)
+        try? FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        vars["scratch"] = .string(scratch.resolvingSymlinksInPath().path)
         let fresh = await d.call("command.run", ["command": "graph.new", "params": ["discard": true]])
         if fresh["ok"] != true {
             return Outcome(name: name, steps: 0, error: "graph.new: \(fresh)", skipped: nil)

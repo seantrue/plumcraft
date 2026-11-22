@@ -135,11 +135,14 @@ public final class CanvasLink {
 
     /// Report faces' header parts (`geometry.parts`): what the typed `plum_geometry_set` can't
     /// carry, after it (the same queue keeps them in order).
-    public nonisolated static func reportParts(core: PlumCore, doc: UInt64?, faces: [(id: String, parts: [String: Rect])]) async {
+    public nonisolated static func reportParts(core: PlumCore, doc: UInt64?, faces: [(id: String, parts: [String: Rect], footer: [Rect?])]) async {
         guard !faces.isEmpty else { return }
+        func rect(_ r: Rect) -> JSONValue { .array([.double(r.x0), .double(r.y0), .double(r.x1), .double(r.y1)]) }
         let list: [JSONValue] = faces.map { f in
             var parts: [String: JSONValue] = [:]
-            for (k, r) in f.parts { parts[k] = .array([.double(r.x0), .double(r.y0), .double(r.x1), .double(r.y1)]) }
+            for (k, r) in f.parts { parts[k] = rect(r) }
+            // each footer line too (a tap on Save Result… is the core's save, B122)
+            if !f.footer.isEmpty { parts["footer"] = .array(f.footer.map { $0.map(rect) ?? .null }) }
             return ["node": .string(f.id), "parts": .object(parts)]
         }
         _ = try? await core.command("geometry.parts", ["faces": .array(list)], doc: doc)
