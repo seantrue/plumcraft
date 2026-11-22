@@ -139,8 +139,11 @@ public struct ViewerBar: SwiftUI.View {
             .fixedSize()
             .help("Pin this value as A or B and compare")
             .accessibilityIdentifier("viewer-compare")
-            // what made the value (decision 27, F56): the core's `viewer.recipe`
-            RecipeButton(popout: p)
+            // what made the value (decision 27, F56): the core's `viewer.recipe`, offered only
+            // for a value that has one (`hasRecipe`: a lineage-tracking engine's)
+            if p.value?.hasRecipe == true {
+                RecipeButton(popout: p)
+            }
             Button { Task { await p.takeOut("value.copy") } } label: { Label("Copy", systemImage: "doc.on.doc") }
                 .labelStyle(.iconOnly).help("Copy the value").accessibilityIdentifier("viewer-copy")
             Button { Task { await p.takeOut("value.share") } } label: { Label("Share…", systemImage: "square.and.arrow.up") }
