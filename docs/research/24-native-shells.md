@@ -1052,3 +1052,14 @@ The answer line: "1 yes, 2 note for future, yes".
 | 3 | B92 and B93 | Yes: B93 fixed now, B92 left open until it reproduces |
 
 **Open, for the future:** at low zoom (0.37) the wire tiles' raster, sampled at the nearest 1/64 of the screen's scale, and the vector strokes they replace make a slightly different moiré in dense bands of wires (2.7% of pixels differ by more than 32 of 255; `claude-debug/native-n5/shots-r4/wiresz-*.png`); at zoom 1 they match within 5 of 255.
+- **The gate, third part (2026-11-22, branch `native/n5-gate-3`).** B95 fixed in the core: a path a person reads never carries Windows' long-path prefix (`plumcraft_proto::programs::shown`: `\\?\C:\x` shows as `C:\x`, `\\?\UNC\server\share` as `\\server\share`), used where a canonicalised path reaches words a person reads (the copied-manifest warnings, a duplicate engine id's problem, `register`'s uv-cache warning and refusal); paths used to open, run or compare files keep the prefix. The canvas-tags scene's steps rewritten for the current core and retaken in light and dark; the value-editor scene can't be shown (no node of the text or array engines names an editor).
+
+#### Decisions after the gate's second part (the maintainer, 2026-11-22)
+
+The answer line: "1,2 yes, 3 leave it".
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | Fix B95 now | Yes: fixed in the core (above) |
+| 2 | Rewrite the two stale scene step files (canvas tags, the value editor) | Yes: canvas tags rewritten and retaken; the value editor can't be retaken with the engines on the Windows test VM |
+| 3 | The pick-list label under its field on Windows (the platform's header convention) or beside it as on the Mac | Leave it |

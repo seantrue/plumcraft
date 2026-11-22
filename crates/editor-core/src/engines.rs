@@ -350,7 +350,9 @@ pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
             Ok(r) => match loaded.iter().find(|x| x.id == r.manifest.id) {
                 // the same file twice (given and installed) is one engine
                 Some(x) if x.resolved.path == r.path => {}
-                Some(x) => problems.push(format!("{}: id {:?} is already {}", path.display(), r.manifest.id, x.resolved.path.display())),
+                Some(x) => {
+                    problems.push(format!("{}: id {:?} is already {}", path.display(), r.manifest.id, plumcraft_proto::programs::shown(&x.resolved.path)))
+                }
                 None => {
                     // it loads and is offered, but it very likely won't start: say why now
                     problems.extend(r.warnings.iter().map(|w| format!("{}: {w}", path.display())));

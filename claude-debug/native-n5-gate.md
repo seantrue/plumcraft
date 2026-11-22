@@ -463,3 +463,56 @@ The VM had no TPM and the VirtIO GPU DOD display. A ping watcher ran from 10:31;
   - private strings: clean.
 
   All on the display without GPU acceleration, so no timing here is smoothness evidence.
+
+## Sixth session (2026-11-22, branch `native/n5-gate-3`, from the dev branch at `fe89cfc`)
+
+### B95, in the core
+
+The helper is `plumcraft_proto::programs::shown(&Path)` and `shown_str(&str)`. It is plain string handling:
+
+- `\\?\C:\x` becomes `C:\x`;
+- `\\?\UNC\server\share` becomes `\\server\share`;
+- anything else is unchanged, including `\\?\GLOBALROOT\…`, which has no other spelling.
+
+It is used everywhere a canonicalised path reaches words a person reads:
+
+- `crates/host/src/manifest.rs`: the four copied-manifest warnings (project folder missing or without `pyproject.toml`; no-project base folder missing or without a project).
+- `crates/editor-core/src/engines.rs`, in `load_manifests`: the one `problems.push` for an id already loaded (`x.resolved.path`). This is one line before `cargo fmt`, now lines 324 to 326. It is the other agent's file; no other line was touched.
+- `crates/engine/src/register.rs`: `register`'s uv-cache warning and refusal (three `root` displays).
+
+Places checked and left alone, because their paths are used for file operations or a protocol, not shown to a person: the manifest's real folder, command and cwd; the craft engine's `--craft` argument; the CAS folders; the store's trusted paths; the manifest that `register` writes. No `\\?\` reaches a spawn error: those messages don't name the program.
+
+Tests:
+
+- `a_path_shown_to_a_person_has_no_long_path_prefix` runs everywhere;
+- `a_canonical_windows_path_is_shown_without_its_prefix` runs on Windows only, through `canonicalize`;
+- the copied-manifest test now asserts that the warning names the folder as `shown` gives it and contains no `\\?\`.
+
+Gate:
+
+- **Mac:** `cargo fmt --check`, clippy (`-D warnings`) and nextest of proto, host, engine and editor-core: 377 passed, 2 skipped.
+- **Windows test VM:** both new tests pass.
+  - Six other tests in those crates fail on Windows with or without the change, so they were already failing: **B97**. I checked by stashing the change on the VM and running them again.
+  - The host test reaches the new assertion before its old failure.
+- **Seen in the app:** the warned engine's tooltip now reads `uv run --project . names C:\Users\…\copied-ok\engines, with no pyproject.toml…` (`shots-r4/warned-tooltip-b95.png`).
+
+### Scenes
+
+- **Canvas tags:** the steps were rewritten. The graph is made in the steps; a wire is labelled as the net "words", then Lower case is connected to it by name. Retaken in light and dark and looked at: "words ×2" at the driver, "words" at each use.
+- **Reports:** the steps were rewritten without the value editor and retaken in light and dark: Messages, Cache Report, graph Parameters.
+- **The value editor cannot be shown.** No node of the text or array engines names an editor (`node.editor` refuses with "text.literal names no editor"), and the VM has no engine that does. F22 stays partly.
+
+### Windows gate
+
+| Time (Mac) | Step | Result |
+|---|---|---|
+| 11:08 to 11:12 | sync to `fe89cfc` plus the change; DLL and engine programs; the touched crates' tests | as above |
+| 11:12:55 | app built; `dotnet test` | 53 of 53 |
+| 11:13:51 to 11:17:14 | person check, three runs | 17 of 17 each |
+| 11:19 to 11:23:50 | C# runner on ARM64 and x64, and the Swift runner | 57 of 57 each |
+| 11:24 | warned engine hover picture | the path is shown clean |
+| 11:24:30 to 11:26:01 | canvas and reports scenes, light and dark | retaken |
+
+The x64 run had to be repeated. The first x64 core build failed to compile: the sync keeps the Mac's file times, older than the VM's last x64 build, so cargo had not rebuilt `plumcraft-proto`. That x64 conformance run therefore used the old core. After touching the file, the x64 core and app were rebuilt and the suite run again: 57 of 57.
+
+No ping was lost; available memory stayed between 6.8 and 6.9 GB.

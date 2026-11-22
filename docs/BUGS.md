@@ -25,11 +25,11 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: the maintainer: "note for future". Not a defect to fix now (note 24's open items).
 - Issue: none
 
-### B95. The copied-manifest warning shows a Windows path with its `\\?\` prefix
+### B97. Some core tests fail on Windows: Unix-style absolute paths, and engine programs a test expects beside it
 
 - Reported: 2026-11-22
-- Report: seen in the engine cell's tooltip on the Windows test VM (`native/n5-gate-2`): "uv run --project . names \\?\C:\…\engines, with no pyproject.toml…"
-- Context: the core canonicalises the manifest's folder (`std::fs::canonicalize`, which on Windows gives a verbatim path) and puts it in the words a person reads (`crates/host/src/manifest.rs`). The fix is the core's (strip the prefix for display, as `dunce` does); not changed here.
+- Report: found running the touched crates' tests on the Windows test VM for B95 (`native/n5-gate-3`); the same tests fail with B95's change taken out, so they were failing before it
+- Context: `plumcraft-host` `manifest::tests::a_uv_project_folder_with_no_pyproject_warns` and `a_uv_run_with_no_project_from_a_folder_with_none_warns` (`/nowhere/at/all` and `/elsewhere` are not absolute on Windows, so the rule judges them); `plumcraft-engine` `register::tests::register_from_uvs_cache_warns_and_from_a_temporary_one_refuses` (register.rs:311); `plumcraft-editor-core` `engines::tests::a_desktop_offers_every_hosting_as_before` (engines.rs:964, the engine programs aren't beside a debug test), `switchboard::tests::an_engine_that_exits_at_once_fails_the_switch_at_once_saying_why` (switchboard.rs:950) and `switching_adding_and_clearing_without_a_window` (switchboard.rs:818). CI is Linux only, so nothing runs these on Windows. Not changed.
 - Issue: none
 
 ### B92. A sound popped out by a double click on its pin started playing by itself, twice
@@ -152,6 +152,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B95. The copied-manifest warning shows a Windows path with its `\\?\` prefix
+
+- Reported: 2026-11-22
+- Report: seen in the engine cell's tooltip on the Windows test VM (`native/n5-gate-2`): "uv run --project . names \\?\C:\…\engines, with no pyproject.toml…"
+- Context: the core canonicalises the manifest's folder (`std::fs::canonicalize`, which on Windows gives a verbatim path) and put it in the words a person reads.
+- Fixed: 2026-11-22, branch `native/n5-gate-3` (the maintainer: "yes"): `plumcraft_proto::programs::shown` (and `shown_str`) take the prefix off a path for display (`\\?\C:\x` → `C:\x`, `\\?\UNC\server\share` → `\\server\share`, anything else unchanged), used in the copied-manifest warnings (`crates/host/src/manifest.rs`), a duplicate engine id's problem (`crates/editor-core/src/engines.rs`, the one `problems.push` for an id already loaded) and `register`'s uv-cache warning and refusal (`crates/engine/src/register.rs`); paths used for file operations keep it. Tests: string cases on every platform, a canonical temporary folder on Windows, and the copied-manifest warning on Windows names the folder without the prefix. Seen in the app: the engine cell's tooltip names `C:\…\engines`.
+- Issue: none
 
 ### B117. With the screen locked the person check failed its accessibility steps and left the save panel open
 
