@@ -1773,6 +1773,16 @@ impl Worker {
                     let _ = req.reply.send(control::err("timeout: the request expired before it ran"));
                     return;
                 }
+                // a value as plain data (N5 slice 4): the C ABI's own method, served on the
+                // control port too, so a driver over the port reads what a shell reads; the
+                // bytes stay the shell's to borrow (`plum_blob`), the port says only their state
+                if req.method == "media.get" {
+                    let _ = req.reply.send(match self.media_get(&req.params) {
+                        Ok(v) => control::ok(v),
+                        Err(e) => control::err(e),
+                    });
+                    return;
+                }
                 let Some(d) = self.docs.get_mut(&id) else { return };
                 if req.method == "menu.get" {
                     d.menus_watched = true;

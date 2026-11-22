@@ -111,7 +111,7 @@ public sealed class CanvasView : Grid
         // a capture this view lets go of on a release is lost too: only a loss it didn't ask for cancels
         // (B50: slice 2 released capture first, and the loss it raised dropped every mouse click)
         PointerCaptureLost += (s, e) => { if (!releasing) OnCanceled(s, e); };
-        PointerExited += (_, _) => Pointer = null;
+        PointerExited += (_, _) => { Pointer = null; Canvas.Hover(null); };
         PointerWheelChanged += OnWheel;
         ContextRequested += OnContextRequested;
         Holding += OnHolding;
@@ -250,7 +250,12 @@ public sealed class CanvasView : Grid
             e.Handled = true;
             return;
         }
-        if (e.Pointer.PointerId != pressPointer) return;
+        if (e.Pointer.PointerId != pressPointer)
+        {
+            // a mouse or pen hovering with nothing pressed: a ring on a pin, a wire drawn wider (the typed hit test)
+            if (pressPointer is null && !Drag.Active) HoverAt(at, type);
+            return;
+        }
         MoveTo(at);
         e.Handled = true;
     }
@@ -427,6 +432,41 @@ public sealed class CanvasView : Grid
     /// <summary>What the drag under way is (the status file says, for scripts and screenshots).</summary>
     public string? DragState { get; private set; }
 
+    /// <summary>A pointer hovering at view point `at` with nothing pressed: the typed hit test, shown.</summary>
+    public void HoverAt(Vector2 at, PointerDeviceType type = PointerDeviceType.Mouse) => Canvas.Hover(Link.HitAt(Graph(at), Slop(type)));
+
+    DateTime touchesAsked = DateTime.MinValue;
+    bool touchesBusy;
+
+    /// <summary>The faces a marquee touches, as the core decides (`ui.gesture` drag move's `touches`, JSON),
+    /// asked at most ten times a second while it moves; the typed moves draw the marquee itself.</summary>
+    Point? touchesWanted;
+
+    async void AskTouches(Point pointer)
+    {
+        touchesWanted = pointer;
+        if (touchesBusy) return;
+        touchesBusy = true;
+        try
+        {
+            // at most ten a second, and always once more for where the pointer last was
+            while (touchesWanted is not null)
+            {
+                var wait = 100 - (DateTime.UtcNow - touchesAsked).TotalMilliseconds;
+                if (wait > 0) await Task.Delay((int)wait);
+                if (touchesWanted is not { } at) break;
+                touchesWanted = null;
+                touchesAsked = DateTime.UtcNow;
+                if (!Drag.Active) break;
+                var r = await Link.GestureAsync(Gesture.DragMove(at, Slop(PointerDeviceType.Mouse)));
+                if (Environment.GetEnvironmentVariable("PLUMMER_TRACE") is { Length: > 0 }) CoreHost.Log($"touches at {at}: {string.Join(",", r.Update?.Touches ?? [])} active {Drag.Active} kind {Drag.Kind}");
+                if (Drag.Active && Drag.Kind == DragWord.Marquee) Canvas.ShowTouches(r.Update?.Touches);
+            }
+        }
+        catch (Exception e) { CoreHost.Log($"marquee touches: {e.Message}"); }
+        touchesBusy = false;
+    }
+
     void OnDragMoved(DragFrame f)
     {
         switch (f.Kind)
@@ -436,6 +476,7 @@ public sealed class CanvasView : Grid
                 break;
             case DragWord.Marquee:
                 Canvas.ShowMarquee(f.Marquee);
+                AskTouches(f.Pointer);
                 break;
             case DragWord.Wire:
                 var on = f.Target is { } t;

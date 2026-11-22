@@ -93,6 +93,24 @@ public static class Jsonv
     public static JsonElement? Get(this JsonElement v, string key) =>
         v.ValueKind == JsonValueKind.Object && v.TryGetProperty(key, out var x) ? x : null;
 
+    /// <summary>A field of what may be nothing (N5 slice 4: so reads of the core's models chain).</summary>
+    public static JsonElement? Get(this JsonElement? v, string key) => v is { } x ? x.Get(key) : null;
+
+    /// <summary>An item of a list, or null.</summary>
+    public static JsonElement? At(this JsonElement? v, int i) =>
+        v is { ValueKind: JsonValueKind.Array } a && i >= 0 && i < a.GetArrayLength() ? a[i] : null;
+
+    /// <summary>The items of a list (none when it isn't one).</summary>
+    public static IEnumerable<JsonElement> Items(this JsonElement? v) =>
+        v is { ValueKind: JsonValueKind.Array } a ? a.EnumerateArray() : [];
+
+    public static IEnumerable<JsonElement> Items(this JsonElement v) => ((JsonElement?)v).Items();
+    public static JsonElement? At(this JsonElement v, int i) => ((JsonElement?)v).At(i);
+    public static string? Str(this JsonElement v) => ((JsonElement?)v).Str();
+    public static bool? Bool(this JsonElement v) => ((JsonElement?)v).Bool();
+    public static double? Double(this JsonElement v) => ((JsonElement?)v).Double();
+    public static ulong? U64(this JsonElement v) => ((JsonElement?)v).U64();
+
     public static string? Str(this JsonElement? v) => v is { ValueKind: JsonValueKind.String } s ? s.GetString() : null;
     public static bool? Bool(this JsonElement? v) => v?.ValueKind switch { JsonValueKind.True => true, JsonValueKind.False => false, _ => null };
     public static double? Double(this JsonElement? v) => v is { ValueKind: JsonValueKind.Number } n && n.TryGetDouble(out var d) ? d : null;

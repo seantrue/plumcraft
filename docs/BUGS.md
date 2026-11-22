@@ -4,6 +4,20 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B56. The sound case races a shell that reports a sound's end: under emulation the 64 ms sound ends between two steps
+
+- Reported: 2026-11-21
+- Report: found by N5 slice 4's gate: the conformance suite against the x64 Windows app under emulation on the Windows test VM, one run of two
+- Context: "a sound popped out by a person plays, pauses and seeks through the core" plays a sound of 3,072 frames at 48 kHz (64 ms) with `viewer.audio {play: true}` (`seq` 1), then seeks with `{at: 0.03, level: 0.5, loop: true}` and wants `seq` 2. A shell whose sound (or muted clock) reaches the end tells the core (`viewer.audio {play: false, at: 0}`, as the Apple apps' `SoundPlayer` does and the Windows app now does), which raises `seq`. On a fast machine the two steps come within 64 ms; under x64 emulation they didn't, the app reported the end between them, and the step saw `seq` 3. The second x64 run and every ARM64 run passed.
+- Not changed: the case (shared by every shell) or the shells. Setting `loop: true` before `play`, or a longer sound, would make the case independent of speed; that is for the maintainer.
+- Issue: none
+
+### B55. On the Windows test VM a Plummer process stuck where nothing could end it, and the console session stopped starting programs
+
+- Reported: 2026-11-21
+- Report: found while taking N5 slice 4's screenshots (`native/n5-panels`); recorded under the standing "record bugs"
+- Context: a screenshot run launched the app (`edit-number`, 15:17) through a one-shot Interactive scheduled task, as every run does. It never wrote its first window to its status file. From then on no program started in the console session: every later scheduled task's process (cmd, PowerShell, the screenshot and input injectors) stayed at its start, and the app's process and the console host and terminal processes launched with it couldn't be ended (`Stop-Process` and `taskkill` reported success or access denied, and the processes stayed). Windows logged a `LiveKernelEvent` (code `1cc`) at 15:31 and an application hang in another app. A program started from the SSH session (session 0) still runs. The VM was not restarted (the brief: never restart it); the stuck processes are still there. Whether the app caused it, or the VM's display driver did and the app was the first to meet it, is not known.
+- Looked at after the maintainer restarted the VM: Windows logged `LiveKernelEvent` `1cc` (a kernel resource held too long, a live dump in `C:\WINDOWS\LiveKernelReports\ResourceTimeout-20261121-1520.dmp`) at 15:20, three minutes after the stuck launch, and again at 15:30 and 15:31 with hang reports for two system apps (the Store, the AAD broker). There was no crash or hang report for the stuck Plummer itself, no WerFault and no debugger attached, and the app never wrote its first window to its status file, so it stuck before any window, sheet or dialog of its own was shown, not on a modal sheet and not in a crashed composition thread. Every launch then went through `cmd /c` in a console that Windows handed to Windows Terminal (its default terminal), and Windows Terminal, OpenConsole and conhost started with that launch were among the processes nothing could end. Since the restart every scripted launch runs under `conhost.exe --headless`, so no terminal is started; it did not recur in the seven launches for the suite after the restart (four on ARM64, two on x64, one from the Mac's runner); later the VM stopped answering altogether (no ping, no SSH), and was left so. The dump was not opened (no kernel debugger on the VM).
 ### B76. The iPad bench leaves each Instruments trace's working file in the temporary folder
 
 - Reported: 2026-11-21
@@ -51,6 +65,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: `plumcraft-ui::kittest_viewer_tools`. Failed once in the full parallel nextest run for N4 slice 2 on the Mac; passed 20 of 20 alone. The message was not captured. Not looked into.
 - Issue: none
 
+### B54. The Windows app ended once with a stowed exception during the conformance suite's read half
+
+- Reported: 2026-11-21
+- Report: found by the gate of N5 slice 4 (`native/n5-panels`); recorded under the standing "record bugs"
+- Context: the first run of the read half against slice 4's build on the Windows test VM: the app process ended (exit `0xC000027B`, a stowed exception; Windows Error Reporting names `CoreMessagingXP.dll`, `combase.dll` and `E_INVALIDARG`) around the case "a watched picture arrives as picture", while pop-out windows the core opened for the earlier cases were being closed by `graph.new`. Nothing reached the app's own handler or log. Pop-out and panel windows now drop what comes for them after they close (a value read, a viewer's page, a report), every viewer's update catches and logs its own faults, and `PLUMMER_TRACE` logs every exception as it is thrown. The run of both halves after these changes passed, and about forty scripted launches for screenshots ended normally; the x64 run and repeated runs were not taken (B55); the cause was not found, so this stays open. After the VM's restart, with every exception logged as thrown (`PLUMMER_TRACE`): the suite four times on the final ARM64 build, twice on x64 and once from the Mac's runner, every one to the end with the app stopped by its PID; no stowed exception and no app exit. Not reproduced.
+- Issue: none
+
 ### B52. `CoreFlow.ManyRequestsInFlightAndWakesCoalesce` failed once on the Windows test machine: "busy: the document's engine is still connecting"
 
 - Reported: 2026-11-21
@@ -80,6 +101,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B53. The C# conformance runner passed a `holds` step on its first reply alone
+
+- Reported: 2026-11-21
+- Report: found reading the runner against `crates/editor-core/src/conformance.rs` in N5 slice 4 (`native/n5-panels`)
+- Context: the suite's `holds: {pointer: want}` step form (with `for`, added for B43: a window the shell closed by itself a moment after it opened) asks again for that long and every reply must match. The Swift and Rust runners do; the C# runner, ported before the form existed, ignored `holds` and passed such a step on its first reply, so "the shell never closes what the core opened" was not checked by the C# runner against the Windows app in slices 2 and 3.
+- Fixed: 2026-11-21, branch `native/n5-panels`: `holds` and `for` as the other runners have them (`native/windows/src/PlumCraft.Conformance/Runner.cs`). The Windows app passes the three such steps.
+- Issue: none
 
 ### B73. The Mac app's forms put every label above the wrong field, the first one clipped
 

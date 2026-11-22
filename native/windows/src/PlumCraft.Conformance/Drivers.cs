@@ -118,6 +118,8 @@ public sealed class KitDriver : IConformanceDriver
 
     static readonly string[] Kinds = ["none", "node", "pin", "wire", "bend", "tag", "frame", "group"];
 
+    public Task<JsonElement?> HotMoveAsync(float x, float y, float slop) => Task.FromResult(HotMove(x, y, slop));
+
     /// <summary>plum_gesture_move, as the Rust driver writes it.</summary>
     public JsonElement? HotMove(float x, float y, float slop)
     {
@@ -156,8 +158,9 @@ public sealed class KitDriver : IConformanceDriver
         });
     }
 
-    /// <summary>Its engine, and media.get (the C ABI serves it).</summary>
-    public bool Has(string capability) => capability == "media" || capability == $"engine:{Engine}";
+    /// <summary>Its engine, media.get (the C ABI serves it), and `manifests`: the kit's cores are opened on the
+    /// suite's engines folder (`dirs.engines`, B71).</summary>
+    public bool Has(string capability) => capability is "media" or "manifests" || capability == $"engine:{Engine}";
 
     /// <summary>The next feed batch the model sees, or 50 ms.</summary>
     public Task PauseAsync() => Model.NextChangeAsync(TimeSpan.FromMilliseconds(50));
@@ -235,10 +238,55 @@ public sealed class PortDriver : IConformanceDriver, IPortCheck, IDisposable
         }
     }
 
+    /// <summary>A running app measures its own faces; with SuiteGeometry (the default since N5 slice 4) the
+    /// suite's `geometry` steps still run: report the suite's measurements over the app's once the app has
+    /// measured those faces, and wait until the core holds them (the app reports a face again only when
+    /// it changes).</summary>
+    public bool SuiteGeometry { get; set; } = true;
+
     public async Task ReportGeometryAsync(JsonElement faces)
     {
+        if (!Reports)
+        {
+            // the app's own report first, so the suite's comes after it
+            var until = DateTime.UtcNow + SettleLimit;
+            foreach (var f in faces.EnumerateArray())
+                while (!(await CallAsync("geometry.locate", Jsonv.Object(("node", f.Get("node") ?? Jsonv.Null)))).Pointer("/result/measured").IsTrue() && DateTime.UtcNow < until)
+                    await Task.Delay(10);
+        }
         var r = await CallAsync("command.run", Jsonv.Object(("command", Jsonv.Of("geometry.set")), ("params", Jsonv.Object(("faces", faces)))));
         if (!r.Get("ok").IsTrue()) throw new ConformanceException($"geometry.set: {r.Short()}");
+        if (Reports) return;
+        // held: each face's rect is the suite's size (a face the app laid out again meanwhile is reported again)
+        var deadline = DateTime.UtcNow + SettleLimit;
+        for (int round = 0; ; round++)
+        {
+            bool all = true;
+            foreach (var f in faces.EnumerateArray())
+            {
+                var at = await CallAsync("geometry.locate", Jsonv.Object(("node", f.Get("node") ?? Jsonv.Null)));
+                var size = f.Get("size");
+                var rect = at.Pointer("/result/rect");
+                if (size is not { ValueKind: JsonValueKind.Array } sz || rect is not { ValueKind: JsonValueKind.Array } rc || rc.GetArrayLength() != 4) { all = false; break; }
+                double w = rc[2].GetDouble() - rc[0].GetDouble(), h = rc[3].GetDouble() - rc[1].GetDouble();
+                if (Math.Abs(w - sz[0].GetDouble()) > 1e-3 || Math.Abs(h - sz[1].GetDouble()) > 1e-3) { all = false; break; }
+            }
+            if (all)
+            {
+                var scene = await CallAsync("scene.get", Jsonv.EmptyObject);
+                foreach (var f in faces.EnumerateArray())
+                    if (f.Get("node").Str() is { } id && f.Get("size") is { ValueKind: JsonValueKind.Array } sz && scene.Pointer("/result/nodes").Items().FirstOrDefault(x => x.Get("id").Str() == id) is { ValueKind: JsonValueKind.Object } face)
+                        overridden[id] = (face.Get("rev").U64() ?? 0, sz[0].GetDouble(), sz[1].GetDouble(), DateTime.MinValue);
+                return;
+            }
+            if (DateTime.UtcNow > deadline) throw new ConformanceException("the app's own measurements kept replacing the suite's");
+            await Task.Delay(20);
+            if (round % 10 == 9)
+            {
+                var again = await CallAsync("command.run", Jsonv.Object(("command", Jsonv.Of("geometry.set")), ("params", Jsonv.Object(("faces", faces)))));
+                if (!again.Get("ok").IsTrue()) throw new ConformanceException($"geometry.set: {again.Short()}");
+            }
+        }
     }
 
     /// <summary>A headless core: nothing to wait for. An app: until it has measured every face in the
@@ -249,10 +297,37 @@ public sealed class PortDriver : IConformanceDriver, IPortCheck, IDisposable
         var deadline = DateTime.UtcNow + SettleLimit;
         while (DateTime.UtcNow < deadline)
         {
-            if (await EveryFaceMeasured()) return;
+            if (await EveryFaceMeasured() && await OverridesSettled()) return;
             await Task.Delay(10);
         }
         SettleTimeouts++;
+    }
+
+    /// <summary>Faces whose measurements the suite reported over the app's, by id: the face's `rev` then and the
+    /// suite's size. Once the face changes, the app measures it again; until its own measurement replaces the
+    /// suite's (the size differs), a settle isn't done, or a step would aim at the suite's rows while the core
+    /// hits the app's (seen on the Mac app: a scrub that began on a face's body).</summary>
+    readonly Dictionary<string, (ulong rev, double w, double h, DateTime since)> overridden = new(StringComparer.Ordinal);
+
+    async Task<bool> OverridesSettled()
+    {
+        if (overridden.Count == 0) return true;
+        var scene = await CallAsync("scene.get", Jsonv.EmptyObject);
+        foreach (var (id, was) in overridden.ToList())
+        {
+            var o = was;
+            var face = scene.Pointer("/result/nodes").Items().FirstOrDefault(f => f.Get("id").Str() == id);
+            if (face.ValueKind != JsonValueKind.Object) { overridden.Remove(id); continue; }
+            if (face.Get("rev").U64() == o.rev) continue;
+            if (o.since == DateTime.MinValue) overridden[id] = o = o with { since = DateTime.UtcNow };
+            var rect = (await CallAsync("geometry.locate", Jsonv.Object(("node", Jsonv.Of(id))))).Pointer("/result/rect");
+            var w = (rect.At(2).Double() ?? 0) - (rect.At(0).Double() ?? 0);
+            var h = (rect.At(3).Double() ?? 0) - (rect.At(1).Double() ?? 0);
+            // the app's own now, or (bounded) the same size by chance
+            if (Math.Abs(w - o.w) > 1e-3 || Math.Abs(h - o.h) > 1e-3 || DateTime.UtcNow - o.since > TimeSpan.FromSeconds(3)) overridden.Remove(id);
+            else return false;
+        }
+        return true;
     }
 
     async Task<bool> EveryFaceMeasured()
@@ -268,15 +343,28 @@ public sealed class PortDriver : IConformanceDriver, IPortCheck, IDisposable
         return true;
     }
 
-    public JsonElement? HotMove(float x, float y, float slop) => null;
+    /// <summary>What else the app or core has (`--has`): `manifests` when its engines folder is the suite's
+    /// (B71: `PLUMCRAFT_ENGINE_FOLDER`, or a config's `dirs.engines`).</summary>
+    public HashSet<string> Also { get; } = [];
 
-    /// <summary>The engines the core has; the port doesn't serve media.get; an app's canvas measures its
-    /// rows' widgets and header parts (`rows`).</summary>
+    /// <summary>The typed move's JSON form over the port (geometry.dragMove, N5 slice 4).</summary>
+    public async Task<JsonElement?> HotMoveAsync(float x, float y, float slop)
+    {
+        var r = await CallAsync("geometry.dragMove", Jsonv.Object(("at", Jsonv.Array([Jsonv.Of((double)x), Jsonv.Of((double)y)])), ("slop", Jsonv.Of((double)slop))));
+        return r.Get("ok").IsTrue() ? r.Get("result") ?? Jsonv.Null : Jsonv.Object(("status", Jsonv.Of(-1L)), ("error", r.Get("error") ?? Jsonv.Null));
+    }
+
+    /// <summary>The engines the core has; media.get (a C ABI core's port serves it since N5 slice 4); an
+    /// app's canvas measures its rows' widgets and header parts (`rows`), and with SuiteGeometry the suite's
+    /// measurements are reported over its own (`reports`).</summary>
     public bool Has(string capability) => capability switch
     {
         "rows" => !Reports,
+        "reports" => !Reports && SuiteGeometry,
+        "media" => true,
         "port" => true,
         "prefs" => Prefs,
+        _ when Also.Contains(capability) => true,
         _ => capability.StartsWith("engine:", StringComparison.Ordinal) && engines.Contains(capability[7..]),
     };
 

@@ -169,7 +169,14 @@ public sealed class Editors
             if (it.Category != section)
             {
                 section = it.Category;
-                list.Items.Add(new ListViewHeaderItem { Content = section, FontSize = 12, Padding = new Thickness(8, 6, 0, 0), MinHeight = 24, IsHitTestVisible = false, IsTabStop = false });
+                // a section's name as the platform heads a group in a list: smaller, secondary, semibold, no
+                // rule under it, never selected (slice 3's ListViewHeaderItem drew a row with an underline)
+                list.Items.Add(new ListViewItem
+                {
+                    Content = new TextBlock { Text = section, Style = Ui.TextStyle("CaptionTextBlockStyle"), FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, Foreground = Ui.Brush("TextFillColorSecondaryBrush") },
+                    IsHitTestVisible = false, IsTabStop = false, AllowFocusOnInteraction = false, MinHeight = 26, Padding = new Thickness(12, k == 0 ? 2 : 10, 0, 2),
+                    VerticalContentAlignment = VerticalAlignment.Bottom,
+                });
             }
             var row = new Grid { Tag = it, ColumnSpacing = 8 };
             row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });

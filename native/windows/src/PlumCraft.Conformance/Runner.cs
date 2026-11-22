@@ -24,9 +24,11 @@ public interface IConformanceDriver
     Task ReportGeometryAsync(JsonElement faces);
     /// <summary>Wait until the shell drew and measured what the last request changed.</summary>
     Task SettleAsync();
-    /// <summary>The typed drag move, as ui.gesture's `update`; null where the driver has none.</summary>
-    JsonElement? HotMove(float x, float y, float slop);
-    /// <summary>`engine:<pack>`, `media`, `port`, `prefs`, `rows` (`reports` is Reports).</summary>
+    /// <summary>The typed drag move, as plum_gesture_move answers it (over a port its JSON form,
+    /// geometry.dragMove); null where the driver has none.</summary>
+    Task<JsonElement?> HotMoveAsync(float x, float y, float slop);
+    /// <summary>`engine:<pack>`, `media`, `port`, `prefs`, `rows`; `reports` for a driver that measures its
+    /// own faces but reports the suite's over them (N5 slice 4; a headless driver's is Reports).</summary>
     bool Has(string capability);
     /// <summary>Let the shell get on before a request is sent again (`until`).</summary>
     Task PauseAsync();
@@ -44,6 +46,9 @@ public enum CaseHalf { Read, Edit }
 /// <summary>How one case went: passed when neither Error nor Skipped is set.</summary>
 public sealed record Outcome(string Name, int Steps, string? Error, string? Skipped)
 {
+    /// <summary>Steps of the case this driver didn't run (an `only:` it lacks, a `hot` or `geometry` step
+    /// it has no form for): N5 slice 4's gate counts them.</summary>
+    public int StepsSkipped { get; init; }
     public bool Passed => Error is null && Skipped is null;
 }
 
@@ -84,6 +89,9 @@ public static class Conformance
         var skipped = outcomes.Where(o => o.Skipped is not null).Select(o => $"  skipped {o.Name}: {o.Skipped}").ToList();
         int run = outcomes.Count - skipped.Count;
         var sb = new StringBuilder($"{driver}: {run - failed.Count} of {run} cases passed, {skipped.Count} skipped");
+        // the steps (N5 slice 4): run of the cases' total, and those this driver skipped
+        int total = outcomes.Sum(o => o.Steps), notRun = outcomes.Sum(o => o.StepsSkipped);
+        sb.Append($"; steps {total - notRun} run of {total}, {notRun} skipped");
         foreach (var f in failed) sb.Append('\n').Append(f);
         foreach (var s in skipped) sb.Append('\n').Append(s);
         return sb.ToString();
@@ -91,7 +99,8 @@ public static class Conformance
 
     static bool Has(IConformanceDriver d, string capability) => capability switch
     {
-        "reports" => d.Reports,
+        // the suite's measurements reported: by a headless driver, or over an app's own (N5 slice 4)
+        "reports" => d.Reports || d.Has("reports"),
         // rows' widgets and header parts measured (N4 slice 2): reported by the suite, or by the app
         "rows" => d.Reports || d.Has("rows"),
         _ => d.Has(capability),
@@ -113,24 +122,26 @@ public static class Conformance
         if (!fresh.Get("ok").IsTrue()) return new Outcome(name, 0, $"graph.new: {fresh.Short()}", null);
         await d.SettleAsync();
         var steps = c.Get("steps") is { ValueKind: JsonValueKind.Array } a ? a.EnumerateArray().ToList() : new List<JsonElement>();
+        int skipped = 0;
         for (int k = 0; k < steps.Count; k++)
         {
             try
             {
-                await StepAsync(d, vars, steps[k]);
+                if (!await StepAsync(d, vars, steps[k])) skipped++;
             }
             catch (Exception e)
             {
-                return new Outcome(name, k, $"step {k + 1}: {e.Message}", null);
+                return new Outcome(name, k, $"step {k + 1}: {e.Message}", null) { StepsSkipped = skipped };
             }
         }
         // a drag left under way would carry into the next case, and so would an open palette
         await d.CallAsync("ui.gesture", Obj(("kind", Jsonv.Of("drag")), ("phase", Jsonv.Of("cancel"))));
         await d.CallAsync("command.run", Obj(("command", Jsonv.Of("canvas.palette")), ("params", Obj(("open", Jsonv.False)))));
-        return new Outcome(name, steps.Count, null, null);
+        return new Outcome(name, steps.Count, null, null) { StepsSkipped = skipped };
     }
 
-    static async Task StepAsync(IConformanceDriver d, Dictionary<string, JsonElement> vars, JsonElement s)
+    /// <summary>Run one step: false when this driver skipped it.</summary>
+    static async Task<bool> StepAsync(IConformanceDriver d, Dictionary<string, JsonElement> vars, JsonElement s)
     {
         var only = new List<string>();
         switch (s.Get("only"))
@@ -140,11 +151,12 @@ public static class Conformance
                 foreach (var x in o.EnumerateArray()) if (x.ValueKind == JsonValueKind.String) only.Add(x.GetString()!);
                 break;
         }
-        if (only.Any(x => !Has(d, x))) return;
+        if (only.Any(x => !Has(d, x))) return false;
         if (s.Get("geometry") is { } faces)
         {
-            if (d.Reports) await d.ReportGeometryAsync(Subst(faces, vars));
-            return;
+            if (!Has(d, "reports")) return false;
+            await d.ReportGeometryAsync(Subst(faces, vars));
+            return true;
         }
         if (s.Get("hot") is { } h)
         {
@@ -152,9 +164,9 @@ public static class Conformance
             if (r.Get("at") is not { ValueKind: JsonValueKind.Array } at || at.GetArrayLength() != 2) throw new ConformanceException("hot.at must be [x, y]");
             if (((JsonElement?)at[0]).Double() is not { } x || ((JsonElement?)at[1]).Double() is not { } y) throw new ConformanceException("hot.at must be numbers");
             var slop = r.Get("slop").Double() is { } sl ? (float)sl : DefaultSlop;
-            if (d.HotMove((float)x, (float)y, slop) is { } v)
-                Expect(Obj(("ok", Jsonv.True), ("result", v)), s.Get("expect"), vars);
-            return;
+            if (await d.HotMoveAsync((float)x, (float)y, slop) is not { } v) return false;
+            Expect(Obj(("ok", Jsonv.True), ("result", v)), s.Get("expect"), vars);
+            return true;
         }
         if (s.Get("check").Str() is { } check)
         {
@@ -162,10 +174,10 @@ public static class Conformance
             {
                 if (d is not IPortCheck p) throw new ConformanceException("authRefused needs a driver over the control port");
                 await p.AuthRefusedAsync();
-                return;
+                return true;
             }
             Check(check, Subst(s, vars));
-            return;
+            return true;
         }
         string method;
         JsonElement parameters;
@@ -206,6 +218,27 @@ public static class Conformance
                 reply = await d.CallAsync(method, p2);
             }
         }
+        // a condition that must stay so for a while (`holds`, `for`, B43): the runner lacked it until N5
+        // slice 4 and passed such a step on its first reply alone (B53)
+        if (s.Get("holds") is { } holds)
+        {
+            var span = TimeSpan.FromSeconds(Math.Min(Math.Max(s.Get("for").Double() ?? 1, 0), 10));
+            var t0 = DateTime.UtcNow;
+            while (true)
+            {
+                try
+                {
+                    Expect(reply, holds, vars);
+                }
+                catch (ConformanceException e)
+                {
+                    throw new ConformanceException($"{method} {p2.Short()}: didn't stay so ({(DateTime.UtcNow - t0).TotalSeconds:F2} s in): {e.Message}");
+                }
+                if (DateTime.UtcNow - t0 >= span) break;
+                await d.PauseAsync();
+                reply = await d.CallAsync(method, p2);
+            }
+        }
         var wantOk = s.Get("ok").Bool() ?? true;
         if (reply.Get("ok").IsTrue() != wantOk)
             throw new ConformanceException($"{method} {p2.Short()}: wanted ok {(wantOk ? "true" : "false")}, got {reply.Short()}");
@@ -229,6 +262,7 @@ public static class Conformance
                 vars[kv.Name] = x;
             }
         }
+        return true;
     }
 
     /// <summary>`$var` in a string: each replaced by its text (a string's own, else its JSON).</summary>

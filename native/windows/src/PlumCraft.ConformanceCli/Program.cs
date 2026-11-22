@@ -2,12 +2,12 @@
 //
 //   plumcraft-conformance --port N --token-file F --cases cases.json [--doc D] [--half read|edit|all]
 //                         [--measured] [--engine text]... [--case NAME] [--needing CAPABILITY]
-//                         [--host H] [--no-prefs]
+//                         [--host H] [--no-prefs] [--own-geometry] [--has CAPABILITY]
 //   plumcraft-conformance call --port N --token-file F [--doc D] METHOD [PARAMS-JSON | @FILE]
 //
 // The Swift kit's command (native/apple/PlumCraftFFI, plumcraft-conformance) with the same flags and the
 // same CASE lines. `--measured`: the shell measures its own faces (an app with a canvas), so the suite's
-// geometry steps are skipped and each settle waits until every face is measured. Exits 0 when no case
+// geometry steps report the suite's measurements over the app's (N5 slice 4; `--own-geometry` skips them, as before) and each settle waits until every face is measured. Exits 0 when no case
 // failed (a skipped case is reported, never passed). `call` sends one request and prints its reply (a
 // script driving the app the way any control client does).
 
@@ -33,6 +33,11 @@ var engines = new HashSet<string>();
 while (Value("--engine") is { } e) engines.Add(e);
 var measured = Flag("--measured");
 var prefs = !Flag("--no-prefs");
+// N5 slice 4: a measured app still runs the suite's geometry steps (the suite's measurements over its own)
+var ownGeometry = Flag("--own-geometry");
+// what else the app has (`--has manifests`: its engines folder is the suite's, B71)
+var also = new HashSet<string>();
+while (Value("--has") is { } h) also.Add(h);
 var host = Value("--host") ?? "127.0.0.1";
 var portText = Value("--port");
 var tokenFile = Value("--token-file");
@@ -51,6 +56,8 @@ try
 {
     var token = File.ReadAllText(tokenFile).Trim();
     using var d = await PortDriver.ConnectAsync(port, token, host, reports: !measured, doc: doc, engines: engines.Count == 0 ? ["text"] : engines, prefs: prefs);
+    d.SuiteGeometry = !ownGeometry;
+    d.Also.UnionWith(also);
     if (call)
     {
         if (argv.Count == 0) { Console.Error.WriteLine("call: which method?"); return 2; }
@@ -69,7 +76,7 @@ try
     foreach (var o in outcomes)
     {
         var word = o.Passed ? "pass" : o.Skipped is not null ? "skip" : "FAIL";
-        Console.WriteLine($"CASE {word} | {o.Name} | {o.Steps} steps{(o.Skipped is { } s ? $" | {s}" : "")}{(o.Error is { } er ? $" | {er}" : "")}");
+        Console.WriteLine($"CASE {word} | {o.Name} | {o.Steps} steps{(o.StepsSkipped > 0 ? $" ({o.StepsSkipped} skipped)" : "")}{(o.Skipped is { } s ? $" | {s}" : "")}{(o.Error is { } er ? $" | {er}" : "")}");
     }
     Console.WriteLine(Conformance.Summary(d.Name, outcomes));
     Console.WriteLine($"settle timeouts: {d.SettleTimeouts}; took {sw.Elapsed.TotalSeconds:F1} s");
