@@ -266,7 +266,8 @@ pub fn manifest_reads() -> u64 {
 
 /// Read the engine manifests in `files`, then every `*.toml` in `folder`, as the engines this
 /// thread offers. What can't be used (it won't parse, or its id is taken, by a built-in engine
-/// or an earlier manifest) is reported, and the rest still load.
+/// or an earlier manifest) is reported, and the rest still load; so is what loads but very likely
+/// won't start (`plumcraft_host::manifest::folder_warnings`: a copy of a project's manifest).
 pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
     let mut listed: Vec<PathBuf> = files.to_vec();
     if let Some(Ok(dir)) = folder.map(std::fs::read_dir) {
@@ -288,7 +289,11 @@ pub fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
                 // the same file twice (given and installed) is one engine
                 Some(x) if x.resolved.path == r.path => {}
                 Some(x) => problems.push(format!("{}: id {:?} is already {}", path.display(), r.manifest.id, x.resolved.path.display())),
-                None => loaded.push(External { id: r.manifest.id.clone(), title: r.manifest.title().to_owned(), resolved: r }),
+                None => {
+                    // it loads and is offered, but it very likely won't start: say why now
+                    problems.extend(r.warnings.iter().map(|w| format!("{}: {w}", path.display())));
+                    loaded.push(External { id: r.manifest.id.clone(), title: r.manifest.title().to_owned(), resolved: r });
+                }
             },
         }
     }
@@ -781,14 +786,16 @@ fn connect_external(e: &External, mode: Mode, wait: Duration, waker: Option<Wake
         }
         m
     };
+    // a start that fails says what loading the manifest warned about (a copy of a project's own)
+    let failed = |why: String| e.resolved.failed(why);
     let (conn, label): (Arc<dyn Connection>, &str) = match (&e.resolved.start, mode) {
         (Start::Attach { url, token }, _) => (Arc::new(HttpHost::attach(url, token, HttpOptions::default())?), "mode 3 · HTTP, running"),
         (Start::Command(m), Mode::HttpRust) => {
-            (Arc::new(HttpHost::spawn(&with_store(m), HttpOptions { remote: true, ..Default::default() })?), "mode 3 · HTTP")
+            (Arc::new(HttpHost::spawn(&with_store(m), HttpOptions { remote: true, ..Default::default() }).map_err(failed)?), "mode 3 · HTTP")
         }
         (Start::Command(m), _) => {
-            let h = ProcessHost::start(with_store(m)).map_err(|e| e.to_string())?;
-            h.wait_started(wait)?;
+            let h = ProcessHost::start(with_store(m)).map_err(|e| failed(e.to_string()))?;
+            h.wait_started(wait).map_err(failed)?;
             (Arc::new(h), "mode 2 · process")
         }
     };

@@ -934,4 +934,44 @@ mod tests {
             assert!(d.link.is_none() && d.last_error.as_deref() == Some(e.as_str()));
         }
     }
+
+    /// A copy of a project's manifest (`uv run --project .` in a folder with no
+    /// `pyproject.toml`) is still offered, with a warning among the manifest problems, and its
+    /// failed switch ends with what to do about it, in both hostings; the same manifest in its
+    /// project neither warns nor advises. The stand-in `uv` fails as Python does there.
+    #[cfg(unix)]
+    #[test]
+    fn a_copied_manifest_warns_on_load_and_its_failed_switch_says_what_to_do() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::fs::canonicalize(plumcraft_scratch::dir("manifest-copy-switch")).unwrap();
+        let (copy, project) = (root.join("copy"), root.join("project"));
+        let text =
+            "id = \"copied\"\nmode = \"process\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"opencv_engine\"]\ncwd = \".\"\n";
+        for d in [&copy, &project] {
+            std::fs::create_dir_all(d).unwrap();
+            std::fs::write(d.join("uv"), "#!/bin/sh\necho 'No module named opencv_engine' >&2\nexit 1\n").unwrap();
+            std::fs::set_permissions(d.join("uv"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::fs::write(d.join("copied.toml"), text).unwrap();
+        }
+        std::fs::write(project.join("pyproject.toml"), "[project]\nname = \"opencv-engine\"\n").unwrap();
+        let launcher = Launcher::default();
+        for (folder, copied) in [(&copy, true), (&project, false)] {
+            let problems = crate::engines::load_manifests(&[folder.join("copied.toml")], None);
+            if copied {
+                assert_eq!(problems.len(), 1, "{problems:?}");
+                assert!(problems[0].contains("copied.toml") && problems[0].contains("no pyproject.toml"), "{}", problems[0]);
+            } else {
+                assert_eq!(problems, Vec::<String>::new());
+            }
+            assert!(crate::engines::EngineKind::from_id("copied").is_some(), "it is still offered");
+            for mode in ["process", "http"] {
+                let mut d = Doc::default();
+                d.session.engines.choices = choices();
+                let (r, _) = d.command("engine.switch", json!({"engine": "copied", "mode": mode}), &launcher);
+                let e = r.unwrap_err();
+                assert!(e.contains("No module named opencv_engine"), "{mode}: {e}");
+                assert_eq!(e.ends_with(&format!("\n{}", plumcraft_host::manifest::COPY_ADVICE)), copied, "{mode}, copied {copied}: {e}");
+            }
+        }
+    }
 }

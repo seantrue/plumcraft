@@ -98,6 +98,7 @@ An engine is a Python package, so it ships as one: `uv build`, then `uv publish`
 - `register --print` shows the manifest without writing it, and `--folder DIR` writes it elsewhere.
 - The demo is the package's `examples/demo.json`. A generated project's wheel includes `examples/`.
 - A checkout's own link (`scripts/install`) is left alone unless `--force`, and `unregister` removes only a manifest `register` wrote.
+- Every path in the manifest is absolute, so it works from any folder. `register` refuses, writing nothing, when the program it would start isn't one this user can run (an engine run as `python engine.py register`).
 
 **Pictures on nodes:** a picture file's value shows a thumbnail when it carries one. Make it with `image(data, pixels=array)`, or override `Engine.picture_thumb(blob)` to give Load Files' values one, returning (h, w, 4) uint8; the SDK itself decodes no pictures.
 
@@ -139,3 +140,5 @@ This writes a standalone uv project that depends on this SDK, which `scripts/edi
 ## The low-level layer
 
 The decorators compile to the layer underneath, which stays and is the escape hatch: a `Node` subclass with a `definition` dict (a NodeDef in protocol 2's JSON) and `run(inputs, cx) -> dict`, or `simple(definition, fn)`, added with `engine.with_node(...)` to a declared engine or to `Engine(info)`. Use it for what a signature can't say yet: variadic ports, `options`, `list` ports, `active_when`, `disabled_choices`, or ports whose shape depends on configuration.
+
+**The clock a node's work is measured on:** whether a result is worth persisting (spec 14.5) is weighed against the node's own work, measured on `engine.clock`, the machine's monotonic clock (`RealClock`) unless `engine.with_clock(clock)` gives another. A test gives a `VirtualClock`, which moves only when something sleeps on it (`clock.sleep(seconds)`) or `clock.advance(seconds)` moves it, so a node that sleeps 60 ms on it did exactly 60 ms of work however busy the machine is. `Clock` is the protocol both meet: `now()` in seconds and `sleep(seconds)`. The Rust crate has the same (`plumcraft_engine::clock`, `Engine::with_clock`).

@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-21 — A copied engine manifest says so; the Python SDK's clock (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided:** "1,2,3 yes" to keeping B72's no-restart rule, warning about a manifest whose folder holds no project, and giving the Python SDK the Rust SDK's injectable clock.
+
+**Why the warning exists.** The controller copied the maintainer's engine manifest into a scratch folder, got Python's "No module named …", and reported the engine as broken. A copy runs in the copy's folder; a link resolves back to the project.
+
+**What the agent did.** Loading a manifest whose `uv run --project DIR` names a folder with no `pyproject.toml` in it or above it (or no folder at all) records a warning in the manifest-problems channel, and a failed start of such an engine ends with what to do about it. The rule judges only that command shape and stays silent on everything else. The Python `register` refuses to write a manifest whose program cannot be run. The Python SDK gains `Clock`, `RealClock`, `VirtualClock` and `Engine.with_clock`; the persist tests use it and no longer patch `time` (pointing the executor back at the wall clock fails 4 of 5 of them).
+
+**Verified (agent, Mac).** nextest 1,584 of 1,585 (the known baseline failure); Python 227; clippy, fmt and gates clean. **Not verified:** Windows; a real copied manifest through an app's menu.
+
 ### 2026-11-21 — B72, B37 and B38 fixed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided**, on cards: B72 "Fix now"; B37 "Fix it the same way as B49"; B38 "Investigate for the same cause"; the persist rule itself, "Leave the rule".
