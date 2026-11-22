@@ -500,6 +500,28 @@ pub struct SaveRequest {
     /// graph instead. Purely informational"). Nothing reads it back; absent, nothing is written.
     #[serde(deserialize_with = "lenient_opt", skip_serializing_if = "Option::is_none")]
     pub graph_info: Option<GraphInfo>,
+    /// A person started this save and may be asked about it (`output.save.question`, spec 15):
+    /// the engine may answer a picture format for a value that isn't shaped like a picture with
+    /// `question` instead of writing. A script's save never sets it.
+    #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
+    pub ask: bool,
+}
+
+/// What a save asks the person instead of writing (spec 15, `output.save.question`; the
+/// maintainer, 2026-11-22, decisions 2A and 3A): the value isn't shaped like a picture.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+#[serde(default)]
+pub struct SaveQuestion {
+    /// Why, in a sentence (`a 4 by 1000 array is narrower than a picture`).
+    #[serde(deserialize_with = "null_as_default")]
+    pub text: String,
+    /// The value's shape.
+    #[serde(deserialize_with = "null_as_default")]
+    pub shape: Vec<u64>,
+    /// The format offered instead (`npy`).
+    #[serde(deserialize_with = "null_as_default")]
+    pub offer: String,
 }
 
 /// What a saved file says of the workflow that made it: purely informational (spec 15).
@@ -544,6 +566,7 @@ impl Default for SaveRequest {
             trusted_roots: Vec::new(),
             recipe_graph: None,
             graph_info: None,
+            ask: false,
         }
     }
 }
@@ -574,6 +597,10 @@ pub struct SaveReply {
     /// Every file carries the request's `graph_info` (spec 15): informational.
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
     pub stamped: bool,
+    /// Asked instead of written (`ok: false`, nothing written): the request had `ask` and the
+    /// value isn't shaped like a picture for the picture format chosen.
+    #[serde(deserialize_with = "lenient_opt", skip_serializing_if = "Option::is_none")]
+    pub question: Option<SaveQuestion>,
     /// A contact sheet's item count.
     #[serde(deserialize_with = "null_as_default")]
     pub items: u64,

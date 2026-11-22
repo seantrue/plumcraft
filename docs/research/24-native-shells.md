@@ -1181,3 +1181,33 @@ The question: "everywhere" would remove what four of the research software's flo
 
 Not answered: whether the graph hash covers the whole document (the core's `trust::graph_hash`, positions included, so moving a node changes it) or only what makes the result. The whole document's is used until it is decided.
 - **Save Result on Windows (2026-11-22, branch `native/n5-save`).** The Windows canvas reports each footer line as `parts.footer[k]`, so a tap on a result node's Save Result… is the core's gesture (B122); the shell-side click and the `ask: true` special case written before the core's change are removed. The save then reaches the shell as the core's asks: the system's Save As dialog with the output's formats as file types (Quoted Text, then Text, for the test engine's Result) and the core's options form (Save as Quoted Text, its Quote mark a pick list), both pictured; the person check saves from the footer and reads `"[edge]"` back. The C# runner gives each case a `$scratch` folder and claims `saves` and `footer`; with the test engine installed beside the app (`plumcraft-ports-engine`, built with the core) the suite is 64 of 64 on ARM64 and x64. Found on the way: B98 (the core re-slashed a Save Result's path on Windows; fixed at `invoke.rs`'s one place), B97's six Windows-only test failures fixed at source, B99 (one intermittent palette case). The pop-out's Recipe shows only when `hasRecipe`; the Python SDK's `register` prints `C:\…` for a folder given as `\\?\C:\…` (checked on the VM).
+
+#### Decisions after Save Result's second part (the maintainer, 2026-11-22)
+
+The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A".
+
+| # | Question | Answer |
+|---|---|---|
+| 1 | The graph hash a saved file carries: A the whole document's; B only what makes the result (nodes, parameters, wires) | B: only what makes the result |
+| 2 | Saving a non-picture array as PNG: A ask the person (the question); B refuse it | A: build the question |
+| 3 | What counts as non-picture: A aspect over 16:1; B 8:1; C another | A: 16:1 |
+| 4 | Contact sheet labels: A in the reply only; B drawn on the sheet | B: draw them on the sheet |
+| 5 | Where a person sees the name and hash: A only in the files; B the save's status-bar message; C an Info line in the pop-out | A: only in the files |
+| 6 | Old trial app builds in scratch: A unregister them from LaunchServices, the maintainer quits the running one | A (done by the controller) |
+| 7 | A test-engine node that supplies a recipe | A: add it |
+
+Asked and not yet answered: B99 (a Windows palette case that failed once in ten).
+
+#### The contact sheet's label font (the maintainer, 2026-11-22)
+
+The controller held part three's label font back: Pillow's built-in bitmap font is, as far as the controller knows, Adobe's Courier bitmap from the X11 distribution under Adobe's own notice terms (unverified), so it does not go into the public repository. The maintainer, verbatim: "There is a TTF font in the [the research software's GPU array library] code, taken from Ubuntu. I believe thats a free redist.  Use [the research software's GPU array library] for rendering text, and other graphics as well." How that library is brought in is being put to the maintainer; until then the sheet's labels are in the reply only. Drawn labels stay decided (4B) and wait on that text renderer.
+
+#### The label font from the array library's font, not the library (the maintainer, 2026-11-22)
+
+The maintainer: "Agreed, [the research software's GPU array library] drags in a lot. Counter suggestion?" The controller proposed: "take the font from [the research software's GPU array library], but not the library: rasterise Ubuntu Regular once, offline, into a small glyph table (printable ASCII at one label size) stored as a data file; both SDKs draw labels by copying glyphs from that table; the library itself comes in with the array engine at the engine split; it stays on the private list for now; no dependency yet". The maintainer: "yes".
+
+Not built yet, on the licence (Ubuntu Font Licence 1.0, read 2026-11-22): a rasterised table is a "Modified Version" (it changes formats and deletes components), which the licence lets anyone propagate if each copy carries the copyright notice ("Copyright 2011 Canonical Ltd.", from the font's own metadata; the licence file alone has none) and the licence, and the table is distributed under that licence alone (condition 4: the data file can't take the repository's licence). But condition 2 names a Modified Version one of two opposite ways: renamed to avoid "Ubuntu" entirely if it is "Substantially Changed" (easily told apart from the original by its users), or named "Ubuntu derivative X" if it isn't; and the font's metadata says "Ubuntu and Canonical are registered trademarks of Canonical Ltd.", which the licence does not grant. Whether one size of printable ASCII in a bitmap is substantially changed, the text doesn't say, so the labels stay in the reply until that is decided.
+
+#### The label font, settled for now (the maintainer, 2026-11-22)
+
+The maintainer, verbatim: "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public." So the contact sheet draws its labels with the font extracted from Pillow's built-in bitmap font, its origin and licence unverified: a release blocker, B125 ("the contact sheet's label font: verify its licence or replace it before a public release"), listed in THIRD-PARTY.md.

@@ -72,6 +72,9 @@ pub struct Format {
     pub sheets: bool,
     /// It writes [`SaveCx::info`] into its files (`SaveReply.stamped`).
     pub stamps: bool,
+    /// It writes pictures: a person's save (`ask`) of an ARRAY not shaped like one is asked
+    /// about instead ([`picture_shape`], `SaveReply.question`).
+    pub questions: bool,
     pub encode: Encode,
 }
 
@@ -82,6 +85,7 @@ impl std::fmt::Debug for Format {
             .field("media_type", &self.media_type)
             .field("sheets", &self.sheets)
             .field("stamps", &self.stamps)
+            .field("questions", &self.questions)
             .finish_non_exhaustive()
     }
 }
@@ -108,6 +112,7 @@ impl Format {
             media_type: media_type.into(),
             sheets: false,
             stamps: false,
+            questions: false,
             encode: Arc::new(encode),
         }
     }
@@ -129,6 +134,13 @@ impl Format {
     /// Its encoder writes [`SaveCx::info`] into its files ([`Format::stamps`]).
     pub fn stamping(mut self) -> Format {
         self.stamps = true;
+        self
+    }
+
+    /// It writes pictures, so a person is asked before an array not shaped like one is saved
+    /// with it ([`Format::questions`]).
+    pub fn questioning(mut self) -> Format {
+        self.questions = true;
         self
     }
 }
@@ -198,6 +210,7 @@ pub mod defaults {
         })
         .making_sheets()
         .stamping()
+        .questioning()
     }
 
     /// IMAGE, or an ARRAY that is a picture, as JPEG (`.jpg`), at `quality` 1 to 100 (90).
@@ -209,6 +222,7 @@ pub mod defaults {
         })
         .with_option(quality)
         .making_sheets()
+        .questioning()
     }
 
     /// AUDIO as a RIFF WAVE file (`.wav`): 32-bit float samples, or 16-bit PCM (`bits`).
@@ -351,6 +365,48 @@ pub fn npy_bytes(dtype: &str, shape: &[u64], bytes: &[u8]) -> Result<Vec<u8>, No
     out.extend_from_slice(header.as_bytes());
     out.extend_from_slice(bytes);
     Ok(out)
+}
+
+/// The longest side a picture may have against its shorter (decision 3A: 16:1).
+pub const PICTURE_ASPECT: u64 = 16;
+/// The shorter side a picture has at least.
+pub const PICTURE_MIN_SIDE: u64 = 64;
+/// The most channels a picture has.
+pub const PICTURE_MAX_CHANNELS: u64 = 4;
+
+/// Why an array isn't shaped like a picture, in a sentence, or `None` when it is (decisions 2A
+/// and 3A): a table; not (H, W) or (H, W, C); more than 4 channels; a side under 64; or its
+/// longer side more than 16 times its shorter. What a person is asked about before it is saved
+/// as PNG or JPEG.
+pub fn picture_shape(a: &Array) -> Option<String> {
+    let dims = a.shape.iter().map(u64::to_string).collect::<Vec<_>>().join(" by ");
+    if a.table {
+        return Some(format!("this {dims} array is a table, not a picture"));
+    }
+    let (h, w, c) = match a.shape.as_slice() {
+        [h, w] => (*h, *w, 1),
+        [h, w, c] => (*h, *w, *c),
+        _ => return Some(format!("this {dims} array has {} dimensions; a picture has 2 or 3", a.shape.len())),
+    };
+    let (lo, hi) = (h.min(w), h.max(w));
+    if c > PICTURE_MAX_CHANNELS {
+        Some(format!("this {dims} array has {c} channels; a picture has at most {PICTURE_MAX_CHANNELS}"))
+    } else if lo < PICTURE_MIN_SIDE {
+        Some(format!("this {dims} array is {lo} pixels on its shorter side; a picture has at least {PICTURE_MIN_SIDE}"))
+    } else if hi > lo.saturating_mul(PICTURE_ASPECT) {
+        Some(format!("this {dims} array is more than {PICTURE_ASPECT} times as long as it is wide"))
+    } else {
+        None
+    }
+}
+
+/// The question a person's save of `v` raises: the first array of it not shaped like a picture.
+fn shape_question(v: &Data) -> Option<plumcraft_proto::run::SaveQuestion> {
+    match v {
+        Data::Array(a) => picture_shape(a).map(|text| plumcraft_proto::run::SaveQuestion { text, shape: a.shape.clone(), offer: "npy".into() }),
+        Data::List(l) => l.items.iter().find_map(shape_question),
+        _ => None,
+    }
 }
 
 /// CRC-32 (ISO 3309, as PNG's chunks carry it) of `bytes`.
@@ -521,14 +577,67 @@ fn box_scale(w: usize, h: usize, px: &[u8], tw: usize, th: usize) -> Vec<u8> {
     out
 }
 
-/// Every item of a list on one picture (Contact Sheet…; the maintainer, 2026-11-22, decision 2A),
-/// an (H, W, 3) `|u1` array: `cols` the least whole number whose square holds the items, `rows`
-/// enough for them; each cell a square of `min(256, the largest side of any item)` pixels, with an
-/// 8-pixel gap around and between, on light grey; each item scaled down (never up) to fit its
-/// cell by [`box_scale`], keeping its shape (a side `(side · cell + m / 2) / m`, `m` its larger
-/// side, at least 1), and centred. Labels are not drawn: the reply's `labels` say what each is.
-/// At most [`crate::exec::MAX_SHEET`] items.
-pub fn contact_sheet(items: &[Data]) -> Result<Array, NodeError> {
+/// The smallest side of a contact sheet's cell, so a label has room (about 10 characters).
+pub const SHEET_MIN_CELL: usize = 64;
+/// The band under each cell a label is drawn in, when any item has one: 2 pixels, the font's 11
+/// rows, 2 pixels.
+pub const SHEET_LABEL_BAND: usize = 15;
+/// The labels' colour.
+pub const SHEET_INK: [u8; 3] = [32, 32, 32];
+
+/// The label font (decision 4B): printable ASCII, 6 by 11, shared as data with the Python SDK
+/// (`sheet_font.json`, the same file in both), so labels are the same pixels; no system font.
+struct SheetFont {
+    width: usize,
+    height: usize,
+    first: u32,
+    glyphs: Vec<Vec<u32>>,
+}
+
+fn sheet_font() -> &'static SheetFont {
+    static FONT: std::sync::OnceLock<SheetFont> = std::sync::OnceLock::new();
+    FONT.get_or_init(|| {
+        let v: Value = serde_json::from_str(include_str!("sheet_font.json")).unwrap_or(Value::Null);
+        let n = |k: &str, d: u64| v.get(k).and_then(Value::as_u64).unwrap_or(d);
+        let glyphs = v
+            .get("glyphs")
+            .and_then(Value::as_array)
+            .map(|g| g.iter().map(|rows| rows.as_array().map(|r| r.iter().map(|x| x.as_u64().unwrap_or(0) as u32).collect()).unwrap_or_default()).collect())
+            .unwrap_or_default();
+        SheetFont { width: n("width", 6) as usize, height: n("height", 11) as usize, first: n("first", 32) as u32, glyphs }
+    })
+}
+
+/// Draw `text` into `sheet` (`sw` pixels wide, RGB) at `(x, y)`, at most `max_chars` characters;
+/// a character the font hasn't is `?`.
+fn draw_label(sheet: &mut [u8], sw: usize, x: usize, y: usize, text: &str) {
+    let f = sheet_font();
+    for (k, c) in text.chars().enumerate() {
+        let code = u32::from(c);
+        let glyph = f.glyphs.get(code.wrapping_sub(f.first) as usize).filter(|_| code >= f.first).or_else(|| f.glyphs.get((u32::from('?') - f.first) as usize));
+        let Some(glyph) = glyph else { continue };
+        for (row, bits) in glyph.iter().enumerate().take(f.height) {
+            for col in 0..f.width {
+                if bits >> (f.width - 1 - col) & 1 == 1 {
+                    let at = ((y + row) * sw + x + k * f.width + col) * 3;
+                    if let Some(px) = sheet.get_mut(at..at + 3) {
+                        px.copy_from_slice(&SHEET_INK);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Every item of a list on one picture (Contact Sheet…; the maintainer, 2026-11-22, decisions 2A
+/// and 4B), an (H, W, 3) `|u1` array: `cols` the least whole number whose square holds the items,
+/// `rows` enough for them; each cell a square of the largest side of any item, held to 64 to 256
+/// pixels, with an 8-pixel gap around and between, on light grey; each item scaled down (never
+/// up) to fit its cell by [`box_scale`], keeping its shape (a side `(side · cell + m / 2) / m`, `m`
+/// its larger side, at least 1), and centred. When any item has a label, each cell has a
+/// 15-pixel band under it with its label in the shared bitmap font, centred, cut to the
+/// characters the cell's width holds. At most [`crate::exec::MAX_SHEET`] items.
+pub fn contact_sheet(items: &[Data], labels: &[String]) -> Result<Array, NodeError> {
     if items.is_empty() {
         return Err(config("a contact sheet needs at least one item"));
     }
@@ -540,25 +649,32 @@ pub fn contact_sheet(items: &[Data]) -> Result<Array, NodeError> {
         .enumerate()
         .map(|(k, v)| picture_rgb(v).map_err(|e| NodeError::new(&e.kind, format!("item {k}: {}", e.message))))
         .collect::<Result<Vec<_>, _>>()?;
-    let cell = pictures.iter().map(|(w, h, _)| (*w).max(*h)).max().unwrap_or(1).clamp(1, SHEET_CELL);
+    let cell = pictures.iter().map(|(w, h, _)| (*w).max(*h)).max().unwrap_or(1).clamp(SHEET_MIN_CELL, SHEET_CELL);
+    let band = if labels.iter().any(|l| !l.is_empty()) { SHEET_LABEL_BAND } else { 0 };
     let n = pictures.len();
     let cols = (1..=n).find(|c| c * c >= n).unwrap_or(n);
     let rows = n.div_ceil(cols);
-    let (sw, sh) = (cols * cell + (cols + 1) * SHEET_GAP, rows * cell + (rows + 1) * SHEET_GAP);
+    let (sw, sh) = (cols * cell + (cols + 1) * SHEET_GAP, rows * (cell + band) + (rows + 1) * SHEET_GAP);
     let mut sheet: Vec<u8> = SHEET_GROUND.iter().copied().cycle().take(sw * sh * 3).collect();
+    let font = sheet_font();
     for (k, (w, h, px)) in pictures.iter().enumerate() {
         let m = (*w).max(*h).max(1);
         let (tw, th) = if m <= cell { (*w, *h) } else { (((w * cell + m / 2) / m).max(1), ((h * cell + m / 2) / m).max(1)) };
         let scaled = if (tw, th) == (*w, *h) { px.clone() } else { box_scale(*w, *h, px, tw, th) };
         let (col, row) = (k % cols, k / cols);
-        let x0 = SHEET_GAP + col * (cell + SHEET_GAP) + (cell - tw) / 2;
-        let y0 = SHEET_GAP + row * (cell + SHEET_GAP) + (cell - th) / 2;
+        let (cx, cy) = (SHEET_GAP + col * (cell + SHEET_GAP), SHEET_GAP + row * (cell + band + SHEET_GAP));
+        let (x0, y0) = (cx + (cell - tw) / 2, cy + (cell - th) / 2);
         for y in 0..th {
             let from = y * tw * 3;
             let to = ((y0 + y) * sw + x0) * 3;
             if let (Some(src), Some(dst)) = (scaled.get(from..from + tw * 3), sheet.get_mut(to..to + tw * 3)) {
                 dst.copy_from_slice(src);
             }
+        }
+        if let Some(label) = labels.get(k).filter(|l| band > 0 && !l.is_empty()) {
+            let text: String = label.chars().take(cell / font.width.max(1)).collect();
+            let width = text.chars().count() * font.width;
+            draw_label(&mut sheet, sw, cx + (cell - width) / 2, cy + cell + 2, &text);
         }
     }
     Ok(Array::new("|u1", vec![sh as u64, sw as u64, 3], sheet))
@@ -770,6 +886,14 @@ fn save_inner(
         .get_mut(&req.node)
         .and_then(|o| o.remove(&req.port))
         .ok_or_else(|| NodeError::new(NodeError::OP, format!("{}.{} made no value", req.node, req.port)))?;
+    // a person saving an array not shaped like a picture as one is asked first (decision 2A)
+    if req.ask
+        && format.questions
+        && let Some(q) = shape_question(&value)
+    {
+        let error = Some(config(format!("{}: save it as NumPy (.npy)", q.text)));
+        return Ok(SaveReply { question: Some(q), error, ..Default::default() });
+    }
     // the items: one, or every item of a list
     let mut sheet_items: Option<(usize, Vec<String>)> = None;
     let (items, labels, list): (Vec<Data>, Vec<String>, bool) = match value {
@@ -779,7 +903,7 @@ fn save_inner(
         // a contact sheet: every item on one picture, the labels in the reply
         Data::List(l) if req.sheet => {
             let labels = (0..l.items.len()).map(|i| l.label(i).to_owned()).collect::<Vec<_>>();
-            let picture = contact_sheet(&l.items)?;
+            let picture = contact_sheet(&l.items, &labels)?;
             sheet_items = Some((l.items.len(), labels));
             (vec![Data::Array(picture)], vec![String::new()], false)
         }
@@ -970,11 +1094,17 @@ mod tests {
         vec![Data::Array(a), Data::Array(Array::new("|u1", vec![300, 100, 3], b)), Data::Array(Array::new("|u1", vec![10, 10, 4], c))]
     }
 
+    /// The shared fixture's labels: one with a character the font hasn't (drawn `?`).
+    fn sheet_labels() -> Vec<String> {
+        vec!["dim 1".into(), "x=2.5".into(), "Sweep: 3 \u{e9}".into()]
+    }
+
     #[test]
     fn a_contact_sheet_lays_out_every_item_and_matches_the_shared_fixture() {
-        let sheet = contact_sheet(&sheet_items()).unwrap();
-        // three items: two columns, two rows of 256-pixel cells (the tallest item is 300)
-        assert_eq!(sheet.shape, [536, 536, 3]);
+        let sheet = contact_sheet(&sheet_items(), &sheet_labels()).unwrap();
+        // three items: two columns, two rows of 256-pixel cells (the tallest item is 300), each
+        // with its 15-pixel label band
+        assert_eq!(sheet.shape, [2 * (256 + 15) + 3 * 8, 536, 3]);
         let px = |x: usize, y: usize| -> [u8; 3] {
             let k = (y * 536 + x) * 3;
             [sheet.bytes[k], sheet.bytes[k + 1], sheet.bytes[k + 2]]
@@ -986,18 +1116,41 @@ mod tests {
         assert_eq!(px(8 + 256 + 8 + 85, 8), [0, 50, 100], "its first pixel (a box of one row, a few columns)");
         assert_eq!(px(8 + 256 + 8 + 84, 8), SHEET_GROUND, "and none left of it");
         // the RGBA square over white, in the third cell (second row, first column)
-        let (x0, y0) = (8 + 123, 8 + 256 + 8 + 123);
+        let (x0, y0) = (8 + 123, 8 + 256 + 15 + 8 + 123);
         assert_eq!(px(x0, y0), [255, 255, 255], "alpha 0 is white");
         let over = |c: u32, a: u32| ((c * a + 255 * (255 - a) + 127) / 255) as u8;
         assert_eq!(px(x0 + 9, y0 + 9), [over(225, 216), over(225, 216), over(128, 216)]);
+        // each label in its band, centred under its cell; the empty fourth cell has none
+        let ink = |x0: usize, y0: usize| (y0..y0 + 15).flat_map(|y| (x0..x0 + 256).map(move |x| (x, y))).filter(|&(x, y)| px(x, y) == SHEET_INK).count();
+        assert!(ink(8, 8 + 256) > 0 && ink(8 + 256 + 8, 8 + 256) > 0 && ink(8, 8 + 256 + 15 + 8 + 256) > 0);
+        assert_eq!(ink(8 + 256 + 8, 8 + 256 + 15 + 8 + 256), 0);
         let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/sheet.json")).unwrap();
+        assert_eq!(fixture["labels"], json!(sheet_labels()));
         assert_eq!(fixture["shape"], json!(sheet.shape));
         let digest = commonkit::digest::fixed::raw(commonkit::digest::fixed::Fixed::Sha256, &sheet.bytes);
+        if std::env::var_os("PLUMCRAFT_PRINT_VECTORS").is_some() {
+            eprintln!("sheet: {:?} {digest}", sheet.shape);
+        }
         assert_eq!(fixture["sha256"], digest, "the Python SDK's test checks the same pixels");
+        // no labels: no band; a tiny picture still gets a 64-pixel cell
+        let plain = contact_sheet(&sheet_items(), &[]).unwrap();
+        assert_eq!(plain.shape, [536, 536, 3]);
+        let tiny = contact_sheet(&[Data::Array(Array::new("|u1", vec![1, 1], vec![9u8]))], &["a".into()]).unwrap();
+        assert_eq!(tiny.shape, [8 + 64 + 15 + 8, 8 + 64 + 8, 3]);
         // what it refuses
-        assert!(contact_sheet(&[]).is_err());
-        assert!(contact_sheet(&[Data::Json(json!("text"))]).unwrap_err().message.starts_with("item 0:"));
-        assert!(contact_sheet(&vec![Data::Array(Array::new("|u1", vec![1, 1], vec![0u8])); crate::exec::MAX_SHEET + 1]).is_err());
+        assert!(contact_sheet(&[], &[]).is_err());
+        assert!(contact_sheet(&[Data::Json(json!("text"))], &[]).unwrap_err().message.starts_with("item 0:"));
+        assert!(contact_sheet(&vec![Data::Array(Array::new("|u1", vec![1, 1], vec![0u8])); crate::exec::MAX_SHEET + 1], &[]).is_err());
+    }
+
+    #[test]
+    fn the_sheet_font_is_printable_ascii_and_the_pythons_copy() {
+        let f = sheet_font();
+        assert_eq!((f.width, f.height, f.first, f.glyphs.len()), (6, 11, 32, 95));
+        assert!(f.glyphs.iter().all(|g| g.len() == 11 && g.iter().all(|r| *r < 64)));
+        assert!(f.glyphs[0].iter().all(|r| *r == 0), "space is blank");
+        assert!(f.glyphs[(u32::from('A') - 32) as usize].iter().any(|r| *r != 0));
+        assert_eq!(include_str!("sheet_font.json"), include_str!("../../../python/src/plumcraft_engine/sheet_font.json"), "one font, both SDKs");
     }
 
     #[test]

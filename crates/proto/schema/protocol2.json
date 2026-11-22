@@ -3173,6 +3173,32 @@
       },
       "type": "object"
     },
+    "SaveQuestion": {
+      "description": "What a save asks the person instead of writing (spec 15, `output.save.question`; the\nmaintainer, 2026-11-22, decisions 2A and 3A): the value isn't shaped like a picture.",
+      "properties": {
+        "offer": {
+          "default": "",
+          "description": "The format offered instead (`npy`).",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "description": "The value's shape.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "text": {
+          "default": "",
+          "description": "Why, in a sentence (`a 4 by 1000 array is narrower than a picture`).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "SaveReply": {
       "properties": {
         "error": {
@@ -3216,6 +3242,17 @@
           },
           "type": "array"
         },
+        "question": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SaveQuestion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Asked instead of written (`ok: false`, nothing written): the request had `ask` and the\nvalue isn't shaped like a picture for the picture format chosen."
+        },
         "recipe": {
           "default": false,
           "description": "Every file carries its recipe (the research software's floor, F64; the SDKs never set it).",
@@ -3231,6 +3268,10 @@
     "SaveRequest": {
       "description": "`output.save`: write (or return) a node's output.",
       "properties": {
+        "ask": {
+          "description": "A person started this save and may be asked about it (`output.save.question`, spec 15):\nthe engine may answer a picture format for a value that isn't shaped like a picture with\n`question` instead of writing. A script's save never sets it.",
+          "type": "boolean"
+        },
         "format": {
           "default": "",
           "type": "string"

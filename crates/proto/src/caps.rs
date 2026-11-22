@@ -35,6 +35,8 @@ pub mod known {
     pub const ADMIN: &str = "admin";
     pub const HASH_B3: &str = "hash.b3";
     pub const OUTPUT_SAVE: &str = "output.save";
+    /// A save may ask the person instead of writing (`SaveRequest.ask`, `SaveReply.question`, spec 15).
+    pub const OUTPUT_SAVE_QUESTION: &str = "output.save.question";
     pub const EDITOR_CURVES: &str = "editor.curves";
     pub const EDITOR_MASK: &str = "editor.mask";
     pub const CODEC_JSON: &str = "codec.json";
@@ -55,6 +57,7 @@ pub mod known {
         MEMO_AUDIT,
         ADMIN,
         OUTPUT_SAVE,
+        OUTPUT_SAVE_QUESTION,
         EDITOR_CURVES,
         EDITOR_MASK,
     ];

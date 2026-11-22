@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — A hash of what makes the result; a question before saving a non-picture as PNG; labelled contact sheets; a recipe test node (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A": the hash covers only what makes the result; the save questions a non-picture shape, with 16:1 as the aspect limit; labels are drawn on the sheet; the name and hash show only in the files; a test-engine node supplies a recipe. On the label font, after the controller would not push glyphs extracted from Pillow's default font on an unverified licence, three answers in turn: use the research software's GPU array library and its Ubuntu font; then, agreeing that it "drags in a lot", "yes" to the controller's glyph-table proposal; then "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public."
+
+**What the agent did.** `graph_info.hash` is now a hash of node kinds, values, pinned engines and wires, specified in the interface with shared vectors and a Python test that reimplements it from the text alone. A person's save of a table, an array with more than 4 channels, a side under 64 or an aspect over 16:1 as PNG or JPEG is answered with a question the core turns into a prompt (PNG anyway, NumPy, Cancel); additive, behind a capability; scripted saves are never asked. Contact sheets draw each label under its cell from a 6 by 11 bitmap font, the same pixels from Rust and Python. The test engine gained a node that supplies a recipe and one whose result is a non-picture strip.
+
+**Open, recorded as a release blocker (B125).** The label font's glyphs come from Pillow's built-in default bitmap font; its upstream origin and licence are not verified. THIRD-PARTY.md says so.
+
+**Controller's errors this round.** Unregistering old trial app bundles from the system's launch database, as decided, the controller's second pass matched scratch folders in the maintainer's other projects and unregistered 42 bundles nobody had asked about; nothing was deleted; reported. The Mac's disk fell to 2 GB before anyone looked.
+
+**Verified (agent, Mac).** nextest 1,645 of 1,646 (the known baseline failure); Python 249; the new conformance cases on the core's document, the C ABI and egui. **Not verified:** any launched app; egui's prompt was driven through the control channel, not clicked.
+
 ### 2026-11-22 — Save Result on Windows; a re-slashed save path (B98); six Windows-only Rust test failures (B97) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** B97: "7A" (fix them). They also restarted the Windows test VM after the Mac hibernated on a flat battery and took it down.

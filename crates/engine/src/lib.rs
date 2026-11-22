@@ -688,6 +688,10 @@ impl Engine {
         if self.saves() {
             caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
         }
+        // a save may ask a person first (`SaveReply.question`): a format of its own that writes pictures
+        if self.catalogue.is_none() && self.save_formats().iter().any(|f| f.questions) {
+            caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE_QUESTION);
+        }
         caps
     }
 

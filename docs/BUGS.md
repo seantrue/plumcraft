@@ -4,6 +4,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B125. Release blocker: the contact sheet's label font: verify its licence or replace it before a public release
+
+- Reported: 2026-11-22, the controller
+- Report: the engine SDKs draw contact sheet labels with glyphs extracted from Pillow's built-in default bitmap font (`ImageFont.load_default_imagefont()`, Pillow 13.0.0), stored as `crates/engine/src/sheet_font.json` and `python/src/plumcraft_engine/sheet_font.json`. Its upstream origin and licence terms are not verified: the controller believes it is Adobe's Courier bitmap from the X11 distribution, under Adobe's own notice terms (unverified). The maintainer: "Just use the Pillow font. We will deal with issues before Plummer is released to public."
+- Context: THIRD-PARTY.md ("The contact sheet's label font"); note 24, "The label font, settled for now". A second font was looked at and not taken: the Ubuntu Font Licence lets a rasterised table be redistributed with Canonical's notice and the licence, but its condition 2 names a modified version two opposite ways, and the text doesn't say which a one-size bitmap of ASCII is
+- Must be done before: any public release of the SDKs or of Plummer
+- Issue: none
+
 ### B124. A default preferences file appeared in the maintainer's real Library, `Application Support/PlumCraft/prefs.json`
 
 - Reported: 2026-11-22, the controller

@@ -603,6 +603,58 @@
       ]
     },
     {
+      "name": "ports: saving an array that isn't shaped like a picture as PNG asks first",
+      "about": "Decisions 2A and 3A (2026-11-22): the test engine's result Strip is a 4 by 1000 array. Save Result… to a .png file is a person's save (`question`), so the engine answers with a question instead of writing, and the core asks its prompt (kind saveShape: Save as PNG anyway, Save as NumPy (.npy), Cancel, the shape in its detail). NumPy writes the .npy file beside the name chosen; asked again, PNG anyway writes the picture; a script's run.save with an explicit path is never asked. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": ["engine:ports", "saves"],
+      "steps": [
+        {"only": "ports_installed", "call": "command.run", "params": {"command": "engine.use", "params": {"engine": "ports"}}},
+        {"only": "ports_installed", "call": "ui.inspect", "until": {"/result/engine/engines": {"$deep": {"id": "ports", "state": {"$deep": {"state": "connected"}}}}}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "ports.strip", "pos": [0, 0]}}, "save": {"s": "/result/id"}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "scene.get", "until": {"/result/nodes": {"$find": {"where": {"id": "$s"}, "want": {"/footer": {"$deep": {"kind": "save", "port": "strip"}}}}}}, "timeout": 20},
+        {"call": "ui.invoke", "params": {"command": "run.save", "params": {"node": "$s", "port": "strip", "sheet": false, "ask": true}},
+         "expect": {"/result/asks": {"$find": {"where": {"kind": "file.save"}, "want": {"/params/kinds/0/label": "PNG"}}}}, "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$a", "answer": {"path": "$scratch/strip.png"}}},
+        {"call": "ui.inspect", "until": {"/result/prompt/kind": "saveShape"}, "timeout": 30},
+        {"call": "ui.inspect", "expect": {"/result/save/last/ok": false, "/result/prompt/answers": ["png", "npy", "cancel"],
+                                          "/result/asks": {"$find": {"where": {"kind": "prompt"}, "want": {"/params/detail/shape": [4, 1000], "/params/labels/npy": "Save as NumPy (.npy)", "/params/labels/png": "Save as PNG anyway"}}}},
+         "save": {"q": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$q", "answer": {"answer": "npy"}}},
+        {"call": "ui.inspect", "until": {"/result/save/pending": null, "/result/save/last/ok": true, "/result/save/last/paths/0": "$scratch/strip.npy"}, "timeout": 30},
+        {"call": "ui.invoke", "params": {"command": "run.save", "params": {"node": "$s", "port": "strip", "sheet": false, "ask": true}}, "save": {"b": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$b", "answer": {"path": "$scratch/strip.png"}}},
+        {"call": "ui.inspect", "until": {"/result/prompt/kind": "saveShape"}, "timeout": 30, "save": {"r": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$r", "answer": {"answer": "png"}}},
+        {"call": "ui.inspect", "until": {"/result/save/pending": null, "/result/save/last/ok": true, "/result/save/last/paths/0": "$scratch/strip.png"}, "timeout": 30},
+        {"call": "command.run", "params": {"command": "run.save", "params": {"node": "$s", "port": "strip", "path": "$scratch/scripted.png"}}},
+        {"call": "ui.inspect", "until": {"/result/save/pending": null, "/result/save/last/ok": true, "/result/save/last/paths/0": "$scratch/scripted.png"}, "timeout": 30, "expect": {"/result/prompt": null}}
+      ]
+    },
+    {
+      "name": "ports: a value with a recipe offers Recipe, and one without doesn't",
+      "about": "Decision 7A (2026-11-22): recipes stay with engines that track lineage. The test engine's Traced node sends its text with a recipe (`Display.recipe`), so its pop-out says hasRecipe and viewer.recipe gives the recipe; the Result node's pop-out has none, and viewer.recipe answers null. The shells' Recipe button follows hasRecipe",
+      "half": "edit",
+      "needs": ["engine:ports"],
+      "steps": [
+        {"only": "ports_installed", "call": "command.run", "params": {"command": "engine.use", "params": {"engine": "ports"}}},
+        {"only": "ports_installed", "call": "ui.inspect", "until": {"/result/engine/engines": {"$deep": {"id": "ports", "state": {"$deep": {"state": "connected"}}}}}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "ports.traced", "pos": [0, 0]}}, "save": {"t": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$t", "port": "seed", "value": "corgi"}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "ports.result", "pos": [600, 0]}}, "save": {"r": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$t", "port": "text"}, "to": {"node": "$r", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$t", "port": "text"}}, "save": {"p": "/result/id"}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$r", "port": "text"}}, "save": {"q": "/result/id"}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/hasRecipe": true}, "timeout": 30},
+        {"call": "command.run", "params": {"command": "viewer.recipe", "params": {"popout": "$p"}}, "expect": {"/result/recipe/style": "traced", "/result/recipe/params/seed": "corgi"}},
+        {"call": "popout.get", "params": {"id": "$q"}, "until": {"/result/excerpt/text": "traced corgi"}, "timeout": 30, "expect": {"/result/hasRecipe": false}},
+        {"call": "command.run", "params": {"command": "viewer.recipe", "params": {"popout": "$q"}}, "expect": {"/result/recipe": null}}
+      ]
+    },
+    {
       "name": "a run's state arrives in the scene",
       "about": "run.start, then ui.waitRun; each face's run state reads done (or cached) in scene.get, and ui.inspect's run is idle",
       "half": "read",

@@ -552,6 +552,12 @@ pub fn run_values(
 pub const CHOICES_KEY: &str = "_choices";
 /// The memo parameter under which a node's [`crate::Node::volatile`] identity goes.
 pub const VOLATILE_KEY: &str = "_volatile";
+/// The output key under which a node that tracks lineage puts what made its outputs (an object:
+/// `{style?, params, settings?, graph?}`), which every watched display of the node carries as
+/// `Display.recipe` (spec 10.2, F56). Not a port: nothing wires it, and it is kept with the
+/// outputs in the memo. Only such a node sets it (the maintainer, 2026-11-22: recipes stay with
+/// engines that track lineage).
+pub const RECIPE_KEY: &str = "_recipe";
 /// The most runs a node mapped over lists makes.
 pub const MAX_RUNS: usize = 100_000;
 /// The most items a list display's sheet describes.
@@ -1125,6 +1131,10 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
             }
         }
         Some(v) => fill(v, media, plane, w.px, &mut d),
+    }
+    // what made the value, from a node that tracks lineage (spec 10.2 `recipe`, F56)
+    if let Some(Data::Json(r)) = outputs.get(RECIPE_KEY).filter(|r| r.json().is_some_and(Value::is_object)) {
+        d.recipe = Some(r.clone());
     }
     d
 }

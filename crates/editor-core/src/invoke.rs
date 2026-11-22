@@ -68,6 +68,10 @@ pub enum Prompt {
     Review(Box<Review>),
     /// A run would send these local files to an engine nobody here started: `(where to, file)`.
     Uploads(Vec<(String, String)>),
+    /// A person's save of an array not shaped like a picture, as PNG or JPEG (the engine's
+    /// `question`, decision 2A): save it anyway, as NumPy instead, or not. `params` are the
+    /// `run.save` it asked about (JSON), `why` the engine's sentence, `npy` the path as `.npy`.
+    SaveShape { params: String, why: String, shape: Vec<u64>, npy: String },
 }
 
 /// An answer to a [`Prompt`]: its buttons, and `ui.prompt`'s `answer`.
@@ -81,6 +85,10 @@ pub enum PromptAnswer {
     Cancel,
     /// Trust the workflow; its held run is dropped ([`Prompt::Review`]).
     Trust,
+    /// Save the array as the picture asked for anyway ([`Prompt::SaveShape`]).
+    Png,
+    /// Save it as NumPy (`.npy`) instead ([`Prompt::SaveShape`]).
+    Npy,
 }
 
 impl PromptAnswer {
@@ -90,11 +98,28 @@ impl PromptAnswer {
             PromptAnswer::Save => "save",
             PromptAnswer::Cancel => "cancel",
             PromptAnswer::Trust => "trust",
+            PromptAnswer::Png => "png",
+            PromptAnswer::Npy => "npy",
+        }
+    }
+
+    /// What a shell's button for it says, where the word alone doesn't (`labels` in the
+    /// prompt's params).
+    pub fn label(self) -> &'static str {
+        match self {
+            PromptAnswer::Discard => "Discard",
+            PromptAnswer::Save => "Save",
+            PromptAnswer::Cancel => "Cancel",
+            PromptAnswer::Trust => "Trust",
+            PromptAnswer::Png => "Save as PNG anyway",
+            PromptAnswer::Npy => "Save as NumPy (.npy)",
         }
     }
 
     pub fn from_name(name: &str) -> Option<PromptAnswer> {
-        [PromptAnswer::Discard, PromptAnswer::Save, PromptAnswer::Cancel, PromptAnswer::Trust].into_iter().find(|a| a.name() == name)
+        [PromptAnswer::Discard, PromptAnswer::Save, PromptAnswer::Cancel, PromptAnswer::Trust, PromptAnswer::Png, PromptAnswer::Npy]
+            .into_iter()
+            .find(|a| a.name() == name)
     }
 }
 
@@ -105,10 +130,14 @@ impl Prompt {
             Prompt::Discard { .. } => "unsavedChanges",
             Prompt::Review(_) => "reviewWorkflow",
             Prompt::Uploads(_) => "allowUploads",
+            Prompt::SaveShape { .. } => "saveShape",
         }
     }
 
-    pub fn text(&self) -> &'static str {
+    pub fn text(&self) -> String {
+        if let Prompt::SaveShape { why, .. } = self {
+            return format!("{why}. Save it as a PNG anyway, or as a NumPy array (.npy), which keeps its numbers?");
+        }
         match self {
             Prompt::Discard { then: AfterDiscard::New } => "The graph has unsaved changes. Discard them and start a new graph?",
             Prompt::Discard { then: AfterDiscard::Open } => "The graph has unsaved changes. Discard them and open another workflow?",
@@ -116,7 +145,9 @@ impl Prompt {
             Prompt::Review(_) => "This workflow came from elsewhere, and it runs with your permissions. Check what it touches before you run it.",
             Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
             Prompt::Discard { then: AfterDiscard::Close } => "The graph has unsaved changes. Discard them and close the window?",
+            Prompt::SaveShape { .. } => "",
         }
+        .to_owned()
     }
 
     /// Its window's heading.
@@ -125,6 +156,7 @@ impl Prompt {
             Prompt::Discard { .. } => "Unsaved changes",
             Prompt::Review(_) => "Review before running",
             Prompt::Uploads(_) => "Send files to this engine?",
+            Prompt::SaveShape { .. } => "Not shaped like a picture",
         }
     }
 
@@ -133,16 +165,21 @@ impl Prompt {
         match self {
             Prompt::Discard { .. } => &["save", "discard", "cancel"],
             Prompt::Review(_) | Prompt::Uploads(_) => &["trust", "cancel"],
+            Prompt::SaveShape { .. } => &["png", "npy", "cancel"],
         }
     }
 
-    /// The `prompt` ask's params: `{kind, title, text, answers, then?, detail?}`.
+    /// The `prompt` ask's params: `{kind, title, text, answers, labels, then?, detail?}`;
+    /// `labels` are the buttons' words, by answer.
     pub fn params(&self) -> Value {
-        let mut p = json!({"kind": self.kind(), "title": self.title(), "text": self.text(), "answers": self.answers()});
+        let labels: Map<String, Value> =
+            self.answers().iter().filter_map(|a| PromptAnswer::from_name(a).map(|x| ((*a).to_owned(), Value::from(x.label())))).collect();
+        let mut p = json!({"kind": self.kind(), "title": self.title(), "text": self.text(), "answers": self.answers(), "labels": labels});
         match self {
             Prompt::Discard { then } => p["then"] = json!(then.name()),
             Prompt::Review(r) => p["detail"] = serde_json::to_value(r).unwrap_or(Value::Null),
             Prompt::Uploads(files) => p["detail"] = Value::Array(files.iter().map(|(to, file)| json!({"to": to, "file": file})).collect()),
+            Prompt::SaveShape { shape, npy, .. } => p["detail"] = json!({"shape": shape, "npy": npy}),
         }
         p
     }
@@ -743,6 +780,7 @@ fn prompt_cancelled(h: &mut impl Host, p: &Prompt) {
                 h.session_mut().run.cancel();
             }
         }
+        Prompt::SaveShape { .. } => h.say("not saved".into()),
     }
 }
 
@@ -800,6 +838,20 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                 h.allow_uploads(&files);
                 if let Some(req) = h.take_held_run() {
                     h.session_mut().run.resend(req);
+                }
+            }
+            (Prompt::SaveShape { params, npy, .. }, Some(answer @ (PromptAnswer::Png | PromptAnswer::Npy))) => {
+                // the person answered: saved without asking again, as the picture or as NumPy
+                let mut params: Value = serde_json::from_str(&params).unwrap_or(Value::Null);
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("question");
+                    if answer == PromptAnswer::Npy {
+                        o.insert("path".into(), Value::from(npy));
+                        o.remove("options");
+                    }
+                }
+                if let Err(e) = h.run("run.save", &params) {
+                    h.say(format!("can't save: {e}"));
                 }
             }
             (p, _) => prompt_cancelled(h, &p),
@@ -871,6 +923,8 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                     o.insert("path".into(), Value::from(p));
                 }
                 // the format the name chose: its options asked for in a form, then the save
+                // the chain's save: the engine may ask about it (`question`, decision 2A)
+                params["question"] = Value::from(by.name());
                 match save_format_of(h.session(), &params).filter(|f| !f.options.is_empty()) {
                     Some(format) => {
                         let form = save_options_form(&format, &Map::new(), None);
