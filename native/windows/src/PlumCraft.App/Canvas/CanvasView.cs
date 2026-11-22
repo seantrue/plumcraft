@@ -125,6 +125,8 @@ public sealed class CanvasView : Grid
         Drag.Failed += m => Failed?.Invoke(m);
     }
 
+    protected override Microsoft.UI.Xaml.Automation.Peers.AutomationPeer OnCreateAutomationPeer() => new CanvasPeer(this);
+
     float Slop(PointerDeviceType t) => (float)CanvasLink.Slop(t == PointerDeviceType.Touch ? 22 : 10, Canvas.View.Zoom);
 
     Point Graph(Vector2 v)

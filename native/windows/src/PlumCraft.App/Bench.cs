@@ -165,7 +165,7 @@ public static class Bench
         results["one_node_change_ms"] = Stats(change);
         var p = Process.GetCurrentProcess();
         results["memory_mb"] = new JsonObject { ["working_set"] = p.WorkingSet64 / 1048576, ["private"] = p.PrivateMemorySize64 / 1048576 };
-        results["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches, ["worker_draw_failures"] = c.Counts.WorkerDrawFailures };
+        results["counts"] = new JsonObject { ["laid"] = c.Counts.FacesLaidOut, ["drawn"] = c.Counts.FacesDrawn, ["batches"] = c.Counts.Batches, ["worker_draw_failures"] = c.Counts.WorkerDrawFailures, ["tiles_drawn"] = c.Counts.TilesDrawn, ["tiles"] = c.TileCount, ["tile_mb"] = c.TileBytes / 1048576.0, ["wire_layers"] = CompositionCanvas.WireLayers };
         File.WriteAllText(o.Bench!, results.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         CoreHost.Status.Set("bench", "done");
         if (o.Exit)

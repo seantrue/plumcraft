@@ -18,12 +18,51 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Context: step 3, `ui.gesture {kind: "tap", at: [284.126, 14.0]}` on the more-button's part the shell had measured: the core answered `hit: none` and cleared the selection, so no node menu came back (54 of 55). The next three Mac runs that day passed every case. Possibly the tap arriving before the app reported the header's parts (`geometry.parts`); not looked into.
 - Issue: none
 
+### B94. The Windows palette's kinds had no names for UI Automation
+
+- Reported: 2026-11-22
+- Report: found by the person check (`native/windows/person-check.ps1`, branch `native/n5-gate`): searching the palette for "Text" left one list item named "Text" (the family's heading) and every kind's row unnamed, so the check, or a screen reader, could not tell the kinds apart
+- Context: each kind's row is a `Grid` of text blocks, which UI Automation shows as a list item with no name.
+- Fixed: 2026-11-22, branch `native/n5-gate`: each row is named by its label and note (`Editors.cs`), and a family's heading is marked a heading. The person check's third run on 2026-11-22 picked "Text" from the palette by its name and passed every step it covers but one (its own reading of a field's value, since fixed).
+- Issue: none
+
+### B93. A graph opened from the Windows app's command line is titled Untitled
+
+- Reported: 2026-11-21
+- Report: found setting up the sound for the maintainer to hear (`native/n5-gate`): `Plummer.exe --root <scratch> <graph>.json` showed the graph, and the window's title, its status file's `title` and UI Automation all said "Untitled - Plummer"; the same graph opened by File › Open is titled by its file
+- Context: the window titles itself from the document's state in the feed (`DocumentState.Name`, else `Path`); a graph opened with `document.open {path}` at launch comes with neither, it seems. Not looked into further: the VM stopped answering.
+- Issue: none
+
+### B92. A sound popped out by a double click on its pin started playing by itself, twice
+
+- Reported: 2026-11-21
+- Report: found setting up the sound for the maintainer to hear (`native/n5-gate`)
+- Context: opening an Array to Audio value's window by a double click on its output pin, the window played at once twice out of six tries. The app's log says the Play button's `Click` handler ran (`sound: Play/Pause clicked`, then the core's `viewer.audio` state playing, seq 1), with no click of the script's on the button (the pointer was on the pin, outside the new window) and no key sent. With handlers added that log every pointer press, release and key on Play, three more tries didn't play. The core never starts a sound on its own (`viewer_state.rs`: `playing` starts false). Whether the Apple apps or egui do the same was not checked. Cause not found.
+- Issue: none
+
+### B91. The Windows app offers Text and Array as a separate process but ships no engine program, so the engine never connects
+
+- Reported: 2026-11-21
+- Report: found by the person check (`native/windows/person-check.ps1`) in the N5 gate (`native/n5-gate`): Pick Engines Automatically turned off in Settings, then Engine › Text › Rust · process (mode 2), as a person would
+- Context: the core starts a separate-process engine from the program beside the app (`engine_binary`: `plumcraft-text-engine.exe` beside `Plummer.exe`). The Mac app's build copies the engine programs into its bundle (`PLUMCRAFT_ENGINES_DIR`, `project.yml`); the Windows app's build copied only `plumcraft_ffi.dll`, so the core offered the hosting, the person chose it, and the status line stayed at "process (mode 2), not connected". No suite case or test chose a separate-process hosting in the launched Windows app: every one used the in-process engines or the port.
+- Verified 2026-11-22 on the Windows test VM: the person check's three runs chose Text › Rust · process (mode 2) and the status line said "mode 2 · process · connected"; in the third, a node ran on it to "HELLO PERSON". The core now disables a hosting whose program is missing, with the reason (another agent's change, merged).
+- Fixed in part: 2026-11-21, branch `native/n5-gate`: the app's build copies `plumcraft-text-engine.exe` and `plumcraft-array-engine.exe` beside the app when they are built with the core (`PlumCraft.App.csproj`; the README's build step builds them). Left open: the audio engine is optional and not shipped, and the core still offers a hosting whose program isn't there (it could disable it with the reason, as it does a Python hosting with no Python).
+- Issue: none
+
+### B90. The Windows app's Engine menu listed no engines
+
+- Reported: 2026-11-21
+- Report: found by the person check (`native/windows/person-check.ps1`) in the N5 gate (`native/n5-gate`), the first launch driven as a person would: the Engine menu showed Reconnect, Attach…, Reload Engine List, Clear Engines, Install Engine…, Cancel Install, then one item with no label and an arrow, whose submenu held the engines
+- Context: the core puts the engines in an inline section (`look: "section"`, `submenu: false`, no label: `menu::engine_items`), and the Windows menus drew any item with items as a submenu (`MenuItem.IsSubmenu`). The suite's case "an engine a manifest in the engines folder names is offered" passed against the app because it reads the core's menu model over the port, not what the app draws. Reading the Mac app's `MainMenu.fill`, it draws such an item the same way (an unlabelled submenu); not run on the Mac here.
+- Fixed: 2026-11-21, branch `native/n5-gate`: a section's items are put in place (`Menus.MakeAll`, under its label when it has one). Updating the menus in place also paired items with their views by position in an order that put a submenu after its items and counted separators the views don't have; it now uses the order the views are made in (`Menus.Walk`). The person check's Engine menu step lists the engines, the conformance probe from the scratch manifest among them.
+- Issue: none
+
 ### B55. On the Windows test VM a Plummer process stuck where nothing could end it, and the console session stopped starting programs
 
 - Reported: 2026-11-21
 - Report: found while taking N5 slice 4's screenshots (`native/n5-panels`); recorded under the standing "record bugs"
 - Context: a screenshot run launched the app (`edit-number`, 15:17) through a one-shot Interactive scheduled task, as every run does. It never wrote its first window to its status file. From then on no program started in the console session: every later scheduled task's process (cmd, PowerShell, the screenshot and input injectors) stayed at its start, and the app's process and the console host and terminal processes launched with it couldn't be ended (`Stop-Process` and `taskkill` reported success or access denied, and the processes stayed). Windows logged a `LiveKernelEvent` (code `1cc`) at 15:31 and an application hang in another app. A program started from the SSH session (session 0) still runs. The VM was not restarted (the brief: never restart it); the stuck processes are still there. Whether the app caused it, or the VM's display driver did and the app was the first to meet it, is not known.
-- Looked at after the maintainer restarted the VM: Windows logged `LiveKernelEvent` `1cc` (a kernel resource held too long, a live dump in `C:\WINDOWS\LiveKernelReports\ResourceTimeout-20261121-1520.dmp`) at 15:20, three minutes after the stuck launch, and again at 15:30 and 15:31 with hang reports for two system apps (the Store, the AAD broker). There was no crash or hang report for the stuck Plummer itself, no WerFault and no debugger attached, and the app never wrote its first window to its status file, so it stuck before any window, sheet or dialog of its own was shown, not on a modal sheet and not in a crashed composition thread. Every launch then went through `cmd /c` in a console that Windows handed to Windows Terminal (its default terminal), and Windows Terminal, OpenConsole and conhost started with that launch were among the processes nothing could end. Since the restart every scripted launch runs under `conhost.exe --headless`, so no terminal is started; it did not recur in the seven launches for the suite after the restart (four on ARM64, two on x64, one from the Mac's runner); later the VM stopped answering altogether (no ping, no SSH), and was left so. The dump was not opened (no kernel debugger on the VM).
+- Looked at after the maintainer restarted the VM: Windows logged `LiveKernelEvent` `1cc` (a kernel resource held too long, a live dump in `C:\WINDOWS\LiveKernelReports\ResourceTimeout-20261121-1520.dmp`) at 15:20, three minutes after the stuck launch, and again at 15:30 and 15:31 with hang reports for two system apps (the Store, the AAD broker). There was no crash or hang report for the stuck Plummer itself, no WerFault and no debugger attached, and the app never wrote its first window to its status file, so it stuck before any window, sheet or dialog of its own was shown, not on a modal sheet and not in a crashed composition thread. Every launch then went through `cmd /c` in a console that Windows handed to Windows Terminal (its default terminal), and Windows Terminal, OpenConsole and conhost started with that launch were among the processes nothing could end. Since the restart every scripted launch runs under `conhost.exe --headless`, so no terminal is started; it did not recur in the seven launches for the suite after the restart (four on ARM64, two on x64, one from the Mac's runner); later the VM stopped answering altogether (no ping, no SSH), and was left so. The dump was not opened (no kernel debugger on the VM). On `native/n5-gate` (2026-11-21, evening, after the maintainer restarted the VM with 10 GB): the person check (`native/windows/person-check.ps1`) ran twice to its end, the app quitting by File › Quit the second time; a minute later SSH accepted connections but sent nothing, ping still answered, and some minutes after that the VM stopped answering ping too. Whether this is B55 again is not known: nothing could be read from the VM. Twice more since: on 2026-11-21 at 22:36 (Mac clock), a minute after scripted double clicks on a pin and as `dotnet test` started; and on 2026-11-22 at 09:35:29, with the VM's emulated TPM turned off by the maintainer, about a minute into the person check, after cargo, the app build and four `dotnet test` runs had all passed without a lost ping. So the TPM is not the cause, or not the only cause. Each of the three came during or soon after a script that drove the app through UI Automation and SendInput; many such runs did not freeze it.
 ### B39. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
 
 - Reported: 2026-11-20
@@ -51,6 +90,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-21
 - Report: found by the gate of N5 slice 3 (`native/n5-editing`); recorded under the standing "record bugs"
 - Context: `native/windows/tests/PlumCraft.Kit.Tests/CoreTests.cs:149`, the Windows kit's test that sends 500 requests at once to a core just opened. In one of four `dotnet test` runs on the Windows 11 ARM64 test machine (40 of 41 passed) the core refused one with "busy: the document's engine is still connecting": the C ABI core holds at most 256 requests for a document whose engine hasn't connected yet (`MAX_HELD`, `crates/ffi/src/core.rs`), and the test doesn't wait for the engine before sending them. The run before and the two after passed 41 of 41. Not changed: the test or the limit, whichever is wrong, is for the maintainer.
+- Decided (the maintainer): "Make the test wait". On `native/n5-gate` the test sends `scene.get` first, which the core holds until the document's engine connects (`ping` is the core's own and isn't held), and only then the 500 requests. On 2026-11-22 it passed in three full `dotnet test` runs on the Windows test VM (TPM off); left open for the maintainer to close.
 - Issue: none
 
 ### B111. On the iPad, after a number typed into a face's field, the app never reports idle (XCTest waited 60 s on every step)

@@ -352,7 +352,7 @@ public static class Conformance
             case JsonValueKind.Object:
                 bool all = true;
                 foreach (var f in fields.EnumerateObject())
-                    if (!v.TryGetProperty(f.Name, out var x) || !Jsonv.Same(x, f.Value)) { all = false; break; }
+                    if (!FieldMatches(v, f.Name, f.Value)) { all = false; break; }
                 return all || v.EnumerateObject().Any(p => DeepHas(p.Value, fields));
             case JsonValueKind.Array:
                 return v.EnumerateArray().Any(x => DeepHas(x, fields));
@@ -360,6 +360,22 @@ public static class Conformance
                 return false;
         }
     }
+
+    /// <summary>A `$deep` field: a plain want compared as a value; a want that is a matcher (one `$` key)
+    /// matched against the field, which may be missing (docs/shell-interface.md 16, copied manifest).</summary>
+    static bool FieldMatches(JsonElement v, string name, JsonElement want)
+    {
+        JsonElement? got = v.TryGetProperty(name, out var x) ? x : null;
+        if (IsMatcher(want))
+        {
+            try { Matches(got, want); return true; }
+            catch (ConformanceException) { return false; }
+        }
+        return got is { } g && Jsonv.Same(g, want);
+    }
+
+    static bool IsMatcher(JsonElement w) =>
+        w.ValueKind == JsonValueKind.Object && w.EnumerateObject().Count() == 1 && w.EnumerateObject().First().Name.StartsWith('$');
 
     static bool HasAll(JsonElement item, JsonElement fields) =>
         item.ValueKind == JsonValueKind.Object && fields.EnumerateObject().All(f => item.TryGetProperty(f.Name, out var x) && Jsonv.Same(x, f.Value));
@@ -396,6 +412,9 @@ public static class Conformance
                         break;
                     case "$deep":
                         ok = arg.ValueKind == JsonValueKind.Object && got is { } gd && DeepHas(gd, arg);
+                        break;
+                    case "$includes":
+                        ok = arg.ValueKind == JsonValueKind.String && got is { ValueKind: JsonValueKind.String } gs && gs.GetString()!.Contains(arg.GetString()!, StringComparison.Ordinal);
                         break;
                     case "$not":
                         ok = got is not { } gn || !Jsonv.Same(gn, arg);

@@ -28,10 +28,10 @@ Nothing here implements a user action: the kit dispatches core commands by id (`
    ```powershell
    git config core.symlinks true   # before checkout; the repository has 45 symlinks (digest.rs, the Inter font, licences)
    $env:CARGO_PROFILE_RELEASE_DEBUG = '0'
-   cargo build -p plumcraft-ffi --release --target aarch64-pc-windows-msvc
+   cargo build -p plumcraft-ffi -p plumcraft-text -p plumcraft-array --release --target aarch64-pc-windows-msvc
    ```
 
-   This gives `target\aarch64-pc-windows-msvc\release\plumcraft_ffi.dll` (about 26 MB), which `Directory.Build.props` finds there (or pass `-p:PlumFfiDir=<folder>`).
+   This gives `target\aarch64-pc-windows-msvc\release\plumcraft_ffi.dll` (about 26 MB), which `Directory.Build.props` finds there (or pass `-p:PlumFfiDir=<folder>`), and the text and array engines' programs, which the app's build copies beside `Plummer.exe` so a person can host those engines as a separate process (B91; the audio engine is optional and not shipped).
 
 2. The kit's tests, with the .NET 10 SDK alone (NuGet brings xUnit and the test SDK):
 
@@ -51,6 +51,14 @@ Nothing here implements a user action: the kit dispatches core commands by id (`
 
    NuGet brings the Windows App SDK 2.6.5 and Win2D 1.4.0. The app is unpackaged and carries the Windows App SDK with it (`WindowsPackageType None`, `WindowsAppSDKSelfContained`): its folder runs as it is. `-p:Platform=x64` builds an x64 app; it needs an x64 core DLL under `target\x86_64-pc-windows-msvc\release` (`cargo build -p plumcraft-ffi --release --target x86_64-pc-windows-msvc`; it runs on an ARM64 machine under emulation).
 
+4. **The launch as a person would** (the maintainer: "Add it to every shell's gate"), on the signed-in desktop of the test machine, after the build:
+
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File person-check.ps1 [-Platform x64] [-Work <scratch folder>]
+   ```
+
+   It starts `Plummer.exe` with `--root` alone (a scratch folder; no file, no engine flag, no control port, no status file, no script steps) and uses it as a person does: real mouse and keys (`SendInput`), UI Automation to find and read what is on the screen (the canvas's faces and pins through its automation peer, `CanvasPeer.cs`), a screenshot after every step. It prints PASS or FAIL for each step with what it saw: the first window with an untitled graph; File › New Graph and closing that window; the Engine menu's engines (the conformance suite's probe from a scratch engines folder among them); Pick Engines Automatically turned off in Settings and Text hosted as a separate process, connected; Engine › Attach…'s form with each label at its own field; Install Engine…, disabled with its reason where uv isn't found and its form where it is; a node from the palette given a value in its field, a second wired to it by a drag, Run, and the value popped out from the output pin's menu; Save As to a scratch file, closing it and reopening it; File › Quit ending the app. From an SSH session it runs itself on the console desktop as a one-shot Interactive scheduled task and stops the app it started by its process id. Only two folders are redirected, through the environment a person's launch would also carry: the engines folder (`PLUMCRAFT_ENGINE_FOLDER`) and `TEMP`. What it cannot see: how things look (the screenshots are for a person), sound, and anything UI Automation doesn't expose.
+
 ## Running
 
 - `PlumCraft.Probe.exe <scratch folder> [out.json]`: prints a line a check and exits 0 when all pass.
@@ -61,4 +69,4 @@ A window started from an SSH session lands in session 0, where nobody sees it. T
 
 ## Not built
 
-A share sheet (the app declares `platform.share: false`, so the core disables Share with its reason), documents' recent files, packaging (MSIX or an installer), automation peers and a UI-test runner (slice 5), inertia when panning, and any CI: CI stays Linux only. Section 20.7 of note 24 has the slice plan; section 21 what each slice did.
+A share sheet (the app declares `platform.share: false`, so the core disables Share with its reason), documents' recent files, packaging (MSIX or an installer), a UI-test runner beyond the person check, inertia when panning, and any CI: CI stays Linux only. Section 20.7 of note 24 has the slice plan; section 21 what each slice did.

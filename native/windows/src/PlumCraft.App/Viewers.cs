@@ -582,7 +582,6 @@ public sealed class TableViewer : IViewer
     bool numericRows;
     bool[] numeric = [];
     string? asked;
-    ulong firstCol;
     JsonElement? page;
     int fetches;
     public double LastPageMs { get; private set; }
@@ -648,11 +647,12 @@ public sealed class TableViewer : IViewer
     {
         var part = grid ? "grid" : "table";
         var st = v.State.Get(part);
-        var key = $"{pop.Window.Stamp}|{st?.GetRawText()}|{firstCol}";
+        var key = $"{pop.Window.Stamp}|{st?.GetRawText()}";
         if (key == asked && page is not null) return;
         asked = key;
         var t0 = System.Diagnostics.Stopwatch.StartNew();
-        var r = grid ? await pop.DataAsync(part, null, ("cols", Jsonv.Of(firstCol))) : await pop.DataAsync(part);
+        // the grid's window of columns is the core's (`viewer.grid {cols}`, `state.grid.col`); viewer.data reads it
+        var r = await pop.DataAsync(part);
         if (key != asked) return;
         LastPageMs = t0.Elapsed.TotalMilliseconds;
         fetches++;
@@ -718,16 +718,21 @@ public sealed class TableViewer : IViewer
             line.Children.Add(new TextBlock { Text = $"{r.Get("planeName").Str() ?? "plane"} {plane + 1} of {planes}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
             line.Children.Add(up);
         }
+        // the window of columns the core shows (decision 26): a caption, and a step either way through
+        // `viewer.grid {cols}`, each enabled as the page's prevCols and nextCols say; no column kept here
         var c0 = r.Get("firstCol").U64() ?? 0;
-        if (r.Get("cols").U64() is { } all && all > (ulong)widths.Length)
+        var c1 = r.Get("endCol").U64() ?? c0;
+        var prev = r.Get("prevCols").IsTrue();
+        var next = r.Get("nextCols").IsTrue();
+        if (prev || next)
         {
-            var w = (ulong)Math.Max(widths.Length, 1);
-            var left = Ui.GlyphButton(Ui.G.Back, "Columns to the left", () => { firstCol = c0 >= 64 ? c0 - 64 : 0; Update(v); return Task.CompletedTask; }, 12);
-            left.IsEnabled = c0 > 0;
-            var right = Ui.GlyphButton(Ui.G.Forward, "Columns to the right", () => { firstCol = c0 + 64; Update(v); return Task.CompletedTask; }, 12);
-            right.IsEnabled = c0 + w < all;
+            var left = Ui.GlyphButton(Ui.G.Back, "Columns to the left", async () => await pop.CommandAsync("viewer.grid", ("cols", Jsonv.Of("prev"))), 12);
+            left.IsEnabled = prev;
+            var right = Ui.GlyphButton(Ui.G.Forward, "Columns to the right", async () => await pop.CommandAsync("viewer.grid", ("cols", Jsonv.Of("next"))), 12);
+            right.IsEnabled = next;
+            var all = r.Get("cols").U64();
             line.Children.Add(left);
-            line.Children.Add(new TextBlock { Text = $"columns {c0}–{c0 + w - 1} of {all}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
+            line.Children.Add(new TextBlock { Text = $"columns {c0}–{(c1 > 0 ? c1 - 1 : 0)}{(all is { } a ? $" of {a}" : "")}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
             line.Children.Add(right);
         }
         top.Children.Add(line);
@@ -1132,11 +1137,17 @@ public sealed class AudioViewer : IViewer
         g.Children.Add(error.At(0, 4));
         play.Click += async (_, _) =>
         {
+            CoreHost.Log("sound: Play/Pause clicked");
             var st = value?.State.Get("audio");
             if (st.Get("playing").IsTrue()) await pop.CommandAsync("viewer.audio", ("play", Jsonv.False), ("at", Jsonv.Of(Position)));
             else await pop.CommandAsync("viewer.audio", ("play", Jsonv.True));
         };
         play.KeyboardAccelerators.Add(new KeyboardAccelerator { Key = Windows.System.VirtualKey.Space });
+        // what reaches Play, for the autoplay question (N5 gate): pointer, keys, or neither
+        play.AddHandler(UIElement.PointerPressedEvent, new PointerEventHandler((_, e) => CoreHost.Log($"sound: Play pressed by {e.Pointer.PointerDeviceType}")), true);
+        play.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler((_, e) => CoreHost.Log($"sound: Play released by {e.Pointer.PointerDeviceType}")), true);
+        play.AddHandler(UIElement.KeyDownEvent, new KeyEventHandler((_, e) => CoreHost.Log($"sound: key {e.Key} on Play")), true);
+        play.GotFocus += (_, e) => CoreHost.Log($"sound: Play got focus ({play.FocusState})");
         loop.Click += async (_, _) => await pop.CommandAsync("viewer.audio", ("loop", Jsonv.Of(loop.IsChecked == true)));
         level.AddHandler(UIElement.PointerReleasedEvent, new PointerEventHandler(async (_, _) => await pop.CommandAsync("viewer.audio", ("level", Jsonv.Of(level.Value)))), true);
         wave.Draw += DrawWave;
@@ -1220,39 +1231,22 @@ public sealed class AudioViewer : IViewer
             if (rate <= 0 || frames <= 0) { error.Text = "this sound has no samples to play"; return; }
             var bytes = s.bytes;
             var (ch, fr, rt) = (channels, frames, rate);
-            wav = await Task.Run(() => Wave(bytes, ch, fr, (int)rt));
+            wav = await Task.Run(() => PlumCraft.Kit.Sound.Wave(bytes, ch, fr, (int)rt));
+            // PLUMMER_DUMP_WAV=<folder>: the samples as lent and the WAVE handed to MediaPlayer, for checking
+            if (Environment.GetEnvironmentVariable("PLUMMER_DUMP_WAV") is { Length: > 0 } dump)
+            {
+                try
+                {
+                    Directory.CreateDirectory(dump);
+                    File.WriteAllBytes(Path.Combine(dump, "samples.f32"), bytes);
+                    File.WriteAllBytes(Path.Combine(dump, "player.wav"), wav);
+                    File.WriteAllText(Path.Combine(dump, "note.txt"), $"shape [{string.Join(", ", shape)}] channels {ch} frames {fr} rate {rt} bytes {bytes.Length} form {value?.Form}");
+                }
+                catch (IOException e) { CoreHost.Log($"dumping the sound: {e.Message}"); }
+            }
             Follow();
         }
         else error.Text = pictures.Failures.GetValueOrDefault(h) ?? "the samples couldn't be read";
-    }
-
-    /// <summary>16-bit PCM WAVE from interleaved float32 samples, held to -1..1.</summary>
-    static byte[] Wave(byte[] f32, int ch, int frames, int rate)
-    {
-        var n = Math.Min(f32.Length / 4, frames * ch);
-        var data = n * 2;
-        var o = new byte[44 + data];
-        void W32(int at, int v) => BitConverter.TryWriteBytes(o.AsSpan(at, 4), v);
-        void W16(int at, short v) => BitConverter.TryWriteBytes(o.AsSpan(at, 2), v);
-        Encoding.ASCII.GetBytes("RIFF").CopyTo(o, 0);
-        W32(4, 36 + data);
-        Encoding.ASCII.GetBytes("WAVEfmt ").CopyTo(o, 8);
-        W32(16, 16);
-        W16(20, 1);
-        W16(22, (short)ch);
-        W32(24, rate);
-        W32(28, rate * ch * 2);
-        W16(32, (short)(ch * 2));
-        W16(34, 16);
-        Encoding.ASCII.GetBytes("data").CopyTo(o, 36);
-        W32(40, data);
-        for (int i = 0; i < n; i++)
-        {
-            var x = BitConverter.ToSingle(f32, i * 4);
-            if (!float.IsFinite(x)) x = 0;
-            W16(44 + i * 2, (short)Math.Round(Math.Clamp(x, -1f, 1f) * 32767));
-        }
-        return o;
     }
 
     /// <summary>The core's state: playing or not, from where, the level and loop.</summary>
@@ -1261,6 +1255,7 @@ public sealed class AudioViewer : IViewer
         var st = value?.State.Get("audio");
         var want = st.Get("playing").IsTrue();
         var s = st.Get("seq").U64() ?? 0;
+        if (want != playing) CoreHost.Log($"sound: the core's state says playing {want} (seq {s}, at {st.Get("at").Double()})");
         var at = (st.Get("at").Double() ?? 0);
         loop.IsChecked = st.Get("loop").IsTrue();
         var lv = st.Get("level").Double() ?? 1;

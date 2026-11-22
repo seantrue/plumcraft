@@ -162,6 +162,17 @@ public sealed partial class CompositionCanvas
     /// drawn wider; nothing for anything else.</summary>
     public void Hover(PlumHit? h)
     {
+        if (!WireLayers)
+        {
+            var want = h is { Kind: 3 } hw0 ? hw0.Wire : h is { Kind: 4 } hn && hn.Wire == hoverWire ? hoverWire : null;
+            if (want != hoverWire)
+            {
+                hoverWire = want;
+                ShowHoverWire();
+            }
+        }
+        else
+        {
         if (hoverWire is { } old && (h is not { Kind: 3 or 4 } x || x.Wire != old))
         {
             hoverWire = null;
@@ -171,6 +182,7 @@ public sealed partial class CompositionCanvas
         {
             hoverWire = hw.Wire;
             we.Shape.StrokeThickness = WireWidth * 1.8f;
+        }
         }
         if (h is { Kind: 2 } hp)
         {

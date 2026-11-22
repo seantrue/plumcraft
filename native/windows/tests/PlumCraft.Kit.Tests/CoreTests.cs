@@ -145,6 +145,10 @@ public class CoreFlow(ITestOutputHelper output)
     {
         using var core = OpenCore("many");
         await core.ResultAsync("ping");
+        // the document's first request is held until its engine connects (B52: the core holds at most
+        // 256 for a document still connecting, so 500 sent before then could be refused); `ping` is the
+        // core's own and isn't held, `scene.get` is the document's
+        await core.ResultAsync("scene.get");
         var tasks = Enumerable.Range(0, 500).Select(i => core.ResultAsync("command.run", O(("command", S("node.add")), ("params", O(("kind", S("text.literal")), ("pos", Pt(i * 10, 0))))))).ToList();
         var replies = await Task.WhenAll(tasks);
         Assert.Equal(500, replies.Select(r => r.Get("id").Str()).Distinct().Count());
