@@ -34,6 +34,40 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Found, not fixed.** A private project name is in older tracked files (`crates/proto/src/session.rs`, `catalogue.rs`, the protocol schema); the private-strings list does not hold that word yet. It is on the queued name clean-up.
 
+### 2026-11-23 — An editor row opens the value window on Windows (FR1), and a first-line-only text bug (B145) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** FR1: "curve ui needs a way to promote it to a group input." This is its Windows part.
+
+**What the AI did.** A row whose value has an editor draws its caption as a link and reports the caption's rect as the row's, so the core's own tap gives `node.editor`; the shell adds no tap handling. UI Automation sees the link as a button, and an open group's chevron as "Collapse <name>".
+
+**Defect found on the way, in earlier AI-written Windows code (B145).** Four text boxes were given their text before being told to accept returns, so a value of several lines showed, and would have committed, only its first line: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. The agent saw "[" where a curve's JSON should be. All four fixed; only the value window has a launched check.
+
+**Verified (agent, Windows test VM).** `dotnet test` 63 of 63; C# runner 68 of 68 on ARM64 and x64; Swift runner 60 of 60; person check 24 of 24 three times, its new step opening the value window from a node's row and from a collapsed group's promoted row. Floor row F22 stays partly met: the window is the core's JSON one, not a custom editor.
+
+### 2026-11-23 — Browse for a path input on Windows (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "Yes, fix b133 on all systems." This is the Windows half; the core and the Apple shells went in earlier the same day.
+
+**What the AI did.** A path row draws the Browse button in the core's square and exposes it to UI Automation; the tap is the core's `row.browse`. The asks for a path are answered with the common item dialog through COM (`PathDialogs.cs`), because the pickers the shell used before can only start in a known library and so ignored the current value's folder; the dialog opens there, filters by the hint's kinds, and returns real paths. Pressing Browse while the field is open closes it without its text: on Windows the press takes focus first, and the focus-loss rule from B141 would otherwise have committed what was typed. The scene model decodes the row's `editor` (decode only): without it five kit tests failed against the merged dev branch.
+
+**Verified (agent, on the Windows test VM, on the merged dev branch).** `dotnet test` 62 of 62; C# runner 68 of 68 on ARM64 and x64; Swift runner 60 of 60; person check 23 of 23 three times, its new step opening the real dialog, reading it and cancelling it. Floor row F16 is met on Windows. **Not done:** drawing and tapping the editor row on Windows (its own slice).
+
+**Seen again.** B99, the palette case the maintainer said to watch, failed on ARM64 in two runners on an intermediate commit and passed on the final one; recorded in its entry.
+
+**Environment.** The VM has had no internet since the host's reboot; each rebuild's first launch takes about two minutes while the virus scanner holds new files.
+
+### 2026-11-23 — The iPad UI tests wait on the app's state, not a fixed pause (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the checklist page: fix the two tests that fail at their text size in their window (7A), and have the tests wait on the app's state instead of a fixed 300 ms pause (8B).
+
+**What the AI did.** The app reports what is still moving (a sheet, popover or alert, the keyboard, a menu) in `PlumCraftPad/App/Settling.swift`; before each action the tests wait until nothing is, at most 3 s. On a device the fixed pause stays. Two tests that tapped from the screen's corner instead of the window's now pass in a 375 window. Test-side faults fixed: buttons read by their place in a list while a bar was settling, and the phone's export picker pulled from the status bar.
+
+**Measured (agent, simulators, one pass each, the eleven tests' own times, before then after).** iPad whole screen 300 s then 259 s; one step larger 288 s then 261 s; the 375 by 655 window 484 s then 425 s; the iPhone 318 s then 293 s. The longest single wait was 0.57 s.
+
+**7A is not met in the 375 window.** The save test cannot close an export picker that fills the whole window (no Cancel, and Save is never pressed), and the warned-engine test loses the Engine menu while scrolling it under the keyboard, three runs of three. Both pass on the whole screen and on the phone. B138 still fails and is not caused by the waits.
+
+**Defect in AI work.** The agent's first change to the warned-engine test broke it everywhere (it looked for a menu item at the foot that is at the top); its own run caught it and it was reverted, at the cost of a second pass.
+
 ### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."

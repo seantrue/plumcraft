@@ -1206,6 +1206,35 @@ Not answered: whether the graph hash covers the whole document (the core's `trus
     - NuGet's audit is off per build in the scratch scripts;
     - newly built files are held by Defender at first use (cloud protection with no cloud), so the first launch after a build can take 25 to 90 s; one warm-up launch follows each rebuild;
     - `plum_open` itself took 7 to 9 ms offline in every configuration tried.
+- **B133 on Windows: Browse for a path row (2026-11-23, branch `fix/b133-windows-browse`, on the dev branch at `7fad6dc`).**
+  - **The button.** A row whose widget has `pathMode` draws, in the core's square (`PathBrowse.Square`), the path's text, a rule and an accent "…".
+    - UI Automation sees it as a "Browse" button (`browse.{nid}.{port}`).
+    - A tap there is the core's gesture (`selection.set`, then `row.browse`); the shell adds no tap handling.
+    - The field editor stops short of the square.
+  - **The dialog.** The path asks (purpose `path`, and `files` for several) are answered with the system's common item dialog through COM (`PathDialogs`; no unsafe code). The WinRT pickers can only start in a known library, which is why the common dialog is used.
+    - It opens in the current value's folder (`PathBrowse.StartFolder`), else in `startIn`.
+    - The hint's kinds are the filters ("Text (*.txt)"), then "All files".
+    - The file's name is filled in.
+    - Real paths come back, so nothing is copied.
+    - Every other ask keeps its picker.
+  - **Browse with the field open** closes it without its text. The press on Browse takes the field's focus, and B141's focus-loss rule would otherwise commit what was typed, so a focus loss over the open row's Browse commits nothing.
+  - **Checked by:**
+    - person check step 20: the real dialog read through UI Automation ("Choose a File", the value's folder, Text (*.txt)), pictured and cancelled; then text typed into the open field, Browse, cancel, and the value unchanged;
+    - the conformance case "ports: a path input's Browse asks…" (the scripted answer, one undo step) on ARM64 and x64;
+    - `PathBrowseTests`.
+  - **Floor:** F16 is met on Windows.
+- **FR1 on Windows: a row that opens its node's value editor (2026-11-23, branch `native/n5-editor-row` from `fix/b133-windows-browse`).**
+  - **The model and the drawing.** `InRow.Editor` (`EditorLink {kind, label, hover}`) is read. The row's caption is drawn in the accent colour.
+  - **The tap.** With no widget, the caption's rect (`FaceLayout.Opens`, as the Apple `FaceLayout.opens`) is reported as the row's rect, so the core's hit test finds the row and its tap is `node.editor`. The shell adds no tap handling.
+  - **UI Automation** sees the link as a button named by the row's label ("Edit Value…"). It also sees an open group's band chevron as "Collapse <name>": the band is drawn on the canvas, so before this a person could click it but a check couldn't find it.
+  - **Person check step 21, `editor-row`:**
+    - the test engine's Curve: its `curve` row's tap opens the core's value window "Curve · curve", showing the whole value;
+    - then, through the node's menu, Group this node and Promote input › curve; the group's chevron collapses it;
+    - "Group: group 1" has the promoted row, and its tap opens the member's value window.
+    - Both windows are pictured.
+  - **Fixed on the way.** Four Windows text boxes were given their text before `AcceptsReturn`: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. A WinUI `TextBox` that doesn't yet take returns keeps only the first line it is given, so a curve's JSON showed as "[", and Apply would have sent that.
+  - **Test:** `EditorRowTests` decodes the fixture's editor row.
+  - **For later, not built:** a curves editor (`plumcraft_proto::curves`, `curves.*`, `node.editorData`) is arriving in the Apple shells on `feat/curve-editor`. Windows will need its own C# view on it once both Apple editors exist (decision 5A).
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 
@@ -1250,3 +1279,12 @@ What was done (branch `native/n4-prompts`): ten minutes on B111 from the two log
 **The device run without the idle wait (2026-11-22, the merged build `4366fe9`, the controller, the maintainer present).** The window as left at 375 by 655, then made whole by each launch (every `WINDOW` line `fullScreen 1, asked full`): 8 tests, 6 passed, 2 skipped (`testAWarnedEngineIsMarkedInTheMenu` and `testTheSavesQuestionAndARecipe`, which need what a device run doesn't give), 0 failed, in 181 s, against 1,219 s and 1,338 s the night before; `IDLE: XCTest's idle waits skipped (2 of 2)` and no idle-wait timeout. `testInlineEdits` 17.6 s (859 s before), `testNoKeyboardWithNothingEdited` 24.7 s, `testWindowsAndNames` 29.9 s, which closes B60 as decided (10A). The B111 probe fired; what it says is in B111 (branch `native/n4-b111`): the text cursor's blink is there on the simulator too, where XCTest does reach idle, so it is not the cause; what the device alone has is the keyboard's own 0.38 s animations still attached 8 s after Done. Logs: `claude-debug/native-n4/s12-device/`.
 
 **Decided (the maintainer, 2026-11-22), on the prompts report's two questions and the iPad's text size.** The answer, verbatim: "1,2 yes. I have text size in appearance/text size 1 slide position larger". The questions were: 1, "B130: accept Run inside the More menu in a narrow window at a large text size?"; 2, "B129: look into the iPad suite failure with the test engine attached now?"; and whether the iPad's text size is larger than the default. So B130's fix is accepted as built, B129 is looked into now, and the iPad's text size is one step above the default (the simulator's `extra-large`), the size the iPad UI tests must pass at.
+
+#### Decisions after B111's report (the maintainer, 2026-11-23)
+
+The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4A; 5A; 6A; 7A; 8B". Cards 1 to 6 are recorded where they were asked. The two recorded here, as the controller put them to the work (branch `native/n4-test-waits`):
+
+| # | Question | Answer |
+|---|---|---|
+| 7 | The two iPad UI tests that failed at one step larger text in a 375 by 655 window (`testAWarnedEngineIsMarkedInTheMenu`, `testTheSavesQuestionAndARecipe`): A fix them; B leave them, as tests a device run skips | 7A: fix them |
+| 8 | The fixed 300 ms settle before each action (`PLUMCRAFT_SETTLE_MS`): A keep it; B replace it with waits on the app's own state (presented or presenting, the keyboard's frame settled, a menu open), each with a limit | 8B: waits on the app's state |

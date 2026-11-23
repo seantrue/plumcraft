@@ -139,6 +139,16 @@ public sealed class CanvasView : Grid
         return new Point(g.X, g.Y);
     }
 
+    /// <summary>Is the pointer over the Browse square of a face's path row (B133)? A press there while that row's
+    /// field is open is the core's `row.browse`, which closes the field without its text.</summary>
+    public bool PointerOverBrowse(string face, int row)
+    {
+        if (Pointer is not { } p || Canvas.RowRect(face, row) is not { } r) return false;
+        var g = Graph(p);
+        var sq = PathBrowse.Square(r);
+        return g.X >= sq.X0 && g.X <= sq.X1 && g.Y >= sq.Y0 && g.Y <= sq.Y1;
+    }
+
     static Vector2 V(Windows.Foundation.Point p) => new((float)p.X, (float)p.Y);
 
     static List<ModifierWord> Mods(VirtualKeyModifiers m)

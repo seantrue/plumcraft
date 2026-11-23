@@ -51,6 +51,9 @@ public sealed class Asks(DocWindow window, DocumentModel model)
             window.NoteStatus();
             var answer = a.KindWord switch
             {
+                AskWord.FileOpen when IsPath(a.Params) => PathAsk(a.Params, a.Params.Get("multiple").IsTrue() ? PathDialogs.Pick.Many : PathDialogs.Pick.Open),
+                AskWord.FileSave when IsPath(a.Params) => PathAsk(a.Params, PathDialogs.Pick.Save),
+                AskWord.FolderPick when IsPath(a.Params) => PathAsk(a.Params, PathDialogs.Pick.Folder),
                 AskWord.FileOpen => await FileOpen(a.Params),
                 AskWord.FileSave => await FileSave(a.Params),
                 AskWord.FolderPick => await FolderPick(),
@@ -96,6 +99,30 @@ public sealed class Asks(DocWindow window, DocumentModel model)
     {
         WinRT.Interop.InitializeWithWindow.Initialize(picker, window.Hwnd);
         return picker;
+    }
+
+    /// <summary>A path row's Browse (B133): purpose `path`, or `files` for several.</summary>
+    static bool IsPath(JsonElement p) => p.Get("purpose").Str() is "path" or "files";
+
+    /// <summary>A path row's Browse answered with the system's dialog, started where the value is, its kinds as
+    /// the filters; real paths back (11.2: `{paths}` for a file to read, `{path}` for one to write or a folder).</summary>
+    JsonElement? PathAsk(JsonElement p, PathDialogs.Pick pick)
+    {
+        var kinds = new List<PathBrowse.Kind>();
+        if (p.Get("kinds") is { ValueKind: JsonValueKind.Array } ks)
+            foreach (var k in ks.EnumerateArray())
+            {
+                var ex = k.Get("extensions") is { ValueKind: JsonValueKind.Array } a
+                    ? a.EnumerateArray().Where(e => e.ValueKind == JsonValueKind.String).Select(e => e.GetString() ?? "").ToList() : [];
+                kinds.Add(new PathBrowse.Kind(k.Get("label").Str() ?? "", ex));
+            }
+        var title = p.Get("title").Str() ?? (pick == PathDialogs.Pick.Folder ? "Choose a Folder" : "Choose a File");
+        var start = PathBrowse.StartFolder(p.Get("current").Str(), p.Get("startIn").Str(), pick == PathDialogs.Pick.Folder);
+        var got = PathDialogs.Show(window.Hwnd, pick, title, kinds, start, p.Get("name").Str());
+        if (got is null) return null;
+        return pick is PathDialogs.Pick.Open or PathDialogs.Pick.Many
+            ? Jsonv.Object(("paths", Jsonv.Array(got.Select(x => Jsonv.Of(x)))))
+            : Jsonv.Object(("path", Jsonv.Of(got[0])));
     }
 
     async Task<JsonElement?> FileOpen(JsonElement p)
@@ -242,7 +269,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
                         fields.Add((key, () => pw.Password));
                         break;
                     case "text":
-                        var tb = new TextBox { Header = label, Text = initial, PlaceholderText = f.Get("hint").Str() ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
+                        var tb = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Header = label, Text = initial, PlaceholderText = f.Get("hint").Str() ?? "", MinHeight = 80 };
                         panel.Children.Add(tb);
                         fields.Add((key, () => tb.Text));
                         break;
