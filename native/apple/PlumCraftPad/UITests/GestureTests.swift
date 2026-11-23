@@ -1184,6 +1184,94 @@ extension GestureTests {
         XCUIDevice.shared.orientation = .portrait
     }
 
+    /// B133 on the iPad and iPhone, with the test engine (PLUMCRAFT_PORTS_ENGINES; skipped
+    /// without it): Read Text File's path row draws a Browse button at its right end; a tap on it
+    /// is the core's row.browse, and the document picker opens for a copy (purpose `path`), then
+    /// is cancelled (nothing picked: the simulator's picker has no file the test placed). A tap on
+    /// it while the path's text is being edited closes the field (and its keyboard) and opens the
+    /// picker the same way.
+    @MainActor
+    func testBrowseForAPath() throws {
+        let env = ProcessInfo.processInfo.environment
+        let engines = env["PLUMCRAFT_PORTS_ENGINES"] ?? ""
+        try XCTSkipIf(engines.isEmpty, "no test engine attached (PAD_PORTS=1)")
+        statusPath = statusFilePath(env)
+        let graph = engines + "/../browse-graph.json"
+        try #"{"version": 1, "engines": ["ports"], "nodes": {"r": {"kind": "ports.read", "pos": [0, 0], "engine": "ports"}}, "wires": []}"#
+            .write(toFile: graph, atomically: true, encoding: .utf8)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open", graph, "--status-file", statusPath, "--then", "zoom:1.5:r"]
+        app.launchEnvironment["PLUMCRAFT_ENGINE_FOLDER"] = engines
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        func browsePoint() -> [Double]? {
+            guard let rows = (window()["rows"] as? [String: Any])?["r"] as? [Any], let r = rows.first as? [String: Any] else { return nil }
+            return r["browse"] as? [Double]
+        }
+        wait("the graph, ready, with the path row's Browse", timeout: 150) { _ in browsePoint() != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        reveal(app, canvas, browsePoint)
+        shot("b133-ui-path-row")
+        func picking() -> [String: Any]? { status()["picking"] as? [String: Any] }
+        func tapBrowse() throws {
+            let at = try XCTUnwrap(browsePoint())
+            canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: at[0], dy: at[1])).tap()
+        }
+        // the system's picker on screen (it can take seconds to come, the first time)
+        func pickerShown() -> Bool {
+            let any = NSPredicate(format: "label IN {'Cancel', 'Open', 'Done', 'Browse', 'Recents'} OR identifier == 'Cancel'")
+            let until = Date().addingTimeInterval(20)
+            while Date() < until {
+                if app.buttons.matching(any).firstMatch.exists || app.tabBars.firstMatch.exists {
+                    // drawn a moment after its elements exist (a view of another process's)
+                    RunLoop.current.run(until: Date().addingTimeInterval(2))
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
+            return false
+        }
+        // the picker is another process's view: its close button (an ✕ at the sheet's top left)
+        // isn't among this app's elements, so it is tapped where it is drawn, trying the few
+        // places a sheet puts it on an iPad and an iPhone until the app says the picker closed
+        func cancelPicker() {
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let w = app.windows.firstMatch.frame.width
+            // an iPad's sheet has the ✕ at its top left; an iPhone's beside "…" at the top right
+            let places = w < 600 ? [CGPoint(x: w - 97, y: 110), CGPoint(x: w - 97, y: 96), CGPoint(x: w - 90, y: 124)]
+                : [CGPoint(x: 37, y: 84), CGPoint(x: 34, y: 96), CGPoint(x: 34, y: 112), CGPoint(x: 40, y: 72)]
+            for p in places where picking() != nil {
+                origin.withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+                let gone = Date().addingTimeInterval(4)
+                while Date() < gone, picking() != nil { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+        }
+        // 1. the Browse button: the picker, for a copy, the row's file kinds
+        try tapBrowse()
+        wait("the picker for the path", timeout: 20) { _ in (picking()?["purpose"] as? String) == "path" }
+        XCTAssertEqual(picking()?["copy"] as? Bool, true, "a path's file is the picker's copy")
+        XCTAssertTrue(pickerShown(), "the document picker on screen: \(app.buttons.allElementsBoundByIndex.map(\.label).prefix(20))")
+        shot("b133-ui-picker")
+        cancelPicker()
+        XCTAssertNil(picking(), "the picker cancelled")
+        XCTAssertEqual(value("r", 0), "", "nothing set when cancelled")
+        // 2. while the path's text is edited: the field and its keyboard go, the picker comes
+        let (row, _) = try XCTUnwrap(rowReachable(app, canvas, "r", 0))
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.x - 30, dy: row.y)).tap()
+        wait("the path's field open") { (($0["editor"] as? [String: Any])?["open"] as? Bool) == true }
+        app.textFields["row-editor"].typeText("half typed")
+        shot("b133-ui-editing")
+        try tapBrowse()
+        wait("the picker, from Browse while editing", timeout: 20) { _ in (picking()?["purpose"] as? String) == "path" }
+        XCTAssertNotEqual((window()["editor"] as? [String: Any])?["open"] as? Bool, true, "the field closed")
+        XCTAssertTrue(pickerShown(), "the document picker on screen, from editing")
+        shot("b133-ui-picker-from-editing")
+        cancelPicker()
+        XCTAssertEqual(value("r", 0), "", "nothing set: the half-typed text went with the field, and the picker was cancelled")
+    }
+
     @MainActor
     func testCompactWindowsByATap() throws {
         let env = ProcessInfo.processInfo.environment

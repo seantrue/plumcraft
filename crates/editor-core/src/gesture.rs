@@ -519,6 +519,14 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, at: Point, mods: Mods, out: &mut
                         out.push(("canvas.focus", json!({"group": g})));
                     }
                 }
+                // a path row's Browse button (B133): the node selected, and the system's file
+                // dialog asked for (`row.browse`, invoked: the core's file ask, then the value set)
+                part::ROW if !mods.shift && !mods.primary && browse_row(snap, h, at).is_some() => {
+                    out.push(select(id, mods));
+                    if let Some(cmd) = browse_row(snap, h, at) {
+                        out.push(cmd);
+                    }
+                }
                 part::ROW if !mods.shift && !mods.primary && edit_row(snap, h).is_some() => {
                     // a row that can be edited: the node is selected and the row edited (N4
                     // slice 2): a switch flips, anything else opens the shell's field editor
@@ -578,6 +586,18 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, at: Point, mods: Mods, out: &mut
             }
         }
     }
+}
+
+/// A tap on a path row's Browse button (B133: [`crate::geometry::browse_rect`] of the row's
+/// widget, on a row that can be edited): `row.browse`. None anywhere else, or when the shell
+/// measured no widget rect for the row.
+fn browse_row(snap: &Snapshot, h: &Hit, at: Point) -> Option<(&'static str, Value)> {
+    if h.kind != kind::NODE || h.part != part::ROW {
+        return None;
+    }
+    let w = snap.row_widget(h.node, h.index).filter(|w| w.editable && w.widget.path_mode.is_some())?;
+    let rect = snap.row_rect(h.node, h.index)?;
+    crate::geometry::browse_rect(rect).contains(at).then(|| ("row.browse", json!({"node": w.node, "port": w.key})))
 }
 
 /// What a tap on an editable row does (N4 slice 2): a switch's `row.set` to the other state, any
