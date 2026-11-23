@@ -420,7 +420,7 @@ dev = [
 requires-dist = [
     { name = "numpy", specifier = ">=1.26" },
     { name = "pillow", specifier = ">=10" },
-    { name = "pyuncommonkit", specifier = ">=0.2.0" },
+    { name = "pyuncommonkit", specifier = ">=0.3.0,<0.4" },
 ]
 
 [package.metadata.requires-dev]
@@ -456,16 +456,16 @@ wheels = [
 
 [[package]]
 name = "pyuncommonkit"
-version = "0.2.0"
+version = "0.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "blake3" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.12'" },
     { name = "numpy", version = "2.5.4", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/67/43/8a171f72f34ad24f5c20ca6243fad42c98d855d5fc01a8260380810817d9/pyuncommonkit-0.2.0.tar.gz", hash = "sha256:d7b086869752a89a124734c2de42db4b064098d1fb76b31ce9d494e45db4f075", size = 39378, upload-time = "2026-11-13T02:47:52.844Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7d/32/f5711c501bb1f4619bb0d50d6201a26e0a1e2b93bd2290b3868586284a53/pyuncommonkit-0.3.0.tar.gz", hash = "sha256:10edd6ed15a983e8bf61da4594b9a640eb3ee047709ddcefe966d6e801094b8f", size = 41097, upload-time = "2026-11-23T19:47:36.1Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fe/89/a7d9f521138b144ed4035a53fdd2cbda95d789053f2601433f7cb1b04600/pyuncommonkit-0.2.0-py3-none-any.whl", hash = "sha256:e9e955dc794333a0da4ff0ba34d8c39e43778573437d7f9383d7ad015b03106f", size = 44624, upload-time = "2026-11-13T02:47:51.825Z" },
+    { url = "https://files.pythonhosted.org/packages/be/3c/f68f5414c51f37a9c3e3ce0e126f2a22f1f2e6c6d1e67369a055761d5c2a/pyuncommonkit-0.3.0-py3-none-any.whl", hash = "sha256:d0ccbddc742b54c7cec85137cbb52982e187a5984129727f88fd3d4961a6a89a", size = 46781, upload-time = "2026-11-23T19:47:35.214Z" },
 ]
 
 [[package]]

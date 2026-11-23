@@ -301,10 +301,10 @@ const COMMANDS: &[CanvasCommand] = &[
     },
     CanvasCommand {
         id: "mask.prune",
-        label: "Clean Up Mask Files",
+        label: "Clean Up Mask Files…",
         menu: &[],
         shortcut: None,
-        params: "{dry_run?} -> {folder, reachable: n, removed: [file], needs?}: the mask files in this document's edit folder that nothing reaches (not the graph, not undo or redo, not a JSON file beside the document), older than a day, removed with their sidecars. Until commonkit 0.3 is released it removes nothing and says what it needs",
+        params: "{dry_run?: true by default, age_s?: seconds (a day by default)} -> {dry_run, folders, reachable: n, removed: [the files, as a value names them], kept, young, foreign, failed, refused: [why]}: Clean Up Mask Files: in this document's own edit folders (beside it, and the one chosen for it, never another), the mask files nothing reaches (not the graph, not undo or redo, not a JSON file beside the document) and older than age_s, removed with their sidecars (commonkit::prune_folder); files without this editor's sidecar, and a folder that is a symbolic link, are left. A dry run lists. Invoked (Clean Up Mask Files… from a person), it asks first with the count (prompt pruneMasks: Remove, Cancel)",
         enabled: always,
         shell: false,
     },

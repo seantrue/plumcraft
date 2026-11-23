@@ -1014,6 +1014,19 @@ extension GestureTests {
         // the item's label carries its subtitle; a disabled item may be a button or a menu item
         let named = NSPredicate(format: "label BEGINSWITH %@", "Copied Engine")
         let copied = app.descendants(matching: .any).matching(named).firstMatch
+        // with the software keyboard on, an open menu takes the keyboard (the system's, for every
+        // app's menus, B118) to jump to an item by its first letters: typed, as a person with
+        // the keyboard up can, it brings the engine into sight without scrolling (decision 7A:
+        // a scroll under the keyboard closed the menu at one step larger)
+        // (by the keyboard's keys, as a finger types: no element holds the keyboard's focus for
+        // XCTest's typeText while a menu has it)
+        if !copied.waitForExistence(timeout: 1), app.keyboards.firstMatch.exists {
+            for k in ["c", "o", "p"] {
+                let key = app.keyboards.keys[k]
+                if key.exists { key.tap() } else { print("ENGINE MENU: no \(k) key") }
+            }
+            print("ENGINE MENU: typed cop; \(copied.waitForExistence(timeout: 2) ? "the engine in sight" : "not in sight")")
+        }
         // the engines run past the menu's foot: it is scrolled as a finger scrolls it
         var menuX: CGFloat?
         var menuBottom: CGFloat?
@@ -1145,12 +1158,57 @@ extension GestureTests {
             // (each bound to itself: listed by index while the picker settles, a button gone
             // between the count and the read failed the test, "Element at index 5", decision 7A)
             print("PICKER buttons: \(app.buttons.allElementsBoundByAccessibilityElement.prefix(30).filter(\.exists).map { "\($0.identifier)|\($0.label)" })")
-            // from the sheet's own bar, not the status bar above it (where the phone's picker
-            // didn't move, decision 7A), within the window
-            let wf = app.windows.firstMatch.frame
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            origin.withOffset(CGVector(dx: wf.minX + wf.width * 0.6, dy: wf.minY + wf.height * 0.12))
-                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: wf.midX, dy: wf.minY + wf.height * 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
+            // the keyboard's Escape first: a sheet's cancel for a person with a keyboard (in a
+            // 375-point window the picker fills the window with no Cancel and no sheet to pull,
+            // only Save and a chevron, decision 7A)
+            app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+            let escaped = Date().addingTimeInterval(3)
+            while Date() < escaped, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            // its back button, "Browse": the list of places, whose bar a person looks to for Cancel
+            let back = app.buttons["BackButton"]
+            if status()["exporting"] is [Any], back.exists {
+                back.tap()
+                let shown = Date().addingTimeInterval(4)
+                while Date() < shown, !app.buttons["Cancel"].exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+                print("PICKER Browse: \(app.buttons.allElementsBoundByAccessibilityElement.prefix(40).filter(\.exists).map { "\($0.identifier)|\($0.label)" })")
+                shot("n4p-ui-picker-browse")
+                if app.buttons["Cancel"].exists {
+                    app.buttons["Cancel"].firstMatch.tap()
+                    print("PICKER: Cancel from its Browse list")
+                }
+                let gone = Date().addingTimeInterval(3)
+                while Date() < gone, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+            // the picker's own "…" (More), where a person would look for Cancel
+            let overflow = app.buttons["OverflowBarButtonItem"]
+            if status()["exporting"] is [Any], overflow.exists {
+                overflow.tap()
+                let shown = Date().addingTimeInterval(3)
+                while Date() < shown, !app.buttons["Cancel"].exists, !app.menuItems["Cancel"].exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+                print("PICKER More: \(app.buttons.allElementsBoundByAccessibilityElement.prefix(40).filter(\.exists).map(\.label)) items \(app.menuItems.allElementsBoundByAccessibilityElement.prefix(20).filter(\.exists).map(\.label))")
+                shot("n4p-ui-picker-more")
+                let c = app.menuItems["Cancel"].exists ? app.menuItems["Cancel"] : app.buttons["Cancel"]
+                if c.exists {
+                    c.tap()
+                    print("PICKER: Cancel from its More menu")
+                } else {
+                    // only view options there: the menu closed again
+                    app.typeKey(XCUIKeyboardKey.escape, modifierFlags: [])
+                }
+                let gone = Date().addingTimeInterval(3)
+                while Date() < gone, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+            if status()["exporting"] is [Any] {
+                print("PICKER: Escape left it open; pulled down from its bar")
+                // from the sheet's own bar, not the status bar above it (where the phone's picker
+                // didn't move, decision 7A), within the window
+                let wf = app.windows.firstMatch.frame
+                let origin = app.coordinate(withNormalizedOffset: .zero)
+                origin.withOffset(CGVector(dx: wf.minX + wf.width * 0.6, dy: wf.minY + wf.height * 0.12))
+                    .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: wf.midX, dy: wf.minY + wf.height * 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
+            } else {
+                print("PICKER: closed")
+            }
         }
         let closed = Date().addingTimeInterval(10)
         while Date() < closed, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -1183,15 +1241,19 @@ extension GestureTests {
         shot("n4p-ui-recipe")
         // the recipe's sheet, then the value's, swiped away as a finger does
         // (from the sheet's top edge down, as a finger pulls a sheet away)
+        // (the window's proportions, not the screen's: in a 375-point window they differ, 7A)
         func pullDown() {
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
+            let wf = app.windows.firstMatch.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: wf.midX, dy: wf.minY + wf.height * 0.07))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: wf.midX, dy: wf.minY + wf.height * 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
         }
         pullDown()
         let away = Date().addingTimeInterval(5)
         while Date() < away, drawn.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
         XCTAssertFalse(drawn.exists, "the recipe's sheet pulled away")
-        if popout("t") != nil { pullDown() }
+        // its own Done, as a person closes a value's sheet (a pull is lost in a 375-point window, 7A)
+        if popout("t") != nil { if app.buttons["popout-done"].firstMatch.exists { app.buttons["popout-done"].firstMatch.tap() } else { pullDown() } }
         wait("Traced's sheet closed", timeout: 15) { _ in popout("t") == nil }
         // and none for Strip's value (no lineage)
         let s = try XCTUnwrap(reachable(app, canvas, "s", "out", 0), "Strip's output")

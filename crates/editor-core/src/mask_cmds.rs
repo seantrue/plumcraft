@@ -271,8 +271,6 @@ pub fn folder(s: &mut Session, p: &Value) -> Result<Value, String> {
 
 // ---------- pruning (the maintainer, 2026-11-23: decision 5B, "Ref commonkit -- both") ----------
 
-/// The commonkit release whose `commonkit::prune_folder` removes what nothing reaches.
-pub const PRUNE_NEEDS: &str = "commonkit 0.3 (commonkit::prune_folder, not released yet)";
 /// An edit file's name: `<node>-<16 hex>.png`.
 pub const EDIT_FILE_PATTERN: &str = r"[A-Za-z0-9_.-]+-[0-9a-f]{16}\.png";
 /// How old an unreachable edit file must be before it goes: another window may hold it in an
@@ -328,26 +326,76 @@ pub fn reachable(s: &Session) -> std::collections::BTreeSet<String> {
     out
 }
 
-/// Remove the edit files in `folder` nothing reaches (older than [`PRUNE_AGE`], ours by their
-/// sidecar): the one place pruning happens. It will call `commonkit::prune_folder` (pattern
-/// [`EDIT_FILE_PATTERN`], companions `.json`, the owner check a sidecar saying
-/// [`SIDECAR_EDITOR`]); until that commonkit is released it removes nothing and says so.
-pub fn prune_edits(folder: &Path, reachable: &std::collections::BTreeSet<String>, dry_run: bool) -> Value {
-    let _ = (folder, reachable, dry_run);
-    json!({"removed": [], "needs": PRUNE_NEEDS})
+/// The folders this document's edit files may be in, that exist: the one chosen for it
+/// (`mask.folder`) and `<document>.edits` beside it. Pruning looks nowhere else.
+pub fn edit_folders(s: &Session) -> Vec<PathBuf> {
+    let chosen = s.graph().meta.get(FOLDER_META).and_then(Value::as_str).filter(|f| !f.trim().is_empty()).map(paths::expand_user);
+    let beside = s.path().and_then(|p| Some(p.with_file_name(format!("{}.edits", p.file_stem()?.to_str()?))));
+    let mut out: Vec<PathBuf> = Vec::new();
+    for d in chosen.into_iter().chain(beside) {
+        if std::fs::symlink_metadata(&d).is_ok() && !out.contains(&d) {
+            out.push(d);
+        }
+    }
+    out
 }
 
-/// `mask.prune {dry_run?}`: Clean Up Mask Files: what this document's edit folder holds that
-/// nothing reaches goes (after a day). Reports the reachable names and what was removed.
+/// Is `file` this editor's: its sidecar (`<file>.json`) says [`SIDECAR_EDITOR`], for the node
+/// its name starts with (`<node>-<hash>.png`)? Another editor's files, and files with no sidecar,
+/// are not.
+pub fn ours(file: &Path) -> bool {
+    let side = PathBuf::from(format!("{}.json", file.display()));
+    let Some(name) = file.file_name().and_then(|n| n.to_str()) else { return false };
+    let Some(node) = name.rsplit_once('-').map(|(n, _)| n) else { return false };
+    let small = std::fs::symlink_metadata(&side).is_ok_and(|m| m.is_file() && m.len() < 64 << 10);
+    let Some(meta) = small.then(|| std::fs::read(&side).ok()).flatten().and_then(|b| serde_json::from_slice::<Value>(&b).ok()) else { return false };
+    meta.get("editor").and_then(Value::as_str) == Some(SIDECAR_EDITOR) && meta.get("node").and_then(Value::as_str) == Some(node)
+}
+
+/// Remove (or with `dry_run` list) the edit files in `folder` nothing reaches: the one place
+/// pruning happens, through `commonkit::prune_folder` (commonkit 0.3; the maintainer: "Ref
+/// commonkit -- both"). Candidates are named [`EDIT_FILE_PATTERN`] and claimed by [`ours`]; what
+/// is in `reachable` stays, as does anything younger than `min_age`; a file's sidecar goes with
+/// it. A folder that is a symbolic link, or not a folder, is refused.
+pub fn prune_edits(folder: &Path, reachable: &std::collections::BTreeSet<String>, dry_run: bool, min_age: std::time::Duration) -> commonkit::PruneReport {
+    let options =
+        commonkit::PruneOptions { pattern: EDIT_FILE_PATTERN.into(), keep: reachable.clone(), min_age, companions: vec![".json".into()], dry_run, now: None };
+    let owns = |p: &Path| ours(p);
+    commonkit::prune_folder(folder, &options, Some(&owns))
+}
+
+/// `mask.prune {dry_run?, age_s?}`: Clean Up Mask Files. In this document's edit folders, the
+/// mask files nothing reaches and older than `age_s` (a day by default) go, with their sidecars;
+/// a dry run (the default) lists them. Removed files are given as a value would name them.
 pub fn prune(s: &Session, p: &Value) -> Result<Value, String> {
-    check_fields(p, &["dry_run"])?;
-    let dry_run = p.get("dry_run").and_then(Value::as_bool).unwrap_or(false);
-    let folder = edits_folder(s)?;
+    check_fields(p, &["dry_run", "age_s"])?;
+    let dry_run = match p.get("dry_run") {
+        None | Some(Value::Null) => true,
+        Some(Value::Bool(b)) => *b,
+        Some(_) => return Err("dry_run is true or false".into()),
+    };
+    let min_age = match p.get("age_s") {
+        None | Some(Value::Null) => PRUNE_AGE,
+        Some(v) => std::time::Duration::from_secs_f64(v.as_f64().filter(|a| a.is_finite() && *a >= 0.0 && *a < 1e12).ok_or("age_s is seconds, 0 or more")?),
+    };
     let names = reachable(s);
-    let mut r = prune_edits(&folder, &names, dry_run);
-    r["folder"] = json!(folder);
-    r["reachable"] = json!(names.len());
-    Ok(r)
+    let base = doc_folder(s);
+    let (mut removed, mut kept, mut young, mut foreign, mut failed, mut refused) = (Vec::new(), 0, 0, 0, 0, Vec::new());
+    let folders = edit_folders(s);
+    for f in &folders {
+        let r = prune_edits(f, &names, dry_run, min_age);
+        removed.extend(r.removed.iter().map(|n| {
+            let file = f.join(n);
+            match &base {
+                Some(dir) => paths::relative_to(&file, dir),
+                None => file.to_string_lossy().into_owned(),
+            }
+        }));
+        (kept, young, foreign, failed) = (kept + r.kept, young + r.young, foreign + r.foreign, failed + r.failed);
+        refused.extend(r.refused);
+    }
+    Ok(json!({"dry_run": dry_run, "folders": folders, "reachable": names.len(), "removed": removed, "kept": kept, "young": young,
+              "foreign": foreign, "failed": failed, "refused": refused}))
 }
 
 #[cfg(test)]

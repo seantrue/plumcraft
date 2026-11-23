@@ -735,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "commonkit"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0711e7f5a855b74458d0dcccc7724c7459cf56da9b66de2ae20693439b547ff"
+checksum = "8d2d3a5b40b9e53fbfebfc5187c132224e3f197d456f08b626fd9c865738ddd6"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -3041,6 +3041,7 @@ dependencies = [
 name = "plumcraft-editor-core"
 version = "0.7.0"
 dependencies = [
+ "commonkit",
  "plumcraft-array",
  "plumcraft-coordinator",
  "plumcraft-craft",

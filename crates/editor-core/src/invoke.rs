@@ -72,6 +72,9 @@ pub enum Prompt {
     /// `question`, decision 2A): save it anyway, as NumPy instead, or not. `params` are the
     /// `run.save` it asked about (JSON), `why` the engine's sentence, `npy` the path as `.npy`.
     SaveShape { params: String, why: String, shape: Vec<u64>, npy: String },
+    /// Clean Up Mask Files (S4b): remove the `count` files (`files`, mask files and their
+    /// sidecars) nothing reaches, in `folder`?
+    PruneMasks { count: usize, files: Vec<String>, folder: String, age_s: Option<u64> },
 }
 
 /// An answer to a [`Prompt`]: its buttons, and `ui.prompt`'s `answer`.
@@ -89,6 +92,8 @@ pub enum PromptAnswer {
     Png,
     /// Save it as NumPy (`.npy`) instead ([`Prompt::SaveShape`]).
     Npy,
+    /// Remove the files ([`Prompt::PruneMasks`]).
+    Remove,
 }
 
 impl PromptAnswer {
@@ -100,6 +105,7 @@ impl PromptAnswer {
             PromptAnswer::Trust => "trust",
             PromptAnswer::Png => "png",
             PromptAnswer::Npy => "npy",
+            PromptAnswer::Remove => "remove",
         }
     }
 
@@ -113,11 +119,12 @@ impl PromptAnswer {
             PromptAnswer::Trust => "Trust",
             PromptAnswer::Png => "Save as PNG anyway",
             PromptAnswer::Npy => "Save as NumPy (.npy)",
+            PromptAnswer::Remove => "Remove",
         }
     }
 
     pub fn from_name(name: &str) -> Option<PromptAnswer> {
-        [PromptAnswer::Discard, PromptAnswer::Save, PromptAnswer::Cancel, PromptAnswer::Trust, PromptAnswer::Png, PromptAnswer::Npy]
+        [PromptAnswer::Discard, PromptAnswer::Save, PromptAnswer::Cancel, PromptAnswer::Trust, PromptAnswer::Png, PromptAnswer::Npy, PromptAnswer::Remove]
             .into_iter()
             .find(|a| a.name() == name)
     }
@@ -131,6 +138,7 @@ impl Prompt {
             Prompt::Review(_) => "reviewWorkflow",
             Prompt::Uploads(_) => "allowUploads",
             Prompt::SaveShape { .. } => "saveShape",
+            Prompt::PruneMasks { .. } => "pruneMasks",
         }
     }
 
@@ -149,6 +157,14 @@ impl Prompt {
             Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
             Prompt::Discard { then: AfterDiscard::Close } => "The graph has unsaved changes. Discard them and close the window?",
             Prompt::SaveShape { .. } => "",
+            Prompt::PruneMasks { count, folder, .. } => {
+                return format!(
+                    "{count} mask file{} in {folder} {} nothing in this graph, its undo history or the graphs beside it names. Remove {}? This can't be undone.",
+                    if *count == 1 { "" } else { "s" },
+                    if *count == 1 { "is one" } else { "are ones" },
+                    if *count == 1 { "it" } else { "them" }
+                );
+            }
         }
         .to_owned()
     }
@@ -160,6 +176,7 @@ impl Prompt {
             Prompt::Review(_) => "Review before running",
             Prompt::Uploads(_) => "Send files to this engine?",
             Prompt::SaveShape { .. } => "Not shaped like a picture",
+            Prompt::PruneMasks { .. } => "Clean up mask files?",
         }
     }
 
@@ -169,6 +186,7 @@ impl Prompt {
             Prompt::Discard { .. } => &["save", "discard", "cancel"],
             Prompt::Review(_) | Prompt::Uploads(_) => &["trust", "cancel"],
             Prompt::SaveShape { .. } => &["png", "npy", "cancel"],
+            Prompt::PruneMasks { .. } => &["remove", "cancel"],
         }
     }
 
@@ -183,6 +201,7 @@ impl Prompt {
             Prompt::Review(r) => p["detail"] = serde_json::to_value(r).unwrap_or(Value::Null),
             Prompt::Uploads(files) => p["detail"] = Value::Array(files.iter().map(|(to, file)| json!({"to": to, "file": file})).collect()),
             Prompt::SaveShape { shape, npy, .. } => p["detail"] = json!({"shape": shape, "npy": npy}),
+            Prompt::PruneMasks { files, folder, .. } => p["detail"] = json!({"folder": folder, "files": files}),
         }
         p
     }
@@ -571,6 +590,26 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
             }
             Err(why) => h.say(why),
         },
+        // Clean Up Mask Files (S4b): what would go, asked first with the count
+        "mask.prune" => {
+            let mut dry = params.clone();
+            dry["dry_run"] = json!(true);
+            match h.run(id, &dry) {
+                Ok(r) => {
+                    let files: Vec<String> =
+                        r["removed"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+                    let count = files.iter().filter(|f| f.ends_with(".png")).count();
+                    if count == 0 {
+                        h.say("no mask files to remove".into());
+                    } else {
+                        let folder = r["folders"].as_array().and_then(|a| a.first()).and_then(Value::as_str).unwrap_or_default().to_owned();
+                        let age_s = params.get("age_s").and_then(Value::as_f64).filter(|a| a.is_finite() && *a >= 0.0).map(|a| a.round() as u64);
+                        raise_prompt(h, Prompt::PruneMasks { count, files, folder, age_s }, by);
+                    }
+                }
+                Err(e) => h.say(e),
+            }
+        }
         // a person's mask stroke (S4b): with nowhere to write, ask for a folder once, then stroke
         "mask.stroke" => match h.run(id, params) {
             Ok(_) => {}
@@ -804,6 +843,7 @@ fn prompt_cancelled(h: &mut impl Host, p: &Prompt) {
             }
         }
         Prompt::SaveShape { .. } => h.say("not saved".into()),
+        Prompt::PruneMasks { .. } => h.say("nothing removed".into()),
     }
 }
 
@@ -875,6 +915,19 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
                 }
                 if let Err(e) = h.run("run.save", &params) {
                     h.say(format!("can't save: {e}"));
+                }
+            }
+            (Prompt::PruneMasks { age_s, .. }, Some(PromptAnswer::Remove)) => {
+                let mut p = json!({"dry_run": false});
+                if let Some(a) = age_s {
+                    p["age_s"] = json!(a);
+                }
+                match h.run("mask.prune", &p) {
+                    Ok(r) => {
+                        let n = r["removed"].as_array().map_or(0, Vec::len);
+                        h.say(format!("{n} file{} removed", if n == 1 { "" } else { "s" }));
+                    }
+                    Err(e) => h.say(e),
                 }
             }
             (p, _) => prompt_cancelled(h, &p),

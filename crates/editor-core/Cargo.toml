@@ -25,6 +25,7 @@ plumcraft-scratch = { path = "../scratch" }
 plumcraft-host = { workspace = true }
 # Values as plain pictures, decoded on workers (src/values.rs ties a document's engine link to it).
 plumcraft-media = { workspace = true }
+commonkit = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }

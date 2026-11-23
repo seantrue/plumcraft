@@ -10,6 +10,8 @@
 //! - `ports.mode`: a choice one option of which this machine can't take (`gpu`, disabled with "no
 //!   GPU here", F18) and an input active only for another (`radius`, for `good`);
 //! - `ports.read`: a path input that opens a text file (a path hint with a filter, F16);
+//! - `ports.picture`: a path input that takes pictures only (PNG, JPEG), whose Browse offers Photos
+//!   on the iPad and iPhone (decision 12A); its output is the file's size;
 //! - `ports.edge`: an input and an output marked `external` (F17), which a collapsed group shows
 //!   as its own;
 //! - `ports.result`: a result node (the `result` flag, F19), whose output is the graph's result;
@@ -137,6 +139,29 @@ impl Node for Read {
         }
         let s = std::fs::read_to_string(&f).map_err(|e| NodeError::new(NodeError::CONFIG, format!("{f}: {e}")))?;
         Ok(out(&[("text", json!(s))]))
+    }
+}
+
+/// A path that takes pictures only (decision 12A, 2026-11-23): on the iPad and iPhone its Browse
+/// offers Photos as well as Files. Its output says how many bytes it read, so a test sees that
+/// the picked file was there.
+struct Picture;
+impl Node for Picture {
+    fn def(&self) -> NodeDef {
+        let mut file = widget("file", "STRING", json!(""));
+        file.path = Some(PathHint {
+            mode: "open".into(),
+            filters: vec![PathFilter { name: "Picture".into(), extensions: vec!["png".into(), "jpg".into(), "jpeg".into()] }],
+        });
+        def("ports.picture", "Read Picture File", vec![file], vec![port("text", TEXT)])
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let f = text(i, "file");
+        if f.is_empty() {
+            return Err(NodeError::new(NodeError::CONFIG, "no file chosen"));
+        }
+        let meta = std::fs::metadata(&f).map_err(|e| NodeError::new(NodeError::CONFIG, format!("{f}: {e}")))?;
+        Ok(out(&[("text", json!(format!("{} bytes", meta.len())))]))
     }
 }
 
@@ -315,6 +340,7 @@ pub fn engine() -> Engine {
         Box::new(Join),
         Box::new(Mode),
         Box::new(Read),
+        Box::new(Picture),
         Box::new(Edge),
         Box::new(ResultNode),
         Box::new(Items),
