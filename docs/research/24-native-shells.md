@@ -1267,3 +1267,12 @@ What was done (branch `native/n4-prompts`): ten minutes on B111 from the two log
 **The device run without the idle wait (2026-11-22, the merged build `4366fe9`, the controller, the maintainer present).** The window as left at 375 by 655, then made whole by each launch (every `WINDOW` line `fullScreen 1, asked full`): 8 tests, 6 passed, 2 skipped (`testAWarnedEngineIsMarkedInTheMenu` and `testTheSavesQuestionAndARecipe`, which need what a device run doesn't give), 0 failed, in 181 s, against 1,219 s and 1,338 s the night before; `IDLE: XCTest's idle waits skipped (2 of 2)` and no idle-wait timeout. `testInlineEdits` 17.6 s (859 s before), `testNoKeyboardWithNothingEdited` 24.7 s, `testWindowsAndNames` 29.9 s, which closes B60 as decided (10A). The B111 probe fired; what it says is in B111 (branch `native/n4-b111`): the text cursor's blink is there on the simulator too, where XCTest does reach idle, so it is not the cause; what the device alone has is the keyboard's own 0.38 s animations still attached 8 s after Done. Logs: `claude-debug/native-n4/s12-device/`.
 
 **Decided (the maintainer, 2026-11-22), on the prompts report's two questions and the iPad's text size.** The answer, verbatim: "1,2 yes. I have text size in appearance/text size 1 slide position larger". The questions were: 1, "B130: accept Run inside the More menu in a narrow window at a large text size?"; 2, "B129: look into the iPad suite failure with the test engine attached now?"; and whether the iPad's text size is larger than the default. So B130's fix is accepted as built, B129 is looked into now, and the iPad's text size is one step above the default (the simulator's `extra-large`), the size the iPad UI tests must pass at.
+
+#### Decisions after B111's report (the maintainer, 2026-11-23)
+
+The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4A; 5A; 6A; 7A; 8B". Cards 1 to 6 are recorded where they were asked. The two recorded here, as the controller put them to the work (branch `native/n4-test-waits`):
+
+| # | Question | Answer |
+|---|---|---|
+| 7 | The two iPad UI tests that failed at one step larger text in a 375 by 655 window (`testAWarnedEngineIsMarkedInTheMenu`, `testTheSavesQuestionAndARecipe`): A fix them; B leave them, as tests a device run skips | 7A: fix them |
+| 8 | The fixed 300 ms settle before each action (`PLUMCRAFT_SETTLE_MS`): A keep it; B replace it with waits on the app's own state (presented or presenting, the keyboard's frame settled, a menu open), each with a limit | 8B: waits on the app's state |
