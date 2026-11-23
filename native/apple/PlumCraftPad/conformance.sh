@@ -13,14 +13,26 @@
 # PLUMCRAFT_WINDOW (`375x655`) runs them in a window of that size (the simulator's Settings ›
 # Multitasking & Gestures set to Windowed Apps; with Full Screen Apps the window is the screen).
 # TEXT_SIZE=one-step-larger runs at the maintainer's iPad's text size (below).
-# SIM names the simulator (default: the booted "iPad Pro 13-inch (M5)").
+# SIM names the simulator (default: the booted "iPad Pro 13-inch (M5)"). PHONE=1 is the iPhone
+# simulator instead (B134, 2026-11-23: the phone is tested from now on): an "iPhone 17 Pro" (the
+# maintainer's iPhone's class), booted here if it isn't (and shut down after), at one step larger
+# text unless TEXT_SIZE says otherwise. The same app and the same tests, in compact width.
 set -euo pipefail
 half="${1:-read}"
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(cd "$here/../../.." && pwd)"
 kit="$here/../PlumCraftFFI"
 bundle=$(sed -n 's/^PLUMMER_PAD_BUNDLE_ID = //p' "$here/../Config/BundleId.xcconfig")
-sim="${SIM:-$(xcrun simctl list devices booted | grep 'iPad Pro 13-inch (M5)' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')}"
+phone_booted=""
+if [ "${PHONE:-}" = 1 ]; then
+  sim="${SIM:-$(xcrun simctl list devices available | grep -E '^ +iPhone 17 Pro \(' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')}"
+  [ -n "$sim" ] || { echo "no iPhone 17 Pro simulator (set SIM)"; exit 2; }
+  if ! xcrun simctl list devices booted | grep -q "$sim"; then xcrun simctl boot "$sim" && phone_booted=1; fi
+  timeout 120 xcrun simctl bootstatus "$sim" -b >/dev/null 2>&1
+  TEXT_SIZE="${TEXT_SIZE:-one-step-larger}"
+else
+  sim="${SIM:-$(xcrun simctl list devices booted | grep 'iPad Pro 13-inch (M5)' | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')}"
+fi
 [ -n "$sim" ] || { echo "no booted iPad Pro 13-inch (M5) simulator (set SIM)"; exit 2; }
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-pad-conformance.XXXXXX")"
 # the app goes on every way out (a failure, a time limit, ^C)
@@ -31,6 +43,7 @@ cleanup() {
   [ -n "$ports_pid" ] && kill "$ports_pid" 2>/dev/null
   # the simulator's text size as it was
   [ -n "$old_text_size" ] && xcrun simctl ui "$sim" content_size "$old_text_size"
+  [ -n "$phone_booted" ] && xcrun simctl shutdown "$sim"
   rm -rf "$scratch"
 }
 trap cleanup EXIT INT TERM

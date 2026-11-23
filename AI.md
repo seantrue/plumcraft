@@ -34,6 +34,36 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Verified (agent, on the VM).** `dotnet test` 58 of 58; C# runner 66 of 66 on ARM64 and x64 (x64 on the build before a pop-out layout change); Swift runner 60 of 60; person check 22 of 22, three times. One earlier ARM64 run was 65 of 66 (B143, open). **Not seen:** the face tag with a real caption and the read-only summary (no public engine on Windows produces either).
 
+### 2026-11-23 — Parameters beside the canvas on an iPhone in landscape (B135) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention." The controller proposed a column of readable width at one side with the canvas still visible; they answered "Fix b135 with that", and added "Check other landscape presentations for similar parameter display issues".
+
+**What the AI did.** One rule (`PlumCraftPad/App/ReadableColumn.swift`): a window that is short and wider than tall gets the parameters as a side column, 45% of the width between 320 and 420 points, with the canvas live beside it; an iPad keeps its popover and an upright phone its sheet. Turning the phone moves between them and keeps a typed value. A UI test checks the width, a tap on the canvas beside it, a slider drag, and the turn. Every landscape presentation was walked on the phone and in a turned narrow iPad window.
+
+**Found, open.** B139: the audio pop-out's bar runs past both edges of a 375-point iPad window. B140: a table pop-out on the phone in landscape spreads names and values across the whole width, the same fault inside a viewer, left as a decision.
+
+**Verified (agent, simulators).** iPad 59 of 59 cases; on the phone every UI test but B138's passed. **Not seen:** Compare and Attach on the phone in landscape; the save question and Recipe there; any device.
+### 2026-11-23 — A way out of Add Node on the iPhone (B134) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "no obvious way to escape add node menu on iphone". The controller suggested a swipe down or a tap outside; they answered "No exit. Fix b134". The phone layout had never been run by a test or looked at.
+
+**What the AI did.** Reproduced on an iPhone simulator: in landscape the palette was shown full screen with no grabber, no button and nothing outside it. The palette sheet now has a Cancel button and stays attached to the bottom edge in compact height, so a swipe works too; each way out closes the palette in the core. A UI test opens it and leaves it each way, and the iPhone simulator is a named configuration of the scripts. Every other presentation on the phone was walked for the same dead end.
+
+**Found, open.** B138: on the iPhone in portrait one UI test opens a dropped wire's palette instead of entering the group.
+
+**Verified (agent, simulators).** iPad 59 of 59 cases and 8 UI tests passed; on the phone 7 UI tests passed and 1 failed (B138). **Not verified:** any device.
+### 2026-11-23 — Browse for a path input, the core's, on the Mac, iPad and iPhone (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** From their first hand use of the app on their own iPad: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX". Then: "Yes, fix b133 on all systems." The controller had recommended copying the picked file on the iPad and took the "Yes" as covering that; they did not answer it separately, so it stays an open decision in the entry. Also recorded from the same session, not built: feature FR1 (`docs/FEATURES.md`, new), with their design answers.
+
+**What the AI did.** A path row has a Browse button every shell draws from the core's `geometry::browse_rect`; a tap is the core's `row.browse {node, port}`, which raises the existing open, save or folder ask with purpose `path` and sets the answer as one undo step. The Mac answers with its panels. The iPad and iPhone use the document picker and copy the picked file into Documents › Picked Files (same bytes reuse the file; a same-named different file is numbered). `docs/shell-interface.md` and `docs/control-protocol.md` updated; conformance cases and UI tests added; floor row F16 updated.
+
+**Found, open.** B137: on iOS a path chosen for a graph with no file is stored relative to "/".
+
+**Not done.** Windows (its half follows on this branch). Photos as a source on the iPad, which an application's picture inputs need: about a day, listed as the next step.
+
+**Verified (agent).** nextest 1,649 of 1,650 (the known baseline failure); `swift test`; the Mac gate twice, 67 of 67 cases; the iPad simulator 59 of 59, and 66 of 66 with the test engine; the Browse UI test on an iPhone simulator at the maintainer's text size. **Not verified:** the Mac person check's accessibility steps (screen locked); any device.
+
 ### 2026-11-23 — A list value shows as named pictures; a pack's types by their short names; the iPad opens an application's own file types (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** With the iPad away, "Do not wait" to carrying on in the simulator with what a person needs around a run in an application built on this shell. The design for a list of named pictures, each with its own mapping, is theirs (2026-10-31).

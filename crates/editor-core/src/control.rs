@@ -262,10 +262,10 @@ pub fn gesture<S: Shell>(s: &mut S, params: &Value) -> Value {
     };
     let mut commands = Vec::with_capacity(plan.commands.len());
     for (command, p) in plan.commands {
-        // what asks first (the footer's Save Result…, `ask: true`) is invoked, as its menu item
+        // what asks first (the footer's Save Result…, a path row's Browse: [`asks_first`]) is invoked, as its menu item
         // is: the core asks where, for whoever made the gesture (the person at a shell's canvas,
         // a script over the port)
-        if command == "run.save" && p.get("ask").and_then(Value::as_bool) == Some(true) {
+        if asks_first(command, &p) {
             let by = s.invoke_by();
             invoke::invoke_with(s, command, &p, by);
             s.presented();
@@ -293,6 +293,13 @@ pub fn gesture<S: Shell>(s: &mut S, params: &Value) -> Value {
     }
     s.redraw();
     ok(Value::Object(out))
+}
+
+/// A command that asks first, so it is invoked (as `ui.invoke` does) wherever it comes from: a
+/// gesture, `command.run`, a menu item run as it is. The result node's Save Result…
+/// (`run.save {ask: true}`) and a path row's Browse (`row.browse`, B133).
+pub fn asks_first(command: &str, p: &Value) -> bool {
+    (command == "run.save" && p.get("ask").and_then(Value::as_bool) == Some(true)) || command == "row.browse"
 }
 
 /// A method this shell has nothing to answer with.
@@ -455,10 +462,10 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
                 return err("params.command must be a command id");
             };
             let p = params.get("params").cloned().unwrap_or(Value::Null);
-            // a command whose params say it asks first (the result node's Save Result…, its menu
+            // a command that asks first ([`asks_first`]: the result node's Save Result…, its menu
             // item's `run.save {…, ask: true}`) is invoked, as `ui.invoke` does: a shell that
             // runs its menu items with `command.run` gets the asks, not a save with no path
-            if command == "run.save" && p.get("ask").and_then(Value::as_bool) == Some(true) {
+            if asks_first(command, &p) {
                 let by = s.invoke_by();
                 invoke::invoke_with(s, command, &p, by);
                 s.presented();

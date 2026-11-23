@@ -633,6 +633,36 @@
       ]
     },
     {
+      "name": "ports: a path input's Browse asks for a file by its hints, and the answer sets the value",
+      "about": "B133 (2026-11-23, the maintainer: \"Yes, fix b133 on all systems\"): a path row (the test engine's Read Text File, a file it opens, filtered to Text .txt) has a Browse button at the right end of its field (geometry::browse_rect); a tap there is the core's row.browse, which asks file.open with purpose path, the hint's filters as kinds and the hint itself, and closes a field editor open on a row first. The answer is set as typing sets it: one undo step (Set Value). row.browse is invoked from ui.invoke and command.run as well (an ask first). Where the shell measures its rows, the tap itself is checked",
+      "half": "edit",
+      "needs": ["engine:ports"],
+      "steps": [
+        {"only": "ports_installed", "call": "command.run", "params": {"command": "engine.use", "params": {"engine": "ports"}}},
+        {"only": "ports_installed", "call": "ui.inspect", "until": {"/result/engine/engines": {"$deep": {"id": "ports", "state": {"$deep": {"state": "connected"}}}}}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "ports.read", "pos": [0, 0]}}, "save": {"p": "/result/id"}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$find": {"where": {"id": "$p"}, "want": {"/inputs/0/widget/pathMode": "open"}}}}},
+        {"geometry": [{"node": "$p", "size": [260, 72], "header": 28, "pins": {"in": [43], "out": [43]}, "rows": [[100, 34, 250, 52]]}]},
+        {"only": "rows", "call": "command.run", "params": {"command": "row.edit", "params": {"node": "$p", "port": "file"}}, "expect": {"/result/open": true}},
+        {"only": "rows", "gesture": {"kind": "tap", "at": {"$locate": {"node": "$p", "row": 0, "part": "browse"}}, "slop": 1},
+         "expect": {"/result/commands/1/command": "row.browse", "/result/commands/1/ok": true, "/result/commands/1/params/port": "file"}},
+        {"only": "rows", "call": "scene.get", "expect": {"/result/view/edit": {"$exists": false}}},
+        {"only": "rows", "call": "ui.inspect", "expect": {"/result/asks": {"$find": {"where": {"kind": "file.open"}, "want": {"/params/purpose": "path", "/params/kinds/0/label": "Text", "/params/kinds/0/extensions": ["txt"], "/params/hint/mode": "open"}}}},
+         "save": {"g": "/result/asks/0/ask"}},
+        {"only": "rows", "call": "ask.answer", "params": {"ask": "$g", "cancel": true}},
+        {"call": "ui.invoke", "params": {"command": "row.browse", "params": {"node": "$p", "port": "file"}},
+         "expect": {"/result/asks": {"$find": {"where": {"kind": "file.open"}, "want": {"/params/purpose": "path", "/params/kinds/0/extensions": ["txt"], "/params/multiple": false}}}},
+         "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$a", "answer": {"paths": ["/plumcraft-b133-nowhere/chosen.txt"]}}},
+        {"call": "graph.get", "until": {"/result/nodes/$p/values/file": {"$includes": "plumcraft-b133-nowhere/chosen.txt"}}, "timeout": 10},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Set Value"}},
+        {"call": "command.run", "params": {"command": "row.browse", "params": {"node": "$p", "port": "file"}}, "expect": {"/result/invoked": "row.browse"}},
+        {"call": "ui.inspect", "expect": {"/result/asks": {"$find": {"where": {"kind": "file.open"}, "want": {"/params/purpose": "path"}}}}, "save": {"b": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$b", "cancel": true}},
+        {"call": "graph.get", "expect": {"/result/nodes/$p/values/file": {"$includes": "plumcraft-b133-nowhere/chosen.txt"}}}
+      ]
+    },
+    {
       "name": "ports: a value with a recipe offers Recipe, and one without doesn't",
       "about": "Decision 7A (2026-11-22): recipes stay with engines that track lineage. The test engine's Traced node sends its text with a recipe (`Display.recipe`), so its pop-out says hasRecipe and viewer.recipe gives the recipe; the Result node's pop-out has none, and viewer.recipe answers null. The shells' Recipe button follows hasRecipe",
       "half": "edit",

@@ -1,7 +1,10 @@
 // The parameters inspector on the iPad (N4 slice 3): every input of one node, shown on its face
 // or not, from the core's state (`node.parameters` opens it, the scene's
 // `view.windows.parameters` names the node, `parameters.get` gives the rows). A popover from the
-// node in regular width, a sheet with medium and large detents in compact width; an inset-grouped
+// node in regular width, a sheet with medium and large detents in compact width, and in a short,
+// wide window (an iPhone turned, B135) a column of readable width at the trailing edge with the
+// canvas live beside it (ReadableColumn decides, and turning the phone moves it between the two);
+// an inset-grouped
 // list by the core's sections. Each row: its label (the core's help below it when it has some),
 // a native control for its kind (a slider and a field for a number with a range, a switch, a
 // pull-down menu for a choice, a field for text, a text view for several lines, a colour well),
@@ -41,12 +44,12 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
                 closingFromCore = true
                 nav = nil
                 list = nil
-                n.dismiss(animated: true)
+                remove(n, animated: true)
             }
             host?.reportNow()
             return
         }
-        if let l = list, let n = nav, l.reply?.node == r.node || n.isBeingPresented || n.presentingViewController != nil {
+        if let l = list, let n = nav, l.reply?.node == r.node || n.isBeingPresented || n.presentingViewController != nil || n.parent != nil {
             // the same inspector shows another node: never a popover dismissed while its
             // presentation hasn't begun (N4 slice 6: UIKit clears a popover's anchor when it is
             // dismissed before its transition runs after the next commit, then runs that transition
@@ -62,7 +65,7 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
 
     private func present(_ r: ParametersReply) {
         guard let host, let v = host.canvasView else { return }
-        if let n = nav { n.dismiss(animated: false) }
+        if let n = nav { remove(n, animated: false) }
         let l = ParametersList(params: params)
         l.show(r)
         l.navigationItem.title = r.title
@@ -73,7 +76,7 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
                 closingFromCore = true
                 nav = nil
                 list = nil
-                n.dismiss(animated: true)
+                self.remove(n, animated: true)
             }
             Task { await self.params.close() }
         })
@@ -81,7 +84,16 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
         let n = UINavigationController(rootViewController: l)
         n.view.accessibilityIdentifier = "parameters"
         n.view.backgroundColor = .sheetGround
-        if host.traitCollection.horizontalSizeClass == .compact {
+        if ReadableColumn.side(host.traitCollection, size: host.view.bounds.size) {
+            // B135: a column at the trailing edge, the canvas live beside it (not presented: a
+            // child of the graph, so pans and taps on the canvas still go to the canvas)
+            nav = n
+            list = l
+            closingFromCore = false
+            configured = nil
+            embed(n, in: host)
+            return
+        } else if host.traitCollection.horizontalSizeClass == .compact {
             n.modalPresentationStyle = .pageSheet
             if let s = n.sheetPresentationController {
                 s.detents = [.medium(), .large()]
@@ -103,6 +115,56 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
         list = l
         closingFromCore = false
         host.presentReplacing(n)
+    }
+
+    /// The inspector as a side column (B135): below the bar, the whole height, the trailing edge,
+    /// `ReadableColumn.width` wide (plus the trailing safe area, which it keeps clear).
+    private func embed(_ n: UINavigationController, in host: GraphViewController) {
+        host.addChild(n)
+        n.view.translatesAutoresizingMaskIntoConstraints = false
+        n.view.layer.shadowOpacity = 0.18
+        n.view.layer.shadowRadius = 10
+        n.view.layer.shadowOffset = CGSize(width: -2, height: 0)
+        host.view.addSubview(n.view)
+        let g = host.view.safeAreaLayoutGuide
+        let w = n.view.widthAnchor.constraint(equalToConstant: ReadableColumn.width(in: host.view.bounds.size) + host.view.safeAreaInsets.right)
+        NSLayoutConstraint.activate([
+            n.view.topAnchor.constraint(equalTo: g.topAnchor),
+            n.view.bottomAnchor.constraint(equalTo: host.view.bottomAnchor),
+            n.view.trailingAnchor.constraint(equalTo: host.view.trailingAnchor),
+            w,
+        ])
+        n.didMove(toParent: host)
+        // laid out now, so what the status says of its frame is where it is
+        host.view.layoutIfNeeded()
+        host.reportNow()
+    }
+
+    /// Close the inspector's view however it is shown: a column is taken out of the graph, a
+    /// popover or sheet dismissed.
+    private func remove(_ n: UINavigationController, animated: Bool) {
+        if n.parent != nil {
+            n.willMove(toParent: nil)
+            n.view.removeFromSuperview()
+            n.removeFromParent()
+        } else {
+            n.dismiss(animated: animated)
+        }
+    }
+
+    /// The window changed shape (the phone turned): a column becomes a sheet or a popover, or the
+    /// other way, showing the same node. A field being typed in commits what it holds as its
+    /// view goes (its editing ends), so nothing typed is lost; the core's window stays open.
+    func relayout() {
+        guard let host, let n = nav, let r = params.reply else { return }
+        let side = ReadableColumn.side(host.traitCollection, size: host.view.bounds.size)
+        guard side != (n.parent != nil) else { return }
+        n.view.endEditing(true)
+        closingFromCore = true
+        nav = nil
+        list = nil
+        remove(n, animated: false)
+        present(r)
     }
 
     /// The node's face on screen, in the canvas view.
@@ -138,9 +200,19 @@ final class PadParameters: NSObject, UIPopoverPresentationControllerDelegate, UI
 
     var describe: JSONValue {
         guard let r = params.reply else { return .null }
-        return ["node": .string(r.node), "shown": .bool(nav?.presentingViewController != nil), "rows": .uint(UInt64(r.count)),
-                "hidden": .array(r.hidden.map { .string($0) }),
-                "style": .string(nav?.modalPresentationStyle == .popover ? "popover" : "sheet")]
+        let column = nav?.parent != nil
+        var d: [String: JSONValue] = ["node": .string(r.node), "shown": .bool(nav?.presentingViewController != nil || column), "rows": .uint(UInt64(r.count)),
+                                      "hidden": .array(r.hidden.map { .string($0) }),
+                                      "style": .string(column ? "column" : nav?.modalPresentationStyle == .popover ? "popover" : "sheet")]
+        // where it is on screen and the window's width (the UI tests check the column's width)
+        if let v = nav?.view, let w = v.window {
+            let f = v.convert(v.bounds, to: w)
+            d["frame"] = [.double(Double(f.minX)), .double(Double(f.minY)), .double(Double(f.width)), .double(Double(f.height))]
+            d["windowWidth"] = .double(Double(w.bounds.width))
+            // the trailing safe area the column keeps clear (in landscape, the rounded corner's)
+            d["safeTrailing"] = .double(Double(host?.view.safeAreaInsets.right ?? 0))
+        }
+        return .object(d)
     }
 }
 

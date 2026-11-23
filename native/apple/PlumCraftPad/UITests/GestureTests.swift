@@ -873,6 +873,15 @@ extension GestureTests {
             more.tap()
             let it = item(app, label)
             if it.exists { return it }
+            // a menu taller than a short window scrolls (an iPhone turned): a drag up inside it,
+            // under the button it hangs from
+            let w = app.windows.firstMatch.frame
+            if w.height < 500 {
+                let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: max(120, more.frame.midX - 120), dy: w.height * 0.75))
+                at.press(forDuration: 0.05, thenDragTo: at.withOffset(CGVector(dx: 0, dy: -w.height * 0.4)), withVelocity: 400, thenHoldForDuration: 0.3)
+                let again = item(app, label)
+                if again.exists { return again }
+            }
         }
         return item(app, label)
     }
@@ -1115,6 +1124,257 @@ extension GestureTests {
         shot("n4p-ui-no-recipe")
     }
 
+    /// B135 (the maintainer: "Fix b135 with that"): on an iPhone turned to landscape the node's
+    /// parameters are a column of readable width at the trailing edge, the canvas live beside it:
+    /// the column is at most half the window's width, a canvas point beside it still takes a tap,
+    /// a slider dragged changes the value. Turned upright with text being typed, the parameters
+    /// become the sheet and what was typed is set; turned back, the column again. Skipped where
+    /// the window's height isn't compact when turned (an iPad).
+    @MainActor
+    func testParametersBesideTheCanvasInLandscape() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--then", "zoom:0.8:w"]
+        adoptStatus(app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launch()
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        let scene = status()["scene"] as? [String: Any] ?? [:]
+        try XCTSkipUnless((scene["vertical"] as? String) == "compact", "the window's height isn't compact when turned: \(sceneLine(status()))")
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        func params() -> [String: Any] { window()["parameters"] as? [String: Any] ?? [:] }
+        let title = try XCTUnwrap(reachable(app, canvas, "w", "title"))
+        origin.withOffset(CGVector(dx: title[0], dy: title[1])).doubleTap()
+        wait("the parameters open on w", timeout: 20) { _ in (params()["shown"] as? Bool) == true }
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        shot("b135-ui-params-landscape")
+        XCTAssertEqual(params()["style"] as? String, "column", "a side column in landscape")
+        let frame = (params()["frame"] as? [Double]) ?? []
+        let ww = (params()["windowWidth"] as? Double) ?? 0
+        XCTAssertEqual(frame.count, 4)
+        if frame.count == 4 {
+            let safe = (params()["safeTrailing"] as? Double) ?? 0
+            XCTAssertLessThanOrEqual(frame[2] - safe, ww * 0.5 + 1, "the column's readable part is at most half the window's width: \(frame[2]) − \(safe) of \(ww)")
+            XCTAssertGreaterThanOrEqual(frame[2] - safe, 300, "and readable: \(frame[2] - safe)")
+            // a canvas point beside it takes a tap: a face left of the column, tapped, is
+            // selected (the core's gesture)
+            let faces = (window()["points"] as? [String: Any]) ?? [:]
+            let beside = faces.compactMap { (id, v) -> (String, [Double])? in
+                guard let c = (v as? [String: Any])?["center"] as? [Double], c.count == 2, c[0] > 20, c[0] < frame[0] - 20, c[1] > 60 else { return nil }
+                return (id, c)
+            }.first
+            if let (id, c) = beside {
+                origin.withOffset(CGVector(dx: c[0], dy: c[1])).tap()
+                wait("the canvas beside the column took the tap (\(id) selected)", timeout: 10) { ($0["selection"] as? [String]) == [id] }
+            } else {
+                // none in sight: an empty point beside it, which clears what is selected
+                let empty = emptyPoints(app, canvas).filter { $0.x < CGFloat(frame[0]) - 20 }
+                XCTAssertFalse(empty.isEmpty, "some canvas beside the column to tap")
+                if let p = empty.first {
+                    origin.withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+                    wait("the canvas beside the column took the tap", timeout: 10) { _ in self.status()["gesture"] != nil }
+                }
+            }
+            shot("b135-ui-canvas-beside")
+        }
+        // a slider dragged: the value changes (the list scrolled to it first, as a finger does)
+        let slider = app.sliders["slider.amount"]
+        let list = app.tables.firstMatch
+        // short drags (a swipe flings past it on a short screen), stopping once it is in view
+        let listFrame = list.frame
+        for _ in 0..<12 {
+            let f = slider.exists ? slider.frame : .zero
+            if f.height > 0, f.minY > listFrame.minY + 20, f.maxY < listFrame.maxY - 20 { break }
+            let up = f.height > 0 && f.minY < listFrame.minY + 20   // above: drag down
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.35 : 0.65))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: up ? 90 : -90)), withVelocity: 300, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(slider.waitForExistence(timeout: 10), "amount's slider")
+        // the value as the inspector shows it, in the field beside the slider (the core's, after the set)
+        let amountField = app.textFields["edit.amount"]
+        let before = amountField.value as? String
+        // a finger's drag along it (the value is set as it lifts)
+        let v = Double((before ?? "").trimmingCharacters(in: .whitespaces)) ?? 0.5
+        slider.coordinate(withNormalizedOffset: CGVector(dx: max(0.05, min(0.95, v)), dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: v > 0.5 ? 0.1 : 0.9, dy: 0.5)))
+        wait("amount changed by its slider", timeout: 15) { _ in (amountField.value as? String) != before }
+        shot("b135-ui-params-slider")
+        // turned upright with text being typed: the sheet, and the text set
+        let label = app.textFields["edit.label"]
+        XCTAssertTrue(label.waitForExistence(timeout: 10), "label's field")
+        label.tap()
+        label.clearAndType("turned")
+        XCUIDevice.shared.orientation = .portrait
+        wait("the parameters a sheet upright", timeout: 20) { _ in (params()["style"] as? String) == "sheet" && (params()["shown"] as? Bool) == true }
+        // the inspector made again from the core's state shows it: it was set, not lost
+        wait("what was typed, set as the phone turned", timeout: 15) { _ in (app.textFields["edit.label"].value as? String) == "turned" }
+        shot("b135-ui-params-portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        wait("the column again in landscape", timeout: 20) { _ in (params()["style"] as? String) == "column" }
+        shot("b135-ui-params-landscape-again")
+    }
+
+    /// B134 (the maintainer: "No exit. Fix b134"): the node palette in compact width (an iPhone,
+    /// a narrow iPad window) is left each way a person expects, and each way closes it in the
+    /// core (`canvas.palette {open: false}`): its Cancel button, a swipe down on the sheet, and a
+    /// tap above the sheet on the dimmed graph. Run on the iPhone simulator (conformance.sh
+    /// gestures with PHONE=1) and in a compact iPad window alike; portrait, then landscape.
+    @MainActor
+    func testLeavingAddNodeInCompactWidth() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--width-class", "compact"]
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
+        func palette() -> [String: Any] { window()["palette"] as? [String: Any] ?? [:] }
+        func closedInTheCore(_ how: String) {
+            wait("the palette closed by \(how), in the core and on screen", timeout: 15) { _ in
+                (palette()["open"] as? Bool) == false && (palette()["shown"] as? Bool) == false
+            }
+        }
+        func open(_ tag: String) {
+            toolbar(app, "Add Node")
+            wait("the palette open (\(tag))", timeout: 15) { _ in (palette()["open"] as? Bool) == true && (palette()["shown"] as? Bool) == true }
+            // the sheet settled (its field focused brings the keyboard; a person can type at once)
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let tag = orientation == .portrait ? "portrait" : "landscape"
+            // 1. a swipe down on the sheet, from its top
+            open(tag)
+            shot("b134-ui-palette-\(tag)")
+            // (from full height a swipe goes to half height first, as a person sees: at most twice)
+            for _ in 0..<2 where (palette()["shown"] as? Bool) == true {
+                // within the sheet, top to near its foot: a drag to the screen's edge would be the
+                // system's own gesture there (the home indicator, in landscape)
+                let sheet = app.otherElements["palette-sheet"].firstMatch
+                guard sheet.exists else { break }
+                sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+                    .press(forDuration: 0.05, thenDragTo: sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)), withVelocity: .fast, thenHoldForDuration: 0)
+                let gone = Date().addingTimeInterval(3)
+                while Date() < gone, (palette()["shown"] as? Bool) == true { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+            closedInTheCore("a swipe down (\(tag))")
+            shot("b134-ui-after-swipe-\(tag)")
+            // 2. a tap on the dimmed graph above the sheet, where there is one: in compact height
+            // the sheet takes the whole height (UIKit's: one height there, nothing dimmed above)
+            open(tag)
+            let f = app.otherElements["palette-sheet"].firstMatch.frame
+            let w = app.windows.firstMatch.frame
+            if f.minY - w.minY > 120 {
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: f.midX - w.minX, dy: max(60, f.minY - w.minY - 40))).tap()
+                closedInTheCore("a tap above it (\(tag))")
+            } else {
+                print("B134: \(tag): the sheet takes the whole height (top \(f.minY - w.minY) of \(w.height)): no graph above it to tap")
+            }
+            // 3. Cancel, in the sheet's bar
+            if (palette()["shown"] as? Bool) != true { open(tag) }
+            let cancel = app.buttons["palette-cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), "the palette's Cancel (\(tag))")
+            if cancel.exists { cancel.tap() }
+            closedInTheCore("Cancel (\(tag))")
+            shot("b134-ui-palette-closed-\(tag)")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
+    /// B133 on the iPad and iPhone, with the test engine (PLUMCRAFT_PORTS_ENGINES; skipped
+    /// without it): Read Text File's path row draws a Browse button at its right end; a tap on it
+    /// is the core's row.browse, and the document picker opens for a copy (purpose `path`), then
+    /// is cancelled (nothing picked: the simulator's picker has no file the test placed). A tap on
+    /// it while the path's text is being edited closes the field (and its keyboard) and opens the
+    /// picker the same way.
+    @MainActor
+    func testBrowseForAPath() throws {
+        let env = ProcessInfo.processInfo.environment
+        let engines = env["PLUMCRAFT_PORTS_ENGINES"] ?? ""
+        try XCTSkipIf(engines.isEmpty, "no test engine attached (PAD_PORTS=1)")
+        statusPath = statusFilePath(env)
+        let graph = engines + "/../browse-graph.json"
+        try #"{"version": 1, "engines": ["ports"], "nodes": {"r": {"kind": "ports.read", "pos": [0, 0], "engine": "ports"}}, "wires": []}"#
+            .write(toFile: graph, atomically: true, encoding: .utf8)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open", graph, "--status-file", statusPath, "--then", "zoom:1.5:r"]
+        app.launchEnvironment["PLUMCRAFT_ENGINE_FOLDER"] = engines
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        func browsePoint() -> [Double]? {
+            guard let rows = (window()["rows"] as? [String: Any])?["r"] as? [Any], let r = rows.first as? [String: Any] else { return nil }
+            return r["browse"] as? [Double]
+        }
+        wait("the graph, ready, with the path row's Browse", timeout: 150) { _ in browsePoint() != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        reveal(app, canvas, browsePoint)
+        shot("b133-ui-path-row")
+        func picking() -> [String: Any]? { status()["picking"] as? [String: Any] }
+        func tapBrowse() throws {
+            let at = try XCTUnwrap(browsePoint())
+            canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: at[0], dy: at[1])).tap()
+        }
+        // the system's picker on screen (it can take seconds to come, the first time)
+        func pickerShown() -> Bool {
+            let any = NSPredicate(format: "label IN {'Cancel', 'Open', 'Done', 'Browse', 'Recents'} OR identifier == 'Cancel'")
+            let until = Date().addingTimeInterval(20)
+            while Date() < until {
+                if app.buttons.matching(any).firstMatch.exists || app.tabBars.firstMatch.exists {
+                    // drawn a moment after its elements exist (a view of another process's)
+                    RunLoop.current.run(until: Date().addingTimeInterval(2))
+                    return true
+                }
+                RunLoop.current.run(until: Date().addingTimeInterval(0.3))
+            }
+            return false
+        }
+        // the picker is another process's view: its close button (an ✕ at the sheet's top left)
+        // isn't among this app's elements, so it is tapped where it is drawn, trying the few
+        // places a sheet puts it on an iPad and an iPhone until the app says the picker closed
+        func cancelPicker() {
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            let w = app.windows.firstMatch.frame.width
+            // an iPad's sheet has the ✕ at its top left; an iPhone's beside "…" at the top right
+            let places = w < 600 ? [CGPoint(x: w - 97, y: 110), CGPoint(x: w - 97, y: 96), CGPoint(x: w - 90, y: 124)]
+                : [CGPoint(x: 37, y: 84), CGPoint(x: 34, y: 96), CGPoint(x: 34, y: 112), CGPoint(x: 40, y: 72)]
+            for p in places where picking() != nil {
+                origin.withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+                let gone = Date().addingTimeInterval(4)
+                while Date() < gone, picking() != nil { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+        }
+        // 1. the Browse button: the picker, for a copy, the row's file kinds
+        try tapBrowse()
+        wait("the picker for the path", timeout: 20) { _ in (picking()?["purpose"] as? String) == "path" }
+        XCTAssertEqual(picking()?["copy"] as? Bool, true, "a path's file is the picker's copy")
+        XCTAssertTrue(pickerShown(), "the document picker on screen: \(app.buttons.allElementsBoundByIndex.map(\.label).prefix(20))")
+        shot("b133-ui-picker")
+        cancelPicker()
+        XCTAssertNil(picking(), "the picker cancelled")
+        XCTAssertEqual(value("r", 0), "", "nothing set when cancelled")
+        // 2. while the path's text is edited: the field and its keyboard go, the picker comes
+        let (row, _) = try XCTUnwrap(rowReachable(app, canvas, "r", 0))
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: row.x - 30, dy: row.y)).tap()
+        wait("the path's field open") { (($0["editor"] as? [String: Any])?["open"] as? Bool) == true }
+        app.textFields["row-editor"].typeText("half typed")
+        shot("b133-ui-editing")
+        try tapBrowse()
+        wait("the picker, from Browse while editing", timeout: 20) { _ in (picking()?["purpose"] as? String) == "path" }
+        XCTAssertNotEqual((window()["editor"] as? [String: Any])?["open"] as? Bool, true, "the field closed")
+        XCTAssertTrue(pickerShown(), "the document picker on screen, from editing")
+        shot("b133-ui-picker-from-editing")
+        cancelPicker()
+        XCTAssertEqual(value("r", 0), "", "nothing set: the half-typed text went with the field, and the picker was cancelled")
+    }
+
     @MainActor
     func testCompactWindowsByATap() throws {
         let env = ProcessInfo.processInfo.environment
@@ -1144,6 +1404,15 @@ extension GestureTests {
         // Settings › Cache › Open Cache Report: the report over Settings
         fromMore(app, more, "Settings").tap()
         let cache = app.buttons["settings.section.cache"]
+        _ = app.buttons["settings.done"].waitForExistence(timeout: 10)
+        shot("n4s6-ui-settings")
+        // on a short window the sections' list scrolls (an iPhone turned)
+        for _ in 0..<4 where !(cache.exists && cache.isHittable) {
+            let list = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
+            guard list.exists else { break }
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -100)), withVelocity: 300, thenHoldForDuration: 0.3)
+        }
         XCTAssertTrue(cache.waitForExistence(timeout: 10), "Settings' Cache section")
         cache.tap()
         let open = app.buttons["Open Cache Report"]

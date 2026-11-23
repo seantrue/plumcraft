@@ -11,6 +11,40 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Proposed fix: give the case a run that cannot finish by itself, as B123 did for the Mac person check with `text.gate`.
 - Issue: none
 
+### B140. iPhone, landscape: a table's pop-out spreads each record's names and values across the whole width
+
+- Reported: 2026-11-23, an agent (B135's walk of the landscape presentations, the iPhone 17 Pro simulator at one step larger text)
+- Report: turned, a value's pop-out is a full-screen sheet. That suits a picture, an array or a waveform, but a table's record view puts each field's name at the left edge and its value at the right, about 800 points apart, and "Sort by" and its menu likewise (`n4s5-ui-table.grid.png`, `n4s6-ui-table-compact.png` in `claude-debug/n4-decided-2/shots-walkphone*`). The same fault as B135 in a viewer: not changed with B135, since a viewer's width is the value's, not the controls'
+- Open question: should a pop-out's lists (a table's records, a text's facts) keep to the readable width (`ReadableColumn.width`) while pictures keep the whole width?
+- Issue: none
+
+### B139. iPad, a 375-point window: the audio pop-out's bar runs past both edges
+
+- Reported: 2026-11-23, an agent (B135's walk, a 375 by 655 window turned, one step larger text)
+- Report: the audio viewer's bar (the kind menu, Play, Loop, the time, the volume) is wider than the sheet: "Audio" and "Loop" are cut at the left and the volume slider at the right (`n4s5-ui-audio.png` in `claude-debug/n4-decided-2/shots-narrow-run`). The iPhone in landscape shows it whole. A different fault from B135 (too wide for the window, not stretched)
+### B138. iPhone: `testWindowsAndNames` doesn't get into the group; a dropped wire's palette opens instead
+
+- Reported: 2026-11-23, the first run of every iPad UI test on the iPhone simulator (iPhone 17 Pro, one step larger text, portrait; branch `fix/b134-phone-add-node`, `conformance.sh gestures` with `PHONE=1`)
+- Report: "timed out waiting for inside the group", then no `crumb.0`. The picture at that moment (`n4s3-ui-inside-group.png`) shows the node palette for a dropped wire ("Search kinds that take this…", "18 kinds take this wire"): the gesture meant to enter the group began on, or was taken as, a drag from a pin. 7 of the 9 tests passed on the phone and 1 was skipped (the test engine's)
+- Not yet known: whether the test's target is too close to a pin at the phone's size (the test's own aim) or the gesture is read wrongly on a small screen (the app's). Not the same kind as B134: the palette it opened has its way out (Cancel, the swipe). In landscape on the same phone the test passes (B135's walk, 2026-11-23), so it is the portrait layout's
+### B137. iPad: a path chosen for a graph the core holds no file for is stored relative to "/"
+
+- Reported: 2026-11-23, found by the B133 conformance case on the iPad simulator (branch `fix/b133-path-browse`)
+- Report: answering the path ask with `/plumcraft-b133-nowhere/chosen.txt` set the value `plumcraft-b133-nowhere/chosen.txt`. A chosen path is stored relative to the workflow's folder when it lies inside it (`paths::chosen_path`); with no workflow path the base is the process's current directory (`paths::base_folder`), which for an iOS app is `/`, so every absolute path lies "inside" it and loses its leading `/`. An in-process engine whose current directory is also `/` still finds the file, so nothing visibly breaks today; an engine elsewhere (HTTP, another process) would look in its own folder. The Mac and egui start in a real folder and aren't affected the same way
+- Proposed: no current-directory fallback where the current directory is `/` (keep the path as chosen), or the shell names a base folder (the app's Documents) in the core's config
+- Issue: none
+
+### B133. iPad and iPhone: a path input offers no system file browser
+
+- Reported: 2026-11-23
+- Report: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX"
+- Context: the maintainer's first hand use of the release build of Plummer 0.7.0 installed on their iPad and iPhone (from the dev branch at `2c3de06`). A path input on a node's face is edited as plain text there. Floor row F16 (path hints) already says "Partly", for want of a Browse button, on the Mac and the iPad.
+- Open question: on iPadOS an app reaches a file outside its container only through the document picker, which hands back a security-scoped URL, not a path an engine can open later. Should Browse copy the picked file into the app's folder and use that path, or keep a bookmark to the original?
+- Open question: Mac and Windows too (the same row, with the system's open panel), or the iPad and iPhone first?
+- Decided: 2026-11-23, the maintainer, on the two questions (the controller recommending "start with copying" and "all three together, since the button belongs in the core, with each shell supplying its own picker"): "Yes, fix b133 on all systems." The copy-or-bookmark question was not answered separately: copying is built, and stays an open decision
+- Built (branch `fix/b133-path-browse`): the Browse button is the core's. A path row that can be edited (its widget has `pathMode`) has it at the right end of its field, a square the row's height (`geometry::browse_rect`), which every shell draws; a tap there is the core's gesture `row.browse {node, port}` (a command, invoked like Save Result…: `ui.invoke`, `command.run` and the gesture all ask), which closes any open field editor without its text and raises the core's existing path ask (`file.open`, `file.save` or `folder.pick`, purpose `path`, the hint's filters as `kinds`); the answer is set as typing sets it (one undo step). The Mac answers with its open or save panel (the real path). The iPad and iPhone copy a picked file into Documents › Picked Files (the Files app's On My iPad › Plummer › Picked Files) and answer with the copy's path: kept by its own name, the same bytes again reuse that copy, another file of the same name is numbered ("notes 2.txt"), earlier copies are left alone; a folder (`dir`) is opened in place with access for the graph's life, as before (not lasting across a relaunch); a may-be-new path (`save`) is the existing alert naming a file in the graph's folder (or Documents). The field editor on a path row stops short of the button, so it can be tapped while the text is edited. egui keeps its own "…" button, which calls the same core `browse`. Windows: its half to come on the same branch
+- Issue: none
+
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
 
 - Reported: 2026-11-22, the controller
@@ -261,6 +295,27 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-23, an agent (an application's iPad app, a conformance case in the simulator)
 - Report: `graph.open` over the control port, in a document the browser had opened, replaced the graph and moved the core's file and title, but the window kept the browser's file: the title still named it, and Save when closing a dirty document would have written the opened graph over the window's file. A person's File › Open on the iPad goes to the document browser, so only scripts reached it.
 - Fixed: 2026-11-23, branch `native/pack-views`: the title follows the core's file when it differs, and Save on closing writes to the core's file (or a `.json` beside a picture), never over the window's other file.
+- Issue: none
+
+### B135. iPhone, landscape: the parameters dialog's sliders take the whole width
+
+- Reported: 2026-11-23
+- Report: "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention."
+- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`), turned to landscape. The phone layout has never been run by a test or looked at.
+- Open question: what should it be instead: a column of a readable width centred or at one side, with the canvas still in view beside it?
+- Decided: 2026-11-23, the maintainer, on the controller's proposal ("a column of readable width at one side, with the canvas still visible beside it, the way the iPad's inspector works. That way you can watch the result change as you drag a slider"): "Fix b135 with that"
+- Added: 2026-11-23, the maintainer: "Check other landscape presentations for similar parameter display issues". So every presentation that shows parameters or controls is checked in landscape on the iPhone (and the iPad where the same code applies), and those with the same fault (controls stretched across the whole width) are fixed with the same width rule, held in one place
+- Fixed: 2026-11-23, branch `fix/b135-phone-params-landscape`. One rule, `ReadableColumn` (PlumCraftPad): when the window's height is compact and it is wider than tall (an iPhone turned), the parameters are a column at the trailing edge, 45% of the window's width (at least 320 points, at most 420, the iPad inspector's width), with the canvas live beside it; otherwise a popover in regular width and a sheet in compact width, as before. Turning the phone moves the parameters between column and sheet with any edit in progress set first (B129). The UI test `testParametersBesideTheCanvasInLandscape` (iPhone simulator, one step larger text) checks the column's width against the window's, taps a face beside it, drags a slider and sees the value change, and types a label and turns the phone. The other presentations walked in landscape: `claude-debug/b135-phone-params-landscape.md`
+- Issue: none
+
+### B134. iPhone: no obvious way to leave the Add Node menu
+
+- Reported: 2026-11-23
+- Report: "no obvious way to escape add node menu on iphone"
+- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`). The phone layout has never been run by a test or looked at.
+- Context (2026-11-23, the iPhone 17 Pro simulator at one step larger text, branch `fix/b134-phone-add-node`): in compact width Add Node is the More menu's, and the palette is a page sheet. In portrait it opens at half height with a grabber and no button: a swipe down and a tap on the dimmed graph above it close it, neither of them obvious. In landscape (compact height) UIKit shows a page sheet full screen: no grabber, no swipe, nothing outside it to tap, no button: a dead end. The controller suggested a swipe down or a tap outside; the maintainer, verbatim: "No exit. Fix b134"
+- Decided: 2026-11-23, approved for fixing ("Fix b134")
+- Fixed: 2026-11-23, branch `fix/b134-phone-add-node`. In a sheet the palette has a Cancel button beside its search field (`palette-cancel`), and in compact height it stays a sheet on the bottom edge (`prefersEdgeAttachedInCompactHeight`), so a swipe down works there too; it opens at half height where the phone has the height for it. Every way out is the core's `canvas.palette {open: false}` (`PaletteModel.dismiss`): the UI test reads the palette closed in the core (`palette.open` false) and on screen after each. In landscape the sheet takes the whole height (UIKit's one height in compact height), so there is no graph above it to tap: Cancel and a swipe are the ways out there. Every other sheet the app shows on the phone (pop-outs, the parameters, Settings, the Messages window, the Cache Report and Parameters window, Compare, About) already has a Done button; the alerts have their buttons; menus close by a tap outside: none has the same dead end. UI test `testLeavingAddNodeInCompactWidth` (Cancel, a swipe down, and a tap above, each in portrait and landscape, on the iPhone simulator; and in compact width on the iPad). `PlumCraftPad/conformance.sh` has a named iPhone configuration (`PHONE=1`)
 - Issue: none
 
 ### B130. On the iPad in a 375-point window, Run and More folded into the system's overflow menu (More inside More)

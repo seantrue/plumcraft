@@ -47,6 +47,9 @@ public struct EditorPlacement: Equatable, Sendable {
             let h = max(onScreen.height, minHeight(touch: touch))
             frame = CGRect(x: onScreen.minX, y: onScreen.midY - h / 2, width: onScreen.width, height: h)
             if kind == .multiline { frame.size.height = max(onScreen.height, h) }
+            // a path's field leaves its Browse button (B133: the square at the right end, the
+            // row's height) uncovered, so a tap on it while the text is edited still browses
+            if kind == .path { frame.size.width = max(onScreen.width - min(onScreen.height, onScreen.width / 2), 20) }
         }
         // wholly in the view (8 points in), when it fits
         let bounds = CGRect(origin: .zero, size: viewSize).insetBy(dx: 8, dy: 8)

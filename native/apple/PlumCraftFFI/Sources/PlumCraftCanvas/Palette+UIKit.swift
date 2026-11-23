@@ -5,6 +5,13 @@
 // highlight, Return adds and Escape dismisses; swiping the sheet down or tapping outside the
 // popover dismisses it, leaving nothing. A kind whose engine isn't started says which it starts,
 // and while it starts the palette shows a spinner and what it is adding.
+//
+// B134 (the maintainer, on the iPhone: "No exit. Fix b134"): in landscape an iPhone has compact
+// height, where UIKit shows a page sheet full screen with no grabber, no swipe and nothing
+// outside it to tap. So the sheet stays attached to the bottom edge there, of its preferred
+// width, with its detents and grabber (a swipe down and a tap above it work), and in every sheet
+// the search field has a Cancel beside it. Each way out is the core's `canvas.palette {open:
+// false}` (PaletteModel.dismiss), never shell state left behind.
 
 #if os(iOS)
 import PlumCraftKit
@@ -16,6 +23,9 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
     UIPopoverPresentationControllerDelegate, UIAdaptivePresentationControllerDelegate {
     public let palette: PaletteModel
     let field = UISearchTextField()
+    /// The sheet's way out (B134): beside the search field, in a sheet only (a popover closes by
+    /// a tap outside it).
+    let cancelButton = UIButton(type: .system)
     let table = UITableView(frame: .zero, style: .insetGrouped)
     let footer = UILabel()
     let spinner = UIActivityIndicatorView(style: .medium)
@@ -59,16 +69,28 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
         let bottom = UIStackView(arrangedSubviews: [spinner, footer])
         bottom.spacing = 8
         bottom.alignment = .center
-        for v in [field, table, bottom] as [UIView] {
+        cancelButton.setTitle("Cancel", for: .normal)
+        cancelButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        cancelButton.titleLabel?.adjustsFontForContentSizeCategory = true
+        cancelButton.accessibilityIdentifier = "palette-cancel"
+        cancelButton.addAction(UIAction { [weak self] _ in self?.dismissByPerson() }, for: .primaryActionTriggered)
+        cancelButton.setContentHuggingPriority(.required, for: .horizontal)
+        cancelButton.setContentCompressionResistancePriority(.required, for: .horizontal)
+        cancelButton.isHidden = true
+        let top = UIStackView(arrangedSubviews: [field, cancelButton])
+        top.spacing = 12
+        top.alignment = .center
+        view.accessibilityIdentifier = "palette-sheet"
+        for v in [top, table, bottom] as [UIView] {
             v.translatesAutoresizingMaskIntoConstraints = false
             view.addSubview(v)
         }
         let g = view.safeAreaLayoutGuide
         NSLayoutConstraint.activate([
-            field.topAnchor.constraint(equalTo: g.topAnchor, constant: 12),
-            field.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 16),
-            field.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -16),
-            table.topAnchor.constraint(equalTo: field.bottomAnchor, constant: 4),
+            top.topAnchor.constraint(equalTo: g.topAnchor, constant: 12),
+            top.leadingAnchor.constraint(equalTo: g.leadingAnchor, constant: 16),
+            top.trailingAnchor.constraint(equalTo: g.trailingAnchor, constant: -16),
+            table.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 4),
             table.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             table.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             table.bottomAnchor.constraint(equalTo: bottom.topAnchor, constant: -6),
@@ -92,6 +114,12 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
             if let s = sheetPresentationController {
                 s.detents = [.medium(), .large()]
                 s.prefersGrabberVisible = true
+                // B134: in compact height (an iPhone turned) a sheet still, not full screen: on
+                // the bottom edge, at a readable width, so a swipe down and a tap beside it work
+                s.prefersEdgeAttachedInCompactHeight = true
+                s.widthFollowsPreferredContentSizeWhenEdgeAttached = true
+                // half height first, the graph dimmed above it: there is somewhere to tap
+                s.selectedDetentIdentifier = .medium
             }
         } else {
             modalPresentationStyle = .popover
@@ -103,6 +131,9 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
             }
         }
         presentationController?.delegate = self
+        loadViewIfNeeded()
+        preferredContentSize = CGSize(width: 340, height: 440)
+        cancelButton.isHidden = !compact
         field.text = palette.query
         host.present(self, animated: true) { [weak self] in
             if focus { self?.field.becomeFirstResponder() }
@@ -120,9 +151,12 @@ public final class PaletteController: UIViewController, UITableViewDataSource, U
         }
     }
 
-    /// Stays a popover in compact height (a sheet only in compact width, by `present`).
+    /// Stays a popover in compact height (a sheet only in compact width, by `present`). The
+    /// Cancel button follows: shown while it is a sheet.
     public func adaptivePresentationStyle(for controller: UIPresentationController, traitCollection: UITraitCollection) -> UIModalPresentationStyle {
-        traitCollection.horizontalSizeClass == .compact ? .pageSheet : .none
+        let sheet = traitCollection.horizontalSizeClass == .compact
+        cancelButton.isHidden = !sheet
+        return sheet ? .pageSheet : .none
     }
 
     public func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
