@@ -135,7 +135,8 @@ pub fn of(session: &Session) -> Windows {
     let v = &session.views;
     let (cache, params, compare) = (v.cache_report, v.graph_params, v.compare.on);
     let editors: Vec<String> = v.editors.iter().filter(|n| graph.node(n).is_some()).map(|n| n.0.clone()).collect();
-    // what the open reports read: the run's cache numbers, the named ports, the edited values
+    // what the open reports read: the run's cache numbers, the named ports, the edited values and
+    // their editors' data
     let reports = if cache || params || !editors.is_empty() || compare {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         if cache {
@@ -146,6 +147,8 @@ pub fn of(session: &Session) -> Windows {
             serde_json::to_string(&graph.named).unwrap_or_default().hash(&mut h);
             for e in &editors {
                 serde_json::to_string(&graph.node(&NodeId::from(e.as_str())).map(|n| &n.values)).unwrap_or_default().hash(&mut h);
+                // and what its last run sent the editor (a curves editor's histograms and picture)
+                serde_json::to_string(&session.run.node(e).map(|n| &n.editor)).unwrap_or_default().hash(&mut h);
             }
         }
         if compare {

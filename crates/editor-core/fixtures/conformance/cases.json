@@ -1869,6 +1869,32 @@
         {"call": "command.run", "params": {"command": "group.unpromote", "params": {"group": "$g", "label": "curve"}}},
         {"call": "scene.get", "timeout": 20, "until": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$len": 0}}}}}}
       ]
+    },
+    {
+      "name": "the curves editor's commands edit an array node's curves, one undo step each, and a run sends the editor its data",
+      "about": "S4a (the maintainer, 2026-11-23: a general curve editor in the shell, every edit a core command; docs/shell-interface.md 12.21): the array engine's Apply Curve names the curves editor on its curves input; node.editorData says so before a run (no data), curves.edit and curves.preset are an undo step each, and after a run the editor's data holds the channel's histogram and the picture, so Equalize works",
+      "half": "edit",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.apply_curve", "pos": [500, 0]}}, "save": {"c": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$c", "port": "array"}}}},
+        {"call": "command.run", "params": {"command": "node.editorData", "params": {"node": "$c"}}, "expect": {"/result/kind": "curves", "/result/port": "curves", "/result/wired": false, "/result/data": null}},
+        {"call": "command.run", "params": {"command": "curves.edit", "params": {"node": "$c", "channel": "master", "points": [[0, 0], [0.5, 0.7], [1, 1]]}}, "expect": {"/result/curves": {"$includes": "0.7"}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Edit Curve"}},
+        {"call": "command.run", "params": {"command": "curves.preset", "params": {"node": "$c", "channel": "red", "preset": "Strong S"}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Curve Preset"}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Edit Curve"}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": {"$not": "Edit Curve"}}},
+        {"call": "command.run", "params": {"command": "node.editorData", "params": {"node": "$c"}}, "expect": {"/result/value": {"$not": {"$includes": "0.7"}}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "command.run", "params": {"command": "node.editorData", "params": {"node": "$c"}}, "until": {"/result/data/histograms": {"$len": 1}}, "timeout": 60, "expect": {"/result/data/names": {"$len": 1}, "/result/data/live": true, "/result/data/picture/kind": "rgba8", "/result/data/picture/ref/handle": {"$exists": true}}},
+        {"call": "command.run", "params": {"command": "curves.equalize", "params": {"node": "$c", "channel": 0}}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Equalize Curve"}}
+      ]
     }
   ]
 }

@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A curves editor in the Apple shells, on one shared curve model (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** Native editors for values such as curves, starting from an earlier spike ("Go. Check [the research software's] spike for cureve editor"; the spike turned out to hold no native editor). On the checklist page they chose: a general curve editor in the shell, used by any engine that names it; a small Swift port of the curve maths for drawing, pinned to the Rust by shared test vectors, with every edit a core command; curves before masks; the iPad and Mac together, Windows and the iPhone later. The card on re-running while a point is dragged was left unanswered, so it is built without a re-run and stays open.
+
+**What the AI did.** One curve model in `plumcraft_proto::curves` (parse, validate, insert, move and remove with the neighbour and two-point rules, hit-testing, evaluate, presets, lookup tables, equalize); the array engine's own copy removed. Vectors in `crates/proto/fixtures/curves.json`, stored as bit patterns. Commands `curves.edit`, `curves.reset`, `curves.preset`, `curves.equalize`, one undo step each. `node.editorData` returns what an engine sent for an editor; the Rust SDK sends a node's `_editor` outputs; `array.apply_curve` names the editor and sends histograms and a picture. In the shared Swift: a registry of native editors by kind with the core's value window as the fallback, and the curves view (tabs, presets, histogram, ghosts, lookup-table preview, adjustable points). A drag stays in the view and sends one command on lift. `ui.screenshot {window}` added to picture a core window on the Mac.
+
+**Verified (agent).** nextest 1,662 of 1,663 (the known baseline failure); Python 249; Swift tests for the vectors bit for bit and for one gesture being one undo step; an iPad simulator UI test that opens the editor from a node and from a group's promoted row, drags a point and undoes it; Mac conformance 61 of 61 and iPad simulator 60 of 60 with the test engine's cases skipped (its binary was not built in that worktree). The controller looked at the iPad simulator picture.
+
+**Not verified.** The test engine's cases on this change at the time of the commit; a drag on the Mac by a named test (floor row F59 says partly there); the iPhone; Windows; any device.
+
+**Stopped short.** The agent stopped on the disk rule (12 GB free) before checking the editor in an application built on this shell.
+
+**Found, not fixed.** A private project name is in older tracked files (`crates/proto/src/session.rs`, `catalogue.rs`, the protocol schema); the private-strings list does not hold that word yet. It is on the queued name clean-up.
+
 ### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."

@@ -213,7 +213,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.apply_curve",
             display: "Apply Curve",
             group: "Math",
-            description: "Tone curves (impressionist's core.curves, as the research software's curve editor draws them): an all-channels curve and one per channel (R, G, B, or the stack's own first three channels), applied in that order. Until PlumCraft has a curve editor, the curves are typed in as the research software stores them (see the curves tooltip).",
+            description: "Tone curves (a curves value, as the research software's curve editor draws them): an all-channels curve and one per channel (R, G, B, or the stack's own first three channels), applied in that order. Edit Value… opens the curves editor, which shows each channel's histogram and a preview after a run.",
             inputs: vec![
                 array_in("array", "Values in 0-1, or any range with input_range own range"),
                 string_in(
@@ -447,7 +447,68 @@ fn apply_curve(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     let own_range = choice(i, "input_range", &["0-1", "own range"], "0-1")? == "own range";
     let planes = curves::curve_planes(&a.planes(), &set, own_range);
     let out = Img::from_planes(a.h, a.w, &planes);
-    Ok(one("curved", tagged(out, &a, if own_range { Keep::All } else { Keep::Unit })))
+    let mut outputs = one("curved", tagged(out, &a, if own_range { Keep::All } else { Keep::Unit }));
+    // what the curves editor shows: each channel's values as the curves see them (0..1), their
+    // histograms, and that picture for its live preview
+    let (data, picture) = curves_editor_data(&a, own_range);
+    outputs.insert(plumcraft_engine::exec::EDITOR_KEY.to_owned(), Data::Json(serde_json::json!({"curves": data})));
+    outputs.insert(plumcraft_engine::exec::EDITOR_PICTURE_KEY.to_owned(), Data::Array(picture.to_array()));
+    Ok(outputs)
+}
+
+/// The bins of a curves editor's histograms, over 0..1.
+const CURVE_BINS: usize = 256;
+
+/// The `curves` editor's data for input `a` (`docs/shell-interface.md` 12.21): the channels'
+/// names, each channel's 256-bin histogram of its values on 0..1 (clipped, or mapped from its own
+/// min..max with `own_range`, as the curves see them), and whether an 8-bit preview through lookup
+/// tables shows what the curves do (one channel or three); and that 0..1 picture, at most
+/// [`plumcraft_engine::exec::EDITOR_PICTURE_PX`] a side.
+fn curves_editor_data(a: &Img, own_range: bool) -> (serde_json::Value, Img) {
+    let c = a.c.max(1);
+    let names: Vec<String> = (0..c.min(3))
+        .map(|k| match (a.names.get(k), c) {
+            (Some(n), _) if !n.is_empty() => n.clone(),
+            (_, 1) => "value".into(),
+            _ => ["red", "green", "blue"].get(k).map_or_else(|| format!("{}", k + 1), |s| (*s).to_owned()),
+        })
+        .collect();
+    let unit: Vec<Vec<f32>> = (0..c.min(3))
+        .map(|k| {
+            let p = a.plane(k);
+            if own_range {
+                let (lo, hi) = kernels::nan_min_max(&p);
+                let d = if hi - lo == 0.0 { 1.0 } else { (hi - lo) as f32 };
+                p.iter().map(|&v| (v - lo as f32) / d).collect()
+            } else {
+                p.iter().map(|&v| if v.is_nan() { v } else { v.clamp(0.0, 1.0) }).collect()
+            }
+        })
+        .collect();
+    let histograms: Vec<Vec<u64>> = unit
+        .iter()
+        .map(|p| {
+            let mut h = vec![0u64; CURVE_BINS];
+            for v in p.iter().filter(|v| v.is_finite()) {
+                let i = ((f64::from(*v) * CURVE_BINS as f64) as usize).min(CURVE_BINS - 1);
+                if let Some(b) = h.get_mut(i) {
+                    *b += 1;
+                }
+            }
+            h
+        })
+        .collect();
+    // the picture, every `step`th pixel so its larger side is at most the editor's
+    let px = plumcraft_engine::exec::EDITOR_PICTURE_PX as usize;
+    let step = a.h.max(a.w).div_ceil(px).max(1);
+    let (ph, pw) = (a.h.div_ceil(step), a.w.div_ceil(step));
+    let small: Vec<Vec<f32>> = unit
+        .iter()
+        .map(|p| (0..ph).flat_map(|y| (0..pw).map(move |x| (y, x))).map(|(y, x)| p.get(y * step * a.w + x * step).copied().unwrap_or(0.0)).collect())
+        .collect();
+    let picture = Img { space: (small.len() == 3).then(|| "RGB".to_owned()), ..Img::from_planes(ph, pw, &small) };
+    let data = serde_json::json!({"names": names, "histograms": histograms, "live": c == 1 || c == 3, "bins": CURVE_BINS});
+    (data, picture)
 }
 
 /// The largest matrix product computed (multiply-adds).

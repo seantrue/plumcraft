@@ -902,7 +902,11 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
             let r = reports[key] ?? ReportModel(model: model, key: key)
             reports[key] = r
             r.follow(stamp)
-            vc = UIHostingController(rootView: ReportView(report: r, done: { [weak self] in self?.closed(key) }))
+            let done: () -> Void = { [weak self] in self?.closed(key) }
+            // a value editor: the native one for its kind, else the core's value window
+            vc = key.hasPrefix("editor:")
+                ? UIHostingController(rootView: AnyView(ValueEditorView(report: r, pictures: pictures, done: done)))
+                : UIHostingController(rootView: AnyView(ReportView(report: r, done: done)))
         }
         vc.view.backgroundColor = .sheetGround
         vc.modalPresentationStyle = .pageSheet
