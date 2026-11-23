@@ -254,11 +254,18 @@ enum PersonSteps {
     /// The accessibility element with identifier `id` under `node` (the app's own tree, read in
     /// process: no accessibility permission needed).
     static func element(_ id: String, in node: Any, depth: Int) -> AnyObject? {
-        guard depth < 40 else { return nil }
+        var seen = 0
+        return element(id, in: node, depth: depth, seen: &seen)
+    }
+
+    /// The same, visiting at most 5,000 elements in all.
+    static func element(_ id: String, in node: Any, depth: Int, seen: inout Int) -> AnyObject? {
+        seen += 1
+        guard depth < 40, seen < 5000 else { return nil }
         let o = node as AnyObject
         if let ident = o.accessibilityIdentifier?(), ident == id { return o }
         for c in o.accessibilityChildren?() ?? [] {
-            if let hit = element(id, in: c, depth: depth + 1) { return hit }
+            if let hit = element(id, in: c, depth: depth + 1, seen: &seen) { return hit }
         }
         return nil
     }
