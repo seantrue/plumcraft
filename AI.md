@@ -34,6 +34,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Verified (agent).** nextest 1,651 of 1,652 (the known baseline failure); `swift test` 100 of 100; the new conformance case on the Mac app (68 of 68 cases) and the iPad simulator with the test engine (67 of 67). The controller looked at the iPad simulator's picture of the opened value. **Not verified:** egui by launching (no kittest added); the Mac's value window as a picture; Windows; any device.
 
+### 2026-11-23 — Windows: a list's items by name, a pin tooltip, and B129's fault in its row editor (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "Continue", with the Windows test VM up; the slice is the Windows half of the day's shared changes, under the standing arrangement for the Windows stage.
+
+**What the AI did.** The scene model takes the preview's `caption`; a list's face picture is tagged "caption · n pictures"; the pop-out's stepper names items from the sheet's labels with a pick list, on its own row after a screenshot showed the bar cutting the name off. A pin shows its row's hover as a tooltip (B142), which is how a pack type's full id is read. Person check steps 17 to 19.
+
+**Defect found and fixed (B141).** The Windows row editor had the fault B129 fixed on the Apple shells: a focus loss committed the field's text whatever it was. Only typed text commits now.
+
+**Investigated.** The app took 49 s to start on the VM, which had lost its internet after the host's reboot. The core's open measured 7 to 9 ms in every configuration; the delay comes before the app's code runs and only on newly built files. The agent's reading is the VM's virus scanner waiting for a cloud verdict it cannot get offline; no bug entry. The controller had asked for this to be time-boxed in case it was ours.
+
+**Defects in the agent's work.** Its timing probes ran while a conformance run was going, against the one-app-at-a-time rule, and its stop script tried to stop that run's app; the run survived and passed.
+
+**Verified (agent, on the VM).** `dotnet test` 58 of 58; C# runner 66 of 66 on ARM64 and x64 (x64 on the build before a pop-out layout change); Swift runner 60 of 60; person check 22 of 22, three times. One earlier ARM64 run was 65 of 66 (B143, open). **Not seen:** the face tag with a real caption and the read-only summary (no public engine on Windows produces either).
+
 ### 2026-11-23 — Parameters beside the canvas on an iPhone in landscape (B135) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention." The controller proposed a column of readable width at one side with the canvas still visible; they answered "Fix b135 with that", and added "Check other landscape presentations for similar parameter display issues".

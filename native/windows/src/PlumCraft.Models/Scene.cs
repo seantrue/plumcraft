@@ -494,6 +494,8 @@ public sealed record Preview
     public Point? Size { get; init; }
     public Point? HoverSize { get; init; }
     public ulong? Items { get; init; }
+    /// <summary>The picture's own name (8.7): with `items` above 1, the first of a list of named pictures.</summary>
+    public string? Caption { get; init; }
     public string? Summary { get; init; }
     public string? Note { get; init; }
     public bool? Faded { get; init; }

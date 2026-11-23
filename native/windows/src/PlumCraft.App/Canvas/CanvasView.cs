@@ -111,7 +111,11 @@ public sealed class CanvasView : Grid
         // a capture this view lets go of on a release is lost too: only a loss it didn't ask for cancels
         // (B50: slice 2 released capture first, and the loss it raised dropped every mouse click)
         PointerCaptureLost += (s, e) => { if (!releasing) OnCanceled(s, e); };
-        PointerExited += (_, _) => { Pointer = null; Canvas.Hover(null); };
+        PointerExited += (_, _) => { Pointer = null; Canvas.Hover(null); PinTip(null, default); };
+        // a pin's own words on hover (its row's `hover`: "Type: x.ports.tune", 8.4), as a tooltip; the
+        // service would open it over any part of the canvas, so it opens only over a pin
+        ToolTipService.SetToolTip(this, pinTip);
+        pinTip.Opened += (_, _) => { if (tipText is null) pinTip.IsOpen = false; };
         PointerWheelChanged += OnWheel;
         ContextRequested += OnContextRequested;
         Holding += OnHolding;
@@ -435,7 +439,39 @@ public sealed class CanvasView : Grid
     public string? DragState { get; private set; }
 
     /// <summary>A pointer hovering at view point `at` with nothing pressed: the typed hit test, shown.</summary>
-    public void HoverAt(Vector2 at, PointerDeviceType type = PointerDeviceType.Mouse) => Canvas.Hover(Link.HitAt(Graph(at), Slop(type)));
+    public void HoverAt(Vector2 at, PointerDeviceType type = PointerDeviceType.Mouse)
+    {
+        var h = Link.HitAt(Graph(at), Slop(type));
+        Canvas.Hover(h);
+        PinTip(h, at);
+    }
+
+    readonly ToolTip pinTip = new() { Placement = Microsoft.UI.Xaml.Controls.Primitives.PlacementMode.Bottom };
+    DispatcherTimer? tipTimer;
+    string? tipText;
+
+    /// <summary>The tooltip of the pin hit at view point `at`: its row's hover, shown after a moment as a
+    /// tooltip is; none off a pin.</summary>
+    void PinTip(PlumHit? h, Vector2 at)
+    {
+        string? text = null;
+        if (h is { Kind: 2 } p && Model.Faces[p.Node]?.Item is { } f)
+            text = p.IsOutput ? f.Outputs.ElementAtOrDefault((int)p.Pin)?.Hover : f.Inputs.ElementAtOrDefault((int)p.Pin)?.Hover;
+        if (string.IsNullOrWhiteSpace(text)) text = null;
+        if (text == tipText) return;
+        tipText = text;
+        tipTimer?.Stop();
+        pinTip.IsOpen = false;
+        if (text is null) return;
+        pinTip.Content = text;
+        pinTip.PlacementRect = new Windows.Foundation.Rect(at.X - 8, at.Y - 8, 16, 16);
+        if (tipTimer is null)
+        {
+            tipTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            tipTimer.Tick += (_, _) => { tipTimer?.Stop(); if (tipText is not null) pinTip.IsOpen = true; };
+        }
+        tipTimer.Start();
+    }
 
     DateTime touchesAsked = DateTime.MinValue;
     bool touchesBusy;

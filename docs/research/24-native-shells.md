@@ -1188,6 +1188,24 @@ Not answered: whether the graph hash covers the whole document (the core's `trus
   - **The suite.** With the test engine installed, the C# runner passes 66 of 66 on ARM64 and x64, the two new ports cases included. The Swift runner passes 60 of 60, `dotnet test` 53 of 53, and the person check 20 of 20 three times.
   - **Quit.** One person-check run in five left the app open after File › Quit, with the menu's popup still showing. Step 13 now clicks Quit once the menu has settled, records what it found, and clicks again if the menu is still open. On the three gate runs one click was enough every time. The cause of that one failure is not known.
   - **A VM outage.** At 19:13 the VM lost its network while its window stayed up. UTM then died, its emulator process hung on exit and blocked a restart, and the maintainer rebooted the Mac. Nothing was running on the VM at the time, and the outage is not B99.
+- **Lists as named pictures on Windows, and the core's recent changes launched (2026-11-23, branch `native/n5-lists`, on the dev branch at `ede5705`).**
+  - **The list (contract 8.7).**
+    - The scene model reads `preview.caption`.
+    - A list's face picture carries the tag "caption · n pictures", or "n items" with no caption. It sits on the picture's corner, as `LayerCanvas.listTag` draws it, and UI Automation sees it as the face's picture.
+    - The pop-out's stepper names items by their sheet labels ("text a · 1 of 4"), with a pick list of all of them. It sits on its own line under the bar, because the bar's width cut the name off.
+    - The words are tested in `ListTests.cs`.
+    - Person check step 18 launches the stepper: Items wired into Result, then a pick from the list.
+    - The face tag is unseen on Windows: neither SDK gives a thumbnail a caption or an item count, so only the research software's engine makes one.
+  - **Launched.**
+    - B127's capital, in step 17.
+    - A pack's type by its short name ("tuning · tune"). The full id on hover needed a pin tooltip, which the Windows canvas lacked; it now shows the row's `hover` (step 19, "Type: x.ports.tune").
+    - The read-only summary is unseen: no engine on Windows has a widget without an editor.
+  - **B129 on Windows.** The row field's focus loss committed whatever it held. It now commits only typed text (`RowEditor.FocusLostAsync`), and `AFocusLossCommitsOnlyWhatWasTyped` tests it.
+  - **The Windows test VM off the internet** (since the Mac's reboot; its network settings are the maintainer's):
+    - commits go to it as a git bundle;
+    - NuGet's audit is off per build in the scratch scripts;
+    - newly built files are held by Defender at first use (cloud protection with no cloud), so the first launch after a build can take 25 to 90 s; one warm-up launch follows each rebuild;
+    - `plum_open` itself took 7 to 9 ms offline in every configuration tried.
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 

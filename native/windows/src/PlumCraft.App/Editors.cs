@@ -268,7 +268,8 @@ public sealed class Editors
                 tb.KeyDown += async (_, e) => await FieldKey(e, tb);
                 // focus lost within the window commits (another control, the canvas); the window losing the
                 // system's activation (another app, a screenshot) leaves the field open, as the Mac's does
-                tb.LostFocus += async (_, _) => { if (window.IsActive && !committing && Rows.Open is not null && ReferenceEquals(field, tb)) await Commit(tb, RowEditor.Then.Close); };
+                // only what the person typed (B129): a field left as it opened sets nothing and stays open
+                tb.LostFocus += async (_, _) => { if (window.IsActive && !committing && Rows.Open is not null && ReferenceEquals(field, tb)) await FocusLost(tb); };
                 tb.Loaded += (_, _) => { tb.Focus(FocusState.Programmatic); tb.SelectAll(); };
                 el = tb;
                 break;
@@ -312,6 +313,15 @@ public sealed class Editors
         committing = false;
         if (!ok && ReferenceEquals(field, tb)) tb.Focus(FocusState.Programmatic);
         else if (then == RowEditor.Then.Close) view.Focus(FocusState.Programmatic);
+    }
+
+    async Task FocusLost(TextBox tb)
+    {
+        if (committing) return;
+        committing = true;
+        var ok = await Rows.FocusLostAsync(tb.Text);
+        committing = false;
+        if (ok) view.Focus(FocusState.Programmatic);
     }
 
     /// <summary>A shortcut fired while a field is open: the field commits first (12.2).</summary>

@@ -12,10 +12,10 @@ The person check exists and found two real defects that every earlier gate misse
 Under the strict rule, the Windows floor stands at:
 
 - 53 met;
-- 4 partly;
+- 5 partly;
 - 5 not met;
 - 0 broken: F6 and F80;
-- 24 claimed on reading alone and not checked.
+- 23 claimed on reading alone and not checked.
 
 The maintainer restarted the VM. Later it stopped answering a second time: SSH accepted connections but sent nothing, then ping stopped too. So most of the gate is not taken.
 
@@ -109,7 +109,7 @@ A row is met only when a named test, case or script launched the real app and ex
 
 - **F6 and F80** were "Met", but the Engine menu showed no engine (B90).
 - **F80** also offered hostings that could not start (B91).
-- **24 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
+- **23 rows** rested on "Core" or on a menu item existing; the old walk counted them as met without a launch.
 
 | F | Item | Now | Evidence |
 |---|---|---|---|
@@ -167,13 +167,13 @@ A row is met only when a named test, case or script launched the real app and ex
 | F52 | Pixel probe | Met | SC 46 "a picture popped out by a person shows a channel, reads its own numbers…" |
 | F53 | Compare | Partly | SC 52 "Compare pins two values…"; the exact difference is the egui editor's |
 | F54 | Tables and scalars | Met | SC 42 "a table popped out by a person is sorted and paged by the core", SC 22 |
-| F55 | Sheet | Claimed on reading alone, not checked | The items viewer was never shown with content in a launched app |
+| F55 | Sheet | Claimed on reading alone, not checked | The items viewer was never shown with content in a launched app; the pop-out stepper reads the sheet's labels (step 18), but the sheet view itself (viewer.sheet) was not opened |
 | F56 | Recipe display | Met | Person check step 16 "recipe" (2026-11-22, the launched ARM64 app, the test engine installed): Traced's pop-out offers Recipe and its flyout reads {"params": {"seed": "plum"}, "style": "traced"}; Result's pop-out has no Recipe (screenshots recipe-traced and recipe-none looked at); SC "ports: a value with a recipe offers Recipe, and one without doesn't" on ARM64 and x64 |
 | F57 | Picture window (T16) | Met | SC 35, SC 46; PC run 1's value window |
 | F58 | Missing data is a state | Met | SC 48 |
 | F59 | Curve editor | Not met | The research software's editor (N6) |
 | F60 | Mask editor | Not met | The research software's editor (N6) |
-| F61 | List mapping with axes | Claimed on reading alone, not checked | No case or check |
+| F61 | List mapping with axes | Partly | Person check step 18 "list-names" (2026-11-23, the launched ARM64 app, the test engine installed): Items' four words wired into Result make it run once a word; its pop-out steps by the labels the mapping gives ("text a · 1 of 4", a pick list of all four, "text c · 3 of 4" chosen from it). One axis only: two lists crossed (axes) not launched |
 | F62 | Vary nodes | Claimed on reading alone, not checked | No case or check |
 | F63 | Lineage | Claimed on reading alone, not checked | No case or check |
 | F64 | Save picture with recipe | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: Save Result writes a result node's value in each of its formats" (the file picker's kinds, the options form, both files read back); the person check's step 15 from the footer; no recipe, since no engine here tracks lineage; person check step 17 "save-shape" saves a 4 by 1000 array from its footer: the core's question with its three labelled buttons (picture looked at), then an .npy and a PNG read back. A picture saved with its recipe in it is still not checked |
@@ -619,9 +619,77 @@ The VM went off the network at 19:13, before any step of this session had touche
 | C# runner, test engine installed | ARM64 66 of 66 (37 read, 29 edit); x64 66 of 66 |
 | Swift runner from the Mac | 60 of 60; the six ports cases skipped (not claimed) |
 | Person check | 20 of 20, three runs in a row (21:00:02, 21:02:33, 21:04:56 Mac clock) |
-| Floor | 53 met, 4 partly, 5 not met, 24 claimed on reading alone. F56 is now met by the person check's launch, not a scene; F64 stays partly (no picture saved with its recipe) |
+| Floor | 53 met, 5 partly, 5 not met, 23 claimed on reading alone. F56 is now met by the person check's launch, not a scene; F64 stays partly (no picture saved with its recipe) |
 
 ### Noticed, not changed
 
 - The question's text begins with a lowercase letter ("this 4 by 1000 array is…"). The words are the engine SDK's.
 - The Save As dialog's "Save as type" box was not read by step 17 (its name didn't match), so the report's "picker type" is empty. It is not part of the step's pass.
+
+## Ninth session (2026-11-23, branch `native/n5-lists`, on the dev branch at `ede5705`)
+
+The VM has had no internet since the Mac's reboot; the controller can't restore it and the maintainer is away. So:
+
+- The new commits went to the VM as a git bundle.
+- NuGet's vulnerability audit, which can't reach nuget.org (NU1900, an error in this build), is off per build in the scratch scripts (`-p:NuGetAudit=false`). Nothing on the VM changed.
+- See "A slow first start" below for the third effect.
+
+### A list value as named pictures (contract 8.7)
+
+- **The scene's preview** has `caption` (`Preview.Caption`).
+- **A list's face picture** has a tag on its bottom-left corner: "caption · n pictures", or "n items" with no caption. It is white on a dark band, as the Apple canvas draws it (`ListNames.Tag`). UI Automation sees it as the face's picture, named by the tag.
+- **The pop-out's stepper** names each item by its sheet label ("text a · 1 of 4"), with a pick list of all the names (`ListNames.Names`, `ListNames.Title`). With no names it says "item 5 of 11" as before.
+  - It sits on a line of its own under the bar. Beside View As and the bar's buttons, a 560-pixel pop-out cut the name off; the pictures showed that, and the fix was looked at.
+- **Unit tests** (`ListTests.cs`): the fixture's list picture is tagged "first · 3 pictures", plus the edge cases of the tag and the names.
+- **Person check step 18, `list-names`.** Items' four words are wired into Result, which then runs once a word. Its pop-out's stepper reads "text a · 1 of 4"; its pick list offers text a to text d; choosing text c moves it to "text c · 3 of 4". Pictured and looked at.
+- **Unseen on Windows: the face tag with a caption.** Neither SDK puts a caption or an item count on a node's thumbnail (`exec::thumb` passes an empty caption; `plane.rgba8` sets `items: 0`). So no public engine on Windows makes a list face picture: only the research software's engine does. The tag is tested on the fixture alone.
+
+### Core changes that reached Windows, launched
+
+| Change | On Windows |
+|---|---|
+| The save question begins with a capital (B127) | Seen: step 17 reads "This 4 by 1000 array is 4 pixels on its shorter side…" and checks the capital |
+| A pack's type by its short name, the full id on hover | The name was seen: Tuning's output reads "tuning · tune". The hover was missing: the Windows canvas showed no tooltip on a pin. Added: a pin's tooltip is its row's `hover`. Step 19 sees "Type: x.ports.tune" in it, pictured |
+| A read-only value with no summary is summed up | Unseen: it needs a port with a widget the core has no editor for, and no engine on Windows has one. The Windows face draws the core's `text` for such a row as it is |
+| A focus loss commits only what was typed (B129) | Windows had the same fault: its row field's `LostFocus` committed whatever the field held. Fixed at source: `RowEditor.FocusLostAsync` commits only text that differs from what the field opened with; otherwise it sets nothing and stays open. Test: `AFocusLossCommitsOnlyWhatWasTyped` (a script's `row.set` while the field is open survives a focus loss) |
+
+### A slow first start, and why
+
+After the builds, the app took 49 s to start; the core's open alone took 24 s. Time-boxed to 20 minutes on the VM:
+
+- **`plum_open` by itself took 7 to 9 ms offline in every configuration.** The probe `g7-opentime.ps1` tried: bare, the app's engines and platform, a control port, the engines folder, and the app's full config.
+- **Loading the core's DLL took 8.3 s the first time, 2 ms after.**
+- **The same builds started quickly a few minutes later.** The ARM64 app was ready in 0.9 s, with the core's open at 43 ms. The freshly built x64 app's first launch was not ready in 90 s; its second was ready in 25.6 s, with the core at 349 ms.
+- **Defender on the VM:** real-time protection is on, and cloud protection is at its advanced level (MAPS 2) with sample submission. It logs a 5007 configuration event about every 20 s.
+
+Reading: Defender holds newly built files at their first use while it waits for a cloud verdict it can't get offline. The core is not the cause, so there is no bug entry. Each rebuild is now followed by one warm-up launch before the checks, and the timeline records it.
+
+The person check gains `-SlowStartWaitS N`, off by default, for a machine known to start slowly; the report says when it was used. The gate runs below did not use it.
+
+### Floor
+
+F61 (list mapping with axes) moves to partly: step 18 maps a node over one list and steps through it by name. Two lists crossed have not been launched. F55 (sheet) stays claimed on reading: the stepper reads the sheet's labels, but the sheet view was not opened.
+
+### The gate, against the last baseline
+
+| Check | Baseline | Now |
+|---|---|---|
+| `dotnet test` | 53 of 53 | 58 of 58 (4 list tests and the B129 test added) |
+| C# runner, ARM64, test engine installed | 66 of 66 | 66 of 66 on the final build. One run before it was 65 of 66: "the engine's run changed while it goes" failed at step 26, `superseded` unchanged, because the first run had finished before the second `run.start` (a timing race in the case) |
+| C# runner, x64, test engine installed | 66 of 66 | 66 of 66 (before the stepper moved to its own line, a pop-out layout change only) |
+| Swift runner from the Mac | 60 of 60 | 60 of 60; the six ports cases skipped (not claimed) |
+| Person check | 20 of 20, three runs | 22 of 22, three runs in a row with the default wait (Mac 10:44:51, 10:47:41, 10:50:27) |
+| Floor | 53 met, 4 partly, 5 not met, 24 reading | 53 met, 5 partly, 5 not met, 23 reading: F61 to partly |
+
+### Durations, expected and actual
+
+| Step | Expected | Actual |
+|---|---|---|
+| ARM64 core build | 3 min | 46 s |
+| `dotnet test`, first run | 1 min | 205 s (Defender's hold on the new test binaries); 42 s on the final build |
+| The open-time investigation | 20 min (time-box) | about 5 min on the VM |
+| C# runner ARM64 | 4 min | 212 s, then 178 s, then 68 s |
+| x64 build and runner | 6 min | 163 s with the runner unable to start (the first launch held), then 131 s |
+| Person check trials (4) | 3.5 to 4 min each | 112 s (failed at the start), 243 s, 215 s, 176 s |
+| Final build, warm-up, `dotnet test`, both runners | 9 min | 228 s |
+| Person check three times | 10 min | 502 s |

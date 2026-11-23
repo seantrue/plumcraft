@@ -67,8 +67,8 @@ public sealed class PartPeer(CanvasPeer canvas) : AutomationPeer
     protected override string GetClassNameCore() => Part.Role == "node" ? "PlumCraftFace" : "PlumCraftPin";
     protected override string GetItemStatusCore() => Part.Status;
     protected override string GetItemTypeCore() => Part.Role;
-    protected override string GetLocalizedControlTypeCore() => Part.Role switch { "node" => "node", "button" => "button", _ => Part.Role + " pin" };
-    protected override AutomationControlType GetAutomationControlTypeCore() => Part.Role switch { "node" => AutomationControlType.ListItem, "button" => AutomationControlType.Button, _ => AutomationControlType.Custom };
+    protected override string GetLocalizedControlTypeCore() => Part.Role switch { "node" => "node", "button" => "button", "picture" => "picture", _ => Part.Role + " pin" };
+    protected override AutomationControlType GetAutomationControlTypeCore() => Part.Role switch { "node" => AutomationControlType.ListItem, "button" => AutomationControlType.Button, "picture" => AutomationControlType.Image, _ => AutomationControlType.Custom };
     protected override bool IsContentElementCore() => true;
     protected override bool IsControlElementCore() => true;
     protected override bool IsEnabledCore() => true;
