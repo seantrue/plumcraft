@@ -425,8 +425,19 @@ public sealed record InRow
     public Badge? Badge { get; init; }
     public Widget? Widget { get; init; }
     public string? Inactive { get; init; }
+    /// <summary>The value its node names an editor for, not on a wire (FR1, 8.4): a tap on the row opens it.</summary>
+    public EditorLink? Editor { get; init; }
 
     [JsonIgnore] public RowSourceWord? SourceWord => Words.Of<RowSourceWord>(Source);
+}
+
+/// <summary>What a row whose value has an editor says of it (8.4, the schema's `RowEditor`): the editor's kind,
+/// and the words of its link.</summary>
+public sealed record EditorLink
+{
+    public required string Kind { get; init; }
+    public required string Label { get; init; }
+    public required string Hover { get; init; }
 }
 
 public sealed record Named

@@ -1206,6 +1206,23 @@ Not answered: whether the graph hash covers the whole document (the core's `trus
     - NuGet's audit is off per build in the scratch scripts;
     - newly built files are held by Defender at first use (cloud protection with no cloud), so the first launch after a build can take 25 to 90 s; one warm-up launch follows each rebuild;
     - `plum_open` itself took 7 to 9 ms offline in every configuration tried.
+- **B133 on Windows: Browse for a path row (2026-11-23, branch `fix/b133-windows-browse`, on the dev branch at `7fad6dc`).**
+  - **The button.** A row whose widget has `pathMode` draws, in the core's square (`PathBrowse.Square`), the path's text, a rule and an accent "…".
+    - UI Automation sees it as a "Browse" button (`browse.{nid}.{port}`).
+    - A tap there is the core's gesture (`selection.set`, then `row.browse`); the shell adds no tap handling.
+    - The field editor stops short of the square.
+  - **The dialog.** The path asks (purpose `path`, and `files` for several) are answered with the system's common item dialog through COM (`PathDialogs`; no unsafe code). The WinRT pickers can only start in a known library, which is why the common dialog is used.
+    - It opens in the current value's folder (`PathBrowse.StartFolder`), else in `startIn`.
+    - The hint's kinds are the filters ("Text (*.txt)"), then "All files".
+    - The file's name is filled in.
+    - Real paths come back, so nothing is copied.
+    - Every other ask keeps its picker.
+  - **Browse with the field open** closes it without its text. The press on Browse takes the field's focus, and B141's focus-loss rule would otherwise commit what was typed, so a focus loss over the open row's Browse commits nothing.
+  - **Checked by:**
+    - person check step 20: the real dialog read through UI Automation ("Choose a File", the value's folder, Text (*.txt)), pictured and cancelled; then text typed into the open field, Browse, cancel, and the value unchanged;
+    - the conformance case "ports: a path input's Browse asks…" (the scripted answer, one undo step) on ARM64 and x64;
+    - `PathBrowseTests`.
+  - **Floor:** F16 is met on Windows.
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 

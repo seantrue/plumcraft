@@ -43,6 +43,16 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Open question: Mac and Windows too (the same row, with the system's open panel), or the iPad and iPhone first?
 - Decided: 2026-11-23, the maintainer, on the two questions (the controller recommending "start with copying" and "all three together, since the button belongs in the core, with each shell supplying its own picker"): "Yes, fix b133 on all systems." The copy-or-bookmark question was not answered separately: copying is built, and stays an open decision
 - Built (branch `fix/b133-path-browse`): the Browse button is the core's. A path row that can be edited (its widget has `pathMode`) has it at the right end of its field, a square the row's height (`geometry::browse_rect`), which every shell draws; a tap there is the core's gesture `row.browse {node, port}` (a command, invoked like Save Result…: `ui.invoke`, `command.run` and the gesture all ask), which closes any open field editor without its text and raises the core's existing path ask (`file.open`, `file.save` or `folder.pick`, purpose `path`, the hint's filters as `kinds`); the answer is set as typing sets it (one undo step). The Mac answers with its open or save panel (the real path). The iPad and iPhone copy a picked file into Documents › Picked Files (the Files app's On My iPad › Plummer › Picked Files) and answer with the copy's path: kept by its own name, the same bytes again reuse that copy, another file of the same name is numbered ("notes 2.txt"), earlier copies are left alone; a folder (`dir`) is opened in place with access for the graph's life, as before (not lasting across a relaunch); a may-be-new path (`save`) is the existing alert naming a file in the graph's folder (or Documents). The field editor on a path row stops short of the button, so it can be tapped while the text is edited. egui keeps its own "…" button, which calls the same core `browse`. Windows: its half to come on the same branch
+- Built for Windows (2026-11-23, branch `fix/b133-windows-browse`):
+  - **The button:** the path row draws Browse in the core's square (`PathBrowse.Square`, as `geometry::browse_rect`). UI Automation sees it as a "Browse" button, and the tap is the core's gesture.
+  - **The dialog:** the path asks (purpose `path` and `files`) are answered with the system's common file dialog (`PathDialogs`):
+    - it opens in the current value's folder, else in `startIn`;
+    - it has the hint's kinds as filters;
+    - it gives back real paths, so nothing is copied.
+  - **The field editor** stops short of the square.
+  - **Browse with the field open** closes the field without its text: the focus loss the press causes commits nothing over Browse.
+  - **Checked by:** person check step 20 (the dialog read through UI Automation and cancelled, pictured); the conformance case on ARM64 and x64; `PathBrowseTests`.
+- Remaining after Windows: the iPad's Photos source (another agent's).
 - Issue: none
 
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
@@ -125,6 +135,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-22
 - Report: one of four ARM64 runs of the edit half on `native/n5-save`: step 14, `palette.items {query: "text"}` gave `text.literal` with no `port` (the palette for the dropped wire had become the plain palette); the next three runs passed it
 - Context: not reproduced; the test engine was installed in that app's engines folder for the first time in these runs. Cause not found.
+- Sighting (2026-11-23, branch `fix/b133-windows-browse`, the dev branch at `7fad6dc`): the same step 14 failed in two runs back to back against the ARM64 app, the C# runner's edit half (66 of 67) and then the Swift runner's from the Mac (59 of 60), each against a launch of its own. The x64 app passed it in the same round. The ARM64 app had had its warm-up launch, and was ready in 0.6 s. Cause still not found.
 - Issue: none
 
 ### B96. The wire tiles' moiré at low zoom differs slightly from the per-wire drawing (observation, low priority)

@@ -11,8 +11,8 @@ The person check exists and found two real defects that every earlier gate misse
 
 Under the strict rule, the Windows floor stands at:
 
-- 53 met;
-- 5 partly;
+- 54 met;
+- 4 partly;
 - 5 not met;
 - 0 broken: F6 and F80;
 - 23 claimed on reading alone and not checked.
@@ -128,7 +128,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F13 | Setting binding | Met | SC 31 |
 | F14 | Variadic inputs | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a variadic input, a choice's sub-port, and a choice this machine can't take" |
 | F15 | Choice-dependent sub-ports | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a choice's sub-port) |
-| F16 | Path hints | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case sets a path input and the engine reads it; no Browse button beside it on Windows |
+| F16 | Path hints | Met | Person check step 20 "path-browse" (2026-11-23, the launched ARM64 app, the test engine installed): Read Text File's Browse opens the system dialog "Choose a File" in the value's folder with Text (*.txt) as its filter (read through UI Automation, pictured, cancelled); Browse with the field open closes it without its text; SC "ports: a path input's Browse asks for a file by its hints, and the answer sets the value" (the scripted answer, one undo step) on ARM64 and x64; SC "a path input" sets and the engine reads it |
 | F17 | External ports | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a setting bound to a bundle, and external ports on a collapsed group" |
 | F18 | Machine-dependent choices | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a choice this machine can't take, refused with its reason) |
 | F19 | Node flags | Claimed on reading alone, not checked | No case or check |
@@ -619,7 +619,7 @@ The VM went off the network at 19:13, before any step of this session had touche
 | C# runner, test engine installed | ARM64 66 of 66 (37 read, 29 edit); x64 66 of 66 |
 | Swift runner from the Mac | 60 of 60; the six ports cases skipped (not claimed) |
 | Person check | 20 of 20, three runs in a row (21:00:02, 21:02:33, 21:04:56 Mac clock) |
-| Floor | 53 met, 5 partly, 5 not met, 23 claimed on reading alone. F56 is now met by the person check's launch, not a scene; F64 stays partly (no picture saved with its recipe) |
+| Floor | 54 met, 4 partly, 5 not met, 23 claimed on reading alone. F56 is now met by the person check's launch, not a scene; F64 stays partly (no picture saved with its recipe) |
 
 ### Noticed, not changed
 
@@ -679,7 +679,7 @@ F61 (list mapping with axes) moves to partly: step 18 maps a node over one list 
 | C# runner, x64, test engine installed | 66 of 66 | 66 of 66 (before the stepper moved to its own line, a pop-out layout change only) |
 | Swift runner from the Mac | 60 of 60 | 60 of 60; the six ports cases skipped (not claimed) |
 | Person check | 20 of 20, three runs | 22 of 22, three runs in a row with the default wait (Mac 10:44:51, 10:47:41, 10:50:27) |
-| Floor | 53 met, 4 partly, 5 not met, 24 reading | 53 met, 5 partly, 5 not met, 23 reading: F61 to partly |
+| Floor | 53 met, 4 partly, 5 not met, 24 reading | 54 met, 4 partly, 5 not met, 23 reading: F61 to partly |
 
 ### Durations, expected and actual
 
@@ -693,3 +693,59 @@ F61 (list mapping with axes) moves to partly: step 18 maps a node over one list 
 | Person check trials (4) | 3.5 to 4 min each | 112 s (failed at the start), 243 s, 215 s, 176 s |
 | Final build, warm-up, `dotnet test`, both runners | 9 min | 228 s |
 | Person check three times | 10 min | 502 s |
+
+## Tenth session (2026-11-23, branch `fix/b133-windows-browse`, on the dev branch at `d29630c`)
+
+B133's Windows half: Browse for a path row. The VM is still off the internet: the commits go over by git bundle, and each rebuild is followed by one warm-up launch (Defender holds new files; see the ninth session).
+
+### What was built
+
+- **The button.** A row whose widget has `pathMode` draws the path's text, a rule, and an accent "…" in the core's square (`PathBrowse.Square`, the same rule as `geometry::browse_rect`).
+  - UI Automation sees it as a "Browse" button.
+  - The tap is the core's gesture (`selection.set`, `row.browse`); the shell adds no tap handling.
+  - The field editor stops short of the square.
+- **The dialog.** `Asks.cs` already answered `file.open`, `file.save` and `folder.pick` with the WinRT pickers. Those can only start in a known library, and they ignored the core's `startIn` and the current value.
+  - For purpose `path` (and `files`), the system's common item dialog is now used, through COM (`PathDialogs`, no unsafe code).
+  - It opens in the current value's folder, else in `startIn`.
+  - Its filters are the hint's kinds, then All files.
+  - It fills in the file's name and gives back real paths.
+  - Every other ask keeps its picker.
+- **Browse with the field open.** A press on Browse takes focus from the field, and B141's rule would then commit what was typed. A focus loss with the pointer over the open row's Browse now commits nothing, so the core's `row.browse` closes the field without its text, as the contract says.
+- **Unit tests** (`PathBrowseTests`): which widgets offer Browse, the square with the core test's own numbers, the field short of it, the filters, and the start folder.
+- **Person check step 20, `path-browse`:**
+  - Read Text File's Browse opens "Choose a File" in the value's folder (`…\pc\browse`), with "Text (*.txt)" as its filter and the file's name filled in. It is read through UI Automation, pictured (`g8-pc-shots/browse-dialog.png`) and cancelled; Open is never pressed.
+  - Then text is typed into the open field (pictured, `browse-typing.png`) and Browse pressed: the dialog comes, it is cancelled, and the value is unchanged.
+- **The scripted answer** is the conformance case "ports: a path input's Browse asks for a file by its hints, and the answer sets the value" (one undo step). It passes on the C# runner on ARM64 and x64.
+
+### Also in this branch
+
+- **`InRow.Editor`** (decode only). #181 added `editor` to input rows, and the Windows model's strict decode tests failed on the merged dev branch (57 of 62). FR1's drawing and tap on Windows follow on `native/n5-editor-row`.
+- **The person check's `Say`** retries a write that meets the report being read (`g-tail.sh`). One trial stopped on it.
+
+### Durations, expected and actual
+
+| Step | Expected | Actual |
+|---|---|---|
+| ARM64 core, engine, app, warm-up, `dotnet test` (first) | 6 min | 392 s (warm-up 130 s: four holds of about 24 s on new files) |
+| Person check trials (4) | 4.5 min each | 159 s (stopped by the report-file collision), 202 s, 199 s, then 252 s with a rebuild |
+| Gate on `7fad6dc`: C# runner ARM64 and x64, Swift runner | 9 min | 522 s |
+| The merge, then gate part 1 on `d29630c` | 10 min | 665 s |
+| `dotnet test` after the decode fix | 3 min | 177 s |
+| App rebuilds and warm-ups, C# runner ARM64 and x64, person check x3 | 20 min | 1,164 s |
+
+### The gate on the merged dev branch
+
+| Check | Baseline | Now |
+|---|---|---|
+| `dotnet test` | 58 of 58 | 62 of 62 (`PathBrowseTests`, four) |
+| C# runner, ARM64, test engine installed | 66 of 66 | 68 of 68 (37 read, 31 edit: the Browse case and #181's case added) |
+| C# runner, x64, test engine installed | 66 of 66 | 68 of 68 |
+| Swift runner from the Mac | 60 of 60 | 60 of 60, 8 skipped: the ports cases, now including Browse (run before the decode-only model change) |
+| Person check | 22 of 22 | 23 of 23, three runs in a row (Mac 12:32:52, 12:36:20, 12:39:27) |
+| Floor | 53 met, 5 partly, 5 not met, 23 reading | 54 met, 4 partly, 5 not met, 23 reading: F16 met |
+
+On `7fad6dc`, before the merge, the ARM64 runs hit B99's case twice: the C# runner (66 of 67) and the Swift runner (59 of 60). The sighting is recorded in B99. The x64 run that round passed it, and every run on `d29630c` passed it.
+
+### B133 on Windows
+
+It can be closed for Windows. What remains of B133 is the iPad's Photos source, which is another agent's.

@@ -169,7 +169,14 @@ Add-Type -TypeDefinition $src -ReferencedAssemblies UIAutomationClient, UIAutoma
 
 $lines = New-Object System.Collections.Generic.List[string]
 $failed = 0
-function Say([string]$s) { $lines.Add($s); Set-Content -Path $report -Value $lines }
+function Say([string]$s) {
+    $lines.Add($s)
+    # the report is read while it is written (g-tail.sh copies it every few seconds): a write that meets a read
+    # waits a moment and tries again, at most ten times
+    for ($k = 0; $k -lt 10; $k++) {
+        try { Set-Content -Path $report -Value $lines -ErrorAction Stop; return } catch { Start-Sleep -Milliseconds 100 }
+    }
+}
 function Step([string]$name, [bool]$ok, [string]$saw) {
     if (-not $ok) { $script:failed++ }
     Say ("{0} {1} {2}: {3}" -f (Get-Date).ToString("HH:mm:ss.fff"), $(if ($ok) { "PASS" } else { "FAIL" }), $name, $saw)
@@ -743,6 +750,67 @@ function Run-Steps {
             $typeSaw = "Tuning's output reads: $label; its tooltip: " + ($tip -replace "`r?`n", ' ')
         } else { $typeSaw = "no Tuning from the palette: [" + $tu.list + "]" }
         Step 'pack-type' $ok19 $typeSaw
+
+        # 20. a path row's Browse (B133): the system's dialog, started where the value is, its kinds as the
+        # filter; read through UI Automation and cancelled (never Open). Then Browse while the field is being
+        # edited: the field closes and the dialog comes. The value stays as typed.
+        Starting '20. a path row''s Browse: the system dialog, cancelled'
+        $startDir = Join-Path $Work 'browse'
+        New-Item -ItemType Directory -Force $startDir | Out-Null
+        $startFile = Join-Path $startDir 'start.txt'
+        Set-Content -Encoding ascii $startFile 'browse from here'
+        Front $opened
+        $rd = Add-From-Palette $opened 0.55 0.585 'Read Text' 'Read Text File'
+        $browseSaw = @(); $ok20 = $false
+        function Browse-Button { $n = Node $opened 'Read Text File'; if ($n) { [P]::All($n) | Where-Object { [P]::Id($_) -like 'browse.*' } | Select-Object -First 1 } }
+        function Path-Dialog { Wait-Until { @([P]::All($opened)) + @(Other-Windows) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -eq 'Choose a File' } | Select-Object -First 1 } 15000 }
+        function Read-Dialog($d) {
+            $addr = @([P]::All($d) | Where-Object { [P]::Kind($_) -eq 'ToolBar' -and [P]::Name($_) -like 'Address*' } | ForEach-Object { [P]::Name($_) }) | Select-Object -First 1
+            # the file type box shows its choice as a child's name ("Text (*.txt)")
+            $types = (@([P]::All($d) | Where-Object { ([P]::Name($_) + [P]::Value($_)) -like '*(*.txt)*' } | ForEach-Object { [P]::Name($_) + [P]::Value($_) }) | Select-Object -Unique) -join ' / '
+            [pscustomobject]@{ Name = [P]::Name($d); Address = "$addr"; Types = $types }
+        }
+        function Cancel-Dialog($d) {
+            $c = In $d { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Cancel' } 3000
+            if ($c) { [P]::ClickOn($c) } else { Esc }
+            $null = Wait-Until { if (-not (@([P]::All($opened)) + @(Other-Windows) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -eq 'Choose a File' })) { 1 } } 8000
+        }
+        $b = Browse-Button
+        if ($rd.node -and $b) {
+            # the value first, typed into the field to the left of Browse
+            $bb = [P]::Box($b)
+            [P]::Click($bb.X - 40, $bb.Y + $bb.Height / 2); Start-Sleep 1
+            [P]::Chord(0x11, 0x41); [P]::Type($startFile); Start-Sleep -Milliseconds 300; [P]::Key(0x0D); Start-Sleep 1
+            $typed = [P]::Status((Pin (Node $opened 'Read Text File') 'in'))
+            # Browse: the dialog starts in the value's folder, with Text (*.txt) as its filter
+            [P]::ClickOn((Browse-Button))
+            $d1 = Path-Dialog
+            $r1 = if ($d1) { Start-Sleep 1; Read-Dialog $d1 }
+            if ($d1) { [P]::Shot((Join-Path $Work 'browse-dialog.png')); Cancel-Dialog $d1 }
+            $browseSaw += "the field reads: $typed; Browse's dialog: " + $(if ($d1) { $r1.Name + "; address: " + $r1.Address + "; filter: " + $r1.Types } else { 'none' })
+            # Browse while the field is open: the core closes the field, the dialog comes (the first click after
+            # the dialog may only bring the window forward, so a second if the field didn't open)
+            # The canvas's automation peer hides the field editor, so the check types into it: text typed but
+            # not committed must not become the value when Browse closes the field (B133: "without its text")
+            Front $opened; Start-Sleep -Milliseconds 500
+            $bb = [P]::Box((Browse-Button))
+            [P]::Click($bb.X - 40, $bb.Y + $bb.Height / 2); Start-Sleep 1
+            [P]::Chord(0x11, 0x41); [P]::Type('typed-not-set.txt'); Start-Sleep -Milliseconds 500
+            [P]::Shot((Join-Path $Work 'browse-typing.png'))
+            $editing = $true
+            [P]::ClickOn((Browse-Button))
+            $d2 = Path-Dialog
+            $d2Name = if ($d2) { [P]::Name($d2) } else { '' }
+            # no field editor over the node now (the dialog's own file name box is elsewhere)
+            $nb = [P]::Box((Node $opened 'Read Text File'))
+            $closed = -not [bool](@([P]::All($opened)) | Where-Object { $eb = [P]::Box($_); [P]::Kind($_) -eq 'Edit' -and $eb.Width -gt 0 -and ($eb.X + $eb.Width / 2) -gt $nb.X -and ($eb.X + $eb.Width / 2) -lt ($nb.X + $nb.Width) -and ($eb.Y + $eb.Height / 2) -gt $nb.Y -and ($eb.Y + $eb.Height / 2) -lt ($nb.Y + $nb.Height) })
+            if ($d2) { [P]::Shot((Join-Path $Work 'browse-editing.png')); Cancel-Dialog $d2 }
+            Start-Sleep 1
+            $after = [P]::Status((Pin (Node $opened 'Read Text File') 'in'))
+            $browseSaw += "typed into the open field: typed-not-set.txt (not committed); Browse then: " + $(if ($d2) { $d2Name } else { 'no dialog' }) + ", the field closed: $closed; the value after both cancels: $after"
+            $ok20 = $d1 -and $r1.Address -like '*browse*' -and $r1.Types -like '*.txt*' -and $editing -and $d2 -and $closed -and $after -like '*start.txt*' -and $after -notlike '*typed-not-set*'
+        } else { $browseSaw += "no Read Text File from the palette: [" + $rd.list + "], or no Browse on it" }
+        Step 'path-browse' $ok20 ($browseSaw -join '; ')
     }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'
