@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B143. The conformance case "the engine's run changed while it goes" failed once on the Windows test VM
+
+- Reported: 2026-11-23, an agent (C# runner, ARM64)
+- Report: step 26 expects `run.superseded` to change after a second `run.start`; it kept its value (5) because the first run had already finished between steps 22 and 24. It passed in three other runs the same session.
+- Proposed fix: give the case a run that cannot finish by itself, as B123 did for the Mac person check with `text.gate`.
+- Issue: none
+
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
 
 - Reported: 2026-11-22, the controller
@@ -234,6 +241,20 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B141. Windows: a row field's focus loss put back the value it opened with (B129 on Windows)
+
+- Reported: 2026-11-23, an agent, while checking B129 on Windows
+- Report: the Windows row editor's `LostFocus` committed the field's text whatever it was, so a value set while the field was open was overwritten.
+- Fixed: 2026-11-23, branch `native/n5-lists`: `RowEditor.FocusLostAsync` commits only typed text; test `AFocusLossCommitsOnlyWhatWasTyped`.
+- Issue: none
+
+### B142. Windows: no tooltip on a pin, so a pack type's full id could not be read
+
+- Reported: 2026-11-23, an agent
+- Report: the Windows canvas showed no row `hover`.
+- Fixed: 2026-11-23, branch `native/n5-lists`: a pin shows it as a tooltip; person check step 19.
+- Issue: none
 
 ### B136. iPad: a script's `graph.open` leaves the window on its old file
 

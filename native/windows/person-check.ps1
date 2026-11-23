@@ -18,9 +18,13 @@
 # session it starts itself there as a one-shot Interactive scheduled task, waits (with a limit) for it to
 # finish, prints its report, removes the task and stops the app it started (by the process id it captured).
 #
-#   person-check.ps1 [-Exe PATH] [-Platform ARM64|x64] [-Work DIR] [-Timeout 600]
+#   person-check.ps1 [-Exe PATH] [-Platform ARM64|x64] [-Work DIR] [-Timeout 600] [-SlowStartWaitS N]
+#
+# -SlowStartWaitS (off by default): wait N seconds, not 60, for the app's first window, for a machine known to
+# start apps slowly (antivirus holding new files for a verdict it can't get offline). The report says when it
+# was used; a run with it does not stand for the 60-second start a person expects.
 param([string]$Exe = '', [string]$Platform = 'ARM64', [string]$Work = '', [int]$Timeout = 600,
-      [switch]$Inner)
+      [int]$SlowStartWaitS = 0, [switch]$Inner)
 $Discover = $false
 
 $here = Split-Path -Parent $PSCommandPath
@@ -40,7 +44,7 @@ if (-not $Inner) {
     Remove-Item $report, $done, $pidFile -ErrorAction SilentlyContinue
     $name = 'plummer-person-check'
     Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-    $flags = "-Inner -Exe `"$Exe`" -Work `"$Work`""
+    $flags = "-Inner -Exe `"$Exe`" -Work `"$Work`" -SlowStartWaitS $SlowStartWaitS"
     $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" $flags"
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds ($Timeout + 60)) -AllowStartIfOnBatteries
@@ -199,6 +203,7 @@ Get-ChildItem $Work -Filter '*.png' | Remove-Item -ErrorAction SilentlyContinue
 
 Say "app: $Exe"
 Say "launch: Plummer.exe --root $root"
+$startWait = if ($SlowStartWaitS -gt 0) { Say "note: -SlowStartWaitS $SlowStartWaitS, the first window is given $SlowStartWaitS s, not 60"; $SlowStartWaitS * 1000 } else { 60000 }
 $proc = Start-Process -FilePath $Exe -ArgumentList @('--root', "`"$root`"") -PassThru
 $appPid = $proc.Id
 Set-Content $pidFile $appPid
@@ -274,7 +279,7 @@ function Add-From-Palette($w, [double]$fx, [double]$fy, [string]$query, [string]
 function Run-Steps {
     # 1. a window with an untitled graph
     Starting '1. a window with an untitled graph'
-    $w = Doc-Window 'Untitled*' 60000
+    $w = Doc-Window 'Untitled*' $startWait
     Step 'window' ($null -ne $w -and (Doc-Windows).Count -eq 1) ("windows: " + (Titles))
     if (-not $w) { return }
     Start-Sleep 2
@@ -505,7 +510,7 @@ function Run-Steps {
     $proc2 = Start-Process -FilePath $Exe -ArgumentList @('--root', "`"$root`"", "`"$file`"") -PassThru
     $script:appPid = $proc2.Id
     Set-Content $pidFile $appPid
-    $opened = Doc-Window '*Plummer' 60000
+    $opened = Doc-Window '*Plummer' $startWait
     Start-Sleep 2
     $title = if ($opened) { [P]::Name($opened) } else { '' }
     $what = if ($opened) { Describe-Nodes $opened } else { '' }
@@ -659,18 +664,85 @@ function Run-Steps {
                 if ($q) {
                     Start-Sleep 1
                     $buttons = ((@([P]::All($q) | Where-Object { [P]::Kind($_) -eq 'Button' }) | ForEach-Object { [P]::Name($_) }) -join ' / ')
+                    # the question's words begin with a capital (B127)
+                    $qtext = @([P]::All($q) | Where-Object { [P]::Kind($_) -eq 'Text' -and [P]::Name($_) -like '*array*' } | ForEach-Object { [P]::Name($_) }) | Select-Object -First 1
                     [P]::Shot((Join-Path $Work ("save-shape-" + $pass.want + ".png")))
                     $press = In $q { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq $pass.press } 3000
                     if ($press) { [P]::ClickOn($press) }
                 }
                 $bytes = Wait-Until { if (Test-Path $wantFile) { $b = [IO.File]::ReadAllBytes($wantFile); if ($b.Length -gt 8) { $b } } } 20000
                 $head = if ($bytes) { [Text.Encoding]::ASCII.GetString($bytes, 0, [Math]::Min(8, $bytes.Length)) -replace '[^ -~]', '.' } else { '' }
-                $good = $q -and $buttons -like '*Save as PNG anyway*' -and $buttons -like '*Save as NumPy (.npy)*' -and $buttons -like '*Cancel*' -and $head -like "*$($pass.magic)*"
+                $good = $q -and $buttons -like '*Save as PNG anyway*' -and $buttons -like '*Save as NumPy (.npy)*' -and $buttons -like '*Cancel*' -and $head -like "*$($pass.magic)*" -and "$qtext" -cmatch '^[A-Z]'
                 if (-not $good) { $ok17 = $false }
-                $shapeSaw += ("{0}: picker type {1}; question: {2} (buttons {3}); pressed {4}; {5} starts {6} ({7} bytes)" -f $pass.file, $type, $(if ($q) { [P]::Name($q) } else { 'none' }), $buttons, $pass.press, $pass.want, $head, $(if ($bytes) { $bytes.Length } else { 0 }))
+                $shapeSaw += ("{0}: picker type {1}; question: {2} (buttons {3}), its text: {8}; pressed {4}; {5} starts {6} ({7} bytes)" -f $pass.file, $type, $(if ($q) { [P]::Name($q) } else { 'none' }), $buttons, $pass.press, $pass.want, $head, $(if ($bytes) { $bytes.Length } else { 0 }), $qtext)
             }
         } else { $ok17 = $false; $shapeSaw += "no Strip from the palette: [" + $st.list + "]" }
         Step 'save-shape' $ok17 ($shapeSaw -join '; ')
+
+        # 18. a list's items by name (contract 8.7): Items' four words wired into Result's text make Result run
+        # once a word, each result named by the word it took ("text a"); its pop-out's stepper says
+        # "text a · 1 of 4" and offers every name in a pick list (Edge's seed, a STRING, takes TEXT only
+        # through a Convert)
+        Starting '18. a list''s items by name in the pop-out''s stepper'
+        Front $opened
+        $it18 = Add-From-Palette $opened 0.12 0.33 'Items' 'Items'
+        $listSaw = ''; $ok18 = $false
+        if ($it18.node -and (Node $opened 'Result')) {
+            $fb = [P]::Box((Pin (Node $opened 'Items') 'out')); $tb = [P]::Box((Pin (Node $opened 'Result') 'in'))
+            [P]::Drag($fb.X + $fb.Width / 2, $fb.Y + $fb.Height / 2, $tb.X + $tb.Width / 2, $tb.Y + $tb.Height / 2)
+            Start-Sleep 1
+            $run = In $opened { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Run' }
+            if ($run) { [P]::ClickOn($run) }
+            $null = Wait-Until { $n = Node $opened 'Result'; if ($n -and [P]::Status($n) -like '*done*') { 1 } } 30000
+            Start-Sleep 1
+            $pe = Pop-Out 'Result'
+            $stepper = if ($pe) { In $pe { param($e) [P]::Id($e) -eq 'viewer-items' } 8000 }
+            $first = if ($stepper) { [P]::Name($stepper) } else { '' }
+            if (-not $stepper) {
+                [P]::Shot((Join-Path $Work 'list-no-stepper.png'))
+                $bar = if ($pe) { ((@([P]::All($pe) | Where-Object { [P]::Kind($_) -in 'Button', 'Text', 'SplitButton', 'ComboBox' }) | ForEach-Object { [P]::Kind($_) + " '" + [P]::Name($_) + "'" }) | Select-Object -First 14) -join ', ' } else { '' }
+                $listSaw = "Result's text input: " + [P]::Status((Pin (Node $opened 'Result') 'in')) + "; Result: " + [P]::Status((Node $opened 'Result')) + "; the pop-out shows: $bar; "
+            }
+            $names = ''; $after = ''
+            if ($stepper) {
+                [P]::ClickOn($stepper); Start-Sleep 1
+                $items = @([P]::Everything($appPid) | Where-Object { [P]::Kind($_) -eq 'MenuItem' -and [P]::Name($_) -like 'text *' })
+                $names = ($items | ForEach-Object { [P]::Name($_) }) -join ' / '
+                [P]::Shot((Join-Path $Work 'list-names.png'))
+                $c = $items | Where-Object { [P]::Name($_) -eq 'text c' } | Select-Object -First 1
+                if ($c) { [P]::ClickOn($c) } else { Esc }
+                $after = Wait-Until { $s = In $pe { param($e) [P]::Id($e) -eq 'viewer-items' } 2000; if ($s -and [P]::Name($s) -like 'text c*') { [P]::Name($s) } } 10000
+                [P]::Shot((Join-Path $Work 'list-stepped.png'))
+            }
+            $dot = [char]0x00B7   # the script is read as ANSI: the middle dot by its code
+            $ok18 = $first -eq "text a $dot 1 of 4" -and $names -eq 'text a / text b / text c / text d' -and $after -eq "text c $dot 3 of 4"
+            $listSaw += "Result's pop-out: " + $(if ($pe){ [P]::Name($pe) } else { 'none' }) + "; its stepper read: $first; its pick list: $names; after choosing text c: $after"
+            Close-Pop $pe
+        } else { $listSaw = "no Items from the palette: [" + $it18.list + "], or no Result" }
+        Step 'list-names' $ok18 $listSaw
+
+        # 19. a pack's own type by its short name (x.ports.tune reads "tune"), the whole id in the pin's tooltip
+        Starting '19. a pack''s type by its short name, the whole id on hover'
+        Front $opened
+        $tu = Add-From-Palette $opened 0.55 0.33 'Tuning' 'Tuning'
+        $typeSaw = ''; $ok19 = $false
+        if ($tu.node) {
+            $op = Pin (Node $opened 'Tuning') 'out'
+            $label = if ($op) { [P]::Name($op) } else { '' }
+            $tip = ''
+            if ($op) {
+                $ob = [P]::Box($op)
+                [P]::MoveTo($ob.X + $ob.Width / 2, $ob.Y - 40); Start-Sleep -Milliseconds 300
+                [P]::MoveTo($ob.X + $ob.Width / 2, $ob.Y + $ob.Height / 2)
+                $t = [P]::Find($appPid, (Pred { param($e) [P]::Name($e) -like '*x.ports.tune*' }), 5000)
+                if ($t) { $tip = [P]::Kind($t) + ' ' + [P]::Name($t) }
+                [P]::Shot((Join-Path $Work 'pack-type-tip.png'))
+                [P]::MoveTo($ob.X + $ob.Width / 2, $ob.Y - 120)
+            }
+            $ok19 = $label -like '*tune*' -and $label -notlike '*x.ports*' -and $tip -like '*Type: x.ports.tune*'
+            $typeSaw = "Tuning's output reads: $label; its tooltip: " + ($tip -replace "`r?`n", ' ')
+        } else { $typeSaw = "no Tuning from the palette: [" + $tu.list + "]" }
+        Step 'pack-type' $ok19 $typeSaw
     }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'

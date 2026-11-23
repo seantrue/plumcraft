@@ -176,6 +176,31 @@ public class Editing
     });
 
     [Fact]
+    public Task AFocusLossCommitsOnlyWhatWasTyped() => OnContext(async () =>
+    {
+        // B129: a field open on a row loses focus after a script set the value; left as it opened, it puts
+        // nothing back and stays open; typed into, it commits what was typed and closes
+        using var core = OpenCore("edit-focus");
+        var model = await Started(core);
+        var n = await Add(model, "text.widgets", 0, 0);
+        Assert.True(await model.WaitAsync(() => model.FaceOf(n) is not null));
+        var rows = new RowEditor(model);
+        await rows.EditAsync(n, "label");
+        Assert.True(await model.WaitAsync(() => rows.Open?.Edit.Port == "label"));
+        var opened = RowEditor.StartText(rows.Open!.Widget);
+        Assert.Equal("hello", opened);
+        await model.RunAsync("row.set", O(("node", S(n)), ("port", S("label")), ("text", S("scripted"))));
+        string Label() => model.FaceOf(n)!.Inputs.Single(i => i.Key == "label").Widget!.Value.GetString() ?? "";
+        Assert.True(await model.WaitAsync(() => Label() == "scripted"), Label());
+        Assert.False(await rows.FocusLostAsync(opened));
+        Assert.NotNull(rows.Open);
+        await Task.Delay(200);
+        Assert.Equal("scripted", Label());
+        Assert.True(await rows.FocusLostAsync("typed"));
+        Assert.True(await model.WaitAsync(() => rows.Open is null && Label() == "typed"), Label());
+    });
+
+    [Fact]
     public Task ANameIsEditedInPlace() => OnContext(async () =>
     {
         using var core = OpenCore("edit-name");

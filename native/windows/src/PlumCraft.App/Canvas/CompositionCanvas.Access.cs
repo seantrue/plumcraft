@@ -47,6 +47,12 @@ public sealed partial class CompositionCanvas
                 var ftl = View.ToView(new Vector2((float)(r.X + f.Rect.X), (float)(r.Y + f.Rect.Y)));
                 pins.Add(new CanvasPart($"save.{e.Nid}.{f.Port}", "Save Result…", "button", new WRect(ftl.X, ftl.Y, Math.Min(f.Rect.Width, 96) * View.Zoom, f.Rect.Height * View.Zoom), f.Port!, []));
             }
+            // a list of named pictures: the face's picture, named by its tag ("caption · n pictures", 8.7)
+            if (e.ListTagText is { } tag && L.Preview is { } pr)
+            {
+                var ptl = View.ToView(new Vector2((float)(r.X + pr.X), (float)(r.Y + pr.Y)));
+                pins.Add(new CanvasPart($"picture.{e.Nid}", tag, "picture", new WRect(ptl.X, ptl.Y, pr.Width * View.Zoom, pr.Height * View.Zoom), e.Face.Preview?.Summary ?? "", []));
+            }
             var lines = L.Footer.SelectMany(f => f.Lines).ToList();
             var state = e.Face.Header.State.Hover ?? e.Face.Header.State.Kind;
             o.Add(new CanvasPart($"node.{e.Nid}", e.Face.Header.Title.Text, "node", view, string.Join(" | ", lines.Prepend(state)), pins));

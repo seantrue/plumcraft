@@ -405,6 +405,13 @@ public sealed class RowEditor
     /// <summary>Commit what the field holds, then close it or go on. False when the core refused it.</summary>
     public Task<bool> CommitTextAsync(string text, Then then = Then.Close) => SetAsync(("text", Jsonv.Of(text)), then);
 
+    /// <summary>The field lost focus holding `text` (another control, the canvas, a window coming and going):
+    /// it commits only what the person typed. A field left as it opened sets nothing and stays open, so a
+    /// value set while it was open (a script's `row.set`, another window) is not put back (B129, as the Apple
+    /// shells' `FieldEditorHost.lostFocus`). False when nothing was committed or the core refused it.</summary>
+    public Task<bool> FocusLostAsync(string text) =>
+        Open is { } o && text != StartText(o.Widget) ? CommitTextAsync(text, Then.Close) : Task.FromResult(false);
+
     /// <summary>Commit a value (a choice's, a colour's).</summary>
     public Task<bool> CommitValueAsync(JsonElement value, Then then = Then.Close) => SetAsync(("value", value), then);
 
