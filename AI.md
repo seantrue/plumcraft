@@ -42,6 +42,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Environment.** The VM has had no internet since the host's reboot; each rebuild's first launch takes about two minutes while the virus scanner holds new files.
 
+### 2026-11-23 — The iPad UI tests wait on the app's state, not a fixed pause (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the checklist page: fix the two tests that fail at their text size in their window (7A), and have the tests wait on the app's state instead of a fixed 300 ms pause (8B).
+
+**What the AI did.** The app reports what is still moving (a sheet, popover or alert, the keyboard, a menu) in `PlumCraftPad/App/Settling.swift`; before each action the tests wait until nothing is, at most 3 s. On a device the fixed pause stays. Two tests that tapped from the screen's corner instead of the window's now pass in a 375 window. Test-side faults fixed: buttons read by their place in a list while a bar was settling, and the phone's export picker pulled from the status bar.
+
+**Measured (agent, simulators, one pass each, the eleven tests' own times, before then after).** iPad whole screen 300 s then 259 s; one step larger 288 s then 261 s; the 375 by 655 window 484 s then 425 s; the iPhone 318 s then 293 s. The longest single wait was 0.57 s.
+
+**7A is not met in the 375 window.** The save test cannot close an export picker that fills the whole window (no Cancel, and Save is never pressed), and the warned-engine test loses the Engine menu while scrolling it under the keyboard, three runs of three. Both pass on the whole screen and on the phone. B138 still fails and is not caused by the waits.
+
+**Defect in AI work.** The agent's first change to the warned-engine test broke it everywhere (it looked for a menu item at the foot that is at the top); its own run caught it and it was reverted, at the cost of a second pass.
+
 ### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."

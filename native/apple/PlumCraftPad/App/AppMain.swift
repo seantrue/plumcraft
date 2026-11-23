@@ -537,6 +537,9 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         // B118: the on-screen keyboard and what holds the keyboard's focus, for scripts and the
         // UI tests (a keyboard up with nothing being edited covers half the canvas)
         KeyboardWatch.shared.start()
+        // decision 8B: what is still moving, which the UI tests wait on before each action
+        StatusFile.shared.set("settling", .array([]))
+        Settling.shared.start()
         #if DEBUG
         if CoreHost.options.statusElement { StatusElement.shared.start() }
         #endif

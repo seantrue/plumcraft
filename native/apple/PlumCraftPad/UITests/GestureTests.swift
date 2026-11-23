@@ -31,13 +31,32 @@ enum IdleWait {
     static let skipped: Bool = {
         guard ProcessInfo.processInfo.environment["PLUMCRAFT_IDLE_WAIT"] != "on", let cls = NSClassFromString("XCUIApplicationProcess") else { return false }
         let yes: @convention(block) (AnyObject) -> Bool = { _ in true }
-        // before each action, a short settle of a fixed length in its place (PLUMCRAFT_SETTLE_MS,
-        // default 300): an action sent while a sheet, menu or keyboard is still moving is lost
-        // (seen at 375 points and a larger text size), and a bounded pause costs far less than
-        // XCTest's wait, which never ended on the device (B111)
-        let settle = Double(ProcessInfo.processInfo.environment["PLUMCRAFT_SETTLE_MS"] ?? "") ?? 300
+        // before each action, a wait on the app's own state in its place (decision 8B, the
+        // maintainer, 2026-11-23): until the app's status says nothing is still moving (`settling`
+        // empty: no sheet, popover or alert coming or going, the keyboard still, no menu
+        // opening), at most PLUMCRAFT_SETTLE_LIMIT_MS (default 3000). An action sent while a
+        // sheet, menu or keyboard is still moving is lost (seen at 375 points and a larger text
+        // size). Where the status can't be read from here (a device, whose runner reads it
+        // through accessibility, which this hook mustn't query), a fixed PLUMCRAFT_SETTLE_MS
+        // (default 300) as before.
+        let env = ProcessInfo.processInfo.environment
+        let limit = (Double(env["PLUMCRAFT_SETTLE_LIMIT_MS"] ?? "") ?? 3000) / 1000
+        let fixed = (Double(env["PLUMCRAFT_SETTLE_MS"] ?? "") ?? 300) / 1000
         let pre: @convention(block) (AnyObject) -> Bool = { _ in
-            RunLoop.current.run(until: Date().addingTimeInterval(settle / 1000))
+            guard let probe = IdleWait.probe else {
+                RunLoop.current.run(until: Date().addingTimeInterval(fixed))
+                return true
+            }
+            let start = Date()
+            // a beat for what the last action started to reach the status (the app writes it on
+            // its next frame)
+            RunLoop.current.run(until: start.addingTimeInterval(0.05))
+            var moving = probe() ?? []
+            while !moving.isEmpty, Date().timeIntervalSince(start) < limit {
+                RunLoop.current.run(until: Date().addingTimeInterval(0.03))
+                moving = probe() ?? []
+            }
+            IdleWait.note(Date().timeIntervalSince(start), hitLimit: !moving.isEmpty, what: moving)
             return true
         }
         var done = 0
@@ -49,15 +68,47 @@ enum IdleWait {
             method_setImplementation(m, imp_implementationWithBlock(block))
             done += 1
         }
-        print("IDLE: XCTest's idle waits skipped (\(done) of 2), \(Int(settle)) ms settle before each action")
+        print("IDLE: XCTest's idle waits skipped (\(done) of 2); before each action a wait on the app's settling, at most \(Int(limit * 1000)) ms (\(Int(fixed * 1000)) ms fixed where the status can't be read)")
         return done == 2
     }()
+
+    /// The app's `settling` list, read from its status file (nil: nothing to read here).
+    nonisolated(unsafe) static var probe: (() -> [String]?)?
+    nonisolated(unsafe) private static var waits = 0
+    nonisolated(unsafe) private static var waited: TimeInterval = 0
+    nonisolated(unsafe) private static var longest: TimeInterval = 0
+    nonisolated(unsafe) private static var hits: [String] = []
+
+    static func note(_ t: TimeInterval, hitLimit: Bool, what: [String]) {
+        waits += 1
+        waited += t
+        longest = max(longest, t)
+        if hitLimit { hits.append(what.joined(separator: "+")) }
+    }
+
+    /// One line for the log: how many waits, their total and longest, and any that hit the limit.
+    static func summary() -> String {
+        let s = String(format: "SETTLE: %d waits, %.1f s in all, longest %.2f s, %d at the limit", waits, waited, longest, hits.count)
+            + (hits.isEmpty ? "" : " (\(hits.joined(separator: ", ")))")
+        waits = 0
+        waited = 0
+        longest = 0
+        hits = []
+        return s
+    }
 }
 
 final class GestureTests: XCTestCase {
     override func setUp() {
         super.setUp()
         _ = IdleWait.skipped
+        IdleWait.probe = nil
+    }
+
+    override func tearDown() {
+        print("\(IdleWait.summary()) in \(name)")
+        IdleWait.probe = nil
+        super.tearDown()
     }
 
     /// B111: the app's layer animations as it reports them when asked (the debug build's
@@ -114,6 +165,14 @@ final class GestureTests: XCTestCase {
         case "landscape"?: XCUIDevice.shared.orientation = .landscapeLeft
         case "portrait"?: XCUIDevice.shared.orientation = .portrait
         default: break
+        }
+        // decision 8B: the wait before each action reads the app's `settling` from its status file
+        if !viaElement {
+            let p = statusPath
+            IdleWait.probe = {
+                guard let d = FileManager.default.contents(atPath: p), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+                return o["settling"] as? [String]
+            }
         }
         guard viaElement, let k = app.launchArguments.firstIndex(of: "--status-file"), k + 1 < app.launchArguments.count else { return }
         app.launchArguments.replaceSubrange(k...(k + 1), with: ["--status-element"])
@@ -505,7 +564,7 @@ final class GestureTests: XCTestCase {
             let dup = app.buttons["Duplicate"]
             if !dup.waitForExistence(timeout: 10) {
                 shot("n4s2-ui-more-menu-missing")
-                let seen = (app.buttons.allElementsBoundByIndex + app.menuItems.allElementsBoundByIndex).map(\.label).filter { !$0.isEmpty }
+                let seen = (app.buttons.allElementsBoundByAccessibilityElement + app.menuItems.allElementsBoundByAccessibilityElement).filter(\.exists).map(\.label).filter { !$0.isEmpty }
                 XCTFail("the node's menu from the more-button at \(p): on screen \(seen.prefix(40)); face-menu \(app.buttons["face-menu"].exists ? "\(app.buttons["face-menu"].frame)" : "none")")
             }
             shot("n4s2-ui-more-menu")
@@ -792,12 +851,26 @@ extension GestureTests {
     @MainActor
     func toolbar(_ app: XCUIApplication, _ label: String) {
         // the bar's button by its words, the one a finger can reach (another element may share them)
-        func onBar() -> XCUIElement? { app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", label, label)).allElementsBoundByIndex.first { $0.isHittable } }
+        // (where it is, read as it is found: an element taken by its index can be gone by the time
+        // it is touched, as the bar settles at a larger text size in a narrow window, decision 7A)
+        func onBar() -> CGPoint? {
+            // (bound to each element itself, not to its place in the list: an index taken while
+            // the bar settles can point past its end a moment later, "Element at index 4")
+            for b in app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", label, label)).allElementsBoundByAccessibilityElement {
+                guard b.exists, b.isHittable else { continue }
+                let f = b.frame
+                if f.width > 0 { return CGPoint(x: f.midX, y: f.midY) }
+            }
+            return nil
+        }
         let more = app.buttons["tool.more"]
         // either, as the bar settles (no idle wait holds the test until it has, B111)
         let until = Date().addingTimeInterval(10)
         while Date() < until, onBar() == nil, !more.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
-        if let b = onBar() { b.tap(); return }
+        if let p = onBar() {
+            app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+            return
+        }
         XCTAssertTrue(more.exists, "\(label): neither on the bar nor a More menu")
         let it = fromMore(app, more, label)
         XCTAssertTrue(it.waitForExistence(timeout: 5), "\(label) in the More menu")
@@ -951,7 +1024,7 @@ extension GestureTests {
             // (an item's label carries its subtitle: "CADCraft, CADCraft: this device has…")
             let named = NSPredicate(format: "label == 'Reconnect' OR label CONTAINS 'this device has no'")
             // (a button or a menu item: at a larger text size an effect view carries the label too)
-            let items = app.buttons.matching(named).allElementsBoundByIndex + app.menuItems.matching(named).allElementsBoundByIndex
+            let items = app.buttons.matching(named).allElementsBoundByAccessibilityElement + app.menuItems.matching(named).allElementsBoundByAccessibilityElement
             // (a swipe on the app would close the menu)
             // (on screen and above the keyboard: at a larger text size the lowest "hittable" item
             // can be under it, and a swipe there finds an empty visible frame)
@@ -968,7 +1041,7 @@ extension GestureTests {
             // the menu's own list, swiped as a whole where UIKit offers it (an item's press and drag
             // doesn't scroll a menu at a larger text size)
             let at = CGPoint(x: x, y: min(y, top - 8) - 20)
-            let lists = (app.collectionViews.allElementsBoundByIndex + app.scrollViews.allElementsBoundByIndex)
+            let lists = (app.collectionViews.allElementsBoundByAccessibilityElement + app.scrollViews.allElementsBoundByAccessibilityElement)
                 .filter { $0.exists && $0.frame.contains(at) && $0.frame.width < screen.width * 0.9 }
             if let list = lists.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
                 list.swipeUp(velocity: .slow)
@@ -983,7 +1056,7 @@ extension GestureTests {
         }
         shot("n4h-ui-warned-engine")
         guard copied.waitForExistence(timeout: 10) else {
-            let names = app.descendants(matching: .any).allElementsBoundByIndex.map(\.label).filter { !$0.isEmpty }
+            let names = app.descendants(matching: .any).allElementsBoundByAccessibilityElement.filter(\.exists).map(\.label).filter { !$0.isEmpty }
             XCTFail("the warned engine in the Engine menu: not there; on screen \(names); status engine \(status()["engine"] ?? "-"), menuMarked \(status()["menuMarked"] ?? "-")")
             return
         }
@@ -1069,9 +1142,15 @@ extension GestureTests {
         } else if second.exists, second.isHittable {
             second.tap()
         } else {
-            print("PICKER buttons: \(app.buttons.allElementsBoundByIndex.map { "\($0.identifier)|\($0.label)" }.prefix(30))")
-            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
-                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
+            // (each bound to itself: listed by index while the picker settles, a button gone
+            // between the count and the read failed the test, "Element at index 5", decision 7A)
+            print("PICKER buttons: \(app.buttons.allElementsBoundByAccessibilityElement.prefix(30).filter(\.exists).map { "\($0.identifier)|\($0.label)" })")
+            // from the sheet's own bar, not the status bar above it (where the phone's picker
+            // didn't move, decision 7A), within the window
+            let wf = app.windows.firstMatch.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: wf.minX + wf.width * 0.6, dy: wf.minY + wf.height * 0.12))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: wf.midX, dy: wf.minY + wf.height * 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
         }
         let closed = Date().addingTimeInterval(10)
         while Date() < closed, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -1085,7 +1164,11 @@ extension GestureTests {
         wait("Traced's value popped out, with a recipe", timeout: 60) { _ in (popout("t")?["hasRecipe"] as? Bool) == true }
         let recipe = app.buttons["viewer-recipe"]
         XCTAssertTrue(recipe.waitForExistence(timeout: 20), "the Recipe button on Traced's value")
-        recipe.tap()
+        // tapped where it is, read once: in a narrow window the bar's buttons are made again as
+        // the sheet settles, and the element found can be gone by the tap ("Element at index 4",
+        // decision 7A)
+        let rf = recipe.firstMatch.frame
+        app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: rf.midX, dy: rf.midY)).tap()
         let said = Date().addingTimeInterval(15)
         var text = ""
         while Date() < said, !text.contains("traced") {
@@ -1271,7 +1354,8 @@ extension GestureTests {
             let f = app.otherElements["palette-sheet"].firstMatch.frame
             let w = app.windows.firstMatch.frame
             if f.minY - w.minY > 120 {
-                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: f.midX - w.minX, dy: max(60, f.minY - w.minY - 40))).tap()
+                // (frames are the screen's points: in a window smaller than the screen its corner isn't 0,0)
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: f.midX, dy: max(w.minY + 60, f.minY - 40))).tap()
                 closedInTheCore("a tap above it (\(tag))")
             } else {
                 print("B134: \(tag): the sheet takes the whole height (top \(f.minY - w.minY) of \(w.height)): no graph above it to tap")
@@ -1340,10 +1424,14 @@ extension GestureTests {
         // isn't among this app's elements, so it is tapped where it is drawn, trying the few
         // places a sheet puts it on an iPad and an iPhone until the app says the picker closed
         func cancelPicker() {
-            let origin = app.coordinate(withNormalizedOffset: .zero)
-            let w = app.windows.firstMatch.frame.width
-            // an iPad's sheet has the ✕ at its top left; an iPhone's beside "…" at the top right
-            let places = w < 600 ? [CGPoint(x: w - 97, y: 110), CGPoint(x: w - 97, y: 96), CGPoint(x: w - 90, y: 124)]
+            // (the window's own corner: in a window smaller than the screen it isn't the screen's,
+            // and elements' frames are in the screen's points)
+            let wf = app.windows.firstMatch.frame
+            let origin = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: wf.minX, dy: wf.minY))
+            let w = wf.width
+            // an iPad's sheet has the ✕ at its top left; an iPhone's, or a narrow window's,
+            // beside "…" at the top right
+            let places = w < 600 ? [CGPoint(x: w - 97, y: 110), CGPoint(x: w - 97, y: 96), CGPoint(x: w - 90, y: 124), CGPoint(x: w - 97, y: 70), CGPoint(x: w - 97, y: 56)]
                 : [CGPoint(x: 37, y: 84), CGPoint(x: 34, y: 96), CGPoint(x: 34, y: 112), CGPoint(x: 40, y: 72)]
             for p in places where picking() != nil {
                 origin.withOffset(CGVector(dx: p.x, dy: p.y)).tap()
