@@ -4,6 +4,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
+
+- Reported: 2026-11-22, the controller
+- Report: in the Linux gate of branch `native/n4-prompts` the test panicked at `crates/text/tests/conformance.rs:205` (the `unwrap` of `plumcraft_conform::off_the_run_path`); the gate log kept no message beyond the panic's place. Run alone five times on the same host and commit straight after, it passed five times.
+- Context: the branch's only Rust change is 12 lines in `crates/editor-core/src/invoke.rs`, which this test does not reach; the whole suite was running beside it. Not seen before.
+- Open question: is it timing under load (the fixture uses a slow node measured in real seconds), like B39 and B40?
+- Issue: none
+
 ### B126. On the iPad, a Save Result the engine asked about said "Couldn't save" and never offered the file the answer wrote
 
 - Reported: 2026-11-22, found by reading while giving the prompts their labels (branch `native/n4-prompts`)
