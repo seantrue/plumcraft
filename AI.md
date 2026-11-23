@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Photos for Browse: decided, and launched on the iPad simulator (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** 11A: Photos is the shell's business only; the core asks for a file and never knows the source. 12A: the test engine gets a node whose path takes pictures only. The earlier entry recorded this as built but not launched.
+
+**What the AI did.** `ports.picture` ("Read Picture File") in the test engine: a path that takes PNG and JPEG only, and the file's size as output. A UI test in a new file: Browse offers "Photos or Files"; Files opens the document picker, cancelled, nothing set; Photos opens the library's picker, the first photo is tapped, and the node's path names a copy in Picked Files that exists. The interface document now states the decision and records the declined alternative.
+
+**Verified (agent).** That UI test on the iPad simulator; Rust gate with only the known baseline failure; `swift test`; Mac conformance 69 of 69; iPad simulator 68 of 68 with the test engine and every UI test passing or skipped by design. **Limits.** The photo is tapped by position, because the picker is another process's view; the position is the iPad's, and the iPhone's has not been tried. No device has run it. Windows has not run its suite against the test engine with the new node.
+
 ### 2026-11-23 — Photos as a source for Browse on the iPad and iPhone: built, design not decided (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "Yes, fix b133 on all systems." Photos is what remained of it on the iPad.
