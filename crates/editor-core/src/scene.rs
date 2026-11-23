@@ -458,6 +458,22 @@ pub struct InRow {
     pub widget: Option<Widget>,
     /// Not read with the node's current values (`Port::active_when`).
     pub inactive: Option<String>,
+    /// The value its node names an editor for (`NodeDef.editor`), not on a wire: a tap on the
+    /// row opens it, `node.editor {node}` (the row's `node`: on a collapsed group's face, the
+    /// member's; FR1), as the node's own footer does. Absent for every other row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor: Option<RowEditor>,
+}
+
+/// What a row whose value has an editor says of it (section 8.4): the application's editor's
+/// label and help where it registered one for the kind, else the command's own words.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
+pub struct RowEditor {
+    /// The editor's kind (`NodeDef.editor.kind`).
+    pub kind: String,
+    pub label: String,
+    pub hover: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1463,7 +1479,23 @@ fn in_row(cx: &Ctx<'_>, node_id: &NodeId, row: &InputRow) -> InRow {
         badge: None,
         widget: None,
         inactive: None,
+        editor: None,
     };
+    // the value the node names an editor for, while no wire feeds it (FR1: on a collapsed
+    // group's face too, the member's)
+    if wire.is_none()
+        && let Some(d) = def
+        && let Some(named) = d.editor.as_ref().filter(|e| e.port == row.key)
+    {
+        r.editor = Some(match cx.editor(d) {
+            Some(e) => RowEditor { kind: named.kind.clone(), label: e.label.clone(), hover: e.help.clone() },
+            None => RowEditor {
+                kind: named.kind.clone(),
+                label: "Edit Value…".into(),
+                hover: format!("Open the value (this app has no {} editor of its own)", named.kind),
+            },
+        });
+    }
     let named = || {
         let name = i.graph.name_of_port(&at)?;
         let paint = cx.type_color(&port.ty).map_or_else(|| cx.tok("wire"), Paint::of);
@@ -2450,6 +2482,92 @@ mod tests {
         }
         assert_eq!(p.get(Some(g0))["full"], true, "a delta from before the removals kept");
         assert_eq!(p.get(Some(p.generation() - 1))["full"], false);
+    }
+
+    /// FR1: a value a node names an editor for is promoted as any input is, and on the collapsed
+    /// group's face its row opens the editor on the member (the application's where it has one,
+    /// else the command's own words), with the inner row's short form; a wire takes it away;
+    /// undo, save and reopen, and a group inside another keep it.
+    #[test]
+    fn a_promoted_editor_value_is_a_row_that_opens_it_on_the_groups_face() {
+        let mut s = Session::new(catalog());
+        let n = add(&mut s, "t.all", [0.0, 0.0]);
+        let g = GroupId(s.execute("group.create", &json!({"nodes": [n], "name": "dials"})).unwrap()["id"].as_str().unwrap().to_owned());
+        s.execute("group.promote", &json!({"group": g, "port": {"node": n, "port": "curve"}, "label": "shape"})).unwrap();
+        let t = HashMap::new();
+        let proxy_row = |s: &Session, editors: &[Editor], g: &GroupId| -> Option<InRow> {
+            let mut i = inputs(s, Selection::default(), None, &t);
+            i.editors = editors;
+            let sc = build(&i);
+            let id = rows::proxy_node_id(g).0;
+            sc.nodes.iter().find(|f| f.id == id)?.inputs.iter().find(|r| r.key == "curve").cloned()
+        };
+        let inner_row = |s: &Session, editors: &[Editor]| -> InRow {
+            let mut i = inputs(s, Selection::default(), None, &t);
+            i.editors = editors;
+            let sc = build(&i);
+            let ids: Vec<String> = sc.nodes.iter().map(|f| f.id.clone()).collect();
+            sc.nodes
+                .iter()
+                .find(|f| f.id == n.0)
+                .unwrap_or_else(|| panic!("no face {n:?} in {ids:?}"))
+                .inputs
+                .iter()
+                .find(|r| r.key == "curve")
+                .unwrap()
+                .clone()
+        };
+        // open, the node's own row says so too
+        let own = inner_row(&s, &EDITORS);
+        assert_eq!(own.editor.as_ref().map(|e| (e.kind.as_str(), e.label.as_str())), Some(("test.dial", "Edit Dial…")));
+        let own_bare = inner_row(&s, &[]);
+        s.execute("group.collapse", &json!({"group": g, "collapsed": true})).unwrap();
+        // with the application's editor: its label and summary, on the member
+        let row = proxy_row(&s, &EDITORS, &g).expect("the promoted row on the group's face");
+        assert_eq!((row.node.as_str(), row.label.as_str(), row.source.as_str()), (n.0.as_str(), "shape", "readonly"));
+        assert_eq!(row.text.as_deref(), Some("shape: 2 points"));
+        assert_eq!(row.editor.as_ref().map(|e| (e.label.as_str(), e.hover.as_str())), Some(("Edit Dial…", "Edit the dial in its window")));
+        // with none (the native shells): the inner row's short form, and the command's words
+        let bare = proxy_row(&s, &[], &g).unwrap();
+        assert_eq!(bare.text.as_deref(), Some(r#"shape: {"pts":[0,1]}"#));
+        assert_eq!(bare.text.as_deref().map(|t| t.trim_start_matches("shape")), own_bare.text.as_deref().map(|t| t.trim_start_matches("curve")));
+        assert_eq!(bare.editor, own_bare.editor, "the same as the member's own row");
+        let e = bare.editor.clone().expect("the row still opens what this app has");
+        assert_eq!((e.kind.as_str(), e.label.as_str()), ("test.dial", "Edit Value…"));
+        assert!(e.hover.contains("no test.dial editor"), "{}", e.hover);
+        // what opens it is the member's own command
+        let r = s.execute("node.editor", &json!({"node": n})).unwrap();
+        assert_eq!((r["kind"].as_str(), r["port"].as_str()), (Some("test.dial"), Some("curve")));
+        // undo takes the promotion away (collapse, then promote), redo brings it back
+        s.execute("edit.undo", &json!({})).unwrap();
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!(s.graph().group(&g).unwrap().promoted.is_empty());
+        s.execute("edit.redo", &json!({})).unwrap();
+        s.execute("edit.redo", &json!({})).unwrap();
+        assert!(proxy_row(&s, &EDITORS, &g).and_then(|r| r.editor).is_some());
+        // saved and opened again: the same row
+        let dir = plumcraft_scratch::dir("scene-fr1");
+        let path = dir.join("dials.json");
+        s.execute("graph.saveAs", &json!({"path": path})).unwrap();
+        let mut again = Session::new(catalog());
+        again.execute("graph.open", &json!({"path": path, "discard": true})).unwrap();
+        assert_eq!(proxy_row(&again, &EDITORS, &g), proxy_row(&s, &EDITORS, &g));
+        // a wire into another of its inputs leaves the editor (one into the value itself takes it
+        // away: no value there to edit, as `node.editor` refuses)
+        let src = add(&mut s, "t.all", [0.0, 600.0]);
+        s.execute("group.collapse", &json!({"group": g, "collapsed": false})).unwrap();
+        s.execute("wire.connect", &json!({"from": {"node": src, "port": "out"}, "to": {"node": n, "port": "pic"}})).unwrap();
+        assert!(inner_row(&s, &EDITORS).editor.is_some(), "another input's wire changes nothing");
+        // nested: the group inside another, the value promoted to the outer one too
+        let outer = GroupId(s.execute("group.create", &json!({"nodes": [], "groups": [g], "name": "outer"})).unwrap()["id"].as_str().unwrap().to_owned());
+        s.execute("group.promote", &json!({"group": outer, "port": {"node": n, "port": "curve"}, "label": "outer shape"})).unwrap();
+        s.execute("group.collapse", &json!({"group": outer, "collapsed": true})).unwrap();
+        let nested = proxy_row(&s, &EDITORS, &outer).expect("the outer group's row");
+        assert_eq!((nested.label.as_str(), nested.node.as_str()), ("outer shape", n.0.as_str()));
+        assert!(nested.editor.is_some());
+        // demoted: gone from the face
+        s.execute("group.unpromote", &json!({"group": outer, "label": "outer shape"})).unwrap();
+        assert!(proxy_row(&s, &EDITORS, &outer).is_none());
     }
 
     #[test]

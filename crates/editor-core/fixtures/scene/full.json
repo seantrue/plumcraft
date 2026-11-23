@@ -930,6 +930,11 @@
         {
           "badge": null,
           "dim": false,
+          "editor": {
+            "hover": "Edit the dial in its window",
+            "kind": "test.dial",
+            "label": "Edit Dial…"
+          },
           "from": null,
           "hover": null,
           "inactive": null,

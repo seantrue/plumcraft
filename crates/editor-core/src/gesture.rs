@@ -527,6 +527,14 @@ fn tap(f: &Facts<'_>, snap: &Snapshot, h: &Hit, at: Point, mods: Mods, out: &mut
                         out.push(cmd);
                     }
                 }
+                // a row whose value has an editor (FR1: on a collapsed group's face, a promoted
+                // one): the node is selected and its editor opened, as its footer opens it
+                part::ROW if !mods.shift && !mods.primary && h.kind == kind::NODE && snap.row_opens(h.node, h.index).is_some() => {
+                    out.push(select(id, mods));
+                    if let Some(node) = snap.row_opens(h.node, h.index) {
+                        out.push(("node.editor", json!({"node": node})));
+                    }
+                }
                 part::ROW if !mods.shift && !mods.primary && edit_row(snap, h).is_some() => {
                     // a row that can be edited: the node is selected and the row edited (N4
                     // slice 2): a switch flips, anything else opens the shell's field editor

@@ -1099,6 +1099,16 @@ impl<'a> NodeViewer<'a> {
         self.run.node(&node.id.0)
     }
 
+    /// A collapsed group's row whose value has an editor (the scene row's `editor`, FR1): a
+    /// button that opens it on the member, as the member's footer does.
+    fn row_editor(&mut self, ui: &mut egui::Ui, face: &scene::InRow, node: &NodeId) {
+        if let Some(e) = &face.editor
+            && ui.small_button(&e.label).on_hover_text(&e.hover).clicked()
+        {
+            self.actions.push(("node.editor", json!({"node": node})));
+        }
+    }
+
     /// An input row as the scene words it ([`scene::InRow`]): its source decides what is drawn.
     fn input_pin(&mut self, pin: &InPin, ui: &mut egui::Ui, snarl: &mut Snarl<CanvasNode>) -> PinInfo {
         let Some(node) = snarl.get_node(pin.id.node) else { return PinInfo::circle() };
@@ -1112,6 +1122,9 @@ impl<'a> NodeViewer<'a> {
         }
         // a proxy's row stands for a member's port
         let node_id = crate::groups_view::row_node(node, pin.id.input);
+        // a collapsed group's face: a promoted value's editor opens from its row (FR1); a node's
+        // own opens from its footer
+        let proxy = node.proxy.is_some();
         let port = &row.port;
         let at = PortRef::new(node_id.clone(), row.key.clone());
         let label = face.label.as_str();
@@ -1161,6 +1174,9 @@ impl<'a> NodeViewer<'a> {
                         self.actions.push(("node.set", json!({"node": node_id, "port": row.key, "value": value})));
                     }
                     self.field_rects.push(Rect::from_min_max(start, ui.min_rect().max));
+                    if proxy {
+                        self.row_editor(ui, face, &node_id);
+                    }
                 });
             }
             _ => {
@@ -1170,6 +1186,9 @@ impl<'a> NodeViewer<'a> {
                     Self::named_tag(ui, face.named.as_ref(), self.tokens);
                     let r = pin_label(ui, text, hover, PIN_LABEL_WIDTH + CAPTION_WIDTH);
                     self.input_menu(&r, &at, port);
+                    if proxy {
+                        self.row_editor(ui, face, &node_id);
+                    }
                 });
             }
         }

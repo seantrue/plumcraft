@@ -88,7 +88,7 @@ public struct FaceLayout: Sendable, Equatable {
     public var titleWidth: CGFloat = 0
 
     public static func == (a: FaceLayout, b: FaceLayout) -> Bool {
-        a.size == b.size && a.header == b.header && a.inputPins == b.inputPins && a.outputPins == b.outputPins && a.widgets == b.widgets
+        a.size == b.size && a.header == b.header && a.inputPins == b.inputPins && a.outputPins == b.outputPins && a.widgets == b.widgets && a.opens == b.opens
             && a.preview == b.preview && a.footer == b.footer && a.title == b.title && a.status == b.status
             && a.badges.map(\.text) == b.badges.map(\.text) && a.badges.map(\.rect) == b.badges.map(\.rect)
             && a.icon == b.icon && a.more == b.more
@@ -114,11 +114,17 @@ public struct FaceLayout: Sendable, Equatable {
         footerParts.map { $0.map { Rect(Double($0.minX), Double($0.minY), Double($0.maxX), Double($0.maxY)) } }
     }
 
-    /// What `plum_geometry_set` takes for this face.
+    /// Each input row's caption rect where a tap on the row opens its node's value editor (the
+    /// scene row's `editor`, FR1) and the row has no widget; nil elsewhere.
+    public var opens: [CGRect?] = []
+
+    /// What `plum_geometry_set` takes for this face: each row's widget rect, or the rect a tap
+    /// opens the editor in (the core's hit test finds rows by these).
     public func measure(face: UInt64, rev: UInt64) -> FaceMeasureValues {
-        FaceMeasureValues(face: face, rev: rev, width: Float(size.width), height: Float(size.height), header: Float(header),
-                          inputs: inputPins.map { Float($0) }, outputs: outputPins.map { Float($0) },
-                          rows: widgets.map { $0.map { Rect(Double($0.minX), Double($0.minY), Double($0.maxX), Double($0.maxY)) } })
+        let rects = widgets.enumerated().map { k, w in w ?? (k < opens.count ? opens[k] : nil) }
+        return FaceMeasureValues(face: face, rev: rev, width: Float(size.width), height: Float(size.height), header: Float(header),
+                                 inputs: inputPins.map { Float($0) }, outputs: outputPins.map { Float($0) },
+                                 rows: rects.map { $0.map { Rect(Double($0.minX), Double($0.minY), Double($0.maxX), Double($0.maxY)) } })
     }
 }
 
@@ -203,6 +209,7 @@ extension FaceLayout {
         var inputRows: [CGRect] = []
         var inputPins: [CGFloat] = []
         var widgets: [CGRect?] = []
+        var opens: [CGRect?] = []
         var y = top
         for (k, r) in face.inputs.enumerated() {
             let rh = inHeights[k]
@@ -215,7 +222,8 @@ extension FaceLayout {
             } else {
                 widgets.append(nil)
             }
-            _ = r
+            // a row that opens its node's editor: its caption is what a tap lands on
+            opens.append(r.editor != nil && widgetSizes[k] == nil ? CGRect(x: 10, y: y, width: max(24, labelWidths[k] + 8), height: min(rh, M.row)) : nil)
             y += rh
         }
         let inBottom = y
@@ -303,6 +311,7 @@ extension FaceLayout {
                           icon: icon, more: more)
         made.titleWidth = titleW
         made.footerParts = collapsed ? [] : footerParts
+        made.opens = collapsed ? opens.map { _ in nil } : opens
         return made
     }
 

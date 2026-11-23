@@ -579,6 +579,9 @@ struct SFace {
     parts: Vec<(u32, i32, Rect)>,
     /// What a tap on each footer item does, in the footer's order (the shell's `parts.footer[]`).
     footer: Vec<FooterTap>,
+    /// Each input row's node, when a tap on the row opens that node's value editor (the scene
+    /// row's `editor`, FR1), in row order.
+    opens: Vec<Option<String>>,
 }
 
 /// A path row's Browse button (B133), the same in every shell: the square at the right end of
@@ -840,7 +843,8 @@ impl Snapshot {
                 })
                 .collect();
             let footer = f.footer.iter().map(FooterTap::of).collect();
-            faces.push(SFace { nid: f.nid, id: f.id.clone(), pos: f.pos, widgets, rect, header, inputs, outputs, rows, parts, footer });
+            let opens = f.inputs.iter().map(|r| r.editor.as_ref().map(|_| r.node.clone())).collect();
+            faces.push(SFace { nid: f.nid, id: f.id.clone(), pos: f.pos, widgets, rect, header, inputs, outputs, rows, parts, footer, opens });
         }
         let face_at: HashMap<u64, usize> = faces.iter().enumerate().map(|(k, f)| (f.nid, k)).collect();
         let face_id: HashMap<String, usize> = faces.iter().enumerate().map(|(k, f)| (f.id.clone(), k)).collect();
@@ -1391,6 +1395,13 @@ impl Snapshot {
     }
 
     /// Row `row`'s widget on face `nid`, when it has one.
+    /// The node whose value editor a tap on input row `row` of face `nid` opens (the scene row's
+    /// `editor`; on a collapsed group's face, the member's), or none.
+    pub fn row_opens(&self, nid: u64, row: i32) -> Option<&str> {
+        let f = self.face_by_nid(nid)?;
+        f.opens.get(usize::try_from(row).ok()?)?.as_deref()
+    }
+
     pub fn row_widget(&self, nid: u64, row: i32) -> Option<&RowWidget> {
         let f = self.face_by_nid(nid)?;
         f.widgets.get(usize::try_from(row).ok()?)?.as_ref()

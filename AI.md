@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."
+
+**What the AI found.** Promotion already took such a value; what was missing was any way to open the editor from the group, and on the native shells from the node itself.
+
+**What the AI did.** Every input row that is the value a node's `editor` names, and has no wire, carries `editor {kind, label, hover}` in the scene, on the node's own face and on a collapsed group's. A tap on it is the core's `selection.set` then `node.editor`. egui gets a button on the group's row; the Apple shells draw the row as a link. The test engine gains `ports.curve`, a value with an editor hint. `docs/shell-interface.md` 8.4 and 8.13, `docs/interface.md` 7.4; schema and fixtures regenerated.
+
+**Choices the agent made, for the maintainer to confirm.** The member's own row opens its editor too. On the native shells, which register no editors, the row opens the core's value window (the value as JSON) rather than refusing. A wire into the value takes the action away.
+
+**Controller's slip.** The copy of `docs/FEATURES.md` merged earlier in the day lacked the maintainer's design answers though the ledger said they were recorded; this change carries the right text.
+
+**Verified (agent).** nextest 1,651 of 1,652 (the known baseline failure); `swift test` 100 of 100; the new conformance case on the Mac app (68 of 68 cases) and the iPad simulator with the test engine (67 of 67). The controller looked at the iPad simulator's picture of the opened value. **Not verified:** egui by launching (no kittest added); the Mac's value window as a picture; Windows; any device.
+
 ### 2026-11-23 — Parameters beside the canvas on an iPhone in landscape (B135) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention." The controller proposed a column of readable width at one side with the canvas still visible; they answered "Fix b135 with that", and added "Check other landscape presentations for similar parameter display issues".

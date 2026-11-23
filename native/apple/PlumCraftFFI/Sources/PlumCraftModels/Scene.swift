@@ -453,6 +453,17 @@ public struct InRow: Codable, Hashable, Sendable {
     public var badge: Badge?
     public var widget: Widget?
     public var inactive: String?
+    /// The value its node names an editor for (FR1): a tap on the row opens it (`node.editor`
+    /// on the row's `node`, the core's gesture). Absent for every other row.
+    public var editor: RowOpens?
+}
+
+/// What a row whose value has an editor says of it (8.4, the scene's `RowEditor`): the editor a
+/// tap on the row opens.
+public struct RowOpens: Codable, Hashable, Sendable {
+    public var kind: String
+    public var label: String
+    public var hover: String
 }
 
 public struct Named: Codable, Hashable, Sendable {

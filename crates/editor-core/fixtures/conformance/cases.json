@@ -1849,6 +1849,26 @@
         {"only": "copied_manifest", "call": "menu.get", "expect": {"/result/menus": {"$deep": {"label": "Copied Engine", "enabled": true, "warning": {"$includes": "it may be a copy"}, "hover": {"$includes": "no pyproject.toml"}}}}},
         {"only": "copied_manifest", "call": "menu.get", "expect": {"/result/menus": {"$deep": {"label": "Conformance Probe", "warning": {"$exists": false}}}}}
       ]
+    },
+    {
+      "name": "a value with an editor promoted to a group opens the member's editor from the group's face",
+      "about": "FR1 (the maintainer, 2026-11-23: a row that opens it, for every value an engine names an editor for): the test engine's Curve names an editor no application registers, so every shell shows the member's short form; promoted by the same command and menu as any input, on the collapsed group's face it is a row whose tap opens the member's editor (node.editor), here the core's value window",
+      "half": "edit",
+      "needs": ["engine:ports"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "ports.curve", "pos": [0, 0]}}, "save": {"n": "/result/id"}},
+        {"call": "command.run", "params": {"command": "group.create", "params": {"nodes": ["$n"], "name": "Shapes"}}, "save": {"g": "/result/id"}},
+        {"call": "menu.get", "params": {"context": {"kind": "node", "node": "$n"}}, "expect": {"/result/items": {"$deep": {"command": "group.promote", "label": "curve"}}}},
+        {"call": "command.run", "params": {"command": "group.promote", "params": {"group": "$g", "port": {"node": "$n", "port": "curve"}, "label": "curve"}}},
+        {"call": "command.run", "params": {"command": "group.collapse", "params": {"group": "$g", "collapsed": true}}},
+        {"call": "scene.get", "timeout": 20, "until": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs/0/key": "curve", "/inputs/0/node": "$n", "/inputs/0/source": "readonly", "/inputs/0/text": "curve: [[0.0,0.0],[0.5,0.6],[1.0,1.0]]", "/inputs/0/editor/kind": "ports.curve", "/inputs/0/editor/label": "Edit Value…"}}}}},
+        {"geometry": [{"node": "group:$g", "size": [240, 72], "header": 28, "pins": {"in": [43], "out": [43]}, "rows": [[10, 34, 200, 52]]}]},
+        {"only": "rows", "gesture": {"kind": "tap", "at": {"$locate": {"node": "group:$g", "row": 0}}, "slop": 1}, "expect": {"/result/commands": {"$find": {"where": {"command": "node.editor"}, "want": {"/params": {"node": "$n"}, "/ok": true}}}}},
+        {"call": "command.run", "params": {"command": "node.editor", "params": {"node": "$n"}}, "expect": {"/result/kind": "ports.curve", "/result/port": "curve", "/result/open": true}},
+        {"call": "command.run", "params": {"command": "node.editor", "params": {"node": "$n", "open": false}}},
+        {"call": "command.run", "params": {"command": "group.unpromote", "params": {"group": "$g", "label": "curve"}}},
+        {"call": "scene.get", "timeout": 20, "until": {"/result/nodes": {"$find": {"where": {"id": "group:$g"}, "want": {"/inputs": {"$len": 0}}}}}}
+      ]
     }
   ]
 }
