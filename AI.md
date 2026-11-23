@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — The contact sheet's label font replaced with a public-domain one (B125) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Pasted Pillow's documentation showing that `load_default` loads "a version of Aileron Regular" when FreeType is available. That pointed to the way out: the glyphs merged an hour earlier had come from Pillow's other, older bitmap font.
+
+**What was checked, and by whom.** The controller read Pillow's source, which marks the older bitmap font's data `courB08` (Courier Bold 8 from the X11 distribution, the font already in the tree), and the designer's page, which says "Aileron is No Rights Reserved" under CC0 1.0. The agent read the embedded font's own name table: copyright "No Rights Reserved.", family Aileron, no licence entry.
+
+**What the agent did.** Rebuilt the glyph table from Aileron Regular at 11 pixels (102 glyphs: printable ASCII and seven symbols; no accented letters, so those still draw as `?`), with 8-bit coverage and an exactly specified integer blend so Rust and Python make the same pixels. The Courier data is gone; THIRD-PARTY.md names the source and how the table was made.
+
+**Verified (agent, Mac).** nextest 1,645 of 1,646 (the known baseline failure); Python 249; both SDKs match the fixture's hash; the agent looked at a rendered sheet.
+
 ### 2026-11-22 — A hash of what makes the result; a question before saving a non-picture as PNG; labelled contact sheets; a recipe test node (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A": the hash covers only what makes the result; the save questions a non-picture shape, with 16:1 as the aspect limit; labels are drawn on the sheet; the name and hash show only in the files; a test-engine node supplies a recipe. On the label font, after the controller would not push glyphs extracted from Pillow's default font on an unverified licence, three answers in turn: use the research software's GPU array library and its Ubuntu font; then, agreeing that it "drags in a lot", "yes" to the controller's glyph-table proposal; then "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public."

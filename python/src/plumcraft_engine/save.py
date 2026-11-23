@@ -380,28 +380,46 @@ SHEET_INK = (32, 32, 32)
 
 
 def _sheet_font() -> dict:
-    """The label font (decision 4B), the same data as the Rust SDK's `sheet_font.json`."""
+    """The label font (decision 4B; B125): Aileron Regular (Sora Sagano, CC0 1.0) at 11 pixels,
+    the same file as the Rust SDK's `sheet_font.json`; each glyph's coverage decoded to bytes."""
     global _FONT
     if _FONT is None:
-        _FONT = json.loads((pathlib.Path(__file__).parent / "sheet_font.json").read_text("utf-8"))
+        f = json.loads((pathlib.Path(__file__).parent / "sheet_font.json").read_text("utf-8"))
+        f["glyphs"] = {int(k): dict(g, coverage=bytes.fromhex(g["coverage"])) for k, g in f["glyphs"].items()}
+        _FONT = f
     return _FONT
 
 
 _FONT: dict | None = None
 
 
+def _glyph(c: str) -> dict | None:
+    g = _sheet_font()["glyphs"]
+    return g.get(ord(c)) or g.get(ord("?"))
+
+
+def _label_width(text: str) -> int:
+    return sum(g["advance"] for g in map(_glyph, text) if g)
+
+
 def _draw_label(sheet: np.ndarray, x: int, y: int, text: str) -> None:
-    f = _sheet_font()
-    w, first, glyphs = f["width"], f["first"], f["glyphs"]
-    for k, c in enumerate(text):
-        i = ord(c) - first
-        glyph = glyphs[i] if 0 <= i < len(glyphs) else glyphs[ord("?") - first]
-        for row, bits in enumerate(glyph[: f["height"]]):
+    """As the Rust SDK's `draw_label`: each glyph's coverage `a` blends the ink over what is there,
+    `(ink * a + old * (255 - a) + 127) // 255` per channel, then the pen moves by the advance."""
+    height = _sheet_font()["height"]
+    pen = x
+    for c in text:
+        g = _glyph(c)
+        if g is None:
+            continue
+        w, cov = g["width"], g["coverage"]
+        for row in range(height):
             for col in range(w):
-                if bits >> (w - 1 - col) & 1:
-                    yy, xx = y + row, x + k * w + col
-                    if 0 <= yy < sheet.shape[0] and 0 <= xx < sheet.shape[1]:
-                        sheet[yy, xx] = SHEET_INK
+                a = cov[row * w + col] if row * w + col < len(cov) else 0
+                yy, xx = y + row, pen + g["x"] + col
+                if a and 0 <= yy < sheet.shape[0] and 0 <= xx < sheet.shape[1]:
+                    old = sheet[yy, xx].astype(np.int64)
+                    sheet[yy, xx] = (np.array(SHEET_INK, np.int64) * a + old * (255 - a) + 127) // 255
+        pen += g["advance"]
 
 
 def contact_sheet(items: list[Any], labels: list[str] | None = None) -> np.ndarray:
@@ -409,7 +427,7 @@ def contact_sheet(items: list[Any], labels: list[str] | None = None) -> np.ndarr
     `cols` the least whole number whose square holds the items, square cells of the largest side
     held to 64 to 256 pixels with 8-pixel gaps on light grey, each item scaled down (never up) to
     fit and centred; when any item has a label, a 15-pixel band under each cell with its label in
-    the shared bitmap font, centred, cut to what the cell's width holds. At most 256 items."""
+    the shared label font (Aileron), centred, cut to what the cell's width holds. At most 256 items."""
     labels = list(labels or [])
     if not items:
         raise _config("a contact sheet needs at least one item")
@@ -429,7 +447,6 @@ def contact_sheet(items: list[Any], labels: list[str] | None = None) -> np.ndarr
     sw, sh = cols * cell + (cols + 1) * SHEET_GAP, rows * (cell + band) + (rows + 1) * SHEET_GAP
     sheet = np.empty((sh, sw, 3), dtype=np.uint8)
     sheet[...] = SHEET_GROUND
-    fw = _sheet_font()["width"]
     for k, p in enumerate(pictures):
         h, w = p.shape[:2]
         m = max(w, h, 1)
@@ -440,8 +457,12 @@ def contact_sheet(items: list[Any], labels: list[str] | None = None) -> np.ndarr
         x0, y0 = cx + (cell - tw) // 2, cy + (cell - th) // 2
         sheet[y0 : y0 + th, x0 : x0 + tw] = scaled
         if band and k < len(labels) and labels[k]:
-            text = labels[k][: cell // fw]
-            _draw_label(sheet, cx + (cell - len(text) * fw) // 2, cy + cell + 2, text)
+            text = ""
+            for ch in labels[k]:
+                if _label_width(text + ch) > cell:
+                    break
+                text += ch
+            _draw_label(sheet, cx + (cell - _label_width(text)) // 2, cy + cell + 1, text)
     return sheet
 
 
