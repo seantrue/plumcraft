@@ -736,6 +736,7 @@ public final class LayerCanvas {
         }()
         pv.frame = r.offsetBy(dx: FaceMetrics.margin, dy: FaceMetrics.margin)
         pv.opacity = p.faded ? 0.45 : 1
+        listTag(pv, p)
         if e.previewKey == handle { return }
         e.previewKey = handle
         if let got = pictures.cached(handle) {
@@ -753,6 +754,44 @@ public final class LayerCanvas {
             l.contents = got.image
             CATransaction.commit()
         }
+    }
+
+    /// The words on a face's picture when its value is a list (scene `items` above 1): the
+    /// picture's own name and how many there are ("Lab · 11 pictures", or "11 items" unnamed), so
+    /// a list of named pictures reads as one on the face; the pop-out steps through them by name.
+    /// None for a single picture.
+    public nonisolated static func listTagText(_ p: PlumCraftModels.Preview.Picture) -> String? {
+        guard p.items > 1 else { return nil }
+        let name = (p.caption ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "\(p.items) items" : "\(name) · \(p.items) pictures"
+    }
+
+    private func listTag(_ pv: CALayer, _ p: PlumCraftModels.Preview.Picture) {
+        let tag = pv.sublayers?.first { $0.name == "list-tag" } as? CATextLayer
+        guard let text = Self.listTagText(p) else {
+            tag?.removeFromSuperlayer()
+            return
+        }
+        let t = tag ?? {
+            let l = CATextLayer()
+            l.name = "list-tag"
+            l.anchorPoint = .zero
+            l.fontSize = 10
+            l.cornerRadius = 3
+            l.alignmentMode = .left
+            l.truncationMode = .end
+            l.contentsScale = screenScale * 2
+            pv.addSublayer(l)
+            return l
+        }()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        t.string = " \(text) "
+        t.foregroundColor = CGColor(gray: 1, alpha: 1)
+        t.backgroundColor = CGColor(gray: 0, alpha: 0.55)
+        let w = min(pv.bounds.width - 4, CGFloat(text.count) * 6.4 + 12)
+        t.frame = CGRect(x: 2, y: pv.bounds.height - 16, width: max(0, w), height: 14)
+        CATransaction.commit()
     }
 
     /// A face's waveform thumbnail: the peaks rendition (min and max a column, a lane a channel)

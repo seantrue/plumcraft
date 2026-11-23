@@ -208,3 +208,18 @@ let testEnvironment: Void = {
         #expect(found)
     }
 }
+
+/// A list of named pictures (an engine's `sheet` labels) is stepped by name in the viewer bar.
+@Test func aListsItemsAreSteppedByName() throws {
+    let named = try JSONValueDecoder().decode(PopoutValue.self, from: Data("""
+        {"id": 1, "node": "n", "port": "p", "items": 3, "index": 1,
+         "sheet": [{"index": 0, "label": "Lab"}, {"index": 1, "label": "l"}, {"index": 2, "label": ""}]}
+        """.utf8))
+    let names = ViewerBar.itemNames(named)
+    #expect(names == ["Lab", "l", "item 3"])
+    #expect(ViewerBar.itemTitle(names, 1, 3) == "l · 2 of 3")
+    let unnamed = try JSONValueDecoder().decode(PopoutValue.self, from: Data("""
+        {"id": 1, "node": "n", "port": "p", "items": 3, "index": 0, "sheet": [{"index": 0, "label": ""}]}
+        """.utf8))
+    #expect(ViewerBar.itemNames(unnamed).isEmpty, "no names: the plain stepper")
+}

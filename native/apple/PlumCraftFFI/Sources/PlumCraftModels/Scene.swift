@@ -546,6 +546,8 @@ public enum Preview: Codable, Hashable, Sendable {
         public var hoverSize: Size
         public var items: UInt64
         public var summary: String
+        /// The picture's own name (a list of named pictures: the one shown), when the engine gives one.
+        public var caption: String?
         public var note: String?
         public var faded: Bool
     }

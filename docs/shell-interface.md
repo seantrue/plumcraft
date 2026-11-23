@@ -554,10 +554,10 @@ An **input row**:
 | `source` | Drawn as (today, `canvas.rs:1154-1231`) |
 |---|---|
 | `wired` | `text` = `label = value (wired from Title)`, no widget; with `badge` `{text: <bundle word>, command: "bundle.reset", params: {node, port}}` when a wire overrides a bundled value |
-| `socket` | A socket-only input: `text` is the label with its type (`audio · WAV`) unless the label names it (`typed_label`) |
+| `socket` | A socket-only input: `text` is the label with its type (`audio · WAV`) unless the label names it (`typed_label`). A pack's own type (`x.<pack>.<name>`, interface 7.2) is shown as `<name>` (`widget_text::shown_type`; S3 of an application's iPad app, 2026-11-23): `signals` on `x.<pack>.signals` reads `signals`, the full id staying in `hover` (`Type: …`). Output rows' labels the same |
 | `inherited` | From the bundle wired into the node: label in italics, the bundle's value, "from <word>" |
 | `own` | The widget, with the caption dim when the value is the default |
-| `readonly` | A widget the editor doesn't know: `label: value`, or an application editor's summary |
+| `readonly` | A widget the editor doesn't know: `label: value`, or an application editor's summary. With no summary, a value longer than 40 characters is summed up (`widget_text::value_short`: an object as its fields' names, a list as its length, a string cut with `…`) and `hover` holds the whole of it (up to 4,096 characters): the native shells register no application editors, so a curve's JSON no longer fills the face |
 
 - `pinShape`: `circle` for scalars, `square` otherwise; `pinColor` the wire type's colour, else the `pin_default` token; a non-wireable port has `wireable: false` and a hidden pin (`canvas.rs:1045`, `:1230`).
 - `list: true` adds `[ ]` after the label (inputs) or before it (outputs).
@@ -624,6 +624,8 @@ The amount is multiplied by **strength**: 1 while the run or replay goes on and 
  "summary": "array HSI 64×80 float32", "note": "From the previous run: …", "faded": false, "missing": false,
  "tap": {"command": "run.watch", "params": {"node": "n2"}}, "hoverSize": [160, 120]}
 ```
+
+`caption` (absent when empty) is the picture's own name, the rendition's: with `items` above 1 the value is a list of named pictures and this is the first of them (an engine's view of a value as several named pictures, each in its own mapping, through the list's stepper and sheet, interface 10.2). The Apple shells write `<caption> · <items> pictures` (`<items> items` with no caption) on the face's picture (`LayerCanvas.listTagText`), and the pop-out's stepper names each item by its `sheet` label with a menu of all of them (`ViewerBar.itemNames`), as the egui editor's list of items does.
 
 `kind` `peaks` (a waveform, `{handle, channels}`; decoded with `media.peaks`, drawn in `waveform` on `waveform_bg`, `audio::THUMB_SIZE`). `missing`: the bytes were reaped; the shell shows "re-run to refresh" on `placeholder`. A shape the core can't read is `{"kind": "unreadable", "text": "preview unreadable: …"}`.
 

@@ -115,8 +115,25 @@ public struct ViewerBar: SwiftUI.View {
             }
             if let n = value.items, n > 1 {
                 let i = value.index ?? 0
+                let names = Self.itemNames(value)
                 Button { step(i - 1, n) } label: { Image(systemName: "chevron.left") }.disabled(i <= 0).accessibilityLabel("Previous Item")
-                Text("item \(i + 1) of \(n)").font(.caption).monospacedDigit()
+                if names.isEmpty {
+                    Text("item \(i + 1) of \(n)").font(.caption).monospacedDigit()
+                } else {
+                    // a list of named pictures (SIGNALS's planes, say): each by its name, as the
+                    // egui editor's list of items has them (`run.item`)
+                    Menu {
+                        ForEach(Array(names.enumerated()), id: \.offset) { k, name in
+                            Button { step(Int64(k), n) } label: {
+                                if Int64(k) == i { Label(name, systemImage: "checkmark") } else { Text(name) }
+                            }
+                        }
+                    } label: {
+                        Text(Self.itemTitle(names, i, n)).font(.caption).monospacedDigit()
+                    }
+                    .fixedSize()
+                    .accessibilityIdentifier("viewer-items")
+                }
                 Button { step(i + 1, n) } label: { Image(systemName: "chevron.right") }.disabled(i + 1 >= n).accessibilityLabel("Next Item")
             }
             Spacer(minLength: 4)
@@ -154,6 +171,19 @@ public struct ViewerBar: SwiftUI.View {
         .buttonStyle(.borderless)
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
+    }
+
+    /// A list's items by name (`sheet`'s labels, in order), or none when the engine named none.
+    public nonisolated static func itemNames(_ value: PopoutValue) -> [String] {
+        let cells = value.sheet?.array ?? []
+        let names = cells.map { $0["label"].string ?? "" }
+        return names.contains(where: { !$0.isEmpty }) ? names.enumerated().map { $1.isEmpty ? "item \($0 + 1)" : $1 } : []
+    }
+
+    /// The stepper's words for item `i` of `n`: its name and where it is ("Lab · 1 of 11").
+    public nonisolated static func itemTitle(_ names: [String], _ i: Int64, _ n: UInt64) -> String {
+        let name = i >= 0 && Int(i) < names.count ? names[Int(i)] : "item \(i + 1)"
+        return "\(name) · \(i + 1) of \(n)"
     }
 
     private func step(_ i: Int64, _ n: UInt64) {

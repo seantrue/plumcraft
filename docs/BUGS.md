@@ -235,6 +235,13 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B136. iPad: a script's `graph.open` leaves the window on its old file
+
+- Reported: 2026-11-23, an agent (an application's iPad app, a conformance case in the simulator)
+- Report: `graph.open` over the control port, in a document the browser had opened, replaced the graph and moved the core's file and title, but the window kept the browser's file: the title still named it, and Save when closing a dirty document would have written the opened graph over the window's file. A person's File › Open on the iPad goes to the document browser, so only scripts reached it.
+- Fixed: 2026-11-23, branch `native/pack-views`: the title follows the core's file when it differs, and Save on closing writes to the core's file (or a `.json` beside a picture), never over the window's other file.
+- Issue: none
+
 ### B130. On the iPad in a 375-point window, Run and More folded into the system's overflow menu (More inside More)
 
 - Reported: 2026-11-22, the controller's device run at 375 by 655 in landscape (`testNoKeyboardWithNothingEdited` failed in 18 s, "the bar's More menu": the bar had Documents, the title "Inline Editing" and the system's `OverflowBarButtonItem` "More"; `testCompactWindowsByATap`, on a graph with a shorter title, had found More earlier in the run)

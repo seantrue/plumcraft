@@ -71,7 +71,25 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     @available(*, unavailable)
     required init?(coder: NSCoder) { nil }
 
-    var name: String { document.fileURL.deletingPathExtension().lastPathComponent }
+    /// The graph's name: the core's file when it has one other than this window's (a script's
+    /// `graph.open` in this document, which a person's File › Open never does here: the browser
+    /// opens files), else this window's file.
+    var name: String {
+        if let p = model?.state.path, !p.isEmpty {
+            let core = URL(fileURLWithPath: p).resolvingSymlinksInPath()
+            if core != document.fileURL.resolvingSymlinksInPath() { return core.deletingPathExtension().lastPathComponent }
+        }
+        return document.fileURL.deletingPathExtension().lastPathComponent
+    }
+
+    /// Where Save on closing writes the graph: the core's file when it has one; else this
+    /// window's, when that is a graph file; else (a picture opened as its recipe, through an
+    /// application's opener) a graph file beside it of the same name, never over the picture.
+    var savePath: String {
+        if let p = model?.state.path, !p.isEmpty { return p }
+        let u = document.fileURL
+        return u.pathExtension.lowercased() == "json" ? u.path : u.deletingPathExtension().appendingPathExtension("json").path
+    }
 
     // MARK: The view
 
@@ -774,7 +792,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             a.addAction(UIAlertAction(title: "Save", style: .default) { [weak self] _ in
                 guard let self, let m = self.model else { return }
                 Task {
-                    _ = try? await m.run("graph.save", ["path": .string(self.document.fileURL.path)])
+                    _ = try? await m.run("graph.save", ["path": .string(self.savePath)])
                     self.finishClose(then)
                 }
             })

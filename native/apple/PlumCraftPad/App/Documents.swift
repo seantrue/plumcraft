@@ -21,6 +21,10 @@ import UniformTypeIdentifiers
 /// reads it once to check it is a graph and to get it from its provider, so it never saves.
 final class GraphDocument: UIDocument {
     override func load(fromContents contents: Any, ofType typeName: String?) throws {
+        // a file of another kind the app declares (an application's picture opened as its
+        // recipe, docs/shell-interface.md 4.5): the core reads it through the application's
+        // opener, or says why it can't
+        guard fileURL.pathExtension.lowercased() == "json" else { return }
         let v = (contents as? Data).flatMap { try? JSONSerialization.jsonObject(with: $0) }
         guard let o = v as? [String: Any], o["nodes"] != nil else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError,
@@ -90,7 +94,9 @@ final class BrowserViewController: UIDocumentBrowserViewController, @preconcurre
     weak var graph: GraphViewController?
 
     init() {
-        super.init(forOpening: [.json])
+        // the document types the app declares (its Info.plist): graphs, and whatever an
+        // application built on this shell opens beside them
+        super.init(forOpening: nil)
         delegate = self
         allowsDocumentCreation = true
         allowsPickingMultipleItems = false
