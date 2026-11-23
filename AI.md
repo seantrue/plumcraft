@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — The two iPad tests pass in the maintainer's 375 window (decision 7A met) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** 7A: fix the two tests that fail at their text size in a 375 by 655 window. The entry for the test waits recorded this as not met there.
+
+**What the AI found.** Both faults were the tests', not the app's. The export picker fills the window at that size with no Cancel in sight, but a person can leave without saving (Browse, then the close mark on the list of places); the test now does that and never presses Save. It had also pulled a sheet by the screen's proportions instead of the window's. The warned-engine test's menu trouble went away with the earlier change to find menu items by the element; the keyboard it scrolls under is the simulator showing a software keyboard with any open menu, not a focused field. No device run has checked that a person does not see that keyboard.
+
+**Verified (agent).** One full pass in the 375 window at one step larger text: 10 passed, 1 skipped (needs a compact height), 0 failed.
+
 ### 2026-11-23 — The iPad UI tests wait on the app's state, not a fixed pause (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** On the checklist page: fix the two tests that fail at their text size in their window (7A), and have the tests wait on the app's state instead of a fixed 300 ms pause (8B).
