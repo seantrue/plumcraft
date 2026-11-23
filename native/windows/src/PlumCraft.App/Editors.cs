@@ -318,6 +318,9 @@ public sealed class Editors
     async Task FocusLost(TextBox tb)
     {
         if (committing) return;
+        // a press on this row's own Browse: the core's row.browse closes the field without its text (B133), so
+        // the focus loss it causes commits nothing
+        if (Rows.Open is { } o && PathBrowse.Offered(o.Widget) && view.PointerOverBrowse(o.Edit.Face, o.Edit.Row)) return;
         committing = true;
         var ok = await Rows.FocusLostAsync(tb.Text);
         committing = false;
@@ -379,6 +382,8 @@ public sealed class Editors
         if (field is { } f && Rows.Open is { } o && c.RowRect(o.Edit.Face, o.Edit.Row) is { } r)
         {
             var row = o.Kind == WidgetWord.Multiline ? r with { Y1 = Math.Max(r.Y1, r.Y0 + 50) } : r;
+            // a path's field stops short of its Browse square, which stays tappable while the text is edited (B133)
+            if (PathBrowse.Offered(o.Widget)) row = PathBrowse.Field(row);
             var p = EditorPlacement.Place(row, c.View.Zoom, pan, size);
             Put(f, p);
         }

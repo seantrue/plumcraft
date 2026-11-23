@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Browse for a path input on Windows (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "Yes, fix b133 on all systems." This is the Windows half; the core and the Apple shells went in earlier the same day.
+
+**What the AI did.** A path row draws the Browse button in the core's square and exposes it to UI Automation; the tap is the core's `row.browse`. The asks for a path are answered with the common item dialog through COM (`PathDialogs.cs`), because the pickers the shell used before can only start in a known library and so ignored the current value's folder; the dialog opens there, filters by the hint's kinds, and returns real paths. Pressing Browse while the field is open closes it without its text: on Windows the press takes focus first, and the focus-loss rule from B141 would otherwise have committed what was typed. The scene model decodes the row's `editor` (decode only): without it five kit tests failed against the merged dev branch.
+
+**Verified (agent, on the Windows test VM, on the merged dev branch).** `dotnet test` 62 of 62; C# runner 68 of 68 on ARM64 and x64; Swift runner 60 of 60; person check 23 of 23 three times, its new step opening the real dialog, reading it and cancelling it. Floor row F16 is met on Windows. **Not done:** drawing and tapping the editor row on Windows (its own slice).
+
+**Seen again.** B99, the palette case the maintainer said to watch, failed on ARM64 in two runners on an intermediate commit and passed on the final one; recorded in its entry.
+
+**Environment.** The VM has had no internet since the host's reboot; each rebuild's first launch takes about two minutes while the virus scanner holds new files.
+
 ### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."

@@ -41,6 +41,14 @@ public sealed partial class CompositionCanvas
                 var row = e.Face.Outputs[k];
                 pins.Add(new CanvasPart($"out.{e.Nid}.{row.Key}", row.Label, "output", Pin(L.W, L.OutputPins[k]), row.Ty, []));
             }
+            // a path row's Browse square (B133), a button on its face
+            for (int k = 0; k < e.Face.Inputs.Count && k < L.Widgets.Length; k++)
+            {
+                if (L.Widgets[k] is not { } wr || !PlumCraft.Models.PathBrowse.Offered(e.Face.Inputs[k].Widget)) continue;
+                var sq = PlumCraft.Models.PathBrowse.Square(new PlumCraft.Models.Rect(wr.X, wr.Y, wr.X + wr.Width, wr.Y + wr.Height));
+                var btl = View.ToView(new Vector2((float)(r.X + sq.X0), (float)(r.Y + sq.Y0)));
+                pins.Add(new CanvasPart($"browse.{e.Nid}.{e.Face.Inputs[k].Key}", "Browse", "button", new WRect(btl.X, btl.Y, sq.Width * View.Zoom, sq.Height * View.Zoom), e.Face.Inputs[k].Label, []));
+            }
             // the footer's Save Result… line, a button on its face
             foreach (var f in L.Footer.Where(f => f.Kind == "save" && f.Port is not null))
             {
