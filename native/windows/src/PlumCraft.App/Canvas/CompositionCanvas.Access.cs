@@ -41,6 +41,21 @@ public sealed partial class CompositionCanvas
                 var row = e.Face.Outputs[k];
                 pins.Add(new CanvasPart($"out.{e.Nid}.{row.Key}", row.Label, "output", Pin(L.W, L.OutputPins[k]), row.Ty, []));
             }
+            // a path row's Browse square (B133), a button on its face
+            for (int k = 0; k < e.Face.Inputs.Count && k < L.Widgets.Length; k++)
+            {
+                if (L.Widgets[k] is not { } wr || !PlumCraft.Models.PathBrowse.Offered(e.Face.Inputs[k].Widget)) continue;
+                var sq = PlumCraft.Models.PathBrowse.Square(new PlumCraft.Models.Rect(wr.X, wr.Y, wr.X + wr.Width, wr.Y + wr.Height));
+                var btl = View.ToView(new Vector2((float)(r.X + sq.X0), (float)(r.Y + sq.Y0)));
+                pins.Add(new CanvasPart($"browse.{e.Nid}.{e.Face.Inputs[k].Key}", "Browse", "button", new WRect(btl.X, btl.Y, sq.Width * View.Zoom, sq.Height * View.Zoom), e.Face.Inputs[k].Label, []));
+            }
+            // a row that opens its node's value editor (FR1), a button on its face named by the row's label
+            for (int k = 0; k < e.Face.Inputs.Count && k < L.Opens.Length; k++)
+            {
+                if (L.Opens[k] is not { } orr || e.Face.Inputs[k].Editor is not { } ed) continue;
+                var otl = View.ToView(new Vector2((float)(r.X + orr.X), (float)(r.Y + orr.Y)));
+                pins.Add(new CanvasPart($"editor.{e.Nid}.{e.Face.Inputs[k].Key}", ed.Label, "button", new WRect(otl.X, otl.Y, orr.Width * View.Zoom, orr.Height * View.Zoom), ed.Hover, []));
+            }
             // the footer's Save Result… line, a button on its face
             foreach (var f in L.Footer.Where(f => f.Kind == "save" && f.Port is not null))
             {
@@ -56,6 +71,16 @@ public sealed partial class CompositionCanvas
             var lines = L.Footer.SelectMany(f => f.Lines).ToList();
             var state = e.Face.Header.State.Hover ?? e.Face.Header.State.Kind;
             o.Add(new CanvasPart($"node.{e.Nid}", e.Face.Header.Title.Text, "node", view, string.Join(" | ", lines.Prepend(state)), pins));
+        }
+        // an open group's band: its chevron, a button a tap on collapses the group (the core's gesture, the
+        // band's top-left 26 by GROUP_HEADER, gesture.rs band_chevron)
+        foreach (var g in Model.Groups.Items)
+        {
+            if (g.Collapsed || g.Rect is not { } gr) continue;
+            var tl = View.ToView(new Vector2((float)gr.X0, (float)gr.Y0));
+            var view = new WRect(tl.X, tl.Y, 26 * View.Zoom, 28 * View.Zoom);
+            if (view.X > ViewSize.X || view.Y > ViewSize.Y || view.X + view.Width < 0 || view.Y + view.Height < 0) continue;
+            o.Add(new CanvasPart($"group.{g.Id}", "Collapse " + g.Name, "button", view, g.Name, []));
         }
         return o;
     }

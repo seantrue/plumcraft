@@ -179,6 +179,54 @@ enum PersonSteps {
                 menu = s
             }
             return ["ok": false, "error": "empty path"]
+        case "core-drag":
+            // KEY|ID|FX,FY|TX,TY: in the core window KEY (`editor:n`), a mouse drag from fraction
+            // (FX, FY) of the element ID's frame (`curves-plot`) to (TX, TY), as a person's: down,
+            // a few drags, up, sent to the window (S4a: the curves editor's drag on the Mac)
+            let parts = arg.split(separator: "|").map(String.init)
+            func pair(_ s: String) -> (CGFloat, CGFloat)? {
+                let v = s.split(separator: ",").compactMap { Double($0) }
+                return v.count == 2 ? (CGFloat(v[0]), CGFloat(v[1])) : nil
+            }
+            guard parts.count == 4, let from = pair(parts[2]), let to = pair(parts[3]) else {
+                return ["ok": false, "error": "core-drag: KEY|ID|FX,FY|TX,TY"]
+            }
+            guard let win = NSApp.windows.first(where: { $0.identifier?.rawValue == "core-\(parts[0])" }), let content = win.contentView else {
+                return ["ok": false, "error": .string("no window \(parts[0])")]
+            }
+            guard let screen = element(parts[1], in: content, depth: 0)?.accessibilityFrame?(), screen.width > 0 else {
+                return ["ok": false, "error": .string("no element \(parts[1]) in \(parts[0])")]
+            }
+            // the element's frame in the window (accessibility frames are the screen's, y up)
+            let r = win.convertFromScreen(screen)
+            func at(_ f: (CGFloat, CGFloat)) -> NSPoint { NSPoint(x: r.minX + f.0 * r.width, y: r.maxY - f.1 * r.height) }
+            let a = at(from), b = at(to)
+            await onRunLoop {
+                // key within the app (never activating it): a click into a window that isn't key
+                // only makes it key, as a person's first click does
+                win.makeKey()
+                func send(_ type: NSEvent.EventType, _ p: NSPoint) {
+                    if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
+                        // to the view under the point, as AppKit routes a click there (the window's own
+                        // routing drops a click into a window that isn't on screen: a locked screen)
+                        let at = content.convert(p, from: nil)
+                        let v = content.hitTest(at) ?? content
+                        switch type {
+                        case .leftMouseDown: v.mouseDown(with: e)
+                        case .leftMouseDragged: v.mouseDragged(with: e)
+                        default: v.mouseUp(with: e)
+                        }
+                    }
+                }
+                send(.leftMouseDown, a)
+                for k in 1...8 {
+                    let t = CGFloat(k) / 8
+                    send(.leftMouseDragged, NSPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t))
+                }
+                send(.leftMouseUp, b)
+            }
+            return ["ok": true, "frame": [.double(Double(r.minX)), .double(Double(r.minY)), .double(Double(r.width)), .double(Double(r.height))]]
         case "dock-reopen":
             let visible = NSApp.windows.contains { $0.isVisible && $0.windowController is GraphWindowController }
             (NSApp.delegate as? AppDelegate)?.reopen(hasVisibleWindows: visible)
@@ -186,6 +234,18 @@ enum PersonSteps {
         default:
             return nil
         }
+    }
+
+    /// The accessibility element with identifier `id` under `node` (the app's own tree, read in
+    /// process: no accessibility permission needed).
+    static func element(_ id: String, in node: Any, depth: Int) -> AnyObject? {
+        guard depth < 40 else { return nil }
+        let o = node as AnyObject
+        if let ident = o.accessibilityIdentifier?(), ident == id { return o }
+        for c in o.accessibilityChildren?() ?? [] {
+            if let hit = element(id, in: c, depth: depth + 1) { return hit }
+        }
+        return nil
     }
 
     /// Run `f` from the main run loop itself, as an event's handling runs, never inside this

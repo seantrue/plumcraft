@@ -902,13 +902,19 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
             let r = reports[key] ?? ReportModel(model: model, key: key)
             reports[key] = r
             r.follow(stamp)
-            vc = UIHostingController(rootView: ReportView(report: r, done: { [weak self] in self?.closed(key) }))
+            let done: () -> Void = { [weak self] in self?.closed(key) }
+            // a value editor: the native one for its kind, else the core's value window
+            vc = key.hasPrefix("editor:")
+                ? UIHostingController(rootView: AnyView(ValueEditorView(report: r, pictures: pictures, done: done)))
+                : UIHostingController(rootView: AnyView(ReportView(report: r, done: done)))
         }
         vc.view.backgroundColor = .sheetGround
         vc.modalPresentationStyle = .pageSheet
         if let sp = vc.sheetPresentationController {
             sp.detents = [.medium(), .large()]
             sp.prefersGrabberVisible = true
+            // a value editor opens tall: a native one's plot and its preview whole (S4a)
+            if key.hasPrefix("editor:") { sp.selectedDetentIdentifier = .large }
         }
         vc.presentationController?.delegate = self
         vc.view.accessibilityIdentifier = "core-\(key)"

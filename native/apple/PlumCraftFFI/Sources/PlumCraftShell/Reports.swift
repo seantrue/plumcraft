@@ -27,6 +27,12 @@ public final class ReportModel {
     /// Why a field's text was refused, by the same key.
     public var refused: [String: String] = [:]
     @ObservationIgnored private var stamp: UInt64?
+    /// The core's stamp as last followed: a native editor reads again when it moves.
+    public private(set) var followed: UInt64?
+    /// A value editor's native view's model, once the node's kind says it has one.
+    public var curves: CurvesModel?
+    /// What a native editor shows, for scripts.
+    public var native: JSONValue?
     @ObservationIgnored private var busy = false
     @ObservationIgnored private var again = false
 
@@ -46,6 +52,7 @@ public final class ReportModel {
     public func follow(_ s: UInt64?) {
         if reply != nil, s == stamp { return }
         stamp = s
+        if followed != s { followed = s }
         reload()
     }
 
@@ -134,7 +141,7 @@ public final class ReportModel {
     public var describe: JSONValue {
         ["key": .string(key), "title": .string(title), "sections": .uint(UInt64(reply?["sections"].array?.count ?? 0)),
          "rows": .uint(UInt64((reply?["sections"].array ?? []).reduce(0) { $0 + ($1["rows"].array?.count ?? 0) })),
-         "error": error.map(JSONValue.string) ?? .null]
+         "error": error.map(JSONValue.string) ?? .null, "native": curves?.describe ?? native ?? .null]
     }
 }
 

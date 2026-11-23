@@ -336,6 +336,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(crate::named_cmds::specs());
         v.extend(crate::file_cmds::quit_specs());
         v.extend(crate::group_cmds::specs());
+        v.extend(crate::curve_cmds::specs());
         v.extend(crate::run_cmds::specs());
         v.extend(crate::save_cmds::specs());
         v.extend(crate::trust::specs());

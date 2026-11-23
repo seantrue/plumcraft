@@ -759,7 +759,7 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F56 | Recipe display | Met (launched) | Met (launched, over HTTP) | Decision 27: the viewer bar's Recipe, offered only when the value has one (`popout.get`'s `hasRecipe`: recipes come only from lineage-tracking engines, the maintainer, "go with 2 less risk"); decision 7A gave the test engine a node that supplies one (`ports.traced`). Mac (branch `native/n4-prompts`): person check "F56: a lineage-tracking node's value pops out with a Recipe button; pressed, its popover shows what made the value" (Traced popped out by a click on its pin; the button pressed through accessibility; the popover's text read through accessibility and the app's report, "traced") and "F56: the Result node's value (no lineage) pops out without a Recipe button"; "the pop-out's bar offers no Recipe for a built-in engine's value" as before; conformance "ports: a value with a recipe offers Recipe, and one without doesn't" on the launched app. iPad: UI test `testTheSavesQuestionAndARecipe` with the test engine over HTTP (compact layout: Traced's value popped out by a double tap on its pin, Recipe tapped, "traced" read on screen; Strip's value has none), and the same conformance case on the simulator's app. B128 (the iPad's sheet drew "No recipe" over a recipe) found and fixed on the way |
 | F57 | Picture window (T16) | Met | Met | Conformance "a value popped out is a window of the core's…"; iPad `testEveryViewerByATap` |
 | F58 | Missing data is a state | Met | Met | Conformance "a value read as what it isn't is refused with a reason, and the core still serves" |
-| F59 | Curve editor | Not met | Not met | The research software's (N6) |
+| F59 | Curve editor | Partly met (S4a: the commands through the launched app; the native editor drawn by the app, no named test drags on it) | Met on the iPad simulator (S4a); the iPhone not met | Mac: conformance "the curves editor's commands edit an array node's curves, one undo step each, and a run sends the editor its data" (61 of 61), the editor window pictured by `ui.screenshot {window}`; person check "S4a: Apply Curve's curves row opens the shell's curves editor, with the run's histogram and picture" (PASS); its drag step not done with the screen locked (SEE). iPad simulator: UI test `testCurvesEditor` (opened from a node and a collapsed group's row, a drag adds and moves a point, one undo restores it). Not on a device. The iPhone's compact layout and Windows are later slices |
 | F60 | Mask editor | Not met | Not met | The research software's (N6) |
 | F61 | List mapping with axes | Not met | Not met | Core only |
 | F62 | Vary nodes | Not met | Not met | Core only |
@@ -1206,6 +1206,35 @@ Not answered: whether the graph hash covers the whole document (the core's `trus
     - NuGet's audit is off per build in the scratch scripts;
     - newly built files are held by Defender at first use (cloud protection with no cloud), so the first launch after a build can take 25 to 90 s; one warm-up launch follows each rebuild;
     - `plum_open` itself took 7 to 9 ms offline in every configuration tried.
+- **B133 on Windows: Browse for a path row (2026-11-23, branch `fix/b133-windows-browse`, on the dev branch at `7fad6dc`).**
+  - **The button.** A row whose widget has `pathMode` draws, in the core's square (`PathBrowse.Square`), the path's text, a rule and an accent "…".
+    - UI Automation sees it as a "Browse" button (`browse.{nid}.{port}`).
+    - A tap there is the core's gesture (`selection.set`, then `row.browse`); the shell adds no tap handling.
+    - The field editor stops short of the square.
+  - **The dialog.** The path asks (purpose `path`, and `files` for several) are answered with the system's common item dialog through COM (`PathDialogs`; no unsafe code). The WinRT pickers can only start in a known library, which is why the common dialog is used.
+    - It opens in the current value's folder (`PathBrowse.StartFolder`), else in `startIn`.
+    - The hint's kinds are the filters ("Text (*.txt)"), then "All files".
+    - The file's name is filled in.
+    - Real paths come back, so nothing is copied.
+    - Every other ask keeps its picker.
+  - **Browse with the field open** closes it without its text. The press on Browse takes the field's focus, and B141's focus-loss rule would otherwise commit what was typed, so a focus loss over the open row's Browse commits nothing.
+  - **Checked by:**
+    - person check step 20: the real dialog read through UI Automation ("Choose a File", the value's folder, Text (*.txt)), pictured and cancelled; then text typed into the open field, Browse, cancel, and the value unchanged;
+    - the conformance case "ports: a path input's Browse asks…" (the scripted answer, one undo step) on ARM64 and x64;
+    - `PathBrowseTests`.
+  - **Floor:** F16 is met on Windows.
+- **FR1 on Windows: a row that opens its node's value editor (2026-11-23, branch `native/n5-editor-row` from `fix/b133-windows-browse`).**
+  - **The model and the drawing.** `InRow.Editor` (`EditorLink {kind, label, hover}`) is read. The row's caption is drawn in the accent colour.
+  - **The tap.** With no widget, the caption's rect (`FaceLayout.Opens`, as the Apple `FaceLayout.opens`) is reported as the row's rect, so the core's hit test finds the row and its tap is `node.editor`. The shell adds no tap handling.
+  - **UI Automation** sees the link as a button named by the row's label ("Edit Value…"). It also sees an open group's band chevron as "Collapse <name>": the band is drawn on the canvas, so before this a person could click it but a check couldn't find it.
+  - **Person check step 21, `editor-row`:**
+    - the test engine's Curve: its `curve` row's tap opens the core's value window "Curve · curve", showing the whole value;
+    - then, through the node's menu, Group this node and Promote input › curve; the group's chevron collapses it;
+    - "Group: group 1" has the promoted row, and its tap opens the member's value window.
+    - Both windows are pictured.
+  - **Fixed on the way.** Four Windows text boxes were given their text before `AcceptsReturn`: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. A WinUI `TextBox` that doesn't yet take returns keeps only the first line it is given, so a curve's JSON showed as "[", and Apply would have sent that.
+  - **Test:** `EditorRowTests` decodes the fixture's editor row.
+  - **For later, not built:** a curves editor (`plumcraft_proto::curves`, `curves.*`, `node.editorData`) is arriving in the Apple shells on `feat/curve-editor`. Windows will need its own C# view on it once both Apple editors exist (decision 5A).
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 
