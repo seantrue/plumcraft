@@ -275,6 +275,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B146. iPad: the gap between a wire's name label and an input pin is too large
+
+- Reported: 2026-11-23
+- Report: a screenshot marked by hand "Gap too large", with an arrow at the space between the label "said" and the `text` input pin of a Reverse node. On the same screenshot the label "said ×2" sits close to the `text` output pin of the node it comes from.
+- Context: the maintainer's hand use of the Release build of Plummer 0.7.0 on their iPad, installed from the dev branch at `ea051db`. The picture is kept at `claude-debug/b146-label-gap-ipad.png` (untracked).
+- Design (the maintainer, 2026-11-23): asked "should the gap on the input side shrink to match the output side as it looks in your picture, or do you want both changed?", they answered: "Both." So both sides' gaps change. By how much was not said; the controller's reading is that both become the same small gap, the input side's being the one marked too large.
+- Found (2026-11-23): the two sides are one rule already. Both tags sit the core's stub from the pin's centre: a driver's tag starts 14 points right of its output pin, a receiving tag ends 14 points left of its input pin (`NET_STUB`, the core's scene, which every shell draws by). The maintainer's picture measures the same gap on both sides (about 23 pixels each, 12 points), so the input side's looking too large was not a difference between the sides
+- Fixed: 2026-11-23, branch `fix/b146-label-gap`. "Both": the one stub is now 8 points, a small gap beside a pin's square on both sides (the controller's reading of how much: the same small gap). It is held in one place, `plumcraft_session::layout_cmds::NET_TAG_STUB`, which the core's scene (`NET_STUB`), the tidy layout's spacing and the egui editor (`net_view::STUB`) all take, so the egui editor, the Mac, the iPad and Windows move together. A tag a person has moved keeps its own place. The shared scene fixture (`crates/editor-core/fixtures/scene/full.json`) has the new offsets; no shell's test expected the old value. Pictures before and after on the iPad simulator, in landscape, at the default text size and one step larger: `claude-debug/b146-label-gap.md`. Not checked: a device; Windows (its tests read the fixture; the Windows agent runs them)
+- Issue: none
+
 ### B133. iPad and iPhone: a path input offers no system file browser
 
 - Reported: 2026-11-23
