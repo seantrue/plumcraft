@@ -560,6 +560,15 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
         "run.save" if params.get("ask").and_then(Value::as_bool) == Some(true) => {
             save_result(h, params.clone(), by);
         }
+        // a path row's Browse (B133): the system's dialog by the input's hints, then the value
+        // set as typing sets it; a field open on a row goes first (Browse's choice replaces it)
+        "row.browse" => match path_input(h.session(), params) {
+            Ok((node, port, hint, current)) => {
+                let _ = h.run("row.edit", &json!({"open": false}));
+                browse(h, &node, &port, &hint, &current, by);
+            }
+            Err(why) => h.say(why),
+        },
         "value.saveAs" => {
             let pid = params.get("popout").and_then(Value::as_u64);
             let target =
@@ -1023,6 +1032,20 @@ pub fn ask_paste(h: &mut impl Host, by: By) -> AskId {
 /// Put `text` on the clipboard (`kind`: `workflow` for copied nodes, `text` otherwise).
 pub fn copy(h: &mut impl Host, text: &str, kind: &str, by: By) -> AskId {
     raise(h, Kind::ClipboardSet, json!({"text": text, "kind": kind}), by, Cont::new(Then::Notice))
+}
+
+/// `row.browse`'s input (B133): the node and port named, the port's path hints, and what it
+/// holds now (its value, else its default). Refused for a node that isn't there or an input that
+/// isn't a path.
+fn path_input(s: &Session, params: &Value) -> Result<(String, String, PathHint, String), String> {
+    let node = params.get("node").and_then(Value::as_str).ok_or("Browse needs the node (node)")?;
+    let port = params.get("port").and_then(Value::as_str).ok_or("Browse needs the path input (port)")?;
+    let n = s.graph().node(&plumcraft_graph::NodeId::from(node)).ok_or_else(|| format!("there is no node {node:?}"))?;
+    let def = s.catalog().node(&n.kind).ok_or_else(|| format!("{node} is of a kind no engine here knows ({})", n.kind))?;
+    let input = def.inputs.iter().find(|p| p.name == port).ok_or_else(|| format!("{node} has no input {port:?}"))?;
+    let hint = input.path.clone().ok_or_else(|| format!("{port} isn't a path input: there is nothing to browse for"))?;
+    let current = n.values.get(port).unwrap_or(&input.default).as_str().unwrap_or_default().to_owned();
+    Ok((node.to_owned(), port.to_owned(), hint, current))
 }
 
 /// A path input's "…": a file (or folder) for it, starting near what it holds. Relative paths

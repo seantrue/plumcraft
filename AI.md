@@ -29,6 +29,17 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Found, open.** B139: the audio pop-out's bar runs past both edges of a 375-point iPad window. B140: a table pop-out on the phone in landscape spreads names and values across the whole width, the same fault inside a viewer, left as a decision.
 
 **Verified (agent, simulators).** iPad 59 of 59 cases; on the phone every UI test but B138's passed. **Not seen:** Compare and Attach on the phone in landscape; the save question and Recipe there; any device.
+### 2026-11-23 — Browse for a path input, the core's, on the Mac, iPad and iPhone (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** From their first hand use of the app on their own iPad: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX". Then: "Yes, fix b133 on all systems." The controller had recommended copying the picked file on the iPad and took the "Yes" as covering that; they did not answer it separately, so it stays an open decision in the entry. Also recorded from the same session, not built: feature FR1 (`docs/FEATURES.md`, new), with their design answers.
+
+**What the AI did.** A path row has a Browse button every shell draws from the core's `geometry::browse_rect`; a tap is the core's `row.browse {node, port}`, which raises the existing open, save or folder ask with purpose `path` and sets the answer as one undo step. The Mac answers with its panels. The iPad and iPhone use the document picker and copy the picked file into Documents › Picked Files (same bytes reuse the file; a same-named different file is numbered). `docs/shell-interface.md` and `docs/control-protocol.md` updated; conformance cases and UI tests added; floor row F16 updated.
+
+**Found, open.** B137: on iOS a path chosen for a graph with no file is stored relative to "/".
+
+**Not done.** Windows (its half follows on this branch). Photos as a source on the iPad, which an application's picture inputs need: about a day, listed as the next step.
+
+**Verified (agent).** nextest 1,649 of 1,650 (the known baseline failure); `swift test`; the Mac gate twice, 67 of 67 cases; the iPad simulator 59 of 59, and 66 of 66 with the test engine; the Browse UI test on an iPhone simulator at the maintainer's text size. **Not verified:** the Mac person check's accessibility steps (screen locked); any device.
 
 ### 2026-11-23 — A list value shows as named pictures; a pack's types by their short names; the iPad opens an application's own file types (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

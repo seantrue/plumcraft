@@ -15,6 +15,29 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 - Reported: 2026-11-23, an agent (B135's walk, a 375 by 655 window turned, one step larger text)
 - Report: the audio viewer's bar (the kind menu, Play, Loop, the time, the volume) is wider than the sheet: "Audio" and "Loop" are cut at the left and the volume slider at the right (`n4s5-ui-audio.png` in `claude-debug/n4-decided-2/shots-narrow-run`). The iPhone in landscape shows it whole. A different fault from B135 (too wide for the window, not stretched)
+### B137. iPad: a path chosen for a graph the core holds no file for is stored relative to "/"
+
+- Reported: 2026-11-23, found by the B133 conformance case on the iPad simulator (branch `fix/b133-path-browse`)
+- Report: answering the path ask with `/plumcraft-b133-nowhere/chosen.txt` set the value `plumcraft-b133-nowhere/chosen.txt`. A chosen path is stored relative to the workflow's folder when it lies inside it (`paths::chosen_path`); with no workflow path the base is the process's current directory (`paths::base_folder`), which for an iOS app is `/`, so every absolute path lies "inside" it and loses its leading `/`. An in-process engine whose current directory is also `/` still finds the file, so nothing visibly breaks today; an engine elsewhere (HTTP, another process) would look in its own folder. The Mac and egui start in a real folder and aren't affected the same way
+- Proposed: no current-directory fallback where the current directory is `/` (keep the path as chosen), or the shell names a base folder (the app's Documents) in the core's config
+- Issue: none
+
+### B134. iPhone: no obvious way to leave the Add Node menu
+
+- Reported: 2026-11-23
+- Report: "no obvious way to escape add node menu on iphone"
+- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`). The phone layout has never been run by a test or looked at.
+- Issue: none
+
+### B133. iPad and iPhone: a path input offers no system file browser
+
+- Reported: 2026-11-23
+- Report: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX"
+- Context: the maintainer's first hand use of the release build of Plummer 0.7.0 installed on their iPad and iPhone (from the dev branch at `2c3de06`). A path input on a node's face is edited as plain text there. Floor row F16 (path hints) already says "Partly", for want of a Browse button, on the Mac and the iPad.
+- Open question: on iPadOS an app reaches a file outside its container only through the document picker, which hands back a security-scoped URL, not a path an engine can open later. Should Browse copy the picked file into the app's folder and use that path, or keep a bookmark to the original?
+- Open question: Mac and Windows too (the same row, with the system's open panel), or the iPad and iPhone first?
+- Decided: 2026-11-23, the maintainer, on the two questions (the controller recommending "start with copying" and "all three together, since the button belongs in the core, with each shell supplying its own picker"): "Yes, fix b133 on all systems." The copy-or-bookmark question was not answered separately: copying is built, and stays an open decision
+- Built (branch `fix/b133-path-browse`): the Browse button is the core's. A path row that can be edited (its widget has `pathMode`) has it at the right end of its field, a square the row's height (`geometry::browse_rect`), which every shell draws; a tap there is the core's gesture `row.browse {node, port}` (a command, invoked like Save Result…: `ui.invoke`, `command.run` and the gesture all ask), which closes any open field editor without its text and raises the core's existing path ask (`file.open`, `file.save` or `folder.pick`, purpose `path`, the hint's filters as `kinds`); the answer is set as typing sets it (one undo step). The Mac answers with its open or save panel (the real path). The iPad and iPhone copy a picked file into Documents › Picked Files (the Files app's On My iPad › Plummer › Picked Files) and answer with the copy's path: kept by its own name, the same bytes again reuse that copy, another file of the same name is numbered ("notes 2.txt"), earlier copies are left alone; a folder (`dir`) is opened in place with access for the graph's life, as before (not lasting across a relaunch); a may-be-new path (`save`) is the existing alert naming a file in the graph's folder (or Documents). The field editor on a path row stops short of the button, so it can be tapped while the text is edited. egui keeps its own "…" button, which calls the same core `browse`. Windows: its half to come on the same branch
 - Issue: none
 
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host

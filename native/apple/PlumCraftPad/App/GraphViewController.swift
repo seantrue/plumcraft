@@ -941,7 +941,10 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
                 var list: [JSONValue] = []
                 for (k, r) in f.inputs.enumerated() {
                     guard let rr = v.canvas.rowRect(face: f.nid, row: k) else { list.append(.null); continue }
-                    list.append(["key": .string(r.key), "at": pt(CGPoint(x: rr.midX, y: rr.midY)),
+                    // a path row's Browse button (B133: the square at the right end, as the core has it)
+                    let side = min(rr.height, rr.width / 2)
+                    let browse: JSONValue = r.widget?.pathMode != nil ? pt(CGPoint(x: rr.maxX - side / 2, y: rr.midY)) : .null
+                    list.append(["key": .string(r.key), "at": pt(CGPoint(x: rr.midX, y: rr.midY)), "browse": browse,
                                  "value": r.widget.map { .string(FaceLayout.widgetText($0)) } ?? .null])
                 }
                 rows[f.id] = .array(list)

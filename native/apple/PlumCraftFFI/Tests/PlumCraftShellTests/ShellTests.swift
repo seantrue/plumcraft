@@ -165,6 +165,31 @@ let testEnvironment: Void = {
     }
 }
 
+@Suite struct PickedFileCopies {
+    /// B133: a picked file kept by its own name; the same bytes again are that file; another file
+    /// of the same name is numbered; the source is left as it is.
+    @Test func aPickedFileIsKeptByNameAndNumberedWhenAnotherHasIt() throws {
+        let base = URL(fileURLWithPath: scratch("picked"), isDirectory: true)
+        let into = base.appendingPathComponent("Picked Files", isDirectory: true)
+        let src = base.appendingPathComponent("src-a", isDirectory: true)
+        let other = base.appendingPathComponent("src-b", isDirectory: true)
+        for d in [src, other] { try FileManager.default.createDirectory(at: d, withIntermediateDirectories: true) }
+        try? FileManager.default.removeItem(at: into)
+        let a = src.appendingPathComponent("notes.txt")
+        try Data("one".utf8).write(to: a)
+        let b = other.appendingPathComponent("notes.txt")
+        try Data("two".utf8).write(to: b)
+        let first = try #require(PickedFiles.keep(a, in: into))
+        #expect(first.lastPathComponent == "notes.txt")
+        #expect(PickedFiles.keep(a, in: into) == first)
+        let second = try #require(PickedFiles.keep(b, in: into))
+        #expect(second.lastPathComponent == "notes 2.txt")
+        #expect(try String(contentsOf: second, encoding: .utf8) == "two")
+        #expect(FileManager.default.fileExists(atPath: a.path))
+        #expect(PickedFiles.keep(base.appendingPathComponent("missing.txt"), in: into) == nil)
+    }
+}
+
 @Suite struct WatchedText {
     func watched(_ json: String) throws -> Watched {
         try JSONValueDecoder().decode(Watched.self, from: Data(json.utf8))

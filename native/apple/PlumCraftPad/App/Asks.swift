@@ -3,7 +3,8 @@
 // (`by: "script"`) is left for the script, never shown, as on the Mac.
 //
 //   file.open, folder.pick   the document picker (open in place; security-scoped access kept for
-//                            the graph's life)
+//                            the graph's life); a path input's file (purpose `path`, B133) is the
+//                            picker's copy, kept in Documents › Picked Files (PickedFiles)
 //   file.save                an alert naming the file, saved into the graph's own folder when the
 //                            app can write there, else PlumCraft's Documents folder (the contract's
 //                            commit flow for a destination without a path, 11.3, isn't in the core);
@@ -144,11 +145,17 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
                 let exts = AskWords.extensions(p)
                 types = exts.isEmpty ? [.item] : exts.compactMap { UTType(filenameExtension: $0) }
             }
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: false)
+            // a path input's file (purpose `path`, B133) is copied: the picker hands back a
+            // security-scoped URL an engine can't open later, so the copy is what the row names
+            // (PickedFiles.keep); a folder is opened in place, for the graph's life
+            let copy = p["purpose"].string == "path" && a.kind.word == .fileOpen
+            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: copy)
             picker.allowsMultipleSelection = p["multiple"].bool ?? false
             if let start = p["startIn"].string { picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
             picker.delegate = self
             picking = a
+            // the picker up, for scripts and the UI tests: its ask's purpose and kind
+            StatusFile.shared.set("picking", ["purpose": .string(p["purpose"].string ?? ""), "kind": .string(a.kind.raw), "copy": .bool(copy)])
             present(picker, for: a)
         case .fileSave? where p["purpose"].string == "result":
             saveResult(a)
@@ -352,9 +359,19 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     // MARK: The document picker
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+        StatusFile.shared.set("picking", .null)
         guard let a = picking else { return }
         picking = nil
         done(a)
+        // a path input's files (B133): the picker's copies kept in Picked Files, by name
+        if a.kind.word == .fileOpen, a.params["purpose"].string == "path" {
+            let into = CoreHost.dirs.documents.appendingPathComponent(PickedFiles.folderName, isDirectory: true)
+            let kept = urls.compactMap { PickedFiles.keep($0, in: into) }
+            if kept.isEmpty { return cancel(a) }
+            say(kept.count == 1 ? "Copied \(kept[0].lastPathComponent) into Picked Files." : "Copied \(kept.count) files into Picked Files.")
+            StatusFile.shared.set("picked", .array(kept.map { .string($0.path) }))
+            return answer(a, ["paths": .array(kept.map { .string($0.path) })])
+        }
         // open in place: access is kept while the graph is open
         for u in urls where u.startAccessingSecurityScopedResource() { granted.append(u) }
         if a.kind.word == .folderPick, let u = urls.first {
@@ -367,6 +384,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     }
 
     func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+        StatusFile.shared.set("picking", .null)
         guard let a = picking else { return }
         picking = nil
         done(a)

@@ -270,8 +270,15 @@ public enum FaceRenderer {
                     text(line, F.mono, ink, x: rect.minX + 5, baseline: rect.minY + 13 + CGFloat(i) * 14, in: ctx)
                 }
             case .path?:
-                text(value, F.small, ink, x: rect.minX + 5, baseline: rect.midY + 4, max: rect.width - 22, in: ctx)
-                text("…", F.small, C.textDim, x: rect.maxX - 5, baseline: rect.midY + 4, right: true, in: ctx)
+                // the Browse button (B133): the square at the field's right end, its side the
+                // field's height (the core's geometry::browse_rect, where a tap is row.browse),
+                // a rule before it and the platform's "…" in it; the path's text before
+                let side = min(rect.height, rect.width / 2)
+                let button = CGRect(x: rect.maxX - side, y: rect.minY, width: side, height: rect.height)
+                text(value, F.small, ink, x: rect.minX + 5, baseline: rect.midY + 4, max: rect.width - side - 8, in: ctx)
+                ctx.move(to: CGPoint(x: button.minX, y: rect.minY + 3)); ctx.addLine(to: CGPoint(x: button.minX, y: rect.maxY - 3))
+                ctx.setStrokeColor(C.fieldBorder); ctx.setLineWidth(1); ctx.strokePath()
+                text("…", F.small, C.accent, x: button.midX - TextLine.width("…", F.small) / 2, baseline: rect.midY + 4, in: ctx)
             default:
                 text(value, F.small, ink, x: rect.minX + 5, baseline: rect.midY + 4, max: rect.width - 10, in: ctx)
             }
