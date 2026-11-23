@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A way out of Add Node on the iPhone (B134) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "no obvious way to escape add node menu on iphone". The controller suggested a swipe down or a tap outside; they answered "No exit. Fix b134". The phone layout had never been run by a test or looked at.
+
+**What the AI did.** Reproduced on an iPhone simulator: in landscape the palette was shown full screen with no grabber, no button and nothing outside it. The palette sheet now has a Cancel button and stays attached to the bottom edge in compact height, so a swipe works too; each way out closes the palette in the core. A UI test opens it and leaves it each way, and the iPhone simulator is a named configuration of the scripts. Every other presentation on the phone was walked for the same dead end.
+
+**Found, open.** B138: on the iPhone in portrait one UI test opens a dropped wire's palette instead of entering the group.
+
+**Verified (agent, simulators).** iPad 59 of 59 cases and 8 UI tests passed; on the phone 7 UI tests passed and 1 failed (B138). **Not verified:** any device.
+
 ### 2026-11-23 — A list value shows as named pictures; a pack's types by their short names; the iPad opens an application's own file types (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** With the iPad away, "Do not wait" to carrying on in the simulator with what a person needs around a run in an application built on this shell. The design for a list of named pictures, each with its own mapping, is theirs (2026-10-31).
