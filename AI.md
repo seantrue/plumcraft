@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Parameters beside the canvas on an iPhone in landscape (B135) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention." The controller proposed a column of readable width at one side with the canvas still visible; they answered "Fix b135 with that", and added "Check other landscape presentations for similar parameter display issues".
+
+**What the AI did.** One rule (`PlumCraftPad/App/ReadableColumn.swift`): a window that is short and wider than tall gets the parameters as a side column, 45% of the width between 320 and 420 points, with the canvas live beside it; an iPad keeps its popover and an upright phone its sheet. Turning the phone moves between them and keeps a typed value. A UI test checks the width, a tap on the canvas beside it, a slider drag, and the turn. Every landscape presentation was walked on the phone and in a turned narrow iPad window.
+
+**Found, open.** B139: the audio pop-out's bar runs past both edges of a 375-point iPad window. B140: a table pop-out on the phone in landscape spreads names and values across the whole width, the same fault inside a viewer, left as a decision.
+
+**Verified (agent, simulators).** iPad 59 of 59 cases; on the phone every UI test but B138's passed. **Not seen:** Compare and Attach on the phone in landscape; the save question and Recipe there; any device.
 ### 2026-11-23 — A way out of Add Node on the iPhone (B134) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** "no obvious way to escape add node menu on iphone". The controller suggested a swipe down or a tap outside; they answered "No exit. Fix b134". The phone layout had never been run by a test or looked at.
