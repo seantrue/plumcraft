@@ -165,6 +165,29 @@ let testEnvironment: Void = {
     }
 }
 
+@Suite struct PhotosAsASource {
+    /// Photos is offered only when every kind the path takes is a picture's.
+    @Test func photosIsOfferedForPicturesOnly() {
+        #expect(PickedFiles.picturesOnly(["png", "JPG"]))
+        #expect(PickedFiles.picturesOnly([".heic"]))
+        #expect(!PickedFiles.picturesOnly([]))
+        #expect(!PickedFiles.picturesOnly(["png", "json"]))
+        #expect(!PickedFiles.picturesOnly(["*"]))
+    }
+
+    /// A photo is named by the library's suggestion, else the moment, with its kept form's extension.
+    @Test func aPhotoIsNamedBySuggestionOrMoment() {
+        #expect(PickedFiles.photoName(suggested: "IMG_0042", ext: "PNG") == "IMG_0042.png")
+        #expect(PickedFiles.photoName(suggested: "IMG_0042.HEIC", ext: "jpeg") == "IMG_0042.jpeg")
+        #expect(PickedFiles.photoName(suggested: "a/b:c", ext: "png") == "a-b-c.png")
+        var c = DateComponents()
+        c.year = 2026; c.month = 11; c.day = 23; c.hour = 9; c.minute = 5; c.second = 7
+        let d = Calendar.current.date(from: c) ?? Date()
+        #expect(PickedFiles.photoName(suggested: nil, ext: "png", at: d) == "Photo 2026-11-23 at 09.05.07.png")
+        #expect(PickedFiles.photoName(suggested: "  ", ext: "jpg", at: d) == "Photo 2026-11-23 at 09.05.07.jpg")
+    }
+}
+
 @Suite struct PickedFileCopies {
     /// B133: a picked file kept by its own name; the same bytes again are that file; another file
     /// of the same name is numbered; the source is left as it is.

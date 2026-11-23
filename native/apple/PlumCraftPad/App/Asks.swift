@@ -18,6 +18,7 @@
 //                            `graph.share`, N4 slice 3)
 //   screenshot               the canvas drawn offscreen, as a PNG at the path asked
 
+import PhotosUI
 import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
@@ -26,7 +27,7 @@ import UIKit
 import UniformTypeIdentifiers
 
 @MainActor
-final class AskPresenter: NSObject, UIDocumentPickerDelegate {
+final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewControllerDelegate {
     weak var host: UIViewController?
     let model: DocumentModel
     weak var canvas: CanvasView?
@@ -42,6 +43,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     private var shown: UIViewController?
     private var handled: Set<UInt64> = []
     private var picking: Ask?
+    /// The kinds the photo being picked must be kept as (feat/path-photos).
+    private var photoTypes: [UTType] = []
     /// The delegates that keep a closed pick field to its choices, while its form is up.
     var pickGuards: [PickOnly] = []
     /// The refusal each form was last shown again with.
@@ -149,14 +152,13 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             // security-scoped URL an engine can't open later, so the copy is what the row names
             // (PickedFiles.keep); a folder is opened in place, for the graph's life
             let copy = p["purpose"].string == "path" && a.kind.word == .fileOpen
-            let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: copy)
-            picker.allowsMultipleSelection = p["multiple"].bool ?? false
-            if let start = p["startIn"].string { picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
-            picker.delegate = self
-            picking = a
-            // the picker up, for scripts and the UI tests: its ask's purpose and kind
-            StatusFile.shared.set("picking", ["purpose": .string(p["purpose"].string ?? ""), "kind": .string(a.kind.raw), "copy": .bool(copy)])
-            present(picker, for: a)
+            // a path that takes pictures only: the photo library can answer it as well as the
+            // files (feat/path-photos), so the person is asked which, as part of answering this
+            // one ask; a script answers the ask itself, with a path
+            if copy, PickedFiles.picturesOnly(AskWords.extensions(p)) {
+                return chooseSource(a, types: types)
+            }
+            files(a, types: types, copy: copy)
         case .fileSave? where p["purpose"].string == "result":
             saveResult(a)
         case .fileSave?:
@@ -357,6 +359,124 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     }
 
     // MARK: The document picker
+
+    /// The document picker for an open or a folder ask.
+    private func files(_ a: Ask, types: [UTType], copy: Bool) {
+        let p = a.params
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: copy)
+        picker.allowsMultipleSelection = p["multiple"].bool ?? false
+        if let start = p["startIn"].string { picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
+        picker.delegate = self
+        picking = a
+        // the picker up, for scripts and the UI tests: its ask's purpose and kind
+        StatusFile.shared.set("picking", ["purpose": .string(p["purpose"].string ?? ""), "kind": .string(a.kind.raw), "copy": .bool(copy), "source": .string("files")])
+        present(picker, for: a)
+    }
+
+    // MARK: Photos or Files, for a path that takes pictures (feat/path-photos)
+
+    /// Which source answers this ask: Photos, Files or neither (the ask cancelled). Part of
+    /// answering the one ask, as the document picker's own places are.
+    private func chooseSource(_ a: Ask, types: [UTType]) {
+        let p = a.params
+        let sheet = UIAlertController(title: p["title"].string, message: "Choose the picture from", preferredStyle: .actionSheet)
+        sheet.view.accessibilityIdentifier = "path-source"
+        sheet.addAction(UIAlertAction(title: "Photos", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.done(a)
+            self.photos(a, types: types)
+        })
+        sheet.addAction(UIAlertAction(title: "Files", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.done(a)
+            self.files(a, types: types, copy: true)
+        })
+        sheet.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
+            StatusFile.shared.set("picking", .null)
+            self?.done(a)
+            self?.cancel(a)
+        })
+        // an iPad shows it as a popover: from the middle of the graph
+        if let pop = sheet.popoverPresentationController, let v = host?.view {
+            pop.sourceView = v
+            pop.sourceRect = CGRect(x: v.bounds.midX, y: v.bounds.midY, width: 1, height: 1)
+            pop.permittedArrowDirections = []
+        }
+        StatusFile.shared.set("picking", ["purpose": .string(p["purpose"].string ?? ""), "kind": .string(a.kind.raw), "copy": .bool(true), "source": .string("choice")])
+        present(sheet, for: a)
+    }
+
+    /// The photo library's picker, pictures only (it needs no permission: only what the person
+    /// picks reaches the app).
+    private func photos(_ a: Ask, types: [UTType]) {
+        var config = PHPickerConfiguration()
+        config.filter = .images
+        config.selectionLimit = (a.params["multiple"].bool ?? false) ? 0 : 1
+        config.preferredAssetRepresentationMode = .current
+        let picker = PHPickerViewController(configuration: config)
+        picker.delegate = self
+        picking = a
+        photoTypes = types
+        StatusFile.shared.set("picking", ["purpose": .string(a.params["purpose"].string ?? ""), "kind": .string(a.kind.raw), "copy": .bool(true), "source": .string("photos")])
+        present(picker, for: a)
+    }
+
+    func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
+        StatusFile.shared.set("picking", .null)
+        guard let a = picking else { return }
+        picking = nil
+        picker.dismiss(animated: true)
+        done(a)
+        if results.isEmpty { return cancel(a) }
+        let wanted = photoTypes
+        let into = CoreHost.dirs.documents.appendingPathComponent(PickedFiles.folderName, isDirectory: true)
+        Task { @MainActor [weak self] in
+            var kept: [URL] = []
+            var failed: [String] = []
+            for r in results {
+                if let u = await Self.keepPhoto(r.itemProvider, wanted: wanted, in: into) { kept.append(u) } else { failed.append(r.itemProvider.suggestedName ?? "a photo") }
+            }
+            guard let self else { return }
+            if kept.isEmpty {
+                self.say("Couldn't use \(failed.joined(separator: ", ")) as \(wanted.compactMap(\.preferredFilenameExtension).joined(separator: " or ")).")
+                return self.cancel(a)
+            }
+            self.say(kept.count == 1 ? "Copied \(kept[0].lastPathComponent) into Picked Files." : "Copied \(kept.count) photos into Picked Files.")
+            StatusFile.shared.set("picked", .array(kept.map { .string($0.path) }))
+            self.answer(a, ["paths": .array(kept.map { .string($0.path) })])
+        }
+    }
+
+    /// A picked photo kept in Picked Files in a form the path takes: as it is when that form is
+    /// one of the path's kinds, else converted to the first kind the app can write (PNG or JPEG);
+    /// nil when neither is possible.
+    private static func keepPhoto(_ provider: NSItemProvider, wanted: [UTType], in dir: URL) async -> URL? {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent("photo-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        guard (try? FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)) != nil else { return nil }
+        // as it is: a form the provider has that the path takes
+        if let t = provider.registeredContentTypes.first(where: { have in wanted.contains { have.conforms(to: $0) } }) {
+            let name = PickedFiles.photoName(suggested: provider.suggestedName, ext: t.preferredFilenameExtension ?? "")
+            let copied: URL? = await withCheckedContinuation { done in
+                _ = provider.loadFileRepresentation(for: t) { url, _, _ in
+                    // the provider's file lasts only for this call: copied out before it returns
+                    guard let url else { return done.resume(returning: nil) }
+                    let to = tmp.appendingPathComponent(name)
+                    done.resume(returning: (try? FileManager.default.copyItem(at: url, to: to)) != nil ? to : nil)
+                }
+            }
+            if let copied { return PickedFiles.keep(copied, in: dir) }
+        }
+        // converted: PNG or JPEG, the first of them the path takes
+        guard let target = wanted.first(where: { $0.conforms(to: .png) || $0.conforms(to: .jpeg) }), provider.canLoadObject(ofClass: UIImage.self) else { return nil }
+        let image: UIImage? = await withCheckedContinuation { done in
+            _ = provider.loadObject(ofClass: UIImage.self) { obj, _ in done.resume(returning: obj as? UIImage) }
+        }
+        guard let image, let data = target.conforms(to: .png) ? image.pngData() : image.jpegData(compressionQuality: 0.95) else { return nil }
+        let to = tmp.appendingPathComponent(PickedFiles.photoName(suggested: provider.suggestedName, ext: target.preferredFilenameExtension ?? "png"))
+        guard (try? data.write(to: to)) != nil else { return nil }
+        return PickedFiles.keep(to, in: dir)
+    }
 
     func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
         StatusFile.shared.set("picking", .null)

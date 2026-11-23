@@ -20,6 +20,14 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Photos as a source for Browse on the iPad and iPhone: built, design not decided (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "Yes, fix b133 on all systems." Photos is what remained of it on the iPad.
+
+**What the AI did.** When a path takes pictures only, Browse asks "Photos or Files"; a picked photo is copied into Picked Files, converted to PNG or JPEG if the port does not accept its format, and the copy's path is set. The person's action is still the core's `row.browse` raising one `file.open`; the sheet only picks which platform picker answers it. Written into `docs/shell-interface.md` 11.3 as **proposed, not decided**, beside the alternative (the core's ask names its sources and an answer may say which gave the path).
+
+**Verified (agent).** `swift test`, with two new tests for when Photos is offered and how a photo is named; the app builds; the existing Browse UI test passes. **Not launched:** no engine offers a path that takes pictures only, so no test has reached the Photos choice and nobody has picked a photo. By this project's rule that is "built", not "works". B133 stays open.
+
 ### 2026-11-23 — A value with an editor, promoted to a group, opens from the group's face (FR1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "curve ui needs a way to promote it to a group input. This will be true for other nodes that allow masked editing, etc". Asked what the group should show and which editors count, with the controller leaning to a row that opens the editor and to every value an engine names an editor for: "Fr1-yes,yes". When: "After the others."
