@@ -41,6 +41,9 @@ public sealed class FaceLayout
     public float[] InputPins = [], OutputPins = [];
     public WRect[] InputRows = [], OutputRows = [];
     public WRect?[] Widgets = [];
+    /// <summary>Each input row's caption rect where a tap on the row opens its node's value editor (FR1, 8.13: the
+    /// row carries `editor` and has no widget); reported as the row's rect, so the core's hit test finds it.</summary>
+    public WRect?[] Opens = [];
     public WRect? Preview;
     public List<FooterPlan> Footer = [];
     public float? Chevron;
@@ -88,7 +91,8 @@ public sealed class FaceLayout
         var rows = new float[Widgets.Length * 4];
         for (int k = 0; k < Widgets.Length; k++)
         {
-            if (Widgets[k] is { } w)
+            // a row with no widget that opens its node's editor reports its caption (FR1)
+            if ((Widgets[k] ?? (k < Opens.Length ? Opens[k] : null)) is { } w)
             {
                 rows[4 * k] = (float)w.X; rows[4 * k + 1] = (float)w.Y; rows[4 * k + 2] = (float)(w.X + w.Width); rows[4 * k + 3] = (float)(w.Y + w.Height);
             }
@@ -167,6 +171,7 @@ public sealed class FaceLayout
         L.InputRows = new WRect[face.Inputs.Count];
         L.InputPins = new float[face.Inputs.Count];
         L.Widgets = new WRect?[face.Inputs.Count];
+        L.Opens = new WRect?[face.Inputs.Count];
         float y = top;
         for (int k = 0; k < face.Inputs.Count; k++)
         {
@@ -178,6 +183,9 @@ public sealed class FaceLayout
                 var wx = Math.Min(14 + labelWidths[k] + 8, Math.Max(width - ws.w - 8, 14));
                 L.Widgets[k] = new WRect(wx, y + (Math.Min(rh, FaceMetrics.Row) - Math.Min(ws.h, 18)) / 2, ws.w, ws.h);
             }
+            // a row that opens its node's editor: its caption is what a tap lands on (as the Apple FaceLayout.opens)
+            else if (!collapsed && face.Inputs[k].Editor is not null)
+                L.Opens[k] = new WRect(10, y, Math.Max(24, labelWidths[k] + 8), Math.Min(rh, FaceMetrics.Row));
             y += rh;
         }
         var inBottom = y;

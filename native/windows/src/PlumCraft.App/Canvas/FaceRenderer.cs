@@ -161,7 +161,9 @@ public static class FaceRenderer
             var caption = FaceLayout.InputCaption(r);
             var style = r.SourceWord == RowSourceWord.Inherited ? TextStyle.Italic : TextStyle.Port;
             var lim = (float)((L.Widgets[k]?.X ?? L.W - 8) - x - 6);
-            T.Draw(ds, caption, style, r.Dim ? C.TextDim : C.Text, new WRect(x, line.Y, Math.Max(lim, 20), line.Height));
+            // a row that opens its node's value editor reads as a link, in the accent colour (FR1, 8.4)
+            var captionInk = r.Editor is not null ? C.Accent : r.Dim ? C.TextDim : C.Text;
+            T.Draw(ds, caption, style, captionInk, new WRect(x, line.Y, Math.Max(lim, 20), line.Height));
             if (r.Badge is { } bd)
             {
                 var bx = Math.Min(x + T.Width(caption, style) + 6, L.W - 40);

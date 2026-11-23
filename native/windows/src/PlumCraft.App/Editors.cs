@@ -259,7 +259,8 @@ public sealed class Editors
                 var number = o.Kind == WidgetWord.Number;
                 var tb = new TextBox
                 {
-                    Text = RowEditor.StartText(w), AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap,
+                    // AcceptsReturn before Text, or a value of several lines is cut to its first
+                    AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap, Text = RowEditor.StartText(w),
                     IsSpellCheckEnabled = false, IsTextPredictionEnabled = false, Padding = new Thickness(4, 1, 4, 1), MinHeight = 0, MinWidth = 0,
                     TextAlignment = number ? TextAlignment.Right : TextAlignment.Left,
                     FontFamily = number || multi ? new FontFamily("Cascadia Mono, Consolas") : FontFamily.XamlAutoFontFamily,

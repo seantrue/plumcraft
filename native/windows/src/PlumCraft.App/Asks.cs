@@ -269,7 +269,7 @@ public sealed class Asks(DocWindow window, DocumentModel model)
                         fields.Add((key, () => pw.Password));
                         break;
                     case "text":
-                        var tb = new TextBox { Header = label, Text = initial, PlaceholderText = f.Get("hint").Str() ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 80 };
+                        var tb = new TextBox { AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Header = label, Text = initial, PlaceholderText = f.Get("hint").Str() ?? "", MinHeight = 80 };
                         panel.Children.Add(tb);
                         fields.Add((key, () => tb.Text));
                         break;

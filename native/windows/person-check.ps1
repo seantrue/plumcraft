@@ -811,6 +811,61 @@ function Run-Steps {
             $ok20 = $d1 -and $r1.Address -like '*browse*' -and $r1.Types -like '*.txt*' -and $editing -and $d2 -and $closed -and $after -like '*start.txt*' -and $after -notlike '*typed-not-set*'
         } else { $browseSaw += "no Read Text File from the palette: [" + $rd.list + "], or no Browse on it" }
         Step 'path-browse' $ok20 ($browseSaw -join '; ')
+
+        # 21. a value with an editor (FR1): the test engine's Curve names one for its `curve` (no widget edits it),
+        # so its row reads as a link; a tap there opens the value window. Then grouped, `curve` promoted and the
+        # group collapsed by its band's chevron: the group's row opens the member's value window too.
+        Starting '21. a row that opens its node''s value editor, on the node and on its group'
+        Front $opened
+        $cv = Add-From-Palette $opened 0.82 0.1 'Curve' 'Curve'
+        $edSaw = @(); $ok21 = $false
+        function Editor-Window { Wait-Until { Other-Windows | Where-Object { [P]::Name($_) -like 'Curve*curve' } | Select-Object -First 1 } 15000 }
+        function Close-Editor($w) { if ($w) { Close-Pop $w } }
+        $link = if ($cv.node) { $n = Node $opened 'Curve'; if ($n) { [P]::All($n) | Where-Object { [P]::Id($_) -like 'editor.*' } | Select-Object -First 1 } }
+        if ($link) {
+            $linkName = [P]::Name($link)
+            [P]::ClickOn($link)
+            $w1 = Editor-Window
+            $w1Name = if ($w1) { [P]::Name($w1) } else { '' }
+            # the whole value, not its first line: the JSON's later lines hold 0.6
+            Start-Sleep 1
+            $w1Text = if ($w1) { (@([P]::All($w1) | Where-Object { [P]::Kind($_) -eq 'Edit' -and [P]::Value($_) -like '*0.6*' } | ForEach-Object { ([P]::Value($_) -replace '\s+', ' ').Trim() }) | Select-Object -First 1) } else { '' }
+            if ($w1) { [P]::Shot((Join-Path $Work 'editor-node.png')) }
+            Close-Editor $w1
+            $edSaw += "Curve's row: a button '$linkName'; its tap opened: " + $(if ($w1) { "$w1Name, the value shown ($w1Text)" } else { 'nothing' })
+            # group it, promote curve, collapse it by the band's chevron
+            Front $opened
+            $nb = [P]::Box((Node $opened 'Curve'))
+            [P]::Click($nb.X + $nb.Width / 2, $nb.Y + 12, $true); Start-Sleep -Milliseconds 900
+            $gi = In $opened { param($e) [P]::Kind($e) -eq 'MenuItem' -and [P]::Name($e) -like 'Group this node*' } 3000
+            if ($gi) { [P]::ClickOn($gi); Start-Sleep 1 } else { Esc }
+            $nb = [P]::Box((Node $opened 'Curve'))
+            [P]::Click($nb.X + $nb.Width / 2, $nb.Y + 12, $true); Start-Sleep -Milliseconds 900
+            $pi = In $opened { param($e) [P]::Kind($e) -eq 'MenuItem' -and [P]::Name($e) -like 'Promote input to*' } 3000
+            $promoted = $false
+            if ($pi) {
+                [P]::ClickOn($pi); Start-Sleep -Milliseconds 900
+                $pc = [P]::Find($appPid, (Pred { param($e) [P]::Kind($e) -eq 'MenuItem' -and [P]::Name($e) -eq 'curve' }), 3000)
+                if ($pc) { [P]::ClickOn($pc); $promoted = $true; Start-Sleep 1 } else { Esc; Esc }
+            } else { Esc }
+            $chev = Wait-Until { [P]::All((Canvas-Of $opened)) | Where-Object { [P]::Id($_) -like 'group.*' -and [P]::Name($_) -like 'Collapse *' } | Select-Object -First 1 } 5000
+            $groupName = if ($chev) { [P]::Name($chev) -replace '^Collapse ', '' } else { '' }
+            if ($chev) { [P]::ClickOn($chev); Start-Sleep 1 }
+            # the collapsed group's face, and its promoted row that opens the member's editor
+            # its face is titled "Group: <name>"
+            $gface = if ($groupName) { Wait-Until { Nodes $opened | Where-Object { [P]::Name($_) -like "*$groupName" } | Select-Object -First 1 } 8000 }
+            $glink = if ($gface) { [P]::All($gface) | Where-Object { [P]::Id($_) -like 'editor.*' } | Select-Object -First 1 }
+            $w2Name = ''
+            if ($glink) {
+                [P]::ClickOn($glink)
+                $w2 = Editor-Window
+                if ($w2) { $w2Name = [P]::Name($w2); [P]::Shot((Join-Path $Work 'editor-group.png')) }
+                Close-Editor $w2
+            } else { [P]::Shot((Join-Path $Work 'editor-group-missing.png')) }
+            $edSaw += "grouped: " + [bool]$gi + ", curve promoted: $promoted, collapsed by its chevron: " + $(if ($chev) { "'$groupName'" } else { 'no chevron' }) + "; the group's face: " + $(if ($gface) { [P]::Name($gface) + ", its row: " + $(if ($glink) { "'" + [P]::Name($glink) + "', its tap opened: " + $(if ($w2Name) { $w2Name } else { 'nothing' }) } else { 'no editor row' }) } else { 'none' })
+            $ok21 = $w1Name -like 'Curve*curve' -and "$w1Text" -like '*0.6*' -and $w2Name -like 'Curve*curve' -and $promoted
+        } else { $edSaw += "no Curve, or no editor row on it: [" + $cv.list + "]" }
+        Step 'editor-row' $ok21 ($edSaw -join '; ')
     }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'

@@ -287,6 +287,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B145. Windows: a value of several lines showed and committed only its first line
+
+- Reported: 2026-11-23, found by the agent on branch `native/n5-editor-row`; not reported by the maintainer.
+- Report: the value window showed "[" for a curve's JSON, and Apply would have sent "[". The same happened in the row editor's multiline field, the inspector's multiline widget and a form's text field.
+- Cause: each `TextBox` was given its `Text` before `AcceptsReturn`, and one that does not yet take returns keeps only the first line.
+- Fixed: 2026-11-23, branch `native/n5-editor-row`, with `AcceptsReturn` set first. Person check step 21 reads the whole value from the value window; the other three fields have the same fix but no launched check.
+- Issue: none
+
 ### B141. Windows: a row field's focus loss put back the value it opened with (B129 on Windows)
 
 - Reported: 2026-11-23, an agent, while checking B129 on Windows

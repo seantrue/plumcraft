@@ -1223,6 +1223,18 @@ Not answered: whether the graph hash covers the whole document (the core's `trus
     - the conformance case "ports: a path input's Browse asks…" (the scripted answer, one undo step) on ARM64 and x64;
     - `PathBrowseTests`.
   - **Floor:** F16 is met on Windows.
+- **FR1 on Windows: a row that opens its node's value editor (2026-11-23, branch `native/n5-editor-row` from `fix/b133-windows-browse`).**
+  - **The model and the drawing.** `InRow.Editor` (`EditorLink {kind, label, hover}`) is read. The row's caption is drawn in the accent colour.
+  - **The tap.** With no widget, the caption's rect (`FaceLayout.Opens`, as the Apple `FaceLayout.opens`) is reported as the row's rect, so the core's hit test finds the row and its tap is `node.editor`. The shell adds no tap handling.
+  - **UI Automation** sees the link as a button named by the row's label ("Edit Value…"). It also sees an open group's band chevron as "Collapse <name>": the band is drawn on the canvas, so before this a person could click it but a check couldn't find it.
+  - **Person check step 21, `editor-row`:**
+    - the test engine's Curve: its `curve` row's tap opens the core's value window "Curve · curve", showing the whole value;
+    - then, through the node's menu, Group this node and Promote input › curve; the group's chevron collapses it;
+    - "Group: group 1" has the promoted row, and its tap opens the member's value window.
+    - Both windows are pictured.
+  - **Fixed on the way.** Four Windows text boxes were given their text before `AcceptsReturn`: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. A WinUI `TextBox` that doesn't yet take returns keeps only the first line it is given, so a curve's JSON showed as "[", and Apply would have sent that.
+  - **Test:** `EditorRowTests` decodes the fixture's editor row.
+  - **For later, not built:** a curves editor (`plumcraft_proto::curves`, `curves.*`, `node.editorData`) is arriving in the Apple shells on `feat/curve-editor`. Windows will need its own C# view on it once both Apple editors exist (decision 5A).
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 

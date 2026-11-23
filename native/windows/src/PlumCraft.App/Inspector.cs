@@ -235,7 +235,7 @@ public sealed class Inspector : Grid
             case WidgetWord.Multiline:
                 var tb = new TextBox
                 {
-                    Text = w.Value.ValueKind == JsonValueKind.String ? w.Value.GetString() ?? "" : "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Height = 76,
+                    AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, Text = w.Value.ValueKind == JsonValueKind.String ? w.Value.GetString() ?? "" : "", Height = 76,
                     FontFamily = new FontFamily("Cascadia Mono, Consolas"), IsSpellCheckEnabled = false, IsTextPredictionEnabled = false,
                 };
                 tb.GotFocus += (_, _) => editing = true;

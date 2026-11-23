@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — An editor row opens the value window on Windows (FR1), and a first-line-only text bug (B145) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** FR1: "curve ui needs a way to promote it to a group input." This is its Windows part.
+
+**What the AI did.** A row whose value has an editor draws its caption as a link and reports the caption's rect as the row's, so the core's own tap gives `node.editor`; the shell adds no tap handling. UI Automation sees the link as a button, and an open group's chevron as "Collapse <name>".
+
+**Defect found on the way, in earlier AI-written Windows code (B145).** Four text boxes were given their text before being told to accept returns, so a value of several lines showed, and would have committed, only its first line: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. The agent saw "[" where a curve's JSON should be. All four fixed; only the value window has a launched check.
+
+**Verified (agent, Windows test VM).** `dotnet test` 63 of 63; C# runner 68 of 68 on ARM64 and x64; Swift runner 60 of 60; person check 24 of 24 three times, its new step opening the value window from a node's row and from a collapsed group's promoted row. Floor row F22 stays partly met: the window is the core's JSON one, not a custom editor.
+
 ### 2026-11-23 — Browse for a path input on Windows (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "Yes, fix b133 on all systems." This is the Windows half; the core and the Apple shells went in earlier the same day.
