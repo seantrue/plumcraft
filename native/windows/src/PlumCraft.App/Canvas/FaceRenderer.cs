@@ -14,6 +14,7 @@ using Microsoft.UI;
 using PlumCraft.Models;
 using Windows.UI;
 using WRect = Windows.Foundation.Rect;
+using MRect = PlumCraft.Models.Rect;
 
 namespace PlumCraft.App.Canvas;
 
@@ -160,7 +161,9 @@ public static class FaceRenderer
             var caption = FaceLayout.InputCaption(r);
             var style = r.SourceWord == RowSourceWord.Inherited ? TextStyle.Italic : TextStyle.Port;
             var lim = (float)((L.Widgets[k]?.X ?? L.W - 8) - x - 6);
-            T.Draw(ds, caption, style, r.Dim ? C.TextDim : C.Text, new WRect(x, line.Y, Math.Max(lim, 20), line.Height));
+            // a row that opens its node's value editor reads as a link, in the accent colour (FR1, 8.4)
+            var captionInk = r.Editor is not null ? C.Accent : r.Dim ? C.TextDim : C.Text;
+            T.Draw(ds, caption, style, captionInk, new WRect(x, line.Y, Math.Max(lim, 20), line.Height));
             if (r.Badge is { } bd)
             {
                 var bx = Math.Min(x + T.Width(caption, style) + 6, L.W - 40);
@@ -226,6 +229,16 @@ public static class FaceRenderer
                 var lines = value.Split('\n').SelectMany(l => { var x = T.Wrap(l, TextStyle.Mono, (float)rect.Width - 10, 3); return x.Count == 0 ? [""] : x; }).Take(3).ToList();
                 for (int i = 0; i < lines.Count; i++) T.Draw(ds, lines[i], TextStyle.Mono, ink, new WRect(rect.X + 5, rect.Y + 2 + i * 14, rect.Width - 10, 14));
                 break;
+            case WidgetWord.Path when PathBrowse.Offered(w):
+                {
+                    // the path's text, a rule, and Browse in the square at the right end (B133); a tap in the
+                    // square is the core's `row.browse`
+                    var sq = PathBrowse.Square(new MRect(rect.X, rect.Y, rect.X + rect.Width, rect.Y + rect.Height));
+                    T.Draw(ds, value, TextStyle.Small, ink, new WRect(rect.X + 5, rect.Y, Math.Max(sq.X0 - rect.X - 8, 1), rect.Height));
+                    ds.DrawLine((float)sq.X0, (float)rect.Y + 3, (float)sq.X0, (float)(rect.Y + rect.Height) - 3, C.FieldBorder, 1);
+                    T.Draw(ds, "…", TextStyle.Small, C.Accent, new WRect(sq.X0, sq.Y0, sq.Width, sq.Height), Align.Centre);
+                    break;
+                }
             case WidgetWord.Path:
                 T.Draw(ds, value, TextStyle.Small, ink, new WRect(rect.X + 5, rect.Y, Math.Max(rect.Width - 22, 1), rect.Height));
                 T.Draw(ds, "…", TextStyle.Small, C.TextDim, new WRect(rect.X, rect.Y, rect.Width - 5, rect.Height), Align.Right);

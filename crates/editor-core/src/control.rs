@@ -120,6 +120,10 @@ pub struct ShotRequest {
     pub path: Option<PathBuf>,
     /// Draw offscreen rather than capture the window.
     pub offscreen: bool,
+    /// A window the core keeps (`view.windows`' key: `editor:<node>`, `params`, `cache`) to draw
+    /// instead of the canvas, for a shell that shows it in a window of its own (the Mac's); a
+    /// shell that draws such windows inside its own (egui) shows them in its picture anyway.
+    pub window: Option<String>,
 }
 
 /// What only a shell can do, for the control channel. Everything has a default but what the
@@ -399,7 +403,7 @@ pub fn engine_busy(s: &impl Shell) -> bool {
 pub fn handle<S: Shell>(s: &mut S, method: &str, params: &Value, reply: Reply) {
     match method {
         "ui.screenshot" => {
-            if let Err(e) = check_fields(params, &["path", "offscreen"]) {
+            if let Err(e) = check_fields(params, &["path", "offscreen", "window"]) {
                 return reply(err(e));
             }
             let offscreen = match params.get("offscreen") {
@@ -412,7 +416,12 @@ pub fn handle<S: Shell>(s: &mut S, method: &str, params: &Value, reply: Reply) {
                 Some(Value::String(p)) if !p.trim().is_empty() => Some(PathBuf::from(p)),
                 Some(_) => return reply(err("path must be a file path")),
             };
-            s.screenshot(ShotRequest { path, offscreen }, reply);
+            let window = match params.get("window") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(w)) if !w.trim().is_empty() => Some(w.clone()),
+                Some(_) => return reply(err("window must be a core window's key")),
+            };
+            s.screenshot(ShotRequest { path, offscreen, window }, reply);
         }
         "ui.waitRun" => {
             if let Err(e) = check_fields(params, &["timeout"]) {
@@ -996,7 +1005,10 @@ pub fn short_path(path: &str) -> String {
 pub fn ask_screenshot<S: Shell>(s: &mut S, shot: ShotRequest, reply: Reply) {
     let token = s.parked().next_token();
     let path = shot.path.unwrap_or_else(|| default_screenshot_path(token));
-    let params = json!({"path": path, "offscreen": shot.offscreen});
+    let mut params = json!({"path": path, "offscreen": shot.offscreen});
+    if let Some(w) = shot.window {
+        params["window"] = json!(w);
+    }
     let (ask, _) = s.asks().raise_with(Kind::Screenshot, params, By::Script, Some(SHOT_WAIT), Cont { then: Then::Notice, remember: None });
     s.parked().shots.push(ShotWait { ask, reply });
     s.presented();

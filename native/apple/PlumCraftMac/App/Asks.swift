@@ -417,6 +417,20 @@ final class AskPresenter {
 
     /// `ui.screenshot`: the canvas as it draws itself (not the window server's picture).
     private func screenshot(_ a: Ask) {
+        // a window the core keeps (a value editor, Parameters, the Cache Report): its content
+        if let key = a.params["window"].string, let path = a.params["path"].string {
+            guard let w = NSApp.windows.first(where: { $0.identifier?.rawValue == "core-\(key)" }), let view = w.contentView,
+                  let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)
+            else { return answer(a, ["error": .string("no window \(key) open")]) }
+            view.cacheDisplay(in: view.bounds, to: rep)
+            guard let png = rep.representation(using: .png, properties: [:]) else { return answer(a, ["error": "the window didn't draw"]) }
+            do {
+                try png.write(to: URL(fileURLWithPath: path), options: .atomic)
+                return answer(a, ["path": .string(path), "width": .int(Int64(rep.pixelsWide)), "height": .int(Int64(rep.pixelsHigh)), "source": "offscreen"])
+            } catch {
+                return answer(a, ["error": .string("\(error)")])
+            }
+        }
         guard let path = a.params["path"].string, let v = canvas, let png = v.snapshotPNG(), let img = NSBitmapImageRep(data: png) else {
             return answer(a, ["error": "no canvas to draw yet"])
         }

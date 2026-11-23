@@ -774,7 +774,8 @@ final class CoreWindows: NSObject, NSWindowDelegate {
         } else {
             let r = ReportModel(model: model, key: key)
             reports[key] = r
-            content = NSHostingView(rootView: ReportView(report: r))
+            // a value editor: the native one for its kind, else the core's value window
+            content = key.hasPrefix("editor:") ? NSHostingView(rootView: AnyView(ValueEditorView(report: r, pictures: pictures))) : NSHostingView(rootView: AnyView(ReportView(report: r)))
             title = r.title
             if key == "params" { size = NSSize(width: 460, height: 420) }
         }
