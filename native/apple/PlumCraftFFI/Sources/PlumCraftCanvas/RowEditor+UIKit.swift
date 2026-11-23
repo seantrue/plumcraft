@@ -10,7 +10,8 @@
 //                                            keyboard with Previous, Next and Done; Return and
 //                                            Done commit, a hardware keyboard's Escape cancels and
 //                                            Tab and Shift-Tab commit and move, as on the Mac;
-//                                            losing focus commits
+//                                            losing focus commits what was typed (a field left
+//                                            as it opened is closed without a value, B129)
 //   several lines                            UITextView, monospaced: Return is a new line, Done
 //                                            or ⌘Return commits
 //   a choice                                 UIKit's own pull-down menu, on the row: a touch on a
@@ -36,6 +37,8 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
     public let editor: RowEditor
     public private(set) var control: UIView?
     var finishing = false
+    /// The field's text as it opened (B129: a focus loss with it unchanged sets nothing).
+    var openedText: String?
     var keyboardTop: CGFloat?
     /// The button a touch on a choice's row or the more-button goes to (the system's menu).
     public let menuButton = UIButton(type: .custom)
@@ -168,6 +171,7 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
         canvasView.addSubview(made)
         control = made
         finishing = false
+        openedText = text()
         if made is UITextField || made is UITextView {
             made.becomeFirstResponder()
             if let f = made as? UITextField { f.selectAll(nil) }
@@ -302,10 +306,22 @@ public final class FieldEditorHost: NSObject, FieldEditing, UITextFieldDelegate,
     }
 
     public func textFieldDidEndEditing(_ f: UITextField, reason: UITextField.DidEndEditingReason) {
-        commit(then: .close)
+        lostFocus()
     }
 
     public func textViewDidEndEditing(_ t: UITextView) {
+        lostFocus()
+    }
+
+    /// Focus lost (a tap elsewhere, another responder taking it): what the person typed is
+    /// committed; a field they didn't change sets nothing and stays open (the core still has it
+    /// open; a tap on the canvas closes it there). B129: UIKit gives focus back to the responder
+    /// of before when a presentation is dismissed (a sheet replaced by another,
+    /// `_restoreInputViewsForPresentation`), and the field then wrote the text it was opened with
+    /// over a value set meanwhile (a script's `row.set`).
+    func lostFocus() {
+        guard !finishing else { return }
+        if let t = text(), t == openedText { return }
         commit(then: .close)
     }
 

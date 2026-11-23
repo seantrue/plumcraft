@@ -33,6 +33,8 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
     public private(set) var control: NSView?
     var scroll: NSScrollView?
     var finishing = false
+    /// The field's text as it opened (B129: a focus loss with it unchanged sets nothing).
+    var openedText: String?
     /// A person clicked a row a moment ago: a pop-up's menu or the colour panel may open at once.
     var clickedAt: Date?
     var colorObserver: NSObjectProtocol?
@@ -140,6 +142,7 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
         sup.addSubview(made, positioned: .above, relativeTo: canvasView)
         control = made
         finishing = false
+        openedText = currentText()
         if let s = scroll, let t = s.documentView as? NSTextView {
             canvasView.window?.makeFirstResponder(t)
             t.selectAll(nil)
@@ -207,16 +210,22 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
 
     // MARK: Commits
 
+    /// What the field or text view holds now.
+    func currentText() -> String? {
+        if let f = control as? NSTextField { return f.stringValue }
+        if let t = scroll?.documentView as? NSTextView { return t.string }
+        return nil
+    }
+
+    /// Focus went elsewhere: what the person typed is committed; a field left as it opened sets
+    /// nothing (B129, as on the iPad: a value changed meanwhile isn't written over).
+    func lostFocus() {
+        guard !finishing, let t = currentText(), t != openedText else { return }
+        commitText(then: .close)
+    }
+
     func commitText(then: RowEditor.Then) {
-        guard !finishing, let c = control else { return }
-        let text: String
-        if let f = c as? NSTextField {
-            text = f.stringValue
-        } else if let t = scroll?.documentView as? NSTextView {
-            text = t.string
-        } else {
-            return
-        }
+        guard !finishing, control != nil, let text = currentText() else { return }
         finishing = true
         let editor = self.editor
         Task { [weak self] in
@@ -299,8 +308,8 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
     }
 
     public func controlTextDidEndEditing(_ n: Notification) {
-        // focus went elsewhere: what the field holds is committed
-        commitText(then: .close)
+        // focus went elsewhere (Return and Tab come through doCommandBy, as commits)
+        lostFocus()
     }
 
     public func textView(_ textView: NSTextView, doCommandBy sel: Selector) -> Bool {
@@ -314,7 +323,7 @@ public final class FieldEditorHost: NSObject, FieldEditing, NSTextFieldDelegate,
     }
 
     public func textDidEndEditing(_ n: Notification) {
-        commitText(then: .close)
+        lostFocus()
     }
 }
 
