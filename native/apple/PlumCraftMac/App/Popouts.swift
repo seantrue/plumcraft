@@ -733,7 +733,7 @@ final class MessagesWindow: NSObject, NSWindowDelegate {
 /// its own while the scene's `view.windows` says it is open; its close button closes it in the
 /// core too.
 @MainActor
-final class CoreWindows: NSObject, NSWindowDelegate {
+final class CoreWindows: NSObject, NSWindowDelegate, UndoActions {
     let model: DocumentModel
     let pictures: Pictures
     private(set) var windows: [String: NSWindow] = [:]
@@ -796,6 +796,23 @@ final class CoreWindows: NSObject, NSWindowDelegate {
         } else {
             w.orderBack(nil)
         }
+    }
+
+    // Undo and Redo in a window the core keeps (a value editor, Parameters, the Cache Report):
+    // the window's delegate is in the responder chain, so ⌘Z there undoes the document (S4b:
+    // a mask stroke undone from the mask window), and the menu bar shows that document's undo
+    func undo(_ sender: Any?) {
+        let m = model
+        Task { _ = try? await m.run("edit.undo") }
+    }
+
+    func redo(_ sender: Any?) {
+        let m = model
+        Task { _ = try? await m.run("edit.redo") }
+    }
+
+    func windowDidBecomeKey(_ n: Notification) {
+        MenuBar.shared.show(model)
     }
 
     func windowWillClose(_ n: Notification) {

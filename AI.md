@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — The mask editor's view on the iPad and the Mac (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** As the entry below: one finger or the Pencil paints and two fingers pan and zoom (8A); the live stroke comes from a bit-exact Swift port of the brush (2A); a folder is asked for once when the mask cannot be saved beside the document (4A).
+
+**What the AI did.** `PlumCraftShell/MaskEditor.swift`, registered for kind `mask`: brush controls, the run's picture with the mask as a blue tint, painting that redraws only what the dabs touched, one `mask.stroke` on lift. A shared pan and zoom transform. On the Mac the pointer paints and the scroll wheel pans.
+
+**Defects found by running it, all in this work, all fixed.** (1) On iOS the system image decoder premultiplies alpha, so where the mask was 0 the picture came back black; the view now reads the core's PNG with a small exact reader of its own (`PNGRGBA.swift`), safe on hostile input. (2) On the Mac, Undo in the mask window did nothing, because the window's own undo manager took it; the canvas now answers Undo with the document's. The same answer was given to the core's other windows, which no test proves. (3) A pinch also fired the two-finger-tap undo.
+
+**Verified (agent).** Swift tests on a real core: one gesture is one stroke and one undo, and the view's stroke equals the core's file bit for bit. An iPad simulator UI test: opened from a node's row and from a group's promoted row, a pinch paints nothing, one finger paints one stroke, a two-finger tap undoes it. Mac person check, three new steps, passing. The controller looked at the iPad picture.
+
+**Not verified.** The UI test for the folder ask is written and has not run (the agent stopped at 11 GB of free disk). The iPad app was not rebuilt after the last Mac-only fixes, and the whole `swift test` run was not repeated after them. In the Mac's offscreen picture the row of controls drew as a black band; whether that is the picture or the window is not known. Keeping folder access across a relaunch on the iPad, the iPhone, Windows and any device are not done.
+
 ### 2026-11-23 — A mask editor's core: the brush model, mask commands, a Paint Mask node, a Swift brush port (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** On the checklist page: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A", and on the note to 5B, "Ref commonkit -- both". So: a public Paint Mask node that also takes a mask; a bit-exact Swift port of the brush; the mask at the picture's size up to 2048; a folder asked for once when the mask cannot be saved beside the document; pruning now, through the maintainer's shared library; files written in the stroke command; one finger paints; stroke points may carry a pressure that is ignored for now.

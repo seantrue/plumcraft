@@ -1004,6 +1004,55 @@ def curves_step(port):
     close_graph(port, doc, "curves-check-saved.json")
 
 
+MASK_GRAPH = {
+    "version": 1,
+    "nodes": {
+        "m": {"kind": "array.mandelbrot", "pos": [0, 0]},
+        "c": {"kind": "array.paint_mask", "pos": [420, 0]},
+    },
+    "wires": [{"from": {"node": "m", "port": "escape"}, "to": {"node": "c", "port": "picture"}}],
+}
+
+
+def mask_step(port):
+    """S4b, F60 on the Mac: Paint Mask's edit row opens the shell's mask editor (its own window,
+    the native view); after a run it has the picture; a drag on its canvas (the app's own mouse
+    events) paints one stroke: one mask.stroke, the value a new file beside the graph, the undo
+    says Mask Stroke; Edit › Undo takes it back."""
+    doc = open_graph(port, "mask-check.json", MASK_GRAPH)
+    if not doc:
+        return say(False, "S4b: the mask graph opened", f"documents {docs()}")
+    step("menu-pick:Run/Run")
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+
+    def native():
+        w = next((x for x in (status().get("windows") or []) if x.get("doc") == doc), {})
+        return (((w.get("coreWindows") or {}).get("editor:c") or {}).get("report") or {}).get("native") or {}
+    rows = next((n.get("inputs") or [] for n in port.call("scene.get", {}, doc=doc).get("nodes", []) if n.get("id") == "c"), [])
+    k = next((i for i, r in enumerate(rows) if r.get("key") == "edit"), None)
+    tapped = step(f"tap:row=c.{k}") if k is not None else {"ok": False}
+    opened = wait(lambda: (lambda n: n if n.get("kind") == "mask" and n.get("picture") else None)(native()), 30, every=0.3)
+    say(bool(tapped.get("ok") and opened), "S4b: Paint Mask's edit row opens the shell's mask editor, with the run's picture",
+        f"row {k}; tapped {tapped.get('ok')}; editor {json.dumps(opened)[:200] if opened else native()}")
+    locked = console_locked()
+    dragged = step("core-drag:editor:c|mask-canvas|0.3,0.3|0.7,0.6")
+    edited = wait(lambda: (lambda n: n if n.get("sent") == 1 and str(n.get("value", "")).endswith(".png") else None)(native()), 20, every=0.3)
+    undo = port.call("ui.inspect", {}, doc=doc).get("undo")
+    if not edited and locked:
+        ax_blind("S4b: a drag on the mask canvas (one mask.stroke, one undo step)", "the screen is locked: the app's own mouse events reached no stroke")
+        close_graph(port, doc, "mask-check-saved.json")
+        return
+    say(bool(dragged.get("ok") and edited and undo == "Mask Stroke" and str(edited.get("value", "")).startswith("mask-check.edits/")),
+        "S4b: a drag on the mask canvas paints one stroke: one mask.stroke, a new file beside the graph, one undo step",
+        f"step {dragged}; editor {json.dumps(edited)[:240] if edited else native()}; undo {undo!r}")
+    # ⌘Z with the mask window in front: the mask window's own responder chain
+    u = step("core-undo:editor:c")
+    back = wait(lambda: (lambda n: n if n.get("value") == "" else None)(native()), 15, every=0.3)
+    say(bool(edited and u.get("ok") and back), "S4b: Undo with the mask window in front takes the stroke back",
+        f"undo sent {u}; value {(back or native()).get('value')!r}")
+    close_graph(port, doc, "mask-check-saved.json")
+
+
 AUDIO_GRAPH = {
     "version": 1,
     "nodes": {
@@ -1246,6 +1295,9 @@ def main():
 
         # S4a: the curves editor, a drag on its plot, one undo step (F59)
         curves_step(port)
+
+        # S4b: the mask editor, a drag on its canvas, one undo step (F60)
+        mask_step(port)
 
     # 6, 7. Attach… and Install Engine… show real sheets, labels beside their fields (B73)
     check_sheet("Engine › Attach…: a real sheet", "Engine/Attach…", "attach-sheet.png")

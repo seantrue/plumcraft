@@ -16,7 +16,7 @@ import SwiftUI
 
 /// The editor kinds the shell draws natively.
 public enum NativeEditors {
-    public static let kinds: Set<String> = ["curves"]
+    public static let kinds: Set<String> = ["curves", "mask"]
 }
 
 /// A value editor's window: the native editor for the node's kind, else the core's value window.
@@ -37,7 +37,9 @@ public struct ValueEditorView: SwiftUI.View {
 
     public var body: some SwiftUI.View {
         Group {
-            if let kind, NativeEditors.kinds.contains(kind) {
+            if kind == "mask", let m = report.mask {
+                MaskEditorView(model: m, done: done)
+            } else if let kind, NativeEditors.kinds.contains(kind), kind == "curves" {
                 CurvesEditorView(model: report.curves ?? CurvesModel(report: report), pictures: pictures, done: done)
             } else if asked {
                 ReportView(report: report, done: done)
@@ -49,6 +51,7 @@ public struct ValueEditorView: SwiftUI.View {
             let r = try? await report.model.run("node.editorData", ["node": .string(node)])
             let k = r?["kind"].string
             if k == "curves", report.curves == nil { report.curves = CurvesModel(report: report) }
+            if k == "mask", report.mask == nil { report.mask = MaskModel(report: report, pictures: pictures) }
             kind = k
             asked = true
         }
