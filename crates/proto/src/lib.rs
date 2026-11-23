@@ -18,6 +18,7 @@
 pub mod caps;
 pub mod catalogue;
 pub mod convert;
+pub mod curves;
 pub mod data;
 pub mod de;
 pub mod display;

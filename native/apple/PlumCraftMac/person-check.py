@@ -948,6 +948,62 @@ def browse_step(port):
     close_graph(port, doc, "browse-check-saved.json")
 
 
+CURVES_GRAPH = {
+    "version": 1,
+    "nodes": {
+        "m": {"kind": "array.mandelbrot", "pos": [0, 0]},
+        "c": {"kind": "array.apply_curve", "pos": [420, 0]},
+    },
+    "wires": [{"from": {"node": "m", "port": "escape"}, "to": {"node": "c", "port": "array"}}],
+}
+
+
+def curves_step(port):
+    """S4a, F59 on the Mac: Apply Curve's curves row clicked opens the shell's curves editor (a
+    window of its own, the native view, not the value window); after a run it has the histogram
+    and the picture; a mouse drag on its plot (down, drags, up, sent to the window by the app's
+    own step) adds a point and moves it, one `curves.edit` (the undo says Edit Curve); Edit ›
+    Undo takes the whole drag back."""
+    doc = open_graph(port, "curves-check.json", CURVES_GRAPH)
+    if not doc:
+        return say(False, "S4a: the curves graph opened", f"documents {docs()}")
+    step("menu-pick:Run/Run")
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+
+    def native():
+        w = next((x for x in (status().get("windows") or []) if x.get("doc") == doc), {})
+        return (((w.get("coreWindows") or {}).get("editor:c") or {}).get("report") or {}).get("native") or {}
+    rows = next((n.get("inputs") or [] for n in port.call("scene.get", {}, doc=doc).get("nodes", []) if n.get("id") == "c"), [])
+    k = next((i for i, r in enumerate(rows) if r.get("key") == "curves"), None)
+    tapped = step(f"tap:row=c.{k}") if k is not None else {"ok": False}
+    opened = wait(lambda: (lambda n: n if n.get("kind") == "curves" and len(n.get("points", [])) == 2 and n.get("histogram") else None)(native()), 20, every=0.3)
+    say(bool(tapped.get("ok") and opened and opened.get("picture")),
+        "S4a: Apply Curve's curves row opens the shell's curves editor, with the run's histogram and picture",
+        f"row {k}; tapped {tapped.get('ok')}; editor {json.dumps(opened)[:200] if opened else None}")
+    dragged = step("core-drag:editor:c|curves-plot|0.5,0.5|0.4,0.3")
+    edited = wait(lambda: (lambda n: n if n.get("sent") == 1 and len(n.get("points", [])) == 3 and not n.get("dragging") else None)(native()), 15, every=0.3)
+    undo = port.call("ui.inspect", {}, doc=doc).get("undo")
+    locked = console_locked()
+    mid = (edited or {}).get("points", [[0, 0]] * 3)[1]
+    near = abs(mid[0] - 0.4) < 0.05 and abs(mid[1] - 0.7) < 0.05
+    if not edited and locked:
+        ax_blind("S4a: a drag on the curves plot (one curves.edit, one undo step)", "the screen is locked: the app's own mouse events reached no gesture")
+        close_graph(port, doc, "curves-check-saved.json")
+        return
+    say(bool(dragged.get("ok") and edited and near and undo == "Edit Curve"),
+        "S4a: a drag on the curves plot adds a point and moves it: one curves.edit, one undo step",
+        f"step {dragged}; editor {json.dumps(edited)[:240] if edited else native()}; undo {undo!r}")
+    items = step("menu:Edit").get("items", [])
+    u = next((i.get("title") for i in items if str(i.get("title", "")).startswith("Undo")), None)
+    if u:
+        step(f"menu-pick:Edit/{u}")
+    back = wait(lambda: (lambda n: n if len(n.get("points", [])) == 2 else None)(native()), 15, every=0.3)
+    after = port.call("ui.inspect", {}, doc=doc).get("undo")
+    say(bool(edited and u and back and after != "Edit Curve"), "S4a: Edit › Undo takes the whole drag back",
+        f"menu item {u!r}; points {(back or native()).get('points')}; undo now {after!r}")
+    close_graph(port, doc, "curves-check-saved.json")
+
+
 AUDIO_GRAPH = {
     "version": 1,
     "nodes": {
@@ -1187,6 +1243,9 @@ def main():
 
         # the audio engine compiled in, and its viewer
         audio_viewer(port)
+
+        # S4a: the curves editor, a drag on its plot, one undo step (F59)
+        curves_step(port)
 
     # 6, 7. Attach… and Install Engine… show real sheets, labels beside their fields (B73)
     check_sheet("Engine › Attach…: a real sheet", "Engine/Attach…", "attach-sheet.png")

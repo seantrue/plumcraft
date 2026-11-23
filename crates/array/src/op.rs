@@ -36,6 +36,7 @@ impl Node for Op {
             inputs: self.inputs.clone(),
             outputs: self.outputs.clone(),
             converts: marks(self.id),
+            editor: editor_of(self.id),
             ..Default::default()
         }
     }
@@ -204,6 +205,12 @@ pub fn many(outs: Vec<(&str, Data)>) -> Outputs {
 
 /// The array nodes that convert between types (docs/research/20-convert.md), with their arrays'
 /// shape: a picture, so a path never takes a sound's samples to Encode Image.
+/// The value editor a node names (`NodeDef.editor`): Apply Curve's curves, for the `curves`
+/// editor (`plumcraft_proto::curves`).
+fn editor_of(id: &str) -> Option<plumcraft_proto::catalogue::Editor> {
+    (id == "array.apply_curve").then(|| plumcraft_proto::catalogue::Editor { kind: "curves".into(), port: "curves".into(), interpolant: None })
+}
+
 fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {
     use plumcraft_proto::catalogue::core_types::{ARRAY, IMAGE, SVG};
     use plumcraft_proto::convert::{Converts, IMAGE as PICTURE, VIDEO};

@@ -17,6 +17,7 @@ pub mod archive;
 pub mod bundle_cmds;
 pub mod commands;
 pub mod convert;
+pub mod curve_cmds;
 pub mod doc_cmds;
 pub mod doc_edits;
 mod edit_cmds;

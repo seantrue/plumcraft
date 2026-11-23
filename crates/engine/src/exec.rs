@@ -442,6 +442,7 @@ pub fn run_values(
                 ms,
                 thumb,
                 outputs,
+                editor: editor_data(&hit, plane),
                 memo: Some(MemoInfo {
                     plan_key: key.clone().unwrap_or_default(),
                     content_key: content,
@@ -483,9 +484,18 @@ pub fn run_values(
                 let memo_info = key.clone().map(|plan_key| MemoInfo { plan_key, content_key: content.clone(), source: None, computed_ms: Some(work_ms) });
                 stats.computed += 1;
                 stats.computed_ms += work_ms;
-                reply
-                    .nodes
-                    .insert(id.clone(), NodeReport { state: NodeState::Done, ms, thumb, outputs: report_outputs, memo: memo_info, ..Default::default() });
+                reply.nodes.insert(
+                    id.clone(),
+                    NodeReport {
+                        state: NodeState::Done,
+                        ms,
+                        thumb,
+                        outputs: report_outputs,
+                        memo: memo_info,
+                        editor: editor_data(&outputs, plane),
+                        ..Default::default()
+                    },
+                );
                 outcome.insert(id.clone(), Outcome::Done);
                 if let Some(k) = key.filter(|_| stores) {
                     // Slow enough, and cheap to write and read back next to recomputing it.
@@ -558,6 +568,16 @@ pub const VOLATILE_KEY: &str = "_volatile";
 /// outputs in the memo. Only such a node sets it (the maintainer, 2026-11-22: recipes stay with
 /// engines that track lineage).
 pub const RECIPE_KEY: &str = "_recipe";
+/// The output key under which a node puts what a value editor needs from its run (an object:
+/// editor kind → data, spec 7.4 and `NodeReport.editor`; for `curves`, `docs/shell-interface.md`
+/// 12.21's curves data). Not a port, kept with the outputs in the memo, so a cached run sends it too.
+pub const EDITOR_KEY: &str = "_editor";
+/// The output key under which a node puts a picture for its editor (an array, shown as its first
+/// `auto` view, at most [`EDITOR_PICTURE_PX`] a side): it goes into each kind's data under `picture`
+/// as an `rgba8` rendition.
+pub const EDITOR_PICTURE_KEY: &str = "_editor_picture";
+/// The largest side of an editor's picture.
+pub const EDITOR_PICTURE_PX: u32 = 1024;
 /// The most runs a node mapped over lists makes.
 pub const MAX_RUNS: usize = 100_000;
 /// The most items a list display's sheet describes.
@@ -808,12 +828,42 @@ fn preview(
     thumb
 }
 
-/// The outputs a reply carries: a target's only, each crossing as [`Plane::port_value`] decides.
+/// The outputs a reply carries: a target's only, each crossing as [`Plane::port_value`] decides
+/// (never the editor's keys, which aren't ports).
 fn target_outputs(engine: &Engine, def: &NodeDef, req: &RunRequest, id: &str, outputs: &Outputs, plane: &Plane<'_>) -> BTreeMap<String, PortValue> {
     if !req.targets.iter().any(|t| t == id) {
         return BTreeMap::new();
     }
-    outputs.iter().map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v))).collect()
+    outputs
+        .iter()
+        .filter(|(k, _)| k.as_str() != EDITOR_KEY && k.as_str() != EDITOR_PICTURE_KEY)
+        .map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v)))
+        .collect()
+}
+
+/// What a node's value editors need from this run (`NodeReport.editor`): its [`EDITOR_KEY`]
+/// object, kind by kind, each with the [`EDITOR_PICTURE_KEY`] picture as `picture` when the node
+/// gave one and the kind's data has none. Empty when the node gave none.
+fn editor_data(outputs: &Outputs, plane: &Plane<'_>) -> BTreeMap<String, Value> {
+    let Some(Value::Object(kinds)) = outputs.get(EDITOR_KEY).and_then(Data::json) else { return BTreeMap::new() };
+    let picture = match outputs.get(EDITOR_PICTURE_KEY) {
+        Some(Data::Array(a)) => {
+            crate::arrays::thumb(a, EDITOR_PICTURE_PX).and_then(|t| plane.rgba8(&t, "editor", "")).and_then(|r| serde_json::to_value(r).ok())
+        }
+        _ => None,
+    };
+    kinds
+        .iter()
+        .map(|(kind, data)| {
+            let mut data = data.clone();
+            if let (Some(p), Value::Object(o)) = (&picture, &mut data)
+                && !o.contains_key("picture")
+            {
+                o.insert("picture".into(), p.clone());
+            }
+            (kind.clone(), data)
+        })
+        .collect()
 }
 
 fn port_media(engine: &Engine, def: &NodeDef, port: &str) -> Media {
