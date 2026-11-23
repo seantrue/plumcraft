@@ -23,6 +23,7 @@ pub mod generate;
 pub mod img;
 pub mod math;
 pub mod op;
+pub mod paint;
 
 use plumcraft_engine::{Engine, Node};
 use plumcraft_proto::catalogue::{Media, WireType, core_types};
@@ -38,6 +39,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
     v.extend(math::nodes());
     v.extend(filters::nodes());
     v.extend(generate::nodes());
+    v.extend(paint::nodes());
     v
 }
 

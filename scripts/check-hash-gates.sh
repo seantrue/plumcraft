@@ -1,8 +1,10 @@
 #!/bin/sh
 # The hash gates (the commonkit hash facade, D10): every digest goes through commonkit::digest.
 #  1. hash crates appear in the build only under commonkit (normal and build edges);
-#  2. exactly one commonkit, 0.2.x, in the runtime (the build scripts' copy, for the build salts
-#     (D4), is listed apart under [build-dependencies] and runs only in build scripts);
+#  2. exactly one commonkit in the runtime, of the version the workspace's Cargo.toml pins (0.3.x
+#     since prune_folder: two commonkits would be two hash facades, and a digest made by one
+#     version must be the digest the other reads); the build scripts' copy, for the build salts
+#     (D4), is listed apart under [build-dependencies] and runs only in build scripts;
 #  3. no source outside tests, goldens, build scripts and hash-allowlist.txt names an algorithm,
 #     `fixed::`/`build::`, or builds a handle from text ("md5:…", "b3:…", f"{algo}:…").
 set -u
@@ -17,9 +19,13 @@ for c in md-5 md5 sha1 sha2 blake3; do
   if [ -n "$bad" ]; then echo "hash gate: $c is used outside commonkit: $bad"; status=1; fi
 done
 tree=$(cargo tree --locked --workspace --all-features -i commonkit -e normal,build --depth 0)
-n=$(printf '%s\n' "$tree" | sed '/^\[build-dependencies\]/,$d' | grep -c '^commonkit v0\.2\.')
-other=$(printf '%s\n' "$tree" | grep '^commonkit v' | grep -v '^commonkit v0\.2\.')
-[ "$n" = 1 ] && [ -z "$other" ] || { echo "hash gate: $n runtime commonkit v0.2 lines, want 1; other versions: ${other:-none}"; printf '%s\n' "$tree" | sed 's/^/  | /'; status=1; }
+# the version the workspace pins (`commonkit = { version = "0.3", … }`), as a cargo tree prefix
+pin=$(sed -n 's/^commonkit = { version = "\([0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' Cargo.toml)
+[ -n "$pin" ] || { echo "hash gate: no commonkit version pinned in Cargo.toml"; status=1; }
+want="^commonkit v$(printf '%s' "$pin" | sed 's/\./\\./g')\\."
+n=$(printf '%s\n' "$tree" | sed '/^\[build-dependencies\]/,$d' | grep -c "$want")
+other=$(printf '%s\n' "$tree" | grep '^commonkit v' | grep -v "$want")
+[ "$n" = 1 ] && [ -z "$other" ] || { echo "hash gate: $n runtime commonkit v$pin lines, want 1; other versions: ${other:-none}"; printf '%s\n' "$tree" | sed 's/^/  | /'; status=1; }
 rust='Algo::Md5|Algo::B3|digest::fixed|fixed::(raw|nd1|Fixed|Hasher)|digest::build|"md5:|"b3:|md5::|blake3::|sha2::|sha1::'
 py='hashlib|import blake3|fixed\.|build\.both|algo=|"md5:|"b3:|f"\{algo\}:'
 for f in $(git ls-files '*.rs' | grep -v '/tests/' | grep -v 'build\.rs$' | grep -v '/digest\.rs$' | grep -vxF -f hash-allowlist.txt); do

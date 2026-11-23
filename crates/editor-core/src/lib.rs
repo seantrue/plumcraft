@@ -64,6 +64,7 @@ pub mod install;
 pub mod invoke;
 pub mod link;
 pub mod log;
+pub mod mask_cmds;
 pub mod menu;
 pub mod naming;
 pub mod palette;

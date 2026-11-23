@@ -227,6 +227,21 @@ enum PersonSteps {
                 send(.leftMouseUp, b)
             }
             return ["ok": true, "frame": [.double(Double(r.minX)), .double(Double(r.minY)), .double(Double(r.width)), .double(Double(r.height))]]
+        case "core-undo":
+            // Edit › Undo as AppKit routes it in the core window KEY (`editor:n`), as when it is
+            // key: its first responder up the responder chain, then the window and its delegate.
+            // A scripted launch is never active, so no window is key and an action sent to nil
+            // goes nowhere; this walks the same chain from that window.
+            guard let win = NSApp.windows.first(where: { $0.identifier?.rawValue == "core-\(arg)" }) else {
+                return ["ok": false, "error": .string("no window \(arg)")]
+            }
+            let sel = #selector(UndoActions.undo(_:))
+            var sent = false
+            await onRunLoop {
+                sent = win.firstResponder?.tryToPerform(sel, with: nil) ?? false
+                if !sent { sent = win.tryToPerform(sel, with: nil) }
+            }
+            return ["ok": .bool(sent), "window": .string(arg)]
         case "dock-reopen":
             let visible = NSApp.windows.contains { $0.isVisible && $0.windowController is GraphWindowController }
             (NSApp.delegate as? AppDelegate)?.reopen(hasVisibleWindows: visible)
@@ -239,11 +254,18 @@ enum PersonSteps {
     /// The accessibility element with identifier `id` under `node` (the app's own tree, read in
     /// process: no accessibility permission needed).
     static func element(_ id: String, in node: Any, depth: Int) -> AnyObject? {
-        guard depth < 40 else { return nil }
+        var seen = 0
+        return element(id, in: node, depth: depth, seen: &seen)
+    }
+
+    /// The same, visiting at most 5,000 elements in all.
+    static func element(_ id: String, in node: Any, depth: Int, seen: inout Int) -> AnyObject? {
+        seen += 1
+        guard depth < 40, seen < 5000 else { return nil }
         let o = node as AnyObject
         if let ident = o.accessibilityIdentifier?(), ident == id { return o }
         for c in o.accessibilityChildren?() ?? [] {
-            if let hit = element(id, in: c, depth: depth + 1) { return hit }
+            if let hit = element(id, in: c, depth: depth + 1, seen: &seen) { return hit }
         }
         return nil
     }

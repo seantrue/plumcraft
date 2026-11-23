@@ -760,7 +760,7 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F57 | Picture window (T16) | Met | Met | Conformance "a value popped out is a window of the core's…"; iPad `testEveryViewerByATap` |
 | F58 | Missing data is a state | Met | Met | Conformance "a value read as what it isn't is refused with a reason, and the core still serves" |
 | F59 | Curve editor | Partly met (S4a: the commands through the launched app; the native editor drawn by the app, no named test drags on it) | Met on the iPad simulator (S4a); the iPhone not met | Mac: conformance "the curves editor's commands edit an array node's curves, one undo step each, and a run sends the editor its data" (61 of 61), the editor window pictured by `ui.screenshot {window}`; person check "S4a: Apply Curve's curves row opens the shell's curves editor, with the run's histogram and picture" (PASS); its drag step not done with the screen locked (SEE). iPad simulator: UI test `testCurvesEditor` (opened from a node and a collapsed group's row, a drag adds and moves a point, one undo restores it). Not on a device. The iPhone's compact layout and Windows are later slices |
-| F60 | Mask editor | Not met | Not met | The research software's (N6) |
+| F60 | Mask editor | Met (S4b: the person check opens it from Paint Mask's row, a drag on its canvas is one `mask.stroke`, and Undo from its window takes it back) | Met on the iPad simulator (S4b); the iPhone not met | Mac: person check "S4b: a drag on the mask canvas paints one stroke…" and "S4b: Undo with the mask window in front…"; conformance "the mask editor's strokes are files…" (Mac and iPad). iPad simulator: UI tests `testMaskEditor` (from a node's row and a collapsed group's, one finger one stroke, two fingers none, a two-finger tap undoes) and `testMaskAsksForAFolder` (a read-only folder: the system's folder picker for the files). Not on a device. The private app's Edit Intermediate is slice 4 |
 | F61 | List mapping with axes | Not met | Not met | Core only |
 | F62 | Vary nodes | Not met | Not met | Core only |
 | F63 | Lineage | Not met | Not met | Core only |
@@ -1289,6 +1289,26 @@ The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4A; 5A; 6A; 7A; 8B". Cards 1 
 | 7 | The two iPad UI tests that failed at one step larger text in a 375 by 655 window (`testAWarnedEngineIsMarkedInTheMenu`, `testTheSavesQuestionAndARecipe`): A fix them; B leave them, as tests a device run skips | 7A: fix them |
 | 8 | The fixed 300 ms settle before each action (`PLUMCRAFT_SETTLE_MS`): A keep it; B replace it with waits on the app's own state (presented or presenting, the keyboard's frame settled, a menu open), each with a limit | 8B: waits on the app's state |
 
+## 22. The value editors (S4)
+
+### 22.1 The mask editor's decisions (the maintainer, 2026-11-23)
+
+Their answer, verbatim: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A". On "Commonkit?", asked whether they meant that the pruning or the edit files' store should live in commonkit, or whether commonkit already does this: "Ref commonkit -- both".
+
+| # | Card | Answer |
+|---|---|---|
+| 1 | Which public node names the mask editor: A a new array node, Paint Mask; B none fits; C the test engine only | **A**, "Have the paint mask take a mask input as well". Read as (the agent's reading, not theirs): an optional incoming mask is where the painting starts; strokes add to it and take from it; with no edit it passes through; once there is an edit, the edit holds the whole mask, so a later change upstream doesn't reach it until the edit is cleared. Told of that last point, the maintainer: "1a is acceptable" |
+| 2 | The Swift preview of a stroke: A a bit-exact port pinned by vectors; B approximate, replaced on lift | **A** |
+| 3 | The mask's size: A the picture's, capped at 2048 on the long side, scaled up by the node; B always full size; C 1280 | **A** |
+| 4 | With nowhere to write beside the document: A ask for a folder once and remember it; B the app's own folder silently | **A** (`mask.folder`, kept in the graph's `meta.mask_folder`) |
+| 5 | Pruning unreachable edit files: A not in S4b, a Clean Up command later; B port the private pruning now | **B**, "Commonkit?"; then "Ref commonkit -- both" |
+| 6 | Writing the file: A in the stroke command, a thread only if slow; B the private writer thread from the start | **A** |
+| 7 | The sidecar's word: A `plumcraft`, the private pruning to accept both; B the caller's choice | **A** |
+| 8 | iPad gestures: A one finger paints, two pan and zoom; B a Paint/Move switch | **A** |
+| 9 | Pressure: A an optional third number in a point, checked and not used; B none | **A** |
+| 10 | The curve editor while dragging: re-run or not | **A**: no re-run (closes S4a's open card 3) |
+
+**Commonkit (5B).** commonkit is a shared cache for arrays: its README says "A value that can't be recomputed doesn't belong here alone", its reaper evicts segments by age and size with no idea of what is still referenced, and a pinned subtree is "a possible later addition; it isn't built". So it had neither the store for durable edit files nor reachability pruning. The pruning was written there (branch `feat/prune-files` in its repository, uncommitted: `commonkit.prune.prune_folder` in Python, `commonkit::prune_folder` in Rust, one set of vectors), general and naming nothing of PlumCraft's. PlumCraft takes commonkit from crates.io. The maintainer: "Release commonkit": `commonkit` 0.3.0 (crates.io) and `pyuncommonkit` 0.3.0 (PyPI) carry it, and the workspace pins both (2026-11-23). `mask.prune` now prunes through `mask_cmds::prune_edits`, the one call of `commonkit::prune_folder`: in this document's own edit folders only, candidates by name (`<node>-<16 hex>.png`), claimed by a sidecar saying `plumcraft` for that node, kept when reached (the graph, undo and redo, a JSON file beside the document) or younger than a day, removed with the sidecar; a dry run by default; a person is asked first with the count (prompt `pruneMasks`). Keeping the edit files themselves in commonkit's store is not proposed: the store may evict them, and they are the document's (7A puts them beside it, where the research software's engine reads them too).
 #### Photos as a source for a path (the maintainer, 2026-11-23)
 
 The answer line, verbatim: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A". Cards 1 to 10 are recorded where they were asked. The two recorded here (branch `feat/path-photos`):

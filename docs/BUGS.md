@@ -4,6 +4,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B144. `a_shared_remote_refuses_md5_uploads` failed once on the Linux test host, in a full run
+
+- Reported: 2026-11-23, by the Linux gate on branch `feat/mask-editor` (the commit that moves the workspace to commonkit 0.3); not reported by the maintainer.
+- Report: in one full nextest run (1,676 tests) `plumcraft-text::uploads a_shared_remote_refuses_md5_uploads` panicked at `crates/text/tests/uploads.rs:136` (the status of a five-byte upload was not 201). The same commit, the same host: the test alone passed 5 times of 5, and a second full run passed it.
+- Not known: the reply it got. The gate's log keeps the failing line, not the assertion's message; the gate script on the host should keep it so the next sighting says more.
+- Cause: not known. A timing fault under load is the controller's guess, not a finding: the test reads the reply until the engine closes the connection, right after starting the engine.
+- Watch: record each sighting here with the reply.
+- Issue: none
+
 ### B143. The conformance case "the engine's run changed while it goes" failed once on the Windows test VM
 
 - Reported: 2026-11-23, an agent (C# runner, ARM64)

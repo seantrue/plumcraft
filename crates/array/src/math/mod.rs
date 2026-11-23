@@ -456,6 +456,9 @@ fn apply_curve(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     Ok(outputs)
 }
 
+/// The largest side of the curves editor's preview picture.
+const CURVE_PICTURE_PX: usize = 1024;
+
 /// The bins of a curves editor's histograms, over 0..1.
 const CURVE_BINS: usize = 256;
 
@@ -463,7 +466,7 @@ const CURVE_BINS: usize = 256;
 /// names, each channel's 256-bin histogram of its values on 0..1 (clipped, or mapped from its own
 /// min..max with `own_range`, as the curves see them), and whether an 8-bit preview through lookup
 /// tables shows what the curves do (one channel or three); and that 0..1 picture, at most
-/// [`plumcraft_engine::exec::EDITOR_PICTURE_PX`] a side.
+/// [`CURVE_PICTURE_PX`] a side.
 fn curves_editor_data(a: &Img, own_range: bool) -> (serde_json::Value, Img) {
     let c = a.c.max(1);
     let names: Vec<String> = (0..c.min(3))
@@ -499,7 +502,7 @@ fn curves_editor_data(a: &Img, own_range: bool) -> (serde_json::Value, Img) {
         })
         .collect();
     // the picture, every `step`th pixel so its larger side is at most the editor's
-    let px = plumcraft_engine::exec::EDITOR_PICTURE_PX as usize;
+    let px = CURVE_PICTURE_PX;
     let step = a.h.max(a.w).div_ceil(px).max(1);
     let (ph, pw) = (a.h.div_ceil(step), a.w.div_ceil(step));
     let small: Vec<Vec<f32>> = unit

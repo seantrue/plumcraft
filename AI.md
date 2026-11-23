@@ -20,6 +20,41 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Clean Up Mask Files, on the shared library's new pruning; the workspace moves to its 0.3 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Release commonkit", after "Ref commonkit -- both" on where pruning belongs; and, told that once a mask is painted a later change to the wired-in mask does not show until Clear, "1a is acceptable".
+
+**What the AI did.** The workspace pins `commonkit = "0.3"` and the Python side `pyuncommonkit>=0.3.0,<0.4`; only those packages moved in the lockfiles. `mask.prune` is now one call of `commonkit::prune_folder`: candidates by name, claimed only by a sidecar naming this editor, kept when the graph, an undo or redo step or a neighbouring JSON file can reach them, kept when under a day old, and only in the document's own edit folders. It lists by default; a person's Clean Up Mask Files shows the count and asks before removing. The hash gate's check for a single runtime copy of the library had the version written into it; it now reads the pin.
+
+**A consequence to know.** Every engine's cached results are recomputed once: the build salts take in the lockfile and the installed library version. No store layout, key scheme or digest algorithm changed.
+
+**Verified (agent).** nextest 1,675 of 1,676 (the known baseline failure); Python 249; the hash gate, including that it still rejects the old version; C ABI tests for each keep and remove case and a refused symlinked folder; a conformance case on the Mac (71 of 71) and the iPad simulator (70 of 70, one skipped by design). Every prune ran in scratch folders. **Not verified:** files a real day old (the case uses an age of zero); a person pressing Remove.
+
+### 2026-11-23 — The mask editor's view on the iPad and the Mac (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** As the entry below: one finger or the Pencil paints and two fingers pan and zoom (8A); the live stroke comes from a bit-exact Swift port of the brush (2A); a folder is asked for once when the mask cannot be saved beside the document (4A).
+
+**What the AI did.** `PlumCraftShell/MaskEditor.swift`, registered for kind `mask`: brush controls, the run's picture with the mask as a blue tint, painting that redraws only what the dabs touched, one `mask.stroke` on lift. A shared pan and zoom transform. On the Mac the pointer paints and the scroll wheel pans.
+
+**Defects found by running it, all in this work, all fixed.** (1) On iOS the system image decoder premultiplies alpha, so where the mask was 0 the picture came back black; the view now reads the core's PNG with a small exact reader of its own (`PNGRGBA.swift`), safe on hostile input. (2) On the Mac, Undo in the mask window did nothing, because the window's own undo manager took it; the canvas now answers Undo with the document's. The same answer was given to the core's other windows, which no test proves. (3) A pinch also fired the two-finger-tap undo.
+
+**Verified (agent).** Swift tests on a real core: one gesture is one stroke and one undo, and the view's stroke equals the core's file bit for bit. An iPad simulator UI test: opened from a node's row and from a group's promoted row, a pinch paints nothing, one finger paints one stroke, a two-finger tap undoes it. Mac person check, three new steps, passing. The controller looked at the iPad picture.
+
+**Not verified.** The UI test for the folder ask is written and has not run (the agent stopped at 11 GB of free disk). The iPad app was not rebuilt after the last Mac-only fixes, and the whole `swift test` run was not repeated after them. In the Mac's offscreen picture the row of controls drew as a black band; whether that is the picture or the window is not known. Keeping folder access across a relaunch on the iPad, the iPhone, Windows and any device are not done.
+
+### 2026-11-23 — A mask editor's core: the brush model, mask commands, a Paint Mask node, a Swift brush port (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the checklist page: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A", and on the note to 5B, "Ref commonkit -- both". So: a public Paint Mask node that also takes a mask; a bit-exact Swift port of the brush; the mask at the picture's size up to 2048; a folder asked for once when the mask cannot be saved beside the document; pruning now, through the maintainer's shared library; files written in the stroke command; one finger paints; stroke points may carry a pressure that is ignored for now.
+
+**What the AI did.** `plumcraft_proto::masks`: brush maths carried over unchanged from an application's own editor, a canvas that can start from a wired mask, a stroke parser with limits, and 11 shared vectors; that application's copy of the brush gives all 11 exactly. PNG writing in `plumcraft-media`. Commands `mask.stroke`, `mask.clear`, `mask.get`, `mask.folder`, `mask.prune`, one undo step per stroke, each stroke a new file so undo names the old one. `array.paint_mask`. A Swift port of the brush matching the vectors bit for bit. The curve parser, which the previous change had left out of the hostile-input sweep, was added to it with the mask parser.
+
+**Pruning removes nothing yet.** The removal was written in the shared library (a general "prune a folder by what is still named" function, in its own repository, unreleased). Here `mask.prune` collects what is reachable and reports that it needs that release, so there is one implementation, not two.
+
+**The agent's reading of the maintainer's note on the mask input, not theirs.** A wired mask is where painting starts; once something is painted the file holds the whole mask, so a later change upstream does not show until the edit is cleared. To be confirmed.
+
+**Defect found and fixed.** On the iPad a graph with no file stored mask paths relative to the working directory, which is `/` there; the reachability scan had the same fallback and would have read that directory's JSON files. Both now use only a real document's folder. This is the fault B137 records for path inputs; B137 itself is not fixed by this.
+
+**Verified (agent).** nextest 1,674 of 1,675 (the known baseline failure), then the seven touched crates again, 957 of 957; Mac conformance 70 of 70; iPad simulator 69 of 69 with one skipped by design; the Swift vectors. **Not built:** the editor view and its UI test, the iPad's folder bookmark. Nobody has painted a mask by hand or by a UI test; only commands have.
 ### 2026-11-23 — Photos for Browse: decided, and launched on the iPad simulator (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** 11A: Photos is the shell's business only; the core asks for a file and never knows the source. 12A: the test engine gets a node whose path takes pictures only. The earlier entry recorded this as built but not launched.

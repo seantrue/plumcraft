@@ -129,6 +129,23 @@ pub fn decode_png(bytes: &[u8], max_side: u32) -> Result<Rgba, String> {
     Ok(shrink(Rgba { w: info.width, h: info.height, pixels: rgba }, max_side))
 }
 
+/// An RGBA8 picture (`w × h`, row by row) as a PNG file's bytes: 8 bits a channel, alpha kept.
+pub fn encode_png_rgba(w: u32, h: u32, rgba: &[u8]) -> Result<Vec<u8>, String> {
+    let n = (w as usize).checked_mul(h as usize).and_then(|n| n.checked_mul(4)).ok_or("too large")?;
+    if w == 0 || h == 0 || rgba.len() != n || u64::from(w) * u64::from(h) > MAX_DECODE_PIXELS {
+        return Err(format!("{} bytes aren't a {w}×{h} RGBA picture", rgba.len()));
+    }
+    let mut out = Vec::new();
+    {
+        let mut e = png::Encoder::new(&mut out, w, h);
+        e.set_color(png::ColorType::Rgba);
+        e.set_depth(png::BitDepth::Eight);
+        let mut wr = e.write_header().map_err(|e| e.to_string())?;
+        wr.write_image_data(rgba).map_err(|e| e.to_string())?;
+    }
+    Ok(out)
+}
+
 /// A picture file's own numbers, as an array: its bit depth kept, nothing shrunk or stripped, so
 /// the probe and |A−B| read what the file holds. Bounded as [`decode_picture`] is.
 pub fn decode_numbers(bytes: &[u8]) -> Result<Blob, String> {
@@ -196,6 +213,16 @@ pub fn numbers(b: &Blob) -> Option<Vec<f64>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_rgba_picture_round_trips_through_png() {
+        let px: Vec<u8> = (0..6 * 4 * 4).map(|i| (i * 37 % 256) as u8).collect();
+        let png = encode_png_rgba(6, 4, &px).unwrap();
+        let back = decode_png(&png, u32::MAX).unwrap();
+        assert_eq!((back.w, back.h, back.pixels), (6, 4, px));
+        assert!(encode_png_rgba(6, 4, &[0; 10]).is_err());
+        assert!(encode_png_rgba(0, 4, &[]).is_err());
+    }
 
     fn png_of(w: u32, h: u32, color: png::ColorType, data: &[u8]) -> Vec<u8> {
         let mut out = Vec::new();

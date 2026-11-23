@@ -1895,6 +1895,61 @@
         {"call": "command.run", "params": {"command": "curves.equalize", "params": {"node": "$c", "channel": 0}}},
         {"call": "ui.inspect", "expect": {"/result/undo": "Equalize Curve"}}
       ]
+    },
+    {
+      "name": "the mask editor's strokes are files, one undo step each, and a graph with nowhere to write asks for a folder once",
+      "about": "S4b (the maintainer, 2026-11-23: decisions 1A, 3A, 4A, 7A): the array engine's Paint Mask names the mask editor on its edit input; after a run node.editorData has the picture at the mask's size. A person's stroke (ui.invoke) on a graph with no file asks for a folder (folder.pick, purpose edits); the answer is kept (mask.folder, one undo step) and the stroke goes there as a new file (mask.stroke, one undo step); each stroke is a new file and one undo takes one back; Clear drops the edit. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": ["engine:array", "saves"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.paint_mask", "pos": [500, 0]}}, "save": {"p": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$p", "port": "picture"}}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "command.run", "params": {"command": "node.editorData", "params": {"node": "$p"}}, "until": {"/result/data/picture/kind": "rgba8"}, "timeout": 60, "expect": {"/result/kind": "mask", "/result/port": "edit", "/result/wired": false, "/result/data/w": 512, "/result/data/h": 512, "/result/data/picture/w": 512}},
+        {"call": "ui.invoke", "params": {"command": "mask.stroke", "params": {"node": "$p", "points": [[100, 100], [300, 200]], "radius": 20}}, "expect": {"/result/asks": {"$find": {"where": {"kind": "folder.pick"}, "want": {"/params/purpose": "edits"}}}}, "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$a", "answer": {"path": "$scratch"}}},
+        {"call": "command.run", "params": {"command": "mask.get", "params": {"node": "$p"}}, "until": {"/result/value": {"$includes": "$scratch"}}, "timeout": 20, "save": {"first": "/result/value"}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Mask Stroke"}},
+        {"call": "command.run", "params": {"command": "mask.stroke", "params": {"node": "$p", "tool": "erase", "points": [[100, 100]], "radius": 10}}, "expect": {"/result/value": {"$not": "$first"}}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "command.run", "params": {"command": "mask.get", "params": {"node": "$p"}}, "expect": {"/result/value": "$first"}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "ui.inspect", "expect": {"/result/lastError": null}},
+        {"call": "command.run", "params": {"command": "mask.clear", "params": {"node": "$p"}}},
+        {"call": "command.run", "params": {"command": "mask.get", "params": {"node": "$p"}}, "expect": {"/result/value": ""}},
+        {"call": "ui.inspect", "expect": {"/result/undo": "Clear Mask"}}
+      ]
+    },
+    {
+      "name": "Clean Up Mask Files removes the mask files nothing reaches, after asking a person first",
+      "about": "S4b (the maintainer, 2026-11-23: decision 5B, \"Ref commonkit -- both\"; commonkit 0.3's prune_folder): a graph saved in the case's scratch folder, two strokes, saved, and opened again so the undo history is fresh: the first stroke's file is then reached by nothing (not the graph, not undo or redo, not the saved graph beside it). mask.prune lists it in a dry run (the default) and removes nothing; a person's Clean Up Mask Files (ui.invoke) asks first with the count (prompt pruneMasks), and Remove takes it and its sidecar; the graph's own file stays. age_s 0 stands in for the day a file must age. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": ["engine:array", "saves"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.paint_mask", "pos": [500, 0]}}, "save": {"p": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$p", "port": "picture"}}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "command.run", "params": {"command": "node.editorData", "params": {"node": "$p"}}, "until": {"/result/data/picture/kind": "rgba8"}, "timeout": 60},
+        {"call": "command.run", "params": {"command": "graph.saveAs", "params": {"path": "$scratch/pruned.json"}}},
+        {"call": "command.run", "params": {"command": "mask.stroke", "params": {"node": "$p", "points": [[100, 100]], "radius": 12}}, "save": {"first": "/result/value"}},
+        {"call": "command.run", "params": {"command": "mask.stroke", "params": {"node": "$p", "points": [[300, 300]], "radius": 12}}, "save": {"second": "/result/value"}},
+        {"call": "command.run", "params": {"command": "graph.save", "params": {}}},
+        {"call": "command.run", "params": {"command": "graph.open", "params": {"path": "$scratch/pruned.json", "discard": true}}},
+        {"call": "command.run", "params": {"command": "mask.prune", "params": {"age_s": 0}}, "expect": {"/result/dry_run": true, "/result/removed": {"$contains": "$first"}}},
+        {"call": "command.run", "params": {"command": "mask.get", "params": {"node": "$p"}}, "expect": {"/result/value": "$second"}},
+        {"call": "ui.invoke", "params": {"command": "mask.prune", "params": {"age_s": 0}}, "expect": {"/result/asks": {"$find": {"where": {"kind": "prompt"}, "want": {"/params/kind": "pruneMasks", "/params/answers": ["remove", "cancel"]}}}}, "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$a", "answer": {"answer": "remove"}}},
+        {"call": "command.run", "params": {"command": "mask.prune", "params": {"age_s": 0}}, "expect": {"/result/removed": {"$len": 0}}},
+        {"call": "command.run", "params": {"command": "mask.get", "params": {"node": "$p"}}, "expect": {"/result/value": "$second", "/result/file": {"$exists": true}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 60}},
+        {"call": "ui.inspect", "expect": {"/result/lastError": null}}
+      ]
     }
   ]
 }

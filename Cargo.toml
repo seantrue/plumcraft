@@ -54,7 +54,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # The store's layout, publishing and reading (plumcraft-store). Without `mmap`: segments are
 # read, not mapped. `digest`: the one hashing facade (md5 or BLAKE3 by the tree's `HASH`, and
 # `fixed` SHA-256); no crate here depends on md-5, blake3 or sha2 directly.
-commonkit = { version = "0.2", default-features = false, features = ["digest"] }
+commonkit = { version = "0.3", default-features = false, features = ["digest"] }
 schemars = "1.2"
 tiny_http = "0.12"
 # Tokens and nonces from the OS's generator, on every platform (/dev/urandom is Unix-only).

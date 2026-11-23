@@ -206,9 +206,14 @@ pub fn many(outs: Vec<(&str, Data)>) -> Outputs {
 /// The array nodes that convert between types (docs/research/20-convert.md), with their arrays'
 /// shape: a picture, so a path never takes a sound's samples to Encode Image.
 /// The value editor a node names (`NodeDef.editor`): Apply Curve's curves, for the `curves`
-/// editor (`plumcraft_proto::curves`).
+/// editor (`plumcraft_proto::curves`); Paint Mask's edit, for the `mask` editor.
 fn editor_of(id: &str) -> Option<plumcraft_proto::catalogue::Editor> {
-    (id == "array.apply_curve").then(|| plumcraft_proto::catalogue::Editor { kind: "curves".into(), port: "curves".into(), interpolant: None })
+    let (kind, port) = match id {
+        "array.apply_curve" => ("curves", "curves"),
+        "array.paint_mask" => (crate::paint::MASK_EDITOR, "edit"),
+        _ => return None,
+    };
+    Some(plumcraft_proto::catalogue::Editor { kind: kind.into(), port: port.into(), interpolant: None })
 }
 
 fn marks(id: &str) -> Vec<plumcraft_proto::convert::Converts> {

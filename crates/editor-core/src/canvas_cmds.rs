@@ -273,6 +273,51 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "mask.stroke",
+        label: "Mask Stroke",
+        menu: &[],
+        shortcut: None,
+        params: "{node, port?, points: [[x, y] | [x, y, pressure 0..1]] (the picture's pixels at the mask's size; a pressure is checked, not used yet), tool?: mask | erase | paint, radius? (0.5..400), hardness?, flow?, density? (0..1), value? (paint's grey, 0..255)} -> {value, w, h}: one brush stroke on the node's mask edit (docs/shell-interface.md 12.22), saved as a new file beside the document (or in the folder chosen for it), one undo step; a canvas back where it started clears the edit. Refused before a run (the editor paints on the picture a run sends), for a wired port, and with \"no folder for mask files\" when there is nowhere to write (invoked, it asks for a folder: folder.pick {purpose: \"edits\"})",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "mask.clear",
+        label: "Clear Mask",
+        menu: &[],
+        shortcut: None,
+        params: "{node, port?} -> {value: \"\"}: the node's mask edit dropped, one undo step (none when it had none)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "mask.get",
+        label: "Mask Edit",
+        menu: &[],
+        shortcut: None,
+        params: "{node, port?} -> {value, file: its absolute path or null, w, h: the mask's size from the last run, or null}: the node's mask edit as it stands (read only)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "mask.prune",
+        label: "Clean Up Mask Files…",
+        menu: &[],
+        shortcut: None,
+        params: "{dry_run?: true by default, age_s?: seconds (a day by default)} -> {dry_run, folders, reachable: n, removed: [the files, as a value names them], kept, young, foreign, failed, refused: [why]}: Clean Up Mask Files: in this document's own edit folders (beside it, and the one chosen for it, never another), the mask files nothing reaches (not the graph, not undo or redo, not a JSON file beside the document) and older than age_s, removed with their sidecars (commonkit::prune_folder); files without this editor's sidecar, and a folder that is a symbolic link, are left. A dry run lists. Invoked (Clean Up Mask Files… from a person), it asks first with the count (prompt pruneMasks: Remove, Cancel)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "mask.folder",
+        label: "Mask Files Folder",
+        menu: &[],
+        shortcut: None,
+        params: "{folder: a folder that can be written, or \"\" to forget it} -> {folder}: where this document's mask files go when they can't go beside it (kept in the graph's meta.mask_folder), one undo step",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "row.set",
         label: "Set Value",
         menu: &[],
@@ -661,6 +706,11 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             Ok(json!({"applied": applied, "unknown": unknown}))
         }
         "row.edit" => row_edit(d, params),
+        "mask.stroke" => crate::mask_cmds::stroke(&mut d.session, params),
+        "mask.clear" => crate::mask_cmds::clear(&mut d.session, params),
+        "mask.get" => crate::mask_cmds::get(&d.session, params),
+        "mask.folder" => crate::mask_cmds::folder(&mut d.session, params),
+        "mask.prune" => crate::mask_cmds::prune(&d.session, params),
         // it asks first, so the core invokes it (control::asks_first, invoke::invoke_with)
         "row.browse" => Err("row.browse asks for a file: it is invoked (ui.invoke, command.run, a tap on the row's Browse)".into()),
         "row.set" => {

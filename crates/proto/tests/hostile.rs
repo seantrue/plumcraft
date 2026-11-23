@@ -91,7 +91,17 @@ fn all_parsers(text: &str) {
     let _ = plumcraft_proto::slice::parse(text);
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
         let _ = plumcraft_proto::expansion::Expansion::parse(&v);
+        // a curves value, and a mask stroke's params, painted on a small canvas when they parse
+        let _ = plumcraft_proto::curves::parse_value(&v);
+        if let Ok(stroke) = plumcraft_proto::masks::parse_stroke(&v)
+            && stroke.points.len() <= 16
+        {
+            let mut c = plumcraft_proto::masks::MaskCanvas::new(16, 12, &[]);
+            c.paint(&stroke);
+            let _ = c.pixel_hash();
+        }
     }
+    let _ = plumcraft_proto::curves::parse(text);
     let _ = plumcraft_proto::expansion::StoredExpansion::parse(text.as_bytes());
 }
 
