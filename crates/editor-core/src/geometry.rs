@@ -581,6 +581,15 @@ struct SFace {
     footer: Vec<FooterTap>,
 }
 
+/// A path row's Browse button (B133), the same in every shell: the square at the right end of
+/// the row's widget rect, its side the rect's height (at most half the rect's width). A shell
+/// draws it on a row whose widget has `pathMode` and can be edited; a tap inside it is the
+/// core's `row.browse` (the system's file dialog), a tap elsewhere on the field edits the text.
+pub fn browse_rect(widget: Rect) -> Rect {
+    let side = (widget.max.y - widget.min.y).min((widget.max.x - widget.min.x) / 2.0).max(0.0);
+    Rect { min: Point { x: widget.max.x - side, y: widget.min.y }, max: widget.max }
+}
+
 /// What a tap on a face's footer item does (a core gesture, the same in every shell): Save
 /// Result… saves (and Contact Sheet…, on the line's right half, when offered); any other line
 /// watches the node, as before.
@@ -1610,6 +1619,13 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
                 .ok_or_else(|| format!("face {} has no {} pin {k}", crate::selection::shown_id(id), if output { "out" } else { "in" }))?
         } else {
             match (part_name.unwrap_or("center"), params.get("row")) {
+                // a path row's Browse button (B133): the middle of its square
+                ("browse", Some(k)) => {
+                    let k = k.as_u64().and_then(|k| i32::try_from(k).ok()).ok_or("row must be an input row's index")?;
+                    snap.row_rect(nid, k)
+                        .map(|r| browse_rect(r).center())
+                        .ok_or_else(|| format!("face {} has no widget measured on row {k}", crate::selection::shown_id(id)))?
+                }
                 (_, Some(k)) => {
                     let k = k.as_u64().and_then(|k| i32::try_from(k).ok()).ok_or("row must be an input row's index")?;
                     snap.row_rect(nid, k)
@@ -1685,6 +1701,17 @@ mod tests {
     use plumcraft_session::Session;
 
     use super::*;
+
+    /// B133: Browse is the square at the field's right end, the field's height, at most half
+    /// its width.
+    #[test]
+    fn a_path_rows_browse_button_is_the_square_at_its_right_end() {
+        let r = Rect { min: Point::new(100.0, 34.0), max: Point::new(250.0, 52.0) };
+        let b = browse_rect(r);
+        assert_eq!((b.min.x, b.min.y, b.max.x, b.max.y), (232.0, 34.0, 250.0, 52.0));
+        let narrow = browse_rect(Rect { min: Point::new(0.0, 0.0), max: Point::new(20.0, 18.0) });
+        assert_eq!((narrow.min.x, narrow.max.x), (10.0, 20.0));
+    }
     use crate::control::Shell;
     use crate::document::{Document, execute};
 

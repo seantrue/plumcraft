@@ -264,6 +264,15 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "row.browse",
+        label: "Browse…",
+        menu: &[],
+        shortcut: None,
+        params: "{node, port: a path input} -> {invoked} (B133: the system's file dialog for a path input, by its hints: `file.open` for a file the node reads, `file.save` for one it writes, `folder.pick` for a folder, `file.open {multiple}` for several files; purpose `path`, the hints' filters as `kinds`, starting near what the row holds. The answer is set as typing sets it (`node.set`, one undo step); cancelled, nothing changes. A field editor open on any row is closed first, without its text. Invoked wherever it comes from (a tap on the row's Browse, `ui.invoke`, `command.run`): it asks, so the reply is `{invoked}` with the ask in `asks`)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "row.set",
         label: "Set Value",
         menu: &[],
@@ -652,6 +661,8 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
             Ok(json!({"applied": applied, "unknown": unknown}))
         }
         "row.edit" => row_edit(d, params),
+        // it asks first, so the core invokes it (control::asks_first, invoke::invoke_with)
+        "row.browse" => Err("row.browse asks for a file: it is invoked (ui.invoke, command.run, a tap on the row's Browse)".into()),
         "row.set" => {
             check_fields(params, &["node", "port", "text", "value", "reset"])?;
             let (node, port) = row_param(params)?;

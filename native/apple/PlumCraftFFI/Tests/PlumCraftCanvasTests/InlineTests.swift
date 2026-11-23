@@ -35,6 +35,9 @@ import Testing
         #expect(p.floating && p.fontSize == 11 && p.frame.height >= 32 && p.frame.width >= 220)
         p = EditorPlacement.make(row: row, kind: .text, viewport: Viewport(pan: .zero, zoom: 1.5), viewSize: size, touch: true)
         #expect(!p.floating && p.fontSize == 16.5 && p.frame.height >= 32 && p.frame.height <= 33)
+        // a path's field stops short of its Browse button (B133: the row's height, at the right)
+        p = EditorPlacement.make(row: row, kind: .path, viewport: Viewport(pan: CGPoint(x: 20, y: 10), zoom: 1), viewSize: size, touch: false)
+        #expect(p.frame == CGRect(x: 120, y: 59, width: 122, height: 20))
         // several lines are four lines tall when floating
         p = EditorPlacement.make(row: CGRect(x: 0, y: 0, width: 140, height: 50), kind: .multiline, viewport: Viewport(pan: .zero, zoom: 0.2), viewSize: size, touch: true)
         #expect(p.frame.height >= 32 + 3 * 11 * 1.25 - 1)
