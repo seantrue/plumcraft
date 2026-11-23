@@ -75,6 +75,7 @@ public sealed class ValueWindow : Window
     public event Action? ClosedByPerson;
     readonly TextBlock summary = new() { TextWrapping = TextWrapping.Wrap, Margin = new Thickness(14, 10, 14, 2), IsTextSelectionEnabled = true, MaxLines = 3 };
     readonly StackPanel left = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0) };
+    readonly StackPanel steps = new() { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 6), Visibility = Visibility.Collapsed };
     readonly CommandBar bar = new() { DefaultLabelPosition = CommandBarDefaultLabelPosition.Collapsed, HorizontalAlignment = HorizontalAlignment.Right, IsDynamicOverflowEnabled = false, Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent) };
     readonly Grid body = new();
     IViewer? viewer;
@@ -99,8 +100,14 @@ public sealed class ValueWindow : Window
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         root.Children.Add(summary);
         var barRow = Ui.Columns(Ui.Star, Ui.Auto);
+        barRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        barRow.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         barRow.Children.Add(left);
         barRow.Children.Add(bar.At(1));
+        // a list's stepper on a line of its own under the bar: an item's name ("logit · 5 of 11") would not
+        // fit beside View As and the bar's buttons in a pop-out's width
+        Grid.SetColumnSpan(steps, 2);
+        barRow.Children.Add(steps.At(0, 1));
         root.Children.Add(barRow.At(0, 1));
         root.Children.Add(new Border { BorderBrush = Ui.Brush("DividerStrokeColorDefaultBrush"), BorderThickness = new Thickness(0, 1, 0, 0), Child = body }.At(0, 2));
         root.KeyDown += async (_, e) =>
@@ -248,6 +255,8 @@ public sealed class ValueWindow : Window
     void Bar(PopoutValue v)
     {
         left.Children.Clear();
+        steps.Children.Clear();
+        steps.Visibility = v.Items is > 1 ? Visibility.Visible : Visibility.Collapsed;
         if (v.Viewers is { Count: > 1 } offered)
         {
             var asCombo = new ComboBox { MinWidth = 140 };
@@ -269,9 +278,30 @@ public sealed class ValueWindow : Window
             prev.IsEnabled = i > 0;
             var next = Ui.GlyphButton(Ui.G.Forward, "Next Item", async () => await Pop.CommandAsync("run.item", ("index", Jsonv.Of(i + 1))));
             next.IsEnabled = (ulong)(i + 1) < n;
-            left.Children.Add(prev);
-            left.Children.Add(new TextBlock { Text = $"item {i + 1} of {n}", VerticalAlignment = VerticalAlignment.Center, Style = Ui.TextStyle("CaptionTextBlockStyle") });
-            left.Children.Add(next);
+            steps.Children.Add(prev);
+            // a list of named pictures (contract 8.7): each item by its sheet label, with a pick list of all
+            // of them ("logit · 5 of 11"); a list without names reads "item 5 of 11"
+            var names = ListNames.Names(v.Sheet);
+            var title = ListNames.Title(names, i, n);
+            if (names.Count == 0)
+                steps.Children.Add(new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Style = Ui.TextStyle("CaptionTextBlockStyle") });
+            else
+            {
+                var menu = new MenuFlyout { Placement = Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.Bottom };
+                for (var k = 0; k < names.Count; k++)
+                {
+                    var at = k;
+                    var item = new ToggleMenuFlyoutItem { Text = names[k], IsChecked = k == i };
+                    item.Click += async (_, _) => { if (at != i) await Pop.CommandAsync("run.item", ("index", Jsonv.Of(at))); };
+                    menu.Items.Add(item);
+                }
+                var pick = new DropDownButton { Content = title, Flyout = menu, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
+                ToolTipService.SetToolTip(pick, "Go to an item by its name");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(pick, title);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(pick, "viewer-items");
+                steps.Children.Add(pick);
+            }
+            steps.Children.Add(next);
         }
         if (bar.PrimaryCommands.Count > 0) return;
         // Drag Out: a real file drag of what value.export writes

@@ -21,6 +21,7 @@ using System.Numerics;
 using System.Text.Json;
 using Microsoft.Graphics.Canvas;
 using Microsoft.Graphics.Canvas.Geometry;
+using Microsoft.Graphics.Canvas.Text;
 using Microsoft.Graphics.Canvas.UI.Composition;
 using Microsoft.Graphics.DirectX;
 using Microsoft.UI;
@@ -67,6 +68,10 @@ sealed class FaceEntry(ulong nid, Face face, SpriteVisual visual)
     public string? WashToken;
     public SpriteVisual? Preview;
     public string? PreviewHandle;
+    /// <summary>A list's tag over the picture ("caption · n pictures", 8.7), and the words drawn on it.</summary>
+    public SpriteVisual? ListTag;
+    public string? ListTagText;
+    public float ListTagWidth;
     public WRect Rect => new(Face.Pos.X, Face.Pos.Y, Layout?.W ?? 220, Layout?.H ?? 160);
 }
 
@@ -714,6 +719,13 @@ public sealed partial class CompositionCanvas
         {
             pv.Offset = new Vector3((float)pr.X + m, (float)pr.Y + m, 0);
             pv.Size = new Vector2((float)pr.Width, (float)pr.Height);
+            if (e.ListTag is { } tag)
+            {
+                // the bottom-left corner of the picture, as the Apple canvas has it
+                var tw = MathF.Max(0, MathF.Min((float)pr.Width - 4, e.ListTagWidth));
+                tag.Offset = new Vector3((float)pr.X + m + 2, (float)(pr.Y + pr.Height) + m - 16, 0);
+                tag.Size = new Vector2(tw, 14);
+            }
         }
     }
 
@@ -872,8 +884,10 @@ public sealed partial class CompositionCanvas
         if (handle is null || e.Layout?.Preview is null)
         {
             if (e.Preview is { } old) { e.Visual.Children.Remove(old); old.Dispose(); e.Preview = null; e.PreviewHandle = null; }
+            UpdateListTag(e, null);
             return;
         }
+        UpdateListTag(e, ListNames.Tag(pv));
         if (e.Preview is not null && e.PreviewHandle == handle)
         {
             e.Preview.Opacity = pv!.Faded == true ? 0.45f : 1;
@@ -906,8 +920,48 @@ public sealed partial class CompositionCanvas
         {
             e.Visual.Children.InsertAtTop(v);
             e.Preview = v;
+            // the list's tag stays over the picture
+            if (e.ListTag is { } tag) { e.Visual.Children.Remove(tag); e.Visual.Children.InsertAtTop(tag); }
         }
         PlaceFace(e);
+    }
+
+    /// <summary>A list of named pictures reads as one on the face: "caption · n pictures" (or "n items")
+    /// in white on a dark band over the picture's corner (8.7, as `LayerCanvas.listTag`); none for one
+    /// picture. Drawn at twice its size so it stays sharp at the zooms a face is read at.</summary>
+    void UpdateListTag(FaceEntry e, string? text)
+    {
+        if (text is null)
+        {
+            if (e.ListTag is { } old) { e.Visual.Children.Remove(old); old.Dispose(); e.ListTag = null; e.ListTagText = null; }
+            return;
+        }
+        if (e.ListTag is not null && e.ListTagText == text) return;
+        const float k = 2;
+        var dev = CanvasDevice.GetSharedDevice();
+        using var format = new CanvasTextFormat { FontFamily = FaceText.Family, FontSize = 10, WordWrapping = CanvasWordWrapping.NoWrap };
+        using var layout = new CanvasTextLayout(dev, text, format, 4000, 14);
+        var w = (float)layout.LayoutBounds.Width + 12;
+        var surface = graphics.CreateDrawingSurface2(new Windows.Graphics.SizeInt32 { Width = (int)MathF.Ceiling(w * k), Height = (int)(14 * k) },
+            DirectXPixelFormat.B8G8R8A8UIntNormalized, DirectXAlphaMode.Premultiplied);
+        using (var ds = CanvasComposition.CreateDrawingSession(surface))
+        {
+            ds.Clear(Microsoft.UI.Colors.Transparent);
+            ds.Transform = Matrix3x2.CreateScale(k);
+            ds.FillRoundedRectangle(new WRect(0, 0, w, 14), 3, 3, Windows.UI.Color.FromArgb(140, 0, 0, 0));
+            ds.DrawTextLayout(layout, 6, (14 - (float)layout.LayoutBounds.Height) / 2, Microsoft.UI.Colors.White);
+        }
+        var v = e.ListTag ?? compositor.CreateSpriteVisual();
+        var brush = compositor.CreateSurfaceBrush(surface);
+        // a tag wider than the picture is cut at its right edge, as the Apple tag truncates
+        brush.Stretch = CompositionStretch.None;
+        brush.HorizontalAlignmentRatio = 0;
+        brush.Scale = new Vector2(1 / k);
+        v.Brush = brush;
+        v.Clip = compositor.CreateInsetClip();
+        if (e.ListTag is null) { e.Visual.Children.InsertAtTop(v); e.ListTag = v; }
+        e.ListTagText = text;
+        e.ListTagWidth = w;
     }
 
     // ---------------- wires, frames, groups ----------------
