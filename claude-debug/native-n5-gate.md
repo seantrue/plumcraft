@@ -168,7 +168,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F53 | Compare | Partly | SC 52 "Compare pins two values…"; the exact difference is the egui editor's |
 | F54 | Tables and scalars | Met | SC 42 "a table popped out by a person is sorted and paged by the core", SC 22 |
 | F55 | Sheet | Claimed on reading alone, not checked | The items viewer was never shown with content in a launched app |
-| F56 | Recipe display | Met | Scene recipe (2026-11-22, launched app, screenshot recipe-light looked at): Recipe on the bar says the value had none |
+| F56 | Recipe display | Met | Person check step 16 "recipe" (2026-11-22, the launched ARM64 app, the test engine installed): Traced's pop-out offers Recipe and its flyout reads {"params": {"seed": "plum"}, "style": "traced"}; Result's pop-out has no Recipe (screenshots recipe-traced and recipe-none looked at); SC "ports: a value with a recipe offers Recipe, and one without doesn't" on ARM64 and x64 |
 | F57 | Picture window (T16) | Met | SC 35, SC 46; PC run 1's value window |
 | F58 | Missing data is a state | Met | SC 48 |
 | F59 | Curve editor | Not met | The research software's editor (N6) |
@@ -176,7 +176,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F61 | List mapping with axes | Claimed on reading alone, not checked | No case or check |
 | F62 | Vary nodes | Claimed on reading alone, not checked | No case or check |
 | F63 | Lineage | Claimed on reading alone, not checked | No case or check |
-| F64 | Save picture with recipe | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: Save Result writes a result node's value in each of its formats" (the file picker's kinds, the options form, both files read back); the person check's step 15 from the footer; no recipe, since no engine here tracks lineage |
+| F64 | Save picture with recipe | Partly | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: Save Result writes a result node's value in each of its formats" (the file picker's kinds, the options form, both files read back); the person check's step 15 from the footer; no recipe, since no engine here tracks lineage; person check step 17 "save-shape" saves a 4 by 1000 array from its footer: the core's question with its three labelled buttons (picture looked at), then an .npy and a PNG read back. A picture saved with its recipe in it is still not checked |
 | F65 | Export group as plugin | Not met | The research software's pack |
 | F66 | Deliver plugin | Not met | As F65 |
 | F67 | Plugin round trip | Claimed on reading alone, not checked | No case or check |
@@ -578,3 +578,50 @@ All six now pass on the Windows test VM. On the Mac, fmt, clippy (`-D warnings`)
 | Swift runner against the app from the Mac | 60 of 60, the four ports cases skipped (no test engine in that launch, and its `$scratch` would be on the Mac) |
 | Person check on the final build | 18 of 18, three runs in a row (16:22:01, 16:24:06, 16:26:01 Mac clock) |
 | Floor | 53 met, 4 partly, 5 not met, 24 claimed on reading alone. Newly met: F14, F15, F17, F18, F20, F21, F43, F45, F72; F16 and F64 partly |
+
+## Eighth session (2026-11-22, branch `native/n5-prompts`, on the dev branch at `798e8bb`)
+
+The VM went off the network at 19:13, before any step of this session had touched it. Its window stayed up; UTM then died, its emulator process hung while exiting and blocked a restart, and the maintainer rebooted the Mac. This is not B99. Work resumed at 20:34; from then the ping watcher lost no ping.
+
+### What changed
+
+- **Prompts in their own words.** A prompt's buttons show its `labels`, falling back to Windows' words. Unsaved changes keeps "Don't Save". The save's question shows "Save as PNG anyway", "Save as NumPy (.npy)" and "Cancel", and its detail reads "As NumPy, it would be saved as strip.npy." instead of JSON. Pictured in `g6-pc-shots/save-shape-final.png`, and looked at.
+- **Person check step 16, `recipe`.** Traced's pop-out offers Recipe; its flyout reads `{"params": {"seed": "plum"}, "style": "traced"}`. Result's pop-out has no Recipe button. Pictured in `recipe-traced.png` and `recipe-none.png`, and looked at. This is also the first look on screen at last session's Recipe change.
+- **Person check step 17, `save-shape`.** Strip's Save Result… with a `.png` name brings up the core's question with the three labelled buttons. "Save as NumPy (.npy)" writes `strip.npy` (16128 bytes, starting with the NumPy magic). A second pass with "Save as PNG anyway" writes a PNG (717 bytes).
+- **Person check step 13, `quit`.** One run in five left the app running after File › Quit, with a popup showing; it had not been seen before. The step now:
+  - clicks Quit where the menu settles;
+  - says what it found;
+  - clicks again if the menu is still open;
+  - takes a screenshot if it fails.
+
+  On the three gate runs, Quit was clicked once each time and the app ended. The cause of the one failure is not known.
+
+### Durations, expected and actual
+
+| Step | Expected | Actual |
+|---|---|---|
+| ARM64 core and engines build | about 8 min | 80 s |
+| ARM64 app build | about 3 min | 21 s |
+| Person check, first trial of steps 16 and 17 | about 3 min | about 4.5 min (two steps failed: nodes placed off screen, the wrong pop-out window) |
+| Person check, second trial | about 3.5 min | 148 s, 20 of 20 |
+| C# runner, ARM64, test engine installed | about 5 min | 90 s (app rebuild included) |
+| x64 core, app and C# runner | about 5 min | 197 s |
+| `dotnet test` | about 2 min | 50 s, plus 50 s for a second run I started by mistake |
+| Swift runner from the Mac | about 4 min | 40 s, plus 25 s to rebuild it (Messages.swift had changed) |
+| Person check three times, first try | about 8 min | 373 s; run 3 failed at Quit |
+| Person check three times, final | about 7.5 min | 442 s |
+
+### The gate
+
+| Check | Result |
+|---|---|
+| `dotnet test` | 53 of 53 |
+| C# runner, test engine installed | ARM64 66 of 66 (37 read, 29 edit); x64 66 of 66 |
+| Swift runner from the Mac | 60 of 60; the six ports cases skipped (not claimed) |
+| Person check | 20 of 20, three runs in a row (21:00:02, 21:02:33, 21:04:56 Mac clock) |
+| Floor | 53 met, 4 partly, 5 not met, 24 claimed on reading alone. F56 is now met by the person check's launch, not a scene; F64 stays partly (no picture saved with its recipe) |
+
+### Noticed, not changed
+
+- The question's text begins with a lowercase letter ("this 4 by 1000 array is…"). The words are the engine SDK's.
+- The Save As dialog's "Save as type" box was not read by step 17 (its name didn't match), so the report's "picker type" is empty. It is not part of the step's pass.

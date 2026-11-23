@@ -1181,6 +1181,13 @@ The question: "everywhere" would remove what four of the research software's flo
 
 Not answered: whether the graph hash covers the whole document (the core's `trust::graph_hash`, positions included, so moving a node changes it) or only what makes the result. The whole document's is used until it is decided.
 - **Save Result on Windows (2026-11-22, branch `native/n5-save`).** The Windows canvas reports each footer line as `parts.footer[k]`, so a tap on a result node's Save Result… is the core's gesture (B122); the shell-side click and the `ask: true` special case written before the core's change are removed. The save then reaches the shell as the core's asks: the system's Save As dialog with the output's formats as file types (Quoted Text, then Text, for the test engine's Result) and the core's options form (Save as Quoted Text, its Quote mark a pick list), both pictured; the person check saves from the footer and reads `"[edge]"` back. The C# runner gives each case a `$scratch` folder and claims `saves` and `footer`; with the test engine installed beside the app (`plumcraft-ports-engine`, built with the core) the suite is 64 of 64 on ARM64 and x64. Found on the way: B98 (the core re-slashed a Save Result's path on Windows; fixed at `invoke.rs`'s one place), B97's six Windows-only test failures fixed at source, B99 (one intermittent palette case). The pop-out's Recipe shows only when `hasRecipe`; the Python SDK's `register` prints `C:\…` for a folder given as `\\?\C:\…` (checked on the VM).
+- **Prompts in their own words, and Recipe and the shape question launched on Windows (2026-11-22, branch `native/n5-prompts`, on the dev branch at `798e8bb`).**
+  - **Labelled buttons.** A prompt's buttons now show the prompt's `labels` when it has them, falling back to Windows' words. Unsaved changes still says "Don't Save", as Windows apps do. The save's question (`saveShape`) shows "Save as PNG anyway", "Save as NumPy (.npy)" and "Cancel". Its `detail` is drawn as words ("As NumPy, it would be saved as strip.npy."), not as JSON.
+  - **Person check step 16, `recipe`.** Traced's pop-out offers Recipe, and its flyout reads `{"params": {"seed": "plum"}, "style": "traced"}`. Result's pop-out has no Recipe. Both were pictured and looked at, which is also the first on-screen look at the Windows Recipe change. This makes F56 met by a launch.
+  - **Person check step 17, `save-shape`.** Strip's Save Result… with a `.png` name brings up the core's question with its three labelled buttons (pictured). "Save as NumPy (.npy)" writes an `.npy` that reads back. On a second pass, "Save as PNG anyway" writes a PNG.
+  - **The suite.** With the test engine installed, the C# runner passes 66 of 66 on ARM64 and x64, the two new ports cases included. The Swift runner passes 60 of 60, `dotnet test` 53 of 53, and the person check 20 of 20 three times.
+  - **Quit.** One person-check run in five left the app open after File › Quit, with the menu's popup still showing. Step 13 now clicks Quit once the menu has settled, records what it found, and clicks again if the menu is still open. On the three gate runs one click was enough every time. The cause of that one failure is not known.
+  - **A VM outage.** At 19:13 the VM lost its network while its window stayed up. UTM then died, its emulator process hung on exit and blocked a restart, and the maintainer rebooted the Mac. Nothing was running on the VM at the time, and the outage is not B99.
 
 #### Decisions after Save Result's second part (the maintainer, 2026-11-22)
 
@@ -1196,7 +1203,7 @@ The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A".
 | 6 | Old trial app builds in scratch: A unregister them from LaunchServices, the maintainer quits the running one | A (done by the controller) |
 | 7 | A test-engine node that supplies a recipe | A: add it |
 
-Asked and not yet answered: B99 (a Windows palette case that failed once in ten).
+Asked and not yet answered then: B99 (a Windows palette case that failed once in ten). Answered later the same day: to "B99: watch or investigate?", the maintainer, verbatim: "watch".
 
 #### The contact sheet's label font (the maintainer, 2026-11-22)
 
@@ -1211,6 +1218,10 @@ Not built yet, on the licence (Ubuntu Font Licence 1.0, read 2026-11-22): a rast
 #### The label font, settled for now (the maintainer, 2026-11-22)
 
 The maintainer, verbatim: "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public." So the contact sheet draws its labels with the font extracted from Pillow's built-in bitmap font, its origin and licence unverified: a release blocker, B125 ("the contact sheet's label font: verify its licence or replace it before a public release"), listed in THIRD-PARTY.md.
+
+#### The label font: Aileron (the controller, 2026-11-22)
+
+Read by the controller: Pillow's `ImageFont.py` marks its bitmap font's data `# courB08` (Courier Bold 8, from X11), so the table taken from it was that font. `load_default(size)` instead loads "a version of Aileron Regular, https://dotcolon.net/fonts/aileron, with a more limited character set" when FreeType is there, and dotcolon's page says "Aileron is No Rights Reserved", linked to CC0 1.0. So the table was made again from Aileron, at 11 pixels, as 8-bit coverage with advances, with one integer blend in both SDKs. Pillow's Aileron has no accented letters: `é` draws as `?`. B125 is fixed.
 
 #### Testing time: B111 and the idle wait (the maintainer, 2026-11-22)
 

@@ -31,6 +31,25 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 **Defects in the agent's own work.** Without the idle wait several taps were lost until the helpers waited and retried; one wait of 120 s stalled a run for ten minutes and was cut to 30 s.
 
 **Verified (agent, simulator and Mac).** The eight iPad UI tests in 227 s; the Mac gate twice, once under load, 66 of 66 cases and 58 person-check steps each; iPad conformance 59 of 59; nextest 1,645 of 1,647 (the known baseline failure and B131 once); Python 249. Floor: Mac 52 met, iPad 47 met. **Not verified:** anything on the device, including the faster run.
+### 2026-11-22 — Windows: labelled prompt buttons; the person check sees Recipe and the save question (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Rebooted the Mac after the Windows test VM lost its network and its emulator process hung while exiting, and asked for less wasted clock time in testing: "Time is precious."
+
+**What the agent did.** Prompt buttons on Windows use the prompt's own labels, so the save question reads "Save as PNG anyway", "Save as NumPy (.npy)" and "Cancel"; its detail no longer shows as raw JSON. Two person-check steps were added: the Recipe button present on a value that has a recipe and absent on one that has none, and a strip-shaped array saved through the question, once to NumPy and once to PNG, each file read back.
+
+**Defects in the agent's own work, caught by running.** The first trial of the new steps failed: nodes placed off screen and the wrong pop-out window found. In one run of five, File › Quit left the app running with its menu open; the step now clicks again if the menu is still up; cause unknown.
+
+**Verified (agent, on the Windows test VM).** `dotnet test` 53 of 53; the C# runner 66 of 66 cases on ARM64 and x64; the Swift runner 60 of 60; the person check 20 of 20, three runs in a row. Floor row F56 is now met by a launch. The agent reported expected against actual durations: its estimates were two to six times too long.
+
+### 2026-11-22 — The contact sheet's label font replaced with a public-domain one (B125) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Pasted Pillow's documentation showing that `load_default` loads "a version of Aileron Regular" when FreeType is available. That pointed to the way out: the glyphs merged an hour earlier had come from Pillow's other, older bitmap font.
+
+**What was checked, and by whom.** The controller read Pillow's source, which marks the older bitmap font's data `courB08` (Courier Bold 8 from the X11 distribution, the font already in the tree), and the designer's page, which says "Aileron is No Rights Reserved" under CC0 1.0. The agent read the embedded font's own name table: copyright "No Rights Reserved.", family Aileron, no licence entry.
+
+**What the agent did.** Rebuilt the glyph table from Aileron Regular at 11 pixels (102 glyphs: printable ASCII and seven symbols; no accented letters, so those still draw as `?`), with 8-bit coverage and an exactly specified integer blend so Rust and Python make the same pixels. The Courier data is gone; THIRD-PARTY.md names the source and how the table was made.
+
+**Verified (agent, Mac).** nextest 1,645 of 1,646 (the known baseline failure); Python 249; both SDKs match the fixture's hash; the agent looked at a rendered sheet.
 
 ### 2026-11-22 — A hash of what makes the result; a question before saving a non-picture as PNG; labelled contact sheets; a recipe test node (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 

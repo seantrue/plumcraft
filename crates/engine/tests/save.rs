@@ -148,7 +148,7 @@ fn a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name() {
     // two columns, two rows of 64-pixel cells (the least), each with its label band, 8-pixel gaps
     assert_eq!((img.width(), img.height()), (2 * 64 + 3 * 8, 2 * (64 + 15) + 3 * 8));
     assert_eq!((img.get_pixel(39, 39).0, img.get_pixel(111, 39).0, img.get_pixel(39, 126).0), ([10; 3], [200; 3], [90; 3]));
-    let inked = (74..85).any(|y| (8..72).any(|x| img.get_pixel(x, y).0 == [32; 3]));
+    let inked = (73..86).any(|y| (8..72).any(|x| img.get_pixel(x, y).0[0] < 128));
     assert!(inked, "the first label, drawn in its band");
     assert!(png.windows(15).any(|w| w == b"PlumCraft graph"), "the name and hash, informational");
     assert!(save(&h, "t.pics", json!({"path": dir.join("sheet.jpg"), "sheet": true})).ok, "JPEG makes sheets too");

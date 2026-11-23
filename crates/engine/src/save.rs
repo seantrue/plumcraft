@@ -579,53 +579,91 @@ fn box_scale(w: usize, h: usize, px: &[u8], tw: usize, th: usize) -> Vec<u8> {
 
 /// The smallest side of a contact sheet's cell, so a label has room (about 10 characters).
 pub const SHEET_MIN_CELL: usize = 64;
-/// The band under each cell a label is drawn in, when any item has one: 2 pixels, the font's 11
-/// rows, 2 pixels.
+/// The band under each cell a label is drawn in, when any item has one: 1 pixel, then the font's
+/// line (Aileron at 11 pixels: ascent 11, descent 3, 14 rows).
 pub const SHEET_LABEL_BAND: usize = 15;
 /// The labels' colour.
 pub const SHEET_INK: [u8; 3] = [32, 32, 32];
 
-/// The label font (decision 4B): printable ASCII, 6 by 11, shared as data with the Python SDK
-/// (`sheet_font.json`, the same file in both), so labels are the same pixels; no system font.
-struct SheetFont {
+/// One glyph of the label font: its advance, where its coverage starts from the pen, and its
+/// 8-bit coverage, `width` columns by the line's height, row by row.
+struct Glyph {
+    advance: usize,
+    x: i64,
     width: usize,
+    coverage: Vec<u8>,
+}
+
+/// The label font (decision 4B; B125): Aileron Regular (Sora Sagano, CC0 1.0) at 11 pixels, as
+/// Pillow embeds it, rasterised once into `sheet_font.json` (the same file in the Python SDK), so
+/// labels are the same pixels in both; no system font.
+struct SheetFont {
     height: usize,
-    first: u32,
-    glyphs: Vec<Vec<u32>>,
+    glyphs: std::collections::HashMap<u32, Glyph>,
 }
 
 fn sheet_font() -> &'static SheetFont {
     static FONT: std::sync::OnceLock<SheetFont> = std::sync::OnceLock::new();
     FONT.get_or_init(|| {
         let v: Value = serde_json::from_str(include_str!("sheet_font.json")).unwrap_or(Value::Null);
-        let n = |k: &str, d: u64| v.get(k).and_then(Value::as_u64).unwrap_or(d);
+        let height = v.get("height").and_then(Value::as_u64).unwrap_or(0) as usize;
+        let hex = |s: &str| -> Vec<u8> { (0..s.len() / 2).filter_map(|i| s.get(2 * i..2 * i + 2).and_then(|b| u8::from_str_radix(b, 16).ok())).collect() };
         let glyphs = v
             .get("glyphs")
-            .and_then(Value::as_array)
-            .map(|g| g.iter().map(|rows| rows.as_array().map(|r| r.iter().map(|x| x.as_u64().unwrap_or(0) as u32).collect()).unwrap_or_default()).collect())
-            .unwrap_or_default();
-        SheetFont { width: n("width", 6) as usize, height: n("height", 11) as usize, first: n("first", 32) as u32, glyphs }
+            .and_then(Value::as_object)
+            .into_iter()
+            .flatten()
+            .filter_map(|(code, g)| {
+                let n = |k: &str| g.get(k).and_then(Value::as_i64).unwrap_or(0);
+                let glyph = Glyph {
+                    advance: usize::try_from(n("advance")).unwrap_or(0),
+                    x: n("x"),
+                    width: usize::try_from(n("width")).unwrap_or(0),
+                    coverage: hex(g.get("coverage").and_then(Value::as_str).unwrap_or_default()),
+                };
+                Some((code.parse::<u32>().ok()?, glyph))
+            })
+            .collect();
+        SheetFont { height, glyphs }
     })
 }
 
-/// Draw `text` into `sheet` (`sw` pixels wide, RGB) at `(x, y)`, at most `max_chars` characters;
-/// a character the font hasn't is `?`.
+/// A character's glyph, or `?`'s for one the font hasn't.
+fn glyph_of(f: &SheetFont, c: char) -> Option<&Glyph> {
+    f.glyphs.get(&u32::from(c)).or_else(|| f.glyphs.get(&u32::from('?')))
+}
+
+/// How wide `text` is drawn: its glyphs' advances.
+fn label_width(text: &str) -> usize {
+    let f = sheet_font();
+    text.chars().filter_map(|c| glyph_of(f, c)).map(|g| g.advance).sum()
+}
+
+/// Draw `text` into `sheet` (`sw` pixels wide, RGB) with its line's top at `y`, the pen starting
+/// at `x`: each glyph's coverage `a` (0 to 255) blends [`SHEET_INK`] over what is there,
+/// `(ink · a + old · (255 − a) + 127) / 255` per channel in integers, glyph after glyph, then the
+/// pen moves on by the glyph's advance. No kerning.
 fn draw_label(sheet: &mut [u8], sw: usize, x: usize, y: usize, text: &str) {
     let f = sheet_font();
-    for (k, c) in text.chars().enumerate() {
-        let code = u32::from(c);
-        let glyph = f.glyphs.get(code.wrapping_sub(f.first) as usize).filter(|_| code >= f.first).or_else(|| f.glyphs.get((u32::from('?') - f.first) as usize));
-        let Some(glyph) = glyph else { continue };
-        for (row, bits) in glyph.iter().enumerate().take(f.height) {
-            for col in 0..f.width {
-                if bits >> (f.width - 1 - col) & 1 == 1 {
-                    let at = ((y + row) * sw + x + k * f.width + col) * 3;
-                    if let Some(px) = sheet.get_mut(at..at + 3) {
-                        px.copy_from_slice(&SHEET_INK);
+    let mut pen = x as i64;
+    for c in text.chars() {
+        let Some(g) = glyph_of(f, c) else { continue };
+        for row in 0..f.height {
+            for col in 0..g.width {
+                let a = u32::from(g.coverage.get(row * g.width + col).copied().unwrap_or(0));
+                let px = pen + g.x + col as i64;
+                if a == 0 || px < 0 || px as usize >= sw {
+                    continue;
+                }
+                let at = ((y + row) * sw + px as usize) * 3;
+                if let Some(dst) = sheet.get_mut(at..at + 3) {
+                    for (d, ink) in dst.iter_mut().zip(SHEET_INK) {
+                        *d = ((u32::from(ink) * a + u32::from(*d) * (255 - a) + 127) / 255) as u8;
                     }
                 }
             }
         }
+        pen += g.advance as i64;
     }
 }
 
@@ -635,8 +673,8 @@ fn draw_label(sheet: &mut [u8], sw: usize, x: usize, y: usize, text: &str) {
 /// pixels, with an 8-pixel gap around and between, on light grey; each item scaled down (never
 /// up) to fit its cell by [`box_scale`], keeping its shape (a side `(side · cell + m / 2) / m`, `m`
 /// its larger side, at least 1), and centred. When any item has a label, each cell has a
-/// 15-pixel band under it with its label in the shared bitmap font, centred, cut to the
-/// characters the cell's width holds. At most [`crate::exec::MAX_SHEET`] items.
+/// 15-pixel band under it with its label in the shared label font (Aileron, [`draw_label`]),
+/// centred, cut to the characters the cell's width holds. At most [`crate::exec::MAX_SHEET`] items.
 pub fn contact_sheet(items: &[Data], labels: &[String]) -> Result<Array, NodeError> {
     if items.is_empty() {
         return Err(config("a contact sheet needs at least one item"));
@@ -656,7 +694,6 @@ pub fn contact_sheet(items: &[Data], labels: &[String]) -> Result<Array, NodeErr
     let rows = n.div_ceil(cols);
     let (sw, sh) = (cols * cell + (cols + 1) * SHEET_GAP, rows * (cell + band) + (rows + 1) * SHEET_GAP);
     let mut sheet: Vec<u8> = SHEET_GROUND.iter().copied().cycle().take(sw * sh * 3).collect();
-    let font = sheet_font();
     for (k, (w, h, px)) in pictures.iter().enumerate() {
         let m = (*w).max(*h).max(1);
         let (tw, th) = if m <= cell { (*w, *h) } else { (((w * cell + m / 2) / m).max(1), ((h * cell + m / 2) / m).max(1)) };
@@ -672,9 +709,17 @@ pub fn contact_sheet(items: &[Data], labels: &[String]) -> Result<Array, NodeErr
             }
         }
         if let Some(label) = labels.get(k).filter(|l| band > 0 && !l.is_empty()) {
-            let text: String = label.chars().take(cell / font.width.max(1)).collect();
-            let width = text.chars().count() * font.width;
-            draw_label(&mut sheet, sw, cx + (cell - width) / 2, cy + cell + 2, &text);
+            // as many characters as the cell's width holds
+            let mut text = String::new();
+            for ch in label.chars() {
+                text.push(ch);
+                if label_width(&text) > cell {
+                    text.pop();
+                    break;
+                }
+            }
+            let width = label_width(&text);
+            draw_label(&mut sheet, sw, cx + (cell - width) / 2, cy + cell + 1, &text);
         }
     }
     Ok(Array::new("|u1", vec![sh as u64, sw as u64, 3], sheet))
@@ -1121,7 +1166,7 @@ mod tests {
         let over = |c: u32, a: u32| ((c * a + 255 * (255 - a) + 127) / 255) as u8;
         assert_eq!(px(x0 + 9, y0 + 9), [over(225, 216), over(225, 216), over(128, 216)]);
         // each label in its band, centred under its cell; the empty fourth cell has none
-        let ink = |x0: usize, y0: usize| (y0..y0 + 15).flat_map(|y| (x0..x0 + 256).map(move |x| (x, y))).filter(|&(x, y)| px(x, y) == SHEET_INK).count();
+        let ink = |x0: usize, y0: usize| (y0..y0 + 15).flat_map(|y| (x0..x0 + 256).map(move |x| (x, y))).filter(|&(x, y)| px(x, y)[0] < 128).count();
         assert!(ink(8, 8 + 256) > 0 && ink(8 + 256 + 8, 8 + 256) > 0 && ink(8, 8 + 256 + 15 + 8 + 256) > 0);
         assert_eq!(ink(8 + 256 + 8, 8 + 256 + 15 + 8 + 256), 0);
         let fixture: Value = serde_json::from_str(include_str!("../tests/fixtures/sheet.json")).unwrap();
@@ -1144,13 +1189,18 @@ mod tests {
     }
 
     #[test]
-    fn the_sheet_font_is_printable_ascii_and_the_pythons_copy() {
+    fn the_sheet_font_is_aileron_and_the_pythons_copy() {
         let f = sheet_font();
-        assert_eq!((f.width, f.height, f.first, f.glyphs.len()), (6, 11, 32, 95));
-        assert!(f.glyphs.iter().all(|g| g.len() == 11 && g.iter().all(|r| *r < 64)));
-        assert!(f.glyphs[0].iter().all(|r| *r == 0), "space is blank");
-        assert!(f.glyphs[(u32::from('A') - 32) as usize].iter().any(|r| *r != 0));
-        assert_eq!(include_str!("sheet_font.json"), include_str!("../../../python/src/plumcraft_engine/sheet_font.json"), "one font, both SDKs");
+        assert_eq!(f.height, 14);
+        assert!((32..127).all(|c| f.glyphs.contains_key(&c)), "printable ASCII");
+        assert!(f.glyphs.values().all(|g| g.coverage.len() == g.width * f.height));
+        assert!(f.glyphs[&32].coverage.iter().all(|a| *a == 0) && f.glyphs[&32].advance > 0, "space is blank and moves the pen");
+        let l = &f.glyphs[&u32::from('l')].coverage;
+        assert!(l.iter().any(|a| *a > 200) && l.iter().any(|a| *a > 0 && *a < 128), "solid strokes, antialiased edges");
+        assert!(!f.glyphs.contains_key(&0xe9), "é isn't in Pillow's Aileron: it draws as ?");
+        let text = include_str!("sheet_font.json");
+        assert!(text.contains("Aileron Regular") && text.contains("CC0 1.0"));
+        assert_eq!(text, include_str!("../../../python/src/plumcraft_engine/sheet_font.json"), "one font, both SDKs");
     }
 
     #[test]

@@ -482,10 +482,21 @@ function Run-Steps {
     Starting '13. exit: File > Quit, and the app ends'
     $any = Doc-Windows | Select-Object -First 1
     $it = Menu-Item $any 'File' 'Quit*'
-    if ($it) { [P]::ClickOn($it) }
-    $ended = Wait-Until { if (-not (Get-Process -Id $appPid -ErrorAction SilentlyContinue)) { 1 } } 20000
-    $left = if (-not $ended) { (([P]::Everything($appPid) | Where-Object { [P]::Kind($_) -eq 'Window' -or [P]::Kind($_) -eq 'Button' } | ForEach-Object { [P]::Name($_) }) -join ', ') } else { '' }
-    Step 'quit' ($null -ne $ended) $(if ($ended) { 'the app ended' } else { "still running; it shows: $left" })
+    # the menu opens with an animation: click the item where it settles, as a person's eye follows it
+    $at = ''
+    if ($it) { $null = Wait-Until { $b1 = [P]::Box($it); Start-Sleep -Milliseconds 150; $b2 = [P]::Box($it); if ($b1.Width -gt 0 -and $b1.ToString() -eq $b2.ToString()) { 1 } } 3000; $at = [P]::Box($it).ToString(); [P]::ClickOn($it) }
+    $ended = Wait-Until { if (-not (Get-Process -Id $appPid -ErrorAction SilentlyContinue)) { 1 } } 5000
+    $again = ''
+    if (-not $ended) {
+        # still open: a person sees the menu still showing and clicks Quit again
+        $it2 = In $any { param($e) [P]::Kind($e) -eq 'MenuItem' -and [P]::Name($e) -like 'Quit*' } 1000
+        if ($it2) { $again = '; the menu was still open, Quit clicked again at ' + [P]::Box($it2).ToString(); [P]::ClickOn($it2) }
+        $ended = Wait-Until { if (-not (Get-Process -Id $appPid -ErrorAction SilentlyContinue)) { 1 } } 15000
+    }
+    if (-not $ended) { [P]::Shot((Join-Path $Work 'quit-failed.png')) }
+    $left = if (-not $ended) { (([P]::Everything($appPid) | Where-Object { [P]::Kind($_) -eq 'Window' -or [P]::Kind($_) -eq 'Button' -or [P]::Kind($_) -eq 'MenuItem' } | ForEach-Object { [P]::Name($_) }) -join ', ') } else { '' }
+    $how = "Quit " + $(if ($it) { "clicked at $at" } else { 'not found in the File menu' }) + $again
+    Step 'quit' ($null -ne $ended) $(if ($ended) { "the app ended ($how)" } else { "still running ($how); it shows: $left" })
     if (-not $ended) { return }
 
     # 14. the saved graph opened from the command line, as opening the file from Explorer does: its window is
@@ -563,6 +574,103 @@ function Run-Steps {
             } else { $saw = "no Save Result on the Result face; it reads: " + [P]::Status((Node $opened 'Result')) }
         } else { $saw = "palette for Edge: [" + $ed.list + "] picked " + $ed.picked + "; for Result: [" + $rs.list + "] picked " + $rs.picked + "; nodes: " + (Describe-Nodes $opened) }
         Step 'save-result' ($saw -like '*the file reads: "*') $saw
+
+        # 16. Recipe: a value with one (the test engine's Traced, which supplies it) has the pop-out bar's
+        # Recipe, and it reads "traced"; the Result's value has none, so no Recipe
+        Starting '16. Recipe in a pop-out, with a recipe and without'
+        function Pop-Out([string]$name) {
+            # the pop-out of that node's value, a window of its own named after the node ("Traced · text")
+            Front $opened
+            $o = Pin (Node $opened $name) 'out'
+            if (-not $o) { return $null }
+            [P]::ClickOn($o, $true); Start-Sleep -Milliseconds 900
+            $watch = In $opened { param($e) [P]::Kind($e) -eq 'MenuItem' -and ([P]::Name($e) -like 'Watch*' -or [P]::Name($e) -like 'Pop Out*') } 3000
+            if ($watch) { [P]::ClickOn($watch) } else { Esc; return $null }
+            $p = Wait-Until { Other-Windows | Where-Object { [P]::Name($_) -like "$name *" } | Select-Object -First 1 } 15000
+            if ($p) { Front $p }
+            return $p
+        }
+        function Close-Pop($p) {
+            if (-not $p) { return }
+            $h = [long]$p.Current.NativeWindowHandle
+            Front $p; [P]::Chord(0x12, 0x73)
+            $null = Wait-Until { if (-not (Other-Windows | Where-Object { [long]$_.Current.NativeWindowHandle -eq $h })) { 1 } } 5000
+        }
+        $tr = Add-From-Palette $opened 0.12 0.1 'Traced' 'Traced'
+        $recipeSaw = ''; $ok16 = $false
+        if ($tr.node) {
+            $run = In $opened { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Run' }
+            if ($run) { [P]::ClickOn($run) }
+            $null = Wait-Until { $n = Node $opened 'Traced'; if ($n -and [P]::Status($n) -like '*traced*') { 1 } } 30000
+            $pt = Pop-Out 'Traced'
+            $recipeBtn = if ($pt) { In $pt { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Recipe' } 5000 }
+            $read = ''
+            if ($recipeBtn) {
+                [P]::ClickOn($recipeBtn); Start-Sleep 2
+                [P]::Shot((Join-Path $Work 'recipe-traced.png'))
+                $t = [P]::Find($appPid, (Pred { param($e) ([P]::Name($e) + [P]::Value($e)) -like '*traced*' -and [P]::Kind($e) -ne 'Window' -and [P]::Name($e) -notlike 'Traced*' }), 5000)
+                if ($t) { $read = [P]::Name($t) + [P]::Value($t) }
+                Esc
+            }
+            Close-Pop $pt
+            $pr = Pop-Out 'Result'
+            $noRecipe = $false
+            if ($pr) {
+                Start-Sleep 2
+                [P]::Shot((Join-Path $Work 'recipe-none.png'))
+                $noRecipe = -not (In $pr { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Recipe' } 2000)
+                Close-Pop $pr
+            }
+            $ok16 = $recipeBtn -and $read -like '*traced*' -and $noRecipe
+            $recipeSaw = "Traced's pop-out: " + $(if ($pt) { [P]::Name($pt) } else { 'none' }) + ", Recipe button " + $(if ($recipeBtn) { 'there' } else { 'missing' }) + ", it reads: " + ($read -replace "`r?`n", ' ') + "; Result's pop-out: " + $(if ($pr) { [P]::Name($pr) + ", Recipe button " + $(if ($noRecipe) { 'not there' } else { 'there' }) } else { 'none' })
+        } else { $recipeSaw = "no Traced from the palette: [" + $tr.list + "]" }
+        Step 'recipe' $ok16 $recipeSaw
+
+        # 17. a value not shaped like a picture saved as PNG: the core asks first, with the prompt's own words on
+        # its buttons; NumPy saves an .npy, and a second time "PNG anyway" saves the PNG
+        Starting '17. Strip saved as PNG: the question and its labelled buttons'
+        Front $opened
+        $st = Add-From-Palette $opened 0.55 0.1 'Strip' 'Strip'
+        $shapeSaw = @(); $ok17 = $true
+        if ($st.node) {
+            $run = In $opened { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Run' }
+            if ($run) { [P]::ClickOn($run) }
+            foreach ($pass in @(@{ file = 'strip.png'; press = 'Save as NumPy (.npy)'; want = 'strip.npy'; magic = 'NUMPY' }, @{ file = 'strip-anyway.png'; press = 'Save as PNG anyway'; want = 'strip-anyway.png'; magic = 'PNG' })) {
+                $target = Join-Path $Work ('saved\' + $pass.file)
+                $wantFile = Join-Path $Work ('saved\' + $pass.want)
+                Remove-Item $target, $wantFile -ErrorAction SilentlyContinue
+                $btn = Wait-Until { $n = Node $opened 'Strip'; if ($n) { [P]::All($n) | Where-Object { [P]::Id($_) -like 'save.*' } | Select-Object -First 1 } } 30000
+                if (-not $btn) { $ok17 = $false; $shapeSaw += "no Save Result on Strip"; break }
+                Front $opened
+                [P]::ClickOn($btn)
+                $dlg = Wait-Until { @([P]::All($opened)) + @(Other-Windows) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -eq 'Save As' } | Select-Object -First 1 } 15000
+                $type = ''
+                if (-not $dlg) { [P]::Shot((Join-Path $Work ("save-shape-nodialog-" + $pass.want + ".png"))) }
+                if ($dlg) {
+                    Start-Sleep 1
+                    $type = ((@([P]::All($dlg) | Where-Object { [P]::Kind($_) -eq 'ComboBox' -and [P]::Name($_) -like 'Save as type*' }) | ForEach-Object { [P]::Value($_) }) -join ' / ')
+                    $field = In $dlg { param($e) [P]::Kind($e) -eq 'Edit' -and [P]::Name($e) -like 'File name*' } 5000
+                    if ($field) { [P]::ClickOn($field); [P]::Chord(0x11, 0x41); [P]::Type($target); Start-Sleep -Milliseconds 300; [P]::Key(0x0D) }
+                }
+                # the core's question, drawn as a dialog with the prompt's labels on its buttons
+                $q = Wait-Until { [P]::All($opened) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -notlike '* - Plummer' -and [P]::Name($_) -ne 'Save As' -and (@([P]::All($_) | Where-Object { [P]::Kind($_) -eq 'Button' -and [P]::Name($_) -like 'Save as*' }).Count -gt 0) } | Select-Object -First 1 } 20000
+                $buttons = ''
+                if (-not $q) { [P]::Shot((Join-Path $Work ("save-shape-noquestion-" + $pass.want + ".png"))) }
+                if ($q) {
+                    Start-Sleep 1
+                    $buttons = ((@([P]::All($q) | Where-Object { [P]::Kind($_) -eq 'Button' }) | ForEach-Object { [P]::Name($_) }) -join ' / ')
+                    [P]::Shot((Join-Path $Work ("save-shape-" + $pass.want + ".png")))
+                    $press = In $q { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq $pass.press } 3000
+                    if ($press) { [P]::ClickOn($press) }
+                }
+                $bytes = Wait-Until { if (Test-Path $wantFile) { $b = [IO.File]::ReadAllBytes($wantFile); if ($b.Length -gt 8) { $b } } } 20000
+                $head = if ($bytes) { [Text.Encoding]::ASCII.GetString($bytes, 0, [Math]::Min(8, $bytes.Length)) -replace '[^ -~]', '.' } else { '' }
+                $good = $q -and $buttons -like '*Save as PNG anyway*' -and $buttons -like '*Save as NumPy (.npy)*' -and $buttons -like '*Cancel*' -and $head -like "*$($pass.magic)*"
+                if (-not $good) { $ok17 = $false }
+                $shapeSaw += ("{0}: picker type {1}; question: {2} (buttons {3}); pressed {4}; {5} starts {6} ({7} bytes)" -f $pass.file, $type, $(if ($q) { [P]::Name($q) } else { 'none' }), $buttons, $pass.press, $pass.want, $head, $(if ($bytes) { $bytes.Length } else { 0 }))
+            }
+        } else { $ok17 = $false; $shapeSaw += "no Strip from the palette: [" + $st.list + "]" }
+        Step 'save-shape' $ok17 ($shapeSaw -join '; ')
     }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'
