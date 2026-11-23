@@ -868,6 +868,86 @@ def strip_step(port):
     close_graph(port, doc, "strip-check-saved.json")
 
 
+READ_GRAPH = {
+    "version": 1,
+    "engines": ["ports"],
+    "nodes": {"r": {"kind": "ports.read", "pos": [0, 0], "engine": "ports"}},
+    "wires": [],
+}
+
+
+def browse_step(port):
+    """B133: a path row's Browse button. A click on it (the core's gesture) opens the system's
+    open panel on a scratch folder, its folder read through accessibility, then cancelled (never
+    pressed). A click on it while the row's text is being edited closes the field and asks the
+    same. The panel's ask answered by the script with a scratch .txt file: the row names it, one
+    undo step, and a run reads the file's text."""
+    doc = open_graph(port, "browse-check.json", READ_GRAPH)
+    if not doc:
+        return say(False, "B133: the path graph opened", f"documents {docs()}")
+    up = ports_up(port, doc)
+
+    def asks():
+        return port.call("ui.inspect", {}, doc=doc).get("asks", [])
+
+    def file_ask():
+        return next((a for a in asks() if a.get("kind") == "file.open" and (a.get("params") or {}).get("purpose") == "path"), None)
+    folder = os.path.join(A.scratch, f"person-scratch-{os.urandom(4).hex()}")
+    os.makedirs(folder, exist_ok=True)
+    chosen = os.path.join(folder, "chosen.txt")
+    with open(chosen, "w") as f:
+        f.write("plum from a file")
+    # 1. the panel, from the row's Browse: read, cancelled
+    step(f"panel-at:{chosen}")
+    tapped = step("tap:browse=r.0")
+    panel = wait(lambda: (lambda d: d if d.get("ok") and "OpenPanel" in d["sheet"]["class"] else None)(step("sheet")), 15, every=0.3)
+    asked = file_ask() or {}
+    seen = {}
+    if panel and not console_locked():
+        seen = wait(lambda: (lambda f: f if f.get("folder") is not None else None)(panel_fields(sheet=True)), 10, every=0.5) or panel_fields(sheet=True)
+        wn = next((d.get("window") for d in docs() if d.get("doc") == doc), None)
+        if wn:
+            subprocess.run(["screencapture", "-x", "-o", "-l", str(wn), os.path.join(A.shots, "browse-panel.png")], capture_output=True, timeout=30)
+        axrun("press", str(A.pid), "CancelButton")
+    gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
+    if panel and not gone:
+        step("panel-cancel")
+        gone = wait(lambda: not step("sheet").get("ok"), 10, every=0.3)
+    kinds = [k.get("label") for k in (asked.get("params") or {}).get("kinds", [])]
+    if console_locked():
+        ax_blind("B133: the open panel's own folder")
+    say(bool(up and tapped.get("ok") and panel and gone and asked.get("by") == "person" and kinds == ["Text"]
+             and (console_locked() or seen.get("folder") == os.path.basename(folder))),
+        "B133: a click on a path row's Browse opens the open panel for the person, with the input's file kinds; cancelled (not pressed)",
+        f"ask {asked.get('kind')} by {asked.get('by')}, purpose {(asked.get('params') or {}).get('purpose')}, kinds {kinds}; panel {panel['sheet']['class'] if panel else None}; "
+        f"the panel's folder {seen.get('folder')!r}; cancelled {bool(gone)}")
+    # 2. Browse while the row's text is edited: the field closes, the same ask comes
+    step("edit:r.file")
+    editing = wait(lambda: port.call("scene.get", {}, doc=doc).get("view", {}).get("edit"), 10, every=0.3)
+    step("field:half typed")
+    step("tap:browse=r.0")
+    a = wait(file_ask, 15, every=0.3)
+    closed = port.call("scene.get", {}, doc=doc).get("view", {}).get("edit") is None
+    if a:
+        port.call("ask.answer", {"ask": a["ask"], "answer": {"paths": [chosen]}}, doc=doc)
+    set_to = wait(lambda: (lambda v: v if v and v.endswith("chosen.txt") else None)(((port.call("graph.get", {}, doc=doc).get("nodes") or {}).get("r") or {}).get("values", {}).get("file")), 10, every=0.3)
+    undo = port.call("ui.inspect", {}, doc=doc).get("undo")
+    # the panel the person would have seen goes as the script answers
+    if step("sheet").get("ok"):
+        step("panel-cancel")
+    step("menu-pick:Run/Run")
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+    port.call("command.run", {"command": "run.watch", "params": {"node": "r", "port": "text"}}, doc=doc)
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+    read = wait(lambda: (lambda w: w if "plum from a file" in json.dumps(w) else None)(port.call("ui.inspect", {}, doc=doc).get("watched")), 20, every=0.5)
+    say(bool(editing is not None and a and closed and set_to and undo == "Set Value" and read),
+        "B133: Browse while the path's text is edited closes the field and asks; the answer names the file (one undo step) and a run reads it",
+        f"editing {bool(editing)}; ask {bool(a)}; field closed {closed}; value {set_to!r}; undo {undo!r}; the run read it {bool(read)}")
+    for x in asks():
+        port.call("ask.answer", {"ask": x["ask"], "cancel": True}, doc=doc)
+    close_graph(port, doc, "browse-check-saved.json")
+
+
 AUDIO_GRAPH = {
     "version": 1,
     "nodes": {
@@ -1102,6 +1182,8 @@ def main():
             recipe_step(port)
             # the save's question (decisions 2A, 3A): the prompt's own labelled buttons
             strip_step(port)
+            # B133: a path row's Browse, the open panel, and the keyboard's path
+            browse_step(port)
 
         # the audio engine compiled in, and its viewer
         audio_viewer(port)

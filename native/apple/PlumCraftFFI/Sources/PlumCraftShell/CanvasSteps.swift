@@ -23,7 +23,8 @@
 // TARGET is `node=ID` (a face's centre), `head=ID` (its header), `out=ID.K` and `in=ID.K` (its
 // K-th output or input pin), `wire=ID` (a point on the wire), `at=X,Y` (graph units) or
 // `rel=DX,DY` (view points from the press, or from the view's centre with no press), `row=ID.K`
-// (the K-th input row's widget) or `more=ID` (its more-button).
+// (the K-th input row's widget), `browse=ID.K` (a path row's Browse button, B133) or `more=ID` (its
+// more-button).
 
 import CoreGraphics
 import Foundation
@@ -167,6 +168,11 @@ public struct CanvasSteps {
             guard let dot = v.lastIndex(of: "."), let i = Int(v[v.index(after: dot)...]), let nid = canvas.nid(of: String(v[..<dot])),
                   let r = canvas.rowRect(face: nid, row: i) else { return nil }
             return view(Point(Double(r.midX), Double(r.midY)))
+        case "browse":
+            // a path row's Browse button (B133), where the core has it (geometry.locate)
+            guard let dot = v.lastIndex(of: "."), let i = Int(v[v.index(after: dot)...]) else { return nil }
+            let r = try? await canvas.link.locate(["node": .string(String(v[..<dot])), "row": .int(Int64(i)), "part": "browse"])
+            return r.map { view($0.at) }
         case "more":
             guard let nid = canvas.nid(of: v), let r = canvas.moreRect(face: nid) else { return nil }
             return view(Point(Double(r.midX), Double(r.midY)))
