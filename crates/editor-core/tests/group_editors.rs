@@ -66,3 +66,51 @@ fn a_promoted_editor_value_opens_the_members_editor_from_the_groups_face() {
     let w = plumcraft_editor_core::reports::get(&d.session, &json!({"window": "editor", "node": n})).unwrap();
     assert_eq!((w["kind"].as_str(), w["port"].as_str()), (Some("ports.curve"), Some("curve")));
 }
+
+/// FR1 merged with B133's Browse: on one node with a path row and an editor value, and on its
+/// collapsed group with both promoted, each tap goes where it should: the Browse square
+/// `row.browse`, the path's field `row.edit`, the editor value's row `node.editor`.
+#[test]
+fn browse_field_and_editor_rows_each_take_their_own_tap() {
+    let catalog = serde_json::from_value(json!({"nodes": [{"id": "t.both", "display": "Both",
+        "editor": {"kind": "t.dial", "port": "curve"},
+        "inputs": [{"name": "file", "type": "STRING", "default": "", "path": {"mode": "open", "filters": []}},
+                   {"name": "curve", "type": "x.t.curve", "socket": "both", "default": {"pts": [0, 1]}}],
+        "outputs": [{"name": "out", "type": "STRING"}]}]}))
+    .unwrap();
+    let mut d = Document::new(Session::new(catalog));
+    let n = execute(&mut d, "node.add", &json!({"kind": "t.both", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+    // measured as a shell does: the path field's rect, the editor row's caption
+    let measure = |d: &mut Document, face: &str| {
+        execute(
+            d,
+            "geometry.set",
+            &json!({"faces": [{"node": face, "size": [260, 90], "header": 28, "pins": {"in": [43, 65], "out": [43]},
+                                                    "rows": [[100, 34, 250, 52], [10, 56, 120, 74]]}]}),
+        )
+        .unwrap();
+    };
+    let last = |t: &Value| t["commands"].as_array().and_then(|c| c.last()).map(|c| (c["command"].as_str().unwrap_or("").to_owned(), c["ok"] == true));
+    measure(&mut d, &n);
+    // the Browse square: the right end of the field, its side the field's height (18)
+    // (row.browse is invoked, as `ui.gesture` does; this harness runs the plan's commands
+    // directly, so only where the tap went is checked for it)
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [241, 43], "slop": 1}))).map(|c| c.0), Some("row.browse".into()));
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [150, 43], "slop": 1}))), Some(("row.edit".into(), true)));
+    execute(&mut d, "row.edit", &json!({"open": false})).ok();
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [60, 65], "slop": 1}))), Some(("node.editor".into(), true)));
+    // collapsed, both promoted (in that order: rows 0 and 1 of the group's face)
+    let g = execute(&mut d, "group.create", &json!({"nodes": [n], "name": "Both"})).unwrap()["id"].as_str().unwrap().to_owned();
+    execute(&mut d, "group.promote", &json!({"group": g, "port": {"node": n, "port": "file"}, "label": "file"})).unwrap();
+    execute(&mut d, "group.promote", &json!({"group": g, "port": {"node": n, "port": "curve"}, "label": "curve"})).unwrap();
+    execute(&mut d, "group.collapse", &json!({"group": g, "collapsed": true})).unwrap();
+    measure(&mut d, &format!("group:{g}"));
+    // (row.browse is invoked, as `ui.gesture` does; this harness runs the plan's commands
+    // directly, so only where the tap went is checked for it)
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [241, 43], "slop": 1}))).map(|c| c.0), Some("row.browse".into()));
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [150, 43], "slop": 1}))), Some(("row.edit".into(), true)));
+    execute(&mut d, "row.edit", &json!({"open": false})).ok();
+    let t = gesture(&mut d, json!({"kind": "tap", "at": [60, 65], "slop": 1}));
+    assert_eq!(last(&t), Some(("node.editor".into(), true)), "{t}");
+    assert_eq!(t["commands"].as_array().unwrap().last().unwrap()["params"], json!({"node": n}), "the member's");
+}
