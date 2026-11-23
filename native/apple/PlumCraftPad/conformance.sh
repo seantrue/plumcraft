@@ -12,6 +12,7 @@
 # context menu, a pinch, a drag and a double tap through UIKit's recognisers, and the rotations.
 # PLUMCRAFT_WINDOW (`375x655`) runs them in a window of that size (the simulator's Settings ›
 # Multitasking & Gestures set to Windowed Apps; with Full Screen Apps the window is the screen).
+# TEXT_SIZE=one-step-larger runs at the maintainer's iPad's text size (below).
 # SIM names the simulator (default: the booted "iPad Pro 13-inch (M5)").
 set -euo pipefail
 half="${1:-read}"
@@ -24,12 +25,30 @@ sim="${SIM:-$(xcrun simctl list devices booted | grep 'iPad Pro 13-inch (M5)' | 
 scratch="$(mktemp -d "${TMPDIR:-/tmp}/plumcraft-pad-conformance.XXXXXX")"
 # the app goes on every way out (a failure, a time limit, ^C)
 ports_pid=""
+old_text_size=""
 cleanup() {
   xcrun simctl terminate "$sim" "$bundle" 2>/dev/null || true
   [ -n "$ports_pid" ] && kill "$ports_pid" 2>/dev/null
+  # the simulator's text size as it was
+  [ -n "$old_text_size" ] && xcrun simctl ui "$sim" content_size "$old_text_size"
   rm -rf "$scratch"
 }
 trap cleanup EXIT INT TERM
+# TEXT_SIZE: the simulator's text size for this run, put back after. Named sizes:
+#   default          the system's default (`large`)
+#   one-step-larger  Settings › Display & Brightness › Text Size one position past the default
+#                    (`extra-large`): the maintainer's iPad (2026-11-22), the size the tests must pass at
+# or any `simctl ui content_size` value (`extra-extra-large`, …).
+if [ -n "${TEXT_SIZE:-}" ]; then
+  case "$TEXT_SIZE" in
+    default) want=large ;;
+    one-step-larger) want=extra-large ;;
+    *) want="$TEXT_SIZE" ;;
+  esac
+  old_text_size=$(xcrun simctl ui "$sim" content_size)
+  xcrun simctl ui "$sim" content_size "$want"
+  echo "text size $want (was $old_text_size)"
+fi
 # PAD_PORTS=1: the test engine (crates/ports), a process on the Mac serving HTTP on loopback (which
 # the simulator shares), attached by URL from an engines folder in DIR (ports.toml): the app starts
 # no program (contract 4.2), it only connects. Decision 2 kept the test engine Mac-only as a program.

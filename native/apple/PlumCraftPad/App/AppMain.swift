@@ -307,25 +307,41 @@ final class LayersElement: UIView {
 
     static func report() -> String {
         var found: [JSONValue] = []
-        var windows = 0
-        func walk(_ l: CALayer, depth: Int) {
-            guard depth < 60, found.count < 60 else { return }
+        var windows: [JSONValue] = []
+        // B111 (device run of 2026-11-22): the keyboard's 0.38 s animations were still attached 8 s
+        // after Done. Whether such an animation is over but kept (`ended`: its begin plus duration is
+        // past in its layer's time, `kept`: not removed on completion) or never started running
+        // (`ended` false long after), and whether its window is hidden, say which.
+        func walk(_ l: CALayer, depth: Int, window: String) {
+            guard depth < 60, found.count < 80 else { return }
+            let now = l.convertTime(CACurrentMediaTime(), from: nil)
             for key in l.animationKeys() ?? [] {
                 let a = l.animation(forKey: key)
                 let owner = l.delegate.map { String(describing: type(of: $0)) } ?? "-"
-                found.append(["layer": .string(String(describing: type(of: l))), "owner": .string(owner), "key": .string(key),
-                              "repeat": .double(Double(a?.repeatCount ?? 0)), "duration": .double(a?.duration ?? 0)])
+                var e: [String: JSONValue] = ["layer": .string(String(describing: type(of: l))), "owner": .string(owner), "key": .string(key),
+                                              "repeat": .double(Double(a?.repeatCount ?? 0)), "duration": .double(a?.duration ?? 0),
+                                              "window": .string(window)]
+                if let a {
+                    let begin = a.beginTime
+                    e["kept"] = .bool(!a.isRemovedOnCompletion)
+                    e["fill"] = .string(a.fillMode.rawValue)
+                    if begin > 0, a.repeatCount < 1e6 { e["ended"] = .bool(now > begin + a.duration * Double(max(a.repeatCount, 1))) }
+                    e["age"] = .double(begin > 0 ? (now - begin) : -1)
+                }
+                found.append(.object(e))
             }
-            for s in l.sublayers ?? [] { walk(s, depth: depth + 1) }
+            for s in l.sublayers ?? [] { walk(s, depth: depth + 1, window: window) }
         }
         for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
             for w in scene.windows {
-                windows += 1
-                walk(w.layer, depth: 0)
+                let name = String(describing: type(of: w))
+                windows.append(["class": .string(name), "hidden": .bool(w.isHidden), "alpha": .double(Double(w.alpha)),
+                                "key": .bool(w.isKeyWindow)])
+                walk(w.layer, depth: 0, window: name)
             }
         }
         let links = Activity.shared.names.filter { $0.contains("momentum") || $0.contains("link") }
-        let o = JSONValue.object(["layers": .array(found), "links": .array(links.map(JSONValue.string)), "windows": .uint(UInt64(windows)),
+        let o = JSONValue.object(["layers": .array(found), "links": .array(links.map(JSONValue.string)), "windows": .array(windows),
                                   "animating": .array(Activity.shared.names.map(JSONValue.string))])
         return String(decoding: o.serialized(), as: UTF8.self)
     }

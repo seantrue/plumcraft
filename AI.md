@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — A typed value lost when focus moved (B129); the narrow bar at the maintainer's text size (B130); B111 narrowed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Ran the iPad once more: the eight UI tests passed on the device in 181 s with no stalled waits, where the evening's earlier runs took twenty minutes. Answered "1,2 yes. I have text size in appearance/text size 1 slide position larger": accept Run inside the More menu in a narrow window at a large text size, and look into B129.
+
+**B129, found and fixed.** With the test engine attached, one row case failed every time in the whole iPad suite. Cause: dismissing a pop-out's sheet made the system hand keyboard focus back, and the row's field then committed the value it had opened with over the one just set. That would lose a person's change the same way. A focus loss now commits only what was typed; same change on the Mac. The agent's earlier guess (a scene change) was wrong.
+
+**B111, still open.** The controller read the device probe's infinitely repeating cursor animation as a lead; the agent showed the simulator has the same animation and reaches idle, so it is not the cause. What only the device has is the keyboard's own short animations still attached eight seconds after Done. The probe now records whether each has ended.
+
+**B130.** Reproduced at exactly the maintainer's text size with the fix switched off, and gone with it; that size is now a named simulator setting. B60 closed on the device run, as decided.
+
+**Not done.** At that text size in a 375-point window two simulator-only UI tests still fail (both are skipped on the device). The Mac's screen was locked for the closing gates, so eight accessibility steps of the person check were not done.
+
+**Verified (agent, simulator and Mac).** iPad suite with the test engine 65 of 65 (3 of 3 failing before); the eight UI tests 8 of 8 at default and at one step larger on the whole screen; the Mac gate twice, 66 of 66 cases, person check 56 passed, 0 failed.
+
 ### 2026-11-22 — iPad UI tests that no longer wait for idle; labelled prompts and the test engine on the Mac and iPad (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** After two device runs of twenty minutes each: "Efficiency in testing is important too. I suggest making B111 the next order of business, and if a time boxed 10 minutes doesnt solve it, make a note of the issue and go to skipping the idle wait." and "mindful in the future of this kind of clock wasting. Time is precious." The controller had started the second of those runs knowing the first had stalled, with the maintainer waiting to reboot.

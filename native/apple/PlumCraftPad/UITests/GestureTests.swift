@@ -31,16 +31,25 @@ enum IdleWait {
     static let skipped: Bool = {
         guard ProcessInfo.processInfo.environment["PLUMCRAFT_IDLE_WAIT"] != "on", let cls = NSClassFromString("XCUIApplicationProcess") else { return false }
         let yes: @convention(block) (AnyObject) -> Bool = { _ in true }
+        // before each action, a short settle of a fixed length in its place (PLUMCRAFT_SETTLE_MS,
+        // default 300): an action sent while a sheet, menu or keyboard is still moving is lost
+        // (seen at 375 points and a larger text size), and a bounded pause costs far less than
+        // XCTest's wait, which never ended on the device (B111)
+        let settle = Double(ProcessInfo.processInfo.environment["PLUMCRAFT_SETTLE_MS"] ?? "") ?? 300
+        let pre: @convention(block) (AnyObject) -> Bool = { _ in
+            RunLoop.current.run(until: Date().addingTimeInterval(settle / 1000))
+            return true
+        }
         var done = 0
-        for name in ["shouldSkipPreEventQuiescence", "shouldSkipPostEventQuiescence"] {
+        for (name, block) in [("shouldSkipPreEventQuiescence", pre as Any), ("shouldSkipPostEventQuiescence", yes as Any)] {
             guard let m = class_getInstanceMethod(cls, NSSelectorFromString(name)) else {
                 print("IDLE: XCTest has no \(name) here; its idle wait stays")
                 continue
             }
-            method_setImplementation(m, imp_implementationWithBlock(yes))
+            method_setImplementation(m, imp_implementationWithBlock(block))
             done += 1
         }
-        print("IDLE: XCTest's idle waits skipped (\(done) of 2)")
+        print("IDLE: XCTest's idle waits skipped (\(done) of 2), \(Int(settle)) ms settle before each action")
         return done == 2
     }()
 }
@@ -347,7 +356,16 @@ final class GestureTests: XCTestCase {
             .min { hypot($0.x - pin[0] - 40, $0.y - pin[1] - 220) < hypot($1.x - pin[0] - 40, $1.y - pin[1] - 220) }
             ?? CGPoint(x: pin[0] + 40, y: pin[1] + 220)
         print("WINDOW wire: from \(pin) to \(drop), the canvas reachable in \(visibleCanvas(app, canvas))")
-        out.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: drop.x, dy: drop.y)))
+        func paletteShown() -> Bool {
+            let p = window()["palette"] as? [String: Any]
+            return (p?["wire"] as? Bool) == true && (p?["shown"] as? Bool) == true
+        }
+        // once more if the drag was lost (with no idle wait it can start while the redo settles)
+        for _ in 0..<2 where !paletteShown() {
+            out.press(forDuration: 0.05, thenDragTo: canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: drop.x, dy: drop.y)))
+            let shown = Date().addingTimeInterval(6)
+            while Date() < shown, !paletteShown() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        }
         wait("the palette for the dropped wire") {
             let p = $0["palette"] as? [String: Any]
             return (p?["wire"] as? Bool) == true && (p?["shown"] as? Bool) == true && !((p?["items"] as? [String]) ?? []).isEmpty
@@ -481,10 +499,15 @@ final class GestureTests: XCTestCase {
         shot("n4s2-ui-after-scrub")
 
         // the more-button: the system's menu with the node's items
-        if let p = ((window()["points"] as? [String: Any])?["w"] as? [String: Any])?["more"] as? [Double], p.count == 2 {
+        // panned into reach first: in a narrow window at a larger text size it was off the window
+        if let p = reachable(app, canvas, "w", "more"), p.count == 2 {
             at(CGPoint(x: p[0], y: p[1])).tap()
             let dup = app.buttons["Duplicate"]
-            XCTAssertTrue(dup.waitForExistence(timeout: 10), "the node's menu from the more-button")
+            if !dup.waitForExistence(timeout: 10) {
+                shot("n4s2-ui-more-menu-missing")
+                let seen = (app.buttons.allElementsBoundByIndex + app.menuItems.allElementsBoundByIndex).map(\.label).filter { !$0.isEmpty }
+                XCTFail("the node's menu from the more-button at \(p): on screen \(seen.prefix(40)); face-menu \(app.buttons["face-menu"].exists ? "\(app.buttons["face-menu"].frame)" : "none")")
+            }
             shot("n4s2-ui-more-menu")
             app.tap()
         } else {
@@ -768,12 +791,13 @@ extension GestureTests {
     /// window keeps only some of the core's toolbar on the bar).
     @MainActor
     func toolbar(_ app: XCUIApplication, _ label: String) {
-        let b = app.buttons[label]
+        // the bar's button by its words, the one a finger can reach (another element may share them)
+        func onBar() -> XCUIElement? { app.buttons.matching(NSPredicate(format: "identifier == %@ OR label == %@", label, label)).allElementsBoundByIndex.first { $0.isHittable } }
         let more = app.buttons["tool.more"]
         // either, as the bar settles (no idle wait holds the test until it has, B111)
         let until = Date().addingTimeInterval(10)
-        while Date() < until, !(b.exists && b.isHittable), !more.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
-        if b.exists, b.isHittable { b.tap(); return }
+        while Date() < until, onBar() == nil, !more.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        if let b = onBar() { b.tap(); return }
         XCTAssertTrue(more.exists, "\(label): neither on the bar nor a More menu")
         let it = fromMore(app, more, label)
         XCTAssertTrue(it.waitForExistence(timeout: 5), "\(label) in the More menu")
@@ -859,7 +883,7 @@ extension GestureTests {
         // a menu just tapped open is still opening (no idle wait holds the test, B111): up to 5 s
         let until = Date().addingTimeInterval(5)
         while Date() < until, !b.exists, !m.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
-        return b.exists ? b : m
+        return b.exists ? b.firstMatch : m.firstMatch
     }
 
     /// Decision 17 on the iPad, launched: an engine whose manifest warned (a copy of a project's
@@ -909,16 +933,44 @@ extension GestureTests {
         let named = NSPredicate(format: "label BEGINSWITH %@", "Copied Engine")
         let copied = app.descendants(matching: .any).matching(named).firstMatch
         // the engines run past the menu's foot: it is scrolled as a finger scrolls it
-        for _ in 0..<4 where !copied.waitForExistence(timeout: 2) {
+        var menuX: CGFloat?
+        var menuBottom: CGFloat?
+        for _ in 0..<10 where !copied.waitForExistence(timeout: 1) {
             // on an item the finger can reach (with the software keyboard on, the system brings
             // it up with any open menu, ours or a stock app's, and it covers the menu's foot: B118)
             // the menu's own items, the first still in sight once it has scrolled
             // (an item's label carries its subtitle: "CADCraft, CADCraft: this device has…")
-            let items = app.descendants(matching: .any).matching(NSPredicate(format: "label == 'Reconnect' OR label CONTAINS 'this device has no'")).allElementsBoundByIndex
+            let named = NSPredicate(format: "label == 'Reconnect' OR label CONTAINS 'this device has no'")
+            // (a button or a menu item: at a larger text size an effect view carries the label too)
+            let items = app.buttons.matching(named).allElementsBoundByIndex + app.menuItems.matching(named).allElementsBoundByIndex
             // (a swipe on the app would close the menu)
-            guard let anchor = items.last(where: { $0.exists && $0.isHittable }) else { continue }
-            // a finger's swipe up the menu from its lowest item in reach
-            anchor.swipeUp()
+            // (on screen and above the keyboard: at a larger text size the lowest "hittable" item
+            // can be under it, and a swipe there finds an empty visible frame)
+            let kb = app.keyboards.firstMatch
+            let top = kb.exists ? kb.frame.minY : .greatestFiniteMagnitude
+            let screen = app.windows.firstMatch.frame
+            // the menu's column, from an item in reach or the last one seen (at a larger text size
+            // every named item can have scrolled past while the warned one is still below)
+            if let anchor = items.last(where: { $0.exists && $0.isHittable && $0.frame.maxY < top && screen.intersects($0.frame) }) {
+                menuX = anchor.frame.midX
+                menuBottom = min(anchor.frame.midY, top - 8)
+            }
+            guard let x = menuX, let y = menuBottom else { continue }
+            // the menu's own list, swiped as a whole where UIKit offers it (an item's press and drag
+            // doesn't scroll a menu at a larger text size)
+            let at = CGPoint(x: x, y: min(y, top - 8) - 20)
+            let lists = (app.collectionViews.allElementsBoundByIndex + app.scrollViews.allElementsBoundByIndex)
+                .filter { $0.exists && $0.frame.contains(at) && $0.frame.width < screen.width * 0.9 }
+            if let list = lists.min(by: { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }) {
+                list.swipeUp(velocity: .slow)
+                continue
+            }
+            // a finger's swipe up the menu by the screen's points (an element's own swipe refuses
+            // one whose visible frame the menu has clipped)
+            let from = CGPoint(x: x, y: min(y, top - 8))
+            let origin = app.coordinate(withNormalizedOffset: .zero)
+            origin.withOffset(CGVector(dx: from.x, dy: from.y))
+                .press(forDuration: 0.05, thenDragTo: origin.withOffset(CGVector(dx: from.x, dy: max(screen.minY + 40, from.y - 220))), withVelocity: .fast, thenHoldForDuration: 0)
         }
         shot("n4h-ui-warned-engine")
         guard copied.waitForExistence(timeout: 10) else {
@@ -993,10 +1045,24 @@ extension GestureTests {
         }
         XCTAssertEqual(names, ["strip.npy"], "the export picker with the .npy: \(status()["exporting"] ?? "-"), banners \(status()["banners"] ?? "-")")
         // the picker has more than one Cancel (its bar's, its sheet's): the first that a finger reaches
-        let cancel = app.buttons.matching(identifier: "Cancel").firstMatch
-        if cancel.waitForExistence(timeout: 10) {
-            shot("n4p-ui-npy-export")
-            (app.buttons.matching(identifier: "Cancel").allElementsBoundByIndex.first { $0.isHittable } ?? cancel).tap()
+        // In a narrow window the picker is a whole-window sheet with no Cancel (a Save and a
+        // chevron): it is pulled down from its top, as a finger closes a sheet. Save is never pressed.
+        let cancel = app.buttons.matching(NSPredicate(format: "identifier == 'Cancel' OR label == 'Cancel' OR label == 'Close'")).firstMatch
+        let shown = Date().addingTimeInterval(10)
+        while Date() < shown, !cancel.exists, !app.buttons["Save"].exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        shot("n4p-ui-npy-export")
+        // (the first match only: the picker's elements come and go while it settles, and an index
+        // taken from a list can be gone by the time it is touched)
+        let cancels = app.buttons.matching(NSPredicate(format: "identifier == 'Cancel' OR label == 'Cancel' OR label == 'Close'"))
+        let second = cancels.element(boundBy: 1)
+        if cancel.exists, cancel.isHittable {
+            cancel.tap()
+        } else if second.exists, second.isHittable {
+            second.tap()
+        } else {
+            print("PICKER buttons: \(app.buttons.allElementsBoundByIndex.map { "\($0.identifier)|\($0.label)" }.prefix(30))")
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.02))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
         }
         let closed = Date().addingTimeInterval(10)
         while Date() < closed, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
