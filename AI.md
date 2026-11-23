@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — iPad UI tests that no longer wait for idle; labelled prompts and the test engine on the Mac and iPad (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** After two device runs of twenty minutes each: "Efficiency in testing is important too. I suggest making B111 the next order of business, and if a time boxed 10 minutes doesnt solve it, make a note of the issue and go to skipping the idle wait." and "mindful in the future of this kind of clock wasting. Time is precious." The controller had started the second of those runs knowing the first had stalled, with the maintainer waiting to reboot.
+
+**B111, not solved.** Ten minutes on the logs found where it starts (right after text is typed into one of the canvas's own fields with the software keyboard up, on the device only) and not why. It stays open. The tests now skip XCTest's idle wait through a private switch, wait on the app's own state with a limit on every wait, and read a new debug-only element listing running layer animations where the stall begins.
+
+**What else the agent did.** Prompts on the Mac and iPad use the core's button labels. The Mac person check shows the Recipe button present and reads its text, and saves a strip-shaped array through the question to NumPy and to PNG. The iPad simulator reaches the test engine over HTTP with no new app code. Bugs found by launching and fixed: the iPad never offered the file a save's question wrote (B126), the question began in lower case (B127), the iPad's Recipe sheet drew "No recipe" over a recipe (B128), and at a large text size in a narrow window the system folded More into its own overflow (B130, the device failure of the evening, reproduced on the simulator). Open: B129 (one row case fails in the whole iPad suite with the test engine attached) and B131 (an egui test that failed once).
+
+**Defects in the agent's own work.** Without the idle wait several taps were lost until the helpers waited and retried; one wait of 120 s stalled a run for ten minutes and was cut to 30 s.
+
+**Verified (agent, simulator and Mac).** The eight iPad UI tests in 227 s; the Mac gate twice, once under load, 66 of 66 cases and 58 person-check steps each; iPad conformance 59 of 59; nextest 1,645 of 1,647 (the known baseline failure and B131 once); Python 249. Floor: Mac 52 met, iPad 47 met. **Not verified:** anything on the device, including the faster run.
+
 ### 2026-11-22 — A hash of what makes the result; a question before saving a non-picture as PNG; labelled contact sheets; a recipe test node (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer decided.** "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A": the hash covers only what makes the result; the save questions a non-picture shape, with 16:1 as the aspect limit; labels are drawn on the sheet; the name and hash show only in the files; a test-engine node supplies a recipe. On the label font, after the controller would not push glyphs extracted from Pillow's default font on an unverified licence, three answers in turn: use the research software's GPU array library and its Ubuntu font; then, agreeing that it "drags in a lot", "yes" to the controller's glyph-table proposal; then "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public."

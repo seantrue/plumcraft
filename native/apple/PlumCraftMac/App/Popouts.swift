@@ -78,6 +78,8 @@ final class PopoutWindows {
             o["visible"] = .bool(c.window?.isVisible ?? false)
             // whether its bar offers Recipe (the value has one: a lineage-tracking engine's)
             o["hasRecipe"] = .bool(c.popout.value?.hasRecipe == true)
+            o["node"] = .string(c.popout.window.node)
+            o["port"] = .string(c.popout.window.port)
             if let w = c.window {
                 o["onScreen"] = .bool(NSScreen.screens.contains { $0.visibleFrame.intersects(w.frame) })
                 o["level"] = .int(Int64(w.level.rawValue))

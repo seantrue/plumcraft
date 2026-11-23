@@ -824,7 +824,7 @@ An ask is `{ask: u64, doc, kind, modal, params}` in the feed. The shell shows th
 | `file.open` | `{purpose, title, kinds: [{label, extensions}], multiple, startIn, prompt?}` | `{paths: [..], grants?: [..]}` |
 | `file.save` | `{purpose, title, kinds, name, startIn}` | `{path, grant?, commit?: bool}`; `commit: true` when `path` is in scratch and the shell will stream it (11.3) |
 | `folder.pick` | `{purpose, title, startIn}` | `{path, grant?}` |
-| `prompt` | `{kind, title, text, answers, detail?}` | `{answer}`, one of `answers` |
+| `prompt` | `{kind, title, text, answers, labels, detail?}`; `labels` are the buttons' words by answer (`saveShape`: "Save as PNG anyway", "Save as NumPy (.npy)", "Cancel"): a shell shows them when given and falls back to its platform's words for an answer (the Apple apps: `AskWords.buttonTitle(_:prompt:)`) | `{answer}`, one of `answers` |
 | `form` | `{command, title, intro, fields: [{key, label, hint, kind: "line" \| "secret" \| "text" \| "pick", required, choices?, other?}], submit, values}` | `{values: {key: text}}`; the core runs the command (`CommandForm::params`, `commands.rs:201`) and, on an error, raises the form again with `error` |
 | `text` | `{purpose, title, label, text, placeholder, hint?, validate?}` | `{text}` |
 | `clipboard.set` | `{text, kind: "workflow" \| "text"}` | `{}` |

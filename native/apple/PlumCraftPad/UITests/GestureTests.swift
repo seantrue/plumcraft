@@ -14,9 +14,52 @@
 // PLUMCRAFT_SHOTS when it is set. Local runs only (no macOS CI): conformance.sh gestures, and
 // device.sh ui on an iPad.
 
+import ObjectiveC
 import XCTest
 
+/// B111 (the maintainer, 2026-11-22: "go to skipping the idle wait"): XCTest waits, before and
+/// after every action, for the app to report its animations idle, 60 s each when it never does
+/// (on a device, after a field typed into). These tests wait on the app's own state instead (the
+/// status, an element's existence, each with its own limit), so XCTest's pre- and post-event
+/// waits are skipped. XCTest has no public switch for it: its own `XCUIApplicationProcess`
+/// answers `shouldSkipPreEventQuiescence` and `shouldSkipPostEventQuiescence` (it logs "Skipping
+/// pre-event quiescence check" when they say yes), and both are made to say yes here, for every
+/// app the tests drive. Not covered: the wait for SpringBoard before each action (the
+/// interruption check), and launch's own wait for the app to come up. PLUMCRAFT_IDLE_WAIT=on
+/// leaves XCTest's waits as they were.
+enum IdleWait {
+    static let skipped: Bool = {
+        guard ProcessInfo.processInfo.environment["PLUMCRAFT_IDLE_WAIT"] != "on", let cls = NSClassFromString("XCUIApplicationProcess") else { return false }
+        let yes: @convention(block) (AnyObject) -> Bool = { _ in true }
+        var done = 0
+        for name in ["shouldSkipPreEventQuiescence", "shouldSkipPostEventQuiescence"] {
+            guard let m = class_getInstanceMethod(cls, NSSelectorFromString(name)) else {
+                print("IDLE: XCTest has no \(name) here; its idle wait stays")
+                continue
+            }
+            method_setImplementation(m, imp_implementationWithBlock(yes))
+            done += 1
+        }
+        print("IDLE: XCTest's idle waits skipped (\(done) of 2)")
+        return done == 2
+    }()
+}
+
 final class GestureTests: XCTestCase {
+    override func setUp() {
+        super.setUp()
+        _ = IdleWait.skipped
+    }
+
+    /// B111: the app's layer animations as it reports them when asked (the debug build's
+    /// `plumcraft-layers` element, beside the status element; read only where that is read).
+    @MainActor
+    func layers() -> String {
+        guard viaElement, let app = launched else { return "(read on a device: the status element)" }
+        let e = app.descendants(matching: .any).matching(identifier: "plumcraft-layers").firstMatch
+        return e.exists ? ((e.value as? String) ?? "-") : "(no layers element)"
+    }
+
     var statusPath = ""
     /// Read the status from the app's accessibility element, not a file (on a device).
     var viaElement = false
@@ -104,7 +147,7 @@ final class GestureTests: XCTestCase {
         // what the app was animating then (Activity: empty when idle), for B111's device re-run
         let s = status()
         // and the keyboard with what had its focus (B118, B111)
-        XCTFail("timed out waiting for \(what): window \(sceneLine(s)); animating \(s["animating"] ?? "(not reported)"), keyboard \(s["keyboard"] ?? "(not reported)"), first responder \(s["firstResponder"] ?? "(not reported)"): \(window())")
+        XCTFail("timed out waiting for \(what): window \(sceneLine(s)); animating \(s["animating"] ?? "(not reported)"), keyboard \(s["keyboard"] ?? "(not reported)"), first responder \(s["firstResponder"] ?? "(not reported)"), layers \(layers()): \(window())")
         return false
     }
 
@@ -398,6 +441,8 @@ final class GestureTests: XCTestCase {
         XCTAssertTrue(field.waitForExistence(timeout: 10))
         field.typeText("7")
         shot("n4s2-ui-number-keyboard")
+        // B111: where the device's endless idle wait began; what is animating then, for its log
+        print("B111: layers with the number typed: \(layers())")
         app.buttons["row-editor-done"].tap()
         wait("count set to 7") { _ in self.value("w", 2) == "7" }
         // B111: on the device the app never reported idle from here on. Whatever it animates
@@ -411,7 +456,7 @@ final class GestureTests: XCTestCase {
         }
         XCTAssertTrue(animating.isEmpty, "B111: still animating 8 s after the number's Done: \(animating); keyboard \(status()["keyboard"] ?? "-"), first responder \(status()["firstResponder"] ?? "-")")
         // said either way, for the device run's log
-        print("B111: animating 8 s after the number's Done: \(animating)")
+        print("B111: animating 8 s after the number's Done: \(animating); layers \(layers())")
 
         // a choice: the system's menu on the row
         let (mode, _) = try XCTUnwrap(rowReachable(app, canvas, "w", 5))
@@ -577,10 +622,13 @@ final class GestureTests: XCTestCase {
             let out = try XCTUnwrap(reachable(app, canvas, node, "out", 0), node)
             at(out).doubleTap()
             // a double tap the system took as two taps (the sheet just gone) is tried once more
-            let deadline = Date().addingTimeInterval(8)
-            while Date() < deadline, ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
-            if ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { at(out).doubleTap() }
-            let popped = wait("\(node) popped out in \(viewer)", timeout: 120) { w in
+            // (twice more at most: with no idle wait a double tap can land while the canvas settles)
+            for _ in 0..<2 {
+                let deadline = Date().addingTimeInterval(8)
+                while Date() < deadline, ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+                if ((window()["popouts"] as? [[String: Any]]) ?? []).isEmpty { at(out).doubleTap() }
+            }
+            let popped = wait("\(node) popped out in \(viewer)", timeout: 30) { w in
                 guard let p = (w["popouts"] as? [[String: Any]])?.first else { return false }
                 return (p["shown"] as? String) == "sheet" && (p["viewer"] as? String) == viewer && drawn.split(separator: "|").contains { p[String($0)] != nil }
             }
@@ -721,11 +769,13 @@ extension GestureTests {
     @MainActor
     func toolbar(_ app: XCUIApplication, _ label: String) {
         let b = app.buttons[label]
-        if b.exists, b.isHittable { b.tap(); return }
         let more = app.buttons["tool.more"]
-        XCTAssertTrue(more.waitForExistence(timeout: 10), "\(label): neither on the bar nor a More menu")
-        more.tap()
-        let it = item(app, label)
+        // either, as the bar settles (no idle wait holds the test until it has, B111)
+        let until = Date().addingTimeInterval(10)
+        while Date() < until, !(b.exists && b.isHittable), !more.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        if b.exists, b.isHittable { b.tap(); return }
+        XCTAssertTrue(more.exists, "\(label): neither on the bar nor a More menu")
+        let it = fromMore(app, more, label)
         XCTAssertTrue(it.waitForExistence(timeout: 5), "\(label) in the More menu")
         it.tap()
     }
@@ -748,6 +798,10 @@ extension GestureTests {
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["rows"] != nil }
         func keyboardShown() -> Bool { ((status()["keyboard"] as? [String: Any])?["shown"] as? Bool) ?? false }
         func noKeyboard(_ when: String) {
+            // a keyboard that is going (after Done) goes within its animation: waited for, since
+            // XCTest's idle wait no longer holds the test until it has (B111)
+            let going = Date().addingTimeInterval(5)
+            while Date() < going, keyboardShown() || app.keyboards.count > 0 { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
             // a keyboard that is coming shows within a moment of what brings it
             let settle = Date().addingTimeInterval(3)
             while Date() < settle, !keyboardShown(), app.keyboards.count == 0 { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -761,8 +815,7 @@ extension GestureTests {
         // a menu opened and closed leaves none
         let more = app.buttons["tool.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 10), "the bar's More menu")
-        more.tap()
-        XCTAssertTrue(item(app, "Settings").waitForExistence(timeout: 10), "the More menu open")
+        XCTAssertTrue(fromMore(app, more, "Settings").exists, "the More menu open")
         app.otherElements["Canvas"].coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.3)).tap()
         let closed = Date().addingTimeInterval(10)
         while Date() < closed, item(app, "Settings").exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
@@ -787,9 +840,26 @@ extension GestureTests {
         noKeyboard("after the field's Done")
     }
 
+    /// An item of the bar's More menu: More tapped, and again (up to three times) when the menu
+    /// didn't open, since a tap while a sheet is still going away is lost (no idle wait holds
+    /// the test until it has, B111).
+    @MainActor
+    func fromMore(_ app: XCUIApplication, _ more: XCUIElement, _ label: String) -> XCUIElement {
+        for _ in 0..<3 {
+            more.tap()
+            let it = item(app, label)
+            if it.exists { return it }
+        }
+        return item(app, label)
+    }
+
     func item(_ app: XCUIApplication, _ label: String) -> XCUIElement {
         let b = app.buttons[label]
-        return b.exists ? b : app.menuItems[label]
+        let m = app.menuItems[label]
+        // a menu just tapped open is still opening (no idle wait holds the test, B111): up to 5 s
+        let until = Date().addingTimeInterval(5)
+        while Date() < until, !b.exists, !m.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.1)) }
+        return b.exists ? b : m
     }
 
     /// Decision 17 on the iPad, launched: an engine whose manifest warned (a copy of a project's
@@ -834,8 +904,7 @@ extension GestureTests {
         wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
         let more = app.buttons["tool.more"]
         XCTAssertTrue(more.waitForExistence(timeout: 10), "the compact bar's More menu")
-        more.tap()
-        item(app, "Engine").tap()
+        fromMore(app, more, "Engine").tap()
         // the item's label carries its subtitle; a disabled item may be a button or a menu item
         let named = NSPredicate(format: "label BEGINSWITH %@", "Copied Engine")
         let copied = app.descendants(matching: .any).matching(named).firstMatch
@@ -864,6 +933,122 @@ extension GestureTests {
                       "its warning as its subtitle: \(copied.debugDescription.prefix(400))")
     }
 
+    /// The test engine on the iPad (decisions 2A, 3A, 7A), a process on the Mac serving HTTP that
+    /// the app attaches by URL (PLUMCRAFT_PORTS_ENGINES, its manifest's folder: conformance.sh
+    /// gestures with PAD_PORTS=1; skipped without it). Strip, a 4 by 1000 array, saved from its
+    /// footer as a .png: the engine asks back and the core's prompt shows its own labelled buttons;
+    /// "Save as NumPy (.npy)" writes a .npy that the export picker offers (cancelled). Traced's value
+    /// pops out with a Recipe button that shows "traced"; Strip's has none.
+    @MainActor
+    func testTheSavesQuestionAndARecipe() throws {
+        let env = ProcessInfo.processInfo.environment
+        let engines = env["PLUMCRAFT_PORTS_ENGINES"] ?? ""
+        try XCTSkipIf(engines.isEmpty, "no test engine attached (conformance.sh gestures with PAD_PORTS=1)")
+        statusPath = statusFilePath(env)
+        // a graph the app can read: beside the engines folder, a folder of the Mac's
+        let graph = engines + "/../ports-graph.json"
+        try #"{"version": 1, "engines": ["ports"], "nodes": {"t": {"kind": "ports.traced", "pos": [0, 0], "engine": "ports", "values": {"seed": "corgi"}}, "s": {"kind": "ports.strip", "pos": [0, 260], "engine": "ports"}}, "wires": []}"#
+            .write(toFile: graph, atomically: true, encoding: .utf8)
+        let app = XCUIApplication()
+        // the compact layout: a value pops out as a sheet (one at a time), as on an iPhone
+        app.launchArguments = ["--scratch-state", "--open", graph, "--status-file", statusPath, "--width-class", "compact"]
+        app.launchEnvironment["PLUMCRAFT_ENGINE_FOLDER"] = engines
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        // the engine attached over HTTP before the run (the graph pins its nodes to it)
+        wait("the test engine connected", timeout: 60) { _ in
+            ((self.status()["engine"] as? [String: Any])?["label"] as? String).map { !$0.isEmpty } ?? false
+        }
+        toolbar(app, "Run")
+        func savePoint() -> [Double]? { ((window()["points"] as? [String: Any])?["s"] as? [String: Any])?["save"] as? [Double] }
+        wait("Strip run, its face offering Save Result…", timeout: 90) { _ in savePoint() != nil }
+        reveal(app, canvas, savePoint)
+        let at = try XCTUnwrap(savePoint())
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: at[0], dy: at[1])).tap()
+        let save = app.alerts.buttons["Save"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10), "the Save Result alert")
+        let name = app.alerts.textFields["save-name"]
+        XCTAssertTrue(name.exists, "its name field")
+        name.tap()
+        name.clearAndType("strip.png")
+        save.tap()
+        // the engine's question, asked by the core with its own words for the buttons
+        let npy = app.alerts.buttons["Save as NumPy (.npy)"]
+        XCTAssertTrue(npy.waitForExistence(timeout: 30), "the save's question: \(app.alerts.firstMatch.debugDescription.prefix(600))")
+        XCTAssertTrue(app.alerts.buttons["Save as PNG anyway"].exists, "its Save as PNG anyway")
+        XCTAssertTrue(app.alerts.buttons["Cancel"].exists, "its Cancel")
+        XCTAssertFalse(app.alerts.buttons["Npy"].exists || app.alerts.buttons["Png"].exists, "no words made from the answers' names")
+        shot("n4p-ui-save-shape")
+        npy.tap()
+        // the .npy written, offered to the export picker (cancelled: nothing put where a person keeps files)
+        let exporting = Date().addingTimeInterval(30)
+        var names: [String] = []
+        while Date() < exporting, names.isEmpty {
+            names = (status()["exporting"] as? [String]) ?? []
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertEqual(names, ["strip.npy"], "the export picker with the .npy: \(status()["exporting"] ?? "-"), banners \(status()["banners"] ?? "-")")
+        // the picker has more than one Cancel (its bar's, its sheet's): the first that a finger reaches
+        let cancel = app.buttons.matching(identifier: "Cancel").firstMatch
+        if cancel.waitForExistence(timeout: 10) {
+            shot("n4p-ui-npy-export")
+            (app.buttons.matching(identifier: "Cancel").allElementsBoundByIndex.first { $0.isHittable } ?? cancel).tap()
+        }
+        let closed = Date().addingTimeInterval(10)
+        while Date() < closed, status()["exporting"] is [Any] { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        XCTAssertFalse(status()["exporting"] is [Any], "the picker cancelled")
+        shot("n4p-ui-after-export")
+
+        // Traced's value popped out (a double tap on its output pin): Recipe, pressed, says what made it
+        func popout(_ node: String) -> [String: Any]? { (window()["popouts"] as? [[String: Any]])?.first { ($0["node"] as? String) == node && ($0["shown"] as? String) != "none" } }
+        let out = try XCTUnwrap(reachable(app, canvas, "t", "out", 0), "Traced's output: \(window()["points"] ?? "none")")
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: out[0], dy: out[1])).doubleTap()
+        wait("Traced's value popped out, with a recipe", timeout: 60) { _ in (popout("t")?["hasRecipe"] as? Bool) == true }
+        let recipe = app.buttons["viewer-recipe"]
+        XCTAssertTrue(recipe.waitForExistence(timeout: 20), "the Recipe button on Traced's value")
+        recipe.tap()
+        let said = Date().addingTimeInterval(15)
+        var text = ""
+        while Date() < said, !text.contains("traced") {
+            text = ((status()["recipe"] as? [String: Any])?["text"] as? String) ?? ""
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        XCTAssertTrue(text.contains("traced"), "the recipe the app had: \(status()["recipe"] ?? "-")")
+        // and what the screen shows (B128: the sheet once drew "No recipe" over a recipe it had)
+        let drawn = app.staticTexts.matching(NSPredicate(format: "label CONTAINS 'traced'")).firstMatch
+        XCTAssertTrue(drawn.waitForExistence(timeout: 10), "the recipe's text on screen: \(app.staticTexts.allElementsBoundByIndex.map(\.label).prefix(20))")
+        XCTAssertFalse(app.staticTexts["No recipe: the engine sent none for this value."].exists, "no \"No recipe\" over a value that has one")
+        shot("n4p-ui-recipe")
+        // the recipe's sheet, then the value's, swiped away as a finger does
+        // (from the sheet's top edge down, as a finger pulls a sheet away)
+        func pullDown() {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.07))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.95)), withVelocity: .fast, thenHoldForDuration: 0)
+        }
+        pullDown()
+        let away = Date().addingTimeInterval(5)
+        while Date() < away, drawn.exists { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        XCTAssertFalse(drawn.exists, "the recipe's sheet pulled away")
+        if popout("t") != nil { pullDown() }
+        wait("Traced's sheet closed", timeout: 15) { _ in popout("t") == nil }
+        // and none for Strip's value (no lineage)
+        let s = try XCTUnwrap(reachable(app, canvas, "s", "out", 0), "Strip's output")
+        canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: s[0], dy: s[1])).doubleTap()
+        wait("Strip's value popped out", timeout: 60) { _ in popout("s") != nil }
+        XCTAssertEqual(popout("s")?["hasRecipe"] as? Bool, false, "Strip's value has no recipe")
+        let gone = Date().addingTimeInterval(3)
+        while Date() < gone { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        // one value's sheet at a time: Traced's gave way to Strip's, so no Recipe button is on screen
+        if popout("t") == nil {
+            XCTAssertFalse(app.buttons["viewer-recipe"].exists, "no Recipe button on Strip's value")
+        }
+        shot("n4p-ui-no-recipe")
+    }
+
     @MainActor
     func testCompactWindowsByATap() throws {
         let env = ProcessInfo.processInfo.environment
@@ -880,8 +1065,7 @@ extension GestureTests {
         shot("n4s6-ui-compact-canvas")
 
         // View › Parameters…, from the More menu
-        more.tap()
-        item(app, "View").tap()
+        fromMore(app, more, "View").tap()
         let params = item(app, "Parameters…")
         XCTAssertTrue(params.waitForExistence(timeout: 5))
         params.tap()
@@ -892,8 +1076,7 @@ extension GestureTests {
         wait("the Parameters sheet closed") { _ in self.coreWindows()["shown"] is NSNull || self.coreWindows()["shown"] == nil }
 
         // Settings › Cache › Open Cache Report: the report over Settings
-        more.tap()
-        item(app, "Settings").tap()
+        fromMore(app, more, "Settings").tap()
         let cache = app.buttons["settings.section.cache"]
         XCTAssertTrue(cache.waitForExistence(timeout: 10), "Settings' Cache section")
         cache.tap()
@@ -909,8 +1092,7 @@ extension GestureTests {
         settingsDone.tap()
 
         // Engine › Attach…: the core's form, cancelled
-        more.tap()
-        item(app, "Engine").tap()
+        fromMore(app, more, "Engine").tap()
         let attach = item(app, "Attach…")
         XCTAssertTrue(attach.waitForExistence(timeout: 5))
         attach.tap()
@@ -919,13 +1101,22 @@ extension GestureTests {
         XCTAssertTrue(alert.staticTexts["Attach to an Engine"].exists)
         shot("n4s6-ui-attach")
         alert.buttons["Cancel"].tap()
+        // the alert gone before the canvas is touched (a gesture while it goes is lost, B111)
+        let gone = Date().addingTimeInterval(10)
+        while Date() < gone, app.alerts.count > 0 { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
 
         // a value's sheet: Compare › Pin as A opens Compare
         let canvas = app.otherElements["Canvas"]
         let origin = canvas.coordinate(withNormalizedOffset: .zero)
         let out = try XCTUnwrap((((window()["points"] as? [String: Any])?["tab"] as? [String: Any])?["out"] as? [[Double]])?.first)
-        origin.withOffset(CGVector(dx: out[0], dy: out[1])).doubleTap()
-        wait("the table's sheet", timeout: 120) { w in ((w["popouts"] as? [[String: Any]])?.first?["shown"] as? String) == "sheet" }
+        func sheetShown() -> Bool { ((window()["popouts"] as? [[String: Any]])?.first?["shown"] as? String) == "sheet" }
+        // and once more if the first double tap was lost
+        for _ in 0..<2 where !sheetShown() {
+            origin.withOffset(CGVector(dx: out[0], dy: out[1])).doubleTap()
+            let shown = Date().addingTimeInterval(15)
+            while Date() < shown, !sheetShown() { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+        }
+        wait("the table's sheet", timeout: 30) { _ in sheetShown() }
         let compare = app.buttons["viewer-compare"]
         XCTAssertTrue(compare.waitForExistence(timeout: 20))
         shot("n4s6-ui-table-compact")

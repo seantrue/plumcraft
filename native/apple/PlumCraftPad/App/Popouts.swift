@@ -214,7 +214,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
     var describe: JSONValue {
         .array(models.values.sorted { $0.id < $1.id }.map { m in
             var o: [String: JSONValue] = ["id": .uint(m.id), "title": .string(m.window.title), "viewer": m.value?.viewer.map(JSONValue.string) ?? .null,
-                                          "shown": .string(scenes[m.id] != nil ? "scene" : (sheet?.id == m.id ? "sheet" : "none"))]
+                                          "shown": .string(scenes[m.id] != nil ? "scene" : (sheet?.id == m.id ? "sheet" : "none")),
+                                          "node": .string(m.window.node), "port": .string(m.window.port),
+                                          // whether its bar offers Recipe (the value has one: a lineage-tracking engine's)
+                                          "hasRecipe": .bool(m.value?.hasRecipe == true)]
             if sheet?.id == m.id, let vc = sheet?.vc {
                 o.merge(vc.describe) { a, _ in a }
                 o.merge(vc.box.describe) { a, _ in a }

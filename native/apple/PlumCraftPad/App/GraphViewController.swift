@@ -248,10 +248,16 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             // and Add on the left; Run and a More menu on the right, which holds the rest of the
             // core's toolbar, Settings and the engines' state, built as it opens (N4 slice 6)
             left = (doneItem.map { [$0] } ?? []) + (narrow ? [] : (made["canvas.palette"].map { [$0] } ?? []))
-            right = (made["run.start"].map { [$0] } ?? [])
+            // B130: a narrow window at a large text size has no room for Run beside More, and UIKit
+            // folded both into its own overflow (More inside More). There More alone, Run first in it
+            right = narrowRunInMore ? [] : (made["run.start"].map { [$0] } ?? [])
             right.insert(moreItem, at: 0)
+            if #available(iOS 27.0, *) {
+                for b in right { b.visibilityPriority = .high }
+            }
         }
         barNarrow = narrow
+        barRunInMore = narrowRunInMore
         navigationItem.leftBarButtonItems = left
         navigationItem.rightBarButtonItems = right
         StatusFile.shared.set("bar", .array((left + right).map { .string($0.accessibilityIdentifier ?? $0.title ?? "") }))
@@ -266,7 +272,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             var items: [UIMenuElement] = []
             for it in ToolbarWords.buttons(self.toolItems) {
                 // what the bar shows stays off the menu: Add Node is on it unless the window is narrow
-                guard let c = it.command, c != "run.start", c != "canvas.palette" || self.narrow else { continue }
+                guard let c = it.command, c != "run.start" || self.narrowRunInMore, c != "canvas.palette" || self.narrow else { continue }
                 let a = UIAction(title: it.label, image: UIImage(systemName: ToolbarWords.symbol(it.icon)),
                                  attributes: it.enabled && self.model != nil ? [] : .disabled,
                                  state: it.checked == true ? .on : .off) { [weak self] _ in self?.toolbarButton(c) }
@@ -512,8 +518,12 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     /// controls beside Documents, B119). Add Node then goes in the More menu, which the system's
     /// own overflow would otherwise swallow with Run.
     var narrow: Bool { compact && view.bounds.width > 0 && view.bounds.width < 440 }
+    /// B130: a narrow window at a text size above the default: Run goes into More (the bar has
+    /// room for one button beside Documents and the title).
+    var narrowRunInMore: Bool { narrow && traitCollection.preferredContentSizeCategory > .large }
     /// What the bar was laid out for.
     var barNarrow = false
+    var barRunInMore = false
 
     var laidOutSize = CGSize.zero
 
@@ -521,7 +531,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         super.viewDidLayoutSubviews()
         if view.bounds.size != laidOutSize {
             laidOutSize = view.bounds.size
-            if narrow != barNarrow { layoutBar() }
+            if narrow != barNarrow || narrowRunInMore != barRunInMore { layoutBar() }
             reportNow()
         }
     }

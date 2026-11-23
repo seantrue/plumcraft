@@ -286,6 +286,51 @@ extension UIResponder {
 /// (which hides what is under it from accessibility) never hides it; one per process, in the
 /// first scene. The value is the status file's text, whole.
 
+/// B111: every layer animation running in the app's windows and the display links the app knows
+/// of (Activity's: the pan's momentum), as JSON, worked out when accessibility reads the value (a
+/// UI test asks; nothing is walked otherwise). `{"layers": [{layer, owner, key, repeat}], "links":
+/// [...], "windows": n}`. Display links the app didn't make (UIKit's own) can't be listed.
+final class LayersElement: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isAccessibilityElement = true
+        accessibilityIdentifier = "plumcraft-layers"
+        accessibilityLabel = "layers"
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override var accessibilityValue: String? {
+        get { Self.report() }
+        set {}
+    }
+
+    static func report() -> String {
+        var found: [JSONValue] = []
+        var windows = 0
+        func walk(_ l: CALayer, depth: Int) {
+            guard depth < 60, found.count < 60 else { return }
+            for key in l.animationKeys() ?? [] {
+                let a = l.animation(forKey: key)
+                let owner = l.delegate.map { String(describing: type(of: $0)) } ?? "-"
+                found.append(["layer": .string(String(describing: type(of: l))), "owner": .string(owner), "key": .string(key),
+                              "repeat": .double(Double(a?.repeatCount ?? 0)), "duration": .double(a?.duration ?? 0)])
+            }
+            for s in l.sublayers ?? [] { walk(s, depth: depth + 1) }
+        }
+        for case let scene as UIWindowScene in UIApplication.shared.connectedScenes {
+            for w in scene.windows {
+                windows += 1
+                walk(w.layer, depth: 0)
+            }
+        }
+        let links = Activity.shared.names.filter { $0.contains("momentum") || $0.contains("link") }
+        let o = JSONValue.object(["layers": .array(found), "links": .array(links.map(JSONValue.string)), "windows": .uint(UInt64(windows)),
+                                  "animating": .array(Activity.shared.names.map(JSONValue.string))])
+        return String(decoding: o.serialized(), as: UTF8.self)
+    }
+}
+
 @MainActor
 final class StatusElement {
     static let shared = StatusElement()
@@ -321,7 +366,13 @@ final class StatusElement {
         w.isUserInteractionEnabled = false
         w.frame = CGRect(x: 0, y: 0, width: 2, height: 2)
         let vc = UIViewController()
-        vc.view = view
+        // B111: beside it, what is animating as Core Animation sees it, worked out only when read
+        // (where the status is read from accessibility: a device). Siblings in a plain container,
+        // since an element's own subviews are hidden from accessibility
+        let box = UIView(frame: CGRect(x: 0, y: 0, width: 2, height: 2))
+        box.addSubview(view)
+        box.addSubview(LayersElement(frame: CGRect(x: 1, y: 1, width: 1, height: 1)))
+        vc.view = box
         w.rootViewController = vc
         w.isHidden = false
         view.accessibilityValue = text

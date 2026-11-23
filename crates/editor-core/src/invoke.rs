@@ -136,6 +136,9 @@ impl Prompt {
 
     pub fn text(&self) -> String {
         if let Prompt::SaveShape { why, .. } = self {
+            // the engine's reason is a clause ("this 4 by 1000 array is…"): a sentence here
+            let mut c = why.trim().chars();
+            let why: String = c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default();
             return format!("{why}. Save it as a PNG anyway, or as a NumPy array (.npy), which keeps its numbers?");
         }
         match self {
@@ -1235,6 +1238,15 @@ mod tests {
             assert_eq!(paths::chosen_path(chosen, Some(Path::new(r"C:\work\flows")), true), "out/plain.txt");
             assert_eq!(save_choice(chosen), r"C:\work\flows\out\plain.txt");
         }
+    }
+
+    /// The save's question reads as a sentence, whatever case the engine's reason starts in.
+    #[test]
+    fn the_save_questions_text_is_a_sentence() {
+        let p = |why: &str| Prompt::SaveShape { params: "{}".into(), why: why.into(), shape: vec![4, 1000], npy: "x.npy".into() }.text();
+        assert!(p("this 4 by 1000 array is 4 pixels on its shorter side").starts_with("This 4 by 1000 array is 4 pixels on its shorter side. Save it"));
+        assert!(p("").starts_with(". Save it"));
+        assert!(p("élan").starts_with("Élan."));
     }
 
     use super::*;

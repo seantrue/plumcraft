@@ -68,6 +68,13 @@ public enum AskWords {
         pick(field)?.choices.first { $0.value == value }?.label ?? value
     }
 
+    /// A prompt's button words: the core's own for the answer (`labels`, by answer: "Save as PNG
+    /// anyway"), else the Apple platforms' words for it ([`buttonTitle(_:kind:)`]).
+    public static func buttonTitle(_ answer: String, prompt params: JSONValue) -> String {
+        if let w = params["labels"][answer].string, !w.trimmingCharacters(in: .whitespaces).isEmpty { return w }
+        return buttonTitle(answer, kind: params["kind"].string)
+    }
+
     /// The Apple platforms' words for the core's answers to a `prompt` (Save, Don't Save, Cancel).
     public static func buttonTitle(_ answer: String, kind: String?) -> String {
         switch answer {

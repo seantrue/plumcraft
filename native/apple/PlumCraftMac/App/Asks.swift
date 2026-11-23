@@ -195,7 +195,7 @@ final class AskPresenter {
             alert.messageText = p["title"].string ?? "Plummer"
             alert.informativeText = p["text"].string ?? ""
             let answers = (p["answers"].array ?? []).compactMap(\.string)
-            for ans in answers { alert.addButton(withTitle: Self.buttonTitle(ans, kind: p["kind"].string)) }
+            for ans in answers { alert.addButton(withTitle: AskWords.buttonTitle(ans, prompt: p)) }
             if answers.isEmpty { alert.addButton(withTitle: "OK") }
             if let k = answers.firstIndex(of: "discard") { alert.buttons[k].hasDestructiveAction = true }
             if let k = answers.firstIndex(of: "cancel") { alert.buttons[k].keyEquivalent = "\u{1b}" }
@@ -326,7 +326,6 @@ final class AskPresenter {
     }
 
     /// The Mac's words for the core's answers (the kit's, shared with the iPad).
-    static func buttonTitle(_ answer: String, kind: String?) -> String { AskWords.buttonTitle(answer, kind: kind) }
 
     // MARK: Non-modal
 
