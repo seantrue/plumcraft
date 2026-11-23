@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-22 — Windows: labelled prompt buttons; the person check sees Recipe and the save question (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer did.** Rebooted the Mac after the Windows test VM lost its network and its emulator process hung while exiting, and asked for less wasted clock time in testing: "Time is precious."
+
+**What the agent did.** Prompt buttons on Windows use the prompt's own labels, so the save question reads "Save as PNG anyway", "Save as NumPy (.npy)" and "Cancel"; its detail no longer shows as raw JSON. Two person-check steps were added: the Recipe button present on a value that has a recipe and absent on one that has none, and a strip-shaped array saved through the question, once to NumPy and once to PNG, each file read back.
+
+**Defects in the agent's own work, caught by running.** The first trial of the new steps failed: nodes placed off screen and the wrong pop-out window found. In one run of five, File › Quit left the app running with its menu open; the step now clicks again if the menu is still up; cause unknown.
+
+**Verified (agent, on the Windows test VM).** `dotnet test` 53 of 53; the C# runner 66 of 66 cases on ARM64 and x64; the Swift runner 60 of 60; the person check 20 of 20, three runs in a row. Floor row F56 is now met by a launch. The agent reported expected against actual durations: its estimates were two to six times too long.
+
 ### 2026-11-22 — The contact sheet's label font replaced with a public-domain one (B125) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer did.** Pasted Pillow's documentation showing that `load_default` loads "a version of Aileron Regular" when FreeType is available. That pointed to the way out: the glyphs merged an hour earlier had come from Pillow's other, older bitmap font.

@@ -161,6 +161,9 @@ public sealed class Asks(DocWindow window, DocumentModel model)
     {
         var d = p.Get("detail");
         if (d is not { } v) return "";
+        // the save's question: its text already says the shape; say where the NumPy file would go
+        if (p.Get("kind").Str() == "saveShape")
+            return v.Get("npy").Str() is { Length: > 0 } npy ? "As NumPy, it would be saved as " + System.IO.Path.GetFileName(npy) + "." : "";
         if (v.ValueKind == JsonValueKind.String) return v.GetString() ?? "";
         if (v.ValueKind == JsonValueKind.Array)
             return string.Join("\n", v.EnumerateArray().Select(x => x.ValueKind == JsonValueKind.Object
@@ -179,9 +182,15 @@ public sealed class Asks(DocWindow window, DocumentModel model)
         var detail = Detail(p);
         d.Content = new TextBlock { Text = detail.Length > 0 ? text + "\n\n" + detail : text, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
         var others = answers.Where(x => x != "cancel").ToList();
-        if (others.Count > 0) d.PrimaryButtonText = Word(others[0], kind);
-        if (others.Count > 1) d.SecondaryButtonText = Word(others[1], kind);
-        if (answers.Contains("cancel")) d.CloseButtonText = Word("cancel", kind);
+        // the prompt's own words for its buttons (`labels`, by answer: "Save as PNG anyway"), else Windows' words;
+        // Windows says Don't Save for unsaved changes, as every Windows app does
+        var labels = p.Get("labels");
+        string Label(string answer) =>
+            kind == "unsavedChanges" && answer == "discard" ? Word(answer, kind)
+            : labels?.Get(answer).Str() is { Length: > 0 } l ? l : Word(answer, kind);
+        if (others.Count > 0) d.PrimaryButtonText = Label(others[0]);
+        if (others.Count > 1) d.SecondaryButtonText = Label(others[1]);
+        if (answers.Contains("cancel")) d.CloseButtonText = Label("cancel");
         var r = await d.ShowAsync();
         dialogs.Remove(a.Id);
         string? chosen = r switch
