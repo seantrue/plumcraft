@@ -270,7 +270,7 @@ def test_a_list_of_pictures_saves_as_one_contact_sheet_with_the_workflows_name(u
     img = np.asarray(Image.open(BytesIO(png)).convert("RGB"))
     assert img.shape == (2 * (64 + 15) + 24, 2 * 64 + 24, 3)
     assert img[39, 39].tolist() == [10] * 3 and img[39, 111].tolist() == [200] * 3 and img[126, 39].tolist() == [90] * 3
-    assert (img[74:85, 8:72] == 32).all(axis=2).any(), "the first label, drawn in its band"
+    assert (img[73:86, 8:72, 0] < 128).any(), "the first label, drawn in its band"
     assert b"PlumCraft graph" in png
     assert "sheet" in ui.save("t.pics", path=os.path.join(d, "sheet.npy"), sheet=True)["error"]["message"]
     t = ui.save("t.text", path=os.path.join(d, "w.txt"), graph_info=info)

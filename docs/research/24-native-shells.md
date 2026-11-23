@@ -1196,7 +1196,7 @@ The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4B; 5A; 6A; 7A".
 | 6 | Old trial app builds in scratch: A unregister them from LaunchServices, the maintainer quits the running one | A (done by the controller) |
 | 7 | A test-engine node that supplies a recipe | A: add it |
 
-Asked and not yet answered: B99 (a Windows palette case that failed once in ten).
+Asked and not yet answered then: B99 (a Windows palette case that failed once in ten). Answered later the same day: to "B99: watch or investigate?", the maintainer, verbatim: "watch".
 
 #### The contact sheet's label font (the maintainer, 2026-11-22)
 
@@ -1211,3 +1211,7 @@ Not built yet, on the licence (Ubuntu Font Licence 1.0, read 2026-11-22): a rast
 #### The label font, settled for now (the maintainer, 2026-11-22)
 
 The maintainer, verbatim: "Oh, this is silly. Just use the Pillow font. We will deal with issues before Plummer is released to public." So the contact sheet draws its labels with the font extracted from Pillow's built-in bitmap font, its origin and licence unverified: a release blocker, B125 ("the contact sheet's label font: verify its licence or replace it before a public release"), listed in THIRD-PARTY.md.
+
+#### The label font: Aileron (the controller, 2026-11-22)
+
+Read by the controller: Pillow's `ImageFont.py` marks its bitmap font's data `# courB08` (Courier Bold 8, from X11), so the table taken from it was that font. `load_default(size)` instead loads "a version of Aileron Regular, https://dotcolon.net/fonts/aileron, with a more limited character set" when FreeType is there, and dotcolon's page says "Aileron is No Rights Reserved", linked to CC0 1.0. So the table was made again from Aileron, at 11 pixels, as 8-bit coverage with advances, with one integer blend in both SDKs. Pillow's Aileron has no accented letters: `é` draws as `?`. B125 is fixed.

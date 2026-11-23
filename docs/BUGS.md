@@ -4,14 +4,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B125. Release blocker: the contact sheet's label font: verify its licence or replace it before a public release
-
-- Reported: 2026-11-22, the controller
-- Report: the engine SDKs draw contact sheet labels with glyphs extracted from Pillow's built-in default bitmap font (`ImageFont.load_default_imagefont()`, Pillow 13.0.0), stored as `crates/engine/src/sheet_font.json` and `python/src/plumcraft_engine/sheet_font.json`. Its upstream origin and licence terms are not verified: the controller believes it is Adobe's Courier bitmap from the X11 distribution, under Adobe's own notice terms (unverified). The maintainer: "Just use the Pillow font. We will deal with issues before Plummer is released to public."
-- Context: THIRD-PARTY.md ("The contact sheet's label font"); note 24, "The label font, settled for now". A second font was looked at and not taken: the Ubuntu Font Licence lets a rasterised table be redistributed with Canonical's notice and the licence, but its condition 2 names a modified version two opposite ways, and the text doesn't say which a one-size bitmap of ASCII is
-- Must be done before: any public release of the SDKs or of Plummer
-- Issue: none
-
 ### B124. A default preferences file appeared in the maintainer's real Library, `Application Support/PlumCraft/prefs.json`
 
 - Reported: 2026-11-22, the controller
@@ -203,6 +195,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B125. Release blocker: the contact sheet's label font: verify its licence or replace it before a public release
+
+- Reported: 2026-11-22, the controller
+- Report: the engine SDKs drew contact sheet labels with glyphs extracted from Pillow's built-in default bitmap font (`ImageFont.load_default_imagefont()`, Pillow 13.0.0), stored as `crates/engine/src/sheet_font.json` and `python/src/plumcraft_engine/sheet_font.json`. Its upstream origin and licence terms were not verified. Pillow's `ImageFont.py` marks that data `# courB08`: Courier Bold 8, from X11. The maintainer: "Just use the Pillow font. We will deal with issues before Plummer is released to public."
+- Context: THIRD-PARTY.md ("The contact sheet's label font"); note 24, "The label font, settled for now" and "The label font: Aileron". A second font was looked at and not taken: the Ubuntu Font Licence lets a rasterised table be redistributed with Canonical's notice and the licence, but its condition 2 names a modified version two opposite ways, and the text doesn't say which a one-size bitmap of ASCII is
+- Fixed: 2026-11-22, branch `feat/sdk-save-4`: the font was replaced. The table is now rasterised from Aileron Regular (Sora Sagano, dotcolon, CC0 1.0), the font Pillow's `ImageFont.load_default(size)` embeds, at 11 pixels, by `claude-debug/sdk-save/make_sheet_font_aileron.py`. That script checks at run time that it got a FreeType font (Pillow 13.0.0, FreeType 2.14.3). The table holds 8-bit coverage, advances and offsets; both SDKs blend it with the same integer rule. No courB08 data remains. Checked: by the controller, 2026-11-22, dotcolon's page ("Aileron is No Rights Reserved", linked to CC0 1.0) and Pillow's `load_default` docstring ("a version of Aileron Regular, https://dotcolon.net/fonts/aileron, with a more limited character set"); by the agent, the same day, the embedded TTF's own `name` table: copyright "No Rights Reserved.", family "Aileron", style "Regular", "Version 1.102", designer "Sora Sagano", URL "http://www.dotcolon.net", with no licence entry. Tests: `save::tests::the_sheet_font_is_aileron_and_the_pythons_copy`; the shared fixture `crates/engine/tests/fixtures/sheet.json` (new SHA-256), matched by both SDKs
+- Issue: none
 
 ### B98. A Save Result path came back with `/` between its folders on Windows, inside the start folder made relative first
 
