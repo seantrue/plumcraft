@@ -72,6 +72,39 @@ pub fn value_text(v: &Value) -> String {
     }
 }
 
+/// The most characters a read-only value shows on a face before it is summed up.
+pub const READONLY_CHARS: usize = 40;
+
+/// A value with no widget and no application summary, as a face's row shows it: short values as
+/// they are; a longer object as its fields' names, a longer list as its length, a longer string
+/// cut. The whole value is in the parameter editor and the row's hover.
+pub fn value_short(v: &Value) -> String {
+    let full = value_text(v);
+    if full.chars().count() <= READONLY_CHARS {
+        return full;
+    }
+    let cut = |s: &str| {
+        let mut out: String = s.chars().take(READONLY_CHARS.saturating_sub(1)).collect();
+        out.push('…');
+        out
+    };
+    match v {
+        Value::Object(o) => {
+            let names: Vec<&str> = o.keys().map(String::as_str).collect();
+            let n = names.len();
+            let text = format!("{n} field{}: {}", if n == 1 { "" } else { "s" }, names.join(", "));
+            if text.chars().count() <= READONLY_CHARS { text } else { cut(&text) }
+        }
+        Value::Array(a) => format!("{} item{}", a.len(), if a.len() == 1 { "" } else { "s" }),
+        // JSON carried as a string (a curve's, say): summed up as what it holds
+        Value::String(t) if t.trim_start().starts_with(['{', '[']) => match serde_json::from_str::<Value>(t) {
+            Ok(inner @ (Value::Object(_) | Value::Array(_))) => value_short(&inner),
+            _ => cut(&full),
+        },
+        _ => cut(&full),
+    }
+}
+
 /// A choice as shown in a combo box (`""` is "(blank)").
 pub fn choice_text(v: &Value) -> String {
     match v {
@@ -118,7 +151,18 @@ pub fn inactive_note(port: &Port, value_of: impl Fn(&str) -> Option<Value>) -> O
 pub fn typed_label(label: &str, ty: &str) -> String {
     let norm = |s: &str| s.chars().filter(char::is_ascii_alphanumeric).map(|c| c.to_ascii_lowercase()).collect::<String>();
     let scalar = matches!(ty, "FLOAT" | "INT" | "BOOL" | "STRING" | "ENUM" | "ANY" | "");
-    if scalar || norm(label) == norm(ty) { label.to_owned() } else { format!("{label} · {ty}") }
+    let shown = shown_type(ty);
+    if scalar || norm(label) == norm(shown) { label.to_owned() } else { format!("{label} · {shown}") }
+}
+
+/// A wire type as a person reads it: a pack's own type (`x.<pack>.<name>`, interface 7.2) without
+/// its namespace, which is for engines (two packs' types never meet on one wire unless a Convert
+/// joins them); every other type as it is. The full id stays in the tooltip ([`typed_tip`]).
+pub fn shown_type(ty: &str) -> &str {
+    match ty.strip_prefix("x.").and_then(|rest| rest.split_once('.')) {
+        Some((pack, name)) if !pack.is_empty() && !name.is_empty() => name,
+        _ => ty,
+    }
 }
 
 /// A port's tooltip with its type on the first line.
@@ -131,6 +175,29 @@ pub fn typed_tip(ty: &str, tip: Option<&str>) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn pack_types_show_without_their_namespace_and_long_values_are_summed_up() {
+        use serde_json::json;
+        assert_eq!(super::shown_type("x.pk.signals"), "signals");
+        assert_eq!(super::shown_type("x.pk.a.b"), "a.b");
+        assert_eq!(super::shown_type("x.signals"), "x.signals");
+        assert_eq!(super::shown_type("x..y"), "x..y");
+        assert_eq!(super::shown_type("ARRAY"), "ARRAY");
+        assert_eq!(super::typed_label("signals", "x.pk.signals"), "signals");
+        assert_eq!(super::typed_label("paths", "x.pk.strokes"), "paths · strokes");
+        assert_eq!(super::typed_label("doc", "soundcraft.session"), "doc · soundcraft.session");
+        assert_eq!(super::typed_tip("x.pk.signals", None), "Type: x.pk.signals");
+        assert_eq!(super::value_short(&json!({"a": 1})), r#"{"a":1}"#);
+        let curves = json!({"master": {"points": [[0, 0], [0.25, 0.17], [0.55, 0.68], [1, 1]]}, "red": {}, "green": {}, "blue": {}});
+        assert_eq!(super::value_short(&curves), "4 fields: blue, green, master, red");
+        assert_eq!(super::value_short(&json!((0..50).collect::<Vec<_>>())), "50 items");
+        assert_eq!(super::value_short(&json!(curves.to_string())), "4 fields: blue, green, master, red", "JSON in a string");
+        let long = "x".repeat(100);
+        let s = super::value_short(&json!(long));
+        assert_eq!(s.chars().count(), super::READONLY_CHARS);
+        assert!(s.ends_with('…'));
+    }
+
     #[test]
     fn numbers_show_what_a_person_reads() {
         use serde_json::json;

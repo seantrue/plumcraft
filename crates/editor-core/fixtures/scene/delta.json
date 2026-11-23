@@ -91,7 +91,7 @@
           {
             "hover": "Type: x.t.pic",
             "key": "pic",
-            "label": "pic · x.t.pic",
+            "label": "pic",
             "list": false,
             "node": "n6",
             "pin": {
@@ -147,7 +147,7 @@
           {
             "hover": "Type: x.t.pic",
             "key": "pics",
-            "label": "[ ] pics · x.t.pic",
+            "label": "[ ] pics · pic",
             "list": true,
             "node": "n6",
             "pin": {

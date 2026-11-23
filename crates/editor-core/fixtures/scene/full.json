@@ -186,7 +186,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "Source 2 › pic · x.t.pic",
+          "label": "Source 2 › pic · pic",
           "list": false,
           "node": "n20",
           "pin": {
@@ -214,7 +214,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] Source 2 › pics · x.t.pic",
+          "label": "[ ] Source 2 › pics · pic",
           "list": true,
           "node": "n20",
           "pin": {
@@ -887,7 +887,7 @@
             "wireable": true
           },
           "source": "socket",
-          "text": "pic · x.t.pic",
+          "text": "pic",
           "ty": "x.t.pic",
           "widget": null
         },
@@ -923,7 +923,7 @@
             "wireable": true
           },
           "source": "socket",
-          "text": "pics [ ] · x.t.pic",
+          "text": "pics [ ] · pic",
           "ty": "x.t.pic",
           "widget": null
         },
@@ -961,7 +961,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "out",
-          "label": "out · x.t.pic",
+          "label": "out · pic",
           "list": false,
           "node": "n1",
           "pin": {
@@ -989,7 +989,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "outs",
-          "label": "[ ] outs · x.t.pic",
+          "label": "[ ] outs · pic",
           "list": true,
           "node": "n1",
           "pin": {
@@ -1114,7 +1114,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n10",
           "pin": {
@@ -1170,7 +1170,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n10",
           "pin": {
@@ -1201,6 +1201,7 @@
         780.0
       ],
       "preview": {
+        "caption": "first",
         "faded": false,
         "h": 480,
         "handle": {
@@ -1322,7 +1323,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n11",
           "pin": {
@@ -1378,7 +1379,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n11",
           "pin": {
@@ -1501,7 +1502,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n12",
           "pin": {
@@ -1557,7 +1558,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n12",
           "pin": {
@@ -1680,7 +1681,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n13",
           "pin": {
@@ -1736,7 +1737,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n13",
           "pin": {
@@ -1850,7 +1851,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n14",
           "pin": {
@@ -1906,7 +1907,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n14",
           "pin": {
@@ -2034,7 +2035,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n15",
           "pin": {
@@ -2090,7 +2091,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n15",
           "pin": {
@@ -2212,7 +2213,7 @@
             "wireable": true
           },
           "source": "socket",
-          "text": "tuning · x.t.tune",
+          "text": "tuning · tune",
           "ty": "x.t.tune",
           "widget": null
         },
@@ -2268,7 +2269,7 @@
         {
           "hover": "Type: x.t.tune",
           "key": "tuning",
-          "label": "tuning · x.t.tune",
+          "label": "tuning · tune",
           "list": false,
           "node": "n16",
           "pin": {
@@ -2398,7 +2399,7 @@
             "wireable": true
           },
           "source": "socket",
-          "text": "tuning · x.t.tune",
+          "text": "tuning · tune",
           "ty": "x.t.tune",
           "widget": null
         },
@@ -2436,7 +2437,7 @@
         {
           "hover": "Type: x.t.tune",
           "key": "tuning",
-          "label": "tuning · x.t.tune",
+          "label": "tuning · tune",
           "list": false,
           "node": "n17",
           "pin": {
@@ -2566,7 +2567,7 @@
             "wireable": true
           },
           "source": "socket",
-          "text": "tuning · x.t.tune",
+          "text": "tuning · tune",
           "ty": "x.t.tune",
           "widget": null
         },
@@ -2610,7 +2611,7 @@
         {
           "hover": "Type: x.t.tune",
           "key": "tuning",
-          "label": "tuning · x.t.tune",
+          "label": "tuning · tune",
           "list": false,
           "node": "n18",
           "pin": {
@@ -2862,7 +2863,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n2",
           "pin": {
@@ -2918,7 +2919,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n2",
           "pin": {
@@ -3025,7 +3026,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n22",
           "pin": {
@@ -3081,7 +3082,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n22",
           "pin": {
@@ -3818,7 +3819,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n6",
           "pin": {
@@ -3874,7 +3875,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n6",
           "pin": {
@@ -3988,7 +3989,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n7",
           "pin": {
@@ -4044,7 +4045,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n7",
           "pin": {
@@ -4164,7 +4165,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n8",
           "pin": {
@@ -4220,7 +4221,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n8",
           "pin": {
@@ -4334,7 +4335,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pic",
-          "label": "pic · x.t.pic",
+          "label": "pic",
           "list": false,
           "node": "n9",
           "pin": {
@@ -4390,7 +4391,7 @@
         {
           "hover": "Type: x.t.pic",
           "key": "pics",
-          "label": "[ ] pics · x.t.pic",
+          "label": "[ ] pics · pic",
           "list": true,
           "node": "n9",
           "pin": {

@@ -2363,8 +2363,12 @@
       "description": "A node's preview (only in view `full`).",
       "oneOf": [
         {
-          "description": "A picture, by its value reference (`media.get`).",
+          "description": "A picture, by its value reference (`media.get`). `items` above 1: the value is a list (of\nnamed pictures, when the engine names them) and this is one of them, `caption` its name.",
           "properties": {
+            "caption": {
+              "description": "The picture's own name (the rendition's `caption`), when the engine gives one.",
+              "type": "string"
+            },
             "faded": {
               "type": "boolean"
             },

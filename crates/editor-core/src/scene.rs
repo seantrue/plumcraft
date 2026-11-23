@@ -530,9 +530,23 @@ pub struct Choice {
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum Preview {
-    /// A picture, by its value reference (`media.get`).
+    /// A picture, by its value reference (`media.get`). `items` above 1: the value is a list (of
+    /// named pictures, when the engine names them) and this is one of them, `caption` its name.
     #[serde(rename_all = "camelCase")]
-    Rgba8 { handle: Value, w: u32, h: u32, size: [f32; 2], hover_size: [f32; 2], items: u64, summary: String, note: Option<String>, faded: bool },
+    Rgba8 {
+        handle: Value,
+        w: u32,
+        h: u32,
+        size: [f32; 2],
+        hover_size: [f32; 2],
+        items: u64,
+        summary: String,
+        /// The picture's own name (the rendition's `caption`), when the engine gives one.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        caption: String,
+        note: Option<String>,
+        faded: bool,
+    },
     /// A waveform (`media.peaks`).
     #[serde(rename_all = "camelCase")]
     Peaks { handle: Value, channels: u16, size: [f32; 2], note: Option<String>, faded: bool },
@@ -1504,9 +1518,17 @@ fn in_row(cx: &Ctx<'_>, node_id: &NodeId, row: &InputRow) -> InRow {
             let summary = def.and_then(|d| cx.editor(d).filter(|_| d.editor.as_ref().is_some_and(|e| e.port == row.key))).and_then(|e| e.summary);
             let shown = match summary {
                 Some(f) => f(&current),
-                None => value_text(&current),
+                None => widget_text::value_short(&current),
             };
             r.source = "readonly".into();
+            if summary.is_none() && shown != value_text(&current) {
+                // summed up on the face: the whole value on hover
+                let whole: String = value_text(&current).chars().take(4096).collect();
+                r.hover = Some(match tip {
+                    Some(t) if !t.is_empty() => format!("{t}\n\n{whole}"),
+                    _ => whole,
+                });
+            }
             r.text = Some(format!("{label}: {shown}"));
             r.named = named();
         }
@@ -1666,6 +1688,7 @@ fn preview(cx: &Ctx<'_>, id: &NodeId, n: &NodeRun) -> Option<Preview> {
             hover_size: thumb_size(*w as f32, *h as f32, THUMB_HOVER_PX),
             items: *items,
             summary: if summary.is_empty() { caption.clone() } else { summary.clone() },
+            caption: caption.clone(),
             note: thumb_note(n),
             faded: cx.faded_now(id, n),
         }),
@@ -2240,7 +2263,7 @@ mod tests {
                 Some(NodeState::Done) => {
                     r.ms = Some(12.5);
                     r.completed = true;
-                    r.thumb = Some(serde_json::from_value(json!({"kind": "rgba8", "ref": {"handle": "b3:aa", "meta": {"media": "image/x-rgba8"}, "at": []}, "w": 640, "h": 480, "summary": "picture 640×480", "items": 3})).unwrap());
+                    r.thumb = Some(serde_json::from_value(json!({"kind": "rgba8", "ref": {"handle": "b3:aa", "meta": {"media": "image/x-rgba8"}, "at": []}, "w": 640, "h": 480, "summary": "picture 640×480", "caption": "first", "items": 3})).unwrap());
                     r.text = Some("3 faces found".into());
                 }
                 Some(NodeState::Cached) => {
@@ -2301,7 +2324,7 @@ mod tests {
         let row = |k: &str| all.inputs.iter().find(|r| r.key == k).unwrap();
         assert_eq!(row("pic").source, "socket", "a socket-only input, wired, stays a socket row");
         assert_eq!(row("pics").label, "pics [ ]");
-        assert_eq!(row("pics").text.as_deref(), Some("pics [ ] · x.t.pic"));
+        assert_eq!(row("pics").text.as_deref(), Some("pics [ ] · pic"));
         assert_eq!(row("pics").source, "socket");
         assert_eq!(row("pic").pin.shape, "square");
         assert_eq!(row("pic").pin.fill.color, Some([0xcc, 0x44, 0x66, 255]), "the engine's colour");
@@ -2314,7 +2337,7 @@ mod tests {
         let mode = row("mode").widget.as_ref().unwrap();
         assert_eq!(mode.choices.iter().map(|c| c.disabled.is_some()).collect::<Vec<_>>(), [false, false, true]);
         assert!(row("blank").widget.as_ref().unwrap().blank);
-        assert_eq!(all.outputs.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(), ["out · x.t.pic", "[ ] outs · x.t.pic"]);
+        assert_eq!(all.outputs.iter().map(|o| o.label.as_str()).collect::<Vec<_>>(), ["out · pic", "[ ] outs · pic"]);
         assert_eq!(all.header.about.family.as_deref(), Some("Effects: Change a picture"));
         assert_eq!(all.header.about.path.as_deref(), Some("Test › Widgets"));
         assert_eq!(all.header.icon, "sliders");
@@ -2351,7 +2374,7 @@ mod tests {
         assert!(face(&sc, "progress").footer.iter().any(|f| matches!(f, Footer::Progress { fraction, .. } if (*fraction - 0.4).abs() < 1e-9)));
         let done = face(&sc, "done");
         assert_eq!(status(done), [run_text::format_ms(12.5)]);
-        assert!(matches!(done.preview, Some(Preview::Rgba8 { size, items: 3, .. }) if size == [80.0, 60.0]));
+        assert!(matches!(&done.preview, Some(Preview::Rgba8 { size, items: 3, caption, .. }) if *size == [80.0, 60.0] && caption == "first"));
         assert!(done.footer.iter().any(|f| matches!(f, Footer::Save { sheet: true, .. })), "a result with items saves as a sheet too");
         assert!(done.footer.iter().any(|f| matches!(f, Footer::EngineText { .. })));
         assert!(face(&sc, "cached").footer.iter().any(|f| matches!(f, Footer::Excerpt { .. })));

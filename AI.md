@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A list value shows as named pictures; a pack's types by their short names; the iPad opens an application's own file types (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** With the iPad away, "Do not wait" to carrying on in the simulator with what a person needs around a run in an application built on this shell. The design for a list of named pictures, each with its own mapping, is theirs (2026-10-31).
+
+**What the AI did.** The scene's picture preview carries the rendition's `caption`, and the shared Swift shows a tag on a list's face picture ("caption · n pictures") and names the pop-out's stepper from the sheet's labels, with a pick list (before: "item 5 of 11"). The core shows a pack type `x.<pack>.<name>` as `<name>`, with the full id on hover, for egui too; a read-only value with no summary is summed up instead of printed as JSON. The iPad's document browser offers the app's own declared document types, and only JSON files are checked by the shell: anything else goes to the core, which opens it through a registered opener or says why. `docs/shell-interface.md` 8.4 and 8.7; the shell schema and scene fixtures regenerated.
+
+**Defect found and fixed (B136).** On the iPad a script's `graph.open` left the window on its old file, so Save on closing could have written the opened graph over that file. Found by the agent's own conformance case.
+
+**Defects in the agent's work.** Its type-label change broke one scene test's expectation, caught by the gate and updated. Its earlier report's "28 of 28" Swift tests counted one target only; the full set is 99.
+
+**Verified (agent).** nextest 1,648 of 1,649 after the fix (the known baseline failure); `swift test` 99 of 99; the Mac app's scripted gate 66 of 66 cases; the iPad simulator 59 of 59. The controller looked at the simulator pictures of the tag and the named stepper. **Not verified:** the Mac's picture of a list (no public engine sends one), egui's look after the type-label change (unit tests only), the document browser and Files by hand, Windows, any device.
+
 ### 2026-11-23 — An application can register its own compiled-in engines (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** A build of the native app with an engine of an application's own compiled in, able to run on an iPad with no connection to anything else. They settled the shape on the checklist page: a separate app built outside this repo around this shell, started beside the bug fixes in progress.
