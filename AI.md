@@ -28,9 +28,9 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Verified (agent).** nextest 1,662 of 1,663 (the known baseline failure); Python 249; Swift tests for the vectors bit for bit and for one gesture being one undo step; an iPad simulator UI test that opens the editor from a node and from a group's promoted row, drags a point and undoes it; Mac conformance 61 of 61 and iPad simulator 60 of 60 with the test engine's cases skipped (its binary was not built in that worktree). The controller looked at the iPad simulator picture.
 
-**Not verified.** The test engine's cases on this change at the time of the commit; a drag on the Mac by a named test (floor row F59 says partly there); the iPhone; Windows; any device.
+**Follow-up the same day (agent).** The controller held the merge for what was skipped. With the test engine built: Mac conformance 69 of 69, none skipped; iPad simulator 68 of 68 with one skipped by design. Value editors now open at the sheet's full height on the iPad (at medium height only the top of the preview showed); a preview that fails to load says why instead of spinning; when an engine says the preview is not live, the last result is shown with a caption. In an application built on this shell, whose own engine names the same editor kind, the general editor appeared with no editor code of the application's; the controller looked at that picture.
 
-**Stopped short.** The agent stopped on the disk rule (12 GB free) before checking the editor in an application built on this shell.
+**Not verified.** A drag on the Mac by a named test: the step was added (`core-drag`), but with the screen locked no gesture reached the window, so it reports "see", not "pass", and floor row F59 stays partly met on the Mac. The not-live preview as seen in an app. The iPhone; Windows; any device.
 
 **Found, not fixed.** A private project name is in older tracked files (`crates/proto/src/session.rs`, `catalogue.rs`, the protocol schema); the private-strings list does not hold that word yet. It is on the queued name clean-up.
 

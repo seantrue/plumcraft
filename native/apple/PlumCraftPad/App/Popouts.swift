@@ -913,6 +913,8 @@ final class PadCoreWindows: NSObject, UIAdaptivePresentationControllerDelegate {
         if let sp = vc.sheetPresentationController {
             sp.detents = [.medium(), .large()]
             sp.prefersGrabberVisible = true
+            // a value editor opens tall: a native one's plot and its preview whole (S4a)
+            if key.hasPrefix("editor:") { sp.selectedDetentIdentifier = .large }
         }
         vc.presentationController?.delegate = self
         vc.view.accessibilityIdentifier = "core-\(key)"

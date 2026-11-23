@@ -226,10 +226,16 @@ public struct CurvesEditorView: SwiftUI.View {
                         Text("A wire feeds this value: edit it where it comes from.").font(.footnote).foregroundStyle(.secondary)
                     }
                     if let e = model.error { Text(e).font(.footnote).foregroundStyle(.red).accessibilityIdentifier("curves-error") }
-                    if model.live, let handle = model.picture, let pictures {
-                        CurvesPreview(handle: handle, set: model.curveSet, single: model.names.count == 1, pictures: pictures)
+                    if let handle = model.picture, let pictures {
+                        // live: the picture through the curves now; otherwise the last result as
+                        // it is (a colour space an 8-bit table can't show), as the egui editor does
+                        CurvesPreview(handle: handle, set: model.live ? model.curveSet : Array(repeating: .identity, count: 4),
+                                      single: model.names.count == 1, pictures: pictures)
                             .frame(maxWidth: 420, maxHeight: 320)
                             .frame(maxWidth: .infinity)
+                        Text(model.live ? "Live preview" : "The last result: the curves show in it on the next run")
+                            .font(.footnote).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+                            .accessibilityIdentifier("curves-preview-caption")
                     } else if model.loaded, model.histograms.isEmpty {
                         Text("Run the graph to see the values' histogram and a preview.").font(.footnote).foregroundStyle(.secondary)
                     }
@@ -436,18 +442,23 @@ struct CurvesPreview: SwiftUI.View {
     let pictures: Pictures
     @State private var source: LoadedPicture?
     @State private var shown: CGImage?
+    @State private var failed: String?
 
     var body: some SwiftUI.View {
         Group {
             if let shown {
                 Image(decorative: shown, scale: 1).resizable().interpolation(.medium).aspectRatio(contentMode: .fit)
+            } else if let failed {
+                Text("No preview: \(failed)").font(.footnote).foregroundStyle(.secondary)
             } else {
                 ProgressView()
             }
         }
         .accessibilityIdentifier("curves-preview")
         .task(id: handle) {
+            failed = nil
             source = await pictures.load(handle)
+            if source == nil { failed = pictures.failures[handle] ?? "the picture didn't load" }
             await remake()
         }
         .task(id: set) { await remake() }
