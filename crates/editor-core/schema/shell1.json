@@ -1381,6 +1381,17 @@
           "description": "The caption is dim: the value is the default.",
           "type": "boolean"
         },
+        "editor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RowEditor"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The value its node names an editor for (`NodeDef.editor`), not on a wire: a tap on the\nrow opens it, `node.editor {node}` (the row's `node`: on a collapsed group's face, the\nmember's; FR1), as the node's own footer does. Absent for every other row."
+        },
         "from": {
           "description": "`inherited`: `from <bundle>`.",
           "type": [
@@ -2595,6 +2606,27 @@
         "port",
         "face",
         "row"
+      ],
+      "type": "object"
+    },
+    "RowEditor": {
+      "description": "What a row whose value has an editor says of it (section 8.4): the application's editor's\nlabel and help where it registered one for the kind, else the command's own words.",
+      "properties": {
+        "hover": {
+          "type": "string"
+        },
+        "kind": {
+          "description": "The editor's kind (`NodeDef.editor.kind`).",
+          "type": "string"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "label",
+        "hover"
       ],
       "type": "object"
     },

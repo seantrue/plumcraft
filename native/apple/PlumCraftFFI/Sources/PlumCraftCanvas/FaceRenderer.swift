@@ -200,7 +200,8 @@ public enum FaceRenderer {
             }
             let caption = FaceLayout.inputCaption(r)
             let inherited = r.source.word == .inherited
-            let col = r.dim ? C.textDim : C.text
+            // a row that opens its node's editor reads as a link (a tap opens it, FR1)
+            let col = r.editor != nil ? C.accent : (r.dim ? C.textDim : C.text)
             let lim = (L.widgets[k]?.minX ?? L.size.width - 8) - x - 6
             text(caption, inherited ? F.italic : F.port, col, x: x, baseline: base, max: max(lim, 20), in: ctx)
             if let b = r.badge {

@@ -19,6 +19,8 @@
 //!   one of them (`param_ref`, the `bundle_port` flag, F13); wired, the bundle's value wins;
 //! - `ports.strip`: a result node whose ARRAY isn't shaped like a picture (4 by 1000), so Save
 //!   Result as PNG asks first (the save's question);
+//! - `ports.curve`: a value with an editor of its own (`NodeDef.editor`, FR1), which a group can
+//!   promote and open from its face;
 //! - `ports.traced`: a node that tracks lineage, its text coming with a recipe (`Display.recipe`,
 //!   F56), so a viewer offers Recipe.
 //!
@@ -26,7 +28,7 @@
 //! process (its program, `plumcraft-ports-engine`, built with the workspace).
 
 use plumcraft_engine::{Array, Cx, Data, Engine, Inputs, List, Node, Outputs};
-use plumcraft_proto::catalogue::{MemoSpec, NodeDef, NodeFlags, PathFilter, PathHint, Port, Socket, Variadic, WireType, core_types};
+use plumcraft_proto::catalogue::{Editor, MemoSpec, NodeDef, NodeFlags, PathFilter, PathHint, Port, Socket, Variadic, WireType, core_types};
 use plumcraft_proto::error::NodeError;
 use plumcraft_proto::session::EngineInfo;
 use serde_json::{Value, json};
@@ -255,6 +257,25 @@ impl Node for Traced {
     }
 }
 
+/// `ports.curve`: a value with an editor of its own (`NodeDef.editor`, FR1): `curve`, a JSON
+/// list of `[x, y]` points no widget edits, which an application's editor of kind `ports.curve`
+/// would draw. Nothing draws that kind (the test engine registers no editor), so a shell shows
+/// the row's short form and opens what it has for any value. Its text says how many points.
+struct Curve;
+impl Node for Curve {
+    fn def(&self) -> NodeDef {
+        // a value the node keeps (no widget edits it) or a wire brings
+        let curve = Port { socket: Some(Socket::Both), ..widget("curve", core_types::JSON, json!([[0.0, 0.0], [0.5, 0.6], [1.0, 1.0]])) };
+        let mut d = def("ports.curve", "Curve", vec![curve], vec![port("text", TEXT)]);
+        d.editor = Some(Editor { kind: "ports.curve".into(), port: "curve".into(), interpolant: None });
+        d
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let points = i.get("curve").and_then(Data::json).and_then(Value::as_array).map_or(0, Vec::len);
+        Ok(out(&[("text", json!(format!("{points} points")))]))
+    }
+}
+
 /// The save format of its own (F19, Save Result): text between a pair of `mark`s, an option
 /// the editor asks for (`"` or `'`), as a `.quoted` file.
 const QUOTED: &str = "quoted";
@@ -284,6 +305,7 @@ pub fn engine() -> Engine {
     let mut e = Engine::new(info)
         .with_wire_type(core_types::text())
         .with_wire_type(core_types::array())
+        .with_wire_type(core_types::json())
         .with_wire_type(scalar("STRING"))
         .with_wire_type(scalar("INT"))
         .with_wire_type(scalar("FLOAT"))
@@ -298,6 +320,7 @@ pub fn engine() -> Engine {
         Box::new(Items),
         Box::new(Count),
         Box::new(Tune),
+        Box::new(Curve),
         Box::new(Ink),
         Box::new(Strip),
         Box::new(Traced),
