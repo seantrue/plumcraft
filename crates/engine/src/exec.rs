@@ -576,8 +576,18 @@ pub const EDITOR_KEY: &str = "_editor";
 /// `auto` view, at most [`EDITOR_PICTURE_PX`] a side): it goes into each kind's data under `picture`
 /// as an `rgba8` rendition.
 pub const EDITOR_PICTURE_KEY: &str = "_editor_picture";
-/// The largest side of an editor's picture.
-pub const EDITOR_PICTURE_PX: u32 = 1024;
+/// The largest side of an editor's picture: a mask's largest (`plumcraft_proto::masks::MAX_SIDE`),
+/// scaled down by the same arithmetic, so a mask editor's picture is the mask's size.
+pub const EDITOR_PICTURE_PX: u32 = 2048;
+/// The prefix of an output key under which a node puts another picture for its editor: an array
+/// under `_editor_picture:<name>` goes into each kind's data under `<name>` (a mask editor's
+/// `base`, the mask it starts from), as [`EDITOR_PICTURE_KEY`]'s goes under `picture`.
+pub const EDITOR_PICTURES_PREFIX: &str = "_editor_picture:";
+
+/// Is `key` one of a node's editor outputs rather than a port?
+pub fn is_editor_key(key: &str) -> bool {
+    key == EDITOR_KEY || key == EDITOR_PICTURE_KEY || key.starts_with(EDITOR_PICTURES_PREFIX)
+}
 /// The most runs a node mapped over lists makes.
 pub const MAX_RUNS: usize = 100_000;
 /// The most items a list display's sheet describes.
@@ -834,11 +844,7 @@ fn target_outputs(engine: &Engine, def: &NodeDef, req: &RunRequest, id: &str, ou
     if !req.targets.iter().any(|t| t == id) {
         return BTreeMap::new();
     }
-    outputs
-        .iter()
-        .filter(|(k, _)| k.as_str() != EDITOR_KEY && k.as_str() != EDITOR_PICTURE_KEY)
-        .map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v)))
-        .collect()
+    outputs.iter().filter(|(k, _)| !is_editor_key(k)).map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v))).collect()
 }
 
 /// What a node's value editors need from this run (`NodeReport.editor`): its [`EDITOR_KEY`]
@@ -846,20 +852,26 @@ fn target_outputs(engine: &Engine, def: &NodeDef, req: &RunRequest, id: &str, ou
 /// gave one and the kind's data has none. Empty when the node gave none.
 fn editor_data(outputs: &Outputs, plane: &Plane<'_>) -> BTreeMap<String, Value> {
     let Some(Value::Object(kinds)) = outputs.get(EDITOR_KEY).and_then(Data::json) else { return BTreeMap::new() };
-    let picture = match outputs.get(EDITOR_PICTURE_KEY) {
-        Some(Data::Array(a)) => {
-            crate::arrays::thumb(a, EDITOR_PICTURE_PX).and_then(|t| plane.rgba8(&t, "editor", "")).and_then(|r| serde_json::to_value(r).ok())
-        }
-        _ => None,
-    };
+    // each picture by the field it goes under: `picture`, and `<name>` for `_editor_picture:<name>`
+    let pictures: Vec<(String, Value)> = outputs
+        .iter()
+        .filter_map(|(k, v)| {
+            let field = if k == EDITOR_PICTURE_KEY { "picture" } else { k.strip_prefix(EDITOR_PICTURES_PREFIX).filter(|n| !n.is_empty())? };
+            let Data::Array(a) = v else { return None };
+            let r = crate::arrays::thumb(a, EDITOR_PICTURE_PX).and_then(|t| plane.rgba8(&t, "editor", "")).and_then(|r| serde_json::to_value(r).ok())?;
+            Some((field.to_owned(), r))
+        })
+        .collect();
     kinds
         .iter()
         .map(|(kind, data)| {
             let mut data = data.clone();
-            if let (Some(p), Value::Object(o)) = (&picture, &mut data)
-                && !o.contains_key("picture")
-            {
-                o.insert("picture".into(), p.clone());
+            if let Value::Object(o) = &mut data {
+                for (field, p) in &pictures {
+                    if !o.contains_key(field) {
+                        o.insert(field.clone(), p.clone());
+                    }
+                }
             }
             (kind.clone(), data)
         })

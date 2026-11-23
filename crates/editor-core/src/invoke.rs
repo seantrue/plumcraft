@@ -224,6 +224,8 @@ pub enum Then {
     Form { command: String },
     /// `edit.paste` the clipboard's text.
     Paste,
+    /// `mask.folder` the folder chosen, then the stroke that had nowhere to go (S4b).
+    MaskFolder { stroke: Value },
     /// Nothing follows; a failure goes to the status bar.
     Notice,
 }
@@ -569,6 +571,15 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
             }
             Err(why) => h.say(why),
         },
+        // a person's mask stroke (S4b): with nowhere to write, ask for a folder once, then stroke
+        "mask.stroke" => match h.run(id, params) {
+            Ok(_) => {}
+            Err(e) if e.contains(crate::mask_cmds::NEEDS_FOLDER) => {
+                let p = json!({"purpose": "edits", "title": "Choose a Folder for Mask Files", "why": e});
+                raise(h, Kind::FolderPick, p, by, Cont::new(Then::MaskFolder { stroke: params.clone() }));
+            }
+            Err(e) => h.say(e),
+        },
         "value.saveAs" => {
             let pid = params.get("popout").and_then(Value::as_u64);
             let target =
@@ -910,6 +921,14 @@ fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
             if let Some(p) = path(&a) {
                 let value = paths::chosen_path(&p, base.as_deref(), save);
                 let _ = h.run("node.set", &json!({"node": node, "port": port, "value": value}));
+            }
+        }
+        (Then::MaskFolder { stroke }, a) => {
+            if let Some(p) = path(&a) {
+                let r = h.run("mask.folder", &json!({"folder": p.to_string_lossy()})).and_then(|_| h.run("mask.stroke", &stroke));
+                if let Err(e) = r {
+                    h.say(e);
+                }
             }
         }
         (Then::Files { node, port, base }, Answer::Paths(chosen)) => {

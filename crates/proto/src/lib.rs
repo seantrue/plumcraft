@@ -28,6 +28,7 @@ pub mod expansion;
 pub mod handle;
 pub mod labels;
 pub mod manifest;
+pub mod masks;
 pub mod media;
 pub mod memo;
 pub mod mesh;

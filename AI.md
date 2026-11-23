@@ -20,6 +20,20 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A mask editor's core: the brush model, mask commands, a Paint Mask node, a Swift brush port (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer decided.** On the checklist page: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A", and on the note to 5B, "Ref commonkit -- both". So: a public Paint Mask node that also takes a mask; a bit-exact Swift port of the brush; the mask at the picture's size up to 2048; a folder asked for once when the mask cannot be saved beside the document; pruning now, through the maintainer's shared library; files written in the stroke command; one finger paints; stroke points may carry a pressure that is ignored for now.
+
+**What the AI did.** `plumcraft_proto::masks`: brush maths carried over unchanged from an application's own editor, a canvas that can start from a wired mask, a stroke parser with limits, and 11 shared vectors; that application's copy of the brush gives all 11 exactly. PNG writing in `plumcraft-media`. Commands `mask.stroke`, `mask.clear`, `mask.get`, `mask.folder`, `mask.prune`, one undo step per stroke, each stroke a new file so undo names the old one. `array.paint_mask`. A Swift port of the brush matching the vectors bit for bit. The curve parser, which the previous change had left out of the hostile-input sweep, was added to it with the mask parser.
+
+**Pruning removes nothing yet.** The removal was written in the shared library (a general "prune a folder by what is still named" function, in its own repository, unreleased). Here `mask.prune` collects what is reachable and reports that it needs that release, so there is one implementation, not two.
+
+**The agent's reading of the maintainer's note on the mask input, not theirs.** A wired mask is where painting starts; once something is painted the file holds the whole mask, so a later change upstream does not show until the edit is cleared. To be confirmed.
+
+**Defect found and fixed.** On the iPad a graph with no file stored mask paths relative to the working directory, which is `/` there; the reachability scan had the same fallback and would have read that directory's JSON files. Both now use only a real document's folder. This is the fault B137 records for path inputs; B137 itself is not fixed by this.
+
+**Verified (agent).** nextest 1,674 of 1,675 (the known baseline failure), then the seven touched crates again, 957 of 957; Mac conformance 70 of 70; iPad simulator 69 of 69 with one skipped by design; the Swift vectors. **Not built:** the editor view and its UI test, the iPad's folder bookmark. Nobody has painted a mask by hand or by a UI test; only commands have.
+
 ### 2026-11-23 — A curves editor in the Apple shells, on one shared curve model (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** Native editors for values such as curves, starting from an earlier spike ("Go. Check [the research software's] spike for cureve editor"; the spike turned out to hold no native editor). On the checklist page they chose: a general curve editor in the shell, used by any engine that names it; a small Swift port of the curve maths for drawing, pinned to the Rust by shared test vectors, with every edit a core command; curves before masks; the iPad and Mac together, Windows and the iPhone later. The card on re-running while a point is dragged was left unanswered, so it is built without a re-run and stays open.

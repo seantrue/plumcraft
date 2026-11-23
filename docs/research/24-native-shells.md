@@ -1288,3 +1288,24 @@ The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4A; 5A; 6A; 7A; 8B". Cards 1 
 |---|---|---|
 | 7 | The two iPad UI tests that failed at one step larger text in a 375 by 655 window (`testAWarnedEngineIsMarkedInTheMenu`, `testTheSavesQuestionAndARecipe`): A fix them; B leave them, as tests a device run skips | 7A: fix them |
 | 8 | The fixed 300 ms settle before each action (`PLUMCRAFT_SETTLE_MS`): A keep it; B replace it with waits on the app's own state (presented or presenting, the keyboard's frame settled, a menu open), each with a limit | 8B: waits on the app's state |
+
+## 22. The value editors (S4)
+
+### 22.1 The mask editor's decisions (the maintainer, 2026-11-23)
+
+Their answer, verbatim: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A". On "Commonkit?", asked whether they meant that the pruning or the edit files' store should live in commonkit, or whether commonkit already does this: "Ref commonkit -- both".
+
+| # | Card | Answer |
+|---|---|---|
+| 1 | Which public node names the mask editor: A a new array node, Paint Mask; B none fits; C the test engine only | **A**, "Have the paint mask take a mask input as well". Read as (the agent's reading, not theirs): an optional incoming mask is where the painting starts; strokes add to it and take from it; with no edit it passes through; once there is an edit, the edit holds the whole mask, so a later change upstream doesn't reach it until the edit is cleared |
+| 2 | The Swift preview of a stroke: A a bit-exact port pinned by vectors; B approximate, replaced on lift | **A** |
+| 3 | The mask's size: A the picture's, capped at 2048 on the long side, scaled up by the node; B always full size; C 1280 | **A** |
+| 4 | With nowhere to write beside the document: A ask for a folder once and remember it; B the app's own folder silently | **A** (`mask.folder`, kept in the graph's `meta.mask_folder`) |
+| 5 | Pruning unreachable edit files: A not in S4b, a Clean Up command later; B port the private pruning now | **B**, "Commonkit?"; then "Ref commonkit -- both" |
+| 6 | Writing the file: A in the stroke command, a thread only if slow; B the private writer thread from the start | **A** |
+| 7 | The sidecar's word: A `plumcraft`, the private pruning to accept both; B the caller's choice | **A** |
+| 8 | iPad gestures: A one finger paints, two pan and zoom; B a Paint/Move switch | **A** |
+| 9 | Pressure: A an optional third number in a point, checked and not used; B none | **A** |
+| 10 | The curve editor while dragging: re-run or not | **A**: no re-run (closes S4a's open card 3) |
+
+**Commonkit (5B).** commonkit is a shared cache for arrays: its README says "A value that can't be recomputed doesn't belong here alone", its reaper evicts segments by age and size with no idea of what is still referenced, and a pinned subtree is "a possible later addition; it isn't built". So it had neither the store for durable edit files nor reachability pruning. The pruning was written there (branch `feat/prune-files` in its repository, uncommitted: `commonkit.prune.prune_folder` in Python, `commonkit::prune_folder` in Rust, one set of vectors), general and naming nothing of PlumCraft's. PlumCraft takes commonkit from crates.io, so until a release it calls nothing: `mask.prune` collects what is reachable (the graph, undo and redo, JSON beside the document) and reports that it needs commonkit 0.3; `mask_cmds::prune_edits` is the one place the call goes. Keeping the edit files themselves in commonkit's store is not proposed: the store may evict them, and they are the document's (7A puts them beside it, where the research software's engine reads them too).

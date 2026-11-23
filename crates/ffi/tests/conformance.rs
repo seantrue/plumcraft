@@ -99,7 +99,12 @@ impl Driver for Abi {
     /// folder (every core here is opened with it, [`engines`]).
     fn has(&self, capability: &str) -> bool {
         // the audio engine is compiled into the C ABI's library (2026-11-21): every core has it
-        capability == "media" || capability == "manifests" || capability == "engine:audio" || capability.strip_prefix("engine:") == Some(self.1)
+        // `saves`: the core is in this process, so it writes the case's $scratch folder
+        capability == "media"
+            || capability == "manifests"
+            || capability == "saves"
+            || capability == "engine:audio"
+            || capability.strip_prefix("engine:") == Some(self.1)
     }
     /// Wait for the core's wake (at most 50 ms), then poll it.
     fn pause(&mut self) {
