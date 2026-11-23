@@ -267,9 +267,12 @@ public sealed class ReportWindow : PanelWindow
         var key = ReportModel.DraftKey(edit, row);
         var start = report.Drafts.TryGetValue(key, out var draft) ? draft : edit.Get("value").Str() ?? "";
         var multi = edit.Get("multiline").IsTrue();
+        // AcceptsReturn before Text: a TextBox that doesn't take returns keeps only the first line of the text it
+        // is given, so a value of several lines (the value window's JSON) showed as "[" and Apply sent that
         var tb = new TextBox
         {
-            Text = start, Header = edit.Get("label").Str(), PlaceholderText = edit.Get("hint").Str() ?? "", AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap,
+            Text = start, Header = edit.Get("label").Str(), PlaceholderText = edit.Get("hint").Str() ?? "",
             IsSpellCheckEnabled = false, MinHeight = multi ? 140 : 0, FontFamily = multi ? new FontFamily("Cascadia Mono, Consolas") : FontFamily.XamlAutoFontFamily,
         };
         tb.TextChanged += (_, _) => report.Drafts[key] = tb.Text;

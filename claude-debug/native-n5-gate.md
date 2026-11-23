@@ -134,7 +134,7 @@ A row is met only when a named test, case or script launched the real app and ex
 | F19 | Node flags | Claimed on reading alone, not checked | No case or check |
 | F20 | List typing | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): "ports: a list, a wire's slice of it, and a path input" |
 | F21 | Wire slices | Met | SC (2026-11-22, the launched Windows app, ARM64 and x64, the test engine installed): the same case (a wire's slice) |
-| F22 | Custom editors | Partly | Reading: the value editor window was never opened in a launched app (no engine here names an editor) |
+| F22 | Custom editors | Partly | Person check step 21 "editor-row" (2026-11-23, the launched ARM64 app, the test engine installed): Curve's row (it names editor kind ports.curve) opens the core's value window "Curve · curve" with the whole value, on the node and on a collapsed group's promoted row. Partly: the window is the core's JSON one; no custom editor (the curves editor arriving on Apple) on Windows yet |
 | F23 | Codegen metadata | Claimed on reading alone, not checked | No case or check |
 | F24 | Expansions | Claimed on reading alone, not checked | No case or check |
 | F25 | Style graphs | Claimed on reading alone, not checked | No case or check |
@@ -749,3 +749,39 @@ On `7fad6dc`, before the merge, the ARM64 runs hit B99's case twice: the C# runn
 ### B133 on Windows
 
 It can be closed for Windows. What remains of B133 is the iPad's Photos source, which is another agent's.
+
+## Eleventh session (2026-11-23, branch `native/n5-editor-row` from `fix/b133-windows-browse`)
+
+FR1's Windows part: a row that opens its node's value editor.
+
+### What was built
+
+- **The row.** `InRow.Editor` is read (it was decode-only before). Its caption is drawn in the accent colour.
+- **The tap.** With no widget, the caption's rect (`FaceLayout.Opens`, as the Apple `FaceLayout.opens`) is reported as the row's rect, so the core's tap gives `node.editor`. The shell adds no tap handling.
+- **UI Automation** sees the link as a button named by the row's label ("Edit Value…"), and an open group's band chevron as "Collapse <name>".
+- **Person check step 21, `editor-row`:**
+  - the test engine's Curve: its row opens the core's value window "Curve · curve", showing the whole value;
+  - then Group this node, Promote input › curve, and the group's chevron collapses it;
+  - "Group: group 1"'s promoted row opens the member's window.
+  - Pictured: `g9-pc-shots/editor-node.png`, `editor-group.png`.
+- **Fixed on the way:** four text boxes were given their text before `AcceptsReturn`: the value window, the row editor's multiline field, the inspector's multiline widget and a form's text field. A WinUI `TextBox` that doesn't yet take returns keeps only the first line, so the value window showed "[" for a curve's JSON, and Apply would have sent "[".
+- **Test:** `EditorRowTests`, the fixture's editor row decoded.
+
+### The gate (the dev branch at `d29630c` with B133's commit `31a01e3`)
+
+| Check | Before | Now |
+|---|---|---|
+| `dotnet test` | 62 of 62 | 63 of 63 |
+| C# runner, ARM64, test engine | 68 of 68 | 68 of 68 |
+| C# runner, x64, test engine | 68 of 68 | 68 of 68 |
+| Swift runner from the Mac | 60 of 60, 8 skipped | 60 of 60, 8 skipped |
+| Person check | 23 of 23 | 24 of 24, three runs in a row (Mac 13:03:44, 13:07:12, 13:10:31) |
+| Floor | 54 met, 4 partly, 5 not met, 23 reading | 54 met, 4 partly, 5 not met, 23 reading: F22 stays partly with launched evidence |
+
+### Durations, expected and actual
+
+| Step | Expected | Actual |
+|---|---|---|
+| App build, warm-up, trial 1 | 7 min | 297 s (warm-up 79 s) |
+| Rebuild, warm-up, trial 2 | 7 min | 272 s (warm-up 64 s) |
+| The gate: `dotnet test`, C# ARM64, Swift, x64 build, warm-up and C# x64, person check x3 | 25 min | 962 s |
