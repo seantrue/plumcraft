@@ -873,6 +873,15 @@ extension GestureTests {
             more.tap()
             let it = item(app, label)
             if it.exists { return it }
+            // a menu taller than a short window scrolls (an iPhone turned): a drag up inside it,
+            // under the button it hangs from
+            let w = app.windows.firstMatch.frame
+            if w.height < 500 {
+                let at = app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: max(120, more.frame.midX - 120), dy: w.height * 0.75))
+                at.press(forDuration: 0.05, thenDragTo: at.withOffset(CGVector(dx: 0, dy: -w.height * 0.4)), withVelocity: 400, thenHoldForDuration: 0.3)
+                let again = item(app, label)
+                if again.exists { return again }
+            }
         }
         return item(app, label)
     }
@@ -1115,6 +1124,100 @@ extension GestureTests {
         shot("n4p-ui-no-recipe")
     }
 
+    /// B135 (the maintainer: "Fix b135 with that"): on an iPhone turned to landscape the node's
+    /// parameters are a column of readable width at the trailing edge, the canvas live beside it:
+    /// the column is at most half the window's width, a canvas point beside it still takes a tap,
+    /// a slider dragged changes the value. Turned upright with text being typed, the parameters
+    /// become the sheet and what was typed is set; turned back, the column again. Skipped where
+    /// the window's height isn't compact when turned (an iPad).
+    @MainActor
+    func testParametersBesideTheCanvasInLandscape() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--then", "zoom:0.8:w"]
+        adoptStatus(app)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        app.launch()
+        defer { app.terminate(); XCUIDevice.shared.orientation = .portrait }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true && $0["points"] != nil }
+        let scene = status()["scene"] as? [String: Any] ?? [:]
+        try XCTSkipUnless((scene["vertical"] as? String) == "compact", "the window's height isn't compact when turned: \(sceneLine(status()))")
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        let origin = canvas.coordinate(withNormalizedOffset: .zero)
+        func params() -> [String: Any] { window()["parameters"] as? [String: Any] ?? [:] }
+        let title = try XCTUnwrap(reachable(app, canvas, "w", "title"))
+        origin.withOffset(CGVector(dx: title[0], dy: title[1])).doubleTap()
+        wait("the parameters open on w", timeout: 20) { _ in (params()["shown"] as? Bool) == true }
+        RunLoop.current.run(until: Date().addingTimeInterval(1))
+        shot("b135-ui-params-landscape")
+        XCTAssertEqual(params()["style"] as? String, "column", "a side column in landscape")
+        let frame = (params()["frame"] as? [Double]) ?? []
+        let ww = (params()["windowWidth"] as? Double) ?? 0
+        XCTAssertEqual(frame.count, 4)
+        if frame.count == 4 {
+            let safe = (params()["safeTrailing"] as? Double) ?? 0
+            XCTAssertLessThanOrEqual(frame[2] - safe, ww * 0.5 + 1, "the column's readable part is at most half the window's width: \(frame[2]) − \(safe) of \(ww)")
+            XCTAssertGreaterThanOrEqual(frame[2] - safe, 300, "and readable: \(frame[2] - safe)")
+            // a canvas point beside it takes a tap: a face left of the column, tapped, is
+            // selected (the core's gesture)
+            let faces = (window()["points"] as? [String: Any]) ?? [:]
+            let beside = faces.compactMap { (id, v) -> (String, [Double])? in
+                guard let c = (v as? [String: Any])?["center"] as? [Double], c.count == 2, c[0] > 20, c[0] < frame[0] - 20, c[1] > 60 else { return nil }
+                return (id, c)
+            }.first
+            if let (id, c) = beside {
+                origin.withOffset(CGVector(dx: c[0], dy: c[1])).tap()
+                wait("the canvas beside the column took the tap (\(id) selected)", timeout: 10) { ($0["selection"] as? [String]) == [id] }
+            } else {
+                // none in sight: an empty point beside it, which clears what is selected
+                let empty = emptyPoints(app, canvas).filter { $0.x < CGFloat(frame[0]) - 20 }
+                XCTAssertFalse(empty.isEmpty, "some canvas beside the column to tap")
+                if let p = empty.first {
+                    origin.withOffset(CGVector(dx: p.x, dy: p.y)).tap()
+                    wait("the canvas beside the column took the tap", timeout: 10) { _ in self.status()["gesture"] != nil }
+                }
+            }
+            shot("b135-ui-canvas-beside")
+        }
+        // a slider dragged: the value changes (the list scrolled to it first, as a finger does)
+        let slider = app.sliders["slider.amount"]
+        let list = app.tables.firstMatch
+        // short drags (a swipe flings past it on a short screen), stopping once it is in view
+        let listFrame = list.frame
+        for _ in 0..<12 {
+            let f = slider.exists ? slider.frame : .zero
+            if f.height > 0, f.minY > listFrame.minY + 20, f.maxY < listFrame.maxY - 20 { break }
+            let up = f.height > 0 && f.minY < listFrame.minY + 20   // above: drag down
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.35 : 0.65))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: up ? 90 : -90)), withVelocity: 300, thenHoldForDuration: 0.3)
+        }
+        XCTAssertTrue(slider.waitForExistence(timeout: 10), "amount's slider")
+        // the value as the inspector shows it, in the field beside the slider (the core's, after the set)
+        let amountField = app.textFields["edit.amount"]
+        let before = amountField.value as? String
+        // a finger's drag along it (the value is set as it lifts)
+        let v = Double((before ?? "").trimmingCharacters(in: .whitespaces)) ?? 0.5
+        slider.coordinate(withNormalizedOffset: CGVector(dx: max(0.05, min(0.95, v)), dy: 0.5))
+            .press(forDuration: 0.1, thenDragTo: slider.coordinate(withNormalizedOffset: CGVector(dx: v > 0.5 ? 0.1 : 0.9, dy: 0.5)))
+        wait("amount changed by its slider", timeout: 15) { _ in (amountField.value as? String) != before }
+        shot("b135-ui-params-slider")
+        // turned upright with text being typed: the sheet, and the text set
+        let label = app.textFields["edit.label"]
+        XCTAssertTrue(label.waitForExistence(timeout: 10), "label's field")
+        label.tap()
+        label.clearAndType("turned")
+        XCUIDevice.shared.orientation = .portrait
+        wait("the parameters a sheet upright", timeout: 20) { _ in (params()["style"] as? String) == "sheet" && (params()["shown"] as? Bool) == true }
+        // the inspector made again from the core's state shows it: it was set, not lost
+        wait("what was typed, set as the phone turned", timeout: 15) { _ in (app.textFields["edit.label"].value as? String) == "turned" }
+        shot("b135-ui-params-portrait")
+        XCUIDevice.shared.orientation = .landscapeLeft
+        wait("the column again in landscape", timeout: 20) { _ in (params()["style"] as? String) == "column" }
+        shot("b135-ui-params-landscape-again")
+    }
+
     @MainActor
     func testCompactWindowsByATap() throws {
         let env = ProcessInfo.processInfo.environment
@@ -1144,6 +1247,15 @@ extension GestureTests {
         // Settings › Cache › Open Cache Report: the report over Settings
         fromMore(app, more, "Settings").tap()
         let cache = app.buttons["settings.section.cache"]
+        _ = app.buttons["settings.done"].waitForExistence(timeout: 10)
+        shot("n4s6-ui-settings")
+        // on a short window the sections' list scrolls (an iPhone turned)
+        for _ in 0..<4 where !(cache.exists && cache.isHittable) {
+            let list = app.collectionViews.firstMatch.exists ? app.collectionViews.firstMatch : app.tables.firstMatch
+            guard list.exists else { break }
+            let from = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7))
+            from.press(forDuration: 0.05, thenDragTo: from.withOffset(CGVector(dx: 0, dy: -100)), withVelocity: 300, thenHoldForDuration: 0.3)
+        }
         XCTAssertTrue(cache.waitForExistence(timeout: 10), "Settings' Cache section")
         cache.tap()
         let open = app.buttons["Open Cache Report"]

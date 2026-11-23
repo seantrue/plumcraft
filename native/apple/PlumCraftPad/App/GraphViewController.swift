@@ -154,6 +154,12 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             self.layoutBar()
             if let e = self.model?.engine { self.showEngine(e) }
         }
+        // a short, wide window (an iPhone turned) puts the parameters in a side column, and back
+        // (B135, ReadableColumn)
+        registerForTraitChanges([UITraitVerticalSizeClass.self, UITraitHorizontalSizeClass.self]) { (self: Self, _: UITraitCollection) in
+            // once the window has its new size (the trait comes first)
+            DispatchQueue.main.async { [weak self] in self?.parameters?.relayout() }
+        }
         openInCore()
     }
 

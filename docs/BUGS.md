@@ -4,6 +4,19 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B140. iPhone, landscape: a table's pop-out spreads each record's names and values across the whole width
+
+- Reported: 2026-11-23, an agent (B135's walk of the landscape presentations, the iPhone 17 Pro simulator at one step larger text)
+- Report: turned, a value's pop-out is a full-screen sheet. That suits a picture, an array or a waveform, but a table's record view puts each field's name at the left edge and its value at the right, about 800 points apart, and "Sort by" and its menu likewise (`n4s5-ui-table.grid.png`, `n4s6-ui-table-compact.png` in `claude-debug/n4-decided-2/shots-walkphone*`). The same fault as B135 in a viewer: not changed with B135, since a viewer's width is the value's, not the controls'
+- Open question: should a pop-out's lists (a table's records, a text's facts) keep to the readable width (`ReadableColumn.width`) while pictures keep the whole width?
+- Issue: none
+
+### B139. iPad, a 375-point window: the audio pop-out's bar runs past both edges
+
+- Reported: 2026-11-23, an agent (B135's walk, a 375 by 655 window turned, one step larger text)
+- Report: the audio viewer's bar (the kind menu, Play, Loop, the time, the volume) is wider than the sheet: "Audio" and "Loop" are cut at the left and the volume slider at the right (`n4s5-ui-audio.png` in `claude-debug/n4-decided-2/shots-narrow-run`). The iPhone in landscape shows it whole. A different fault from B135 (too wide for the window, not stretched)
+- Issue: none
+
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
 
 - Reported: 2026-11-22, the controller
@@ -240,6 +253,17 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-23, an agent (an application's iPad app, a conformance case in the simulator)
 - Report: `graph.open` over the control port, in a document the browser had opened, replaced the graph and moved the core's file and title, but the window kept the browser's file: the title still named it, and Save when closing a dirty document would have written the opened graph over the window's file. A person's File › Open on the iPad goes to the document browser, so only scripts reached it.
 - Fixed: 2026-11-23, branch `native/pack-views`: the title follows the core's file when it differs, and Save on closing writes to the core's file (or a `.json` beside a picture), never over the window's other file.
+- Issue: none
+
+### B135. iPhone, landscape: the parameters dialog's sliders take the whole width
+
+- Reported: 2026-11-23
+- Report: "parameters dialog in landscape mode on iphone uses whole width for sliders. Needs attention."
+- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`), turned to landscape. The phone layout has never been run by a test or looked at.
+- Open question: what should it be instead: a column of a readable width centred or at one side, with the canvas still in view beside it?
+- Decided: 2026-11-23, the maintainer, on the controller's proposal ("a column of readable width at one side, with the canvas still visible beside it, the way the iPad's inspector works. That way you can watch the result change as you drag a slider"): "Fix b135 with that"
+- Added: 2026-11-23, the maintainer: "Check other landscape presentations for similar parameter display issues". So every presentation that shows parameters or controls is checked in landscape on the iPhone (and the iPad where the same code applies), and those with the same fault (controls stretched across the whole width) are fixed with the same width rule, held in one place
+- Fixed: 2026-11-23, branch `fix/b135-phone-params-landscape`. One rule, `ReadableColumn` (PlumCraftPad): when the window's height is compact and it is wider than tall (an iPhone turned), the parameters are a column at the trailing edge, 45% of the window's width (at least 320 points, at most 420, the iPad inspector's width), with the canvas live beside it; otherwise a popover in regular width and a sheet in compact width, as before. Turning the phone moves the parameters between column and sheet with any edit in progress set first (B129). The UI test `testParametersBesideTheCanvasInLandscape` (iPhone simulator, one step larger text) checks the column's width against the window's, taps a face beside it, drags a slider and sees the value change, and types a label and turns the phone. The other presentations walked in landscape: `claude-debug/b135-phone-params-landscape.md`
 - Issue: none
 
 ### B130. On the iPad in a 375-point window, Run and More folded into the system's overflow menu (More inside More)
