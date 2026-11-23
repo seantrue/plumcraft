@@ -4,6 +4,11 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B138. iPhone: `testWindowsAndNames` doesn't get into the group; a dropped wire's palette opens instead
+
+- Reported: 2026-11-23, the first run of every iPad UI test on the iPhone simulator (iPhone 17 Pro, one step larger text, portrait; branch `fix/b134-phone-add-node`, `conformance.sh gestures` with `PHONE=1`)
+- Report: "timed out waiting for inside the group", then no `crumb.0`. The picture at that moment (`n4s3-ui-inside-group.png`) shows the node palette for a dropped wire ("Search kinds that take this…", "18 kinds take this wire"): the gesture meant to enter the group began on, or was taken as, a drag from a pin. 7 of the 9 tests passed on the phone and 1 was skipped (the test engine's)
+- Not yet known: whether the test's target is too close to a pin at the phone's size (the test's own aim) or the gesture is read wrongly on a small screen (the app's). Not the same kind as B134: the palette it opened has its way out (Cancel, the swipe). In landscape on the same phone the test passes (B135's walk, 2026-11-23), so it is the portrait layout's
 ### B137. iPad: a path chosen for a graph the core holds no file for is stored relative to "/"
 
 - Reported: 2026-11-23, found by the B133 conformance case on the iPad simulator (branch `fix/b133-path-browse`)
@@ -19,13 +24,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Open question: what should it be instead: a column of a readable width centred or at one side, with the canvas still in view beside it?
 - Decided: 2026-11-23, the maintainer, on the controller's proposal ("a column of readable width at one side, with the canvas still visible beside it, the way the iPad's inspector works. That way you can watch the result change as you drag a slider"): "Fix b135 with that"
 - Added: 2026-11-23, the maintainer: "Check other landscape presentations for similar parameter display issues". So every presentation that shows parameters or controls is checked in landscape on the iPhone (and the iPad where the same code applies), and those with the same fault (controls stretched across the whole width) are fixed with the same width rule, held in one place
-- Issue: none
-
-### B134. iPhone: no obvious way to leave the Add Node menu
-
-- Reported: 2026-11-23
-- Report: "no obvious way to escape add node menu on iphone"
-- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`). The phone layout has never been run by a test or looked at.
 - Issue: none
 
 ### B133. iPad and iPhone: a path input offers no system file browser
@@ -275,6 +273,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Reported: 2026-11-23, an agent (an application's iPad app, a conformance case in the simulator)
 - Report: `graph.open` over the control port, in a document the browser had opened, replaced the graph and moved the core's file and title, but the window kept the browser's file: the title still named it, and Save when closing a dirty document would have written the opened graph over the window's file. A person's File › Open on the iPad goes to the document browser, so only scripts reached it.
 - Fixed: 2026-11-23, branch `native/pack-views`: the title follows the core's file when it differs, and Save on closing writes to the core's file (or a `.json` beside a picture), never over the window's other file.
+- Issue: none
+
+### B134. iPhone: no obvious way to leave the Add Node menu
+
+- Reported: 2026-11-23
+- Report: "no obvious way to escape add node menu on iphone"
+- Context: the maintainer's hand use of the release build of Plummer 0.7.0 on their iPhone (dev branch at `2c3de06`). The phone layout has never been run by a test or looked at.
+- Context (2026-11-23, the iPhone 17 Pro simulator at one step larger text, branch `fix/b134-phone-add-node`): in compact width Add Node is the More menu's, and the palette is a page sheet. In portrait it opens at half height with a grabber and no button: a swipe down and a tap on the dimmed graph above it close it, neither of them obvious. In landscape (compact height) UIKit shows a page sheet full screen: no grabber, no swipe, nothing outside it to tap, no button: a dead end. The controller suggested a swipe down or a tap outside; the maintainer, verbatim: "No exit. Fix b134"
+- Decided: 2026-11-23, approved for fixing ("Fix b134")
+- Fixed: 2026-11-23, branch `fix/b134-phone-add-node`. In a sheet the palette has a Cancel button beside its search field (`palette-cancel`), and in compact height it stays a sheet on the bottom edge (`prefersEdgeAttachedInCompactHeight`), so a swipe down works there too; it opens at half height where the phone has the height for it. Every way out is the core's `canvas.palette {open: false}` (`PaletteModel.dismiss`): the UI test reads the palette closed in the core (`palette.open` false) and on screen after each. In landscape the sheet takes the whole height (UIKit's one height in compact height), so there is no graph above it to tap: Cancel and a swipe are the ways out there. Every other sheet the app shows on the phone (pop-outs, the parameters, Settings, the Messages window, the Cache Report and Parameters window, Compare, About) already has a Done button; the alerts have their buttons; menus close by a tap outside: none has the same dead end. UI test `testLeavingAddNodeInCompactWidth` (Cancel, a swipe down, and a tap above, each in portrait and landscape, on the iPhone simulator; and in compact width on the iPad). `PlumCraftPad/conformance.sh` has a named iPhone configuration (`PHONE=1`)
 - Issue: none
 
 ### B130. On the iPad in a 375-point window, Run and More folded into the system's overflow menu (More inside More)

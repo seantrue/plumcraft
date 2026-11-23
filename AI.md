@@ -20,6 +20,15 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — A way out of Add Node on the iPhone (B134) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "no obvious way to escape add node menu on iphone". The controller suggested a swipe down or a tap outside; they answered "No exit. Fix b134". The phone layout had never been run by a test or looked at.
+
+**What the AI did.** Reproduced on an iPhone simulator: in landscape the palette was shown full screen with no grabber, no button and nothing outside it. The palette sheet now has a Cancel button and stays attached to the bottom edge in compact height, so a swipe works too; each way out closes the palette in the core. A UI test opens it and leaves it each way, and the iPhone simulator is a named configuration of the scripts. Every other presentation on the phone was walked for the same dead end.
+
+**Found, open.** B138: on the iPhone in portrait one UI test opens a dropped wire's palette instead of entering the group.
+
+**Verified (agent, simulators).** iPad 59 of 59 cases and 8 UI tests passed; on the phone 7 UI tests passed and 1 failed (B138). **Not verified:** any device.
 ### 2026-11-23 — Browse for a path input, the core's, on the Mac, iPad and iPhone (B133) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** From their first hand use of the app on their own iPad: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX". Then: "Yes, fix b133 on all systems." The controller had recommended copying the picked file on the iPad and took the "Yes" as covering that; they did not answer it separately, so it stays an open decision in the entry. Also recorded from the same session, not built: feature FR1 (`docs/FEATURES.md`, new), with their design answers.

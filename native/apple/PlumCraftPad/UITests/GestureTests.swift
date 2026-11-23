@@ -1115,6 +1115,75 @@ extension GestureTests {
         shot("n4p-ui-no-recipe")
     }
 
+    /// B134 (the maintainer: "No exit. Fix b134"): the node palette in compact width (an iPhone,
+    /// a narrow iPad window) is left each way a person expects, and each way closes it in the
+    /// core (`canvas.palette {open: false}`): its Cancel button, a swipe down on the sheet, and a
+    /// tap above the sheet on the dimmed graph. Run on the iPhone simulator (conformance.sh
+    /// gestures with PHONE=1) and in a compact iPad window alike; portrait, then landscape.
+    @MainActor
+    func testLeavingAddNodeInCompactWidth() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open-sample", "Inline Editing", "--status-file", statusPath, "--width-class", "compact"]
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
+        func palette() -> [String: Any] { window()["palette"] as? [String: Any] ?? [:] }
+        func closedInTheCore(_ how: String) {
+            wait("the palette closed by \(how), in the core and on screen", timeout: 15) { _ in
+                (palette()["open"] as? Bool) == false && (palette()["shown"] as? Bool) == false
+            }
+        }
+        func open(_ tag: String) {
+            toolbar(app, "Add Node")
+            wait("the palette open (\(tag))", timeout: 15) { _ in (palette()["open"] as? Bool) == true && (palette()["shown"] as? Bool) == true }
+            // the sheet settled (its field focused brings the keyboard; a person can type at once)
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+        }
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            RunLoop.current.run(until: Date().addingTimeInterval(1))
+            let tag = orientation == .portrait ? "portrait" : "landscape"
+            // 1. a swipe down on the sheet, from its top
+            open(tag)
+            shot("b134-ui-palette-\(tag)")
+            // (from full height a swipe goes to half height first, as a person sees: at most twice)
+            for _ in 0..<2 where (palette()["shown"] as? Bool) == true {
+                // within the sheet, top to near its foot: a drag to the screen's edge would be the
+                // system's own gesture there (the home indicator, in landscape)
+                let sheet = app.otherElements["palette-sheet"].firstMatch
+                guard sheet.exists else { break }
+                sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.12))
+                    .press(forDuration: 0.05, thenDragTo: sheet.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)), withVelocity: .fast, thenHoldForDuration: 0)
+                let gone = Date().addingTimeInterval(3)
+                while Date() < gone, (palette()["shown"] as? Bool) == true { RunLoop.current.run(until: Date().addingTimeInterval(0.2)) }
+            }
+            closedInTheCore("a swipe down (\(tag))")
+            shot("b134-ui-after-swipe-\(tag)")
+            // 2. a tap on the dimmed graph above the sheet, where there is one: in compact height
+            // the sheet takes the whole height (UIKit's: one height there, nothing dimmed above)
+            open(tag)
+            let f = app.otherElements["palette-sheet"].firstMatch.frame
+            let w = app.windows.firstMatch.frame
+            if f.minY - w.minY > 120 {
+                app.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: f.midX - w.minX, dy: max(60, f.minY - w.minY - 40))).tap()
+                closedInTheCore("a tap above it (\(tag))")
+            } else {
+                print("B134: \(tag): the sheet takes the whole height (top \(f.minY - w.minY) of \(w.height)): no graph above it to tap")
+            }
+            // 3. Cancel, in the sheet's bar
+            if (palette()["shown"] as? Bool) != true { open(tag) }
+            let cancel = app.buttons["palette-cancel"]
+            XCTAssertTrue(cancel.waitForExistence(timeout: 5), "the palette's Cancel (\(tag))")
+            if cancel.exists { cancel.tap() }
+            closedInTheCore("Cancel (\(tag))")
+            shot("b134-ui-palette-closed-\(tag)")
+        }
+        XCUIDevice.shared.orientation = .portrait
+    }
+
     /// B133 on the iPad and iPhone, with the test engine (PLUMCRAFT_PORTS_ENGINES; skipped
     /// without it): Read Text File's path row draws a Browse button at its right end; a tap on it
     /// is the core's row.browse, and the document picker opens for a copy (purpose `path`), then
