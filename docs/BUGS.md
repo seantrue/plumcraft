@@ -275,6 +275,17 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B147. iPad: the app starts in a folder it cannot write to
+
+- Reported: 2026-11-23
+- Report: "iPad started In unwritable folder. Files / Plummer seems a better starting place"
+- Context: the same hand use as B146, the first launch of the build from `ea051db`.
+- Fix (the maintainer's suggestion): start in the app's own folder, the one the Files app shows as Plummer.
+- Detail (the maintainer, 2026-11-23): asked what showed the folder could not be written to, "failed save"; asked whether this was Plummer (not the application built on it), "yes".
+- Found (2026-11-23, the iPad simulator, a fresh install each time): the first launch opens Showcase from the app's own folder, and the document browser it goes back to opens in that folder too (Plummer: Samples and New Graph). But the browser's New Graph makes the graph wherever the browser stands. Pressed with the browser in On My iPad (reached from its sidebar), the dev branch's app made `Untitled.json` in On My iPad's own storage, outside the app's container (`…/File Provider Storage/Untitled.json`), and opened it there in place. A failure to make it was only written to the log (`failedToImportDocumentAt`), never shown. On the simulator the save to that outside place worked: the "failed save" itself is the device's and was not reproduced (a place the app may not write beside the file, such as On My iPad's top folder or another provider's, or a start folder remembered from an earlier install's container)
+- Fixed: 2026-11-23, branch `fix/b147-ipad-start-folder`, the iPad and iPhone app (PlumCraftPad), as the maintainer suggested. New Graph always makes the graph in the app's own folder (Documents, which the Files app shows as Plummer; "Untitled.json", then "Untitled 2.json" and on), wherever the browser stands, and opens it there. The browser shows the app's folder when the app starts. A new graph that can't be made, and a save that fails, now tell the person why and where ("Couldn't make a new graph — In Plummer (this app's folder in Files): …"; "Couldn't save Untitled in Plummer: …"). A file ask's remembered start folder that no longer exists falls back to the app's folder. Named test `testANewGraphIsMadeAndSavedInTheAppsFolder` (`PlumCraftPad/UITests/FirstLaunchTests.swift`, run from a fresh install by `claude-debug/n4-decided-2/fresh.sh`): first launch, the browser, On My iPad, New Graph, a node added, and the saved file in the app's Documents holds it; it failed on the dev branch (the graph made outside the app's folder) and passes with the fix. Report: `claude-debug/b147-ipad-start-folder.md`. Not checked: a device (the failed save itself); New Graph stays the system browser's own button, answered by the shell, as it was
+- Issue: none
+
 ### B133. iPad and iPhone: a path input offers no system file browser
 
 - Reported: 2026-11-23
