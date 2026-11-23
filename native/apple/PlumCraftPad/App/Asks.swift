@@ -171,7 +171,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             })
             present(alert, for: a)
         case .prompt?:
-            let alert = UIAlertController(title: p["title"].string ?? "Plummer", message: p["text"].string, preferredStyle: .alert)
+            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: p["text"].string, preferredStyle: .alert)
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers.isEmpty ? ["ok"] : answers {
                 let style: UIAlertAction.Style = ans == "cancel" ? .cancel : ans == "discard" ? .destructive : .default
@@ -187,7 +187,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             let intro = p["intro"].string ?? p["hint"].string ?? p["label"].string
             // a refused answer's reason, with what it is about
             let message = p["error"].string.map { e in intro.map { "\($0)\n\n\(e)" } ?? e } ?? intro
-            let alert = UIAlertController(title: p["title"].string ?? "Plummer", message: message, preferredStyle: .alert)
+            let alert = UIAlertController(title: p["title"].string ?? AppID.name, message: message, preferredStyle: .alert)
             var keys: [String] = []
             if a.kind.word == .text {
                 keys = ["text"]

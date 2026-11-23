@@ -20,11 +20,15 @@
 //! Every entry catches unwinds. Every pointer from the caller is checked for null; lengths are
 //! believed (C cannot do better), and the bytes behind them are hostile input.
 //!
+//! An application with engines of its own compiles them in through [`app::register`], from a
+//! library of its own around this one, before the first `plum_open`.
+//!
 //! This crate is golden rule 2's second exception: `unsafe` here, and only here, each block
 //! with a `SAFETY:` comment (enforced by `clippy::undocumented_unsafe_blocks`).
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
+pub mod app;
 pub mod core;
 #[cfg(feature = "jni")]
 pub mod jni;
@@ -167,6 +171,8 @@ pub unsafe extern "C" fn plum_open(config_json: *const u8, len: usize, wake: Opt
             0
         },
         || {
+            // an application's engines are registered before this (app::register), never after
+            app::opening();
             let opened = Config::parse(config).and_then(|c| Core::open(&c, wake, ctx));
             match opened {
                 Ok(c) => {

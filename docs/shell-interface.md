@@ -218,6 +218,28 @@ Autosave on iOS and Android (decision 7) is a document option, `document.open {a
 - **The feed:** the `document` domain carries `autosave: {on, state, error?, saves, failures}`; `state` is `off`, `clean`, `pending`, `untitled`, `saving`, `saved` or `failed`.
 - **Untitled documents on the iPad** live where the document browser creates them: its + makes `Untitled.json` in the folder the browser shows (On My iPad › PlumCraft by default), named uniquely by the system; every graph the iPad shows has a file.
 
+### 4.5 An application's own engines
+
+An application with an engine of its own (an engine pack's, compiled in) runs it in the native shells' process as the egui editor's `AppConfig.packs` and `AppConfig.openers` do there, with no change to the shells but where they find the library:
+
+- **Its library.** The application builds a static library of its own around `plumcraft-ffi` (a crate that depends on it and on the engine): every `plum_*` entry is there, unchanged, plus one entry of the application's own that registers its engines and file openers through the Rust API, before the first `plum_open`:
+
+  ```rust
+  // plumcraft_ffi::app
+  pub use plumcraft_editor_core::engines::PackEngine;   // id, label, engine: fn() -> Result<Engine, String>, demo, worker
+  pub use plumcraft_session::file_cmds::FileOpener;      // extensions, label, read: fn(&Path) -> Result<String, String>
+  #[derive(Debug, Clone, Default)]
+  pub struct App { pub packs: Vec<PackEngine>, pub openers: Vec<FileOpener> }
+  pub fn register(app: App) -> Result<(), String>;
+  pub fn registered() -> Vec<String>;                    // the registered engines' ids, in order
+  ```
+
+  `register` is once per process and refused, with why, after a core has opened (a core reads the engines as it opens), for a pack with `worker: true` (a native shell's process starts no copy of itself: an application's engine is hosted in process), for an id that is empty, not a plain name, or already an engine's (`text`, `array`, `audio`, a craft's, another of the application's), and for an extension already taken (a workflow's `json` or `zip`, or another opener's). Nothing is registered when anything is refused. The C ABI is unchanged (no entry, no version change): the registration is Rust's, and the application's entry is its own.
+- **Registered,** an engine is offered in process (`engine.list`'s `choices`, the Engine menu), on every platform whatever its `platform` says (it starts no program); `engines.default` may name it; its node kinds are known before it starts, so a document opens on it and the palette lists its kinds (`engines.auto`); and its openers open their files as workflows (`graph.open`, File › Open).
+- **The Apple kit.** `native/apple/PlumCraftFFI/Package.swift` links the xcframework `PLUMCRAFT_FFI_XCFRAMEWORK` names (a path relative to the package; SwiftPM takes no absolute one), else `PlumCraftFFI.xcframework`. The module map links the library as `plumcraft_ffi`, so the application's is named so in its xcframework. Before `ShellCore.open` opens the core it calls `register()` on the app's class named `PlumAppLibrary` (`@objc(PlumAppLibrary)`, conforming to `PlumCraftShell.AppLibrary`) when the app has one; that calls the application's entry. PlumCraft's own apps have none. The iPad app's name in `app.name` (About) is its bundle's display name.
+- **Not yet:** Android's and Windows' kits take only PlumCraft's own library. An application's pack types and value editors are its engine's catalogue and the core's generic views; an application's own Swift editors are its own target's.
+- **Tests:** `crates/ffi/tests/app_engines.rs` registers the public test engine (`crates/ports`) and a file opener, checks each refusal, opens a core on a platform that starts no programs with the test engine as `engines.default`, finds it offered in process, opens a file through the opener, and runs its graph to the engine's result.
+
 ## 5. Bindings
 
 ### 5.1 In-process Rust

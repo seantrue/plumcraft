@@ -3,7 +3,7 @@
 //
 // Targets, bottom up:
 // - PlumCraftFFI: the core as a static library in an xcframework, built from crates/ffi by
-//   native/apple/build-xcframework.sh (not committed).
+//   native/apple/build-xcframework.sh (not committed), or an application's own (`ffi` below).
 // - PlumCraftModels: pure Swift, no FFI. JSON values, a decoder over them, and the Codable types
 //   of the contract (docs/shell-interface.md): the scene and its deltas, theme, menus, asks,
 //   watched values, palette items, hits, gestures, the feed.
@@ -26,6 +26,12 @@ import PackageDescription
 
 let strict: [SwiftSetting] = [.swiftLanguageMode(.v6)]
 
+// The core's library: PlumCraft's own (../build-xcframework.sh), or an application's built around
+// it with engines of its own compiled in (docs/shell-interface.md 4.5), named by
+// PLUMCRAFT_FFI_XCFRAMEWORK, a path relative to this package (SwiftPM takes no absolute one). Its
+// library is linked as `plumcraft_ffi` (the module map's), so the application's is named so too.
+let ffi = Context.environment["PLUMCRAFT_FFI_XCFRAMEWORK"].flatMap { $0.isEmpty ? nil : $0 } ?? "PlumCraftFFI.xcframework"
+
 let package = Package(
     name: "PlumCraftFFI",
     platforms: [.iOS(.v18), .macOS(.v15)],
@@ -38,7 +44,7 @@ let package = Package(
         .executable(name: "plumcraft-conformance", targets: ["plumcraft-conformance"]),
     ],
     targets: [
-        .binaryTarget(name: "PlumCraftFFI", path: "PlumCraftFFI.xcframework"),
+        .binaryTarget(name: "PlumCraftFFI", path: ffi),
         .target(name: "PlumCraftModels", swiftSettings: strict),
         .target(
             name: "PlumCraft",

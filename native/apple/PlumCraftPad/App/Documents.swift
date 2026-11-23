@@ -211,7 +211,7 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         StatusElement.shared.install(in: ws)
         #endif
         if let why = CoreHost.openError {
-            let a = UIAlertController(title: "Plummer couldn't start its core", message: why, preferredStyle: .alert)
+            let a = UIAlertController(title: "\(AppID.name) couldn't start its core", message: why, preferredStyle: .alert)
             b.present(a, animated: false)
             return
         }
