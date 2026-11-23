@@ -407,6 +407,10 @@ final class BackgroundTask: @unchecked Sendable {
 /// the ids derived from it (activity types, menu identifiers, log subsystems) follow it.
 enum AppID {
     static let bundle = Bundle.main.bundleIdentifier ?? "com.swapwizard.plummer.pad"
+    /// The app's name, as its bundle says it (an app built on these sources around a library of
+    /// its own has its own; docs/shell-interface.md 4.5).
+    static let name = (Bundle.main.object(forInfoDictionaryKey: "CFBundleDisplayName") as? String)
+        ?? (Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? "Plummer"
 }
 
 /// The process's one core.
@@ -430,7 +434,7 @@ enum CoreHost {
     static func flushForBackground() {
         guard let core else { return }
         let box = BackgroundTask()
-        box.id = UIApplication.shared.beginBackgroundTask(withName: "Plummer autosave") {
+        box.id = UIApplication.shared.beginBackgroundTask(withName: "\(AppID.name) autosave") {
             // the system's time ran out: give it back (called on the main thread)
             MainActor.assumeIsolated { UIApplication.shared.endBackgroundTask(box.id) }
         }
@@ -465,7 +469,7 @@ enum CoreHost {
         setenv("PLUMCRAFT_EDITOR_PREFS", d.prefs.appendingPathComponent("prefs.json").path, 1)
         setenv("COMMONKIT_HASH", "b3", 0)
         setenv("COMMONKIT_STORE_MIN_FREE_GB", "2", 0)
-        var config = ShellConfig(appID: AppID.bundle, appName: "Plummer", version: ShellConfig.bundleVersion, storeRoot: store)
+        var config = ShellConfig(appID: AppID.bundle, appName: AppID.name, version: ShellConfig.bundleVersion, storeRoot: store)
         config.dirs = ["documents": d.documents.path, "caches": d.caches.path, "scratch": d.scratch.path, "prefs": d.prefs.path, "logs": d.logs.path]
         // contract 4.2: no programs, no craft apps, no Python; in-process engines only
         config.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false, "multi_window": true,
@@ -510,7 +514,7 @@ enum CoreHost {
                     if let b = info["bind"].string { say("info", "control port on \(b):\(info["port"].uint64 ?? 0)") }
                 }
             }
-            say("info", "Plummer started: store \(store), engines \(([options.engine] + options.also).joined(separator: ", "))")
+            say("info", "\(AppID.name) started: store \(store), engines \(([options.engine] + options.also).joined(separator: ", "))")
         } catch {
             openError = "\(error)"
             logger.error("couldn't start the core: \(error, privacy: .public)")

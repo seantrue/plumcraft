@@ -7,6 +7,10 @@
  *
  * Strings and JSON are UTF-8, passed as (pointer, length), never NUL-terminated.
  * Buffers the library returns are freed with plum_free, once.
+ *
+ * An application with engines of its own links a library of its own built around this one: every
+ * function here, plus an entry of the application's that registers its engines (Rust:
+ * plumcraft_ffi::app::register), called before the first plum_open (docs/shell-interface.md 4.5).
  */
 #ifndef PLUMCRAFT_H
 #define PLUMCRAFT_H

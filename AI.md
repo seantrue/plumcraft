@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — An application can register its own compiled-in engines (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** A build of the native app with an engine of an application's own compiled in, able to run on an iPad with no connection to anything else. They settled the shape on the checklist page: a separate app built outside this repo around this shell, started beside the bug fixes in progress.
+
+**What the AI did.** `plumcraft_ffi::app` (`crates/ffi/src/app.rs`, new): `register(App { packs, openers })`, called once before the first core opens, refusing a worker engine, a taken or malformed id, a taken file extension, a second call, and a call after a core is open; a refused call registers nothing. No new C entry and no ABI change: an application's own library wraps this crate and exports its own entry. The Swift shell calls an `AppLibrary` class if the app has one, the Apple package can be built around a library supplied from outside, and the iPad app takes its displayed name from its bundle. `docs/shell-interface.md` gains section 4.5. A test registers the public test engine as the application's engine. This repo names no engine.
+
+**Controller's part.** Planned the work from a read-only scoping pass and looked at the simulator screenshot of the result. The scoping brief pointed at a checkout that does not exist on this machine; the maintainer corrected it.
+
+**Verified (agent).** nextest 1,647 of 1,648 (the known baseline failure); clippy and fmt clean; `swift test` 28 of 28; the Mac app's scripted gate 66 of 66 cases; the iPad app on the simulator 59 of 59 with 7 skipped by design. **Not verified:** the Mac person check's accessibility steps (the screen was locked); anything on a device; Windows and Android cannot load an application's library yet.
+
+**Defect in the agent's own first run.** A stale Swift module cache from an earlier build against another checkout's header failed the Mac gate once; rebuilt, no code change.
+
 ### 2026-11-22 — A typed value lost when focus moved (B129); the narrow bar at the maintainer's text size (B130); B111 narrowed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer did.** Ran the iPad once more: the eight UI tests passed on the device in 181 s with no stalled waits, where the evening's earlier runs took twenty minutes. Answered "1,2 yes. I have text size in appearance/text size 1 slide position larger": accept Run inside the More menu in a narrow window at a large text size, and look into B129.

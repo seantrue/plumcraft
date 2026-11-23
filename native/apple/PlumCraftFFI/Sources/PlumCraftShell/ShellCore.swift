@@ -84,11 +84,26 @@ public struct ShellConfig: Sendable {
     }
 }
 
+/// An application built around a library of its own, with engines of its own compiled in beside
+/// PlumCraft's (docs/shell-interface.md 4.5), registers them before the core opens: its app has a
+/// class named `PlumAppLibrary` (`@objc(PlumAppLibrary)`, an NSObject) conforming to this, whose
+/// `register()` calls its library's own entry, which calls `plumcraft_ffi::app::register`.
+/// PlumCraft's own apps have none, and nothing is registered.
+public protocol AppLibrary: AnyObject {
+    /// Register the application's engines and file openers; throws with why it couldn't.
+    static func register() throws
+}
+
 /// The process's one core, opened at launch.
 public enum ShellCore {
-    /// Open the core on `config`. The returned task finishes once the core's own first document
-    /// is closed (windows open theirs after it), with the control port when one is open.
+    /// The application's own library's registration (`AppLibrary`), when it has one.
+    public static var appLibrary: (any AppLibrary.Type)? { NSClassFromString("PlumAppLibrary") as? any AppLibrary.Type }
+
+    /// Open the core on `config`, after registering the application's own engines (`AppLibrary`).
+    /// The returned task finishes once the core's own first document is closed (windows open
+    /// theirs after it), with the control port when one is open.
     public static func open(_ config: ShellConfig) throws -> (PlumCore, Task<UInt64?, Never>) {
+        try appLibrary?.register()
         let c = try PlumCore(config: config.json)
         let ready = Task { () -> UInt64? in
             if let list = try? await c.request("document.list"), let docs = list["docs"].array {
