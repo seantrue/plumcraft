@@ -1288,3 +1288,12 @@ The answer line, verbatim: "Decisions: 1B; 2A; 3A; 4A; 5A; 6A; 7A; 8B". Cards 1 
 |---|---|---|
 | 7 | The two iPad UI tests that failed at one step larger text in a 375 by 655 window (`testAWarnedEngineIsMarkedInTheMenu`, `testTheSavesQuestionAndARecipe`): A fix them; B leave them, as tests a device run skips | 7A: fix them |
 | 8 | The fixed 300 ms settle before each action (`PLUMCRAFT_SETTLE_MS`): A keep it; B replace it with waits on the app's own state (presented or presenting, the keyboard's frame settled, a menu open), each with a limit | 8B: waits on the app's state |
+
+#### Photos as a source for a path (the maintainer, 2026-11-23)
+
+The answer line, verbatim: "Decisions: 1A "Have the paint mask take a mask input as well"; 2A; 3A; 4A; 5B "Commonkit?"; 6A; 7A; 8A; 9A; 10A; 11A; 12A". Cards 1 to 10 are recorded where they were asked. The two recorded here (branch `feat/path-photos`):
+
+| # | Question | Answer |
+|---|---|---|
+| 11 | Photos as a source for a path that takes pictures: A the shell's business only (the core asks for a file and never knows the source; the iPad and iPhone ask "Photos or Files" while answering the one ask); B the core says in the ask that Photos is offered (`sources`) and an answer says which gave it (`source`), a capability | 11A: the shell's business only; B declined |
+| 12 | Launching it: A add a node to the test engine whose path takes pictures only, and update the conformance counts it moves; B leave it to a hand check on a device | 12A: add the node |

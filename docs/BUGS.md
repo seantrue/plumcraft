@@ -34,27 +34,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Proposed: no current-directory fallback where the current directory is `/` (keep the path as chosen), or the shell names a base folder (the app's Documents) in the core's config
 - Issue: none
 
-### B133. iPad and iPhone: a path input offers no system file browser
-
-- Reported: 2026-11-23
-- Report: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX"
-- Context: the maintainer's first hand use of the release build of Plummer 0.7.0 installed on their iPad and iPhone (from the dev branch at `2c3de06`). A path input on a node's face is edited as plain text there. Floor row F16 (path hints) already says "Partly", for want of a Browse button, on the Mac and the iPad.
-- Open question: on iPadOS an app reaches a file outside its container only through the document picker, which hands back a security-scoped URL, not a path an engine can open later. Should Browse copy the picked file into the app's folder and use that path, or keep a bookmark to the original?
-- Open question: Mac and Windows too (the same row, with the system's open panel), or the iPad and iPhone first?
-- Decided: 2026-11-23, the maintainer, on the two questions (the controller recommending "start with copying" and "all three together, since the button belongs in the core, with each shell supplying its own picker"): "Yes, fix b133 on all systems." The copy-or-bookmark question was not answered separately: copying is built, and stays an open decision
-- Built (branch `fix/b133-path-browse`): the Browse button is the core's. A path row that can be edited (its widget has `pathMode`) has it at the right end of its field, a square the row's height (`geometry::browse_rect`), which every shell draws; a tap there is the core's gesture `row.browse {node, port}` (a command, invoked like Save Result…: `ui.invoke`, `command.run` and the gesture all ask), which closes any open field editor without its text and raises the core's existing path ask (`file.open`, `file.save` or `folder.pick`, purpose `path`, the hint's filters as `kinds`); the answer is set as typing sets it (one undo step). The Mac answers with its open or save panel (the real path). The iPad and iPhone copy a picked file into Documents › Picked Files (the Files app's On My iPad › Plummer › Picked Files) and answer with the copy's path: kept by its own name, the same bytes again reuse that copy, another file of the same name is numbered ("notes 2.txt"), earlier copies are left alone; a folder (`dir`) is opened in place with access for the graph's life, as before (not lasting across a relaunch); a may-be-new path (`save`) is the existing alert naming a file in the graph's folder (or Documents). The field editor on a path row stops short of the button, so it can be tapped while the text is edited. egui keeps its own "…" button, which calls the same core `browse`. Windows: its half to come on the same branch
-- Built for Windows (2026-11-23, branch `fix/b133-windows-browse`):
-  - **The button:** the path row draws Browse in the core's square (`PathBrowse.Square`, as `geometry::browse_rect`). UI Automation sees it as a "Browse" button, and the tap is the core's gesture.
-  - **The dialog:** the path asks (purpose `path` and `files`) are answered with the system's common file dialog (`PathDialogs`):
-    - it opens in the current value's folder, else in `startIn`;
-    - it has the hint's kinds as filters;
-    - it gives back real paths, so nothing is copied.
-  - **The field editor** stops short of the square.
-  - **Browse with the field open** closes the field without its text: the focus loss the press causes commits nothing over Browse.
-  - **Checked by:** person check step 20 (the dialog read through UI Automation and cancelled, pictured); the conformance case on ARM64 and x64; `PathBrowseTests`.
-- Remaining after Windows: the iPad's Photos source (another agent's).
-- Issue: none
-
 ### B132. `plumcraft-text::conformance mode2_process::off_the_run_path` failed once on the Linux test host
 
 - Reported: 2026-11-22, the controller
@@ -286,6 +265,29 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B133. iPad and iPhone: a path input offers no system file browser
+
+- Reported: 2026-11-23
+- Report: "Widget for path doesnt provide a system dialog for file browsing. Guessing paths on the iPad is not good UX"
+- Context: the maintainer's first hand use of the release build of Plummer 0.7.0 installed on their iPad and iPhone (from the dev branch at `2c3de06`). A path input on a node's face is edited as plain text there. Floor row F16 (path hints) already says "Partly", for want of a Browse button, on the Mac and the iPad.
+- Open question: on iPadOS an app reaches a file outside its container only through the document picker, which hands back a security-scoped URL, not a path an engine can open later. Should Browse copy the picked file into the app's folder and use that path, or keep a bookmark to the original?
+- Open question: Mac and Windows too (the same row, with the system's open panel), or the iPad and iPhone first?
+- Decided: 2026-11-23, the maintainer, on the two questions (the controller recommending "start with copying" and "all three together, since the button belongs in the core, with each shell supplying its own picker"): "Yes, fix b133 on all systems." The copy-or-bookmark question was not answered separately: copying is built, and stays an open decision
+- Built (branch `fix/b133-path-browse`): the Browse button is the core's. A path row that can be edited (its widget has `pathMode`) has it at the right end of its field, a square the row's height (`geometry::browse_rect`), which every shell draws; a tap there is the core's gesture `row.browse {node, port}` (a command, invoked like Save Result…: `ui.invoke`, `command.run` and the gesture all ask), which closes any open field editor without its text and raises the core's existing path ask (`file.open`, `file.save` or `folder.pick`, purpose `path`, the hint's filters as `kinds`); the answer is set as typing sets it (one undo step). The Mac answers with its open or save panel (the real path). The iPad and iPhone copy a picked file into Documents › Picked Files (the Files app's On My iPad › Plummer › Picked Files) and answer with the copy's path: kept by its own name, the same bytes again reuse that copy, another file of the same name is numbered ("notes 2.txt"), earlier copies are left alone; a folder (`dir`) is opened in place with access for the graph's life, as before (not lasting across a relaunch); a may-be-new path (`save`) is the existing alert naming a file in the graph's folder (or Documents). The field editor on a path row stops short of the button, so it can be tapped while the text is edited. egui keeps its own "…" button, which calls the same core `browse`. Windows: its half to come on the same branch
+- Built (branch `feat/path-photos`, 2026-11-23, for an application's picture inputs): on the iPad and iPhone a path that takes pictures only offers Photos as well as Files (an action sheet, then the photo library's picker); the photo is kept in Picked Files as it is, or converted to the PNG or JPEG the path takes, and its copy's path is the answer. No core command: the choice is part of answering the one `file.open` ask (`docs/shell-interface.md` 11.3, with the alternative of a `sources` field in the ask, for the maintainer). Decided 11A and 12A (2026-11-23): the shell's business only; launched by the test engine's `ports.picture` (a path that takes PNG and JPEG only) in `PhotosTests.swift` on the iPad simulator: Browse, the choice, Files (cancelled), Photos, a photo of the simulator's library picked, the node's path a copy in Picked Files that exists
+- Built for Windows (2026-11-23, branch `fix/b133-windows-browse`):
+  - **The button:** the path row draws Browse in the core's square (`PathBrowse.Square`, as `geometry::browse_rect`). UI Automation sees it as a "Browse" button, and the tap is the core's gesture.
+  - **The dialog:** the path asks (purpose `path` and `files`) are answered with the system's common file dialog (`PathDialogs`):
+    - it opens in the current value's folder, else in `startIn`;
+    - it has the hint's kinds as filters;
+    - it gives back real paths, so nothing is copied.
+  - **The field editor** stops short of the square.
+  - **Browse with the field open** closes the field without its text: the focus loss the press causes commits nothing over Browse.
+  - **Checked by:** person check step 20 (the dialog read through UI Automation and cancelled, pictured); the conformance case on ARM64 and x64; `PathBrowseTests`.
+- Remaining after Windows: the iPad's Photos source (another agent's).
+- Issue: none
+- Fixed: 2026-11-23, on every shell: the core and the Apple shells (#179), Windows (#182), Photos as a source on the iPad and iPhone (branch `feat/path-photos`). Photos is checked on the iPad simulator only; no device and no iPhone run has picked a photo.
 
 ### B145. Windows: a value of several lines showed and committed only its first line
 

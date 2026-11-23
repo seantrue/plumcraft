@@ -36,4 +36,34 @@ public enum PickedFiles {
         }
         return nil
     }
+
+    // MARK: Photos as a source (feat/path-photos)
+
+    /// The extensions of pictures the photo library can hand over (as themselves, or converted
+    /// to PNG or JPEG).
+    public static let pictureExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "gif", "tif", "tiff", "webp", "bmp"]
+
+    /// Whether a path ask's kinds are pictures only, so the photo library can answer it as well
+    /// as the files: every extension a picture's, and at least one.
+    public static func picturesOnly(_ extensions: [String]) -> Bool {
+        let e = extensions.map { $0.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: ".* ")) }
+        return !e.isEmpty && e.allSatisfy { pictureExtensions.contains($0) }
+    }
+
+    /// A photo's file name: the name the library suggests (its original file's stem, such as
+    /// IMG_0042), else the moment it was picked, with the extension of the form it is kept in.
+    public static func photoName(suggested: String?, ext: String, at date: Date = Date()) -> String {
+        let bad = CharacterSet(charactersIn: "/:\\\0")
+        let stem = (suggested ?? "").components(separatedBy: bad).joined(separator: "-").trimmingCharacters(in: .whitespaces)
+        let base: String
+        if stem.isEmpty {
+            let f = DateFormatter()
+            f.locale = Locale(identifier: "en_US_POSIX")
+            f.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"
+            base = "Photo \(f.string(from: date))"
+        } else {
+            base = (stem as NSString).deletingPathExtension.isEmpty ? stem : (stem as NSString).deletingPathExtension
+        }
+        return ext.isEmpty ? base : "\(base).\(ext.lowercased())"
+    }
 }
