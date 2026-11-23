@@ -169,8 +169,13 @@ public struct ViewerBar: SwiftUI.View {
 /// (`viewer.recipe {copy: true}`, the core's clipboard ask).
 struct RecipeButton: SwiftUI.View {
     let popout: PopoutModel
-    @State private var shown = false
-    @State private var text: String?
+    /// What the popover shows, given with its presentation (B128: a popover adapted to a sheet in
+    /// compact width drew the text it had before the reply, "No recipe", when kept apart from it)
+    struct Shown: Identifiable {
+        let id = UUID()
+        let text: String?
+    }
+    @State private var shown: Shown?
 
     var body: some SwiftUI.View {
         Button {
@@ -178,24 +183,26 @@ struct RecipeButton: SwiftUI.View {
             Task {
                 let r = await p.command("viewer.recipe")
                 let recipe = r?["recipe"]
-                text = (recipe == nil || recipe?.isNull == true) ? nil : recipe.map { v in
+                let text: String? = (recipe == nil || recipe?.isNull == true) ? nil : recipe.map { v in
                     let o = try? JSONSerialization.jsonObject(with: v.serialized(), options: [.fragmentsAllowed])
                     let d = o.flatMap { try? JSONSerialization.data(withJSONObject: $0, options: [.prettyPrinted, .sortedKeys, .fragmentsAllowed]) }
                     return d.map { String(decoding: $0, as: UTF8.self) } ?? v.text
                 }
-                shown = true
-                StatusFile.shared.set("recipe", ["popout": .uint(p.id), "shown": true, "has": .bool(text != nil)])
+                shown = Shown(text: text)
+                // what the popover shows, for scripts (its first lines)
+                StatusFile.shared.set("recipe", ["popout": .uint(p.id), "shown": true, "has": .bool(text != nil),
+                                                 "text": .string(String((text ?? "").prefix(400)))])
             }
         } label: { Label("Recipe", systemImage: "list.bullet.rectangle") }
             .labelStyle(.iconOnly)
             .help("What made this value")
             .accessibilityIdentifier("viewer-recipe")
-            .popover(isPresented: $shown) {
+            .popover(item: $shown) { s in
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Text("Recipe").font(.headline)
                         Spacer()
-                        if text != nil {
+                        if s.text != nil {
                             Button("Copy") {
                                 let p = popout
                                 Task { await p.takeOut("viewer.recipe", ["copy": true]) }
@@ -203,7 +210,7 @@ struct RecipeButton: SwiftUI.View {
                             .accessibilityIdentifier("recipe-copy")
                         }
                     }
-                    if let text {
+                    if let text = s.text {
                         ScrollView {
                             Text(text).font(.caption.monospaced()).textSelection(.enabled)
                                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,6 +218,7 @@ struct RecipeButton: SwiftUI.View {
                         .accessibilityIdentifier("recipe-text")
                     } else {
                         Text("No recipe: the engine sent none for this value.").foregroundStyle(.secondary)
+                            .accessibilityIdentifier("recipe-none")
                     }
                 }
                 .padding(14)

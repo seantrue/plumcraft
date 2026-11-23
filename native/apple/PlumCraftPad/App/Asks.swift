@@ -175,7 +175,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             let answers = (p["answers"].array ?? []).compactMap(\.string)
             for ans in answers.isEmpty ? ["ok"] : answers {
                 let style: UIAlertAction.Style = ans == "cancel" ? .cancel : ans == "discard" ? .destructive : .default
-                alert.addAction(UIAlertAction(title: AskWords.buttonTitle(ans, kind: p["kind"].string), style: style) { [weak self] _ in
+                alert.addAction(UIAlertAction(title: AskWords.buttonTitle(ans, prompt: p), style: style) { [weak self] _ in
                     guard let self else { return }
                     self.done(a)
                     if answers.isEmpty { return self.cancel(a) }
@@ -306,7 +306,8 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
     /// Wait (on the core's `save`, at most 5 minutes, the save's own limit) for the save just
     /// asked for, then offer its files to the document picker to export. Nothing pending and no
     /// ask open for a few looks: the person cancelled the options.
-    private func exportWhenSaved(before: JSONValue) async {
+    private func exportWhenSaved(before first: JSONValue) async {
+        var before = first
         let deadline = Date().addingTimeInterval(300)
         var quiet = 0
         while Date() < deadline {
@@ -315,6 +316,13 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate {
             let save = s["save"]
             let last = save["last"]
             let pending = !save["pending"].isNull
+            // the engine asked instead of writing (the save's question, decision 2A): the core's
+            // prompt is up; its answer saves again (or nothing, cancelled), so that is the one to wait for
+            if !pending, s["prompt"]["kind"].string == "saveShape" {
+                before = last["request"]
+                quiet = 0
+                continue
+            }
             if !pending, last["request"] != before, !last["request"].isNull {
                 let paths = (last["paths"].array ?? []).compactMap(\.string).map { URL(fileURLWithPath: $0) }
                     .filter { FileManager.default.fileExists(atPath: $0.path) }

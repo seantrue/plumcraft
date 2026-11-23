@@ -697,6 +697,177 @@ def save_result(port):
     step("use:0")
 
 
+def open_graph(port, name, graph):
+    """Write `graph` to scratch, open it as the Finder would, use its window: its doc, or None."""
+    path = os.path.join(A.scratch, name)
+    with open(path, "w") as f:
+        json.dump(graph, f)
+    step(f"open:{path}")
+    mine = wait(lambda: [d for d in docs() if d["path"] and os.path.realpath(d["path"]) == os.path.realpath(path) and d["ready"]], 30, every=0.3)
+    if not mine:
+        return None
+    doc = mine[0]["doc"]
+    step(f"use:{next(i for i, d in enumerate(docs()) if d['doc'] == doc)}")
+    return doc
+
+
+def close_graph(port, doc, name):
+    port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, name)}}, doc=doc)
+    wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
+    step("menu-pick:File/Close")
+    wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
+    step("use:0")
+
+
+def ports_up(port, doc):
+    def up():
+        e = port.call("ui.inspect", {}, doc=doc).get("engine", {})
+        return any(x.get("id") == "ports" and (x.get("state") or {}).get("state") == "connected" for x in e.get("engines", []))
+    return wait(up, 60, every=0.5)
+
+
+TRACED_GRAPH = {
+    "version": 1,
+    "engines": ["ports"],
+    "nodes": {
+        "t": {"kind": "ports.traced", "pos": [0, 0], "engine": "ports", "values": {"seed": "corgi"}},
+        "r": {"kind": "ports.result", "pos": [420, 0], "engine": "ports"},
+    },
+    "wires": [{"from": {"node": "t", "port": "text"}, "to": {"node": "r", "port": "text"}}],
+}
+
+
+def recipe_step(port):
+    """F56: a value made by a lineage-tracking node (the test engine's Traced) pops out with a
+    Recipe button, pressed through accessibility, its popover saying what made it ("traced");
+    the Result node's value, which has none, pops out without one."""
+    doc = open_graph(port, "recipe-check.json", TRACED_GRAPH)
+    if not doc:
+        return say(False, "F56: the recipe graph opened", f"documents {docs()}")
+    up = ports_up(port, doc)
+    step("menu-pick:Run/Run")
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+
+    def win():
+        return next((w for w in status().get("windows", []) if w.get("doc") == doc), {})
+
+    def popped(node):
+        p = port.call("command.run", {"command": "view.popout", "params": {"node": node, "port": "text"}}, doc=doc)
+        return wait(lambda: next((x for x in (win().get("popouts") or []) if x.get("node") == node and x.get("visible")), None), 20, every=0.3), p
+    # a click on Traced's output pin pops its value out, as a person's
+    step("tap:out=t.0")
+    traced = wait(lambda: next((x for x in (win().get("popouts") or []) if x.get("node") == "t" and x.get("visible")), None), 20, every=0.3)
+    with_recipe = wait(lambda: next((x for x in (win().get("popouts") or []) if x.get("node") == "t" and x.get("hasRecipe")), None), 20, every=0.3)
+    shown = None
+    if console_locked():
+        ax_blind("F56: the Recipe button pressed through accessibility")
+    else:
+        pr = axrun("press", str(A.pid), "viewer-recipe", (traced or {}).get("title") or "")
+        shown = wait(lambda: (lambda r: r if r and r.get("shown") and r.get("popout") == (traced or {}).get("id") else None)(status().get("recipe")), 10, every=0.3)
+
+        # what the popover draws, read through accessibility (B128: the iPad's drew "No recipe")
+        def drawn():
+            els = [e for w in axrun("all", str(A.pid)).get("windows", []) for e in w.get("elements", [])]
+            words = [" ".join(str(e.get(k) or "") for k in ("value", "title", "description", "label")) for e in els]
+            hit = [w for w in words if '"traced"' in w or "No recipe" in w]
+            return hit or None
+        seen = wait(drawn, 10, every=0.5) or []
+        say(bool(up and traced and with_recipe and shown and shown.get("has") and "traced" in (shown.get("text") or "")
+                 and any('"traced"' in w for w in seen) and not any("No recipe" in w for w in seen)),
+            "F56: a lineage-tracking node's value pops out with a Recipe button; pressed, its popover shows what made the value",
+            f"engine up {bool(up)}; pop-out {(traced or {}).get('title')!r} hasRecipe {(with_recipe or {}).get('hasRecipe')}; press {pr}; "
+            f"the app says {((shown or {}).get('text') or '')[:120]!r}; accessibility reads {[w.strip()[:120] for w in seen][:3]}")
+    # the Result node has no output pin: its value popped out as View › Pop Out does (the command)
+    plain, _ = popped("r")
+    no = (plain or {}).get("hasRecipe")
+    pr2 = None if console_locked() else axrun("press", str(A.pid), "viewer-recipe", (plain or {}).get("title") or "")
+    say(bool(plain) and no is False and (pr2 is None or pr2.get("pressed") is not True),
+        "F56: the Result node's value (no lineage) pops out without a Recipe button",
+        f"pop-out {(plain or {}).get('title')!r} hasRecipe {no!r}; a press of viewer-recipe there: {pr2}")
+    close_graph(port, doc, "recipe-check-saved.json")
+
+
+STRIP_GRAPH = {
+    "version": 1,
+    "engines": ["ports"],
+    "nodes": {"s": {"kind": "ports.strip", "pos": [0, 0], "engine": "ports"}},
+    "wires": [],
+}
+
+
+def strip_step(port):
+    """Decisions 2A and 3A: Strip (a 4 by 1000 array) saved as PNG from its footer: the save
+    panel's ask answered by the script (PNG, a scratch path; the panel never pressed), the engine
+    asks back, the app's own prompt shows the core's three labelled buttons (read through
+    accessibility, pictured), "Save as NumPy (.npy)" pressed there writes a .npy; a second pass
+    presses "Save as PNG anyway" and writes a PNG."""
+    doc = open_graph(port, "strip-check.json", STRIP_GRAPH)
+    if not doc:
+        return say(False, "the strip graph opened", f"documents {docs()}")
+    up = ports_up(port, doc)
+    step("menu-pick:Run/Run")
+    port.call("ui.waitRun", {"timeout": 60}, doc=doc)
+
+    def face():
+        try:
+            return next((x for x in port.call("scene.get", {}, doc=doc).get("nodes", []) if x["id"] == "s"), {})
+        except RuntimeError:
+            return {}
+    offered = wait(lambda: (lambda f: f if any(x.get("kind") == "save" for x in f.get("footer", [])) else None)(face()), 30, every=0.3)
+    located = wait(lambda: port.call("geometry.locate", {"node": "s", "part": "save"}, doc=doc).get("at"), 20, every=0.3) if offered else None
+
+    def asks():
+        return port.call("ui.inspect", {}, doc=doc).get("asks", [])
+
+    folder = os.path.join(A.scratch, f"person-scratch-{os.urandom(4).hex()}")
+    os.makedirs(folder, exist_ok=True)
+    for answer, label, ext, magic in (("npy", "Save as NumPy (.npy)", ".npy", b"\x93NUMPY"), ("png", "Save as PNG anyway", ".png", b"\x89PNG")):
+        target = os.path.join(folder, f"strip-{answer}.png")
+        step("tap:save=s")
+        a = wait(lambda: next((x for x in asks() if x.get("kind") == "file.save"), None), 15, every=0.3)
+        if a:
+            port.call("ask.answer", {"ask": a["ask"], "answer": {"path": target}}, doc=doc)
+        # the app's own prompt (an alert sheet), the engine's question asked by the core
+        trail = []
+
+        def question():
+            d = step("sheet")
+            if not d.get("ok") or "SavePanel" in d["sheet"]["class"] or "OpenPanel" in d["sheet"]["class"]:
+                return None
+            texts = [c.get("text") for c in d["sheet"].get("controls", []) if c.get("kind") == "button"]
+            if label in texts:
+                return d
+            # the format's own options first (a form sheet of the app's): sent as they are
+            if "Save" in texts and texts not in trail:
+                trail.append(texts)
+                step("sheet-press:Save")
+            return None
+        prompt = wait(question, 30, every=0.3)
+        buttons = [c.get("text") for c in (prompt or {}).get("sheet", {}).get("controls", []) if c.get("kind") == "button"]
+        pic = step(f"sheet:{os.path.join(A.shots, f'save-shape-{answer}.png')}").get("picture") if prompt else None
+        seen = None
+        if prompt and not console_locked():
+            els = [e for s in axrun("sheet", str(A.pid)).get("sheets", []) for e in s.get("elements", [])]
+            seen = [e.get("title") or e.get("label") for e in els if e.get("role") == "AXButton"]
+        pressed = step(f"sheet-press:{label}") if prompt else {"ok": False}
+        written = os.path.splitext(target)[0] + ext
+        saved = wait(lambda: (lambda s: s if s.get("pending") is None and (s.get("last") or {}).get("ok") else None)(port.call("ui.inspect", {}, doc=doc).get("save", {})), 30, every=0.3)
+        head = open(written, "rb").read(8) if os.path.exists(written) else b""
+        want = ["Save as PNG anyway", "Save as NumPy (.npy)", "Cancel"]
+        say(bool(up and offered and located and a and prompt and pressed.get("ok") and saved and head.startswith(magic)
+                 and all(w in buttons for w in want) and (seen is None or all(w in seen for w in want))),
+            f"the save's question: Strip saved as PNG from its footer asks with the core's labelled buttons; \"{label}\" writes a {ext} file",
+            f"file ask {bool(a)}; prompt {(prompt or {}).get('sheet', {}).get('class')} buttons {buttons}"
+            + (f"; accessibility buttons {seen}" if seen is not None else "; accessibility: the screen is locked")
+            + f"; picture {pic}; pressed {pressed.get('ok')} {pressed.get('error') or ''}; saved {(saved or {}).get('last', {}).get('paths') if saved else None}; {os.path.basename(written)} starts {head[:6]!r}")
+        if step("sheet").get("ok"):
+            step("sheet-press:Cancel")
+            step("panel-cancel")
+        for x in asks():
+            port.call("ask.answer", {"ask": x["ask"], "cancel": True}, doc=doc)
+    close_graph(port, doc, "strip-check-saved.json")
+
+
 AUDIO_GRAPH = {
     "version": 1,
     "nodes": {
@@ -916,7 +1087,8 @@ def main():
             pressed = json.loads(pr).get("pressed") if pr else None
         except ValueError:
             pressed = None
-        say(now.get("hasRecipe") is False and pressed is not True and not status().get("recipe"),
+        # (a Recipe shown earlier, for the test engine's Traced, was another pop-out's)
+        say(now.get("hasRecipe") is False and pressed is not True and (status().get("recipe") or {}).get("popout") != now.get("id"),
             "the pop-out's bar offers no Recipe for a built-in engine's value (no lineage)",
             f"the app says hasRecipe {now.get('hasRecipe')!r}; a press of viewer-recipe through accessibility: {pr!r}; recipe shown {status().get('recipe')}")
 
@@ -925,6 +1097,11 @@ def main():
 
         # F19: Save Result from a result node's footer, on the test engine
         save_result(port)
+        if os.environ.get("PERSON_PORTS"):
+            # F56: Recipe present for a lineage-tracking node's value, absent for the Result's
+            recipe_step(port)
+            # the save's question (decisions 2A, 3A): the prompt's own labelled buttons
+            strip_step(port)
 
         # the audio engine compiled in, and its viewer
         audio_viewer(port)

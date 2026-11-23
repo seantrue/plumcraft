@@ -144,6 +144,12 @@ let testEnvironment: Void = {
         #expect(AskWords.buttonTitle("discard", kind: nil) == "Discard")
         #expect(AskWords.buttonTitle("save", kind: nil) == "Save")
         #expect(AskWords.buttonTitle("later", kind: nil) == "Later")
+        // the core's own words when it gives them (the saveShape prompt), else the platform's
+        let shape: JSONValue = ["kind": "saveShape", "answers": ["png", "npy", "cancel"],
+                                "labels": ["png": "Save as PNG anyway", "npy": "Save as NumPy (.npy)", "cancel": "Cancel"]]
+        #expect(AskWords.buttonTitle("png", prompt: shape) == "Save as PNG anyway")
+        #expect(AskWords.buttonTitle("npy", prompt: shape) == "Save as NumPy (.npy)")
+        #expect(AskWords.buttonTitle("discard", prompt: ["kind": "unsavedChanges"]) == "Don't Save")
         #expect(AskWords.extensions(["kinds": [["label": "W", "extensions": ["json", "zip"]]]]) == ["json", "zip"])
         #expect(AskWords.extensions(["kinds": [["label": "Any", "extensions": ["*"]]]]) == [])
         #expect(AskWords.extensions(.null) == [])
