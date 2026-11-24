@@ -11,7 +11,7 @@
 //! Every action is a session command (plan 10.3, E1.3).
 //!
 //! ```text
-//! plumcraft-editor [WORKFLOW.json] [--engine text|audio|array|vectorcraft|ID] [--engine-manifest FILE]... [--inproc | --process | --python | --http [--python]]
+//! plumcraft-editor [WORKFLOW.plum] [--engine text|audio|array|vectorcraft|ID] [--engine-manifest FILE]... [--inproc | --process | --python | --http [--python]]
 //!                  [--screenshot OUT.png [--shot-runs N]] [--control PORT [--control-token-file PATH]]
 //! ```
 //!

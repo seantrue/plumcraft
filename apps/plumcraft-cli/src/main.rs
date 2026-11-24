@@ -1,7 +1,7 @@
 //! `plumcraft`: run a workflow on the text engine and watch what crosses the interface.
 //!
 //! ```text
-//! plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
+//! plumcraft run [WORKFLOW.plum] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
 //! plumcraft nodes [ENGINE]
 //! plumcraft conform --engine-manifest FILE [--modes process,http]
 //! plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT
@@ -55,7 +55,7 @@ fn main() -> ExitCode {
         Some("scan-store") => scan_store::main(&args[1..]),
         _ => {
             eprintln!(
-                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n       plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
+                "usage: plumcraft run [WORKFLOW.plum] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n       plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
             );
             ExitCode::from(2)
         }

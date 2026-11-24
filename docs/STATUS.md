@@ -4,6 +4,8 @@
 
 ## Where things stand
 
+- **FR2, graphs are `.plum` files (2026-11-24, branch `feat/fr2-plum-extension` from `feat/native-n0` at `487a40d`).** The maintainer: "build FR2". The default graph extension is `plum`, with `json` still accepted and kept for a graph opened as one; the rule is one module of the core (`graph_file.rs`, the command `graph.fileTypes`). The Mac, iPad and iPhone declare the type; the Mac has a document icon. Not done: Windows' file association. See `docs/FEATURES.md` FR2.
+
 - **B156, a wide group keeps its header on the Apple shells (2026-11-24, branch `fix/b156-group-header` from `feat/native-n0` at `487a40d`).** The maintainer: "fix B156". A group wider than 4,096 graph units drew no header, because the header was one picture the group's width and the picture maker has a size limit. The strip is now a plain layer and the name a small picture; the Group menu and the header's menu gain Collapse and Expand. See `docs/BUGS.md` B156.
 
 - **B154, data views: note 26 and slice 1 in progress (2026-11-24, branch `feat/b154-s1-view-modes`).** The maintainer: "build B154", after "Yes to all" on the seven decisions of `docs/research/26-data-views.md`. Slice 1 brings back the view modes and the per-channel histograms. Done: the core (`popout.get`'s `viewModes`, `viewMode` and `stats[].histogram`; the command `viewer.array`; a conformance case). Done since: the Apple shells (a View menu, histograms with a Log toggle, NaN counts), launched on the Mac's scripted copy and the iPad and iPhone simulators. Not done: the Windows shell, a device, a turn field for `angle`. F51 of note 24: met on the Apple shells in the simulator and on the Mac, not on Windows.

@@ -19,7 +19,8 @@
 //!
 //! Lifted from the research software's `crates/engine/src/bundle.rs` (`8480c03`). Beyond it: `files` values
 //! (several paths), links, duplicate names, depth, declared sizes, `../` paths, files copied
-//! rather than read whole, and a bundle whose folder has more than one `.json` at its top.
+//! rather than read whole, and a bundle whose folder has more than one graph file (`.plum` or
+//! `.json`, FR2) at its top.
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -230,11 +231,10 @@ fn fresh_folder(zip_path: &Path) -> Result<PathBuf> {
     Err(err(format!("no free folder name beside {}", zip_path.display())))
 }
 
-/// Is `name` a top-level `.json` that isn't another entry's sidecar?
+/// Is `name` a top-level graph file (`.plum` or `.json`) that isn't another entry's sidecar?
 fn is_workflow(name: &Path, names: &[PathBuf]) -> bool {
     let top = name.components().count() == 1;
-    let json = name.extension().is_some_and(|e| e.eq_ignore_ascii_case("json"));
-    top && json && !names.iter().any(|n| *n == name.with_extension(""))
+    top && crate::graph_file::is_graph_file(name) && !names.iter().any(|n| *n == name.with_extension(""))
 }
 
 /// Is this entry named from a root or a drive? `enclosed_name` drops the root and keeps the rest,
@@ -274,7 +274,7 @@ fn survey<R: Read + std::io::Seek>(zip: &mut zip::ZipArchive<R>, limits: Limits)
     match (first, workflows.as_slice()) {
         (Some(w), _) => Ok(w),
         (None, [one]) => Ok((*one).clone()),
-        (None, some) => Err(format!("expected one workflow (.json) at the top, found {}", some.len())),
+        (None, some) => Err(format!("expected one workflow (.plum or .json) at the top, found {}", some.len())),
     }
 }
 
@@ -452,5 +452,17 @@ mod tests {
         }
         let report = write_bundle(&g, &c, "c.json", None, &root.join("c.zip")).unwrap();
         assert_eq!(report.entries, ["c.json", "files/p.png", "files/p-2.png"]);
+    }
+
+    #[test]
+    fn a_plum_workflow_bundles_and_unpacks_as_a_json_one_does() {
+        let (root, g, flows) = setup();
+        let c = catalog();
+        let zip_path = root.join("p.zip");
+        let report = write_bundle(&g, &c, "p.plum", Some(&flows), &zip_path).unwrap();
+        assert_eq!(report.entries[0], "p.plum");
+        let wf = extract_bundle(&zip_path).unwrap();
+        assert_eq!(wf, root.join("p/p.plum"));
+        assert!(crate::file_cmds::read_workflow(&wf).is_ok(), "read by content");
     }
 }

@@ -76,8 +76,27 @@ targets:
         UISupportsDocumentBrowser: true
         LSSupportsOpeningDocumentsInPlace: true
         UIFileSharingEnabled: true
+        # a graph's file (FR2, docs/shell-interface.md 12.23): `.plum`, its own type, which the app
+        # owns; `.json` still opens and saves, as an alternate, so Plummer never claims every JSON
+        # file. The browser lists both. An application built on this shell declares the same type
+        # in its own Info.plist.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.swapwizard.plummer.graph
+            UTTypeDescription: Plummer Graph
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - plum
+              public.mime-type:
+                - application/x-plumcraft-graph
         CFBundleDocumentTypes:
           - CFBundleTypeName: Plummer Graph
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.swapwizard.plummer.graph
+          - CFBundleTypeName: Plummer Graph (JSON)
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:

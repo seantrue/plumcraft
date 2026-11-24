@@ -47,7 +47,7 @@ enum DocumentWindows {
         if let path, !path.isEmpty {
             let url = URL(fileURLWithPath: path)
             d.fileURL = url
-            d.fileType = "Plummer Graph"
+            d.fileType = GraphDocument.type(of: url)
             d.fileModificationDate = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate]) as? Date
             dc.noteNewRecentDocumentURL(url)
         }

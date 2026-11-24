@@ -16,6 +16,7 @@ import PlumCraftCanvas
 import PlumCraftKit
 import PlumCraftModels
 import PlumCraftShell
+import UniformTypeIdentifiers
 
 @objc(GraphDocument)
 final class GraphDocument: NSDocument {
@@ -48,7 +49,7 @@ final class GraphDocument: NSDocument {
         if let p = st.path, !p.isEmpty, fileURL?.standardizedFileURL.path != URL(fileURLWithPath: p).standardizedFileURL.path {
             let url = URL(fileURLWithPath: p)
             fileURL = url
-            fileType = "Plummer Graph"
+            fileType = Self.type(of: url)
             fileModificationDate = (try? FileManager.default.attributesOfItem(atPath: p)[.modificationDate]) as? Date
             NSDocumentController.shared.noteNewRecentDocumentURL(url)
             for wc in windowControllers { wc.synchronizeWindowTitleWithDocumentName() }
@@ -83,16 +84,40 @@ final class GraphDocument: NSDocument {
         }
     }
 
+    /// The document type of a graph's file at `url` (the Info.plist's, FR2): `.json` is the
+    /// alternate `public.json`; anything else is a graph of Plummer's own type.
+    static func type(of url: URL) -> String {
+        url.pathExtension.lowercased() == "json" ? "public.json" : GraphFiles.typeIdentifier
+    }
+
     /// The save panel, before it is shown: the folder and name the person check asked for
     /// (`panel-at:PATH`, the scripted copy only), so the panel (out of process) opens there.
     /// Setting them once it shows reached the app's own object but not the panel a person sees
     /// (the first run of the scripted copy saved into the panel's default folder).
     override func prepareSavePanel(_ panel: NSSavePanel) -> Bool {
+        offerGraphType(panel)
         if let u = PersonSteps.takePanelAt() {
             panel.directoryURL = u.deletingLastPathComponent()
             panel.nameFieldStringValue = u.lastPathComponent
         }
         return super.prepareSavePanel(panel)
+    }
+
+    /// FR2 (docs/shell-interface.md 12.23): Save As of a `.json` graph offers `.plum` first. The
+    /// panel's own format choice (`showsContentTypes`, which NSDocument turns on with more than
+    /// one type it can write) is set to the graph's own type, as a person's choice sets it, and
+    /// the name follows; `.json` stays on it. Save of the `.json` graph itself never shows a panel
+    /// and keeps its name. What the panel offers is in the status (`savePanel`).
+    private func offerGraphType(_ panel: NSSavePanel) {
+        let graph = GraphFiles.typeIdentifier
+        if fileType == "public.json", let t = panel.allowedContentTypes.first(where: { $0.identifier == graph }) {
+            panel.currentContentType = t
+            let stem = (panel.nameFieldStringValue as NSString).deletingPathExtension
+            panel.nameFieldStringValue = "\(stem).\(GraphFiles.current.defaultExtension)"
+        }
+        Status.shared.set("savePanel", ["name": .string(panel.nameFieldStringValue), "type": .string(panel.currentContentType?.identifier ?? ""),
+                                        "showsTypes": .bool(panel.showsContentTypes),
+                                        "formats": .array(panel.allowedContentTypes.map { .string($0.identifier) })])
     }
 
     /// Revert to Saved: the core opens the file again, dropping what changed.
@@ -124,7 +149,7 @@ final class DropView: NSView {
 
     func urls(_ s: NSDraggingInfo) -> [URL] {
         (s.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
-            .filter { $0.pathExtension.lowercased() == "json" }
+            .filter { GraphFiles.isGraph($0) }
     }
 
     override func draggingEntered(_ s: NSDraggingInfo) -> NSDragOperation { urls(s).isEmpty ? [] : .copy }

@@ -96,7 +96,7 @@ fn a_script_answers_the_file_ask_that_ui_invoke_raises() {
     assert_eq!(r["ok"], true, "{r}");
     let ask = r["result"]["asks"][0].clone();
     assert_eq!((ask["kind"].as_str(), ask["by"].as_str(), ask["params"]["purpose"].as_str()), (Some("file.save"), Some("script"), Some("workflow")), "{r}");
-    assert_eq!(ask["params"]["name"], "untitled.json");
+    assert_eq!(ask["params"]["name"], "untitled.plum", "FR2: a new graph is offered .plum");
     assert_eq!(answers.lock().unwrap().shown, 0, "the script answers, not the dialog");
     h.run_steps(3);
     h.get_by_label("Waiting for a script");
