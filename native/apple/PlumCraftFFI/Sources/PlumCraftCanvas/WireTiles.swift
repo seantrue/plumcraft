@@ -71,7 +71,7 @@ extension LayerCanvas {
 
     /// Whether a wire is drawn on a layer of its own rather than in the tiles.
     func isLive(_ nid: UInt64) -> Bool {
-        layersMode || nid == pickedWire || movingWires.contains(nid) || liveUntilPathed.contains(nid)
+        layersMode || nid == pickedWire || movingWires.contains(nid) || liveUntilPathed.contains(nid) || nid == dragRoute?.nid
     }
 
     func tileKeys(_ r: CGRect) -> [TileKey] {
@@ -95,15 +95,15 @@ extension LayerCanvas {
         dirtyTiles.formUnion(tileKeys(box))
     }
 
-    /// A wire's path and colour from the scene (a routed wire's bend points as rings; none for a
-    /// wire drawn through a net); the tiles it crosses, before and after, are drawn again.
+    /// A wire's path and colour from the scene (none for a wire drawn through a net); the tiles it crosses, before and after, are drawn again.
     func pathWire(_ w: Wire) {
         counts.wiresPathed += 1
         guard w.kind.word != .net, w.path.count >= 4 else {
             removeWire(w.nid)
             return
         }
-        let path = Self.chain(w.path.map { CGPoint(x: $0.x, y: $0.y) }, via: w.via.map { CGPoint(x: $0.x, y: $0.y) })
+        // its bend points' dots are drawn on their own layer, only when wanted (B158)
+        let path = Self.chain(w.path.map { CGPoint(x: $0.x, y: $0.y) })
         let b = path.boundingBoxOfPath
         if wireSwitches.contains(.shortOnly), b.width > 800 || b.height > 400 {
             removeWire(w.nid)
@@ -115,7 +115,12 @@ extension LayerCanvas {
         dirty(g.box)
         // a kept move's wires go back to the tiles once the scene has their new paths
         liveUntilPathed.remove(w.nid)
-        updateLive(w.nid)
+        if dragRoute?.nid == w.nid {
+            // bent by a drag under way: its layer keeps the drag's path
+            updateLive(w.nid, setPath: false)
+        } else {
+            updateLive(w.nid)
+        }
         if hoverWire == w.nid { showHoverWire() }
     }
 

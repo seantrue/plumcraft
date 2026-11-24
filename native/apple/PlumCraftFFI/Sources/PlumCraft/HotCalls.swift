@@ -265,6 +265,22 @@ extension PlumCore {
         HotDrag(plum_gesture_move(id, doc, x, y, slop))
     }
 
+    /// The wire a bend point's or route's drag is bending, with the pointer at `(x, y)` (B158,
+    /// `plum_drag_wire`): its path as it would be, then its bend points, two records by its nid.
+    /// Empty for any other drag.
+    public func dragWire(doc: UInt64 = 0, x: Float, y: Float, slop: Float, buffer: inout [Float]) -> WirePaths {
+        for _ in 0..<4 {
+            let cap = buffer.count
+            let need: Int = buffer.withUnsafeMutableBufferPointer { out in
+                plum_drag_wire(id, doc, x, y, slop, out.baseAddress, cap)
+            }
+            if need == 0 { return WirePaths(floats: []) }
+            if need <= cap { return WirePaths(floats: Array(buffer[0..<need])) }
+            buffer = [Float](repeating: 0, count: need + 64)
+        }
+        return WirePaths(floats: [])
+    }
+
     /// `plum_close` on a number, for tests of a core closed twice: PLUM_ERR_CORE, never a crash.
     public static func rawClose(_ core: UInt64) -> Int32 { plum_close(core) }
 }

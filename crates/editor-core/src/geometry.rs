@@ -1266,6 +1266,18 @@ impl Snapshot {
         out.len() - start
     }
 
+    /// Wire `nid`'s path as a wire of `kind` through `via` would be drawn, its faces where they
+    /// are: what the scene would hold once `wire.route` gave it those bend points (B158: a bend
+    /// drag's preview). None for a wire not in the scene or whose pins aren't measured.
+    pub fn chain_with(&self, nid: u64, kind: &str, via: &[[i32; 2]]) -> Option<Vec<Point>> {
+        let w = self.wires.iter().find(|w| w.nid == nid)?;
+        let from = tame(self.pin_point(w.from.0, true, w.from.1)?);
+        let to = tame(self.pin_point(w.to.0, false, w.to.1)?);
+        let rect = |face: usize| self.faces.get(face).map(|f| f.rect);
+        let ends = rect(w.from.0).zip(rect(w.to.0));
+        Some(wire_chain(kind, from, to, via, ends))
+    }
+
     /// Wire `k`'s chain with the ends on `moved` faces moved by `by`.
     fn moved_chain(&self, k: usize, moved: &HashSet<usize>, by: Point) -> Option<Vec<Point>> {
         let w = self.wires.get(k)?;

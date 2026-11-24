@@ -10,7 +10,9 @@ mod common;
 use std::time::{Duration, Instant};
 
 use common::{Client, store_root};
-use plumcraft_ffi::{PLUM_ERR_ARG, PLUM_ERR_CORE, PLUM_ERR_MISSING, PLUM_OK, PlumFace, plum_geometry_set, plum_hit_test, plum_wire_paths, plum_wire_target};
+use plumcraft_ffi::{
+    PLUM_ERR_ARG, PLUM_ERR_CORE, PLUM_ERR_MISSING, PLUM_OK, PlumFace, plum_drag_wire, plum_geometry_set, plum_hit_test, plum_wire_paths, plum_wire_target,
+};
 use serde_json::{Value, json};
 
 fn add(c: &mut Client, kind: &str, x: f64) -> String {
@@ -124,6 +126,62 @@ fn a_shell_measures_and_the_hot_calls_answer() {
     let fit = c.run("canvas.fit", json!({}));
     assert_eq!(fit["rect"], json!([-32.0, -32.0, 452.0, 112.0]), "{fit}");
     assert_eq!(c.call("scene.get", json!({}))["result"]["view"]["fit"]["seq"], fit["seq"]);
+    c.close();
+}
+
+/// B158: a bend point's drag gives the wire as it would be, typed (`plum_drag_wire`): its path,
+/// then its bend points, the same as `ui.gesture`'s move says in `update.wire`.
+#[test]
+fn a_bend_drag_gives_the_wire_as_it_would_be() {
+    let mut c = Client::open(&json!({"store_root": store_root("geometry-drag-wire")}));
+    let lit = add(&mut c, "text.literal", 0.0);
+    let up = add(&mut c, "text.upper", 300.0);
+    c.run("wire.connect", json!({"from": {"node": lit, "port": "text"}, "to": {"node": up, "port": "text"}}));
+    c.run("wire.route", json!({"to": {"node": up, "port": "text"}, "via": [[150, 400]]}));
+    let core = c.core;
+    // no drag yet: nothing
+    // SAFETY: a null out asks only for the size.
+    assert_eq!(unsafe { plum_drag_wire(core, 0, 150.0, 400.0, 4.0, std::ptr::null_mut(), 0) }, 0);
+    c.call("scene.get", json!({}));
+    until(&mut c, "the bend point is hit", || {
+        let h = plum_hit_test(core, 0, 150.0, 400.0, 2.0);
+        h.status == PLUM_OK && h.kind == 4
+    });
+    let b = c.call("ui.gesture", json!({"kind": "drag", "phase": "begin", "at": [150, 400], "slop": 4}))["result"].clone();
+    assert_eq!(b["drag"]["kind"], "bend", "{b}");
+    let m = c.call("ui.gesture", json!({"kind": "drag", "phase": "move", "at": [180, 420], "slop": 4}))["result"].clone();
+    let w = m["update"]["wire"].clone();
+    let path = w["path"].as_array().unwrap();
+    // SAFETY: a null out asks only for the size.
+    let need = unsafe { plum_drag_wire(core, 0, 180.0, 420.0, 4.0, std::ptr::null_mut(), 0) };
+    assert_eq!(need, 3 + 2 * path.len() + 3 + 2, "two records: the path, then one bend point");
+    let mut out = vec![0.0f32; need];
+    // SAFETY: out holds `need` floats.
+    assert_eq!(unsafe { plum_drag_wire(core, 0, 180.0, 420.0, 4.0, out.as_mut_ptr(), out.len()) }, need);
+    let nid = |k: usize| u64::from(out[k].to_bits()) | (u64::from(out[k + 1].to_bits()) << 32);
+    assert_eq!(nid(0), w["nid"].as_u64().unwrap());
+    assert_eq!(out[2].to_bits() as usize, path.len());
+    for (k, p) in path.iter().enumerate() {
+        // the JSON form rounds to thousandths
+        let (x, y) = (f64::from(out[3 + 2 * k]), f64::from(out[4 + 2 * k]));
+        assert!((x - p[0].as_f64().unwrap()).abs() < 1e-3 && (y - p[1].as_f64().unwrap()).abs() < 1e-3, "point {k}: {x}, {y} and {p}");
+    }
+    let v = 3 + 2 * path.len();
+    assert_eq!((nid(v), out[v + 2].to_bits(), out[v + 3], out[v + 4]), (w["nid"].as_u64().unwrap(), 1, 180.0, 420.0));
+    // too short: nothing written; a point that isn't a number: nothing
+    let mut short = vec![-1.0f32; need - 1];
+    // SAFETY: short holds need - 1 floats: too few, so nothing is written.
+    assert_eq!(unsafe { plum_drag_wire(core, 0, 180.0, 420.0, 4.0, short.as_mut_ptr(), short.len()) }, need);
+    assert!(short.iter().all(|v| *v == -1.0));
+    // SAFETY: as above.
+    unsafe {
+        assert_eq!(plum_drag_wire(core, 0, f32::NAN, 0.0, 4.0, std::ptr::null_mut(), 0), 0);
+        assert_eq!(plum_drag_wire(0, 0, 1.0, 1.0, 4.0, std::ptr::null_mut(), 0), 0);
+    }
+    c.call("ui.gesture", json!({"kind": "drag", "phase": "cancel"}));
+    // after the cancel: nothing
+    // SAFETY: as above.
+    assert_eq!(unsafe { plum_drag_wire(core, 0, 180.0, 420.0, 4.0, std::ptr::null_mut(), 0) }, 0);
     c.close();
 }
 
