@@ -305,6 +305,29 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         #expect(canvas.viewport == Viewport(pan: .zero, zoom: 1))
     }
 
+    /// B156: an open group's band (its chevron and name) draws whatever the group's width. One the
+    /// width of a large graph, past 4096 units, drew its body and no band.
+    @Test func anOpenGroupsBandDrawsAtAnyWidth() async throws {
+        let (core, model, canvas) = try await canvasOnCore("canvas-group-band")
+        defer { core.close() }
+        var ids: [JSONValue] = []
+        for x in [0.0, 300, 2600, 5200] { ids.append(.string(try await add(model, "text.literal", x, 0))) }
+        #expect(await settled(model, canvas, faces: 4))
+        // a small group, then one round everything (the width of the whole graph)
+        let small = try #require(try await model.run("group.create", ["nodes": .array(Array(ids.prefix(2))), "name": "small"])["id"].string)
+        let all = try #require(try await model.run("group.create", ["nodes": .array(Array(ids.suffix(2))), "groups": [.string(small)], "name": "all"])["id"].string)
+        func band(_ id: String) -> (width: CGFloat, text: Bool)? {
+            guard let g = model.groups.items.first(where: { $0.id == id }) else { return nil }
+            return canvas.groupBand(g.nid)
+        }
+        #expect(await until { canvas.idle && band(small) != nil && band(all) != nil })
+        let wide = try #require(band(all))
+        let rect = try #require(model.groups.items.first { $0.id == all }?.rect)
+        #expect(rect.width > 5000, "the whole graph's group: \(rect)")
+        #expect(wide.width == CGFloat(rect.width) && wide.text, "the band across the group, its name drawn: \(wide)")
+        #expect(band(small)?.text == true)
+    }
+
     @Test func netTagsAreWhereTheCoreHitsThem() async throws {
         let (core, model, canvas) = try await canvasOnCore("canvas-tags")
         defer { core.close() }

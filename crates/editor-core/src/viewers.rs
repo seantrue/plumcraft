@@ -109,8 +109,33 @@ fn cell_text(c: &Cell) -> String {
     }
 }
 
+/// The most bins of one histogram a shell is given (the engines send 256; the rest are summed
+/// into the last given, so the picture keeps its total).
+pub const MAX_HISTOGRAM_BINS: usize = 1024;
+
+/// A channel's histogram as a shell draws it (B154 slice 1): the counts, each bin's height from 0
+/// to 1 on the scale the state asks (`viewer.array {log}`: ln(1 + count)), the range as the core's
+/// number text, and the largest count. `None` for a histogram with nothing to draw.
+pub fn histogram_json(h: &plumcraft_proto::display::Histogram, log: bool) -> Option<Value> {
+    if h.counts.is_empty() {
+        return None;
+    }
+    let mut counts: Vec<u64> = h.counts.iter().take(MAX_HISTOGRAM_BINS).copied().collect();
+    let rest: u64 = h.counts.iter().skip(MAX_HISTOGRAM_BINS).fold(0u64, |a, n| a.saturating_add(*n));
+    if let Some(last) = counts.last_mut() {
+        *last = last.saturating_add(rest);
+    }
+    let scale = |n: u64| if log { (n as f64).ln_1p() } else { n as f64 };
+    let top = counts.iter().copied().max().unwrap_or(0);
+    let peak = scale(top);
+    let heights: Vec<Value> = counts.iter().map(|n| json!(if peak > 0.0 { (scale(*n) / peak * 1e4).round() / 1e4 } else { 0.0 })).collect();
+    let text = |x: Option<f64>| x.filter(|x| x.is_finite()).map(|x| number(x, false));
+    Some(json!({"bins": counts.len(), "lo": text(h.lo), "hi": text(h.hi), "top": top, "log": log, "counts": counts, "heights": heights}))
+}
+
 /// What a pop-out's viewer needs beyond `popout.get`'s value: the viewers offered, the list it is
-/// part of, the value's shape, its statistics, its pictures and waveform, and the viewer's state.
+/// part of, the value's shape, its statistics (each channel's range, NaN count and histogram), its
+/// pictures and waveform, and the viewer's state.
 pub fn popout_extra(d: Option<&Display>, state: &ViewerState) -> Map<String, Value> {
     let mut m = Map::new();
     m.insert("state".into(), state.json());
@@ -134,7 +159,13 @@ pub fn popout_extra(d: Option<&Display>, state: &ViewerState) -> Map<String, Val
             .channels
             .iter()
             .take(16)
-            .map(|c| json!({"name": c.name, "min": c.min.map(|x| number(x, false)), "max": c.max.map(|x| number(x, false)), "nan": c.nan}))
+            .map(|c| {
+                let mut o = json!({"name": c.name, "min": c.min.map(|x| number(x, false)), "max": c.max.map(|x| number(x, false)), "nan": c.nan});
+                if let Some(h) = c.histogram.as_ref().and_then(|h| histogram_json(h, state.log)) {
+                    o["histogram"] = h;
+                }
+                o
+            })
             .collect();
         m.insert("stats".into(), Value::Array(ch));
     }
@@ -553,6 +584,49 @@ mod tests {
         assert_eq!(page["cells"][0][1], "255");
         st.sort = Some(1);
         assert_eq!(until(|| table(&d, &m, &st))["cells"][0][1], "0", "sorted by count");
+    }
+
+    /// B154 slice 1: `popout.get`'s statistics carry each channel's NaN count and its histogram
+    /// (counts, heights on the state's scale, the range as the core's text); a hostile histogram
+    /// (no counts, too many bins, NaN or infinite range, huge counts) never breaks it.
+    #[test]
+    fn a_pop_outs_statistics_carry_each_channels_histogram() {
+        use plumcraft_proto::display::{ChannelStats, Histogram, Stats};
+        let h = |counts: Vec<u64>, lo: Option<f64>, hi: Option<f64>| Some(Histogram { bins: counts.len() as u32, lo, hi, counts });
+        let mut d = display(Media::Ndarray, None);
+        d.stats = Stats {
+            channels: vec![
+                ChannelStats { name: "L".into(), min: Some(0.0), max: Some(100.0), nan: 3, histogram: h(vec![0, 9, 99, 0], Some(0.0), Some(100.0)) },
+                ChannelStats { name: "a".into(), min: None, max: None, nan: 7, histogram: h(vec![], Some(0.0), Some(1.0)) },
+                ChannelStats { name: "b".into(), min: Some(-1.0), max: Some(1.0), nan: 0, histogram: h(vec![1; 5000], Some(f64::NAN), Some(f64::INFINITY)) },
+                ChannelStats { name: "c".into(), min: Some(0.0), max: Some(0.0), nan: 0, histogram: h(vec![u64::MAX, u64::MAX, 0], Some(0.0), Some(1.0)) },
+            ],
+            ..Default::default()
+        };
+        let mut st = ViewerState::default();
+        let x = popout_extra(Some(&d), &st);
+        let s = &x["stats"];
+        assert_eq!((s[0]["nan"].as_u64(), s[1]["nan"].as_u64()), (Some(3), Some(7)));
+        let l = &s[0]["histogram"];
+        assert_eq!(l["counts"], json!([0, 9, 99, 0]));
+        assert_eq!(
+            (l["bins"].as_u64(), l["top"].as_u64(), l["lo"].as_str(), l["hi"].as_str(), l["log"].as_bool()),
+            (Some(4), Some(99), Some("0"), Some("100"), Some(false))
+        );
+        assert_eq!(l["heights"][2], 1.0);
+        assert_eq!(l["heights"][1], json!(0.0909), "9 of 99, four decimals");
+        assert!(s[1].get("histogram").is_none(), "no counts, no histogram");
+        let b = &s[2]["histogram"];
+        assert_eq!(b["counts"].as_array().map(Vec::len), Some(MAX_HISTOGRAM_BINS), "bins past the most are summed into the last");
+        assert_eq!(b["counts"][MAX_HISTOGRAM_BINS - 1].as_u64(), Some(5000 - MAX_HISTOGRAM_BINS as u64 + 1));
+        assert_eq!((b["lo"].clone(), b["hi"].clone()), (Value::Null, Value::Null), "a range that isn't finite isn't given");
+        assert_eq!(s[3]["histogram"]["heights"], json!([1.0, 1.0, 0.0]), "the largest counts");
+        st.log = true;
+        let l = &popout_extra(Some(&d), &st)["stats"][0]["histogram"];
+        assert_eq!(l["log"], true);
+        let want = ((10f64.ln() / 100f64.ln()) * 1e4).round() / 1e4;
+        assert_eq!(l["heights"][1].as_f64(), Some(want), "ln(1 + 9) / ln(1 + 99)");
+        assert_eq!(popout_extra(Some(&d), &st)["state"]["array"]["log"], true);
     }
 
     #[test]
