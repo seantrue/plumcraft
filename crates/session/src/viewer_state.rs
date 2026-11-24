@@ -17,6 +17,8 @@
 //!   multiple of it: `col` names a column to show, `cols` steps `next`, `prev`, `first` or `last`;
 //!   decision 26, N4 person gate: which columns are shown is the core's, not each shell's).
 //! - `viewer.hex {popout, page?}`: the page of a value's bytes shown.
+//! - `viewer.array {popout, log?}`: an array's channel histograms on a log scale or not (B154
+//!   slice 1; `popout.get`'s `stats[].histogram.heights` follow it).
 //!
 //! Where the line falls between a command and the shell's own motion: anything that changes what
 //! is shown (a sort, a page, an outline member opened, play, a seek, a channel) is a command; the
@@ -99,6 +101,8 @@ pub struct ViewerState {
     pub hex_page: u64,
     /// Rises with every seek or play: a shell restarts its clock from `at_ms` when it does.
     pub seq: u64,
+    /// An array's channel histograms on a log scale (`viewer.array {log}`).
+    pub log: bool,
 }
 
 impl Default for ViewerState {
@@ -119,6 +123,7 @@ impl Default for ViewerState {
             col: 0,
             hex_page: 0,
             seq: 0,
+            log: false,
         }
     }
 }
@@ -133,6 +138,7 @@ impl ViewerState {
             "picture": {"channel": self.channel},
             "grid": {"plane": self.plane, "page": self.page, "pageRows": TABLE_PAGE, "col": self.col, "colsShown": GRID_COLUMNS},
             "hex": {"page": self.hex_page, "pageBytes": HEX_PAGE},
+            "array": {"log": self.log},
         })
     }
 }
@@ -339,6 +345,16 @@ fn hex(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"popout": id, "page": st.hex_page}))
 }
 
+fn array(s: &mut Session, p: &Value) -> Result<Value> {
+    only(p, "viewer.array", &["log"])?;
+    let log = flag(p, "log")?;
+    let (id, st) = state_mut(s, p)?;
+    if let Some(b) = log {
+        st.log = b;
+    }
+    Ok(json!({"popout": id, "log": st.log}))
+}
+
 fn has_popouts(s: &Session) -> std::result::Result<(), String> {
     if s.views.popouts.is_empty() { Err("no pop-out is open".into()) } else { Ok(()) }
 }
@@ -381,6 +397,12 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             "Bytes Page",
             "{popout, page?} -> {popout, page}: the page of 4096 bytes a pop-out's byte view shows; viewer.data {part: \"hex\"} reads them",
             hex,
+        ),
+        spec(
+            "viewer.array",
+            "Histograms on a Log Scale",
+            "{popout, log?: bool} -> {popout, log}: a pop-out's array histograms drawn with counts on a log scale or not; popout.get's stats[].histogram.heights follow it",
+            array,
         ),
     ]
 }
@@ -439,6 +461,35 @@ mod tests {
         assert_eq!(last_window(64), 0);
         assert_eq!(last_window(65), 64);
         assert_eq!(last_window(150), 128);
+    }
+
+    /// B154 slice 1: `viewer.array {log}` is the histograms' log scale, refusing what isn't a
+    /// flag, an unknown field, or a pop-out that isn't there; the state reports it.
+    #[test]
+    fn the_histograms_log_scale_is_a_command() {
+        let mut s = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
+        s.views.popouts.push(crate::view_cmds::Popout {
+            id: 3,
+            viewer: Some("array.pictures".into()),
+            tools: Default::default(),
+            raised: 0,
+            text: Default::default(),
+            fit: None,
+            state: ViewerState::default(),
+        });
+        assert_eq!(s.views.popouts[0].state.json()["array"]["log"], false);
+        assert_eq!(array(&mut s, &json!({"popout": 3, "log": true})).unwrap()["log"], true);
+        assert_eq!(array(&mut s, &json!({"popout": 3})).unwrap()["log"], true, "nothing asked, nothing changed");
+        for bad in [
+            json!({"popout": 3, "log": 1}),
+            json!({"popout": 3, "log": "yes"}),
+            json!({"popout": 3, "scale": "log"}),
+            json!({"popout": 4, "log": false}),
+            json!({"log": false}),
+        ] {
+            assert!(array(&mut s, &bad).is_err(), "{bad}");
+        }
+        assert_eq!(s.views.popouts[0].state.json()["array"]["log"], true, "a refusal changes nothing");
     }
 
     #[test]

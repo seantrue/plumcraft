@@ -291,6 +291,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
   - **Not checked:** a person's click on the header; the iPad's UI tests; a device.
   - **Left for Windows:** the header does not vanish there, but a large group's name and outline are drawn into one picture held to 4,096 pixels and stretched, so they blur.
 
+### B153. Adding a bend point to a wire does not add one
+
+- Reported: 2026-11-24
+- Report: "adding a bend point does not add one; when adding one to an auto routed r->l connection removes auto routing, but does not add one either"
+- Context: the maintainer's hand use of an application built on the Mac shell. Two cases in the report: an ordinary wire, where nothing is added; and a wire routed automatically from right to left (its source to the right of its target), where the automatic route goes away and still no bend point appears.
+- Answers (the maintainer, 2026-11-24): asked how the bend point was asked for and whether Undo afterwards takes something back, they answered: "Right-click menu; undo does causes a redraw".
+- More (the maintainer, 2026-11-24, in a later build from the dev branch at `487a40d`): "Adding the bend point places the point mid point of the selected segment, should place near the selection point."
+- Cause (an agent, with a test that follows the shells' path): the place of the right-click never reached the menu. The core's `context` gesture put the click point (`at`) only into the menu it built itself; the native shells pass the reply's `context` to `menu.get` themselves, and that context had no `at`. Add Bend Point then fell back to a point of the core's choosing, midway between the two nodes: on a straight wire that can lie on the wire's old line or under a node, so nothing seemed to change; on a right-to-left wire it replaced the automatic route. egui adds the bend itself at the click and never had the fault. That both reports are this one fault is inferred for the first (the maintainer's graph was not at hand).
+- Issue: none
+- Fixed: 2026-11-24, branch `fix/b153-bend-point`:
+  - **The core:** a wire's `context` in the gesture's reply carries `at`, the press in graph units (`crates/editor-core/src/gesture.rs`); `menu.get` already read it. No shell code changed, so the Mac, iPad, iPhone and Windows shells all send it now. `docs/shell-interface.md` says so.
+  - **Tests:** `crates/editor-core/tests/wire_bend.rs` follows the shells' path (the gesture, `menu.get` with the reply's context, the item's command) on an ordinary wire and on one routed right to left: before the fix the points came out at (360, 40) and (410, 40) for presses at (418, 43) and (430, 104); after, at the presses. The conformance case for a wire's context checks that `at` is there.
+  - **Launched** (an agent, the Mac's scripted copy through the control port, no mouse or keys): bends read back at the presses on both kinds of wire, each drawn with its ring. iPad simulator: the conformance cases and the UI tests passed.
+  - **Not checked:** a right-click by a person; a device; Windows.
+  - **Left for Windows:** its canvas draws no ring at a bend point, so a bend on a straight segment is invisible there and has nothing to drag.
+
 ### B152. Mac: the output of a histogram node can't be viewed
 
 - Reported: 2026-11-24
