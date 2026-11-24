@@ -83,6 +83,15 @@ targets:
     # only when PLUMCRAFT_ENGINES_DIR names a folder of them (release.sh builds it); a build
     # without it has none, and starts engines in process or from the cargo build, as before
     postBuildScripts:
+      # which build this is (B151): the source's commit, whether it had changes, and when, into
+      # the built Info.plist before it is signed (About shows them through the core)
+      - name: Stamp build
+        basedOnDependencyAnalysis: false
+        # after the Info.plist is made (a script with no inputs may run before it)
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          "$SRCROOT/../stamp-build.sh"
       - name: Bundle engines
         basedOnDependencyAnalysis: false
         script: |
@@ -109,5 +118,5 @@ targets:
         ARCHS: arm64
         DEAD_CODE_STRIPPING: YES
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        # Bundle engines reads PLUMCRAFT_ENGINES_DIR, outside the project
+        # Bundle engines reads PLUMCRAFT_ENGINES_DIR, outside the project; Stamp build reads git
         ENABLE_USER_SCRIPT_SANDBOXING: NO

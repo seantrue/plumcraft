@@ -93,6 +93,104 @@ static class V
     public static Border Frame(UIElement child) => new() { Child = child, Background = Ui.Brush("SubtleFillColorSecondaryBrush"), CornerRadius = new CornerRadius(6) };
 }
 
+/// <summary>An array's channels (B154 slice 1; contract 13.2.2): each channel's range and NaN count, and its
+/// histogram drawn with Win2D as the core scaled it (`heights` 0 to 1, the axis's ends as `lo` and `hi`), under a
+/// Log scale toggle that is the core's `viewer.array {log}`. Nothing here is computed or kept by the shell.</summary>
+public sealed class ChannelStatsPanel
+{
+    readonly PopoutModel pop;
+    readonly StackPanel root = new() { Spacing = 6, Padding = new Thickness(12, 6, 12, 8) };
+    readonly CheckBox log = new() { Content = "Log scale", MinWidth = 0 };
+    readonly StackPanel channels = new() { Spacing = 8 };
+    bool following;
+    List<ArrayViews.Channel> shown = [];
+
+    public ChannelStatsPanel(PopoutModel pop)
+    {
+        this.pop = pop;
+        ToolTipService.SetToolTip(log, "Each bar on a log scale, ln(1 + count): the core's viewer.array {log}");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(log, "histogram-log");
+        log.Click += async (_, _) => { if (!following) await pop.CommandAsync("viewer.array", ("log", Jsonv.Of(log.IsChecked == true))); };
+        root.Children.Add(log);
+        root.Children.Add(channels);
+        root.Visibility = Visibility.Collapsed;
+    }
+
+    public FrameworkElement View => root;
+
+    /// <summary>What the panel shows now, for the app's status (a check reads it back).</summary>
+    public System.Text.Json.Nodes.JsonObject Describe() => new()
+    {
+        ["channels"] = shown.Count, ["log"] = log.IsChecked == true,
+        ["bars"] = shown.FirstOrDefault()?.Histogram?.Heights.Count(x => x > 0) ?? 0,
+    };
+
+    public void Update(PopoutValue v)
+    {
+        var cs = ArrayViews.Channels(v.Stats);
+        root.Visibility = cs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        following = true;
+        log.IsChecked = v.State.Get("array").Get("log").IsTrue();
+        log.Visibility = cs.Any(c => c.Histogram is not null) ? Visibility.Visible : Visibility.Collapsed;
+        following = false;
+        if (cs.SequenceEqual(shown, ChannelSame.Instance)) return;
+        shown = cs;
+        channels.Children.Clear();
+        foreach (var c in cs.Take(16))
+        {
+            var block = new StackPanel { Spacing = 2 };
+            block.Children.Add(new TextBlock { Text = c.Line, Style = Ui.TextStyle("CaptionTextBlockStyle"), FontFamily = new FontFamily("Cascadia Mono, Consolas"), IsTextSelectionEnabled = true });
+            if (c.Histogram is { } h)
+            {
+                var bars = new CanvasControl { Height = 48, MinWidth = 120 };
+                bars.Draw += (s, e) => DrawHistogram(s, e, h);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(bars, $"{c.Name} histogram, {h.Bins} bins from {h.Lo} to {h.Hi}{(h.Log ? ", log scale" : "")}");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(bars, "histogram");
+                ToolTipService.SetToolTip(bars, $"{h.Bins} bins from {h.Lo} to {h.Hi}, the tallest {h.Top:N0}{(h.Log ? ", log scale" : "")}");
+                block.Children.Add(bars);
+                var ends = Ui.Columns(Ui.Star, Ui.Auto);
+                ends.Children.Add(Ui.Caption(h.Lo, wrap: false));
+                var hi = Ui.Caption(h.Hi, wrap: false);
+                hi.HorizontalAlignment = HorizontalAlignment.Right;
+                ends.Children.Add(hi.At(1));
+                block.Children.Add(ends);
+            }
+            channels.Children.Add(block);
+        }
+    }
+
+    static void DrawHistogram(CanvasControl sender, CanvasDrawEventArgs e, ArrayViews.Histogram h)
+    {
+        var ds = e.DrawingSession;
+        var w = (float)sender.ActualWidth;
+        var ht = (float)sender.ActualHeight;
+        var field = Application.Current.Resources["ControlFillColorSecondaryBrush"] is SolidColorBrush fb ? fb.Color : Windows.UI.Color.FromArgb(20, 128, 128, 128);
+        ds.FillRoundedRectangle(0, 0, w, ht, 2, 2, field);
+        if (h.Heights.Length == 0) return;
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        var bw = w / h.Heights.Length;
+        for (int i = 0; i < h.Heights.Length; i++)
+        {
+            var frac = (float)h.Heights[i];
+            if (frac <= 0) continue;
+            ds.FillRectangle(i * bw, ht - frac * ht, MathF.Max(bw, 1), frac * ht, accent);
+        }
+    }
+
+    sealed class ChannelSame : IEqualityComparer<ArrayViews.Channel>
+    {
+        public static readonly ChannelSame Instance = new();
+        public bool Equals(ArrayViews.Channel? a, ArrayViews.Channel? b) =>
+            a is not null && b is not null && a.Line == b.Line && (a.Histogram, b.Histogram) switch
+            {
+                (null, null) => true,
+                ({ } x, { } y) => x.Lo == y.Lo && x.Hi == y.Hi && x.Log == y.Log && x.Top == y.Top && x.Heights.SequenceEqual(y.Heights),
+                _ => false,
+            };
+        public int GetHashCode(ArrayViews.Channel c) => c.Line.GetHashCode();
+    }
+}
+
 /// <summary>A short message in a viewer's place.</summary>
 public sealed class MessageViewer(Func<PopoutValue, string> say, bool error = false) : IViewer
 {
@@ -319,12 +417,14 @@ public sealed class PictureViewer : IViewer
     DateTime lastAsk = DateTime.MinValue;
     PopoutValue? value;
     JsonElement? lastReading;
+    readonly ChannelStatsPanel stats;
 
     public PictureViewer(PopoutModel pop, Pictures pictures, Window window)
     {
         this.pop = pop;
         this.pictures = pictures;
         this.window = window;
+        stats = new ChannelStatsPanel(pop);
         foreach (var (_, label) in PictureSource.Channels) channel.Items.Add(label);
         ToolTipService.SetToolTip(channel, "Channel");
         ToolTipService.SetToolTip(fit, "Fit the picture to the window");
@@ -336,7 +436,7 @@ public sealed class PictureViewer : IViewer
         };
         fit.Click += async (_, _) => await pop.ZoomAsync("fit");
         one.Click += async (_, _) => await pop.ZoomAsync("1:1");
-        foreach (var h in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) g.RowDefinitions.Add(new RowDefinition { Height = h });
+        foreach (var h in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star), GridLength.Auto }) g.RowDefinitions.Add(new RowDefinition { Height = h });
         var bar = Ui.Columns(Ui.Star, Ui.Auto, Ui.Auto);
         bar.Padding = new Thickness(12, 6, 12, 4);
         info.VerticalAlignment = VerticalAlignment.Center;
@@ -351,9 +451,13 @@ public sealed class PictureViewer : IViewer
         scroll.Content = image;
         scroll.Background = Ui.Brush("SolidBackgroundFillColorSecondaryBrush");
         g.Children.Add(scroll.At(0, 2));
+        // an array's channels and histograms under its picture (13.2.2); nothing for a picture without stats
+        g.Children.Add(stats.View.At(0, 3));
         scroll.SizeChanged += (_, _) => Apply();
         scroll.ViewChanged += (_, e) => { if (!e.IsIntermediate) Detail(); };
         image.PointerMoved += Probe;
+        // which value's picture is drawn, read back (a new view mode changes only the picture's handle)
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(image, "view-picture");
         image.PointerPressed += Pin;
     }
 
@@ -369,6 +473,7 @@ public sealed class PictureViewer : IViewer
     async Task UpdateAsync(PopoutValue v)
     {
         value = v;
+        stats.Update(v);
         channel.Visibility = v.Viewer == "svg" ? Visibility.Collapsed : Visibility.Visible;
         var c = v.State.Get("picture").Get("channel").Str() ?? "rgba";
         following = true;
@@ -398,6 +503,7 @@ public sealed class PictureViewer : IViewer
                 return;
             }
             original = bmp;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetItemStatus(image, s.Handle);
             shownSize = ((int)bmp.SizeInPixels.Width, (int)bmp.SizeInPixels.Height);
             shownChannel = "";
             var f = s.Full;
@@ -516,16 +622,31 @@ public sealed class PictureViewer : IViewer
     public System.Text.Json.Nodes.JsonObject? Describe() => new()
     {
         ["picture"] = $"{shownSize.w}x{shownSize.h}", ["loaded"] = original is not null, ["channel"] = shownChannel, ["fit"] = value?.Fit ?? "fit", ["want"] = src?.Want,
-        ["detail"] = sharpened, ["reading"] = lastReading.Get("text").Str(),
+        ["detail"] = sharpened, ["reading"] = lastReading.Get("text").Str(), ["stats"] = stats.Describe(),
     };
 }
 
-/// <summary>An array's several pictures, each with its caption; the statistics above.</summary>
-public sealed class ArrayPicturesViewer(Pictures pictures) : IViewer
+/// <summary>An array's several pictures, each with its caption; its channels and their histograms above
+/// (13.2.2), redrawn on every update (the log toggle changes the bars, not the pictures).</summary>
+public sealed class ArrayPicturesViewer : IViewer
 {
+    readonly Pictures pictures;
     readonly ScrollViewer scroll = new();
+    readonly StackPanel outer = new();
+    readonly StackPanel panel = new() { Spacing = 8, Padding = new Thickness(12) };
+    readonly ChannelStatsPanel stats;
     int count;
     string? key;
+
+    public ArrayPicturesViewer(PopoutModel pop, Pictures pictures)
+    {
+        this.pictures = pictures;
+        stats = new ChannelStatsPanel(pop);
+        outer.Children.Add(stats.View);
+        outer.Children.Add(panel);
+        scroll.Content = outer;
+    }
+
     public string Kind => "array.pictures";
     public FrameworkElement View => scroll;
     public async void Update(PopoutValue v)
@@ -536,16 +657,15 @@ public sealed class ArrayPicturesViewer(Pictures pictures) : IViewer
 
     async Task UpdateAsync(PopoutValue v)
     {
+        stats.Update(v);
         var views = v.Views ?? [];
         var k = string.Join("|", views.Select(p => Pictures.HandleOf(p.Ref)));
         if (k == key) return;
         key = k;
         count = views.Count;
-        var panel = new StackPanel { Spacing = 8, Padding = new Thickness(12) };
-        if (V.Stats(v.Stats) is { Length: > 0 } st) panel.Children.Add(Ui.Caption(st));
+        panel.Children.Clear();
         var wrap = new VariableSizedWrapGrid { Orientation = Orientation.Horizontal, ItemWidth = 240, ItemHeight = 210 };
         panel.Children.Add(wrap);
-        scroll.Content = panel;
         foreach (var p in views)
         {
             var cell = new Grid { RowSpacing = 3, Margin = new Thickness(0, 0, 10, 10) };
@@ -555,11 +675,19 @@ public sealed class ArrayPicturesViewer(Pictures pictures) : IViewer
             cell.Children.Add(frame);
             cell.Children.Add(Ui.Caption(p.Caption ?? "", wrap: false).At(0, 1));
             wrap.Children.Add(cell);
-            if (Pictures.HandleOf(p.Ref) is { } h && await pictures.LoadAsync(h) is { } bmp) frame.Child = V.Picture(bmp);
+            if (Pictures.HandleOf(p.Ref) is { } h && await pictures.LoadAsync(h) is { } bmp)
+            {
+                // named by its caption, its value's handle as its status: which picture is shown, read back
+                var img = V.Picture(bmp);
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(img, p.Caption is { Length: > 0 } cap ? cap : "picture");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(img, "view-picture");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetItemStatus(img, h);
+                frame.Child = img;
+            }
             else frame.Child = Ui.Caption("couldn't load");
         }
     }
-    public System.Text.Json.Nodes.JsonObject? Describe() => new() { ["pictures"] = count };
+    public System.Text.Json.Nodes.JsonObject? Describe() => new() { ["pictures"] = count, ["key"] = key, ["stats"] = stats.Describe() };
 }
 
 // ---------------- table and grid ----------------

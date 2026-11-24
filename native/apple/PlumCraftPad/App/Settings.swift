@@ -80,13 +80,13 @@ enum PadSettings {
                 guard let n = p[0].string, let v = p[1].string else { return nil }
                 return "\(n) \(v)"
             }
-            let view = AboutView(title: a["title"].string ?? AppID.name, version: a["version"].string ?? "", parts: parts,
-                                 engine: a["engine"].string, done: { [weak vc] in vc?.dismiss(animated: true) })
+            let view = AboutView(title: a["title"].string ?? AppID.name, version: a["version"].string ?? "", build: BuildStamp.line(about: a),
+                                 parts: parts, engine: a["engine"].string, done: { [weak vc] in vc?.dismiss(animated: true) })
             let host = UIHostingController(rootView: view)
             host.modalPresentationStyle = .formSheet
-            host.preferredContentSize = CGSize(width: 380, height: 360)
+            host.preferredContentSize = CGSize(width: 400, height: 420)
             vc?.present(host, animated: !CoreHost.options.scratchState)
-            StatusFile.shared.set("about", ["version": .string(a["version"].string ?? "")])
+            StatusFile.shared.set("about", ["version": .string(a["version"].string ?? ""), "build": .string(BuildStamp.line(about: a) ?? "")])
         }
     }
 }
@@ -94,6 +94,8 @@ enum PadSettings {
 struct AboutView: SwiftUI.View {
     let title: String
     let version: String
+    /// Which build this is (B151): the core's line, selectable to copy.
+    let build: String?
     let parts: [String]
     let engine: String?
     let done: () -> Void
@@ -104,6 +106,11 @@ struct AboutView: SwiftUI.View {
                 Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 48)).foregroundStyle(.tint)
                 Text(title).font(.title2.bold())
                 Text("Version \(version)").foregroundStyle(.secondary)
+                if let b = build {
+                    Text(b).font(.footnote.monospacedDigit()).multilineTextAlignment(.center).textSelection(.enabled)
+                        .accessibilityIdentifier("about.build")
+                    Button("Copy Build", systemImage: "doc.on.doc") { UIPasteboard.general.string = b }.font(.footnote)
+                }
                 ForEach(parts, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
                 if let e = engine, !e.isEmpty { Text("Engine: \(e)").font(.footnote).foregroundStyle(.secondary) }
             }

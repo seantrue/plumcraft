@@ -20,6 +20,36 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — About says which build is running (B151) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "add build date and id to help/about", because "undo on curve failed, and I want to make sure I was running the right one". The controller proposed showing the shell's commit plus an application's own, on all four shells; the maintainer: "Yes to both on b151", later "fix B151". Marking a build made from a tree with uncommitted changes was the controller's addition.
+
+**What the AI did.** An agent added a crate, `plumcraft-build-stamp` (about 355 LOC with tests), whose build script captures the commit, the changed state and the time once, and chose what makes cargo capture again without rebuilding everything. `app.about` carries the facts and one readable line (about 40 LOC in the C ABI and session crates); a script stamps the Swift apps on every build; the Mac, iPad, iPhone and egui show the line (about 110 LOC of Swift and project files, 12 of egui). It measured the rebuild behaviour and wrote down the limits.
+
+**Verification.** The agent's runs: the Rust suite (one known failure), Python 249, the Swift kit, Mac conformance 75 of 75 twice, iPad simulator 63 of 63; the line read back from the launched Mac copy and from iPad and iPhone simulators, with a picture of each About. The controller looked at the Mac's picture. Windows has nothing; no real application supplies its own stamp yet.
+
+**Defects.** The need itself came from the controller's builds: several with one name, id and version, and the maintainer testing an old one. In the agent's work: its first stamping step could run before the Info.plist existed, leaving a simulator build unstamped with the line quietly falling back to the library's time; its first build script's `git status` rewrote the index, so every build stamped again; one Swift compile error. All found by its own launches and measurements and fixed. On the Mac's About panel the line wraps after "shell".
+
+### 2026-11-24 — View modes and histograms on Windows; a typed `.json` name is kept (B154 slice 1, B160) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "build B154"; when the Mac's Windows VM froze, "Look in [a private folder] for runbook on access windows VM on [the Linux test host]; try switching development/testing to there."; ".NET install is fine"; and, watching the test desktop, "Windows: \"person check.json\" was created as \"person check.json.plum\" and is not found", "Windows hung on \"person check.json\" not found", then "fix B160". The maintainer signed in to the test desktop twice so the app could be launched.
+
+**What the AI did.** An agent moved the Windows work to an x64 guest (the shell's first x64 build; one build file assumed ARM64) and wrote the Windows half of slice 1: the View picker, per-channel histograms drawn with Win2D from the core's heights, the Log toggle (about 335 LOC of C# changed, plus two new files). For B160 it read back what the core offered and what the picker answered, found the WinRT save picker appending the selected type's extension, and moved a graph's Save As to the common item dialog. The test runner now writes `$scratch/` paths with the platform's separators on Windows.
+
+**Verification.** On the Windows test VM: the kit's tests 68 of 68; the person check, every step, on the maintainer's desktop session; the C# runner against the app, 38 of 38 reading and 23 of 25 editing (two timing races, one of them B143; 11 skipped for want of a test engine). The controller looked at the screenshots of the heat view with its log histogram and of the named wire's tags. These runs were at `0147266`; the branch was then merged with the dev branch (B158) without a rerun.
+
+**Defects.** B160 came from FR2, AI-written the same day, whose hand-off list named the Windows save step as unchecked; the maintainer saw it on the desktop before any test did. In the agent's own work: the redraw check read an empty handle for a one-picture array; a first run left the picker's host process behind, which is the box the maintainer saw; its runner script had never actually started the runner (an apphost could not find a per-user .NET). An earlier attempt launched the app from a session with no desktop, where it crashed, and a later one found the desktop disconnected.
+
+### 2026-11-24 — A wire follows the drag of its bend point; bend points are quiet (B158) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** On first use of B155: "The wire does not drag with the bend points, and the points are large/visible even when the wire is not selected." Then: "fix B158 (jumps on release)". The controller had started the work before that go-ahead, as unfinished work on B155, and its first commit attempt was rightly refused until the maintainer gave it.
+
+**What the AI did.** The agent confirmed both causes in the Apple canvas (a ring moved alone; rings drawn into every wire's path). The core's move reply now carries the wire's path as it would be (about 50 LOC in `gesture.rs` and `geometry.rs`, 54 in the C ABI), and the canvas draws it (a new 110-line `BendRings.swift`, about 70 more across three files). Bend points became small dots shown on hover, on a selected node's wires, or while bending. Tests: four in the core, one in the C ABI, two in Swift, one conformance case.
+
+**Verification.** The agent's runs: the Rust suite (one known failure), Python 249, the Swift kit, Mac conformance 75 of 75, iPad simulator 63 of 63; a scripted Mac launch showing dots only when the node is selected. The controller looked at two pictures. The live preview was read in process, not in the running app: the control port's gesture does not go through the canvas's own drag.
+
+**Defects.** Both faults were in AI-written canvas code: the first predates B155, which copied it to the new drag; the second is the rings the same day's B155 kept. The maintainer found both by hand; no test or scripted launch had looked at a wire mid-drag. The agent's new C ABI test first put its bend point under a node.
+
 ### 2026-11-24 — A wire's right-angle route can be dragged and converted (B155) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "There is also no way to interact with the 90 degree automatic bends."; then "B155: Look at converting bends <-> right angles and allow dragging."; then "fix b155". Converting both ways is the maintainer's idea; dragging a corner or segment was the controller's proposal.

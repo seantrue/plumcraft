@@ -32,6 +32,9 @@ pub struct App {
 
 /// Set once [`register`] has run (whether it took the engines or not): one try per process.
 static REGISTERED: LazyLock<Mutex<bool>> = LazyLock::new(Mutex::default);
+/// The application's own build stamp ([`set_build`], B151).
+static BUILD: LazyLock<Mutex<Option<plumcraft_build_stamp::Stamp>>> = LazyLock::new(Mutex::default);
+
 /// Set by the first `plum_open`: engines are read as a core opens.
 static OPENED: AtomicBool = AtomicBool::new(false);
 
@@ -87,6 +90,19 @@ pub fn register(app: App) -> Result<(), String> {
         set_packs(app.packs)?;
     }
     Ok(())
+}
+
+/// The application's own build stamp (B151), shown in About beside the shell's: its library's
+/// build script calls `plumcraft_build_stamp::capture::emit`, and its entry calls
+/// `set_build(plumcraft_build_stamp::stamp!())`, before the first `plum_open` (a core reads it as
+/// a document opens; a later call reaches documents opened after it). The last call wins.
+pub fn set_build(stamp: plumcraft_build_stamp::Stamp) {
+    *BUILD.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = Some(stamp);
+}
+
+/// The application's build stamp, if it set one.
+pub fn build() -> Option<plumcraft_build_stamp::Stamp> {
+    BUILD.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone()
 }
 
 /// The ids of the engines the application registered, in order (none before [`register`]).

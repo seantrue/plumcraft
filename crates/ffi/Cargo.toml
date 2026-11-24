@@ -29,6 +29,8 @@ undocumented_unsafe_blocks = "deny"
 jni = ["dep:jni-sys"]
 
 [dependencies]
+# which build this is, for About (B151)
+plumcraft-build-stamp = { workspace = true }
 # The audio engine, compiled in (mode 1; the maintainer, 2026-11-21: "Compile array,audio,text
 # in"): registered with the editor core at open, since the core, which is published, can't depend
 # on its SoundCraft git crates. This library is never published.

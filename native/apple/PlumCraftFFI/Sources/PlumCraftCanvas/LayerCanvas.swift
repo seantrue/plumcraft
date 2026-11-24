@@ -146,6 +146,16 @@ public final class LayerCanvas {
     var livePaths: [UInt64: CGPath] = [:]
     /// The wire under the pointer, drawn wider over the tiles.
     let hoverWireLayer = CAShapeLayer()
+    /// The bend points' rings shown now (B158): the hovered wire's, the wires of selected faces',
+    /// the dragged wire's (`BendRings.swift`).
+    let bendRingLayer = CALayer()
+    /// The wire the pointer is on or on a bend point of (B158: its rings show).
+    var ringHover: UInt64?
+    /// A wire being bent by a drag (B158): its path and bend points as they would be, drawn in
+    /// place of its own until the drag ends or is cancelled.
+    var dragRoute: (nid: UInt64, path: [CGPoint], via: [CGPoint])?
+    /// The bend points drawn now, by wire (B158).
+    public internal(set) var bendDotsShown: [UInt64: [CGPoint]] = [:]
     var tags: [UInt64: [CALayer]] = [:]
     var frames: [UInt64: CALayer] = [:]
     var groups: [UInt64: CALayer] = [:]
@@ -259,6 +269,9 @@ public final class LayerCanvas {
         hoverWireLayer.isHidden = true
         hoverWireLayer.zPosition = 2
         wireRoot.addSublayer(hoverWireLayer)
+        bendRingLayer.anchorPoint = .zero
+        bendRingLayer.zPosition = 3
+        wireRoot.addSublayer(bendRingLayer)
         host.addSublayer(world)
         CATransaction.commit()
         model.onChange = { [weak self] c in self?.apply(c) }
@@ -358,6 +371,7 @@ public final class LayerCanvas {
         fetchIcons(c.changed)
         if netsTouched || !c.removed.isEmpty { placeTags() }
         if c.selectionChanged || c.full { updateSelection() }
+        showBendRings()
         updateWashes(c.changed)
         if c.viewChanged || c.full { honourFit() }
         cull(force: true)
@@ -898,8 +912,8 @@ public final class LayerCanvas {
 
     // MARK: - Wires
 
-    /// A cubic chain (start, then three points a segment) as a path, with rings at `via`.
-    static func chain(_ pts: [CGPoint], via: [CGPoint]) -> CGMutablePath {
+    /// A cubic chain (start, then three points a segment) as a path (bend points: `BendRings`).
+    static func chain(_ pts: [CGPoint]) -> CGMutablePath {
         let p = CGMutablePath()
         guard let first = pts.first else { return p }
         p.move(to: first)
@@ -907,9 +921,6 @@ public final class LayerCanvas {
         while k + 2 < pts.count {
             p.addCurve(to: pts[k + 2], control1: pts[k], control2: pts[k + 1])
             k += 3
-        }
-        for v in via {
-            p.addEllipse(in: CGRect(x: v.x - 5, y: v.y - 5, width: 10, height: 10))
         }
         return p
     }
@@ -1268,6 +1279,12 @@ public final class LayerCanvas {
             hoverWire = h.wire
         }
         showHoverWire()
+        // a wire's bend points show while the pointer is on it or on one of them (B158)
+        let ring = h.flatMap { ($0.kind == .wire || $0.kind == .bend) && wireGeoms[$0.wire] != nil ? $0.wire : nil }
+        if ring != ringHover {
+            ringHover = ring
+            showBendRings()
+        }
         if let h, h.kind == .pin {
             let r: CGFloat = 8
             hoverRing.path = CGPath(ellipseIn: CGRect(x: CGFloat(h.x) - r, y: CGFloat(h.y) - r, width: 2 * r, height: 2 * r), transform: nil)
@@ -1444,8 +1461,7 @@ public final class LayerCanvas {
                 pts.append(CGPoint(x: CGFloat(p.points[k]), y: CGFloat(p.points[k + 1])))
                 k += 2
             }
-            let via = model.wires[p.nid]?.item.via.map { CGPoint(x: $0.x, y: $0.y) } ?? []
-            if let l { setLivePath(l, p.nid, Self.chain(pts, via: via)) }
+            if let l { setLivePath(l, p.nid, Self.chain(pts)) }
         }
         if taken { pumpTiles() }
     }

@@ -48,6 +48,9 @@ public class Suite(ITestOutputHelper output)
         using (var core = OpenCore("conf-kit-all"))
         {
             var d = new KitDriver(core, "text");
+            // cases that write files (FR2's save as .plum): each case's own `$scratch`, under the test's scratch root
+            Runner.ScratchRoot = Scratch("conform-text");
+            d.Also.Add("saves");
             text = await Runner.RunAsync(d, cases, null);
             Report(d.Name + ", every case", text, sw.Elapsed);
             // the document model kept up with every case's scene
@@ -64,6 +67,9 @@ public class Suite(ITestOutputHelper output)
         using (var core = OpenCore("conf-kit-array", ("engine", S("array"))))
         {
             var d = new KitDriver(core, "array");
+            // the mask editor's cases write files: each case's own `$scratch` folder, under the test's scratch root
+            Runner.ScratchRoot = Scratch("conform-array");
+            d.Also.Add("saves");
             array = await Runner.RunAsync(d, cases.Where(c => Runner.Needs(c, "engine:array")), null);
             Report(d.Name + ", the array engine's cases", array, sw.Elapsed - t1);
         }
@@ -112,6 +118,9 @@ public class Suite(ITestOutputHelper output)
         model.Start();
         using var d = await PortDriver.ConnectAsync((int)port, token, following: model);
         d.Also.Add("manifests");
+        // cases that write files (FR2's save as .plum): each case's own `$scratch`, under the test's scratch root
+        Runner.ScratchRoot = Scratch("conform-port");
+        d.Also.Add("saves");
         var cases = Runner.Cases(CasesPath);
         var sw = Stopwatch.StartNew();
         var outp = await Runner.RunAsync(d, cases, null);

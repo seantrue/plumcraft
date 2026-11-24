@@ -190,6 +190,13 @@ typedef struct {
 
 /* The drag under way in document doc with the pointer at (x, y), within slop (graph units). */
 plum_drag plum_gesture_move(plum_core core, uint64_t doc, float x, float y, float slop);
+/* The wire a bend point's or route's drag (kinds 4 and 9) is bending, with the pointer at (x, y)
+ * (B158; ui.gesture's move gives it as update.wire): two records in plum_wire_paths' form, both
+ * by the wire's nid, its path as it would be (the scene's own path code), then its bend points
+ * (one point each). Drawn in place of the wire until the drag ends or is cancelled. Returns the
+ * floats needed; nothing is written when that is more than cap or out is NULL. 0 when there is
+ * no such drag, core or document. */
+size_t plum_drag_wire(plum_core core, uint64_t doc, float x, float y, float slop, float *out, size_t cap);
 
 #ifdef __cplusplus
 }

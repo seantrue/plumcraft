@@ -275,6 +275,59 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B151. About (and Help) do not show the build's date or id
+
+- Reported: 2026-11-24
+- Report: "add build date and id to help/about"
+- Context: the maintainer tried Undo in the curve editor of an application built on the Mac shell and could not tell which build they were running: "undo on curve failed, and I want to make sure I was running the right one". Two builds were on the Mac with the same name, bundle id and version, one with the B150 fix and one without; the copy running at the time was the one without it.
+- Fix (the maintainer, 2026-11-24): asked "Which id? I'd show the shell's git commit, plus the application's own commit when one is built on the shell" and "Which shells? I'd do all of them (Mac, iPad, iPhone, Windows), since the same confusion can happen on the iPad", they answered: "Yes to both on b151". Then: "fix B151".
+- Issue: none
+- Fixed (core, egui, Mac, iPad, iPhone): 2026-11-24, branch `fix/b151-build-id`. Note: `claude-debug/b151/b151-build-id.md`.
+  - **One source:** `app.about` now also returns `build {line, shell, app, ui}`. `shell` is the core library's commit, whether its tree had uncommitted changes, and its build time; `app` is the same for an application's own library, when it supplies them; `ui` is the native app's own, passed at start as `app.built`.
+  - **The line:** for example "Built 2026-11-24 22:14 UTC · shell 22f5884+changes". `+changes` marks a tree with uncommitted changes; the time is the newest of the three, in UTC, since the core writes the line.
+  - **Captured at build time** by a new crate, `plumcraft-build-stamp` (its build script runs git once; with no git every fact reads "unknown" and the build succeeds), and by `native/apple/stamp-build.sh` for the Swift apps. Nothing runs git at run time; no path or name is stored.
+  - **Shown:** first in the Mac's About panel, in the iPad's and iPhone's About (selectable, with Copy Build), and in egui's About. On the iPad with a keyboard, Help now starts with About.
+  - **An application built on the shell** calls `plumcraft_build_stamp::capture::emit` in its build script and `plumcraft_ffi::app::set_build` before it opens the core.
+  - **Tests:** six in the stamp crate, the reply's shape through the C ABI, two in the Swift kit.
+  - **Launched** (an agent; scripted Mac copy, iPad and iPhone simulators): the line read back from `app.about` and seen in each About. The controller looked at the Mac's picture.
+  - **Limits:** the library's stamp does not notice an edit outside `crates/` and the cargo files; the Swift app's own stamp covers the rest.
+  - **Not checked:** an application's own stamp in a real application (a test sets a made-up one); the iPad's Help item was not opened; nobody copied the line by hand.
+  - **Not done:** Windows (its About must show `build.line`, and its build must stamp `app.built`).
+
+### B160. Windows: a graph saved as "person check.json" is created as "person check.json.plum" and then not found
+
+- Reported: 2026-11-24
+- Report: "Windows: \"person check.json\" was created as \"person check.json.plum\" and is not found"; then "Windows hung on \"person check.json\" not found"; then "fix B160".
+- Context: seen by the maintainer on the Windows test VM's desktop while an agent's person check ran against the dev branch at `0147266` plus the uncommitted B154 Windows work. FR2, merged the same day, made `.plum` the first kind the core offers; FR2's hand-off list for Windows named this step as one to check.
+- Cause (an agent, read back from the running app): the core offers the right kinds, `.plum` then `.json`. The Windows shell answered a graph's save question with the WinRT `FileSavePicker`, which appends the selected type's extension to a typed name, so `person check.json` came back as `person check.json.plum`; that picker also creates the file itself, empty.
+- The box that stayed up: the person check's reopen step then typed a name that did not exist. The system's "File not found" box belongs to the picker's own host process, which outlived the app the run stopped. No wait in the script was without a limit.
+- Issue: none
+- Fixed: 2026-11-24, branch `feat/b154-s1-windows`:
+  - a graph's Save As uses the common item dialog (`PathDialogs`), which does not create the file and starts in the graph's folder;
+  - `PathBrowse.KeepTypedExtension` keeps a typed name whose extension is one of the offered kinds' (a unit test);
+  - the person check's reopen step closes its own Open dialog when it fails.
+  - **Launched** (the person check on the Windows test VM's desktop, the maintainer's session): the save step writes `person check.json` and the reopen step opens it; every step passed.
+  - **Left:** a graph's Open still uses the WinRT picker, whose host can outlive the app.
+
+### B158. Mac: the wire does not follow a dragged bend point, and bend points show large on unselected wires
+
+- Reported: 2026-11-24
+- Report: "The wire does not drag with the bend points, and the points are large/visible even when the wire is not selected."
+- Context: the maintainer's first hand use of B155, in an application built on the Mac shell from the dev branch at `0147266`.
+- Answer (the maintainer, 2026-11-24): asked whether the wire jumps on release or never moves, they answered: "fix B158 (jumps on release)".
+- Cause (an agent, read from the code and reproduced in process):
+  - **The wire:** during a bend-point or route drag the Apple canvas moved only a ring; the wire was redrawn when the drag's `wire.route` ran at the end, and the move's reply carried no path. An ordinary bend-point drag had this before B155 too.
+  - **The points:** the canvas drew a radius-5 ring at every bend point into each wire's own path, always.
+- Issue: none
+- Fixed (core and Apple shells): 2026-11-24, branch `fix/b158-wire-drag`. Note: `claude-debug/b158/b158-wire-drag.md`.
+  - **The wire follows:** each move of a bend or route drag answers `update.wire {nid, via, path}`, the path built by the scene's own path code (`plum_drag_wire` in the C ABI). The canvas draws it in place of the wire until the scene brings the new one; a cancel puts the wire back at once. The shell computes no route.
+  - **Quiet points:** a dot of radius 3 shows only while the wire or one of its bend points is under the pointer, while the wire has an end on a selected node, or while it is being bent. The scene has no wire selection, so "selected" means an end on a selected node. The hit radius is unchanged.
+  - **Tests:** `crates/editor-core/tests/wire_drag_preview.rs` (4), a C ABI test, two Swift canvas tests, and a shared conformance case.
+  - **Launched** (a scripted Mac copy through the control port): no dots on an unselected wire, small dots when its node is selected, and the move's path equal to the scene's path after the drag.
+  - **Proven by hand** (the maintainer, 2026-11-24, in an application built on the Mac shell from the dev branch at `22f5884`): "Drag works fine now."
+  - **Not checked:** the live preview in the running app. A gesture sent through the control port does not pass through the canvas's own drag, so it was read in process only. No hand drag, no device.
+  - **Not done:** egui still draws a handle at every bend point, always (its wire does follow a drag). The iPad has no hover, so an unselected wire's bend points can be taken but not seen. Windows: nothing written.
+
 ### B155. A wire's automatic 90-degree bends can't be interacted with
 
 - Reported: 2026-11-24
