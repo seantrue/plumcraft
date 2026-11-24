@@ -23,9 +23,11 @@
 # -SlowStartWaitS (off by default): wait N seconds, not 60, for the app's first window, for a machine known to
 # start apps slowly (antivirus holding new files for a verdict it can't get offline). The report says when it
 # was used; a run with it does not stand for the 60-second start a person expects.
-param([string]$Exe = '', [string]$Platform = 'ARM64', [string]$Work = '', [int]$Timeout = 600,
-      [int]$SlowStartWaitS = 0, [switch]$Inner)
+param([string]$Exe = '', [string]$Platform = '', [string]$Work = '', [int]$Timeout = 600,
+      [int]$SlowStartWaitS = 0, [string]$Only = '', [switch]$Inner)
 $Discover = $false
+# the machine's own platform unless one is named (ARM64 or x64)
+if (-not $Platform) { $Platform = if ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'ARM64' } else { 'x64' } }
 
 $here = Split-Path -Parent $PSCommandPath
 $checkout = Split-Path -Parent (Split-Path -Parent $here)
@@ -44,7 +46,7 @@ if (-not $Inner) {
     Remove-Item $report, $done, $pidFile -ErrorAction SilentlyContinue
     $name = 'plummer-person-check'
     Unregister-ScheduledTask -TaskName $name -Confirm:$false -ErrorAction SilentlyContinue
-    $flags = "-Inner -Exe `"$Exe`" -Work `"$Work`" -SlowStartWaitS $SlowStartWaitS"
+    $flags = "-Inner -Exe `"$Exe`" -Work `"$Work`" -SlowStartWaitS $SlowStartWaitS$(if ($Only) { " -Only $Only" })"
     $action = New-ScheduledTaskAction -Execute 'conhost.exe' -Argument "--headless powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File `"$PSCommandPath`" $flags"
     $principal = New-ScheduledTaskPrincipal -UserId $env:USERNAME -LogonType Interactive
     $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit (New-TimeSpan -Seconds ($Timeout + 60)) -AllowStartIfOnBatteries
@@ -283,12 +285,79 @@ function Add-From-Palette($w, [double]$fx, [double]$fy, [string]$query, [string]
     return @{ node = $n; search = $(if ($search) { [P]::Name($search) } else { 'none' }); list = ($items | Select-Object -First 6) -join ' / '; picked = $(if ($pick) { [P]::Name($pick) } else { 'none (Enter)' }) }
 }
 
+# 22, as a function: the normal run calls it after step 21; -Only view-modes runs it alone after step 1
+function Step-ViewModes($opened) {
+    if (-not (Get-Command Close-Pop -ErrorAction SilentlyContinue)) {
+        function Close-Pop($p) { if ($p) { $h = [long]$p.Current.NativeWindowHandle; Front $p; [P]::Chord(0x12, 0x73); $null = Wait-Until { if (-not (Other-Windows | Where-Object { [long]$_.Current.NativeWindowHandle -eq $h })) { 1 } } 5000 } }
+    }
+    # 22. an array's view modes and histograms (B154 slice 1): a Mandelbrot in a new graph, popped out; its
+    # channel's histogram drawn; View > heat, and the picture changes (another value's handle); Log scale,
+    # and the histogram says so. All through the core: run.view, viewer.array {log}.
+    Starting '22. an array''s View picker and its histogram'
+    $vSaw = @(); $ok22 = $false
+    # File > New Graph, a second time if the first click didn't take (after step 21 the menu can open late)
+    $nw = $null; $fileItems = ''
+    for ($try = 0; $try -lt 2 -and -not $nw; $try++) {
+        $it = Menu-Item $opened 'File' 'New*'
+        if ($it) { $fileItems = [P]::Name($it); [P]::ClickOn($it) } else { $fileItems = (Menu-Names $opened) -join ' / '; Esc }
+        $nw = Doc-Window 'Untitled*' 15000
+    }
+    if (-not $nw) { $vSaw += "File > New made no window (the menu item: $fileItems)" }
+    $mb = if ($nw) { Add-From-Palette $nw 0.3 0.3 'Mandelbrot' 'Mandelbrot' }
+    if ($mb.node) {
+        $run = In $nw { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Run' }
+        if ($run) { [P]::ClickOn($run) }
+        $null = Wait-Until { $n = Node $nw 'Mandelbrot'; if ($n -and [P]::Status($n) -like '*done*') { 1 } } 60000
+        $o = Pin (Node $nw 'Mandelbrot') 'out'
+        $pm = $null
+        if ($o) {
+            [P]::ClickOn($o, $true); Start-Sleep -Milliseconds 900
+            $watch = In $nw { param($e) [P]::Kind($e) -eq 'MenuItem' -and ([P]::Name($e) -like 'Watch*' -or [P]::Name($e) -like 'Pop Out*') } 3000
+            if ($watch) { [P]::ClickOn($watch) } else { Esc }
+            $pm = Wait-Until { Other-Windows | Where-Object { [P]::Name($_) -like 'Mandelbrot *' } | Select-Object -First 1 } 20000
+        }
+        function Pic($w) { $p = In $w { param($e) [P]::Id($e) -eq 'view-picture' } 15000; if ($p) { [P]::Status($p) } else { '' } }
+        function Hist($w) { $h = In $w { param($e) [P]::Id($e) -eq 'histogram' } 8000; if ($h) { [P]::Name($h) } else { '' } }
+        if ($pm) {
+            Front $pm
+            $pic1 = Pic $pm; $hist1 = Hist $pm
+            [P]::Shot((Join-Path $Work 'view-auto.png'))
+            $combo = In $pm { param($e) [P]::Id($e) -eq 'view-mode' } 5000
+            $modes = ''; $pic2 = ''; $hist2 = ''; $hist3 = ''
+            if ($combo) {
+                [P]::ClickOn($combo); Start-Sleep -Milliseconds 900
+                $items = @([P]::Everything($appPid) | Where-Object { [P]::Kind($_) -eq 'ListItem' -and [P]::Name($_) -in 'auto', 'color', 'stretch', 'clip', 'heat', 'labels', 'angle' })
+                $modes = ($items | ForEach-Object { [P]::Name($_) }) -join ' / '
+                $heat = $items | Where-Object { [P]::Name($_) -eq 'heat' } | Select-Object -First 1
+                if ($heat) { [P]::ClickOn($heat) } else { Esc }
+                $pic2 = Wait-Until { $x = Pic $pm; if ($x -and $x -ne $pic1) { $x } } 60000
+                Start-Sleep 1
+                $hist2 = Hist $pm
+                [P]::Shot((Join-Path $Work 'view-heat.png'))
+                # the log toggle: the core's viewer.array {log}; the bars change, and the histogram says so
+                $lg = In $pm { param($e) [P]::Id($e) -eq 'histogram-log' } 5000
+                if ($lg) { [P]::ClickOn($lg) }
+                $hist3 = Wait-Until { $x = Hist $pm; if ($x -like '*log scale*') { $x } } 15000
+                Start-Sleep 1
+                [P]::Shot((Join-Path $Work 'view-heat-log.png'))
+            }
+            $short = { param($h) if ($h.Length -gt 16) { $h.Substring(0, 16) + '...' } else { $h } }
+            $vSaw += "pop-out: " + [P]::Name($pm) + "; its picture " + (& $short $pic1) + ", histogram: $hist1; View offers: $modes; after heat: picture " + (& $short "$pic2") + ", histogram: $hist2; after Log scale: $hist3"
+            $ok22 = $pic1 -and $hist1 -like '*bins*' -and $modes -like '*heat*' -and $pic2 -and $pic2 -ne $pic1 -and $hist1 -notlike '*log scale*' -and $hist3 -like '*log scale*'
+            Close-Pop $pm
+        } else { $vSaw += "no pop-out of Mandelbrot's escape" }
+    } else { $vSaw += "no new graph, or no Mandelbrot from the palette: [" + $mb.list + "]" }
+    Step 'view-modes' $ok22 ($vSaw -join '; ')
+}
+
 function Run-Steps {
     # 1. a window with an untitled graph
     Starting '1. a window with an untitled graph'
     $w = Doc-Window 'Untitled*' $startWait
     Step 'window' ($null -ne $w -and (Doc-Windows).Count -eq 1) ("windows: " + (Titles))
     if (-not $w) { return }
+    # -Only view-modes: step 22 alone, from this first window (it opens a graph of its own)
+    if ($Only -eq 'view-modes') { Step-ViewModes $w; return }
     Start-Sleep 2
 
     # 2. File > New makes another; it is closed again by its close button
@@ -486,6 +555,15 @@ function Run-Steps {
         $field = if ($dlg) { In $dlg { param($e) [P]::Kind($e) -eq 'Edit' -and [P]::Name($e) -like 'File name*' } 5000 }
         if ($field) { [P]::ClickOn($field); [P]::Chord(0x11, 0x41); [P]::Type($file); Start-Sleep -Milliseconds 300; [P]::Key(0x0D) }
         $reopened = Doc-Window '*person check*' 20000
+        # a failed Open leaves its dialog up (a "File not found" box over it), and the system's picker host
+        # outlives the app: dismiss both as a person would, each with a limit, so nothing is left on the desktop
+        if (-not $reopened -and $dlg) {
+            $ok = In $dlg { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'OK' } 2000
+            if ($ok) { [P]::ClickOn($ok); Start-Sleep -Milliseconds 500 }
+            $cancel = In $dlg { param($e) [P]::Kind($e) -eq 'Button' -and [P]::Name($e) -eq 'Cancel' } 2000
+            if ($cancel) { [P]::ClickOn($cancel) } else { Esc }
+            $null = Wait-Until { if (-not (@([P]::All($blank)) | Where-Object { [P]::Kind($_) -eq 'Window' -and [P]::Name($_) -like 'Open*' })) { 1 } } 5000
+        }
     }
     $what = if ($reopened) { Start-Sleep 2; Describe-Nodes $reopened } else { '' }
     Step 'reopen' ($null -ne $gone -and $null -ne $reopened -and $what -like '*Text*' -and $what -like '*Upper case*') ("windows: " + (Titles) + "; its nodes: $what")
@@ -866,6 +944,8 @@ function Run-Steps {
             $ok21 = $w1Name -like 'Curve*curve' -and "$w1Text" -like '*0.6*' -and $w2Name -like 'Curve*curve' -and $promoted
         } else { $edSaw += "no Curve, or no editor row on it: [" + $cv.list + "]" }
         Step 'editor-row' $ok21 ($edSaw -join '; ')
+
+        Step-ViewModes $opened
     }
     if ($opened) {
         $it = Menu-Item $opened 'File' 'Quit*'

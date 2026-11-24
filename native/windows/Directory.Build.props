@@ -7,7 +7,10 @@
     <LangVersion>latest</LangVersion>
     <!-- the repository's root, from this file's place in it -->
     <PlumRepo>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\..'))</PlumRepo>
-    <!-- the core DLL, built for this machine as the README says -->
-    <PlumFfiDir Condition="'$(PlumFfiDir)' == '' And Exists('$(PlumRepo)\target\aarch64-pc-windows-msvc\release\plumcraft_ffi.dll')">$(PlumRepo)\target\aarch64-pc-windows-msvc\release</PlumFfiDir>
+    <!-- the core DLL, built for this machine as the README says: cargo's target for the machine's own
+         architecture (ARM64 or x64), or another by -p:PlumRustTarget= -->
+    <PlumRustTarget Condition="'$(PlumRustTarget)' == '' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64'">aarch64-pc-windows-msvc</PlumRustTarget>
+    <PlumRustTarget Condition="'$(PlumRustTarget)' == ''">x86_64-pc-windows-msvc</PlumRustTarget>
+    <PlumFfiDir Condition="'$(PlumFfiDir)' == '' And Exists('$(PlumRepo)\target\$(PlumRustTarget)\release\plumcraft_ffi.dll')">$(PlumRepo)\target\$(PlumRustTarget)\release</PlumFfiDir>
   </PropertyGroup>
 </Project>

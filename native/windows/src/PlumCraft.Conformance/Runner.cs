@@ -297,6 +297,14 @@ public static class Conformance
                 sb.Append('$').Append(name);
             i = end;
         }
+        // "$scratch/name" names a file in the case's scratch folder: on Windows its separators are the platform's
+        // (the core reports such a path natively), the same whether it is sent or expected
+        if (Path.DirectorySeparatorChar == '\\' && s.StartsWith("$scratch/", StringComparison.Ordinal) && vars.TryGetValue("scratch", out var sv) && sv.ValueKind == JsonValueKind.String)
+        {
+            var head = sv.GetString()!;
+            var whole = sb.ToString();
+            if (whole.StartsWith(head, StringComparison.Ordinal)) return head + whole[head.Length..].Replace('/', '\\');
+        }
         return sb.ToString();
     }
 
