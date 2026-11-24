@@ -275,6 +275,24 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B158. Mac: the wire does not follow a dragged bend point, and bend points show large on unselected wires
+
+- Reported: 2026-11-24
+- Report: "The wire does not drag with the bend points, and the points are large/visible even when the wire is not selected."
+- Context: the maintainer's first hand use of B155, in an application built on the Mac shell from the dev branch at `0147266`.
+- Answer (the maintainer, 2026-11-24): asked whether the wire jumps on release or never moves, they answered: "fix B158 (jumps on release)".
+- Cause (an agent, read from the code and reproduced in process):
+  - **The wire:** during a bend-point or route drag the Apple canvas moved only a ring; the wire was redrawn when the drag's `wire.route` ran at the end, and the move's reply carried no path. An ordinary bend-point drag had this before B155 too.
+  - **The points:** the canvas drew a radius-5 ring at every bend point into each wire's own path, always.
+- Issue: none
+- Fixed (core and Apple shells): 2026-11-24, branch `fix/b158-wire-drag`. Note: `claude-debug/b158/b158-wire-drag.md`.
+  - **The wire follows:** each move of a bend or route drag answers `update.wire {nid, via, path}`, the path built by the scene's own path code (`plum_drag_wire` in the C ABI). The canvas draws it in place of the wire until the scene brings the new one; a cancel puts the wire back at once. The shell computes no route.
+  - **Quiet points:** a dot of radius 3 shows only while the wire or one of its bend points is under the pointer, while the wire has an end on a selected node, or while it is being bent. The scene has no wire selection, so "selected" means an end on a selected node. The hit radius is unchanged.
+  - **Tests:** `crates/editor-core/tests/wire_drag_preview.rs` (4), a C ABI test, two Swift canvas tests, and a shared conformance case.
+  - **Launched** (a scripted Mac copy through the control port): no dots on an unselected wire, small dots when its node is selected, and the move's path equal to the scene's path after the drag.
+  - **Not checked:** the live preview in the running app. A gesture sent through the control port does not pass through the canvas's own drag, so it was read in process only. No hand drag, no device.
+  - **Not done:** egui still draws a handle at every bend point, always (its wire does follow a drag). The iPad has no hover, so an unselected wire's bend points can be taken but not seen. Windows: nothing written.
+
 ### B155. A wire's automatic 90-degree bends can't be interacted with
 
 - Reported: 2026-11-24

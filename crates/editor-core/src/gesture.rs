@@ -213,6 +213,8 @@ pub enum DragKind {
     /// A wire's bend point.
     Bend {
         to: PortRef,
+        /// The wire's nid in the scene (B158: the move reply draws it bent).
+        wire: u64,
         index: usize,
         via: Vec<[i32; 2]>,
     },
@@ -221,6 +223,7 @@ pub enum DragKind {
     /// in the same step); `index` is the corner's bend point, or a leg's first.
     Route {
         to: PortRef,
+        wire: u64,
         via: Vec<[i32; 2]>,
         index: usize,
         segment: bool,
@@ -818,12 +821,12 @@ fn begin(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> DragKind {
         kind::WIRE if h.part == part::CORNER || h.part == part::SEGMENT => match (snap.wire_of(h.wire), usize::try_from(h.index)) {
             (Some(w), Ok(k)) if k >= 1 && k + 1 < w.corners.len() => {
                 let via: Vec<[i32; 2]> = w.corners[1..w.corners.len() - 1].iter().map(|c| [c.x.round() as i32, c.y.round() as i32]).collect();
-                DragKind::Route { to: w.to, via, index: k - 1, segment: h.part == part::SEGMENT }
+                DragKind::Route { to: w.to, wire: w.nid, via, index: k - 1, segment: h.part == part::SEGMENT }
             }
             _ => DragKind::Marquee,
         },
         kind::BEND => match (snap.wire_of(h.wire), usize::try_from(h.index)) {
-            (Some(w), Ok(index)) if index < w.via.len() => DragKind::Bend { to: w.to, index, via: w.via },
+            (Some(w), Ok(index)) if index < w.via.len() => DragKind::Bend { to: w.to, wire: w.nid, index, via: w.via },
             _ => DragKind::Marquee,
         },
         kind::FRAME => match (snap.frame_of(h.item), h.part) {
@@ -838,6 +841,34 @@ fn begin(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> DragKind {
         // a tag, a wire, empty canvas: a marquee (on touch the shell pans there instead, and
         // sends no drag)
         _ => DragKind::Marquee,
+    }
+}
+
+/// Bend point `index` of `via` moved by `(dx, dy)`, rounded and kept in range (a bend point's
+/// drag).
+fn bend_moved(via: &[[i32; 2]], index: usize, dx: f32, dy: f32) -> Vec<[i32; 2]> {
+    let mut via = via.to_vec();
+    if let Some(v) = via.get_mut(index) {
+        let (dx, dy) = (dx.round() as i64, dy.round() as i64);
+        let clamp = |a: i32, b: i64| i32::try_from((i64::from(a) + b).clamp(-10_000_000, 10_000_000)).unwrap_or(a);
+        *v = [clamp(v[0], dx), clamp(v[1], dy)];
+    }
+    via
+}
+
+impl Drag {
+    /// The wire a bend point's or a route's drag is bending, as it would be with the pointer
+    /// where `u` says (B158): its nid, its bend points, and its path built by the scene's own
+    /// code (`Snapshot::chain_with`), the path the end's `wire.route` gives it. None for other
+    /// drags, or a wire the scene no longer has.
+    pub fn bent_wire(&self, snap: &Snapshot, u: &Update) -> Option<(u64, Vec<[i32; 2]>, Vec<Point>)> {
+        let (wire, via) = match &self.kind {
+            DragKind::Bend { wire, index, via, .. } => (*wire, bend_moved(via, *index, u.dx, u.dy)),
+            DragKind::Route { wire, via, index, segment, .. } => (*wire, crate::wire_path::route_drag(via, *index, *segment, u.dx, u.dy)),
+            _ => return None,
+        };
+        let path = snap.chain_with(wire, "routed", &via)?;
+        Some((wire, via, path))
     }
 }
 
@@ -887,9 +918,11 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
             let u = d.update(snap, at, slop);
             p.reply.insert("drag".into(), json!({"serial": d.serial, "kind": d.kind.word()}));
             let mut uj = update_json(snap, &u);
-            // a route's bend points as they would be, for the shell to draw the wire through
-            if let DragKind::Route { via, index, segment, .. } = &d.kind {
-                uj["via"] = json!(crate::wire_path::route_drag(via, *index, *segment, u.dx, u.dy));
+            // a bent wire as it would be (B158): the shell draws it in place of the wire's own
+            // until the drag ends or is cancelled
+            if let Some((nid, via, path)) = d.bent_wire(snap, &u) {
+                uj["via"] = json!(via);
+                uj["wire"] = json!({"nid": nid, "via": via, "path": crate::geometry::chain_json(&path)});
             }
             p.reply.insert("update".into(), uj);
         }
@@ -968,19 +1001,14 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut 
                 p.commands.push(marquee(snap, r, d.mods));
             }
         }
-        DragKind::Bend { to, index, via } => {
+        DragKind::Bend { to, index, via, .. } => {
             if !moved(u) {
                 return;
             }
-            let mut via = via.clone();
-            if let Some(v) = via.get_mut(*index) {
-                let (dx, dy) = (u.dx.round() as i64, u.dy.round() as i64);
-                let clamp = |a: i32, b: i64| i32::try_from((i64::from(a) + b).clamp(-10_000_000, 10_000_000)).unwrap_or(a);
-                *v = [clamp(v[0], dx), clamp(v[1], dy)];
-            }
+            let via = bend_moved(via, *index, u.dx, u.dy);
             p.commands.push(("wire.route", json!({"to": port_json(to), "via": via})));
         }
-        DragKind::Route { to, via, index, segment } => {
+        DragKind::Route { to, via, index, segment, .. } => {
             // one command, one undo step: the route's corners become the wire's own bend
             // points with this one moved
             if moved(u) {

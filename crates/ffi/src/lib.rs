@@ -517,6 +517,53 @@ pub extern "C" fn plum_gesture_move(core: u64, doc: u64, x: f32, y: f32, slop: f
     )
 }
 
+/// The wire a bend point's or a right-angled route's drag (kinds 4 and 9) is bending, with the
+/// pointer at `(x, y)` within `slop` (B158): what `ui.gesture`'s move gives as `update.wire`,
+/// typed. Two records in `plum_wire_paths`' form, both by the wire's nid: its path as it would be
+/// (the scene's own path code, the path the drag's end gives it), then its bend points (one
+/// point each). The shell draws these in place of the wire until the drag ends or is cancelled.
+/// Returns the floats needed; when that is more than `cap` (or `out` is null) nothing is
+/// written. 0 when there is no such drag, core or document.
+///
+/// # Safety
+///
+/// `out..out+cap` writable unless null.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn plum_drag_wire(core: u64, doc: u64, x: f32, y: f32, slop: f32, out: *mut f32, cap: usize) -> usize {
+    guard(
+        || 0,
+        || {
+            let Some(c) = self::core(core) else { return 0 };
+            let (Some(d), Some(s)) = (c.shared.drag(doc), c.shared.snapshot(doc)) else { return 0 };
+            if !(x.is_finite() && y.is_finite()) {
+                return 0;
+            }
+            let slop = if slop.is_nan() { 0.0 } else { slop.clamp(0.0, 1.0e4) };
+            let at = plumcraft_editor_core::plain::Point::new(plumcraft_editor_core::wire_path::coord(x), plumcraft_editor_core::wire_path::coord(y));
+            let u = d.update(&s, at, slop);
+            let Some((nid, via, path)) = d.bent_wire(&s, &u) else { return 0 };
+            let mut v: Vec<f32> = Vec::with_capacity(6 + 2 * (path.len() + via.len()));
+            let mut record = |pts: &mut dyn Iterator<Item = (f32, f32)>, n: usize| {
+                v.push(f32::from_bits((nid & u64::from(u32::MAX)) as u32));
+                v.push(f32::from_bits((nid >> 32) as u32));
+                v.push(f32::from_bits(u32::try_from(n).unwrap_or(u32::MAX)));
+                for (a, b) in pts {
+                    v.push(a);
+                    v.push(b);
+                }
+            };
+            record(&mut path.iter().map(|p| (p.x, p.y)), path.len());
+            record(&mut via.iter().map(|p| (p[0] as f32, p[1] as f32)), via.len());
+            if !out.is_null() && v.len() <= cap && out.is_aligned() {
+                // SAFETY: `out..out+cap` is writable (the caller's promise), aligned (checked),
+                // and `v.len() <= cap` floats are written; `v` is ours, so the two don't overlap.
+                unsafe { std::ptr::copy_nonoverlapping(v.as_ptr(), out, v.len()) };
+            }
+            v.len()
+        },
+    )
+}
+
 /// What the shell measured of `n` faces at `faces`, for document `doc` (0: the first): what
 /// `geometry.set` takes, typed. Copied before this returns, kept on the core's thread (the next
 /// snapshot has it); faces by a nid the scene doesn't have are skipped. `PLUM_OK`,

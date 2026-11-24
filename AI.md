@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — A wire follows the drag of its bend point; bend points are quiet (B158) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** On first use of B155: "The wire does not drag with the bend points, and the points are large/visible even when the wire is not selected." Then: "fix B158 (jumps on release)". The controller had started the work before that go-ahead, as unfinished work on B155, and its first commit attempt was rightly refused until the maintainer gave it.
+
+**What the AI did.** The agent confirmed both causes in the Apple canvas (a ring moved alone; rings drawn into every wire's path). The core's move reply now carries the wire's path as it would be (about 50 LOC in `gesture.rs` and `geometry.rs`, 54 in the C ABI), and the canvas draws it (a new 110-line `BendRings.swift`, about 70 more across three files). Bend points became small dots shown on hover, on a selected node's wires, or while bending. Tests: four in the core, one in the C ABI, two in Swift, one conformance case.
+
+**Verification.** The agent's runs: the Rust suite (one known failure), Python 249, the Swift kit, Mac conformance 75 of 75, iPad simulator 63 of 63; a scripted Mac launch showing dots only when the node is selected. The controller looked at two pictures. The live preview was read in process, not in the running app: the control port's gesture does not go through the canvas's own drag.
+
+**Defects.** Both faults were in AI-written canvas code: the first predates B155, which copied it to the new drag; the second is the rings the same day's B155 kept. The maintainer found both by hand; no test or scripted launch had looked at a wire mid-drag. The agent's new C ABI test first put its bend point under a node.
+
 ### 2026-11-24 — A wire's right-angle route can be dragged and converted (B155) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "There is also no way to interact with the 90 degree automatic bends."; then "B155: Look at converting bends <-> right angles and allow dragging."; then "fix b155". Converting both ways is the maintainer's idea; dragging a corner or segment was the controller's proposal.

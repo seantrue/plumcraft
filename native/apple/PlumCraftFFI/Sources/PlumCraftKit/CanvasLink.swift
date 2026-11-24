@@ -172,6 +172,18 @@ public final class CanvasLink {
         core.wirePaths(doc: hotDoc, faces: draggedFaces, dx: dx, dy: dy, buffer: &pathBuffer)
     }
 
+    /// The wire a bend point's or route's drag is bending, with the pointer at `at` (B158): its
+    /// path as it would be and its bend points, from the core; nil for any other drag.
+    public func dragWire(_ at: Point, slop: Double) -> (nid: UInt64, path: [CGPoint], via: [CGPoint])? {
+        let recs = Array(core.dragWire(doc: hotDoc, x: Float(at.x), y: Float(at.y), slop: Float(slop), buffer: &pathBuffer))
+        guard recs.count == 2 else { return nil }
+        func pts(_ w: WirePath) -> [CGPoint] {
+            let f = Array(w.points)
+            return stride(from: 0, to: f.count - 1, by: 2).map { CGPoint(x: CGFloat(f[$0]), y: CGFloat(f[$0 + 1])) }
+        }
+        return (recs[0].nid, pts(recs[0]), pts(recs[1]))
+    }
+
     /// The paths of the wires on `faces`, moved by `(dx, dy)`.
     public func wirePaths(faces: [UInt64], dx: Float, dy: Float) -> WirePaths {
         core.wirePaths(doc: hotDoc, faces: faces, dx: dx, dy: dy, buffer: &pathBuffer)
