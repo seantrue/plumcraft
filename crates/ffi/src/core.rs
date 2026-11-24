@@ -175,6 +175,8 @@ pub struct AppInfo {
     pub name: Option<String>,
     pub version: Option<String>,
     pub build: Option<String>,
+    /// The native program's own build stamp (`app.built: {commit, dirty, date}`, B151).
+    pub built: Option<plumcraft_build_stamp::Stamp>,
 }
 
 /// Where the control channel listens (N4 slice 4).
@@ -268,6 +270,7 @@ impl Config {
                 name: o.get("app").and_then(|a| a.get("name")).and_then(Value::as_str).map(|s| s.chars().take(128).collect()),
                 version: o.get("app").and_then(|a| a.get("version")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
                 build: o.get("app").and_then(|a| a.get("build")).and_then(Value::as_str).map(|s| s.chars().take(64).collect()),
+                built: o.get("app").and_then(|a| a.get("built")).and_then(plumcraft_build_stamp::Stamp::from_json),
             },
             caches: dir_of(o, "caches")?,
             scratch: dir_of(o, "scratch")?,
@@ -1217,6 +1220,9 @@ impl Worker {
             .into_iter()
             .flatten()
             .collect(),
+            // which build: this library, the application's (if it stamped itself), the native
+            // program's (B151)
+            build: Some(plumcraft_build_stamp::about(&plumcraft_build_stamp::shell(), crate::app::build().as_ref(), self.app.built.as_ref())),
         };
         let mut doc = Document::with_media(session, self.shared.media.clone(), false);
         doc.look = Some(Arc::clone(&self.look));

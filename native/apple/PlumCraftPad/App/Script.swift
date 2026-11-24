@@ -13,6 +13,7 @@
 //   zoom:Z[:ID]               zoom Z, centred on node ID when named
 //   theme:dark|light          the window's appearance
 //   close                     close the graph (back to the document browser)
+//   about                     About, as the Help menu opens it (B151)
 //   compact:on|off            the window's horizontal size class forced compact (what Split View and
 //                             a narrow Stage Manager window give; the simulator can't be split by a
 //                             script), so the parameters and a pop-out are sheets
@@ -91,6 +92,10 @@ struct Script {
                 if parts[1] == "on" { w.traitOverrides.horizontalSizeClass = .compact } else { w.traitOverrides.remove(UITraitHorizontalSizeClass.self) }
             }
             try? await Task.sleep(for: .seconds(1.2))
+        case "about":
+            // About, as the Help menu opens it (B151; the Mac has a step of the same name)
+            PadSettings.about(over: graph, model: m)
+            try? await Task.sleep(for: .seconds(1))
         case "select-mode":
             if (parts.count < 2 || parts[1] == "on") != v.selectMode { graph.toggleSelectMode() }
             _ = await m.wait(timeout: .seconds(3)) { (parts.count < 2 || parts[1] == "on") == m.view.selectMode }

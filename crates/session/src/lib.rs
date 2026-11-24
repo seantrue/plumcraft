@@ -175,6 +175,9 @@ pub struct About {
     pub version: String,
     /// What it was built from: a name and its version, in order.
     pub parts: Vec<(String, String)>,
+    /// Which build this is (B151): `{line, shell, app, ui}`, each stamp `{commit, dirty, date}`
+    /// (`plumcraft_build_stamp::about`); None where the program says nothing.
+    pub build: Option<serde_json::Value>,
 }
 
 /// What a graph needs that no connected engine has.

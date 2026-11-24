@@ -28,6 +28,7 @@ plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-craft = { workspace = true }
 plumcraft-ui = { workspace = true }
+plumcraft-build-stamp = { workspace = true }
 # Starting and connecting engines, and the windowless commands (`run`, `check`, `tidy`, `nodes`),
 # are the editor core's: this crate keeps the window.
 plumcraft-editor-core = { workspace = true }

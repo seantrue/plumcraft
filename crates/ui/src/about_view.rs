@@ -35,6 +35,10 @@ pub fn show(ctx: &egui::Context, s: &mut Session) {
         .show(ctx, |ui| {
             ui.heading(&s.about.title);
             ui.label(format!("Version {}", s.about.version));
+            // which build this is (B151), as text a person can select and copy
+            if let Some(line) = s.about.build.as_ref().and_then(|b| b.get("line")).and_then(serde_json::Value::as_str) {
+                ui.add(egui::Label::new(egui::RichText::new(line).small()).selectable(true));
+            }
             if !s.about.parts.is_empty() {
                 ui.separator();
                 let parts: Vec<(&str, &str)> = s.about.parts.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();

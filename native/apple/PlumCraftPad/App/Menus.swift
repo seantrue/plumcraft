@@ -103,8 +103,13 @@ enum PadMenus {
             case .viewMenu?:
                 builder.replaceChildren(ofMenu: .view) { _ in children + [viewExtras(&used)] }
             case .helpMenu?:
-                // iPadOS's Help keeps its search; the model's About has no window here yet
-                break
+                // iPadOS's Help keeps its search, with the model's About first (B151: which build
+                // this is, where a person looks for it); its key is its place in the model
+                if let j = top.items.firstIndex(where: { $0.role?.word == .about }) {
+                    let it = top.items[j]
+                    let about = UICommand(title: "\(it.label) \(AppID.name)", action: run, propertyList: "\(k)/\(j)")
+                    builder.insertChild(UIMenu(options: .displayInline, children: [about]), atStartOfMenu: .help)
+                }
             default:
                 let id = UIMenu.Identifier(AppID.bundle + ".menu.\(top.id.isEmpty ? "\(k)" : top.id)")
                 let m = UIMenu(title: top.label, identifier: id, children: children)
