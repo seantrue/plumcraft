@@ -275,6 +275,24 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B155. A wire's automatic 90-degree bends can't be interacted with
+
+- Reported: 2026-11-24
+- Report: "There is also no way to interact with the 90 degree automatic bends."
+- Context: said with B153's second report, in the maintainer's hand use of an application built on the Mac shell (the dev branch at `487a40d`). The bends are the corners of a wire the editor routes itself.
+- Design (the maintainer, 2026-11-24): asked what the interaction should be (the controller proposed making a corner or a segment draggable, which turns the automatic route into the person's own bend points), they answered: "B155: Look at converting bends <-> right angles and allow dragging." Then: "fix b155".
+- What the look found: no editor here ever let a person take hold of an automatic corner; egui has Straighten and nothing else.
+- Issue: none
+- Fixed (core and Apple shells): 2026-11-24, branch `fix/b155-wire-corners`. Design note: `claude-debug/b155/b155-wire-corners.md`.
+  - **No new stored state.** A wire still has only its bend points. A wire whose bend points (two or more) each sit straight across from, or straight above or below, the one before is drawn with straight legs and rounded corners; any other wire is drawn as before.
+  - **Dragging:** a press on a corner or a leg of an automatic route is a hit (`wire`, part `corner` or `segment`); the drag (kind `route`) makes the route's corners the wire's own bend points with the dragged one moved, in one `wire.route`, so one undo step. A leg moves only across itself; the legs touching the pins can't be taken.
+  - **Converting:** the wire's menu gains Make Right-Angled (`wire.square`, a new core command), offered only where it would change something; Straighten is renamed Route Automatically (the same `wire.route` with no points).
+  - **Tests:** `crates/editor-core/tests/wire_corners.rs` (6) and a shared conformance case every shell's runner must pass.
+  - **Launched** (an agent, a scripted Mac copy through the control port, no mouse): a corner drag, a leg drag and Make Right-Angled each read back as the expected bend points; three undos restored both wires.
+  - **Open decision:** an existing wire whose own bend points happen to line up exactly is now drawn right-angled where it was a curve. The other way is a stored per-wire style, a graph-format change.
+  - **Not checked:** a real mouse or finger drag; a device.
+  - **Not done:** egui draws a right-angled wire and has the two menu items, but can't drag an automatic corner (its canvas handles wires itself). Windows: nothing written; it needs rings at bend points, the drag on a corner or leg, and drag code 9. Automatic corners show no handle until dragged.
+
 ### B156. Mac: after grouping nodes, no group header appears and the group can't be collapsed
 
 - Reported: 2026-11-24
