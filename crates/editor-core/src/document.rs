@@ -682,6 +682,12 @@ impl Document {
             if self.session.run.apply_event(e, now) && matches!(e.event, Event::RunReply(_)) {
                 reread = true;
                 self.media_service.forget_misses();
+                // B162: a run that stopped as a whole (an engine refused its part, nodes left
+                // unrun and no node's face in error) says why on the status line, every
+                // shell's banner; before, it was only in `ui.inspect` and the run looked silent
+                if let Some(why) = &self.session.run.run_error {
+                    self.last_error = Some(format!("the run stopped: {why}"));
+                }
             }
         }
         if !events.is_empty() {
@@ -1878,6 +1884,54 @@ mod tests {
         gate.1.notify_all();
         assert!(wait_closed(Duration::from_secs(10)), "the worker finished");
         assert!(calls.load(Ordering::SeqCst) >= 2, "the run, then its cancel: {}", calls.load(Ordering::SeqCst));
+    }
+
+    /// An engine that refuses every run as a whole, as an engine does a request it can't take.
+    struct Refusing(Mutex<Option<(String, u64)>>, AtomicUsize);
+    impl plumcraft_host::Connection for Refusing {
+        fn call(&self, method: &str, params: Value) -> Result<Value, ProtoError> {
+            match method {
+                "run" => {
+                    let id = params["run_id"].as_str().unwrap_or_default().to_owned();
+                    *self.0.lock().unwrap() = Some((id.clone(), params["generation"].as_u64().unwrap_or(0)));
+                    Ok(json!({"run_id": id}))
+                }
+                "events.poll" => {
+                    std::thread::sleep(Duration::from_millis(5));
+                    let Some((id, generation)) = self.0.lock().unwrap().take() else { return Ok(json!({"events": [], "last_seq": 0})) };
+                    let seq = self.1.fetch_add(1, Ordering::SeqCst) as u64 + 1;
+                    let reply = plumcraft_proto::run::RunReply::failed(
+                        &id,
+                        generation,
+                        plumcraft_proto::error::NodeError::new(plumcraft_proto::error::NodeError::GRAPH, "an input is given to missing node n1.edges"),
+                    );
+                    let e = plumcraft_proto::event::Envelope::new(seq, 0.0, Some((&id, generation)), Event::RunReply(Box::new(reply)));
+                    Ok(json!({"events": [e], "last_seq": seq}))
+                }
+                _ => Ok(json!({})),
+            }
+        }
+        fn state(&self) -> EngineState {
+            EngineState::Off
+        }
+        fn resolve(&self, _: &DataRef) -> Option<Blob> {
+            None
+        }
+    }
+
+    /// B162: a run an engine refused as a whole says why on the status line (every shell's
+    /// banner). It was kept only for `ui.inspect`, so to a person the graph just didn't run.
+    #[test]
+    fn a_run_refused_as_a_whole_says_why_on_the_status_line() {
+        let mut d = Document::new(Session::new(plumcraft_text::engine().schema()));
+        let conn: Arc<dyn plumcraft_host::Connection> = Arc::new(Refusing(Mutex::new(None), AtomicUsize::new(0)));
+        d.link = Some(Link::start(conn, "refusing", None).unwrap());
+        d.session.connected = true;
+        d.run("node.add", &json!({"kind": "text.literal", "pos": [0, 0]})).unwrap();
+        d.run("run.start", &json!({})).unwrap();
+        wait(&mut d, "the refused run", |d| !d.session.run.running);
+        let said = d.last_error.clone().unwrap_or_default();
+        assert!(said.starts_with("the run stopped: ") && said.contains("missing node n1.edges"), "{said:?}");
     }
 
     #[test]

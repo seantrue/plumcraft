@@ -133,6 +133,18 @@ def test_rust_audio_arrives_as_its_samples():
     assert np.array_equal(b.echo.got.samples, samples)
 
 
+def test_a_port_or_a_node_with_a_dot_in_its_name_is_bound():
+    """B162, as the Rust SDK: a key splits at the dot that leaves a node the graph has (the
+    longest when more than one does), so `n3.edges.threshold` binds port `edges.threshold`."""
+    v = {"kind": "json", "value": 0.5}
+    assert bind.by_node({"n3.edges.threshold": v}, lambda n: n == "n3") == {"n3": {"edges.threshold": v}}
+    assert bind.by_node({"g.e.x": v}, lambda n: n == "g.e") == {"g.e": {"x": v}}
+    has = lambda n: n in ("a", "a.b")  # noqa: E731
+    assert bind.split_key("a.b.c", has) == ("a.b", "c")
+    assert bind.split_key("a.x.y", has) == ("a", "x.y")
+    assert bind.split_key("z.x", has) is None and bind.split_key(".x", has) is None and bind.split_key("a.", has) is None
+
+
 def test_keys_naming_nothing_are_ignored():
     a = Rig(root())
     v = {"kind": "json", "value": 1}

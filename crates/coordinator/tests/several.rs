@@ -257,3 +257,27 @@ fn handles_cross_in_the_current_algorithm() {
         Coordinator::new().with_engine("text", host(plumcraft_text::engine)).with_engine("array", std::sync::Arc::new(NoB3(host(plumcraft_array::engine))));
     assert_eq!(algo_of(&mixed, "algo-mixed", "b3"), want);
 }
+
+/// B162: a driver in one engine (Vary Range, the text engine's) feeding a setting of a node in
+/// another (the array engine's Arithmetic) runs that node once per value, across the border.
+#[test]
+fn a_vary_in_one_engine_drives_a_setting_in_another() {
+    let c = coordinator();
+    let port = codes_output_port(&c);
+    let g = graph(
+        json!({
+            "lit": {"kind": "text.literal", "values": {"text": "ab"}},
+            "codes": {"kind": "text.codes"},
+            "range": {"kind": "vary.range", "engine": "text", "values": {"start": 1.0, "stop": 3.0, "num": 3, "endpoint": true}},
+            "times": {"kind": "array.arithmetic", "values": {"operation": "multiply"}},
+        }),
+        &[("lit", "text", "codes", "text"), ("codes", &port, "times", "a"), ("range", "values", "times", "constant")],
+    );
+    let (_, reply) = run(&c, "v1", g, json!({"targets": ["times"]}));
+    assert!(reply.ok, "{reply:?}");
+    for n in ["range", "times"] {
+        assert_eq!(reply.nodes[n].state, NodeState::Done, "{n}");
+    }
+    let PortValue::List { items } = &reply.nodes["times"].outputs["result"] else { panic!("one result a value: {:?}", reply.nodes["times"].outputs) };
+    assert_eq!(items.len(), 3, "once per value of the range");
+}

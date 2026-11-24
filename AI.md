@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — A value bound to a dotted setting reaches its node; a stopped run says why (B162) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "After wiring styles/cheap-and-cheerful-2bug.plum to have a range driving node, the graph no longer runs at all."; then "fix B162 (deleting the range let's it run)".
+
+**What the AI did.** The controller compared the saved graph with its source and suspected the driver's belonging to another engine. The agent tested that and three other variants and showed it wrong: the fault was a label split at its last dot in both engine SDKs (`bind.rs`, `bind.py`), which a setting with a dot in its name defeats. The fix is about 15 lines in each SDK, 20 in the core for the status line, a rule in `docs/interface.md`, and tests (146 LOC added in all). An application's own engine needed the same rule on its side.
+
+**Verification.** The agent's runs: three new tests each seen failing with its fix reverted; 376 tests in the three Rust crates touched, Python 250, clippy and fmt; Mac conformance 76 of 76; the maintainer's graph (a scratch copy) run in the application before and after, 26 of 26 nodes done after. The whole Rust suite ran on the Linux test host. The status-line message has not been seen in a window.
+
+**Defects.** The split's comment ("Port names never hold a dot") recorded an assumption no test held to, in AI-written SDK code; the research software's dotted settings broke it, and the failure showed nothing to the person, which the maintainer found by hand. The controller's suspected cause was wrong. The agent once ran the Python suite without the scratch environment (one isolation test failed; it found no stray files), and its first private test case broke another case by changing the default style.
+
 ### 2026-11-24 — A pop-out keeps its zoom and view from item to item (B159) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "scrolling through items in result does not maintain zoom and view of image."; where: "Color pencil, final result, in the pop-out window. Zoomed out to icon size for image"; then "I zoomed in to 200%, next view was more like 10%"; then "Fix b159".
