@@ -435,6 +435,8 @@ mod tests {
             text: Default::default(),
             fit: None,
             state: ViewerState::default(),
+            zoom_seq: 0,
+            zoom_asked: None,
         });
         let mut col = |p: Value| grid(&mut s, &p).map(|r| r["col"].as_u64().unwrap_or(u64::MAX));
         assert_eq!(col(json!({"popout": 7})).unwrap(), 0);
@@ -476,6 +478,8 @@ mod tests {
             text: Default::default(),
             fit: None,
             state: ViewerState::default(),
+            zoom_seq: 0,
+            zoom_asked: None,
         });
         assert_eq!(s.views.popouts[0].state.json()["array"]["log"], false);
         assert_eq!(array(&mut s, &json!({"popout": 3, "log": true})).unwrap()["log"], true);

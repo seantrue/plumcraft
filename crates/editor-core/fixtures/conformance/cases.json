@@ -1622,6 +1622,27 @@
       ]
     },
     {
+      "name": "a zoom asked of a pop-out reaches its shell once, with where to centre",
+      "about": "B159: viewer.zoom {popout, to?, at?} on a pop-out is in popout.get's zoomAsk {seq, to, at}, seq rising with each ask, so a native shell (which keeps its picture's zoom and view itself) applies each once: to is fit, 1:1, in, out or screen pixels per value pixel, at the value pixel to centre; nothing asked, null",
+      "half": "read",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "width", "value": 40}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "height", "value": 30}}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$m", "port": "escape"}}, "save": {"p": "/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewer": "array.pictures"}, "timeout": 120, "expect": {"/result/zoomAsk": null}},
+        {"call": "command.run", "params": {"command": "viewer.zoom", "params": {"popout": "$p", "to": 4, "at": [15, 20]}}},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/zoomAsk/seq": 1, "/result/zoomAsk/to": 4, "/result/zoomAsk/at": [15, 20]}},
+        {"call": "command.run", "params": {"command": "viewer.zoom", "params": {"popout": "$p", "to": "in"}}},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/zoomAsk/seq": 2, "/result/zoomAsk/to": "in", "/result/zoomAsk/at": null}},
+        {"call": "command.run", "params": {"command": "viewer.zoom", "params": {"popout": "$p", "to": "fit"}}},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/zoomAsk/seq": 3, "/result/zoomAsk/to": "fit", "/result/fit": "fit"}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$p"}}}
+      ]
+    },
+    {
       "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
       "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
       "half": "read",

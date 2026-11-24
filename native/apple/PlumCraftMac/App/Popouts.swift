@@ -104,6 +104,8 @@ final class PopoutWindowController: NSWindowController, NSWindowDelegate {
         let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 440),
                          styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         w.title = popout.window.title
+        // `ui.screenshot {window: "popout:<id>"}` draws this window's content (B159)
+        w.identifier = NSUserInterfaceItemIdentifier("core-popout:\(popout.id)")
         w.contentViewController = content
         w.setContentSize(NSSize(width: 520, height: 440))
         w.minSize = NSSize(width: 260, height: 200)
@@ -181,6 +183,12 @@ final class PopoutViewController: NSViewController {
     /// The whole text, once read, by the value's reference.
     private var fullText: [String: String] = [:]
     private var magnification: (() -> Void)?
+    /// B159: the picture's zoom and view a pinch, a pan or a zoom ask made, in the picture's own
+    /// terms (`PictureZoom`); none: it fits, or shows 1:1 when the core says so.
+    private var keptZoom: PictureZoom?
+    /// The zoom ask (`zoomAsk.seq`) last taken, and one waiting for the picture to be laid out.
+    private var askSeen: UInt64 = 0
+    private var pendingAsk: JSONValue?
     /// What the window shows now, for scripts (`--status-file`).
     private(set) var describe: [String: JSONValue] = [:] { didSet { box.onDescribe?() } }
     /// The shared viewers' state (N4 slice 5): tables, outlines, grids, sound, bytes, items.
@@ -224,6 +232,11 @@ final class PopoutViewController: NSViewController {
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
         box.value = v
+        // a zoom asked of the pop-out (`viewer.zoom`), taken once (B159)
+        if let a = v.zoomAsk, let seq = a["seq"].uint64, seq > askSeen {
+            askSeen = seq
+            pendingAsk = a
+        }
         if ViewerBox.handles(v), !(v.viewer == "array.pictures" && (v.views?.count ?? 0) <= 1), v.error == nil || v.error == .null {
             // a viewer the apps share: SwiftUI follows the value itself
             shown = v
@@ -260,6 +273,8 @@ final class PopoutViewController: NSViewController {
         current = nil
         restyle = nil
         magnification = nil
+        // B159: the zoom and view kept (`keptZoom`) outlive the picture's view, which is made
+        // again for every item of a list: the next item shows at the same zoom and centre
         if let e = v.error, e != .null {
             put(message("This value failed: \(e.string ?? e["message"].string ?? e.text)"))
             describe["error"] = e
@@ -301,7 +316,7 @@ final class PopoutViewController: NSViewController {
     /// The window's size changed (or it was first laid out): a fitted picture fits again.
     override func viewDidLayout() {
         super.viewDidLayout()
-        if shown?.fit != "1:1" { magnification?() }
+        if shown?.fit != "1:1" || keptZoom != nil || pendingAsk != nil { magnification?() }
     }
 
     private func put(_ v: NSView) {
@@ -354,6 +369,15 @@ final class PopoutViewController: NSViewController {
 
     // MARK: picture
 
+    /// The view `scroll` shows of a picture `pic` value pixels in size (its document is laid out
+    /// at that size, unflipped), in the picture's own terms; nil before it is laid out.
+    static func viewShown(_ scroll: NSScrollView, _ pic: CGSize) -> PictureZoom? {
+        let r = scroll.documentVisibleRect
+        guard r.width > 0, r.height > 0, pic.width > 0, pic.height > 0 else { return nil }
+        let c = CGPoint(x: min(max(r.midX / pic.width, 0), 1), y: min(max(1 - r.midY / pic.height, 0), 1))
+        return PictureZoom(scale: Double(scroll.magnification), centre: c)
+    }
+
     private func pictureView(_ v: PopoutValue) -> NSView {
         let box = NSView()
         let scroll = NSScrollView()
@@ -402,21 +426,51 @@ final class PopoutViewController: NSViewController {
         objc_setAssociatedObject(scroll, &PicState.key, ps, .OBJC_ASSOCIATION_RETAIN)
         let pics = pictures
         let media = v.media ?? ""
-        let apply = { [weak self, weak scroll, weak image, weak zoom] in
-            guard let scroll, let image, ps.shown.w > 0 else { return }
-            let one = self?.shown?.fit == "1:1"
+        let apply: @MainActor @Sendable () -> Void = { [weak self, weak scroll, weak image, weak zoom] in
+            guard let self, let scroll, let image, ps.shown.w > 0 else { return }
+            let one = self.shown?.fit == "1:1"
             zoom?.selectedSegment = one ? 1 : 0
             // the picture is laid out at the value's own size, so 1:1 is a pixel of the value
             let f = ps.src.full ?? ps.shown
-            image.frame = NSRect(x: 0, y: 0, width: f.w, height: f.h)
-            if one {
-                scroll.magnification = 1
-            } else {
-                let s = min(scroll.contentSize.width / CGFloat(f.w), scroll.contentSize.height / CGFloat(f.h))
-                scroll.magnification = max(min(s, 8), scroll.minMagnification)
+            let pic = CGSize(width: f.w, height: f.h)
+            image.frame = NSRect(origin: .zero, size: pic)
+            let fit = PictureZoom.fit(content: scroll.contentSize, picture: pic)
+            // a zoom asked of the pop-out, taken once the view's size is known (B159)
+            if let a = self.pendingAsk, let fit {
+                self.pendingAsk = nil
+                let now = self.keptZoom ?? Self.viewShown(scroll, pic) ?? PictureZoom(scale: one ? 1 : fit, centre: CGPoint(x: 0.5, y: 0.5))
+                self.keptZoom = PictureZoom.asked(a, current: now, backing: Double(scroll.window?.backingScaleFactor ?? 2), picture: pic)
             }
+            // Fit and 1:1 lit only when shown: a kept zoom is neither
+            if self.keptZoom != nil { zoom?.selectedSegment = -1 }
+            if let k = self.keptZoom, fit != nil {
+                // the zoom and view kept, in the picture's own terms: the same scale, the same
+                // relative centre (AppKit's y runs up)
+                scroll.magnification = k.scale
+                let clip = scroll.contentView
+                let vis = clip.bounds.size
+                clip.scroll(to: clip.constrainBoundsRect(NSRect(origin: NSPoint(x: k.centre.x * pic.width - vis.width / 2, y: (1 - k.centre.y) * pic.height - vis.height / 2), size: vis)).origin)
+                scroll.reflectScrolledClipView(clip)
+            } else if self.keptZoom != nil {
+                return  // kept, and not laid out yet: applied when it is
+            } else if one {
+                scroll.magnification = 1
+            } else if let fit {
+                scroll.magnification = max(fit, scroll.minMagnification)
+            } else {
+                // B159: not laid out yet (a picture already decoded arrives before its new view
+                // has a size): fitting now gave the smallest zoom (5%); the size's arrival applies it
+                return
+            }
+            self.describe["zoom"] = (Self.viewShown(scroll, pic) ?? PictureZoom(scale: scroll.magnification, centre: CGPoint(x: 0.5, y: 0.5)))
+                .facts(kept: self.keptZoom != nil, fit: fit)
         }
         magnification = apply
+        // the view's size arriving (its first layout, a resize) applies the zoom (B159)
+        scroll.postsFrameChangedNotifications = true
+        NotificationCenter.default.addObserver(forName: NSView.frameDidChangeNotification, object: scroll, queue: .main) { _ in
+            MainActor.assumeIsolated { apply() }
+        }
         zoom.selectedSegment = v.fit == "1:1" ? 1 : 0
         ps.set = { [weak image, weak channel, weak self, weak ps] (img: CGImage) in
             ps?.original = img
@@ -471,8 +525,20 @@ final class PopoutViewController: NSViewController {
         // zoomed in past the picture's own pixels: more detail is asked for, once (egui's
         // "scrolling in past the picture asks for detail"): a picture file decoded larger, an SVG
         // drawn larger, an array's larger rendition from the core (`viewer.zoom {to: "detail"}`)
+        // a pinch or a pan a person ends is the view kept through the items (B159)
+        let keep: @MainActor @Sendable (Bool) -> Void = { [weak self, weak scroll] always in
+            guard let self, let scroll, ps.shown.w > 0, always || self.keptZoom != nil else { return }
+            let f = ps.src.full ?? ps.shown
+            let pic = CGSize(width: f.w, height: f.h)
+            self.keptZoom = Self.viewShown(scroll, pic)
+            self.describe["zoom"] = self.keptZoom?.facts(kept: true, fit: PictureZoom.fit(content: scroll.contentSize, picture: pic))
+        }
+        NotificationCenter.default.addObserver(forName: NSScrollView.didEndLiveScrollNotification, object: scroll, queue: .main) { _ in
+            MainActor.assumeIsolated { keep(false) }
+        }
         NotificationCenter.default.addObserver(forName: NSScrollView.didEndLiveMagnifyNotification, object: scroll, queue: .main) { [weak self, weak scroll] _ in
             MainActor.assumeIsolated {
+                keep(true)
                 guard let scroll, !ps.sharpened, ps.shown.w > 0 else { return }
                 let f = ps.src.full ?? ps.shown
                 let screenPerShown = scroll.magnification * CGFloat(f.w) / CGFloat(ps.shown.w) * (scroll.window?.backingScaleFactor ?? 2)

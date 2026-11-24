@@ -307,6 +307,13 @@ fn zoom(s: &mut Session, p: &Value) -> Result<Value> {
     }
     if to.is_some() || at.is_some() {
         tools_mut(s, role)?.zoom = Some(ZoomAsk { to, at });
+        // a native shell applies a pop-out's ask once, when its count rises (B159)
+        if let WatchRole::Popout(id) = role
+            && let Some(o) = s.views.popouts.iter_mut().find(|o| o.id == id)
+        {
+            o.zoom_seq += 1;
+            o.zoom_asked = Some(ZoomAsk { to, at });
+        }
     }
     // a pop-out keeps a whole-view zoom (Fit, 1:1) as its state (N4 slice 3)
     if let WatchRole::Popout(id) = role

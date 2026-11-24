@@ -45,6 +45,13 @@ pub struct Popout {
     /// Its viewer's state: a table's sort and page, an outline's open members, play, a channel
     /// (`viewer_state`, N4 slice 5).
     pub state: crate::viewer_state::ViewerState,
+    /// Rises with every zoom asked of it (`viewer.zoom {to?, at?}`): a native shell, which keeps
+    /// its picture's zoom and view itself, applies the ask in `tools.zoom` once when this rises
+    /// (B159; `popout.get`'s `zoomAsk`).
+    pub zoom_seq: u64,
+    /// The latest zoom asked of it, kept for a native shell (egui's viewer takes `tools.zoom`).
+    #[serde(skip)]
+    pub zoom_asked: Option<crate::viewer_cmds::ZoomAsk>,
 }
 
 /// How a text or scalar viewer shows its value (`viewer.text`, `docs/shell-interface.md` 13.2;
@@ -181,7 +188,17 @@ fn popout(s: &mut Session, p: &Value) -> Result<Value> {
     }
     s.views.next = s.views.next.saturating_add(1);
     let id = s.views.next;
-    s.views.popouts.push(Popout { id, viewer, tools: Tools::default(), raised: 0, text: TextView::default(), fit: None, state: Default::default() });
+    s.views.popouts.push(Popout {
+        id,
+        viewer,
+        tools: Tools::default(),
+        raised: 0,
+        text: TextView::default(),
+        fit: None,
+        state: Default::default(),
+        zoom_seq: 0,
+        zoom_asked: None,
+    });
     let mut out = json!({"id": id, "node": w.node, "port": w.port, "index": w.index});
     s.run.set_watch(WatchRole::Popout(id), Some(w));
     out["run_id"] = json!(refresh(s));

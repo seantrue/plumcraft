@@ -296,6 +296,16 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     private var fullText: [String: String] = [:]
     private weak var imageView: UIImageView?
     private weak var imageScroll: UIScrollView?
+    /// The value's own size in pixels, of the picture shown (larger than the picture drawn when
+    /// that is a smaller rendition).
+    private var imageFull: CGSize?
+    /// B159: the picture's zoom and view a pinch, a pan or a zoom ask made, in the picture's own
+    /// terms (`PictureZoom`), kept through the items; none: it fits, or 1:1 when the core says so.
+    private var keptZoom: PictureZoom?
+    /// The zoom ask (`zoomAsk.seq`) last taken, and one waiting for the picture to be laid out.
+    private var askSeen: UInt64 = 0
+    private var pendingAsk: JSONValue?
+    private weak var zoomControl: UISegmentedControl?
     private var restyle: (() -> Void)?
     /// What it shows now, for scripts (`--status-file`).
     private(set) var describe: [String: JSONValue] = [:] { didSet { box.onDescribe?() } }
@@ -360,6 +370,11 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
         box.value = v
+        // a zoom asked of the pop-out (`viewer.zoom`), taken once (B159)
+        if let a = v.zoomAsk, let seq = a["seq"].uint64, seq > askSeen {
+            askSeen = seq
+            pendingAsk = a
+        }
         navigationItem.title = v.title ?? popout.window.title
         if ViewerBox.handles(v), !(v.viewer == "array.pictures" && (v.views?.count ?? 0) <= 1), v.error == nil || v.error == .null {
             // a viewer the apps share: SwiftUI follows the value itself
@@ -398,6 +413,8 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
         current?.removeFromSuperview()
         current = nil
         restyle = nil
+        // B159: the zoom and view kept (`keptZoom`) outlive the picture's view, which is made
+        // again for every item of a list: the next item shows at the same zoom and centre
         if let e = w.error, e != .null {
             put(message("This value failed: \(e.string ?? e["message"].string ?? e.text)"))
             describe["error"] = e
@@ -533,6 +550,8 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
             Task { await p.zoom(to) }
         }, for: .valueChanged)
         zoom.accessibilityIdentifier = "popout-zoom"
+        zoomControl = zoom
+        scroll.accessibilityIdentifier = "popout-picture-scroll"
         // the channel shown, the core's (`viewer.picture`): a pull-down of the channels
         let channel = UIButton(configuration: .borderless())
         channel.showsMenuAsPrimaryAction = true
@@ -633,6 +652,7 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
                 return
             }
             ps.shown = (got.width, got.height)
+            self?.imageFull = ps.src.full.map { CGSize(width: $0.w, height: $0.h) } ?? CGSize(width: got.width, height: got.height)
             image.frame = CGRect(x: 0, y: 0, width: got.width, height: got.height)
             scroll.contentSize = image.frame.size
             ps.set?(got.image)
@@ -648,7 +668,46 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     /// Called when a pinch ends past the picture's own pixels.
     private var pastPixels: (() -> Void)?
 
-    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) { pastPixels?() }
+    func scrollViewDidEndZooming(_ scrollView: UIScrollView, with view: UIView?, atScale scale: CGFloat) {
+        // a pinch a person ends is the zoom and view kept through the items (B159)
+        keepShown(always: true)
+        pastPixels?()
+    }
+
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { keepShown(always: false) }
+    }
+
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { keepShown(always: false) }
+
+    /// The value pixels per pixel of the picture drawn (a smaller rendition draws fewer).
+    private var valuePerDrawn: CGFloat {
+        guard let size = imageView?.image?.size, size.width > 0 else { return 1 }
+        return (imageFull?.width ?? size.width) / size.width
+    }
+
+    /// The view shown now, in the picture's own terms; nil before the picture is laid out.
+    private func viewShown() -> PictureZoom? {
+        guard let s = imageScroll, let iv = imageView, iv.frame.width > 0, iv.frame.height > 0, s.bounds.width > 0 else { return nil }
+        let c = CGPoint(x: min(max((s.contentOffset.x + s.bounds.width / 2) / iv.frame.width, 0), 1),
+                        y: min(max((s.contentOffset.y + s.bounds.height / 2) / iv.frame.height, 0), 1))
+        return PictureZoom(scale: Double(s.zoomScale / valuePerDrawn), centre: c)
+    }
+
+    /// A pinch or a pan ended: what is shown is kept (a pan only once something is kept).
+    private func keepShown(always: Bool) {
+        guard always || keptZoom != nil, let z = viewShown() else { return }
+        keptZoom = z
+        zoomControl?.selectedSegmentIndex = UISegmentedControl.noSegment
+        describe["zoom"] = z.facts(kept: true, fit: fitScale())
+    }
+
+    /// The scale that fits the picture, in its own terms; nil before it is laid out.
+    private func fitScale() -> Double? {
+        guard let s = imageScroll, let size = imageView?.image?.size else { return nil }
+        let full = imageFull ?? size
+        return PictureZoom.fit(content: s.bounds.size, picture: full)
+    }
 
     func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
     func scrollViewDidZoom(_ scrollView: UIScrollView) { centrePicture() }
@@ -665,16 +724,37 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
         s.contentInset = UIEdgeInsets(top: dy, left: dx, bottom: dy, right: dx)
     }
 
-    /// The core's zoom: 1:1, else fit.
+    /// The zoom kept (B159), else the core's: 1:1, else fit.
     private func applyZoom() {
         guard let s = imageScroll, let size = imageView?.image?.size, size.width > 0, size.height > 0, s.bounds.width > 0 else { return }
-        if shown?.fit == "1:1" {
+        let per = valuePerDrawn
+        let full = imageFull ?? size
+        if let a = pendingAsk, let fit = fitScale() {
+            pendingAsk = nil
+            let now = keptZoom ?? viewShown() ?? PictureZoom(scale: shown?.fit == "1:1" ? Double(1 / per) : fit, centre: CGPoint(x: 0.5, y: 0.5))
+            keptZoom = PictureZoom.asked(a, current: now, backing: Double(view.window?.screen.scale ?? 2), picture: full)
+        }
+        if let k = keptZoom {
+            // the same scale in the picture's own terms, the same relative centre
+            s.setZoomScale(max(min(CGFloat(k.scale) * per, s.maximumZoomScale), s.minimumZoomScale), animated: false)
+            centrePicture()
+            if let iv = imageView {
+                let o = CGPoint(x: k.centre.x * iv.frame.width - s.bounds.width / 2, y: k.centre.y * iv.frame.height - s.bounds.height / 2)
+                let lo = CGPoint(x: -s.contentInset.left, y: -s.contentInset.top)
+                let hi = CGPoint(x: max(iv.frame.width - s.bounds.width + s.contentInset.right, lo.x), y: max(iv.frame.height - s.bounds.height + s.contentInset.bottom, lo.y))
+                s.contentOffset = CGPoint(x: min(max(o.x, lo.x), hi.x), y: min(max(o.y, lo.y), hi.y))
+            }
+        } else if shown?.fit == "1:1" {
             s.setZoomScale(1, animated: false)
+            centrePicture()
         } else {
             let z = min(s.bounds.width / size.width, s.bounds.height / size.height)
             s.setZoomScale(max(min(z, 8), s.minimumZoomScale), animated: false)
+            centrePicture()
         }
-        centrePicture()
+        // Fit and 1:1 lit only when shown: a kept zoom is neither
+        zoomControl?.selectedSegmentIndex = keptZoom != nil ? UISegmentedControl.noSegment : (shown?.fit == "1:1" ? 1 : 0)
+        describe["zoom"] = (viewShown() ?? PictureZoom(scale: Double(s.zoomScale / per), centre: CGPoint(x: 0.5, y: 0.5))).facts(kept: keptZoom != nil, fit: fitScale())
     }
 
     @objc func togglePictureZoom(_ g: UITapGestureRecognizer) {

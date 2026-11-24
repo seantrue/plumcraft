@@ -639,6 +639,9 @@ public struct PopoutValue: Codable, Hashable, Sendable {
     /// is skipped, never a value that can't be read.
     public var viewModes: JSONValue?
     public var viewMode: JSONValue?
+    /// B159: the latest zoom asked of the pop-out (`viewer.zoom`), `{seq, to, at}`, applied once
+    /// each time `seq` rises; null before any. The zoom and view a person makes are the shell's.
+    public var zoomAsk: JSONValue?
 
     /// The view modes offered, in order (none when the value has none).
     public var modes: [String] { (viewModes?.array ?? []).compactMap(\.string) }
