@@ -4,6 +4,12 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B163. A graph's banner keeps "the graph has N problem(s)" after the missing engine was added
+
+- Reported: 2026-11-24 (found by an agent while reproducing B162, not by the maintainer)
+- Report: opening a style graph of the research software in an application built on the Mac shell shows "the graph has 13 problem(s)… unknown kind …" for nodes of the array engine. The array engine is then added automatically and those nodes run, but the banner stays, out of date.
+- Issue: none
+
 ### B161. iPhone: the pop-out's bar overflows since the View menu was added
 
 - Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
@@ -307,6 +313,21 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B162. Mac: after wiring a range driving node into a style graph, the graph no longer runs at all
+
+- Reported: 2026-11-24
+- Report: "After wiring styles/cheap-and-cheerful-2bug.plum to have a range driving node, the graph no longer runs at all." Then: "fix B162 (deleting the range let's it run)".
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `98f1883`. The graph is a style graph of the research software: a range driver of the text engine wired to a setting of a node of the application's own engine, and that setting's name holds a dot (a sub-step's setting, of the form `edges.threshold`).
+- What a person saw (an agent, a scripted copy with a scratch copy of the graph): Run stays enabled and starts; it ends after about 55 ms; the nodes of the application's engine never run and show no state and no error. The run's error was kept only where `ui.inspect` reports it. A silent failure.
+- Cause (proved by experiment): a value one engine passes to another is labelled `node.port`, and the engine SDK split that label at its last dot (`crates/engine/src/bind.rs`, with a comment that port names never hold a dot; the Python SDK the same). With a dotted port the node came out wrong, and the application's engine refused that whole part of the run for an unknown node. A driver across engines is not the fault: the text engine's range drives the array engine's node, and listing both engines in the graph changed nothing. The controller's first suspicion, the driver belonging to another engine, was wrong.
+- Issue: none
+- Fixed: 2026-11-24, branch `fix/b162-range-driver`:
+  - **The split:** `bind::split` (Rust) and `split_key` (Python) cut the label at the dot that leaves a node the graph has, the longest when more than one fits. `docs/interface.md` 7.6 rule 10 says so, and that ports and node ids may hold dots.
+  - **Said aloud:** a run that stops as a whole now puts "the run stopped: <why>" on the status line, which is every shell's banner (`crates/editor-core/src/document.rs`).
+  - **Tests:** a dotted port and a dotted node id in each SDK, and the status line, each failing without its fix; a coordinator test of a range in one engine driving a setting in another.
+  - **Launched** (the application on the Mac, scripted, a scratch copy of the maintainer's graph, with the application's own matching fix): all 26 nodes done, the range and the driven layer among them; before the fix, the error above.
+  - **Not checked:** the new status-line message in a window (the fixed application no longer fails; a test covers it); the iPad and Windows.
 
 ### B159. Mac: stepping through the items of a result does not keep the picture's zoom and view
 

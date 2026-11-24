@@ -28,14 +28,18 @@ const MAX_VALUES: usize = 100_000;
 pub fn by_node(inputs: &BTreeMap<String, PortValue>, has_node: impl Fn(&str) -> bool) -> BTreeMap<String, BTreeMap<String, &PortValue>> {
     let mut out: BTreeMap<String, BTreeMap<String, &PortValue>> = BTreeMap::new();
     for (key, v) in inputs {
-        // Port names never hold a dot; node ids might.
-        let Some((node, port)) = key.rsplit_once('.') else { continue };
-        if node.is_empty() || port.is_empty() || !has_node(node) {
-            continue;
-        }
+        let Some((node, port)) = split(key, &has_node) else { continue };
         out.entry(node.to_owned()).or_default().insert(port.to_owned(), v);
     }
     out
+}
+
+/// A binding's key split into its node and port (B162). Either may hold a dot: a node id
+/// sometimes, and a port often in an application's engine (a sub-step's setting,
+/// `edges.threshold`). The node is the part before a dot that names a node the graph has; when
+/// more than one does, the longest. None when no split names one.
+pub fn split<'a>(key: &'a str, has_node: &impl Fn(&str) -> bool) -> Option<(&'a str, &'a str)> {
+    key.match_indices('.').rev().map(|(i, _)| (&key[..i], &key[i + 1..])).find(|(node, port)| !node.is_empty() && !port.is_empty() && has_node(node))
 }
 
 /// A bound value's memo identity: its content.
