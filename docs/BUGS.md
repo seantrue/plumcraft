@@ -4,6 +4,38 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B161. iPhone: the pop-out's bar overflows since the View menu was added
+
+- Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
+- Report: the View menu added by B154 slice 1 makes the iPhone's compact viewer bar too wide: the Pictures picker is cut at the left and the icons at the right. Seen in an iPhone simulator picture taken while checking B159.
+- Issue: none
+
+### B157. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
+
+- Reported: 2026-11-24 (found by the controller in a gate run, not by the maintainer)
+- Report: the Linux gate on the B153 commit (`d4650db`, which changes no media code) failed `plumcraft-media service::tests::bytes_held_elsewhere_are_shared_not_read_again` at `crates/media/src/service.rs:1317`: "let go of everywhere: read again". The same test passed in the gate run on `eaec253` an hour or so earlier.
+- Context: the test drops its two holds on a value's bytes and expects the next `get` to be pending. Its resolver has no delay. Not known: whether something else can still hold the bytes for a moment (a worker's own reference), or whether the `get` can be answered at once. No cause is confirmed; watch for a second failure, as with B144.
+- Issue: none
+
+### B154. Native shells: the views of an array have regressed from the egui editor (plots, view as image, heatmap); tables need selected columns visualized
+
+- Reported: 2026-11-24
+- Report: "regression in views of arrays (the egui version supported plots, view as image, heatmap, etc). These are important. For tabular data, visualizing selected columns is also important."
+- Context: the maintainer's hand use of an application built on the Mac shell, just after B152 (a histogram, a 256×2 array marked as a table, which the native shells show only as a Table of numbers). Known from reading for B152, not a full survey: egui's viewer registry (`crates/ui/src/viewers/mod.rs`) has an `array.plot` viewer ("Plot") that the core's list of offered viewers (`crates/editor-core/src/viewers.rs`, `offered`) leaves out, and the core's own test of the two lists excludes `mesh` and `array.plot` by name; the Apple shells draw `picture`, `svg`, `array.pictures`, `array.grid`, `audio`, `table.grid`, `text.plain`, `scalar`, `yaml`, `tree`, `items` and `hex` (`NATIVE`).
+- Open question: the full list of what is missing has not been made. A survey of egui's array and table views against each native shell (Mac, iPad, iPhone, Windows) comes first; then, for tables, how columns are selected for a plot (egui picks them by name: `x`/`y`, or the first two) and which kinds of plot are wanted.
+- Direction (the maintainer, 2026-11-24): asked whether to survey first and how columns should be chosen, they answered: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". The research is a note in `docs/research/`; nothing is built until it is read.
+- Research: `docs/research/26-data-views.md` (2026-11-24): 11 of egui's 17 array and table views are missing on every native shell; the gap is in the core.
+- Decisions (the maintainer, 2026-11-24): given the note's seven decisions with a recommendation for each, they answered: "Yes to all". So: (1) the core lays each chart out and each shell paints it; (2) the regressions first, then the named chart kinds, then interaction; (3) a chart's choices are saved with the graph, undoable; (4) egui paints the same chart list and its own plot is retired; (5) Win2D on Windows; (6) the note's ranking of the optional kinds; (7) a selection belongs to the value, shared by its table and chart windows.
+- Issue: none
+
+### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
+
+- Reported: 2026-11-23, found by an agent while picturing an application built on the Mac shell; not reported by the maintainer.
+- Report: `ui.screenshot` with no window named draws the canvas flipped top to bottom and mirrored. The real window draws correctly. The same is true of the public app's own picture from the curves work, so it predates that.
+- Related, also unfixed: in a window that hosts an AppKit view (the mask editor), the offscreen picture draws the SwiftUI controls as a black band when the screen is locked.
+- Cause: not known.
+- Issue: none
+
 ### B144. `a_shared_remote_refuses_md5_uploads` failed once on the Linux test host, in a full run
 
 - Reported: 2026-11-23, by the Linux gate on branch `feat/mask-editor` (the commit that moves the workspace to commonkit 0.3); not reported by the maintainer.
@@ -12,6 +44,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Cause: not known. A timing fault under load is the controller's guess, not a finding: the test reads the reply until the engine closes the connection, right after starting the engine.
 - Watch: record each sighting here with the reply.
 - Issue: none
+- Seen again: 2026-11-24, in the Linux gate on B151's branch (`ed7e6e3`, which changes no upload code). The second failure in a full run; still no cause.
 
 ### B143. The conformance case "the engine's run changed while it goes" failed once on the Windows test VM
 
@@ -274,6 +307,25 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B159. Mac: stepping through the items of a result does not keep the picture's zoom and view
+
+- Reported: 2026-11-24
+- Report: "scrolling through items in result does not maintain zoom and view of image."
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `0147266`, while B158 was being worked on.
+- Answers (the maintainer, 2026-11-24): asked which window and control, and what the picture does on the next item, they answered: "Color pencil, final result, in the pop-out window. Zoomed out to icon size for image". So: the pop-out of the final result of a colour-pencil graph; the picture comes out zoomed out to about the size of an icon.
+- Then: "I zoomed in to 200%, next view was more like 10%". So the next item neither keeps the zoom nor fits the window: it shows far smaller than either.
+- Issue: none
+- Cause (an agent, reproduced on a scripted Mac copy through the control port, with pictures 2,400 and 1,200 wide):
+  - **Not kept:** the pop-out rebuilds the picture's view for every item, and the zoom lived only in the old view. The pinch zoom is the shell's, by `docs/shell-interface.md` 13.2.1, and the shell threw it away.
+  - **Far smaller than fit:** the next item's picture can arrive before its new view has a size. The fit was then worked out as 0 and held at the view's smallest magnification, 5%. It is a race, and it happens when the picture is already in the shell's cache. The iPad had the first fault only.
+- Fixed (Mac, iPad, iPhone): 2026-11-24, branch `fix/b159-popout-zoom`:
+  - **The rule:** within one pop-out, a zoom and view once made stay through every item and every new value, kept in the picture's own terms (points per value pixel; the centre as a fraction of the picture). An item of another size gets the same zoom about the same relative point. With nothing kept the picture fits. Asking for Fit or 1:1 forgets the kept zoom. No zoom is applied before the view has a size.
+  - **A command gap closed:** `viewer.zoom {to, at}` was taken by the core and ignored by the native shells. `popout.get` now carries `zoomAsk {seq, to, at}` and a shell applies each ask once.
+  - **Tests:** three in the Swift kit, an iPad UI test that fails without the fix (item 2 at 0.585 where 2.0 was asked), and a conformance case.
+  - **Launched** (a scripted Mac copy, control port only): zoomed to 200% about a point, then stepped: item 2 (the same size) and item 3 (half the width) both read back 200% about the same relative point; Fit asked gave fit again. The same on iPad and iPhone simulators.
+  - **Not checked:** a person's own pinch and pan (the tests ask for the zoom by command); a device; the private graph of the report.
+  - **Not done:** Windows loses the zoom on every item and refresh, falling back to fit (read from its code); egui keeps its zoom only while an array's shape stays the same.
 
 ### B151. About (and Help) do not show the build's date or id
 
