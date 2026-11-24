@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — Mac: the core and an application's engine share one store (B149) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "Loading an image fails", with a screenshot of a value window that described the array but said "the picture is missing"; then "Fix b149". It was their first launch, from the Finder, of an application built on the native Mac shell.
+
+**What the AI found.** The Mac shell gave the core its store folder but never set `COMMONKIT_STORE_ROOT`, as the iPad shell does. An application's engine that stores through commonkit itself then wrote under commonkit's default folder while the core looked in its own. Reproduced with a scripted copy started with an empty environment.
+
+**Defect in AI-written work, caught by the maintainer.** Every scripted run and test set both stores to one scratch folder, so no test had ever launched the app as the Finder does; the app was reported as working on that evidence. The first real launch, by the maintainer, failed. A first diagnosis also said the public app was affected; the agent's own test showed it is not (its in-process engines are handed the core's store), and the entry says so.
+
+**What the AI did.** The shared Swift's one core-opening call now makes the two stores one: a set variable is kept and the core uses it too; unset, it is set to the app's store. The C ABI's `media.get` gives a missing value a reason. A Mac person-check step starts the scripted copy as the Finder does (empty environment, scratch home) and checks the preview is ready and where the bytes went.
+
+**Verified (agent).** The new step fails on an application's build with the fix turned off and passes with it; swift test; ffi tests; Mac conformance 71 of 71; iPad conformance 60 of 60. **Not verified:** the app opened from the Finder as itself; the full Rust workspace on the Mac (the Linux gate covers it). The Mac person check fails three steps on this branch and equally on the unchanged dev branch: the curves drag, its Undo, and File › Close after them.
+
 ### 2026-11-23 — A named wire's label sits closer to its pin, on every shell (B146) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** A screenshot marked "Gap too large" at the label beside an input pin; asked whether the input side should match the output side or both change: "Both."
