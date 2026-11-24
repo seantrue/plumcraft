@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Graphs are `.plum` files (FR2) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "feat: change the default graph file extension from .json -> .plum \nContinue to accept .json as an alternate. Register .plum extension on platforms where it is not registered already". On the design questions, "Yes to all on FR2"; on the icon, "Yes, draw a document icon"; then "build FR2". The rule that an opened `.json` graph keeps its name was the controller's proposal, which the maintainer accepted.
+
+**What the AI did.** An agent searched every place the extension was assumed and listed what it changed and what it left (fixtures, samples and the many JSON files that are not graphs). The rule became one module of the core (`graph_file.rs`, about 115 LOC) with a command the shells read; save, rename, bundles and the mask clean-up follow it (about 165 LOC more); egui 20; the Swift kit about 105; the Mac about 60 and the iPad about 105, including the declared types; a conformance case; docs. It drew a document icon by script, each size separately, from the app icon's own source.
+
+**Verification.** The agent's runs: the whole Rust suite (1,682, the one known failure), clippy, fmt, Python 249, the kit's 114; the new conformance case on the core, the C ABI, egui and the launched Mac app (72 of 72 cases); the Mac's own save panel read back, cancelled, never pressed; UI tests on fresh iPad and iPhone simulators. The controller looked at the icon's contact sheet. Not checked: a Finder double-click (the test copy was deliberately not registered on the maintainer's Mac), a device, Windows.
+
+**Defects in the agent's work, caught by its tests.** Rename first forced `.plum` onto a `.json` graph (an existing test caught it). Its first way of choosing `.plum` in the Mac's save panel did nothing on the current system; it found the panel's own type choice. One test of the C ABI still expected `untitled.json`.
+
 ### 2026-11-24 — An array marked as a table shows in the Table viewer (B152) (Claude Fable 5.2; launch proof by a Claude Opus 5.5 agent)
 
 **What the maintainer asked for.** "bug: can't view output of histogram", then a screenshot of the value window ("This table can't be shown: not a table: expected value at line 1 column 1"), then "fix b152".

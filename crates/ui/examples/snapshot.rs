@@ -6,7 +6,7 @@
 //! ```sh
 //! cargo run -p plumcraft-ui --example snapshot -- --out claude-debug/editor/shot.png [--size 1600x900] [--scale 2] [--runs N] [--watch NODE] [--palette QUERY] [--theme paper|pewter|dusk] [--engine audio]
 //!     [--tidy] [--settings appearance|engines|cache]
-//!     [--open WORKFLOW.json] [--command 'ID {"json": "params"}']...
+//!     [--open WORKFLOW.plum] [--command 'ID {"json": "params"}']...
 //! ```
 //!
 //! `--open` opens a workflow file with `graph.open` instead of the demo; each `--command` runs a

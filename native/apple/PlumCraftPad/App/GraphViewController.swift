@@ -83,12 +83,12 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     }
 
     /// Where Save on closing writes the graph: the core's file when it has one; else this
-    /// window's, when that is a graph file; else (a picture opened as its recipe, through an
-    /// application's opener) a graph file beside it of the same name, never over the picture.
+    /// window's, when that is a graph file (`.plum` or `.json`, kept as it is); else (a picture
+    /// opened as its recipe, through an application's opener) a `.plum` beside it of the same
+    /// name, never over the picture.
     var savePath: String {
         if let p = model?.state.path, !p.isEmpty { return p }
-        let u = document.fileURL
-        return u.pathExtension.lowercased() == "json" ? u.path : u.deletingPathExtension().appendingPathExtension("json").path
+        return GraphFiles.savePath(for: document.fileURL).path
     }
 
     // MARK: The view

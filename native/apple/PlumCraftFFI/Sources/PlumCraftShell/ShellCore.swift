@@ -112,6 +112,8 @@ public enum ShellCore {
         try appLibrary?.register()
         let c = try PlumCore(config: config.json)
         let ready = Task { () -> UInt64? in
+            // a graph's file name (FR2), the core's rule, read while its first document is open
+            await GraphFiles.load(from: c)
             if let list = try? await c.request("document.list"), let docs = list["docs"].array {
                 for d in docs {
                     if let id = d["doc"].uint64 {

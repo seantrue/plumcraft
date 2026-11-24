@@ -24,7 +24,7 @@ final class GraphDocument: UIDocument {
         // a file of another kind the app declares (an application's picture opened as its
         // recipe, docs/shell-interface.md 4.5): the core reads it through the application's
         // opener, or says why it can't
-        guard fileURL.pathExtension.lowercased() == "json" else { return }
+        guard GraphFiles.isGraph(fileURL) else { return }
         let v = (contents as? Data).flatMap { try? JSONSerialization.jsonObject(with: $0) }
         guard let o = v as? [String: Any], o["nodes"] != nil else {
             throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadCorruptFileError,
@@ -51,7 +51,7 @@ enum Samples {
         guard let src = Bundle.main.url(forResource: "Samples", withExtension: nil),
               let list = try? fm.contentsOfDirectory(at: src, includingPropertiesForKeys: nil) else { return }
         try? fm.createDirectory(at: folder, withIntermediateDirectories: true)
-        for u in list where u.pathExtension == "json" {
+        for u in list where GraphFiles.isGraph(u) {
             let to = folder.appendingPathComponent(u.lastPathComponent)
             if !fm.fileExists(atPath: to.path) { try? fm.copyItem(at: u, to: to) }
         }
@@ -80,14 +80,15 @@ enum Samples {
         return FileManager.default.fileExists(atPath: u.path) ? u : nil
     }
 
-    /// A new graph in the app's own folder (B147), from `template`: "Untitled.json", or
-    /// "Untitled 2.json" and on when that is taken. Nil when it can't be written.
+    /// A new graph in the app's own folder (B147), from `template`: "Untitled.plum", or
+    /// "Untitled 2.plum" and on when that is taken (FR2: the core's extension). Nil when it can't
+    /// be written.
     static func newGraph(from template: URL) -> URL? {
         let fm = FileManager.default
         let dir = CoreHost.dirs.documents
         guard (try? fm.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
         for k in 1...999 {
-            let u = dir.appendingPathComponent(k == 1 ? "Untitled.json" : "Untitled \(k).json")
+            let u = dir.appendingPathComponent(GraphFiles.newName(k))
             if fm.fileExists(atPath: u.path) { continue }
             return (try? fm.moveItem(at: template, to: u)) != nil ? u : nil
         }
@@ -96,7 +97,7 @@ enum Samples {
 
     /// An empty graph to start a new one from (the browser's +).
     static func template() -> URL? {
-        let u = CoreHost.dirs.scratch.appendingPathComponent("Untitled.json")
+        let u = CoreHost.dirs.scratch.appendingPathComponent(GraphFiles.newName())
         let ok = (try? Data(#"{"version": 1, "nodes": {}, "wires": []}"#.utf8).write(to: u, options: .atomic)) != nil
         return ok ? u : nil
     }

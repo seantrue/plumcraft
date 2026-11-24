@@ -1950,6 +1950,29 @@
         {"call": "ui.waitRun", "params": {"timeout": 60}},
         {"call": "ui.inspect", "expect": {"/result/lastError": null}}
       ]
+    },
+    {
+      "name": "a new graph is saved as .plum, and a .json graph opens and saves back to its .json",
+      "about": "FR2 (the maintainer: the default graph file extension .json -> .plum, .json still accepted). graph.fileTypes is the one rule every shell reads; Save of a new graph and Save As offer the graph's stem with .plum, .plum first and .json still a kind; Open offers both; a graph opened from a .json file saves to it with no ask; both open, read by content. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": ["saves"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "graph.fileTypes", "params": {}}, "expect": {"/result/default": "plum", "/result/extensions": ["plum", "json"], "/result/kinds/0/extensions": ["plum"], "/result/kinds/1/extensions": ["json"]}},
+        {"call": "command.run", "params": {"command": "frame.add", "params": {"title": "New", "pos": [0, 0], "size": [200, 120]}}},
+        {"call": "ui.invoke", "params": {"command": "graph.save"}, "expect": {"/result/asks": {"$find": {"where": {"kind": "file.save"}, "want": {"/params/purpose": "workflow", "/params/name": "untitled.plum", "/params/kinds/0/extensions": ["plum"], "/params/kinds/1/extensions": ["json"]}}}}, "save": {"a": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$a", "answer": {"path": "$scratch/fresh.plum"}}},
+        {"call": "command.run", "params": {"command": "graph.info", "params": {}}, "until": {"/result/path": "$scratch/fresh.plum", "/result/dirty": false}, "timeout": 10},
+        {"call": "command.run", "params": {"command": "graph.saveAs", "params": {"path": "$scratch/old.json"}}},
+        {"call": "command.run", "params": {"command": "graph.open", "params": {"path": "$scratch/fresh.plum"}}},
+        {"call": "command.run", "params": {"command": "graph.info", "params": {}}, "expect": {"/result/path": "$scratch/fresh.plum", "/result/dirty": false}},
+        {"call": "command.run", "params": {"command": "graph.open", "params": {"path": "$scratch/old.json"}}},
+        {"call": "command.run", "params": {"command": "frame.add", "params": {"title": "Changed", "pos": [300, 0], "size": [200, 120]}}},
+        {"call": "ui.invoke", "params": {"command": "graph.save"}, "expect": {"/result/asks": {"$len": 0}}},
+        {"call": "command.run", "params": {"command": "graph.info", "params": {}}, "until": {"/result/path": "$scratch/old.json", "/result/dirty": false}, "timeout": 10},
+        {"call": "ui.invoke", "params": {"command": "graph.saveAs"}, "expect": {"/result/asks": {"$find": {"where": {"kind": "file.save"}, "want": {"/params/name": "old.plum", "/params/kinds/0/extensions": ["plum"]}}}}, "save": {"b": "/result/asks/0/ask"}},
+        {"call": "ask.answer", "params": {"ask": "$b", "cancel": true}},
+        {"call": "command.run", "params": {"command": "graph.info", "params": {}}, "expect": {"/result/path": "$scratch/old.json"}}
+      ]
     }
   ]
 }

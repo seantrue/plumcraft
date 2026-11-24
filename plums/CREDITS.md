@@ -29,6 +29,6 @@ All are 572×472.
 
 > Based on "Santa Rosa Plums" by SummerTomato (<https://www.flickr.com/photos/summertomato/3730325432/>), licensed under CC BY 2.0 (<https://creativecommons.org/licenses/by/2.0/>). Rendered in an artistic style with the research software; cropped and altered from the original.
 
-The app icon, `assets/app-icon/plumcraft.png` (1024 px master) and `assets/app-icon/PlumCraft.icns`, is a 400 px square crop of the cartoon render, scaled into a rounded tile, so it needs this credit too.
+The app icon, `assets/app-icon/plumcraft.png` (1024 px master) and `assets/app-icon/PlumCraft.icns`, is a 400 px square crop of the cartoon render, scaled into a rounded tile, so it needs this credit too. So does the `.plum` graph's document icon (`native/apple/PlumCraftMac/App/PlumGraph.icns`, `assets/doc-icon/`), which carries the same crop at 128 px and up, and a flat plum in the render's colours below that.
 
 Put this credit in the About box, README or documentation wherever the art or an icon derived from it ships. An icon cut down from the cartoon image is still an adaptation and needs the same credit.

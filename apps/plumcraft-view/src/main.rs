@@ -5,7 +5,7 @@
 //! and the event log. Widgets come only from the engine's catalogue.
 //!
 //! ```text
-//! plumcraft-view [WORKFLOW.json] [--process | --python | --http [--python]] [--watch NODE.PORT] [--screenshot OUT.png [--shot-runs N]]
+//! plumcraft-view [WORKFLOW.plum] [--process | --python | --http [--python]] [--watch NODE.PORT] [--screenshot OUT.png [--shot-runs N]]
 //! ```
 //!
 //! `--process` starts the Rust engine binary; `--python` the Python engine (`python/`), with

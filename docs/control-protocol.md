@@ -140,14 +140,14 @@ Since N2 slice 1 the selection and the group entered are the document's, in the 
 
 ```json
 {
-  "title": "flow.json • — PlumCraft",
-  "document": "flow.json",
-  "path": "/Users/me/flows/flow.json",
+  "title": "flow.plum • — PlumCraft",
+  "document": "flow.plum",
+  "path": "/Users/me/flows/flow.plum",
   "dirty": true,
   "undo": "Connect",
   "redo": null,
   "prompt": null,
-  "asks": [{"ask": 4, "kind": "file.save", "modal": true, "by": "script", "params": {"purpose": "workflow", "title": "Save Workflow", "kinds": [{"label": "Workflow", "extensions": ["json"]}], "name": "untitled.json", "current": null, "startIn": null}}],
+  "asks": [{"ask": 4, "kind": "file.save", "modal": true, "by": "script", "params": {"purpose": "workflow", "title": "Save Workflow", "kinds": [{"label": "Graph", "extensions": ["plum"]}, {"label": "Graph as JSON", "extensions": ["json"]}], "name": "untitled.plum", "current": null, "startIn": null}}],
   "copied": false,
   "closing": false,
   "graph": {"dirty": true, "nodes": [{"id": "n2", "kind": "text.upper", "title": "Upper case", "pos": [320, 0], "view": "full"}], "wires": 1, "generation": 8},

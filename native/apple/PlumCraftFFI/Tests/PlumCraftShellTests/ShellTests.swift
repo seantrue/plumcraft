@@ -84,6 +84,30 @@ let testEnvironment: Void = {
         #expect(r["doc"].uint64 != nil)
     }
 
+    /// FR2: the shell takes a graph's file name from the core (`graph.fileTypes`) as it opens, and
+    /// names new graphs, tells graphs and picks save paths by it.
+    @Test func aGraphsFileNameIsTheCoresRule() async throws {
+        _ = testEnvironment
+        var c = ShellConfig(appID: "com.plumcraft.test", appName: "PlumCraft", version: "0", storeRoot: scratch("store-filetypes"))
+        c.platform = ["os": "ios", "subprocess": false, "craft_apps": false, "python": false]
+        let (core, ready) = try ShellCore.open(c)
+        defer { core.close() }
+        _ = await ready.value
+        let r = try await core.request("document.open")
+        let reply = try await core.command("graph.fileTypes", [:], doc: r["doc"].uint64)
+        #expect(GraphFiles.Rule(reply: reply) == GraphFiles.Rule.core, "the kit's values before the core says are the core's")
+        #expect(GraphFiles.current == GraphFiles.Rule.core)
+        #expect(GraphFiles.newName() == "Untitled.plum")
+        #expect(GraphFiles.newName(2) == "Untitled 2.plum")
+        #expect(GraphFiles.isGraph(URL(fileURLWithPath: "/d/a.plum")))
+        #expect(GraphFiles.isGraph(URL(fileURLWithPath: "/d/a.JSON")))
+        #expect(!GraphFiles.isGraph(URL(fileURLWithPath: "/d/a.png")))
+        #expect(GraphFiles.savePath(for: URL(fileURLWithPath: "/d/a.json")).path == "/d/a.json", "a .json graph stays .json")
+        #expect(GraphFiles.savePath(for: URL(fileURLWithPath: "/d/a.png")).path == "/d/a.plum", "never over a picture")
+        GraphFiles.adopt(["nonsense": true])
+        #expect(GraphFiles.current == GraphFiles.Rule.core, "a reply that isn't one changes nothing")
+    }
+
     /// Decision 8C at N3's exit: as the apps open a core (no `also`), a document starts only the
     /// engines its graph uses, and a node of another engine's kind added later starts that one.
     @Test func aDocumentStartsOnlyTheEnginesItsGraphUses() async throws {
