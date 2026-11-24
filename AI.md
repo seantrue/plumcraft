@@ -20,6 +20,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Data views: research note 26, and the core half of its first slice (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "bug: regression in views of arrays (the egui version supported plots, view as image, heatmap, etc). These are important. For tabular data, visualizing selected columns is also important." Then: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". Given the note's seven decisions: "Yes to all". Then "build B154".
+
+**What the AI did.** An agent wrote `docs/research/26-data-views.md` (about 7,700 words) from reading the code and the web, nothing launched: a survey of egui's 17 array and table views against the native shells (11 missing on every one, the gap in the core), what the engines produce, seaborn and declarative chart specs, interaction per platform, three architectures and a ten-slice plan. The maintainer's decisions are in its section 8. Then the core half of slice 1 (about 175 LOC): `popout.get` carries the view modes offered and shown (`viewModes`, `viewMode`) and each channel's histogram (`stats[].histogram`, heights already on the chosen scale); the log scale is the command `viewer.array`; a conformance case, "an array's view is chosen through the core and its pictures change"; two unit tests, one with hostile histograms. Floor row F51 of note 24 re-graded to not met on the Apple shells: its evidence had been View As, which picks the viewer, not the view mode.
+
+**Verification so far.** The agent's run: 492 tests of the session, core and C ABI crates passed; the array conformance cases 10 of 10 through the C ABI and on egui; clippy and fmt clean. No shell draws any of it yet: the Apple and Windows shells, and every launch, are the rest of the slice.
+
+**Defects.** The earlier grading of F51 as met was wrong (an AI's grading, in note 24), found by this survey.
+
+**The Apple half (same day, same agent).** A View menu beside View As on the Mac, iPad and iPhone, the per-channel histograms drawn from the core's heights with a Log toggle, and NaN counts (about 250 LOC of Swift, mostly `Viewers.swift`); a kit test on a real core and a UI test that picks Heat and waits for a different picture. Launched: the Mac's scripted copy through the control port (auto, heat, log read back, the window pictured), the iPad and iPhone simulators' UI test, Mac conformance 72 of 72, the kit's 115 tests. **A defect in this work, found by looking at the iPad picture:** after Heat the core said `heat` but the window still drew the old picture, because both apps' redraw check ignored `views`; the first UI test passed anyway, since it read only the core's word. Fixed in both apps, and the test now checks the drawn picture's handle. Not done: a turn field for `angle`; a device; Windows.
+
 ### 2026-11-24 — Add Bend Point lands where the wire was pressed (B153) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "bug: adding a bend point does not add one; when adding one to an auto routed r->l connection removes auto routing, but does not add one either"; asked how, "Right-click menu; undo does causes a redraw"; "Fix B153"; and from a later build, "Adding the bend point places the point mid point of the selected segment, should place near the selection point." That second report named the fault exactly.

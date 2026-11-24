@@ -113,6 +113,11 @@ public struct ViewerBar: SwiftUI.View {
                 .fixedSize()
                 .accessibilityIdentifier("viewer-as")
             }
+            // an array's view mode (B154 slice 1, floor F51): the core's `run.view`; the run that
+            // follows (cached) brings the mode's pictures
+            if value.modes.count > 1 {
+                ViewModePicker(box: box, value: value)
+            }
             if let n = value.items, n > 1 {
                 let i = value.index ?? 0
                 let names = Self.itemNames(value)
@@ -605,7 +610,7 @@ struct GridViewer: SwiftUI.View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
                 if let stats = box.value?.stats?.array, !stats.isEmpty {
-                    Text(stats.map { "\($0["name"].string ?? "") \($0["min"].string ?? "?") to \($0["max"].string ?? "?")" }.joined(separator: " · "))
+                    Text(ArrayStats.line(stats))
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading)
                 }
                 #if os(macOS)
@@ -836,6 +841,205 @@ struct LentPicture: SwiftUI.View {
     }
 }
 
+// MARK: - An array's view modes and channel histograms (B154 slice 1)
+
+/// The view modes as words, and what each does (the egui editor's tips).
+public enum ViewModes {
+    public static func label(_ id: String) -> String {
+        switch id {
+        case "auto": "Auto"
+        case "color": "Colour"
+        case "stretch": "Stretch"
+        case "clip": "Clip"
+        case "heat": "Heat"
+        case "labels": "Labels"
+        case "angle": "Angle"
+        default: id
+        }
+    }
+
+    public static func help(_ id: String) -> String {
+        switch id {
+        case "auto": "Chosen for the array: labels for integers, colour for three channels in a colour space, else clip or stretch"
+        case "color": "One picture: grey, grey and alpha, RGB (from its colour space) or RGBA"
+        case "stretch": "Each channel from its own min to max"
+        case "clip": "Each channel's values 0 to 1 as they are"
+        case "heat": "Each channel stretched, in the Turbo colour map"
+        case "labels": "A colour per integer value (negatives black)"
+        case "angle": "Each value as a hue: one turn round the colour wheel"
+        default: ""
+        }
+    }
+
+    /// `run.view`'s params for `id`: `angle` keeps the turn shown (1 when none).
+    public static func params(_ id: String, shown: JSONValue?) -> [String: JSONValue] {
+        var p: [String: JSONValue] = ["view": .string(id)]
+        if id == "angle" { p["params"] = ["turn": .double(shown?["params"]["turn"].double ?? 1)] }
+        return p
+    }
+}
+
+/// View: the array's view modes, the one shown checked; a choice is the core's `run.view`.
+struct ViewModePicker: SwiftUI.View {
+    let box: ViewerBox
+    let value: PopoutValue
+
+    var body: some SwiftUI.View {
+        let shown = value.mode
+        Menu {
+            ForEach(value.modes, id: \.self) { id in
+                Button {
+                    guard id != shown else { return }
+                    let p = box.popout
+                    let params = ViewModes.params(id, shown: value.viewMode)
+                    Task { await p.command("run.view", params) }
+                } label: {
+                    if id == shown { Label(ViewModes.label(id), systemImage: "checkmark") } else { Text(ViewModes.label(id)) }
+                }
+                .help(ViewModes.help(id))
+                .accessibilityIdentifier("viewer-mode-\(id)")
+            }
+        } label: {
+            Text("View: \(ViewModes.label(shown))").font(.caption)
+        }
+        .menuIndicator(.visible)
+        .fixedSize()
+        .help("How the array is drawn (run.view)")
+        .accessibilityLabel("View Mode")
+        .accessibilityValue(ViewModes.label(shown))
+        .accessibilityIdentifier("viewer-mode")
+    }
+}
+
+/// An array's channels: each one's range and NaN count, and its histogram as small columns (the
+/// core's heights, already on the scale `viewer.array {log}` sets), with Log Scale beside them.
+public struct ArrayStats: SwiftUI.View {
+    let box: ViewerBox
+    let value: PopoutValue
+
+    public init(box: ViewerBox, value: PopoutValue) {
+        self.box = box
+        self.value = value
+    }
+
+    /// What a pop-out's status says of an array's mode and histograms, for scripts and UI tests:
+    /// `viewMode` and `viewModes` (when offered), `histograms` (channels with one), `log`, `nan`.
+    public static func facts(_ v: PopoutValue) -> [String: JSONValue] {
+        var f: [String: JSONValue] = [:]
+        if !v.modes.isEmpty {
+            f["viewMode"] = .string(v.mode)
+            f["viewModes"] = .uint(UInt64(v.modes.count))
+        }
+        let stats = v.stats?.array ?? []
+        if !stats.isEmpty {
+            f["histograms"] = .uint(UInt64(stats.filter { !heights($0["histogram"]).isEmpty }.count))
+            f["log"] = .bool(v.state?["array"]["log"].bool ?? false)
+            f["nan"] = .array(stats.map { .uint($0["nan"].uint64 ?? 0) })
+        }
+        return f
+    }
+
+    /// Whether `v` has channel statistics to show.
+    public static func shows(_ v: PopoutValue) -> Bool { !(v.stats?.array ?? []).isEmpty }
+
+    /// "L 0 to 100, 3 NaN · a −1 to 1": each channel's range, and its NaN count when it has any.
+    public nonisolated static func line(_ stats: [JSONValue]) -> String {
+        stats.map(channelText).joined(separator: " · ")
+    }
+
+    public nonisolated static func channelText(_ c: JSONValue) -> String {
+        let nan = c["nan"].uint64 ?? 0
+        return "\(c["name"].string ?? "") \(c["min"].string ?? "?") to \(c["max"].string ?? "?")" + (nan > 0 ? ", \(nan) NaN" : "")
+    }
+
+    /// A histogram's bars, 0 to 1, as the core gives them (anything else dropped to 0).
+    public nonisolated static func heights(_ h: JSONValue) -> [Double] {
+        (h["heights"].array ?? []).map { min(max($0.double ?? 0, 0), 1) }
+    }
+
+    public var body: some SwiftUI.View {
+        let stats = value.stats?.array ?? []
+        let histograms = stats.filter { !Self.heights($0["histogram"]).isEmpty }
+        let log = value.state?["array"]["log"].bool ?? false
+        VStack(alignment: .leading, spacing: 4) {
+            if histograms.isEmpty {
+                Text(Self.line(stats)).font(.caption).foregroundStyle(.secondary)
+            } else {
+                HStack(alignment: .top, spacing: 10) {
+                    Toggle("Log", isOn: Binding(get: { log }, set: { on in
+                        let p = box.popout
+                        Task { await p.command("viewer.array", ["log": .bool(on)]) }
+                    }))
+                    .toggleStyle(.button)
+                    .controlSize(.small)
+                    .font(.caption)
+                    .help("Histogram counts on a log scale (viewer.array)")
+                    .accessibilityIdentifier("viewer-log")
+                    ScrollView(.horizontal) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(Array(stats.enumerated()), id: \.offset) { _, c in
+                                ChannelHistogram(channel: c)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("viewer-histograms")
+    }
+}
+
+/// One channel: its range and NaN count, and its histogram's columns between the range's ends.
+struct ChannelHistogram: SwiftUI.View {
+    let channel: JSONValue
+
+    var body: some SwiftUI.View {
+        let h = channel["histogram"]
+        let bars = ArrayStats.heights(h)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(ArrayStats.channelText(channel)).font(.caption2.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1)
+            if !bars.isEmpty {
+                Canvas { cx, size in
+                    let w = size.width / CGFloat(bars.count)
+                    var path = Path()
+                    for (i, b) in bars.enumerated() where b > 0 {
+                        let hgt = CGFloat(b) * size.height
+                        path.addRect(CGRect(x: CGFloat(i) * w, y: size.height - hgt, width: max(w, 0.5), height: hgt))
+                    }
+                    cx.fill(path, with: .color(.accentColor.opacity(0.8)))
+                }
+                .frame(width: 176, height: 36)
+                .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 2))
+                HStack {
+                    Text(h["lo"].string ?? "").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                    Spacer()
+                    Text(h["hi"].string ?? "").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                }
+                .frame(width: 176)
+            }
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Histogram of \(channel["name"].string ?? "a channel")")
+        .accessibilityValue(Self.spoken(channel))
+        .accessibilityIdentifier("viewer-histogram-\(channel["name"].string ?? "")")
+    }
+
+    /// What VoiceOver says: the range, the bins, the largest count, the NaN count, the scale.
+    static func spoken(_ c: JSONValue) -> String {
+        let h = c["histogram"]
+        var parts = ["\(c["min"].string ?? "?") to \(c["max"].string ?? "?")"]
+        if let n = h["bins"].uint64 { parts.append("\(n) bins from \(h["lo"].string ?? "?") to \(h["hi"].string ?? "?")") }
+        if let t = h["top"].uint64 { parts.append("largest count \(t)") }
+        if let nan = c["nan"].uint64, nan > 0 { parts.append("\(nan) NaN") }
+        if h["log"].bool == true { parts.append("log scale") }
+        return parts.joined(separator: ", ")
+    }
+}
+
 // MARK: - An array's pictures, a list's items
 
 struct ArrayPicturesViewer: SwiftUI.View {
@@ -845,9 +1049,8 @@ struct ArrayPicturesViewer: SwiftUI.View {
         let v = box.value
         let views = v?.views ?? []
         VStack(alignment: .leading, spacing: 6) {
-            if let stats = v?.stats?.array, !stats.isEmpty {
-                Text(stats.map { "\($0["name"].string ?? "") \($0["min"].string ?? "?") to \($0["max"].string ?? "?")" }.joined(separator: " · "))
-                    .font(.caption).foregroundStyle(.secondary)
+            if let v, ArrayStats.shows(v) {
+                ArrayStats(box: box, value: v)
             }
             if views.isEmpty, let pic = v?.picture, let h = pic.handle {
                 LentPicture(box: box, handle: h, want: "rgba", px: nil)
