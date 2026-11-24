@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — About says which build is running (B151) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "add build date and id to help/about", because "undo on curve failed, and I want to make sure I was running the right one". The controller proposed showing the shell's commit plus an application's own, on all four shells; the maintainer: "Yes to both on b151", later "fix B151". Marking a build made from a tree with uncommitted changes was the controller's addition.
+
+**What the AI did.** An agent added a crate, `plumcraft-build-stamp` (about 355 LOC with tests), whose build script captures the commit, the changed state and the time once, and chose what makes cargo capture again without rebuilding everything. `app.about` carries the facts and one readable line (about 40 LOC in the C ABI and session crates); a script stamps the Swift apps on every build; the Mac, iPad, iPhone and egui show the line (about 110 LOC of Swift and project files, 12 of egui). It measured the rebuild behaviour and wrote down the limits.
+
+**Verification.** The agent's runs: the Rust suite (one known failure), Python 249, the Swift kit, Mac conformance 75 of 75 twice, iPad simulator 63 of 63; the line read back from the launched Mac copy and from iPad and iPhone simulators, with a picture of each About. The controller looked at the Mac's picture. Windows has nothing; no real application supplies its own stamp yet.
+
+**Defects.** The need itself came from the controller's builds: several with one name, id and version, and the maintainer testing an old one. In the agent's work: its first stamping step could run before the Info.plist existed, leaving a simulator build unstamped with the line quietly falling back to the library's time; its first build script's `git status` rewrote the index, so every build stamped again; one Swift compile error. All found by its own launches and measurements and fixed. On the Mac's About panel the line wraps after "shell".
+
 ### 2026-11-24 — A wire follows the drag of its bend point; bend points are quiet (B158) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** On first use of B155: "The wire does not drag with the bend points, and the points are large/visible even when the wire is not selected." Then: "fix B158 (jumps on release)". The controller had started the work before that go-ahead, as unfinished work on B155, and its first commit attempt was rightly refused until the maintainer gave it.

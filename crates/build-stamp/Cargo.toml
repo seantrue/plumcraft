@@ -1,0 +1,15 @@
+[package]
+name = "plumcraft-build-stamp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "What a PlumCraft build was made from (B151): the git commit, whether the tree had changes, and when, captured by a build script and shown in About"
+build = "build.rs"
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }

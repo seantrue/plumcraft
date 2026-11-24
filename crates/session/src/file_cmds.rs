@@ -475,7 +475,7 @@ fn app_quit(_: &mut Session, _: &Value) -> Result<Value> {
 fn app_about(s: &mut Session, _: &Value) -> Result<Value> {
     s.views.about = true;
     Ok(
-        json!({"title": s.about.title, "version": s.about.version, "parts": s.about.parts, "engine": s.catalog().engine.name, "components": s.catalog().engine.components}),
+        json!({"title": s.about.title, "version": s.about.version, "parts": s.about.parts, "build": s.about.build, "engine": s.catalog().engine.name, "components": s.catalog().engine.components}),
     )
 }
 
@@ -486,7 +486,7 @@ pub(crate) fn about_specs() -> Vec<CommandSpec> {
         label: "About",
         menu: &["Help"],
         shortcut: None,
-        params: "{} -> {title, version, parts: [[name, version]], engine, components} (opens the About window: the application, what it was built from, and the connected engine's components)",
+        params: "{} -> {title, version, parts: [[name, version]], build: {line, shell, app, ui} | null, engine, components} (opens the About window: the application, what it was built from, which build it is, and the connected engine's components)",
         enabled: always,
         run: app_about,
         journal: false,

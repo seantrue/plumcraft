@@ -119,6 +119,8 @@ enum AboutPanel {
                 options[.version] = parts.first { $0.hasPrefix("Build ") }.map { String($0.dropFirst(6)) } ?? ""
                 var credits = parts.filter { !$0.hasPrefix("Build ") }
                 if let e = a["engine"].string, !e.isEmpty { credits.append("Engine: \(e)") }
+                // which build this is (B151), first: the panel's credits are selectable text
+                if let line = BuildStamp.line(about: a) { credits.insert(line, at: 0) }
                 let para = NSMutableParagraphStyle()
                 para.alignment = .center
                 options[.credits] = NSAttributedString(string: credits.joined(separator: "\n"), attributes: [

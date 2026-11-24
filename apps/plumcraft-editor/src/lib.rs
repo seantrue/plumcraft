@@ -553,7 +553,13 @@ pub fn run(config: AppConfig) -> ExitCode {
 }
 
 fn about(title: &str, version: &str, parts: &[(String, String)]) -> plumcraft_session::About {
-    plumcraft_session::About { title: title.to_owned(), version: version.to_owned(), parts: parts.to_vec() }
+    let shell = plumcraft_build_stamp::shell();
+    plumcraft_session::About {
+        title: title.to_owned(),
+        version: version.to_owned(),
+        parts: parts.to_vec(),
+        build: Some(plumcraft_build_stamp::about(&shell, None, None)),
+    }
 }
 
 /// `--version`: the application, then what it was built from.

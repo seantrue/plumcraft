@@ -14,6 +14,8 @@ public struct ShellConfig: Sendable {
     public var version: String
     /// The store's root (also `dirs.store`).
     public var storeRoot: String
+    /// This program's own build stamp (`app.built`, B151): the main bundle's by default.
+    public var built: JSONValue? = BuildStamp.json(from: Bundle.main.infoDictionary ?? [:])
     /// `dirs.*` besides the store (`documents`, `caches`, `scratch`, `prefs`, `logs`).
     public var dirs: [String: String] = [:]
     /// `platform` (contract 4.2), as the app declares it.
@@ -60,9 +62,11 @@ public struct ShellConfig: Sendable {
     public var json: JSONValue {
         var d: [String: JSONValue] = ["store": .string(storeRoot)]
         for (k, v) in dirs { d[k] = .string(v) }
+        var app: [String: JSONValue] = ["id": .string(appID), "name": .string(appName), "version": .string(version)]
+        if let built { app["built"] = built }
         var c: [String: JSONValue] = [
             "shell": 1,
-            "app": ["id": .string(appID), "name": .string(appName), "version": .string(version)],
+            "app": .object(app),
             "store_root": .string(storeRoot),
             "dirs": .object(d),
             "platform": .object(platform),
@@ -192,5 +196,29 @@ public final class StatusFile {
         h.seekToEndOfFile()
         h.write(Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8))
         try? h.close()
+    }
+}
+
+/// This program's build stamp (B151): what the `Stamp build` script phase wrote into the built
+/// Info.plist (`native/apple/stamp-build.sh`), for the core's `app.built`; and the line About
+/// shows, which the core makes (`app.about`'s `build.line`).
+public enum BuildStamp {
+    /// `{commit, dirty, date}` from an Info.plist's `PlumBuildCommit`, `PlumBuildDirty` ("yes",
+    /// "no") and `PlumBuildDate`; nil when it has none (a test, an unstamped build).
+    public static func json(from info: [String: Any]) -> JSONValue? {
+        guard let commit = info["PlumBuildCommit"] as? String, let date = info["PlumBuildDate"] as? String else { return nil }
+        var o: [String: JSONValue] = ["commit": .string(commit), "date": .string(date)]
+        switch info["PlumBuildDirty"] as? String {
+        case "yes"?: o["dirty"] = .bool(true)
+        case "no"?: o["dirty"] = .bool(false)
+        default: o["dirty"] = .null
+        }
+        return .object(o)
+    }
+
+    /// The line About shows, from `app.about`'s reply; nil when the core says none.
+    public static func line(about a: JSONValue) -> String? {
+        guard let l = a["build"]["line"].string, !l.isEmpty else { return nil }
+        return l
     }
 }

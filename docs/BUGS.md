@@ -275,6 +275,25 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B151. About (and Help) do not show the build's date or id
+
+- Reported: 2026-11-24
+- Report: "add build date and id to help/about"
+- Context: the maintainer tried Undo in the curve editor of an application built on the Mac shell and could not tell which build they were running: "undo on curve failed, and I want to make sure I was running the right one". Two builds were on the Mac with the same name, bundle id and version, one with the B150 fix and one without; the copy running at the time was the one without it.
+- Fix (the maintainer, 2026-11-24): asked "Which id? I'd show the shell's git commit, plus the application's own commit when one is built on the shell" and "Which shells? I'd do all of them (Mac, iPad, iPhone, Windows), since the same confusion can happen on the iPad", they answered: "Yes to both on b151". Then: "fix B151".
+- Issue: none
+- Fixed (core, egui, Mac, iPad, iPhone): 2026-11-24, branch `fix/b151-build-id`. Note: `claude-debug/b151/b151-build-id.md`.
+  - **One source:** `app.about` now also returns `build {line, shell, app, ui}`. `shell` is the core library's commit, whether its tree had uncommitted changes, and its build time; `app` is the same for an application's own library, when it supplies them; `ui` is the native app's own, passed at start as `app.built`.
+  - **The line:** for example "Built 2026-11-24 22:14 UTC · shell 22f5884+changes". `+changes` marks a tree with uncommitted changes; the time is the newest of the three, in UTC, since the core writes the line.
+  - **Captured at build time** by a new crate, `plumcraft-build-stamp` (its build script runs git once; with no git every fact reads "unknown" and the build succeeds), and by `native/apple/stamp-build.sh` for the Swift apps. Nothing runs git at run time; no path or name is stored.
+  - **Shown:** first in the Mac's About panel, in the iPad's and iPhone's About (selectable, with Copy Build), and in egui's About. On the iPad with a keyboard, Help now starts with About.
+  - **An application built on the shell** calls `plumcraft_build_stamp::capture::emit` in its build script and `plumcraft_ffi::app::set_build` before it opens the core.
+  - **Tests:** six in the stamp crate, the reply's shape through the C ABI, two in the Swift kit.
+  - **Launched** (an agent; scripted Mac copy, iPad and iPhone simulators): the line read back from `app.about` and seen in each About. The controller looked at the Mac's picture.
+  - **Limits:** the library's stamp does not notice an edit outside `crates/` and the cargo files; the Swift app's own stamp covers the rest.
+  - **Not checked:** an application's own stamp in a real application (a test sets a made-up one); the iPad's Help item was not opened; nobody copied the line by hand.
+  - **Not done:** Windows (its About must show `build.line`, and its build must stamp `app.built`).
+
 ### B158. Mac: the wire does not follow a dragged bend point, and bend points show large on unselected wires
 
 - Reported: 2026-11-24
