@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Data views: research note 26, and the core half of its first slice (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "bug: regression in views of arrays (the egui version supported plots, view as image, heatmap, etc). These are important. For tabular data, visualizing selected columns is also important." Then: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". Given the note's seven decisions: "Yes to all". Then "build B154".
+
+**What the AI did.** An agent wrote `docs/research/26-data-views.md` (about 7,700 words) from reading the code and the web, nothing launched: a survey of egui's 17 array and table views against the native shells (11 missing on every one, the gap in the core), what the engines produce, seaborn and declarative chart specs, interaction per platform, three architectures and a ten-slice plan. The maintainer's decisions are in its section 8. Then the core half of slice 1 (about 175 LOC): `popout.get` carries the view modes offered and shown (`viewModes`, `viewMode`) and each channel's histogram (`stats[].histogram`, heights already on the chosen scale); the log scale is the command `viewer.array`; a conformance case, "an array's view is chosen through the core and its pictures change"; two unit tests, one with hostile histograms. Floor row F51 of note 24 re-graded to not met on the Apple shells: its evidence had been View As, which picks the viewer, not the view mode.
+
+**Verification so far.** The agent's run: 492 tests of the session, core and C ABI crates passed; the array conformance cases 10 of 10 through the C ABI and on egui; clippy and fmt clean. No shell draws any of it yet: the Apple and Windows shells, and every launch, are the rest of the slice.
+
+**Defects.** The earlier grading of F51 as met was wrong (an AI's grading, in note 24), found by this survey.
+
 ### 2026-11-24 — An array marked as a table shows in the Table viewer (B152) (Claude Fable 5.2; launch proof by a Claude Opus 5.5 agent)
 
 **What the maintainer asked for.** "bug: can't view output of histogram", then a screenshot of the value window ("This table can't be shown: not a table: expected value at line 1 column 1"), then "fix b152".

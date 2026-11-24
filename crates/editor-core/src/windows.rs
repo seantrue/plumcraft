@@ -192,6 +192,15 @@ pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
     for (k, x) in crate::viewers::popout_extra(d, &o.state) {
         v[k] = x;
     }
+    // the view modes its wire type offers (an array's auto, heat, …; floor F51) and the one shown,
+    // which `run.view {popout, view, params?}` changes (B154 slice 1)
+    let modes = plumcraft_session::run_cmds::offered_views_for(session, WatchRole::Popout(id));
+    if !modes.is_empty() {
+        let shown = d.map(|d| &d.view).filter(|v| !v.id.is_empty()).unwrap_or(&w.view);
+        let id = if shown.id.is_empty() { "auto" } else { shown.id.as_str() };
+        v["viewModes"] = json!(modes);
+        v["viewMode"] = json!({"id": id, "params": shown.params});
+    }
     v["fit"] = match o.fit {
         Some(plumcraft_session::viewer_cmds::Zoom::Fit) => json!("fit"),
         Some(plumcraft_session::viewer_cmds::Zoom::OneToOne) => json!("1:1"),

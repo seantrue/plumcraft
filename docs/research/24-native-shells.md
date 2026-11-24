@@ -751,7 +751,7 @@ Asked as 29 cards after a day in which the maintainer's first hand use of the Ma
 | F48 | Texture cache | Not met | Not met | The kit's unit tests only |
 | F49 | Inspect piggybacks on runs | Met | Met | Conformance "a watched text value arrives as text.plain, and a scalar as scalar"; person check "Run, and the value popped out" (Mac) |
 | F50 | Display payload | Met | Met | Conformance's pop-out cases (table, JSON, sound, array, picture, SVG); iPad `testEveryViewerByATap` |
-| F51 | View modes | Met | Met | Conformance "an SVG popped out … with its source a viewer away", the JSON case's Tree offered beside YAML |
+| F51 | View modes | Not met (re-graded 2026-11-24, B154) | Not met (re-graded 2026-11-24, B154) | F51 is an array's view modes (`auto`, `color`, `stretch`, `clip`, `heat`, `labels`, `angle`; `docs/plan.md`), not the viewer kinds: the evidence given before ("an SVG popped out … with its source a viewer away", Tree beside YAML) is View As, and no native shell could choose a view mode (note 26 section 2, row 3). B154 slice 1 carries the modes in `popout.get` (`viewModes`, `viewMode`) and adds the View picker; its conformance case "an array's view is chosen through the core and its pictures change" passes on the C ABI and egui. Met on a platform once its launched app passes that case |
 | F52 | Pixel probe | Met | Met | Conformance "a picture popped out by a person shows a channel, reads its own numbers and asks for detail" |
 | F53 | Compare | Partly | Partly | Conformance "Compare pins two values popped out by a person…": pins, sides; the exact difference is not drawn |
 | F54 | Tables and scalars | Met | Met | Conformance "a table popped out by a person is sorted and paged by the core", the scalar case |
