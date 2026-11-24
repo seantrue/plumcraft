@@ -313,6 +313,27 @@
       ]
     },
     {
+      "name": "a wire follows a drag on its bend point, and a cancel leaves it",
+      "about": "B158: each move of a bend point's drag answers the wire as it would be (update.wire: its nid, bend points and path, built by the scene's own path code), for the shell to draw in place of its own until the drag ends or is cancelled; a cancel changes nothing; the end is one wire.route, undone in one step",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [0, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [600, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "command.run", "params": {"command": "wire.route", "params": {"to": {"node": "$b", "port": "text"}, "via": [[430, 200]]}}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": [430, 200], "slop": 4}, "expect": {"/result/hit/kind": "bend", "/result/drag/kind": "bend"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [450, 230], "slop": 4}, "expect": {"/result/update/wire/via/0/0": 450, "/result/update/wire/via/0/1": 230, "/result/update/wire/nid": {"$exists": true}, "/result/update/wire/path/3": {"$exists": true}}},
+        {"gesture": {"kind": "drag", "phase": "cancel"}, "expect": {"/result/cancelled": true}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via/0/0": 430, "/result/wires/0/via/0/1": 200}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": [430, 200], "slop": 4}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": [450, 230], "slop": 4}, "expect": {"/result/update/wire/via/0/0": 450}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": [450, 230], "slop": 4}, "expect": {"/result/commands": {"$len": 1}, "/result/commands/0/command": "wire.route", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via/0/0": 450, "/result/wires/0/via/0/1": 230}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via/0/0": 430}}
+      ]
+    },
+    {
       "name": "a collapsed group's face is its group",
       "about": "a tap selects the group, a drag moves it (one edit.move, members with it), a double tap enters it",
       "half": "edit",

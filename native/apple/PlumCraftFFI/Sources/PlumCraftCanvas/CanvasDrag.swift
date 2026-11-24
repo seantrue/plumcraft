@@ -112,12 +112,9 @@ public final class CanvasDrag {
                 scrubWidget = canvas.model.faces[nid]?.item.inputs[safe: Int(k)]?.widget
             }
         case .bend?, .route?:
-            // a bend point, or a right-angled route's corner or leg (B155): a ring where it is
-            // pressed, moved with the drag; the core makes the route at the end
-            if let h = r.hit {
-                ghostFrom = CGRect(x: h.at.x - 6, y: h.at.y - 6, width: 12, height: 12)
-                ghostRound = true
-            }
+            // a bend point, or a right-angled route's corner or leg (B155): the wire is drawn as
+            // the core says it would be at each move (B158); the core makes the route at the end
+            break
         default:
             break
         }
@@ -162,7 +159,9 @@ public final class CanvasDrag {
             let key = on ? (t.node, t.pin, t.part) : nil
             if let key, t.fits != 0, lastTarget.map({ $0 != key }) ?? true { onSnap?() }
             lastTarget = key
-        case .frame, .group, .bend, .route:
+        case .bend, .route:
+            canvas.showBentWire(canvas.link.dragWire(g, slop: slop()))
+        case .frame, .group:
             if let r = ghostFrom { canvas.showGhost(r.offsetBy(dx: CGFloat(d.dx), dy: CGFloat(d.dy)), round: ghostRound) }
         case .resize:
             if let r = ghostFrom {
@@ -200,6 +199,9 @@ public final class CanvasDrag {
             if let row = scrubRow, let set = reply?.commands.first(where: { $0.command == "row.set" }) {
                 if let e = set.error { canvas.flashNote(e, under: row, error: true) } else if let n = set.result?["note"].string { canvas.flashNote(n, under: row, error: false) }
             }
+            // a bent wire keeps its new path until the scene brings it (no jump back)
+            let routed = reply?.commands.contains { $0.ok && $0.command == "wire.route" } ?? false
+            canvas.showBentWire(nil, kept: routed)
             clear(kept: moved, holdWire: k == .wire && palette)
             onEnded?(k, reply)
         }
@@ -234,6 +236,7 @@ public final class CanvasDrag {
         canvas.showGhost(nil)
         canvas.showDragTarget(nil)
         canvas.pickUp(wire: nil)
+        if canvas.dragRoute != nil { canvas.showBentWire(nil) }
         if holdWire {
             holdingWire = true
         } else {
