@@ -174,7 +174,8 @@ int32_t plum_geometry_set(plum_core core, uint64_t doc, const plum_face *faces, 
  * core decides at begin what it is, and its reply gives serial, kind and, for a move, the faces
  * moving (nids, for plum_wire_paths). Nothing changes until the end.
  * kind: 1 move (faces), 2 wire, 3 marquee, 4 bend point, 5 frame, 6 frame's size, 7 open group,
- *       8 a number scrubbed (a drag on a number's row, N4 slice 2: its value now in rect).
+ *       8 a number scrubbed (a drag on a number's row, N4 slice 2: its value now in rect),
+ *       9 a right-angled route's corner or leg (B155; ui.gesture's move gives its via).
  * status: PLUM_OK; PLUM_ERR_CORE; PLUM_ERR_MISSING (no such document, no drag under way, no
  *       scene published); PLUM_ERR_ARG (a point that isn't a number); PLUM_ERR_PANIC. */
 typedef struct {

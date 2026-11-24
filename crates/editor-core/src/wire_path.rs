@@ -255,6 +255,12 @@ const KAPPA: f32 = 0.552_284_8;
 /// None when the wire runs left to right (a plain wire's curve is used), or a rect isn't a
 /// number. The chain is cubic, as every chain: straight legs and quarter turns, at most nine.
 pub fn backward_chain(from: Point, to: Point, a: Rect, b: Rect) -> Option<Vec<Point>> {
+    backward_corners(from, to, a, b).map(|c| rounded(&c, BACK_CORNER))
+}
+
+/// The corners of [`backward_chain`]'s route, from the output pin to the input pin: six points,
+/// every leg horizontal or vertical (B155: the corners a person can drag).
+pub fn backward_corners(from: Point, to: Point, a: Rect, b: Rect) -> Option<Vec<Point>> {
     let all = [from.x, from.y, to.x, to.y, a.min.x, a.min.y, a.max.x, a.max.y, b.min.x, b.min.y, b.max.x, b.max.y];
     if !all.iter().all(|v| v.is_finite()) || to.x >= from.x {
         return None;
@@ -271,8 +277,141 @@ pub fn backward_chain(from: Point, to: Point, a: Rect, b: Rect) -> Option<Vec<Po
         let cost = |c: f32| (from.y - c).abs() + (to.y - c).abs();
         if cost(above) < cost(below) { above } else { below }
     };
-    let corners = [from, Point::new(x1, from.y), Point::new(x1, y), Point::new(x2, y), Point::new(x2, to.y), to];
-    Some(rounded(&corners, BACK_CORNER))
+    Some(vec![from, Point::new(x1, from.y), Point::new(x1, y), Point::new(x2, y), Point::new(x2, to.y), to])
+}
+
+/// Two coordinates within half a graph unit: a leg between points this close in x is vertical,
+/// in y horizontal.
+const ALIGNED: f32 = 0.5;
+
+fn aligned(a: Point, b: Point) -> bool {
+    (a.x - b.x).abs() <= ALIGNED || (a.y - b.y).abs() <= ALIGNED
+}
+
+/// Whether a wire's own bend points make a right-angled route (B155): at least two, and each
+/// next one straight across from or straight above or below the one before. Such a wire is
+/// drawn with straight legs and rounded corners, not a curve through its points. No state is
+/// kept for it: the points say it.
+pub fn right_angled(via: &[[i32; 2]]) -> bool {
+    via.len() >= 2 && via.windows(2).all(|w| aligned(as_point(&w[0]), as_point(&w[1])))
+}
+
+/// The corners of a right-angled wire (see [`right_angled`]), from its output pin to its input
+/// pin: it leaves the output across to its first point's x, then up or down to it; through its
+/// points; and from its last point up or down to the input's height, then across into it, so it
+/// leaves and enters horizontally wherever its nodes have moved. Repeated points and points on
+/// a straight leg are left out. None for a wire that isn't right-angled.
+pub fn orthogonal_corners(from: Point, to: Point, via: &[[i32; 2]]) -> Option<Vec<Point>> {
+    if !right_angled(via) || ![from.x, from.y, to.x, to.y].iter().all(|v| v.is_finite()) {
+        return None;
+    }
+    let first = as_point(via.first()?);
+    let last = as_point(via.last()?);
+    let mut pts = vec![from, Point::new(first.x, from.y)];
+    pts.extend(via.iter().map(as_point));
+    pts.push(Point::new(last.x, to.y));
+    pts.push(to);
+    Some(simplified(&pts))
+}
+
+/// A polyline without repeated points, without points on the middle of a straight leg, and
+/// without spurs (a leg that runs out and back along itself ends where it turned back).
+pub fn simplified(points: &[Point]) -> Vec<Point> {
+    let mut pts: Vec<Point> = Vec::with_capacity(points.len());
+    for p in points.iter().copied().map(tame) {
+        // what the point before ends up as may itself be on a line now: look back until not
+        loop {
+            if pts.last().is_some_and(|l: &Point| l.distance(p) < 1e-3) {
+                break;
+            }
+            if pts.len() >= 2 {
+                let (a, b) = (pts[pts.len() - 2], pts[pts.len() - 1]);
+                let (u, v) = (b - a, p - b);
+                if (u.x * v.y - u.y * v.x).abs() < 1e-3 {
+                    pts.pop();
+                    continue;
+                }
+            }
+            pts.push(p);
+            break;
+        }
+    }
+    pts
+}
+
+/// The largest bend-point coordinate made here (graph units), as [`MAX_COORD`].
+const MAX_VIA_AT: i64 = 10_000_000;
+
+fn to_via(p: Point) -> [i32; 2] {
+    let c = |v: f32| (v.round() as i64).clamp(-MAX_VIA_AT, MAX_VIA_AT) as i32;
+    [c(p.x), c(p.y)]
+}
+
+/// Make Right-Angled (B155, `wire.square`): a wire's bend points moved so each leg is horizontal
+/// or vertical. It leaves its output across; from each point to the next that isn't straight
+/// across or above or below it, it goes across first, then up or down (the one choice where
+/// either would do); into its input it comes up or down first, then across. Corners on a
+/// straight leg and repeated points are left out, so a wire whose pins are level and whose
+/// points lie on the line between them has none left (a plain wire). The result is always
+/// right-angled ([`right_angled`]) or empty.
+pub fn square_up(from: Point, to: Point, via: &[[i32; 2]]) -> Vec<[i32; 2]> {
+    let mut pts = vec![from];
+    let targets: Vec<Point> = via.iter().map(as_point).chain(std::iter::once(to)).collect();
+    let n = targets.len();
+    for (k, p) in targets.into_iter().enumerate() {
+        let cur = pts.last().copied().unwrap_or(from);
+        if !aligned(cur, p) {
+            let elbow = if k + 1 == n { Point::new(cur.x, p.y) } else { Point::new(p.x, cur.y) };
+            pts.push(elbow);
+        }
+        pts.push(p);
+    }
+    let s = simplified(&pts);
+    let inner = if s.len() >= 2 { &s[1..s.len() - 1] } else { &[][..] };
+    let out: Vec<[i32; 2]> = inner.iter().copied().map(to_via).collect();
+    if out.is_empty() || right_angled(&out) { out } else { Vec::new() }
+}
+
+/// A right-angled route's bend points after a drag (B155): a corner (`segment` false, `index`
+/// its bend point) moves by (`dx`, `dy`), and the points beside it that were straight across
+/// from it or above or below it move with it on that axis, so every leg stays horizontal or
+/// vertical; a leg (`segment` true, between bend points `index` and `index + 1`) moves across
+/// itself: a horizontal one up or down, a vertical one left or right. An index out of range
+/// changes nothing.
+pub fn route_drag(via: &[[i32; 2]], index: usize, segment: bool, dx: f32, dy: f32) -> Vec<[i32; 2]> {
+    let mut out = via.to_vec();
+    let shift = |v: i32, d: f32| -> i32 { (i64::from(v) + d.round() as i64).clamp(-MAX_VIA_AT, MAX_VIA_AT) as i32 };
+    if segment {
+        let (Some(&a), Some(&b)) = (via.get(index), via.get(index + 1)) else { return out };
+        let (horizontal, vertical) = (a[1] == b[1], a[0] == b[0]);
+        for k in [index, index + 1] {
+            if let Some(p) = out.get_mut(k) {
+                if horizontal && !vertical {
+                    p[1] = shift(p[1], dy);
+                } else if vertical && !horizontal {
+                    p[0] = shift(p[0], dx);
+                } else {
+                    *p = [shift(p[0], dx), shift(p[1], dy)];
+                }
+            }
+        }
+        return out;
+    }
+    let Some(&p) = via.get(index) else { return out };
+    let moved = [shift(p[0], dx), shift(p[1], dy)];
+    for k in [index.wrapping_sub(1), index + 1] {
+        if let Some(q) = out.get_mut(k) {
+            if q[0] == p[0] && q[1] != p[1] {
+                q[0] = moved[0];
+            } else if q[1] == p[1] && q[0] != p[0] {
+                q[1] = moved[1];
+            }
+        }
+    }
+    if let Some(q) = out.get_mut(index) {
+        *q = moved;
+    }
+    out
 }
 
 /// A polyline as a cubic chain: its legs straight, its corners rounded to radius `r` (less on a
@@ -338,7 +477,8 @@ pub fn chain_distance(chain: &[Point], p: Point) -> f32 {
     best
 }
 
-fn segment_distance(a: Point, b: Point, p: Point) -> f32 {
+/// The distance from `p` to the line segment from `a` to `b`.
+pub fn segment_distance(a: Point, b: Point, p: Point) -> f32 {
     let ab = b - a;
     let t = if ab.length_sq() > 0.0 { ((p - a).dot(ab) / ab.length_sq()).clamp(0.0, 1.0) } else { 0.0 };
     (a + ab * t).distance(p)

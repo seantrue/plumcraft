@@ -13,7 +13,7 @@
 //! - right-click a wire › Add Bend Point (at the click);
 //! - drag a bend point to move it;
 //! - double-click one to remove it;
-//! - right-click › Straighten removes them all.
+//! - right-click › Route Automatically removes them all; Make Right-Angled squares them (B155).
 //!
 //! Each edit is one `wire.route`: one undo step, and nothing goes stale.
 
@@ -102,8 +102,14 @@ impl Canvas {
             .enumerate()
             .filter_map(|(i, r)| {
                 let (a, b) = (*pins.get(&PinKey::Out(r.out))?, *pins.get(&PinKey::In(r.inp))?);
+                let via = self.shown_via(r);
+                // bend points that line up are a right-angled route (B155): its straight legs, as
+                // the core draws it for the native shells (here with square corners)
+                if let Some(c) = wire_path::orthogonal_corners(a.to_core(), b.to_core(), via) {
+                    return Some((i, c.into_iter().map(ToEgui::to_egui).collect(), r.color));
+                }
                 let mut points = vec![a];
-                points.extend(self.shown_via(r).iter().map(as_pos));
+                points.extend(via.iter().map(as_pos));
                 points.push(b);
                 Some((i, smooth_path(&points), r.color))
             })

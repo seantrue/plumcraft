@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — A wire's right-angle route can be dragged and converted (B155) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "There is also no way to interact with the 90 degree automatic bends."; then "B155: Look at converting bends <-> right angles and allow dragging."; then "fix b155". Converting both ways is the maintainer's idea; dragging a corner or segment was the controller's proposal.
+
+**What the AI did.** An agent chose a model with no new stored state: a wire is right-angled when its own bend points line up, so the graph format is unchanged. In the core (about 365 LOC across `wire_path.rs`, `geometry.rs`, `gesture.rs`, `canvas_cmds.rs`, `menu.rs`, plus a 205-line test file): the hit test gives a corner or a leg, a new drag kind makes an automatic route's corners the wire's own in one undoable step, the new command `wire.square`, and the menu items. The Apple shells needed about 25 lines, since their drags already go through the core. egui draws the right-angled wire. A design note is in `claude-debug/b155/`.
+
+**Verification.** The agent's runs: the editor core's 228 tests, egui's 384, the whole Rust suite with the one known failure, the Swift kit, Mac conformance 64 of 64, iPad simulator 61 of 61 and its 12 UI tests; a scripted Mac launch reading the bend points back after each drag and after three undos. The controller looked at that launch's pictures, which predate the agent's last fix. No real mouse or finger, no device, nothing on Windows.
+
+**Defects.** The agent's first Make Right-Angled left a spur, a leg running out and back along itself; it showed in the launch's picture, and the agent's own test had expected it. Both corrected. One consequence is not a defect but a decision left open: an old wire whose points happen to line up changes from a curve to right angles.
+
 ### 2026-11-24 — Graphs are `.plum` files (FR2) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "feat: change the default graph file extension from .json -> .plum \nContinue to accept .json as an alternate. Register .plum extension on platforms where it is not registered already". On the design questions, "Yes to all on FR2"; on the icon, "Yes, draw a document icon"; then "build FR2". The rule that an opened `.json` graph keeps its name was the controller's proposal, which the maintainer accepted.

@@ -34,6 +34,8 @@ public final class CanvasView: NSView, NSMenuItemValidation {
     let root = CALayer()
 
     var spaceHeld = false
+    /// The open hand is up over a right-angled route's corner or leg (B155).
+    var routeCursor = false
     var panning = false
     var lastPoint = CGPoint.zero
     var downPoint: CGPoint?
@@ -312,6 +314,12 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         if spaceHeld || panning { return }
         let h = canvas.link.hit(graph(point(e)), slop: slop)
         canvas.hover(h.ok ? h : nil)
+        // a right-angled route's corner or leg can be dragged (B155): the hand says so
+        let onRoute = h.ok && h.kind == .wire && (h.part == 1 || h.part == 2)
+        if onRoute != routeCursor {
+            routeCursor = onRoute
+            (onRoute ? NSCursor.openHand : NSCursor.arrow).set()
+        }
         // a node's error, whole, as the tooltip (the face shows it cut to 180 characters)
         var tip: String?
         if h.ok, h.kind == .node || h.kind == .pin, let f = model.faces[h.node]?.item {

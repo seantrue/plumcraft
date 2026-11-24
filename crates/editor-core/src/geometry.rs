@@ -97,6 +97,9 @@ pub mod part {
     pub const FRAME_HANDLE: u32 = 3;
     /// An open group's header band.
     pub const BAND: u32 = 1;
+    /// A right-angled route's corner, or its leg between two corners (kind 3, B155).
+    pub const CORNER: u32 = 1;
+    pub const SEGMENT: u32 = 2;
 }
 
 /// The names of a face's parts in `geometry.set` (`parts`), and their codes.
@@ -430,6 +433,11 @@ pub fn wire_chain(kind: &str, from: Point, to: Point, via: &[[i32; 2]], ends: Op
     match kind {
         "net" => Vec::new(),
         "routed" if !via.is_empty() => {
+            // bend points that line up are a right-angled route (B155): straight legs, rounded
+            // corners, leaving and entering its pins across
+            if let Some(c) = wire_path::orthogonal_corners(from, to, via) {
+                return wire_path::rounded(&c, wire_path::BACK_CORNER);
+            }
             let mut points = Vec::with_capacity(via.len() + 2);
             points.push(from);
             points.extend(via.iter().map(wire_path::as_point));
@@ -622,6 +630,10 @@ struct SWire {
     via: Vec<[i32; 2]>,
     chain: Vec<Point>,
     bounds: Option<Rect>,
+    /// A right-angled route's corners from pin to pin (B155): the automatic one round its faces
+    /// of a wire that runs right to left, or a wire's own bend points that line up. Empty for
+    /// any other wire. Its corners and legs between corners can be dragged.
+    corners: Vec<Point>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -868,13 +880,16 @@ impl Snapshot {
                 v.push(k);
             }
             let bounds = wire_path::chain_bounds(&chain);
-            wires.push(SWire { nid: w.nid, id: w.id.clone(), from: (a, w.from_pin), to: (b, w.to_pin), kind, via: w.via.clone(), chain, bounds });
+            // the right-angled route's corners, where a press can take hold of it (B155)
+            let ends = (Self::face_pin(&faces, a, true, w.from_pin), Self::face_pin(&faces, b, false, w.to_pin));
+            let corners = match (kind, ends, faces.get(a), faces.get(b)) {
+                (WireKind::Plain, (Some(p), Some(q)), Some(fa), Some(fb)) => wire_path::backward_corners(p, q, fa.rect, fb.rect).unwrap_or_default(),
+                (WireKind::Routed, (Some(p), Some(q)), _, _) => wire_path::orthogonal_corners(p, q, &w.via).unwrap_or_default(),
+                _ => Vec::new(),
+            };
+            wires.push(SWire { nid: w.nid, id: w.id.clone(), from: (a, w.from_pin), to: (b, w.to_pin), kind, via: w.via.clone(), chain, bounds, corners });
         }
-        let pin_at = |faces: &[SFace], face: usize, output: bool, pin: usize| -> Option<Point> {
-            let f = faces.get(face)?;
-            let p = if output { f.outputs.get(pin) } else { f.inputs.get(pin) }?;
-            Some(Point::new(if output { f.rect.max.x } else { f.rect.min.x }, f.rect.min.y + p.y))
-        };
+        let pin_at = |faces: &[SFace], face: usize, output: bool, pin: usize| -> Option<Point> { Self::face_pin(faces, face, output, pin) };
         let tag_rect = |anchor: Point, text: &str, ends_at_anchor: bool| -> Rect {
             let w = TAG_CHAR * text.chars().count().min(64) as f32 + TAG_PAD;
             let x0 = if ends_at_anchor { anchor.x - w } else { anchor.x };
@@ -1036,6 +1051,42 @@ impl Snapshot {
         for w in self.wires.iter().rev() {
             if let Some(k) = w.via.iter().position(|v| wire_path::as_point(v).distance(p) <= reach) {
                 return Hit { kind: kind::BEND, index: i32::try_from(k).unwrap_or(i32::MAX), item: w.nid, wire: w.nid, x: p.x, y: p.y, ..Hit::default() };
+            }
+        }
+        // a right-angled route's corner, then a leg between two corners (B155): not the legs
+        // that leave and enter the pins, which stay where the pins are
+        for w in self.wires.iter().rev() {
+            let n = w.corners.len();
+            if n < 4 {
+                continue;
+            }
+            if let Some(k) = (1..n - 1).find(|&k| w.corners.get(k).is_some_and(|c| c.distance(p) <= reach)) {
+                return Hit {
+                    kind: kind::WIRE,
+                    part: part::CORNER,
+                    index: i32::try_from(k).unwrap_or(i32::MAX),
+                    item: w.nid,
+                    wire: w.nid,
+                    x: p.x,
+                    y: p.y,
+                    ..Hit::default()
+                };
+            }
+            let near = s.max(4.0);
+            if let Some(k) = (1..n - 2).find(|&k| match (w.corners.get(k), w.corners.get(k + 1)) {
+                (Some(&a), Some(&b)) => wire_path::segment_distance(a, b, p) <= near,
+                _ => false,
+            }) {
+                return Hit {
+                    kind: kind::WIRE,
+                    part: part::SEGMENT,
+                    index: i32::try_from(k).unwrap_or(i32::MAX),
+                    item: w.nid,
+                    wire: w.nid,
+                    x: p.x,
+                    y: p.y,
+                    ..Hit::default()
+                };
             }
         }
         // a net tag
@@ -1287,6 +1338,12 @@ impl Snapshot {
                 if h.kind == kind::BEND {
                     v["index"] = json!(h.index);
                 }
+                // a right-angled route's corner or leg (B155): `index` counts its corners from
+                // the output pin (0)
+                if h.kind == kind::WIRE && (h.part == part::CORNER || h.part == part::SEGMENT) {
+                    v["part"] = json!(if h.part == part::CORNER { "corner" } else { "segment" });
+                    v["index"] = json!(h.index);
+                }
             }
             kind::TAG => {
                 v["kind"] = json!("tag");
@@ -1464,7 +1521,16 @@ impl Snapshot {
             chain: w.chain.clone(),
             from_pin: (fa.nid, u32::try_from(w.from.1).unwrap_or(u32::MAX)),
             to_pin: (fb.nid, u32::try_from(w.to.1).unwrap_or(u32::MAX)),
+            corners: w.corners.clone(),
+            ends: Self::face_pin(&self.faces, w.from.0, true, w.from.1).zip(Self::face_pin(&self.faces, w.to.0, false, w.to.1)),
         })
+    }
+
+    /// Pin `pin` of face index `face` (its output side if `output`), in graph units.
+    fn face_pin(faces: &[SFace], face: usize, output: bool, pin: usize) -> Option<Point> {
+        let f = faces.get(face)?;
+        let p = if output { f.outputs.get(pin) } else { f.inputs.get(pin) }?;
+        Some(Point::new(if output { f.rect.max.x } else { f.rect.min.x }, f.rect.min.y + p.y))
     }
 
     /// The wire into input pin `pin` of face `nid`, if it has one drawn.
@@ -1557,6 +1623,10 @@ pub struct WireInfo {
     /// (face nid, pin index) at each end.
     pub from_pin: (u64, u32),
     pub to_pin: (u64, u32),
+    /// Its right-angled route's corners from pin to pin, if it has one (B155); else empty.
+    pub corners: Vec<Point>,
+    /// Its output pin's and input pin's points (graph units), where the faces report them.
+    pub ends: Option<(Point, Point)>,
 }
 
 /// `{at: [x, y], slop?}` (`geometry.hit`), or with `from` (`geometry.wireTarget`).
@@ -1607,11 +1677,12 @@ pub fn parse_paths(snapshot: &Snapshot, params: &Value) -> Result<(Vec<u64>, f32
 
 /// `geometry.locate` (N2 slice 4): where the core has something, at the geometry it has, so a
 /// script aims a gesture at what any shell measured. `{node: face id, part?: "center" | "header"
-/// | "body", pin?: {side: "in" | "out", index}}`, `{wire: wire id}` (a point on its path, its
-/// middle), or `{frame: frame id, part?: "body" | "tab" | "handle"}` → `{at: [x, y], rect?,
+/// | "body", pin?: {side: "in" | "out", index}}`, `{wire: wire id, corner?: k, segment?: k}` (a
+/// point on its path, its middle; or a right-angled route's corner k from its output pin, or the
+/// middle of its leg from corner k to k + 1, B155), or `{frame: frame id, part?: "body" | "tab" | "handle"}` → `{at: [x, y], rect?,
 /// measured?}`.
 pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Value, String> {
-    check_fields(params, &["node", "part", "pin", "row", "wire", "frame"])?;
+    check_fields(params, &["node", "part", "pin", "row", "wire", "frame", "corner", "segment"])?;
     let pt = |p: Point| json!([round(p.x), round(p.y)]);
     let part_name = params.get("part").map(|p| p.as_str().ok_or("part must be a name")).transpose()?;
     if let Some(id) = params.get("node") {
@@ -1682,6 +1753,18 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
     if let Some(id) = params.get("wire") {
         let id = id.as_str().ok_or("wire must be a wire's id")?;
         let w = snap.wire_by_id(id).ok_or_else(|| format!("no wire {} drawn", crate::selection::shown_id(id)))?;
+        // a right-angled route's corner, or the middle of a leg (B155)
+        let index = |k: &str| params.get(k).map(|v| v.as_u64().and_then(|k| usize::try_from(k).ok()).ok_or(format!("{k} must be a corner's number")));
+        if let Some(k) = index("corner").transpose()? {
+            let c = w.corners.get(k).ok_or_else(|| format!("wire {} has no corner {k} (it has {})", crate::selection::shown_id(id), w.corners.len()))?;
+            return Ok(json!({"at": pt(*c), "nid": w.nid, "corners": w.corners.len()}));
+        }
+        if let Some(k) = index("segment").transpose()? {
+            let (Some(a), Some(b)) = (w.corners.get(k), w.corners.get(k + 1)) else {
+                return Err(format!("wire {} has no leg {k} (it has {} corners)", crate::selection::shown_id(id), w.corners.len()));
+            };
+            return Ok(json!({"at": pt(Point::new((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)), "nid": w.nid, "corners": w.corners.len()}));
+        }
         // a point on the chain: the start of its middle cubic
         let segments = w.chain.len().saturating_sub(1) / 3;
         let at =

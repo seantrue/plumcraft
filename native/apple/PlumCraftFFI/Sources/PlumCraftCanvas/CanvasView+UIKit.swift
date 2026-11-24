@@ -288,12 +288,14 @@ public final class CanvasView: UIView, UIGestureRecognizerDelegate, UIContextMen
         return v
     }
 
-    /// Whether the core drags what is at `h` (a face, a pin, a bend point, a frame's tab or
-    /// handle, an open group's band); anything else a drag would marquee.
+    /// Whether the core drags what is at `h` (a face, a pin, a bend point, a right-angled
+    /// route's corner or leg, a frame's tab or handle, an open group's band); anything else a
+    /// drag would marquee.
     static func dragsItem(_ h: HotHit) -> Bool {
         guard h.ok else { return false }
         switch h.kind {
         case .node, .pin, .bend, .group: return true
+        case .wire: return h.part == 1 || h.part == 2
         case .frame: return h.part != 1
         default: return false
         }
