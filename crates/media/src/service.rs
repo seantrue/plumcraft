@@ -811,12 +811,12 @@ fn make_with(r: &DataRef, want: Want, resolve: &dyn Fn(&DataRef) -> Option<Blob>
         },
         Want::Table => match read(r) {
             None => Outcome::Missing,
-            Some(b) => Table::from_bytes(&b.bytes).map_or_else(Outcome::Failed, |t| Outcome::Made(Made::Table(Arc::new(t)))),
+            Some(b) => table_of(r, &b).map_or_else(Outcome::Failed, |t| Outcome::Made(Made::Table(Arc::new(t)))),
         },
         Want::Sorted(c, desc) => {
             let t = match table {
                 Some(t) => t,
-                None => match read(r).map(|b| Table::from_bytes(&b.bytes)) {
+                None => match read(r).map(|b| table_of(r, &b)) {
                     None => return Outcome::Missing,
                     Some(Err(e)) => return Outcome::Failed(e),
                     Some(Ok(t)) => Arc::new(t),
@@ -892,6 +892,15 @@ pub fn parse_derived(key: &str) -> Option<(String, Want)> {
 
 /// The most bytes of JSON parsed for an outline.
 pub const MAX_JSON_BYTES: usize = 64 << 20;
+
+/// The table of `r`'s bytes: an array its engine marks as a table (B152) column by column, else
+/// the core type's JSON.
+fn table_of(r: &DataRef, b: &Blob) -> Result<Table, String> {
+    match &r.meta.form {
+        plumcraft_proto::data::Form::Array { dtype, shape, names, table: true, .. } => Table::from_array(dtype, shape, names, &b.bytes),
+        _ => Table::from_bytes(&b.bytes),
+    }
+}
 
 /// A sound's sample rate, from its reference.
 fn rate_of(r: &DataRef) -> u32 {

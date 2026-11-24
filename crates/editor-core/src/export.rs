@@ -105,7 +105,14 @@ fn table_text(t: &Table, sep: char, max_rows: usize) -> String {
 fn table_of(d: &Display, media: &MediaService) -> Result<Table, String> {
     match &d.value {
         Some(v) => Table::from_value(v),
-        None => Table::from_bytes(&bytes(d, media)?.bytes),
+        None => {
+            let b = bytes(d, media)?;
+            // an array its engine marks as a table (B152), else the core type's JSON
+            match d.full.as_ref().map(|f| &f.meta.form) {
+                Some(plumcraft_proto::data::Form::Array { dtype, shape, names, table: true, .. }) => Table::from_array(dtype, shape, names, &b.bytes),
+                _ => Table::from_bytes(&b.bytes),
+            }
+        }
     }
 }
 

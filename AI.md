@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — An array marked as a table shows in the Table viewer (B152) (Claude Fable 5.2; launch proof by a Claude Opus 5.5 agent)
+
+**What the maintainer asked for.** "bug: can't view output of histogram", then a screenshot of the value window ("This table can't be shown: not a table: expected value at line 1 column 1"), then "fix b152".
+
+**What the AI did.** Found the cause by reading: an application's engine gives the media kind Table to an array it marks as a table, and the core's table reader took only the TABLE type's JSON. Added `Table::from_array` to `crates/media/src/table.rs` (~65 LOC, sizes checked before any byte is read), used it in the media service's table and sort derivations and in Copy and CSV export, and stopped offering the Tree viewer for such a value. Three tests (~60 LOC): two in the media crate (reading, and hostile shapes and dtypes), one in the core through the viewer's own page function.
+
+**Verification.** The two crates' tests and clippy on the Mac; the Linux gate for the whole suite. An agent built an application on this branch and read the histogram's window back through the control port: 256 rows, columns `value` and `count`, sorted both ways, Copy's counts adding to the picture's pixel count, a CSV export. Not launched on the iPad, iPhone or Windows, which share the core.
+
+**Defects in the AI's work.** The first edit put `table_of` between another function's doc comment and that function, so the comment landed on the wrong one; the agent's review caught it. My unit test names the columns `centre` and `count` after the editor's own array engine; the application's engine names them `value` and `count`, which the launch showed (the code takes whatever names come). On the Mac, two unrelated tests of the editor core failed locally because the engine programs were not built after a disk clean; they are left to the Linux gate. egui's own Table viewer has the same gap and is not fixed.
+
 ### 2026-11-23 — Mac: the core and an application's engine share one store (B149) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** "Loading an image fails", with a screenshot of a value window that described the array but said "the picture is missing"; then "Fix b149". It was their first launch, from the Finder, of an application built on the native Mac shell.

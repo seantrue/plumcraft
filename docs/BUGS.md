@@ -275,6 +275,21 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B152. Mac: the output of a histogram node can't be viewed
+
+- Reported: 2026-11-24
+- Report: "can't view output of histogram"
+- Context: the maintainer's hand use of an application built on the Mac shell (the build with the B149 and B150 fixes). The node is the research software's Histogram node (inputs `array`, `bins` 256, `low` 0.00, `high` 1.00; output `histogram · ARRAY`), run and cached. Its value window opens titled "Histogram · histogram", says "table 256×2 float32", with the view chooser on "Table", and shows in place of the table: "This table can't be shown: not a table: expected value at line 1 column 1". Screenshot: `claude-debug/b152-histogram-table.png`.
+- Cause (by reading, then confirmed by the fix's launch): the application's engine describes an array it marks as a table (`Form::Array`'s `table`) with the media kind Table, and its bytes are the array's numbers. The core's table reader (`plumcraft_media`'s `Want::Table`, `Table::from_bytes`) read only the core TABLE type's JSON, so the first byte of a float was "not a table". egui offers its Plot viewer first for such a value, which hid the fault there; the native shells offer only Table.
+- Issue: none
+- Fixed: 2026-11-24, branch `fix/b152-table-array`:
+  - **The core reads such an array as a table.** `Table::from_array` (`crates/media/src/table.rs`): the last axis is the columns, named by the array's `names` when there is one a column; integers stay integers; every size is checked before a byte is read. The media service's table and sort derivations (`table_of`, `crates/media/src/service.rs`) and Copy and Export as CSV (`crates/editor-core/src/export.rs`) use it when the value's form is an array marked as a table.
+  - **No Tree viewer for it.** `offered` (`crates/editor-core/src/viewers.rs`) no longer offers Tree for a table that is an array: it has no JSON to outline.
+  - **Every shell:** the change is in the core, so the iPad, iPhone and Windows shells get it. Launched on the Mac only.
+  - **Tests:** `an_array_marked_as_a_table_reads_column_by_column` and `a_hostile_array_is_refused_before_a_byte_is_read` (media), `an_array_marked_as_a_table_shows_in_the_table_viewer` (the core).
+  - **Launched** (an agent, a scripted copy of the application built on this branch, through the control port, no mouse or keys): a picture, one channel of it, the Histogram node; its value window read back status ready, 256 rows, columns `value` and `count`, first row 0.001953 and 12283; sorted by count both ways; Copy gave 257 lines whose counts add to 656,096, the picture's 812 × 808 pixels; Export wrote a 257-line CSV.
+  - **Not fixed:** egui's own Table viewer still says "no table" for such a value (its Plot viewer shows it).
+
 ### B149. Mac: a loaded picture shows "the picture is missing" in its view and no preview on the node
 
 - Reported: 2026-11-23

@@ -66,7 +66,9 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     add(m == Media::Text || m == Media::Vector, "text.plain", if m == Media::Vector { "Source" } else { "Text" });
     add(m == Media::Scalar, "scalar", "Value");
     add(m == Media::Tree, "yaml", "YAML");
-    add(m == Media::Tree || m == Media::Table || obj, "tree", "Tree");
+    // a table that is an array (B152) has no JSON to outline
+    let array = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { .. }));
+    add(m == Media::Tree || (m == Media::Table && !array) || obj, "tree", "Tree");
     add(d.items > 1 && !d.sheet.is_empty(), "items", "Items");
     add(d.full.is_some() && m != Media::Doc, "hex", "Bytes");
     out
@@ -527,6 +529,30 @@ mod tests {
         assert_eq!(sorted["cells"][499][0], "0");
         st.page = 0;
         assert_eq!(until(|| table(&d, &m, &st))["cells"][0][0], json!((n - 1).to_string()));
+    }
+
+    /// B152: a histogram from an engine that says "table" of a (256, 2) float array. The Table
+    /// viewer said "not a table: expected value at line 1 column 1".
+    #[test]
+    fn an_array_marked_as_a_table_shows_in_the_table_viewer() {
+        let bytes: Vec<u8> = (0..256).flat_map(|i| [(i as f32 + 0.5) / 256.0, (255 - i) as f32]).flat_map(f32::to_le_bytes).collect();
+        let (m, mut r) = media_with(bytes, "<f4", vec![256, 2]);
+        r.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![256, 2], space: None, names: vec!["centre".into(), "count".into()], table: true };
+        let mut d = display(Media::Table, None);
+        d.full = Some(r);
+        let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
+        assert_eq!(ids, ["table.grid", "hex"], "no outline of an array");
+        let mut st = ViewerState::default();
+        let page = until(|| table(&d, &m, &st));
+        assert_eq!(page["status"], Value::Null, "{page}");
+        assert_eq!(
+            (page["rows"].as_u64(), page["columns"][0]["name"].as_str(), page["columns"][1]["name"].as_str()),
+            (Some(256), Some("centre"), Some("count"))
+        );
+        assert_eq!(page["columns"][1]["numeric"], true);
+        assert_eq!(page["cells"][0][1], "255");
+        st.sort = Some(1);
+        assert_eq!(until(|| table(&d, &m, &st))["cells"][0][1], "0", "sorted by count");
     }
 
     #[test]
