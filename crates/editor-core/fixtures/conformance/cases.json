@@ -1601,6 +1601,27 @@
       ]
     },
     {
+      "name": "an array's view is chosen through the core and its pictures change",
+      "about": "B154 slice 1 (floor F51, view modes): an ARRAY popped out offers its wire type's views (auto, color, stretch, clip, heat, labels, angle) in popout.get's viewModes, with the one shown in viewMode; run.view {popout, view} shows another and a run (cached) brings its pictures, which differ; an unknown view is refused; each channel's statistics carry its NaN count and its 256-bin histogram, whose heights follow viewer.array {log}",
+      "half": "read",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "width", "value": 40}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "height", "value": 30}}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$m", "port": "escape"}}, "save": {"p": "/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewer": "array.pictures"}, "timeout": 120, "expect": {"/result/viewModes": {"$contains": "heat"}, "/result/viewModes/0": "auto", "/result/viewMode/id": "auto", "/result/views": {"$len": 1}, "/result/stats/0/nan": 0, "/result/stats/0/histogram/bins": 256, "/result/stats/0/histogram/heights": {"$len": 256}, "/result/stats/0/histogram/log": false, "/result/state/array/log": false}, "save": {"auto": "/result/views/0/ref"}},
+        {"call": "command.run", "params": {"command": "run.view", "params": {"popout": "$p", "view": "heat"}}, "expect": {"/result/view": "heat"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewMode/id": "heat"}, "timeout": 120, "expect": {"/result/views": {"$len": 1}, "/result/views/0/ref": {"$not": "$auto"}}},
+        {"call": "command.run", "params": {"command": "run.view", "params": {"popout": "$p", "view": "plaid"}}, "ok": false, "expect": {"/error": {"$includes": "heat"}}},
+        {"call": "command.run", "params": {"command": "viewer.array", "params": {"popout": "$p", "log": true}}, "expect": {"/result/log": true}},
+        {"call": "popout.get", "params": {"id": "$p"}, "expect": {"/result/state/array/log": true, "/result/stats/0/histogram/log": true, "/result/viewMode/id": "heat"}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$p"}}}
+      ]
+    },
+    {
       "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
       "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
       "half": "read",

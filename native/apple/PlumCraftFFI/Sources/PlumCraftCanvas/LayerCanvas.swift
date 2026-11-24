@@ -958,6 +958,19 @@ public final class LayerCanvas {
         frames[f.nid] = l
     }
 
+    /// The widest an open group's band text is drawn (graph units): its chevron and name start
+    /// the band, and a picture this wide stays well inside the label picture's limit at any scale
+    /// the canvas uses (B156).
+    static let bandText: CGFloat = 1024
+
+    /// For tests: an open group's band as drawn, by the group's nid: the band's width and whether
+    /// its chevron and name drew (B156).
+    public func groupBand(_ nid: UInt64) -> (width: CGFloat, text: Bool)? {
+        guard let band = groups[nid]?.sublayers?.first(where: { $0.name == "band" }) else { return nil }
+        let text = band.sublayers?.first(where: { $0.name == "band-text" })
+        return (band.bounds.width, text?.contents != nil)
+    }
+
     func placeGroup(_ g: Group) {
         groups[g.nid]?.removeFromSuperlayer()
         groups[g.nid] = nil
@@ -971,9 +984,21 @@ public final class LayerCanvas {
         l.borderColor = col.copy(alpha: 0.8)
         l.borderWidth = 1.5
         l.cornerRadius = 8
-        let band = labelLayer(.init(text: "▾  " + g.name, size: CGSize(width: r.width, height: 28), fill: CGColorBox(col.copy(alpha: 0.85) ?? col),
-                                    stroke: nil, ink: CGColorBox(colors.headerText), corner: 8, mono: false, bold: true, inset: 10))
+        // the band: its colour a plain layer the group's width, its chevron and name a picture
+        // no wider than `Self.bandText` (B156: drawn whole, a group wider than 4096 units, the
+        // whole of a large graph, was past the label picture's limit and drew no band at all)
+        let band = CALayer()
+        band.anchorPoint = .zero
         band.position = .zero
+        band.bounds = CGRect(x: 0, y: 0, width: r.width, height: 28)
+        band.backgroundColor = col.copy(alpha: 0.85) ?? col
+        band.cornerRadius = 8
+        band.name = "band"
+        let text = labelLayer(.init(text: "▾  " + g.name, size: CGSize(width: min(r.width, Self.bandText), height: 28), fill: nil,
+                                    stroke: nil, ink: CGColorBox(colors.headerText), corner: 8, mono: false, bold: true, inset: 10))
+        text.position = .zero
+        text.name = "band-text"
+        band.addSublayer(text)
         l.addSublayer(band)
         l.zPosition = CGFloat(g.depth)
         groupRoot.addSublayer(l)

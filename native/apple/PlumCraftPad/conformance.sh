@@ -13,6 +13,7 @@
 # PLUMCRAFT_WINDOW (`375x655`) runs them in a window of that size (the simulator's Settings ›
 # Multitasking & Gestures set to Windowed Apps; with Full Screen Apps the window is the screen).
 # TEXT_SIZE=one-step-larger runs at the maintainer's iPad's text size (below).
+# ONLY=testName runs that one UI test of GestureTests (B154: testViewModesAndHistograms).
 # SIM names the simulator (default: the booted "iPad Pro 13-inch (M5)"). PHONE=1 is the iPhone
 # simulator instead (B134, 2026-11-23: the phone is tested from now on): an "iPhone 17 Pro" (the
 # maintainer's iPhone's class), booted here if it isn't (and shut down after), at one step larger
@@ -91,7 +92,7 @@ if [ "$half" = gestures ]; then
   if [ "${PAD_PORTS:-}" = 1 ]; then start_ports "$scratch/ports-engines"; ports_engines="$scratch/ports-engines"; fi
   TEST_RUNNER_PLUMCRAFT_PORTS_ENGINES="$ports_engines" TEST_RUNNER_PLUMCRAFT_STATUS="$scratch/ui-status.json" TEST_RUNNER_PLUMCRAFT_SHOTS="$shots" TEST_RUNNER_PLUMCRAFT_WINDOW="${PLUMCRAFT_WINDOW:-}" TEST_RUNNER_PLUMCRAFT_ORIENTATION="${PLUMCRAFT_ORIENTATION:-}" \
     timeout 900 xcodebuild -project PlumCraftPad.xcodeproj -scheme PlumCraftPad -configuration Debug -derivedDataPath build \
-    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" test 2>&1 | grep -E 'Test Case|error:|^B111: |^IDLE: |^WINDOW |TEST (SUCCEEDED|FAILED)'
+    -destination "id=$sim" -resultBundlePath "$scratch/ui.xcresult" ${ONLY:+-only-testing:PlumCraftPadUITests/GestureTests/$ONLY} test 2>&1 | grep -E 'Test Case|error:|^B111: |^IDLE: |^WINDOW |TEST (SUCCEEDED|FAILED)'
   exit "${PIPESTATUS[0]}"
 fi
 # a build that fails stops here (N4 slice 4: it used to go on, and ran the app installed before)
