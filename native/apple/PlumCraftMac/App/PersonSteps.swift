@@ -201,6 +201,13 @@ enum PersonSteps {
             let r = win.convertFromScreen(screen)
             func at(_ f: (CGFloat, CGFloat)) -> NSPoint { NSPoint(x: r.minX + f.0 * r.width, y: r.maxY - f.1 * r.height) }
             let a = at(from), b = at(to)
+            // through the window's own routing, as a person's drag goes (its gesture recognizers
+            // see it: a SwiftUI drag gesture sees nothing else); with the screen locked the window
+            // isn't on screen and drops the events, so they go to the view under the point
+            // instead, which reaches an AppKit view's own handlers and no SwiftUI gesture
+            // (`route` says which, so a check can say what it couldn't do)
+            let locked = (CGSessionCopyCurrentDictionary() as? [String: Any])?["CGSSessionScreenIsLocked"] as? Bool ?? false
+            let routed = !locked && win.isVisible
             await onRunLoop {
                 // key within the app (never activating it): a click into a window that isn't key
                 // only makes it key, as a person's first click does
@@ -208,8 +215,10 @@ enum PersonSteps {
                 func send(_ type: NSEvent.EventType, _ p: NSPoint) {
                     if let e = NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                                   windowNumber: win.windowNumber, context: nil, eventNumber: 0, clickCount: 1, pressure: type == .leftMouseUp ? 0 : 1) {
-                        // to the view under the point, as AppKit routes a click there (the window's own
-                        // routing drops a click into a window that isn't on screen: a locked screen)
+                        if routed {
+                            win.sendEvent(e)
+                            return
+                        }
                         let at = content.convert(p, from: nil)
                         let v = content.hitTest(at) ?? content
                         switch type {
@@ -226,7 +235,43 @@ enum PersonSteps {
                 }
                 send(.leftMouseUp, b)
             }
-            return ["ok": true, "frame": [.double(Double(r.minX)), .double(Double(r.minY)), .double(Double(r.width)), .double(Double(r.height))]]
+            return ["ok": true, "frame": [.double(Double(r.minX)), .double(Double(r.minY)), .double(Double(r.width)), .double(Double(r.height))],
+                    "route": routed ? "window" : "view"]
+        case "core-key":
+            // KEY|CHARS|MODS: in the core window KEY (`editor:n`), made key within the app, a key
+            // pressed as a person's: a key down and up through the application's own routing
+            // (the menu bar's key equivalents first, then the key window), e.g. `editor:c|z|cmd`
+            // for ⌘Z, `editor:c|z|cmd,shift` for ⇧⌘Z (B150)
+            let parts = arg.split(separator: "|", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count == 3, !parts[1].isEmpty else { return ["ok": false, "error": "core-key: KEY|CHARS|MODS"] }
+            guard let win = NSApp.windows.first(where: { $0.identifier?.rawValue == "core-\(parts[0])" }) else {
+                return ["ok": false, "error": .string("no window \(parts[0])")]
+            }
+            var mods: NSEvent.ModifierFlags = []
+            for m in parts[2].split(separator: ",") {
+                switch m {
+                case "cmd": mods.insert(.command)
+                case "shift": mods.insert(.shift)
+                case "alt": mods.insert(.option)
+                case "ctrl": mods.insert(.control)
+                default: return ["ok": false, "error": .string("core-key: unknown modifier \(m)")]
+                }
+            }
+            // as the keyboard gives them: Shift changes both (⇧⌘Z is "Z", as the menu's Redo has it)
+            let chars = mods.contains(.shift) ? parts[1].uppercased() : parts[1]
+            var key = false
+            await onRunLoop {
+                win.makeKey()
+                key = win.isKeyWindow
+                for type in [NSEvent.EventType.keyDown, .keyUp] {
+                    if let e = NSEvent.keyEvent(with: type, location: .zero, modifierFlags: mods, timestamp: ProcessInfo.processInfo.systemUptime,
+                                                windowNumber: win.windowNumber, context: nil, characters: chars,
+                                                charactersIgnoringModifiers: chars, isARepeat: false, keyCode: parts[1] == "z" ? 6 : 0) {
+                        NSApp.sendEvent(e)
+                    }
+                }
+            }
+            return ["ok": true, "window": .string(parts[0]), "key": .bool(key)]
         case "core-undo":
             // Edit › Undo as AppKit routes it in the core window KEY (`editor:n`), as when it is
             // key: its first responder up the responder chain, then the window and its delegate.

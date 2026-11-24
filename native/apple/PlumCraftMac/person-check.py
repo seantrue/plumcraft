@@ -712,10 +712,24 @@ def open_graph(port, name, graph):
 
 
 def close_graph(port, doc, name):
+    """Saved (to scratch), then File › Close until the graph's window is gone, as a person closes
+    it: with the screen unlocked a drag in an editor's window made that window key, and Close
+    closes the window in front, the editor's first (the screen locked, nothing is key and Close
+    went to the graph's window at once)."""
     port.call("command.run", {"command": "graph.saveAs", "params": {"path": os.path.join(A.scratch, name)}}, doc=doc)
     wait(lambda: all(not d["edited"] for d in docs() if d["doc"] == doc), 10, every=0.3)
-    step("menu-pick:File/Close")
-    wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
+    def mine():
+        return next((x for x in (status().get("windows") or []) if x.get("doc") == doc), None)
+    for _ in range(3):
+        w = mine()
+        if w is None or all(d["doc"] != doc for d in docs()):
+            break
+        step("menu-pick:File/Close")
+        if w.get("coreWindows"):
+            # the editor's window closes first when it is in front; the graph's next time round
+            wait(lambda: (lambda m: m is None or not m.get("coreWindows"))(mine()), 15, every=0.3)
+        else:
+            wait(lambda: all(d["doc"] != doc for d in docs()), 15, every=0.3)
     step("use:0")
 
 
@@ -962,8 +976,9 @@ def curves_step(port):
     """S4a, F59 on the Mac: Apply Curve's curves row clicked opens the shell's curves editor (a
     window of its own, the native view, not the value window); after a run it has the histogram
     and the picture; a mouse drag on its plot (down, drags, up, sent to the window by the app's
-    own step) adds a point and moves it, one `curves.edit` (the undo says Edit Curve); Edit ›
-    Undo takes the whole drag back."""
+    own step, through the window's routing when it is on screen) adds a point and moves it, one
+    `curves.edit` (the undo says Edit Curve); Edit › Undo, picked with the curves window in front,
+    takes the whole drag back."""
     doc = open_graph(port, "curves-check.json", CURVES_GRAPH)
     if not doc:
         return say(False, "S4a: the curves graph opened", f"documents {docs()}")
@@ -986,21 +1001,39 @@ def curves_step(port):
     locked = console_locked()
     mid = (edited or {}).get("points", [[0, 0]] * 3)[1]
     near = abs(mid[0] - 0.4) < 0.05 and abs(mid[1] - 0.7) < 0.05
-    if not edited and locked:
-        ax_blind("S4a: a drag on the curves plot (one curves.edit, one undo step)", "the screen is locked: the app's own mouse events reached no gesture")
+    if not edited and (locked or dragged.get("route") == "view"):
+        # the window off screen (locked), the drag went to the view under the point, which no
+        # SwiftUI gesture sees: not done, said so
+        ax_blind("S4a: a drag on the curves plot (one curves.edit, one undo step)", "the screen is locked: the drag went to the view, not through the window, and reached no gesture")
         close_graph(port, doc, "curves-check-saved.json")
         return
     say(bool(dragged.get("ok") and edited and near and undo == "Edit Curve"),
         "S4a: a drag on the curves plot adds a point and moves it: one curves.edit, one undo step",
         f"step {dragged}; editor {json.dumps(edited)[:240] if edited else native()}; undo {undo!r}")
+    def points(n):
+        return wait(lambda: (lambda x: x if len(x.get("points", [])) == n else None)(native()), 15, every=0.3)
+
+    # B150: ⌘Z pressed with the curves window key (a key event through the app's own routing, the
+    # menu bar's key equivalent first, as a person's), then ⇧⌘Z, then Edit › Undo from the menu:
+    # each takes the whole drag back or puts it back, one step each
+    k = step("core-key:editor:c|z|cmd")
+    back = points(2)
+    after = port.call("ui.inspect", {}, doc=doc).get("undo")
+    say(bool(edited and k.get("ok") and back and after != "Edit Curve"), "S4a, B150: ⌘Z with the curves window key takes the whole drag back",
+        f"key {k}; points {(back or native()).get('points')}; undo now {after!r}")
+    r = step("core-key:editor:c|z|cmd,shift")
+    again = points(3)
+    redo = port.call("ui.inspect", {}, doc=doc).get("undo")
+    say(bool(back and r.get("ok") and again and redo == "Edit Curve"), "S4a, B150: ⇧⌘Z with the curves window key puts the drag back",
+        f"key {r}; points {(again or native()).get('points')}; undo now {redo!r}")
     items = step("menu:Edit").get("items", [])
     u = next((i.get("title") for i in items if str(i.get("title", "")).startswith("Undo")), None)
     if u:
         step(f"menu-pick:Edit/{u}")
-    back = wait(lambda: (lambda n: n if len(n.get("points", [])) == 2 else None)(native()), 15, every=0.3)
-    after = port.call("ui.inspect", {}, doc=doc).get("undo")
-    say(bool(edited and u and back and after != "Edit Curve"), "S4a: Edit › Undo takes the whole drag back",
-        f"menu item {u!r}; points {(back or native()).get('points')}; undo now {after!r}")
+    back2 = points(2)
+    after2 = port.call("ui.inspect", {}, doc=doc).get("undo")
+    say(bool(again and u == "Undo Edit Curve" and back2 and after2 != "Edit Curve"), "S4a: Edit › Undo, with the curves window in front, takes the whole drag back",
+        f"menu item {u!r}; points {(back2 or native()).get('points')}; undo now {after2!r}")
     close_graph(port, doc, "curves-check-saved.json")
 
 
