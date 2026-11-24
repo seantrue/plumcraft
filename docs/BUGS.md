@@ -275,6 +275,18 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B150. Mac: Undo does not take back a change made in the curve editor
+
+- Reported: 2026-11-23
+- Report: "^Z /Cmd Z does not undo a curve change"
+- Context: the maintainer's hand use of an application built on the native Mac shell (dev branch at `921fd65`'s Mac code), in the curve editor's window. So a person's drag on the curve does change it (the Mac person check's drag step, which sends no edit, is a fault in the step or in how it reaches the view), and Undo in that window does nothing. The mask editor's window had the same fault, fixed for its AppKit canvas; the curve window was given the same answer but never checked with a real drag.
+- Issue: none
+- Cause: a core window's SwiftUI content (the curves editor, the generic value window, Parameters, Compare) has no responder of its own for Undo and Redo, so Edit › Undo and ⌘Z reach the window, which answers them with its undo manager: AppKit's own, empty. Undo was greyed and ⌘Z did nothing. The mask window was spared because its AppKit canvas answers first.
+- Fixed: 2026-11-23, branch `fix/curves-mac-drag` (uncommitted). The core windows' delegate gives each one an undo manager that is the document's history (`CoreUndoManager`, `Popouts.swift`): Undo and Redo are enabled and named as the core says, and run `edit.undo` and `edit.redo`. The person check now drives the curve drag through the window's own event routing (it went to the view directly, which no SwiftUI gesture sees), then presses ⌘Z as a key event through the app's routing.
+  - **Checked** with the screen unlocked: without the fix, ⌘Z and Edit › Undo fail; with it, ⌘Z took the drag back in 4 runs of 4, and Edit › Undo in 1 run of 1 where it was tried right after the drag.
+  - **Not yet shown:** ⇧⌘Z (Redo) sent as a key event did nothing in 4 runs of 4. It is not known whether the step's key event or Redo itself is at fault.
+  - **The iPad:** its curve editor (a sheet) has no Undo of its own. A person closes it (Done) and undoes on the canvas. Read from the code and its UI test; not tried on the simulator.
+
 ### B149. Mac: a loaded picture shows "the picture is missing" in its view and no preview on the node
 
 - Reported: 2026-11-23

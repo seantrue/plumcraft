@@ -728,6 +728,42 @@ final class MessagesWindow: NSObject, NSWindowDelegate {
     }
 }
 
+/// A core window's undo manager: the document's undo history, the core's. With a SwiftUI window
+/// in front (the curves editor's) Edit › Undo and ⌘Z reach the window, which answers them with its
+/// undo manager: AppKit's own, empty, so Undo was greyed after a drag and did nothing. This one
+/// says what the core can undo, under the core's name for it, and asks the core to.
+final class CoreUndoManager: UndoManager {
+    private weak var model: DocumentModel?
+
+    init(model: DocumentModel) {
+        self.model = model
+        super.init()
+    }
+
+    private func onMain<T: Sendable>(_ f: @MainActor (DocumentModel?) -> T) -> T {
+        MainActor.assumeIsolated { f(model) }
+    }
+
+    override var canUndo: Bool { onMain { $0?.state.undo != nil } }
+    override var canRedo: Bool { onMain { $0?.state.redo != nil } }
+    override var undoActionName: String { onMain { $0?.state.undo ?? "" } }
+    override var redoActionName: String { onMain { $0?.state.redo ?? "" } }
+
+    override func undo() {
+        onMain { m in
+            guard let m else { return }
+            Task { _ = try? await m.run("edit.undo") }
+        }
+    }
+
+    override func redo() {
+        onMain { m in
+            guard let m else { return }
+            Task { _ = try? await m.run("edit.redo") }
+        }
+    }
+}
+
 /// The windows the core keeps and draws as a model (N4 slice 6): the Cache Report, the graph's
 /// Parameters window, value editors (`report.get`) and Compare (`compare.get`), each a window of
 /// its own while the scene's `view.windows` says it is open; its close button closes it in the
@@ -813,6 +849,13 @@ final class CoreWindows: NSObject, NSWindowDelegate, UndoActions {
 
     func windowDidBecomeKey(_ n: Notification) {
         MenuBar.shared.show(model)
+    }
+
+    private lazy var undoManager = CoreUndoManager(model: model)
+
+    /// The document's undo history for whatever in the window asks for it (see CoreUndoManager)
+    func windowWillReturnUndoManager(_ window: NSWindow) -> UndoManager? {
+        undoManager
     }
 
     func windowWillClose(_ n: Notification) {
