@@ -32,6 +32,28 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Verified (agent).** The new step fails on an application's build with the fix turned off and passes with it; swift test; ffi tests; Mac conformance 71 of 71; iPad conformance 60 of 60. **Not verified:** the app opened from the Finder as itself; the full Rust workspace on the Mac (the Linux gate covers it). The Mac person check fails three steps on this branch and equally on the unchanged dev branch: the curves drag, its Undo, and File › Close after them.
 
+### 2026-11-23 — A named wire's label sits closer to its pin, on every shell (B146) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** A screenshot marked "Gap too large" at the label beside an input pin; asked whether the input side should match the output side or both change: "Both."
+
+**What the AI found.** The two sides were not different: both followed one rule from the core, and in the maintainer's picture both gaps measure the same. So the entry's first reading, the controller's, that the input side was the larger, was wrong.
+
+**What the AI did.** The one stub length went from 14 points to 8 on both sides, in one constant that the core's scene, the tidy layout and the egui editor all read, so every shell moves together. How much smaller is the controller's choice; the maintainer did not give a number. The shared scene fixture was rewritten for it.
+
+**Verified (agent).** Before and after pictures from the iPad simulator at two text sizes, by a new UI test; Rust gate with only the known baseline failure; Mac conformance 71 of 71; iPad gate 60 of 60. **Not verified:** a device; Windows; the egui editor by eye.
+
+**Seen, not caused by this.** The Mac person check failed two steps of the curves editor (a drag on the plot, then Undo). Earlier runs only "saw" those steps because the screen was locked, so this may be the first time they really ran. Being looked into separately.
+
+### 2026-11-23 — iPad and iPhone: New Graph makes the graph in the app's own folder (B147) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "iPad started In unwritable folder. Files / Plummer seems a better starting place"; what showed it: "failed save". Then "Fix both".
+
+**What the AI found.** On the simulator, from a fresh install: the browser's New Graph made the graph in whatever folder the browser was showing, which can be outside the app's folder; and a graph that could not be created was only written to the log. The failed save itself did not happen on the simulator (saving into the outside folder worked there), so **the reported failure is not reproduced**; the cause is inferred from where the graph was made.
+
+**What the AI did.** New Graph always makes the graph in the app's Documents (Plummer in Files) and opens it there; the browser shows that folder at start; a graph that cannot be made, or a save that fails, tells the person why and where; a remembered start folder that no longer exists falls back.
+
+**Verified (agent).** A named UI test from a fresh install (first launch, New Graph from On My iPad, add a node, the saved file in the app's Documents holds it): it failed on the dev branch's app and passes with the fix, on the iPad and the iPhone simulators. iPad gate 60 of 60. **Not verified:** any device, so not the failed save itself; iCloud Drive and other providers.
+
 ### 2026-11-23 — Clean Up Mask Files, on the shared library's new pruning; the workspace moves to its 0.3 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Release commonkit", after "Ref commonkit -- both" on where pruning belongs; and, told that once a mask is painted a later change to the wired-in mask does not show until Clear, "1a is acceptable".

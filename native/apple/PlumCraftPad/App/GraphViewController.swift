@@ -705,7 +705,10 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         // a failed save is said once, without a dialog; the title keeps saying it until a save works
         let failure = model?.state.autosave.state == "failed" ? model?.state.autosave.error : nil
         if let f = failure, f != failureSaid {
-            say("Couldn't save \(name): \(f). \(AppID.name) keeps trying; your changes are kept here meanwhile.")
+            // where, too (B147): the folder it is in, by the name the Files app shows
+            let dir = document.fileURL.deletingLastPathComponent()
+            let place = dir.standardizedFileURL.path == CoreHost.dirs.documents.standardizedFileURL.path ? AppID.name : dir.lastPathComponent
+            say("Couldn't save \(name) in \(place): \(f). \(AppID.name) keeps trying; your changes are kept here meanwhile.")
         }
         failureSaid = failure
     }

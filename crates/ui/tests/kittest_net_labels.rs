@@ -89,7 +89,7 @@ fn a_wire_is_drawn_as_labels_selected_moved_and_drawn_as_a_wire_again() {
     let scale = h.state().canvas.to_global.scaling;
     let (_, at) = label(&h, &to);
     let at = at.expect("moved");
-    assert!((at[1] + (60.0 / scale) as i32).abs() <= 2 && (at[0] + 14).abs() <= 2, "{at:?}");
+    assert!((at[1] + (60.0 / scale) as i32).abs() <= 2 && (at[0] + plumcraft_ui::net_view::STUB).abs() <= 2, "{at:?}");
     // Esc clears the selection
     h.key_press(egui::Key::Escape);
     h.run_steps(2);

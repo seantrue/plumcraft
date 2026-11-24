@@ -365,7 +365,13 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
         let p = a.params
         let picker = UIDocumentPickerViewController(forOpeningContentTypes: types, asCopy: copy)
         picker.allowsMultipleSelection = p["multiple"].bool ?? false
-        if let start = p["startIn"].string { picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true) }
+        // the folder this ask last used, while it is still there (a path remembered by an earlier
+        // install names a container that is gone); else the app's own folder, Plummer (B147)
+        if let start = p["startIn"].string, FileManager.default.fileExists(atPath: start) {
+            picker.directoryURL = URL(fileURLWithPath: start, isDirectory: true)
+        } else {
+            picker.directoryURL = CoreHost.dirs.documents
+        }
         picker.delegate = self
         picking = a
         // the picker up, for scripts and the UI tests: its ask's purpose and kind
