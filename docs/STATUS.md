@@ -4,6 +4,7 @@
 
 ## Where things stand
 
+- **B159, a pop-out keeps its zoom and view from item to item (2026-11-24, branch `fix/b159-popout-zoom`).** The maintainer: "I zoomed in to 200%, next view was more like 10%", "Fix b159". The native pop-outs rebuilt the picture's view per item and lost the zoom, and on the Mac a picture arriving before its view had a size was shown at 5%. The zoom and view are now kept in the picture's own terms, and `viewer.zoom` reaches the native shells (`popout.get`'s `zoomAsk`). Windows not done. See `docs/BUGS.md` B159.
 - **B151, About says which build is running (2026-11-24, branch `fix/b151-build-id`).** The maintainer: "add build date and id to help/about", "Yes to both on b151", "fix B151". `app.about` returns the build's time and the commits of the core library, an application's own library and the native app, each marked when built from a tree with changes; a new crate `plumcraft-build-stamp` captures them at build time. Shown in About on the Mac, iPad, iPhone and egui. Windows not done. See `docs/BUGS.md` B151.
 
 - **B154 slice 1 on Windows, and B160 (2026-11-24, branch `feat/b154-s1-windows`).** The Windows shell gains the View picker, per-channel histograms and the Log toggle, launched on the x64 Windows test VM (the first x64 build of that shell; kit tests 68 of 68, the person check passing every step). B160: a graph saved with a typed `.json` name keeps it (the save picker had appended `.plum`). Not on Windows yet: B155's and B158's canvas work, the `.plum` file association, B151. See `docs/BUGS.md` B160.

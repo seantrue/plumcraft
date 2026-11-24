@@ -201,12 +201,31 @@ pub fn popout_json(session: &Session, params: &Value) -> Result<Value, String> {
         v["viewModes"] = json!(modes);
         v["viewMode"] = json!({"id": id, "params": shown.params});
     }
+    v["zoomAsk"] = zoom_ask(o);
     v["fit"] = match o.fit {
         Some(plumcraft_session::viewer_cmds::Zoom::Fit) => json!("fit"),
         Some(plumcraft_session::viewer_cmds::Zoom::OneToOne) => json!("1:1"),
         _ => Value::Null,
     };
     Ok(v)
+}
+
+/// A pop-out's latest zoom ask, for a shell that keeps its picture's zoom and view itself (B159):
+/// `{seq, to, at}`, `to` one of `"fit"`, `"1:1"`, `"in"`, `"out"` or screen pixels per value
+/// pixel, `at` the value pixel `[row, col]` to centre; applied once each time `seq` rises. Null
+/// before any is asked.
+pub fn zoom_ask(o: &plumcraft_session::view_cmds::Popout) -> Value {
+    use plumcraft_session::viewer_cmds::Zoom;
+    let Some(z) = o.zoom_asked.filter(|_| o.zoom_seq > 0) else { return Value::Null };
+    let to = match z.to {
+        None => Value::Null,
+        Some(Zoom::Fit) => json!("fit"),
+        Some(Zoom::OneToOne) => json!("1:1"),
+        Some(Zoom::In) => json!("in"),
+        Some(Zoom::Out) => json!("out"),
+        Some(Zoom::Pixels(n)) => json!(n),
+    };
+    json!({"seq": o.zoom_seq, "to": to, "at": z.at.map(|(r, c)| [r, c])})
 }
 
 /// `compare.get {}` (N4 slice 6): Compare's state and its two sides, A and B, each as

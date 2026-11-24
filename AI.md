@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — A pop-out keeps its zoom and view from item to item (B159) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "scrolling through items in result does not maintain zoom and view of image."; where: "Color pencil, final result, in the pop-out window. Zoomed out to icon size for image"; then "I zoomed in to 200%, next view was more like 10%"; then "Fix b159".
+
+**What the AI did.** The controller gave the agent no cause, only the two things to explain. The agent reproduced both on a scripted Mac copy and found them: the view rebuilt per item with the zoom thrown away, and a fit worked out before the view had a size, held at the smallest magnification. It put the arithmetic in one shared Swift file (80 LOC), kept the zoom on each shell's pop-out (about 170 LOC across the Mac and iPad), and closed a command gap it found on the way: `viewer.zoom` never reached a native shell (about 50 LOC in the core). It compared the rule with egui's and wrote down where they differ.
+
+**Verification.** The agent's runs: 505 Rust tests in the three crates touched, the Swift kit's 120, Mac conformance 75 of 75, the iPad's read half 38 of 38; an iPad UI test that fails on the unfixed code and passes fixed, also on an iPhone simulator; the zoom and centre read back from the Mac at each step. The controller looked at one picture, which shows only that the zoomed view held (a black region of the test picture). The full Rust suite ran on the Linux test host after the merge with the dev branch. Not tried: a hand's pinch, the maintainer's own graph.
+
+**Defects.** Both faults were in AI-written pop-out code from the native shell slices; no test had stepped items with a zoom set. The agent found a fault in its own slice of the same day: the View menu overflows the iPhone's bar (recorded as B161, not fixed). In this work: its first Mac centring call put the centre in the wrong place; its UI test assumed two pixels a point and failed on the iPhone until it read the screen's scale.
+
 ### 2026-11-24 — About says which build is running (B151) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "add build date and id to help/about", because "undo on curve failed, and I want to make sure I was running the right one". The controller proposed showing the shell's commit plus an application's own, on all four shells; the maintainer: "Yes to both on b151", later "fix B151". Marking a build made from a tree with uncommitted changes was the controller's addition.
