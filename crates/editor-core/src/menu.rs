@@ -495,6 +495,7 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
             items.insert(at, share_item(session, facts));
         }
         "Node" => items.extend(node_items(session, facts)),
+        "Group" => items.extend(group_menu_items(session, facts)),
         "Run" => {
             // Run Selected (a canvas command: it runs the selection) after Run
             let at = items.iter().position(|i| i.command.as_deref() == Some("run.start")).map_or(items.len(), |k| k + 1);
@@ -590,6 +591,23 @@ fn edit_items(facts: &Facts) -> Vec<Item> {
     }
     items.push(m);
     items
+}
+
+/// Group › Collapse Group or Expand Group (B156): a selected collapsed group expands; otherwise the
+/// innermost group of a selected node collapses. Each is `group.collapse`, one undo step, as the
+/// band's chevron and the collapsed group's Expand are.
+fn group_menu_items(session: &Session, facts: &Facts) -> Vec<Item> {
+    let g = session.graph();
+    if let Some(gid) = facts.selected_groups.iter().find(|id| g.group(id).is_some_and(|x| x.collapsed)) {
+        return vec![
+            Item::run("group.collapse", "Expand Group", json!({"group": gid, "collapsed": false})).hover("Show the group's nodes in place of its node"),
+        ];
+    }
+    let open = facts.selected.iter().find_map(|n| g.group_of(n)).filter(|id| g.group(id).is_some_and(|x| !x.collapsed));
+    vec![match open {
+        Some(gid) => Item::run("group.collapse", "Collapse Group", json!({"group": gid, "collapsed": true})).hover("Show the group as one node"),
+        None => Item::run("group.collapse", "Collapse Group", json!({})).disabled(Some("select a group, or a node in one".into())),
+    }]
 }
 
 /// Run › Run Selected: enabled by the selection, with the reason when it can't run.
@@ -1260,7 +1278,15 @@ fn parameters_menu(parts: &Parts<'_>, gid: &GroupId) -> Option<Item> {
 
 /// An open group's header menu (needs only the graph).
 pub fn group_menu(graph: &plumcraft_graph::Graph, gid: &GroupId) -> Vec<Item> {
-    graph.group(gid).map(|g| group_items(gid, &g.name)).unwrap_or_default()
+    // B156: Collapse first, beside the band's chevron, as the collapsed group's menu has Expand
+    graph
+        .group(gid)
+        .map(|g| {
+            let mut out = vec![Item::run("group.collapse", "Collapse", json!({"group": gid, "collapsed": true})).hover("Show the group as one node")];
+            out.extend(group_items(gid, &g.name));
+            out
+        })
+        .unwrap_or_default()
 }
 
 /// A group's own items: rename and ungroup (collapse, expand and enter are its header's buttons).
@@ -1535,6 +1561,37 @@ mod tests {
         assert!(!undo.enabled && undo.reason.is_some());
         // the toggles carry their state
         assert_eq!(find(&bar, "view.runColors").unwrap().checked, Some(true));
+    }
+
+    /// B156: the Group menu collapses the selected nodes' group and expands a selected collapsed
+    /// group, each one undo step; with neither it is there, disabled, saying why.
+    #[test]
+    fn the_group_menu_collapses_and_expands_the_selected_group() {
+        let mut s = Session::new(plumcraft_text::engine().schema());
+        let mut nodes = Vec::new();
+        for x in [0, 300] {
+            nodes.push(s.execute("node.add", &json!({"kind": "text.literal", "pos": [x, 0]})).unwrap()["id"].as_str().unwrap().to_owned());
+        }
+        let item = |s: &Session, f: &Facts| find(&bar_menu(s, f, "Group").items, "group.collapse").cloned().unwrap();
+        let none = item(&s, &Facts::default());
+        assert!(!none.enabled && none.reason.is_some() && none.label == "Collapse Group");
+        let gid = s.execute("group.create", &json!({"nodes": nodes})).unwrap()["id"].as_str().unwrap().to_owned();
+        let picked = Facts { selected: nodes.iter().map(|n| NodeId::from(n.as_str())).collect(), ..Facts::default() };
+        let collapse = item(&s, &picked);
+        assert!(collapse.enabled && collapse.label == "Collapse Group");
+        assert_eq!(collapse.params, Some(json!({"group": gid, "collapsed": true})));
+        s.execute("group.collapse", collapse.params.as_ref().unwrap()).unwrap();
+        assert!(s.graph().group(&GroupId(gid.clone())).unwrap().collapsed);
+        let proxy = Facts { selected_groups: vec![GroupId(gid.clone())], ..Facts::default() };
+        let expand = item(&s, &proxy);
+        assert!(expand.enabled && expand.label == "Expand Group");
+        s.execute("group.collapse", expand.params.as_ref().unwrap()).unwrap();
+        assert!(!s.graph().group(&GroupId(gid.clone())).unwrap().collapsed);
+        // each one undo step
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!(s.graph().group(&GroupId(gid.clone())).unwrap().collapsed);
+        s.execute("edit.undo", &json!({})).unwrap();
+        assert!(!s.graph().group(&GroupId(gid)).unwrap().collapsed);
     }
 
     #[test]

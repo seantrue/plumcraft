@@ -4,6 +4,8 @@
 
 ## Where things stand
 
+- **B156, a wide group keeps its header on the Apple shells (2026-11-24, branch `fix/b156-group-header` from `feat/native-n0` at `487a40d`).** The maintainer: "fix B156". A group wider than 4,096 graph units drew no header, because the header was one picture the group's width and the picture maker has a size limit. The strip is now a plain layer and the name a small picture; the Group menu and the header's menu gain Collapse and Expand. See `docs/BUGS.md` B156.
+
 - **B154, data views: note 26 and slice 1 in progress (2026-11-24, branch `feat/b154-s1-view-modes`).** The maintainer: "build B154", after "Yes to all" on the seven decisions of `docs/research/26-data-views.md`. Slice 1 brings back the view modes and the per-channel histograms. Done: the core (`popout.get`'s `viewModes`, `viewMode` and `stats[].histogram`; the command `viewer.array`; a conformance case). Done since: the Apple shells (a View menu, histograms with a Log toggle, NaN counts), launched on the Mac's scripted copy and the iPad and iPhone simulators. Not done: the Windows shell, a device, a turn field for `angle`. F51 of note 24: met on the Apple shells in the simulator and on the Mac, not on Windows.
 
 - **B153, Add Bend Point lands where the wire was pressed (2026-11-24, branch `fix/b153-bend-point` from `feat/native-n0` at `487a40d`).** The maintainer: "Fix B153". The press never reached the wire's menu on the native shells, so the bend went to a point of the core's choosing. The gesture's reply now carries it in the wire's context; no shell code changed. Windows still draws no ring at a bend point. See `docs/BUGS.md` B153.

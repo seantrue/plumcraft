@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — A wide group keeps its header on the Apple shells (B156) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "bug: after grouping nodes, no group header appears, no way to collapse group."; then "^A, Group->group; there is a background but no indication of header status.  This occurs after opening oil-painting-3.json"; then "fix B156".
+
+**What the AI did.** An agent reproduced it through the control port and found the size at which it starts: the canvas drew the header as one picture the group's width, and the picture maker refuses anything over 16,384 pixels, 4,096 graph units on the Mac. The fix is about 30 lines of Swift in `LayerCanvas.swift` (a plain strip, a name picture of capped width) and about 60 of Rust in `menu.rs` (Collapse and Expand in the Group menu and the header's menu, over the existing command), with a canvas test that fails without the fix and a menu test.
+
+**Verification.** The agent's runs: the editor core's 223 tests, clippy, the kit's 114, Mac conformance 71 of 71, iPad simulator 60 of 60; scripted launches on a small group, a wide one, and a scratch copy of the maintainer's 91-node graph. The controller looked at the wide group's picture: the strip and its name are there. No person's click, no device.
+
+**Defects.** The fault was in AI-written canvas code (the native canvas slices): a header as one full-width picture, tested only on small groups. The controller's guess (a header off screen or under the nodes) was wrong; the agent's width experiment found the limit. In the agent's own work: a first simulator build replaced the Mac slice of the framework and one app build failed; a helper name collided and did not compile; both fixed before the gates.
+
 ### 2026-11-24 — Data views: research note 26, and the core half of its first slice (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer asked for.** "bug: regression in views of arrays (the egui version supported plots, view as image, heatmap, etc). These are important. For tabular data, visualizing selected columns is also important." Then: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". Given the note's seven decisions: "Yes to all". Then "build B154".
