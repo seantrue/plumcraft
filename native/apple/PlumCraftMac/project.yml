@@ -43,8 +43,32 @@ targets:
         NSHumanReadableCopyright: ""
         NSSupportsAutomaticTermination: false
         NSSupportsSuddenTermination: false
+        # a graph's file (FR2, docs/shell-interface.md 12.23): `.plum`, its own type, which the app
+        # owns; `.json` still opens and saves, as an alternate, so Plummer never claims every JSON
+        # file. The first Editor type is NSDocument's default, so a new graph is a `.plum`. An
+        # application built on this shell declares the same type in its own Info.plist.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.swapwizard.plummer.graph
+            UTTypeDescription: Plummer Graph
+            # the document icon (the maintainer, 2026-11-24: "Yes, draw a document icon"): a page
+            # with the app's plums, drawn per size (App/PlumGraph.icns, claude-debug/fr2's script)
+            UTTypeIconFile: PlumGraph
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - plum
+              public.mime-type:
+                - application/x-plumcraft-graph
         CFBundleDocumentTypes:
           - CFBundleTypeName: Plummer Graph
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            CFBundleTypeIconFile: PlumGraph
+            LSItemContentTypes:
+              - com.swapwizard.plummer.graph
+            NSDocumentClass: GraphDocument
+          - CFBundleTypeName: Plummer Graph (JSON)
             CFBundleTypeRole: Editor
             LSHandlerRank: Alternate
             LSItemContentTypes:

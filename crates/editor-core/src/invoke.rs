@@ -29,8 +29,9 @@ use serde_json::{Map, Value, json};
 use crate::asks::{Answer, Ask, AskId, Asks, By, Kind};
 use crate::prefs;
 
-/// The workflow file extension.
-pub const WORKFLOW_EXT: &str = "json";
+/// The workflow file extension a new graph gets (FR2: `.plum`; `.json` still opens and saves,
+/// [`plumcraft_session::graph_file`]).
+pub const WORKFLOW_EXT: &str = plumcraft_session::graph_file::DEFAULT_EXTENSION;
 /// How long Edit › Paste waits for the shell to read the clipboard: an empty clipboard answers
 /// nothing.
 pub const PASTE_WAIT: Duration = Duration::from_secs(5);
@@ -411,7 +412,8 @@ fn start_in(h: &mut impl Host, key: &str) -> Value {
 fn workflow_kinds() -> Value {
     // what the application opens beside workflows, in the one filter: macOS has no choice of them
     let openers = plumcraft_session::file_cmds::openers();
-    let mut exts: Vec<&str> = vec![WORKFLOW_EXT, "zip"];
+    let mut exts: Vec<&str> = plumcraft_session::graph_file::EXTENSIONS.to_vec();
+    exts.push("zip");
     exts.extend(openers.iter().flat_map(|o| o.extensions.iter().copied()));
     let name = std::iter::once("Workflow or bundle").chain(openers.iter().map(|o| o.label)).collect::<Vec<_>>().join(", ");
     json!([{"label": name, "extensions": exts}])
@@ -427,8 +429,9 @@ fn ask_workflow(h: &mut impl Host, by: By, then: Then) -> AskId {
 /// Ask where to save the workflow: `file.save {purpose: "workflow"}`.
 fn ask_save_workflow(h: &mut impl Host, by: By, after: Option<AfterDiscard>) -> AskId {
     let current = h.session().path().map(Path::to_path_buf);
-    let name = current.as_deref().and_then(Path::file_name).and_then(|n| n.to_str()).unwrap_or("untitled.json").to_owned();
-    let params = json!({"purpose": "workflow", "title": "Save Workflow", "kinds": [{"label": "Workflow", "extensions": [WORKFLOW_EXT]}],
+    // FR2: a new graph and Save As are offered `.plum` (a `.json` graph's own Save never asks)
+    let name = plumcraft_session::graph_file::save_as_name(current.as_deref());
+    let params = json!({"purpose": "workflow", "title": "Save Workflow", "kinds": plumcraft_session::graph_file::save_kinds(),
                         "name": name, "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
     raise(h, Kind::FileSave, params, by, Cont { then: Then::SaveWorkflow { after }, remember: Some(prefs::keys::WORKFLOW_WRITE) })
 }
@@ -497,8 +500,8 @@ pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
         "graph.saveCopy" => {
             let current = h.session().path().map(Path::to_path_buf);
             let stem = current.as_deref().and_then(Path::file_stem).and_then(|n| n.to_str()).unwrap_or("untitled").to_owned();
-            let params = json!({"purpose": "copy", "title": "Save a Copy", "kinds": [{"label": "Workflow", "extensions": [WORKFLOW_EXT]}],
-                                "name": format!("{stem} copy.json"), "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+            let params = json!({"purpose": "copy", "title": "Save a Copy", "kinds": plumcraft_session::graph_file::save_kinds(),
+                                "name": plumcraft_session::graph_file::default_name(&format!("{stem} copy")), "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
             raise(h, Kind::FileSave, params, by, Cont { then: Then::SaveCopy, remember: Some(prefs::keys::WORKFLOW_WRITE) });
         }
         "graph.move" => {
@@ -1420,14 +1423,64 @@ mod tests {
         assert_eq!(params["answers"], json!(["save", "discard", "cancel"]));
         answer(&mut h, id, &json!({"answer": "save"})).unwrap();
         let (save, kind, params) = only(&mut h);
-        assert_eq!((kind, params["purpose"].as_str(), params["name"].as_str()), (Kind::FileSave, Some("workflow"), Some("untitled.json")));
+        assert_eq!((kind, params["purpose"].as_str(), params["name"].as_str()), (Kind::FileSave, Some("workflow"), Some("untitled.plum")));
         assert!(h.asks.get(save).is_some_and(|a| a.by == By::Script), "the chain stays the script's");
-        let path = d.join("kept.json");
+        let path = d.join("kept.plum");
         answer(&mut h, save, &json!({"path": path})).unwrap();
         assert!(path.is_file(), "saved first");
         assert!(h.asks.is_empty());
         assert!(!h.session.is_dirty() && h.session.path().is_none(), "then a new graph");
         assert_eq!(h.prefs.dir(prefs::keys::WORKFLOW_WRITE), Some(d.clone()), "the folder is remembered");
+    }
+
+    /// FR2: a new graph and Save As are offered `.plum` (`.json` still offered), an opened `.json`
+    /// graph saves back to its own `.json`, and both extensions open, read by content.
+    #[test]
+    fn a_new_graph_saves_as_plum_and_an_opened_json_graph_stays_json() {
+        let d = dir("fr2-plum");
+        let mut h = bare();
+        dirty(&mut h);
+        invoke(&mut h, "graph.save", By::Person);
+        let (save, kind, params) = only(&mut h);
+        assert_eq!((kind, params["name"].as_str()), (Kind::FileSave, Some("untitled.plum")));
+        assert_eq!(params["kinds"][0]["extensions"], json!(["plum"]), "plum first");
+        assert_eq!(params["kinds"][1]["extensions"], json!(["json"]), "json still choosable");
+        let made = d.join(params["name"].as_str().unwrap());
+        answer(&mut h, save, &json!({"path": made})).unwrap();
+        assert!(made.is_file() && made.extension().is_some_and(|e| e == "plum"), "the new graph's file ends .plum");
+
+        // an existing .json graph keeps its name when saved: no ask, written to the .json
+        let old = d.join("old.json");
+        std::fs::write(&old, std::fs::read(&made).unwrap()).unwrap();
+        h.session.execute("graph.open", &json!({"path": old})).unwrap();
+        dirty(&mut h);
+        invoke(&mut h, "graph.save", By::Person);
+        assert!(h.asks.is_empty(), "Save of an opened .json graph asks nothing");
+        assert_eq!(h.session.path(), Some(old.as_path()));
+        assert!(!h.session.is_dirty(), "saved to its own .json");
+        assert!(!d.join("old.plum").exists(), "no .plum written beside it");
+
+        // Save As of that graph offers its stem with .plum
+        invoke(&mut h, "graph.saveAs", By::Person);
+        let (ask, _, params) = only(&mut h);
+        assert_eq!(params["name"].as_str(), Some("old.plum"));
+        cancel(&mut h, ask).unwrap();
+
+        // Open offers both, and both open (the same JSON either way)
+        invoke(&mut h, "graph.open", By::Person);
+        let (open, _, params) = only(&mut h);
+        let exts = params["kinds"][0]["extensions"].clone();
+        assert!(exts.as_array().unwrap().iter().any(|e| e == "plum") && exts.as_array().unwrap().iter().any(|e| e == "json"), "{exts}");
+        cancel(&mut h, open).unwrap();
+        for f in [&made, &old] {
+            h.session.execute("graph.open", &json!({"path": f})).unwrap();
+            assert_eq!(h.session.path(), Some(f.as_path()));
+        }
+        // a file of another name a person opens is still read by its content
+        let other = d.join("graph.txt");
+        std::fs::write(&other, std::fs::read(&made).unwrap()).unwrap();
+        h.session.execute("graph.open", &json!({"path": other})).unwrap();
+        assert_eq!(h.session.path(), Some(other.as_path()));
     }
 
     #[test]

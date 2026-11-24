@@ -309,7 +309,7 @@ pub fn reachable(s: &Session) -> std::collections::BTreeSet<String> {
     {
         for e in entries.flatten().take(10_000) {
             let p = e.path();
-            if p.extension().is_some_and(|x| x == "json")
+            if plumcraft_session::graph_file::is_graph_file(&p)
                 && e.metadata().is_ok_and(|m| m.is_file() && m.len() < 64 << 20)
                 && let Ok(text) = std::fs::read_to_string(&p)
             {

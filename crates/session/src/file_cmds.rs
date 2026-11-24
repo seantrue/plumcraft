@@ -54,7 +54,9 @@ pub fn register_openers(openers: Vec<FileOpener>) -> std::result::Result<(), Str
     let mut all = OPENERS.write().map_err(|_| "the file openers are poisoned".to_owned())?;
     for o in openers {
         if let Some(e) = o.extensions.iter().find(|e| {
-            e.eq_ignore_ascii_case("json") || e.eq_ignore_ascii_case("zip") || all.iter().any(|a| a.extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
+            crate::graph_file::is_graph_extension(e)
+                || e.eq_ignore_ascii_case("zip")
+                || all.iter().any(|a| a.extensions.iter().any(|x| x.eq_ignore_ascii_case(e)))
         }) {
             return Err(format!("the file opener {:?}: .{e} is taken", o.label));
         }
@@ -210,7 +212,7 @@ fn graph_bundle(s: &mut Session, p: &Value) -> Result<Value> {
     if !crate::archive::is_zip(&path) {
         path.set_extension("zip");
     }
-    let name = s.path().and_then(Path::file_name).map_or_else(|| "workflow.json".to_owned(), |n| n.to_string_lossy().into_owned());
+    let name = s.path().and_then(Path::file_name).map_or_else(|| crate::graph_file::default_name("workflow"), |n| n.to_string_lossy().into_owned());
     let base = crate::paths::base_folder(s.path());
     let report = crate::archive::write_bundle(s.graph(), s.catalog(), &name, base.as_deref(), &path)?;
     Ok(json!({
@@ -329,18 +331,15 @@ fn move_file(s: &mut Session, to: PathBuf) -> Result<Value> {
 /// The longest file name `graph.rename` takes.
 const MAX_FILE_NAME: usize = 255;
 
-/// `graph.rename {name}`: the graph's file renamed in its folder (`.json` added when the name has
-/// no extension); its unsaved changes are still unsaved (N4 slice 4).
+/// `graph.rename {name}`: the graph's file renamed in its folder (a bare name keeps the file's
+/// graph extension, `.plum` or `.json`; else `.plum`); its unsaved changes are still unsaved (N4 slice 4).
 fn graph_rename(s: &mut Session, p: &Value) -> Result<Value> {
     let name = str_param(p, "name")?.trim();
     if name.is_empty() || name.len() > MAX_FILE_NAME || name.contains(['/', '\\', '\0', ':']) || name.starts_with('.') {
         return Err(SessionError::Params("\"name\" must be a file name, without a folder".into()));
     }
     let from = s.path().map(Path::to_path_buf).ok_or_else(|| SessionError::File("this graph has no file yet: save it first".into()))?;
-    let mut file = name.to_owned();
-    if Path::new(name).extension().is_none() {
-        file.push_str(".json");
-    }
+    let file = crate::graph_file::renamed(name, &from);
     let to = from.parent().map_or_else(|| PathBuf::from(&file), |d| d.join(&file));
     move_file(s, to)
 }
@@ -417,7 +416,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Rename…",
             menu: &[],
             shortcut: None,
-            params: "{name} -> {path, dirty, nodes, wires, undo, redo} (the graph's file renamed in its folder, .json added when the name has none; refused over a file already there; unsaved changes stay unsaved)",
+            params: "{name} -> {path, dirty, nodes, wires, undo, redo} (the graph's file renamed in its folder, a bare name keeps the file's .plum or .json, else gets .plum; refused over a file already there; unsaved changes stay unsaved)",
             enabled: has_file,
             run: graph_rename,
             journal: true,
@@ -452,7 +451,21 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             run: graph_info,
             journal: false,
         },
+        CommandSpec {
+            id: "graph.fileTypes",
+            label: "Graph File Types",
+            menu: &[],
+            shortcut: None,
+            params: "{} -> {default, extensions, label, untitled, kinds} (a graph's file name: new graphs and Save As take default, \"plum\"; every one of extensions opens as a graph; kinds as a save ask offers them)",
+            enabled: always,
+            run: graph_file_types,
+            journal: false,
+        },
     ]
+}
+
+fn graph_file_types(_: &mut Session, _: &Value) -> Result<Value> {
+    Ok(crate::graph_file::types())
 }
 
 fn app_quit(_: &mut Session, _: &Value) -> Result<Value> {

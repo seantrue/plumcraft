@@ -5,6 +5,9 @@
 // then New Graph pressed from On My iPad's top folder, outside the app's container: the graph is
 // made in the app's own folder (Documents, which the Files app shows as Plummer), a node is added,
 // and the saved file there holds it. Pictures at each step.
+//
+// FR2 (the maintainer: the default graph file extension .json -> .plum, .json still accepted): the
+// new graph is "Untitled.plum"; a graph opened from a .json file is saved back to its .json.
 
 import XCTest
 
@@ -56,12 +59,13 @@ extension GestureTests {
         let opened = Date().addingTimeInterval(30)
         while Date() < opened {
             path = (window()["path"] as? String) ?? ""
-            if window()["ready"] != nil, path.hasSuffix(".json") { break }
+            if window()["ready"] != nil, path.hasSuffix(".plum") { break }
             RunLoop.current.run(until: Date().addingTimeInterval(0.5))
         }
         shot("b147-4-new-graph")
         print("B147: the new graph at \(path); createError \(status()["createError"] ?? "-")")
         XCTAssertTrue(path.contains("/Documents/Untitled"), "made in the app's Documents (Plummer in Files): \(path)")
+        XCTAssertTrue(path.hasSuffix(".plum"), "FR2: a new graph is a .plum: \(path)")
         // make something: a node from the palette (a double tap on empty canvas)
         let canvas = app.otherElements["Canvas"]
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))
@@ -85,5 +89,58 @@ extension GestureTests {
         shot("b147-5-saved")
         XCTAssertGreaterThan(nodes, 0, "the saved file in the app's folder holds the new node: \(path)")
         XCTAssertNil(status()["createError"], "no failure to make the graph")
+    }
+
+    /// FR2: an existing `.json` graph opens (by its content), and an edit is saved back to its own
+    /// `.json`, with no `.plum` written beside it.
+    @MainActor
+    func testAJsonGraphOpensAndSavesBackToItsJson() throws {
+        let env = ProcessInfo.processInfo.environment
+        statusPath = statusFilePath(env)
+        // a graph the app can read: beside the status file, a folder of the Mac's
+        let dir = (statusPath as NSString).deletingLastPathComponent + "/fr2-json"
+        try FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        let graph = dir + "/kept.json"
+        try? FileManager.default.removeItem(atPath: dir + "/kept.plum")
+        try #"{"version": 1, "nodes": {"a": {"kind": "text.literal", "pos": [0, 0], "values": {"text": "kept"}}}, "wires": []}"#
+            .write(toFile: graph, atomically: true, encoding: .utf8)
+        let app = XCUIApplication()
+        app.launchArguments = ["--scratch-state", "--open", graph, "--status-file", statusPath]
+        adoptStatus(app)
+        app.launch()
+        defer { app.terminate() }
+        wait("the .json graph, ready", timeout: 150) { ($0["ready"] as? Bool) == true }
+        let path = (window()["path"] as? String) ?? ""
+        print("FR2: opened \(path)")
+        XCTAssertTrue(path.hasSuffix("/kept.json"), "the core holds the .json: \(path)")
+        shot("fr2-1-json-open")
+        // an edit: a node from the palette (a double tap on empty canvas)
+        let canvas = app.otherElements["Canvas"]
+        XCTAssertTrue(canvas.waitForExistence(timeout: 10))
+        if let p = emptyCanvas(app, canvas) {
+            canvas.coordinate(withNormalizedOffset: .zero).withOffset(CGVector(dx: p.x, dy: p.y)).doubleTap()
+        } else {
+            canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.7)).doubleTap()
+        }
+        let field = app.textFields["PaletteSearch"]
+        XCTAssertTrue(field.waitForExistence(timeout: 10), "the palette")
+        field.tap()
+        field.typeText("Upper")
+        let row = app.cells.firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10), "a kind in the palette")
+        row.tap()
+        // saved back to the .json (autosave, a moment after the edit)
+        var nodes = 0
+        let saved = Date().addingTimeInterval(30)
+        while Date() < saved, nodes < 2 {
+            if let d = FileManager.default.contents(atPath: graph), let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] {
+                nodes = (o["nodes"] as? [String: Any])?.count ?? 0
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.5))
+        }
+        shot("fr2-2-json-saved")
+        XCTAssertEqual(nodes, 2, "the edit is in the .json itself: \(graph)")
+        XCTAssertFalse(FileManager.default.fileExists(atPath: dir + "/kept.plum"), "no .plum beside it")
+        XCTAssertTrue(((window()["path"] as? String) ?? "").hasSuffix("/kept.json"), "still the .json")
     }
 }

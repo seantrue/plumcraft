@@ -15,6 +15,8 @@
 //   context:NODE[:HOLD]       open NODE's context menu where its face is (`selected`: the first
 //                             node selected)
 //   saveas                    File › Save As… as the person would: the core asks, a save sheet shows
+//   doc-saveas                NSDocument's own Save As… panel (the File menu's): its name and format
+//                             in the status (`savePanel`, FR2); a later `end-sheet` cancels it
 //   close                     File › Close: NSDocument's unsaved-changes sheet when edited
 //   end-sheet                 close the window's sheet (Cancel)
 //   theme:dark|light          the app's appearance
@@ -97,6 +99,8 @@ struct Script {
             }
         case "saveas":
             _ = try? await m.invoke("graph.saveAs", person: true)
+        case "doc-saveas":
+            (window.document as? NSDocument)?.saveAs(nil)
         case "close":
             window.window?.performClose(nil)
         case "end-sheet":

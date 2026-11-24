@@ -121,8 +121,9 @@ fn panel_display<'a>(
 /// The window title's app name.
 pub const APP_TITLE: &str = plumcraft_editor_core::control::APP_TITLE;
 
-/// The workflow file extension.
-pub const WORKFLOW_EXT: &str = "json";
+/// The workflow file extension a new graph gets (FR2: the core's, `.plum`; `.json` still opens
+/// and saves, [`plumcraft_session::graph_file`]).
+pub const WORKFLOW_EXT: &str = plumcraft_session::graph_file::DEFAULT_EXTENSION;
 
 /// Native dialogs, replaceable in tests: how this shell answers the core's file asks
 /// ([`asks_view`]). Each call blocks until it is answered, as rfd's dialogs do; a shell whose
@@ -231,7 +232,8 @@ impl FileDialogs for NativeDialogs {
     fn open_workflow(&mut self) -> Option<PathBuf> {
         // what the application opens beside workflows, in the one filter: macOS has no choice of them
         let openers = plumcraft_session::file_cmds::openers();
-        let mut exts: Vec<&str> = vec![WORKFLOW_EXT, "zip"];
+        let mut exts: Vec<&str> = plumcraft_session::graph_file::EXTENSIONS.to_vec();
+        exts.push("zip");
         exts.extend(openers.iter().flat_map(|o| o.extensions.iter().copied()));
         let name = std::iter::once("Workflow or bundle").chain(openers.iter().map(|o| o.label)).collect::<Vec<_>>().join(", ");
         self.dialog().set_title("Open Workflow").add_filter(&name, &exts).pick_file()
@@ -255,12 +257,18 @@ impl FileDialogs for NativeDialogs {
     }
 
     fn save_workflow(&mut self, current: Option<&Path>) -> Option<PathBuf> {
-        let mut d = self.dialog().set_title("Save Workflow").add_filter("Workflow", &[WORKFLOW_EXT]).set_can_create_directories(true);
+        // FR2: the core's kinds, `.plum` first and `.json` still choosable, and its name
+        use plumcraft_session::graph_file as gf;
+        let mut d = self
+            .dialog()
+            .set_title("Save Workflow")
+            .add_filter(gf::LABEL, &[gf::DEFAULT_EXTENSION])
+            .add_filter(gf::JSON_LABEL, &["json"])
+            .set_can_create_directories(true);
         if let Some(dir) = current.and_then(Path::parent).filter(|d| d.is_dir()) {
             d = d.set_directory(dir);
         }
-        let name = current.and_then(Path::file_name).and_then(|n| n.to_str()).unwrap_or("untitled.json");
-        d.set_file_name(name).save_file()
+        d.set_file_name(gf::save_as_name(current)).save_file()
     }
 
     fn pick_path(&mut self, hint: &PathHint, current: &str) -> Option<PathBuf> {

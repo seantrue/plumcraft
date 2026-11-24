@@ -26,6 +26,7 @@ pub mod expand_cmds;
 pub mod file_cmds;
 mod frame_cmds;
 mod graph_cmds;
+pub mod graph_file;
 mod group_cmds;
 pub mod insert_cmds;
 pub mod labels_cmds;

@@ -164,7 +164,7 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
         case .fileSave?:
             let alert = UIAlertController(title: p["title"].string ?? "Save", message: "Saved in \(saveFolder().lastPathComponent).", preferredStyle: .alert)
             alert.addTextField { f in
-                f.text = p["name"].string ?? "untitled.json"
+                f.text = p["name"].string ?? GraphFiles.newName().lowercased()
                 f.clearButtonMode = .whileEditing
             }
             alert.addAction(UIAlertAction(title: "Cancel", style: .cancel) { [weak self] _ in
@@ -174,8 +174,10 @@ final class AskPresenter: NSObject, UIDocumentPickerDelegate, PHPickerViewContro
             alert.addAction(UIAlertAction(title: "Save", style: .default) { [weak self, weak alert] _ in
                 guard let self else { return }
                 self.done(a)
-                let name = (alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                var name = (alert?.textFields?.first?.text ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                 guard !name.isEmpty, !name.contains("/") else { return self.cancel(a) }
+                // a name without an extension takes the first kind's (a graph's: the core's `.plum`)
+                if (name as NSString).pathExtension.isEmpty, let k = AskWords.kinds(p).first { name = AskWords.renamed(name, to: k) }
                 self.answer(a, ["path": .string(self.saveFolder().appendingPathComponent(name).path)])
             })
             present(alert, for: a)

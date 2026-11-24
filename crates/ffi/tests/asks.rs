@@ -101,10 +101,10 @@ fn new_over_unsaved_changes_goes_through_the_prompt_a_save_and_a_path() {
     // Save: a graph with no file asks where
     let r = call(&mut c, &mut feed, "ask.answer", json!({"ask": prompt["ask"], "answer": {"answer": "save"}}));
     let save = r["result"]["asks"][0].clone();
-    assert_eq!((save["kind"].as_str(), save["params"]["name"].as_str()), (Some("file.save"), Some("untitled.json")), "{r}");
+    assert_eq!((save["kind"].as_str(), save["params"]["name"].as_str()), (Some("file.save"), Some("untitled.plum")), "FR2: a new graph is offered .plum: {r}");
     assert_eq!(call(&mut c, &mut feed, "graph.get", json!({}))["result"]["nodes"].as_object().map(|n| n.len()), Some(1), "nothing dropped yet");
     // the path: saved, then the new graph
-    let path = dir.join("kept.json");
+    let path = dir.join("kept.plum");
     let r = call(&mut c, &mut feed, "ask.answer", json!({"ask": save["ask"], "answer": {"path": path}}));
     assert_eq!((r["ok"].as_bool(), r["result"]["asks"].clone()), (Some(true), json!([])), "{r}");
     assert!(std::fs::read_to_string(&path).unwrap().contains("text.literal"), "saved first");
