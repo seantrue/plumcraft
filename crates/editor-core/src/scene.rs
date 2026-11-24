@@ -1822,8 +1822,9 @@ fn wires_and_nets(cx: &Ctx<'_>, faces: &[Face], rects: &HashMap<&str, crate::pla
     (wires, nets)
 }
 
-/// A net tag's stub, graph units (its default offset from its pin).
-pub const NET_STUB: i32 = 14;
+/// A net tag's stub, graph units (its default offset from its pin): the session's one rule, the
+/// same on both sides (B146).
+pub const NET_STUB: i32 = plumcraft_session::layout_cmds::NET_TAG_STUB;
 /// A receiving tag's offset when it hasn't been moved.
 pub const DEFAULT_USE_AT: [i32; 2] = [-NET_STUB, 0];
 

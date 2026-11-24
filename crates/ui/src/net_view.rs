@@ -32,8 +32,9 @@ use crate::canvas::{Action, Canvas};
 use crate::run_view::PinKey;
 use crate::theme::Tokens;
 
-/// How far a tag sits from its pin when it hasn't been moved (graph units).
-pub const STUB: i32 = 14;
+/// How far a tag sits from its pin when it hasn't been moved (graph units): the core's, so the
+/// egui editor and the native shells agree (B146).
+pub const STUB: i32 = plumcraft_editor_core::scene::NET_STUB;
 /// How near a pin (screen points) a dragged tag's pointer drops on it.
 pub const DROP_RADIUS: f32 = 12.0;
 

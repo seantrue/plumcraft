@@ -54,7 +54,13 @@ const MAX_PINS: usize = 512;
 /// between it and its pin, graph units (`crates/ui/src/net_view.rs`).
 const TAG_ADVANCE: f32 = 6.62;
 const TAG_PAD: f32 = 17.0;
-const TAG_STUB: f32 = 14.0;
+const TAG_STUB: f32 = NET_TAG_STUB as f32;
+/// How far a net's tag sits from its pin when it hasn't been moved, graph units: the same on both
+/// sides, a driver's tag starting that far right of its output pin and a receiving tag ending that
+/// far left of its input pin. The one rule every shell draws by (through the core's scene,
+/// `plumcraft_editor_core::scene::NET_STUB`). B146 (the maintainer, 2026-11-23: "Both"): 8, a
+/// small gap beside a pin's square, was 14.
+pub const NET_TAG_STUB: i32 = 8;
 
 /// The width of a net tag showing `text`, graph units, as the canvas draws it at zoom 1
 /// (`net_view::drawn_tag_width` measures it; a test holds the two together).
