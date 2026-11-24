@@ -34,8 +34,9 @@ public struct HotHit: Sendable, Equatable {
 
     public let status: Int32
     public let kind: Kind
-    /// By kind: a face's part (NodePart), a pin's side (1 input, 2 output), a tag's (1 driver,
-    /// 2 use), a frame's (1 body, 2 tab, 3 handle), a group's (1 band).
+    /// By kind: a face's part (NodePart), a pin's side (1 input, 2 output), a wire's (1 a
+    /// right-angled route's corner, 2 its leg between corners, B155; 0 anywhere else on it), a
+    /// tag's (1 driver, 2 use), a frame's (1 body, 2 tab, 3 handle), a group's (1 band).
     public let part: UInt32
     /// A row, footer item or bend point; -1 none.
     public let index: Int32

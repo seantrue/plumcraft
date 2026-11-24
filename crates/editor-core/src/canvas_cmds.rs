@@ -228,6 +228,15 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "wire.square",
+        label: "Make Right-Angled",
+        menu: &[],
+        shortcut: None,
+        params: "{to: {node, port}} -> {via} (B155: the wire into that input gets right-angled bend points: its own moved so each leg is horizontal or vertical, across first where either would do; or, with none, its automatic route's corners. One undo step, as wire.route; Route Automatically (wire.route {via: []}) takes them away again)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "canvas.reveal",
         label: "Reveal",
         menu: &[],
@@ -712,6 +721,23 @@ fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, St
         "mask.folder" => crate::mask_cmds::folder(&mut d.session, params),
         "mask.prune" => crate::mask_cmds::prune(&d.session, params),
         // it asks first, so the core invokes it (control::asks_first, invoke::invoke_with)
+        "wire.square" => {
+            check_fields(params, &["to"])?;
+            let to = params.get("to").ok_or("wire.square takes to: {node, port}")?;
+            let (Some(node), Some(port)) = (to.get("node").and_then(Value::as_str), to.get("port").and_then(Value::as_str)) else {
+                return Err("wire.square takes to: {node, port}".into());
+            };
+            let w = d.snapshot.wire_by_id(&format!("{node}.{port}")).ok_or_else(|| format!("no wire drawn into {node}.{port}"))?;
+            let via = if !w.via.is_empty() {
+                let (from, to) = w.ends.ok_or_else(|| format!("the wire into {node}.{port} has no pins drawn"))?;
+                crate::wire_path::square_up(from, to, &w.via)
+            } else if w.corners.len() >= 2 {
+                w.corners[1..w.corners.len() - 1].iter().map(|c| [c.x.round() as i32, c.y.round() as i32]).collect()
+            } else {
+                return Err(format!("the wire into {node}.{port} has no bend points and no automatic corners to make right-angled"));
+            };
+            h.run("wire.route", &json!({"to": {"node": node, "port": port}, "via": via}))
+        }
         "row.browse" => Err("row.browse asks for a file: it is invoked (ui.invoke, command.run, a tap on the row's Browse)".into()),
         "row.set" => {
             check_fields(params, &["node", "port", "text", "value", "reset"])?;

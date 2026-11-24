@@ -268,7 +268,7 @@ public struct Located: Codable, Hashable, Sendable {
 
 public enum GestureWord: String, Sendable, CaseIterable { case tap, doubleTap, context, longPress, drag, marquee }
 public enum PhaseWord: String, Sendable, CaseIterable { case begin, move, end, cancel }
-public enum DragWord: String, Sendable, CaseIterable { case move, wire, marquee, bend, frame, resize, group, scrub }
+public enum DragWord: String, Sendable, CaseIterable { case move, wire, marquee, bend, frame, resize, group, scrub, route }
 
 /// A recognised gesture, in graph units (`ui.gesture`'s params).
 public struct Gesture: Hashable, Sendable {

@@ -111,7 +111,9 @@ public final class CanvasDrag {
                 scrubRow = canvas.rowRect(face: nid, row: Int(k))
                 scrubWidget = canvas.model.faces[nid]?.item.inputs[safe: Int(k)]?.widget
             }
-        case .bend?:
+        case .bend?, .route?:
+            // a bend point, or a right-angled route's corner or leg (B155): a ring where it is
+            // pressed, moved with the drag; the core makes the route at the end
             if let h = r.hit {
                 ghostFrom = CGRect(x: h.at.x - 6, y: h.at.y - 6, width: 12, height: 12)
                 ghostRound = true
@@ -160,7 +162,7 @@ public final class CanvasDrag {
             let key = on ? (t.node, t.pin, t.part) : nil
             if let key, t.fits != 0, lastTarget.map({ $0 != key }) ?? true { onSnap?() }
             lastTarget = key
-        case .frame, .group, .bend:
+        case .frame, .group, .bend, .route:
             if let r = ghostFrom { canvas.showGhost(r.offsetBy(dx: CGFloat(d.dx), dy: CGFloat(d.dy)), round: ghostRound) }
         case .resize:
             if let r = ghostFrom {

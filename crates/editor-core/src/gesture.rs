@@ -216,6 +216,15 @@ pub enum DragKind {
         index: usize,
         via: Vec<[i32; 2]>,
     },
+    /// A right-angled route's corner or leg (B155): `via` is the route's corners between its
+    /// pins, as the bend points the drag makes them (an automatic route's become the wire's own
+    /// in the same step); `index` is the corner's bend point, or a leg's first.
+    Route {
+        to: PortRef,
+        via: Vec<[i32; 2]>,
+        index: usize,
+        segment: bool,
+    },
     /// A frame by its tab (`frame.move`, with what it holds).
     Frame {
         frame: String,
@@ -240,7 +249,7 @@ pub enum DragKind {
 
 impl DragKind {
     /// Its code in `plum_drag`: 1 move, 2 wire, 3 marquee, 4 bend, 5 frame, 6 resize, 7 group,
-    /// 8 scrub.
+    /// 8 scrub, 9 route.
     pub fn code(&self) -> u32 {
         match self {
             DragKind::Move { .. } => 1,
@@ -251,6 +260,7 @@ impl DragKind {
             DragKind::Resize { .. } => 6,
             DragKind::Group { .. } => 7,
             DragKind::Scrub { .. } => 8,
+            DragKind::Route { .. } => 9,
         }
     }
 
@@ -264,6 +274,7 @@ impl DragKind {
             DragKind::Resize { .. } => "resize",
             DragKind::Group { .. } => "group",
             DragKind::Scrub { .. } => "scrub",
+            DragKind::Route { .. } => "route",
         }
     }
 }
@@ -803,6 +814,14 @@ fn begin(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> DragKind {
             faces.extend(nodes.iter().filter_map(|n| snap.face_by_id(&n.0).map(|(nid, _)| nid)));
             DragKind::Move { faces, nodes, groups }
         }
+        // a right-angled route's corner or leg (B155)
+        kind::WIRE if h.part == part::CORNER || h.part == part::SEGMENT => match (snap.wire_of(h.wire), usize::try_from(h.index)) {
+            (Some(w), Ok(k)) if k >= 1 && k + 1 < w.corners.len() => {
+                let via: Vec<[i32; 2]> = w.corners[1..w.corners.len() - 1].iter().map(|c| [c.x.round() as i32, c.y.round() as i32]).collect();
+                DragKind::Route { to: w.to, via, index: k - 1, segment: h.part == part::SEGMENT }
+            }
+            _ => DragKind::Marquee,
+        },
         kind::BEND => match (snap.wire_of(h.wire), usize::try_from(h.index)) {
             (Some(w), Ok(index)) if index < w.via.len() => DragKind::Bend { to: w.to, index, via: w.via },
             _ => DragKind::Marquee,
@@ -867,7 +886,12 @@ fn drag(f: &Facts<'_>, snap: &Snapshot, phase: Phase, at: Point, mods: Mods, slo
             let d = f.drag.get().ok_or("no drag under way (begin one first)")?;
             let u = d.update(snap, at, slop);
             p.reply.insert("drag".into(), json!({"serial": d.serial, "kind": d.kind.word()}));
-            p.reply.insert("update".into(), update_json(snap, &u));
+            let mut uj = update_json(snap, &u);
+            // a route's bend points as they would be, for the shell to draw the wire through
+            if let DragKind::Route { via, index, segment, .. } = &d.kind {
+                uj["via"] = json!(crate::wire_path::route_drag(via, *index, *segment, u.dx, u.dy));
+            }
+            p.reply.insert("update".into(), uj);
         }
         Phase::Cancel => {
             let d = f.drag.get();
@@ -955,6 +979,14 @@ fn end(f: &Facts<'_>, snap: &Snapshot, d: &Drag, u: &Update, at: Point, p: &mut 
                 *v = [clamp(v[0], dx), clamp(v[1], dy)];
             }
             p.commands.push(("wire.route", json!({"to": port_json(to), "via": via})));
+        }
+        DragKind::Route { to, via, index, segment } => {
+            // one command, one undo step: the route's corners become the wire's own bend
+            // points with this one moved
+            if moved(u) {
+                let via = crate::wire_path::route_drag(via, *index, *segment, u.dx, u.dy);
+                p.commands.push(("wire.route", json!({"to": port_json(to), "via": via})));
+            }
         }
         DragKind::Frame { frame } => {
             if let Some(fr) = graph.frames.get(&plumcraft_graph::FrameId(frame.clone()))

@@ -292,6 +292,27 @@
       ]
     },
     {
+      "name": "a wire's right angles: drag an automatic corner, Make Right-Angled, Route Automatically",
+      "about": "B155: a wire running right to left is routed round its faces; a press on a corner of that route is a wire hit with part corner, and a drag there is a route drag ending in one wire.route that makes the route's corners the wire's own bend points (one undo step). wire.square (Make Right-Angled) gives a wire with no bend points its automatic route's corners; the wire's menu offers Route Automatically (wire.route {via: []}) once it has bend points",
+      "half": "edit",
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.literal", "pos": [700, 0]}}, "save": {"a": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "text.upper", "pos": [0, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$a", "port": "text"}, "to": {"node": "$b", "port": "text"}}}},
+        {"call": "geometry.locate", "params": {"wire": "$b.text", "corner": 2}, "expect": {"/result/corners": 6}},
+        {"gesture": {"kind": "drag", "phase": "begin", "at": {"$locate": {"wire": "$b.text", "corner": 2}}, "slop": 4}, "expect": {"/result/hit/kind": "wire", "/result/hit/part": "corner", "/result/hit/index": 2, "/result/drag/kind": "route"}},
+        {"gesture": {"kind": "drag", "phase": "move", "at": {"$locate": {"wire": "$b.text", "corner": 2}, "$plus": [0, 60]}, "slop": 4}, "expect": {"/result/update/via": {"$len": 4}}},
+        {"gesture": {"kind": "drag", "phase": "end", "at": {"$locate": {"wire": "$b.text", "corner": 2}, "$plus": [0, 60]}, "slop": 4}, "expect": {"/result/commands": {"$len": 1}, "/result/commands/0/command": "wire.route", "/result/commands/0/ok": true}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via": {"$len": 4}}},
+        {"call": "command.run", "params": {"command": "edit.undo", "params": {}}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via": {"$exists": false}}},
+        {"call": "command.run", "params": {"command": "wire.square", "params": {"to": {"node": "$b", "port": "text"}}}, "expect": {"/result/via": {"$len": 4}}},
+        {"call": "menu.get", "params": {"context": {"kind": "wire", "to": {"node": "$b", "port": "text"}}}, "expect": {"/result/items": {"$deep": {"label": "Route Automatically"}}}},
+        {"call": "command.run", "params": {"command": "wire.route", "params": {"to": {"node": "$b", "port": "text"}, "via": []}}},
+        {"call": "graph.get", "expect": {"/result/wires/0/via": {"$exists": false}}}
+      ]
+    },
+    {
       "name": "a collapsed group's face is its group",
       "about": "a tap selects the group, a drag moves it (one edit.move, members with it), a double tap enters it",
       "half": "edit",

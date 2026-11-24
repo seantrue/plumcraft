@@ -1345,8 +1345,20 @@ fn wire_menu(parts: &Parts<'_>, to: &PortRef, bend: Option<&Value>) -> Vec<Item>
         }
     };
     out.push(bend_item.hover("Bend the wire here: drag the point to shape it"));
+    // B155: right angles each way. Make Right-Angled where it would change something: a wire
+    // whose own bend points don't line up, or one with none that runs right to left (its
+    // automatic route's corners become its own); Route Automatically takes its bend points away
+    let backward = match (parts.graph.node(&w.from.node), parts.graph.node(&to.node)) {
+        (Some(a), Some(b)) => b.pos[0] < a.pos[0],
+        _ => false,
+    };
+    if (!w.via.is_empty() && !crate::wire_path::right_angled(&w.via)) || (w.via.is_empty() && backward) {
+        out.push(Item::run("wire.square", "Make Right-Angled", json!({"to": to})).hover("Route the wire with straight legs and square corners you can drag"));
+    }
     if !w.via.is_empty() {
-        out.push(Item::run("wire.route", "Straighten", json!({"to": to, "via": []})).hover("Remove the bend points"));
+        out.push(
+            Item::run("wire.route", "Route Automatically", json!({"to": to, "via": []})).hover("Remove the bend points: the wire takes its automatic route"),
+        );
     }
     out.push(Item::run("name.edit", "Label All Uses…", json!({"label": from})).hover("Draw every wire from this output as a net label, as a schematic does"));
     out.push(Item::run("wire.disconnect", "Disconnect", json!({"to": to})));
