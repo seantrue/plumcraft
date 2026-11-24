@@ -466,15 +466,16 @@ pub fn plan(f: &Facts<'_>, snap: &Snapshot, r: &Request) -> Result<Plan, String>
             let h = snap.hit(at.x, at.y, r.slop);
             p.reply.insert("hit".into(), hit_reply(snap, &h));
             match context(f, snap, &h) {
-                Some(cx) => {
-                    p.reply.insert("context".into(), cx.clone());
-                    // a wire's menu puts Add Bend Point where the press was (N4 slice 3); a shell
-                    // asking menu.get itself may pass `at` in the context too
-                    let mut menu = cx;
-                    if menu["kind"] == "wire" {
-                        menu["at"] = json!([at.x, at.y]);
+                Some(mut cx) => {
+                    // a wire's menu puts Add Bend Point where the press was (N4 slice 3), in the
+                    // reply's `context` too: the Apple shells ask `menu.get` with that context
+                    // themselves, and without `at` the point went to a place of the core's
+                    // choosing, under a face or on the wire's old line (B153)
+                    if cx["kind"] == "wire" {
+                        cx["at"] = json!([at.x, at.y]);
                     }
-                    p.menu = Some(menu);
+                    p.reply.insert("context".into(), cx.clone());
+                    p.menu = Some(cx);
                 }
                 None => p.commands.push(("canvas.palette", json!({"open": true, "at": [at.x, at.y]}))),
             }
