@@ -150,6 +150,73 @@ impl Table {
         t.finish()
     }
 
+    /// An array an engine marks as a table (`Form::Array`'s `table`): numbers, a row to a line, its
+    /// last axis the columns (`(rows, columns)`; a 1-d array is one column), named by `names` when
+    /// there is one a column. Integers stay integers. Every size is checked before a byte is read.
+    pub fn from_array(dtype: &str, shape: &[u64], names: &[String], bytes: &[u8]) -> Result<Table, String> {
+        let (size, float, signed) = match dtype {
+            "|u1" | "|b1" => (1, false, false),
+            "|i1" => (1, false, true),
+            "<u2" => (2, false, false),
+            "<i2" => (2, false, true),
+            "<u4" => (4, false, false),
+            "<i4" => (4, false, true),
+            "<u8" => (8, false, false),
+            "<i8" => (8, false, true),
+            "<f4" => (4, true, true),
+            "<f8" => (8, true, true),
+            other => return Err(format!("not a table: an array of {other:?} isn't numbers")),
+        };
+        let (lead, columns) = match shape {
+            [] => return Err("not a table: an array with no shape".into()),
+            [n] => (std::slice::from_ref(n), 1u64),
+            [lead @ .., k] => (lead, *k),
+        };
+        let rows = lead.iter().try_fold(1u64, |a, n| a.checked_mul(*n)).ok_or("not a table: its shape overflows")?;
+        let (rows, columns) =
+            (usize::try_from(rows).map_err(|_| "not a table: its shape overflows")?, usize::try_from(columns).map_err(|_| "not a table: its shape overflows")?);
+        if columns == 0 || columns > MAX_COLUMNS {
+            return Err(format!("{columns} columns"));
+        }
+        if rows > MAX_ROWS {
+            return Err(format!("{rows} rows"));
+        }
+        let need = rows.checked_mul(columns).and_then(|n| n.checked_mul(size)).ok_or("not a table: its shape overflows")?;
+        if need > MAX_TABLE_BYTES {
+            return Err(format!("{} MiB is more than a table viewer reads ({} MiB)", need >> 20, MAX_TABLE_BYTES >> 20));
+        }
+        let data = bytes.get(..need).ok_or_else(|| format!("not a table: {} bytes, where {rows}×{columns} of {dtype} is {need}", bytes.len()))?;
+        let cell = |b: &[u8]| -> Cell {
+            let mut a = [0u8; 8];
+            if let Some(dst) = a.get_mut(..b.len()) {
+                dst.copy_from_slice(b);
+            }
+            match (float, size) {
+                (true, 4) => Cell::Num(f64::from(f32::from_le_bytes([a[0], a[1], a[2], a[3]]))),
+                (true, _) => Cell::Num(f64::from_le_bytes(a)),
+                (false, _) if !signed => i64::try_from(u64::from_le_bytes(a)).map_or_else(|_| Cell::Num(u64::from_le_bytes(a) as f64), Cell::Int),
+                (false, 1) => Cell::Int(i64::from(a[0] as i8)),
+                (false, 2) => Cell::Int(i64::from(i16::from_le_bytes([a[0], a[1]]))),
+                (false, 4) => Cell::Int(i64::from(i32::from_le_bytes([a[0], a[1], a[2], a[3]]))),
+                (false, _) => Cell::Int(i64::from_le_bytes(a)),
+            }
+        };
+        let named = names.len() == columns;
+        let mut out: Vec<Column> = (0..columns)
+            .map(|j| Column {
+                name: names.get(j).filter(|_| named).cloned().unwrap_or_else(|| format!("c{}", j + 1)),
+                ty: if float { "FLOAT" } else { "INT" }.into(),
+                cells: Vec::with_capacity(rows),
+            })
+            .collect();
+        for row in data.chunks_exact(columns * size) {
+            for (c, b) in out.iter_mut().zip(row.chunks_exact(size)) {
+                c.cells.push(cell(b));
+            }
+        }
+        Table { columns: out, rows: 0 }.finish()
+    }
+
     /// A value already parsed: columnar, or rows (the first row its names when it is all text and
     /// there is more than one).
     pub fn from_value(v: &Value) -> Result<Table, String> {
@@ -408,6 +475,43 @@ impl<'de> Visitor<'de> for CellVisitor {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// B152: an engine's histogram is a (256, 2) float array marked as a table, not JSON.
+    #[test]
+    fn an_array_marked_as_a_table_reads_column_by_column() {
+        let f: Vec<u8> = [0.5f32, 3.0, 1.5, 7.0, 2.5, 0.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let names = vec!["centre".to_owned(), "count".to_owned()];
+        let t = Table::from_array("<f4", &[3, 2], &names, &f).unwrap();
+        assert_eq!((t.rows, t.columns.len()), (3, 2));
+        assert_eq!((t.columns[0].name.as_str(), t.columns[1].name.as_str(), t.columns[1].ty.as_str()), ("centre", "count", "FLOAT"));
+        assert_eq!(t.columns[1].cells, vec![Cell::Num(3.0), Cell::Num(7.0), Cell::Num(0.0)]);
+        assert_eq!(t.order(1, true), vec![1, 0, 2]);
+        // (rows, 1, columns), as a picture-shaped engine stores a table; names that don't fit are dropped
+        let t = Table::from_array("<f4", &[3, 1, 2], &["x".to_owned()], &f).unwrap();
+        assert_eq!((t.rows, t.columns[0].name.as_str(), t.columns[1].name.as_str()), (3, "c1", "c2"));
+        let i: Vec<u8> = [-2i16, 5, 9].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let t = Table::from_array("<i2", &[3], &[], &i).unwrap();
+        assert_eq!((t.columns.len(), t.columns[0].ty.as_str()), (1, "INT"));
+        assert_eq!(t.columns[0].cells, vec![Cell::Int(-2), Cell::Int(5), Cell::Int(9)]);
+        assert_eq!(Table::from_array("<u8", &[1], &[], &u64::MAX.to_le_bytes()).unwrap().columns[0].cells, vec![Cell::Num(u64::MAX as f64)]);
+        assert_eq!(Table::from_array("<f8", &[0, 2], &[], &[]).unwrap().rows, 0);
+    }
+
+    #[test]
+    fn a_hostile_array_is_refused_before_a_byte_is_read() {
+        for (dtype, shape, bytes) in [
+            ("<f4", vec![3, 2], vec![0u8; 23]),
+            ("<f4", vec![u64::MAX, u64::MAX], vec![0u8; 8]),
+            ("<f4", vec![u64::MAX, 2], vec![]),
+            ("<f4", vec![2, 0], vec![]),
+            ("<f4", vec![], vec![0u8; 4]),
+            ("<f4", vec![1, (MAX_COLUMNS + 1) as u64], vec![]),
+            ("<c8", vec![1, 1], vec![0u8; 8]),
+            ("", vec![1], vec![0u8; 8]),
+        ] {
+            assert!(Table::from_array(dtype, &shape, &[], &bytes).is_err(), "{dtype} {shape:?}");
+        }
+    }
 
     #[test]
     fn columnar_and_rows_read_alike_and_sort() {
