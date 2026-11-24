@@ -321,8 +321,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func scratchRefusal(_ options: Options, _ env: [String: String]) -> String? {
         let l = CoreHost.layout(options, env)
         let locations: [ScratchGuard.Location] = [
-            .init("COMMONKIT_STORE_ROOT", env["COMMONKIT_STORE_ROOT"],
-                  ifUnset: "the store isn't the script's: a scripted launch must name it there, since it wins over --store-root"),
+            // set, it is the store (it wins over --store-root); unset, the kit sets it to the store
+            // below before the core opens (B149: ShellCore.store), so a launch as the Finder makes
+            // one, with no variable, is checked by that store's place alone
+            .init("COMMONKIT_STORE_ROOT", env["COMMONKIT_STORE_ROOT"]),
             .init("COMMONKIT_MARK_DIR", env["COMMONKIT_MARK_DIR"],
                   ifUnset: "the caches, log and preferences would go to the person's Library (~/Library/Caches, ~/Library/Logs, ~/Library/Application Support)"),
             // unset, the core keeps prefs.json in the preferences folder, checked below

@@ -275,6 +275,22 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B149. Mac: a loaded picture shows "the picture is missing" in its view and no preview on the node
+
+- Reported: 2026-11-23
+- Report: "Loading an image fails", with a screenshot: a picture source node ("The plum photo", path set, align on) ran green; its value window's header says "array RGB 812×808×3 float32" with the per-channel minimum, maximum and mean, but the picture area is empty with the words "the picture is missing", and the node's own preview is a blank square.
+- Context: the maintainer's first hand use of an application built on the native Mac shell (dev branch at `2d0d106`), opened as itself, not as a scripted copy. So the array was read and described; what is missing is its picture. The screenshot is kept at `claude-debug/b149-mac-picture-missing.png` (untracked). Scripted runs of the same build showed previews.
+- Cause (reproduced by an agent with a scripted copy started with an empty environment, 2026-11-23): the Mac shell gives the core its store folder but does not set `COMMONKIT_STORE_ROOT` to it, as the iPad shell does. Started from the Finder, an engine that stores values through commonkit writes them under commonkit's default folder while the core looks in its own, so the value is "missing". Scripted runs set both to one folder, which hid it. Any engine that writes through commonkit is affected, in Plummer too.
+- Also found: the core's reason ("the value's bytes are gone: run again to see it") is sent in a field the Mac view does not read, so the person sees only "the picture is missing".
+- Fix (proposed, not made): set the variable to the core's store before the core opens, when it is unset; read the core's reason; a test that starts the app with an empty environment and checks a loaded picture's preview.
+- Issue: none
+- Fixed: 2026-11-23, branch `fix/b149-mac-store-root` (uncommitted):
+  - **The store:** `ShellCore.open` (the Apple kit, so the Mac and the iPad) settles one store before the application's engines are registered (`ShellCore.store`): a `COMMONKIT_STORE_ROOT` already set is kept and is the core's store too; unset or empty, it is set to the app's store. A scripted Mac launch may now leave it unset, as the Finder does; the store it then gets is checked to be under scratch like every other place it writes.
+  - **The reason:** the C ABI's `media.get` gives a `missing` value a `reason` ("the value's bytes aren't in this app's store: run again to see it"), the field the Mac, iPad and Windows picture views already show. The reason quoted in the report came from `viewer.data`, another reply.
+  - **Correction to the cause:** PlumCraft's own in-process engines are handed the core's store, so Plummer itself was not affected; only an application's engine that stores through commonkit itself was.
+  - **Checked:** the Mac person check's new step "B149: launched as the Finder does with no store variable…" (`finder-store-check.py`: an empty environment with no store variable, the working folder `/`, and `HOME` a scratch folder so that commonkit's default store is scratch too) passes on Plummer. Given an application's Load Image graph, the same step passes on the application built on this branch, and fails without the fix ("missing", with the new reason; the bytes were in commonkit's default store). Swift `theCoreAndItsEnginesShareOneStore`, Rust `a_missing_value_says_why_in_its_reason`. Mac conformance 71 of 71; the person check otherwise as on the dev branch (the same 3 failures, with the screen unlocked, on `2d0d106` unchanged: S4a's drag and its Undo, and File › Close). iPad conformance 60 of 60 and 11 UI tests passed on the simulator.
+  - **Not checked:** the application opened as itself by the Finder (the maintainer reopens it); Windows, where the same store fault does not occur (its `ShellConfig.cs` always sets the variable) and whose picture view reads the same `reason`, so it needs no change.
+
 ### B133. iPad and iPhone: a path input offers no system file browser
 
 - Reported: 2026-11-23

@@ -103,6 +103,12 @@ public enum ShellCore {
     /// The returned task finishes once the core's own first document is closed (windows open
     /// theirs after it), with the control port when one is open.
     public static func open(_ config: ShellConfig) throws -> (PlumCore, Task<UInt64?, Never>) {
+        // B149: one store for the core and the engines (`COMMONKIT_STORE_ROOT` wins over
+        // `store_root`, contract 4.1), set before any engine is registered or started
+        var config = config
+        let (root, export) = store(config.storeRoot, ProcessInfo.processInfo.environment)
+        config.storeRoot = root
+        if export { setenv("COMMONKIT_STORE_ROOT", root, 1) }
         try appLibrary?.register()
         let c = try PlumCore(config: config.json)
         let ready = Task { () -> UInt64? in
@@ -116,6 +122,20 @@ public enum ShellCore {
             return try? await c.request("core.control")["port"].uint64
         }
         return (c, ready)
+    }
+
+    /// The store the core and every engine in the process use (B149), and whether
+    /// `COMMONKIT_STORE_ROOT` must be set to it. An engine that stores through commonkit writes
+    /// under that variable's folder, else commonkit's default, while the core reads `store_root`:
+    /// an app the Finder starts has no variable, so its values were written where the core never
+    /// looked ("the picture is missing"). A variable already set (a script's, a person's own) is
+    /// kept and the core uses it too (a leading `~` expanded, as commonkit does); unset or empty,
+    /// it is set to the app's store.
+    public static func store(_ appStore: String, _ env: [String: String]) -> (root: String, export: Bool) {
+        if let v = env["COMMONKIT_STORE_ROOT"], !v.isEmpty {
+            return ((v as NSString).expandingTildeInPath, false)
+        }
+        return (appStore, true)
     }
 }
 
