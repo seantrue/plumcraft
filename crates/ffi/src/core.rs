@@ -605,6 +605,10 @@ pub fn key_for(handle: &str, want: Want) -> String {
     plumcraft_media::derived_key(handle, want)
 }
 
+/// Why a value is `missing`, as `media.get` says it (B149): its bytes aren't in the store the core
+/// reads, either reaped (a run publishes them again) or written to another store.
+pub const MISSING_REASON: &str = "the value's bytes aren't in this app's store: run again to see it";
+
 /// A fetch as `media.get` replies and `plum_poll`'s `media` reports it.
 fn describe(handle: &str, want: Want, f: &Fetch<Made>) -> Value {
     let mut v = json!({"key": key_for(handle, want), "handle": handle, "want": want.name(), "status": f.status()});
@@ -638,7 +642,9 @@ fn describe(handle: &str, want: Want, f: &Fetch<Made>) -> Value {
         }
         Fetch::Ready(Made::Json(_)) => v["format"] = json!("json"),
         Fetch::Failed(why) => v["reason"] = json!(why),
-        Fetch::Pending | Fetch::Missing => {}
+        // B149: said, so a shell shows why and not only the word
+        Fetch::Missing => v["reason"] = json!(MISSING_REASON),
+        Fetch::Pending => {}
     }
     v
 }
@@ -2225,6 +2231,16 @@ mod tests {
 
     fn config(json: &str) -> Result<Config, String> {
         Config::parse(json.as_bytes())
+    }
+
+    /// B149: a missing value is said with why, in `reason`, the field a shell shows (a failure's
+    /// field), not only as the status word
+    #[test]
+    fn a_missing_value_says_why_in_its_reason() {
+        let v = describe("b3:nd1:00", Want::Rendition, &Fetch::Missing);
+        assert_eq!(v["status"], "missing");
+        assert_eq!(v["reason"], MISSING_REASON);
+        assert!(describe("b3:nd1:00", Want::Rendition, &Fetch::Pending).get("reason").is_none());
     }
 
     #[test]

@@ -201,6 +201,34 @@ grep -i 'refuses\|error\|panic' "$scratch/app.log" | head -20 || true
 left=$(pgrep -f "[p]erson-text-engine" 2>/dev/null | while read -r p; do ps -o command= -p "$p" | grep -q "$scratch" && echo "$p"; done || true)
 [ -z "$left" ] || { echo "PERSON FAIL | the installed engine's process outlived the app | pids $left"; code=1; kill -9 $left 2>/dev/null || true; }
 
+# B149: launched as the Finder does, with no COMMONKIT_STORE_ROOT (the app sets it to its store):
+# a picture shows its preview, its bytes in the app's store and none in commonkit's default one.
+# PlumCraft's own engines are handed the core's store, so this passes with or without the fix; an
+# application's engine that stores through commonkit itself is what failed (the application's
+# own check gives finder-store-check.py its graph). HOME is a scratch folder
+# here only so that commonkit's default store, where the values went before the fix, is scratch
+# too and the person's own is never written; the app's own store comes from the scratch marks
+fhome="$scratch/finder-home"; mkdir -p "$fhome"
+fstatus="$scratch/finder-status.json"
+env -i HOME="$fhome" USER="${USER:-}" LOGNAME="${LOGNAME:-${USER:-}}" SHELL="${SHELL:-/bin/zsh}" TMPDIR="${TMPDIR:-/tmp}" \
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin __CF_USER_TEXT_ENCODING="${__CF_USER_TEXT_ENCODING:-0x0:0:0}" \
+  PLUMCRAFT_EDITOR_PREFS="$scratch/finder-prefs.json" COMMONKIT_MARK_DIR="$scratch/finder/marks" \
+  COMMONKIT_TEST_RUN="$scratch/run" PLUMCRAFT_CRAFT_ROOT="$scratch/craft" COMMONKIT_STORE_MIN_FREE_GB=2 \
+  PLUMCRAFT_ENGINE_FOLDER="$scratch/finder-engines" \
+  /bin/sh -c 'cd / && exec "$@"' finder "$app" --scratch-state --status-file "$fstatus" --control-token-file "$scratch/finder-token" \
+  >"$scratch/finder-app.log" 2>&1 &
+pid=$!
+set +e
+timeout 300 python3 "$here/finder-store-check.py" "$fstatus" "$scratch/finder-token" "$scratch" \
+  "$scratch/finder/mac-caches/$scripted_id/store" "$fhome/Library/Caches/commonkit/store" || code=1
+set -e
+kill -TERM "$pid" 2>/dev/null || true
+for _ in $(seq 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+wait "$pid" 2>/dev/null || true
+pid=""
+grep -i 'refuses\|panic' "$scratch/finder-app.log" | head -5 || true
+
 sleep "${SETTLE:-10}"
 "$here/library-check.sh" snapshot "$person_ids" "$scratch/library-after.txt"
 "$here/library-check.sh" compare "$scratch/library-before.txt" "$scratch/library-after.txt" || code=1

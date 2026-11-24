@@ -54,6 +54,20 @@ let testEnvironment: Void = {
         #expect(c.json["control"]["port"].uint64 == 0)
     }
 
+    /// B149: an app the Finder starts has no `COMMONKIT_STORE_ROOT`; the variable is set to the
+    /// app's store so engines that store through commonkit write where the core reads. A variable
+    /// already set is kept, and is the core's store too.
+    @Test func theCoreAndItsEnginesShareOneStore() {
+        let unset = ShellCore.store("/app/store", [:])
+        #expect(unset.root == "/app/store" && unset.export)
+        let empty = ShellCore.store("/app/store", ["COMMONKIT_STORE_ROOT": ""])
+        #expect(empty.root == "/app/store" && empty.export)
+        let set = ShellCore.store("/app/store", ["COMMONKIT_STORE_ROOT": "/scratch/store"])
+        #expect(set.root == "/scratch/store" && !set.export)
+        let tilde = ShellCore.store("/app/store", ["COMMONKIT_STORE_ROOT": "~/store"])
+        #expect(tilde.root == NSHomeDirectory() + "/store" && !tilde.export)
+    }
+
     @Test func theCoresOwnFirstDocumentIsClosed() async throws {
         _ = testEnvironment
         var c = ShellConfig(appID: "com.plumcraft.test", appName: "PlumCraft", version: "0", storeRoot: scratch("store-open"))
