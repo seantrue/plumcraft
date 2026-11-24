@@ -80,6 +80,20 @@ enum Samples {
         return FileManager.default.fileExists(atPath: u.path) ? u : nil
     }
 
+    /// A new graph in the app's own folder (B147), from `template`: "Untitled.json", or
+    /// "Untitled 2.json" and on when that is taken. Nil when it can't be written.
+    static func newGraph(from template: URL) -> URL? {
+        let fm = FileManager.default
+        let dir = CoreHost.dirs.documents
+        guard (try? fm.createDirectory(at: dir, withIntermediateDirectories: true)) != nil else { return nil }
+        for k in 1...999 {
+            let u = dir.appendingPathComponent(k == 1 ? "Untitled.json" : "Untitled \(k).json")
+            if fm.fileExists(atPath: u.path) { continue }
+            return (try? fm.moveItem(at: template, to: u)) != nil ? u : nil
+        }
+        return nil
+    }
+
     /// An empty graph to start a new one from (the browser's +).
     static func template() -> URL? {
         let u = CoreHost.dirs.scratch.appendingPathComponent("Untitled.json")
@@ -111,8 +125,40 @@ final class BrowserViewController: UIDocumentBrowserViewController, @preconcurre
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didRequestDocumentCreationWithHandler handler: @escaping (URL?, UIDocumentBrowserViewController.ImportMode) -> Void) {
-        let t = Samples.template()
-        handler(t, t == nil ? .none : .move)
+        // B147 (the maintainer, 2026-11-23: "Files / Plummer seems a better starting place"): a new
+        // graph is made in the app's own folder, the one the Files app shows as Plummer, wherever
+        // the browser stands (a place outside it, such as On My iPad's top folder or a provider's,
+        // may not let the app write beside the file); the browser then shows it there
+        handler(nil, .none)
+        guard let t = Samples.template(), let made = Samples.newGraph(from: t) else {
+            return creationFailed(CoreHost.dirs.documents, "the empty graph couldn't be written")
+        }
+        revealDocument(at: made, importIfNeeded: false) { _, _ in }
+        open(made)
+    }
+
+    /// The browser opens in the app's own folder (B147), once, as the app starts.
+    private var revealed = false
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        guard !revealed else { return }
+        revealed = true
+        let fm = FileManager.default
+        try? fm.createDirectory(at: CoreHost.dirs.documents, withIntermediateDirectories: true)
+        // a document inside it, so the browser goes to the folder that holds it
+        let inside = (try? fm.contentsOfDirectory(at: CoreHost.dirs.documents, includingPropertiesForKeys: nil))?.sorted { $0.path < $1.path }.first
+        if let u = inside { revealDocument(at: u, importIfNeeded: false) { _, _ in } }
+    }
+
+    /// A new graph couldn't be made: the person is told why and where (B147: never quietly).
+    func creationFailed(_ dir: URL, _ why: String) {
+        let place = dir.standardizedFileURL.path == CoreHost.dirs.documents.standardizedFileURL.path ? "\(AppID.name) (this app's folder in Files)" : dir.lastPathComponent
+        CoreHost.say("error", "couldn't create a graph in \(dir.path): \(why)")
+        StatusFile.shared.set("createError", .string("\(place): \(why)"))
+        if CoreHost.options.scratchState { return }
+        let a = UIAlertController(title: "Couldn't make a new graph", message: "In \(place): \(why).", preferredStyle: .alert)
+        a.addAction(UIAlertAction(title: "OK", style: .default))
+        present(a, animated: true)
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, didImportDocumentAt source: URL, toDestinationURL destination: URL) {
@@ -120,7 +166,7 @@ final class BrowserViewController: UIDocumentBrowserViewController, @preconcurre
     }
 
     func documentBrowser(_ controller: UIDocumentBrowserViewController, failedToImportDocumentAt documentURL: URL, error: (any Error)?) {
-        CoreHost.say("error", "couldn't create \(documentURL.lastPathComponent): \(error.map { "\($0)" } ?? "unknown")")
+        creationFailed(documentURL.deletingLastPathComponent(), error?.localizedDescription ?? "the system didn't say why")
     }
 
     /// Open `url` over the browser (closing a graph already shown), with `view` to restore once

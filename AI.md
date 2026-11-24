@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-23 — iPad and iPhone: New Graph makes the graph in the app's own folder (B147) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "iPad started In unwritable folder. Files / Plummer seems a better starting place"; what showed it: "failed save". Then "Fix both".
+
+**What the AI found.** On the simulator, from a fresh install: the browser's New Graph made the graph in whatever folder the browser was showing, which can be outside the app's folder; and a graph that could not be created was only written to the log. The failed save itself did not happen on the simulator (saving into the outside folder worked there), so **the reported failure is not reproduced**; the cause is inferred from where the graph was made.
+
+**What the AI did.** New Graph always makes the graph in the app's Documents (Plummer in Files) and opens it there; the browser shows that folder at start; a graph that cannot be made, or a save that fails, tells the person why and where; a remembered start folder that no longer exists falls back.
+
+**Verified (agent).** A named UI test from a fresh install (first launch, New Graph from On My iPad, add a node, the saved file in the app's Documents holds it): it failed on the dev branch's app and passes with the fix, on the iPad and the iPhone simulators. iPad gate 60 of 60. **Not verified:** any device, so not the failed save itself; iCloud Drive and other providers.
+
 ### 2026-11-23 — Clean Up Mask Files, on the shared library's new pruning; the workspace moves to its 0.3 (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Release commonkit", after "Ref commonkit -- both" on where pruning belongs; and, told that once a mask is painted a later change to the wired-in mask does not show until Clear, "1a is acceptable".
