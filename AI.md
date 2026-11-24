@@ -32,6 +32,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **The Apple half (same day, same agent).** A View menu beside View As on the Mac, iPad and iPhone, the per-channel histograms drawn from the core's heights with a Log toggle, and NaN counts (about 250 LOC of Swift, mostly `Viewers.swift`); a kit test on a real core and a UI test that picks Heat and waits for a different picture. Launched: the Mac's scripted copy through the control port (auto, heat, log read back, the window pictured), the iPad and iPhone simulators' UI test, Mac conformance 72 of 72, the kit's 115 tests. **A defect in this work, found by looking at the iPad picture:** after Heat the core said `heat` but the window still drew the old picture, because both apps' redraw check ignored `views`; the first UI test passed anyway, since it read only the core's word. Fixed in both apps, and the test now checks the drawn picture's handle. Not done: a turn field for `angle`; a device; Windows.
 
+### 2026-11-24 — Add Bend Point lands where the wire was pressed (B153) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer asked for.** "bug: adding a bend point does not add one; when adding one to an auto routed r->l connection removes auto routing, but does not add one either"; asked how, "Right-click menu; undo does causes a redraw"; "Fix B153"; and from a later build, "Adding the bend point places the point mid point of the selected segment, should place near the selection point." That second report named the fault exactly.
+
+**What the AI did.** An agent traced the path a right-click takes: the core's gesture put the press only into the menu it built, and every native shell asks for the menu itself with the reply's context, which had no press in it. The fix is about ten lines in `crates/editor-core/src/gesture.rs`; a new test file (`tests/wire_bend.rs`, about 90 LOC) follows the shells' path and failed on both kinds of wire before it; one conformance line and one line of `docs/shell-interface.md`.
+
+**Verification.** The agent's runs: the new tests, the editor core's 222, the Rust gate on the Mac (1,678 of 1,679, the known failure), swift test, the Mac app's conformance cases over the control port (63 of 63), the iPad simulator's (60 of 60) and its UI tests (12). A scripted launch read the bends back at the presses. No person's right-click, no device, no Windows run.
+
+**Defects.** The fault was in AI-written code from the native menu slice (N4): the press went to one of two places the menu could be built from, and the tests of the time built the menu the other way. The controller's first guesses at the cause (coordinates, drawing) were wrong; the maintainer's second report and the agent's test found it. Found on the way and not fixed here: the Windows canvas draws no ring at a bend point.
+
 ### 2026-11-24 — An array marked as a table shows in the Table viewer (B152) (Claude Fable 5.2; launch proof by a Claude Opus 5.5 agent)
 
 **What the maintainer asked for.** "bug: can't view output of histogram", then a screenshot of the value window ("This table can't be shown: not a table: expected value at line 1 column 1"), then "fix b152".
