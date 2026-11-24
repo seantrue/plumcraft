@@ -30,6 +30,18 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects in the AI's work.** The first edit put `table_of` between another function's doc comment and that function, so the comment landed on the wrong one; the agent's review caught it. My unit test names the columns `centre` and `count` after the editor's own array engine; the application's engine names them `value` and `count`, which the launch showed (the code takes whatever names come). On the Mac, two unrelated tests of the editor core failed locally because the engine programs were not built after a disk clean; they are left to the Linux gate. egui's own Table viewer has the same gap and is not fixed.
 
+### 2026-11-23 — Mac: Undo works in the curve editor's window (B150) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer reported.** "^Z /Cmd Z does not undo a curve change", from their own use of the curve editor on the Mac.
+
+**Defect in AI-written work, caught by the maintainer.** The curve editor's window was merged with its Mac drag and Undo steps reporting only "see": the screen was locked, so the steps never ran, and the Undo answer copied from the mask window was never checked. When the steps first ran, the drag step itself was wrong (it called the view directly, which a SwiftUI gesture never sees), so the test could not tell a broken editor from a broken step. The maintainer's hands settled it: the drag works, Undo did not.
+
+**What the AI did.** Each window the core keeps (the editors, Parameters, Compare, the Cache Report) now has an undo manager that is the document's history, so Edit › Undo and ⌘Z in those windows name, enable and run the core's undo and redo. The person check's drag goes through the window's own event routing when the screen is unlocked and says "see" honestly when it is not; a new key step sends ⌘Z; closing a graph closes its editor window first.
+
+**Verified (agent).** With the fix: the drag 5 of 5, ⌘Z 4 of 4, Edit › Undo, the mask steps and File › Close. With the undo manager unhooked, the undo steps fail. **Not verified:** Redo. The step's ⇧⌘Z failed 4 of 4; reading the path from the menu to the core found no fault, and the step's key event is the likelier cause, but that is not shown. Only the curve window was tested of the windows the fix covers. swift test and the conformance suites were not run on this branch (only the Mac app's Swift and its check script changed).
+
+**A hazard found.** The person check ran while the maintainer was using the Mac, and twice their input reached the scripted copy (one of their graphs was opened in it; it was not changed). The runs were stopped; the check is not to be run with a person at the machine.
+
 ### 2026-11-23 — Mac: the core and an application's engine share one store (B149) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer reported.** "Loading an image fails", with a screenshot of a value window that described the array but said "the picture is missing"; then "Fix b149". It was their first launch, from the Finder, of an application built on the native Mac shell.
