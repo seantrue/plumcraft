@@ -24,6 +24,22 @@ public static class PathBrowse
     /// square, so Browse can be tapped while the text is edited.</summary>
     public static Rect Field(Rect widget) => widget with { X1 = Square(widget).X0 };
 
+    /// <summary>The name a person typed, kept (B160): a save dialog appends its selected type's extension to a name
+    /// that already ends in another offered type's ("x.json" with .plum selected becomes "x.json.plum"). When the
+    /// chosen path ends in one offered extension after another, the last is dropped; any other path is as chosen.</summary>
+    public static string KeepTypedExtension(string path, IReadOnlyList<Kind> kinds)
+    {
+        var offered = kinds.SelectMany(k => k.Extensions).Select(e => e.TrimStart('.')).Where(e => e.Length > 0 && e != "*")
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var name = Path.GetFileName(path);
+        var last = Path.GetExtension(name).TrimStart('.');
+        var stem = Path.GetFileNameWithoutExtension(name);
+        var inner = Path.GetExtension(stem).TrimStart('.');
+        if (last.Length == 0 || inner.Length == 0 || !offered.Contains(last) || !offered.Contains(inner)) return path;
+        var dir = Path.GetDirectoryName(path);
+        return string.IsNullOrEmpty(dir) ? stem : Path.Combine(dir, stem);
+    }
+
     /// <summary>A file type a path's dialog offers: its label and extensions without the dot (`*` for any).</summary>
     public sealed record Kind(string Label, IReadOnlyList<string> Extensions);
 

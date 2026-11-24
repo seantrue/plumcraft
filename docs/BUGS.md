@@ -294,6 +294,21 @@ Closed without a fix: the maintainer decided they need no more work unless they 
   - **Not checked:** an application's own stamp in a real application (a test sets a made-up one); the iPad's Help item was not opened; nobody copied the line by hand.
   - **Not done:** Windows (its About must show `build.line`, and its build must stamp `app.built`).
 
+### B160. Windows: a graph saved as "person check.json" is created as "person check.json.plum" and then not found
+
+- Reported: 2026-11-24
+- Report: "Windows: \"person check.json\" was created as \"person check.json.plum\" and is not found"; then "Windows hung on \"person check.json\" not found"; then "fix B160".
+- Context: seen by the maintainer on the Windows test VM's desktop while an agent's person check ran against the dev branch at `0147266` plus the uncommitted B154 Windows work. FR2, merged the same day, made `.plum` the first kind the core offers; FR2's hand-off list for Windows named this step as one to check.
+- Cause (an agent, read back from the running app): the core offers the right kinds, `.plum` then `.json`. The Windows shell answered a graph's save question with the WinRT `FileSavePicker`, which appends the selected type's extension to a typed name, so `person check.json` came back as `person check.json.plum`; that picker also creates the file itself, empty.
+- The box that stayed up: the person check's reopen step then typed a name that did not exist. The system's "File not found" box belongs to the picker's own host process, which outlived the app the run stopped. No wait in the script was without a limit.
+- Issue: none
+- Fixed: 2026-11-24, branch `feat/b154-s1-windows`:
+  - a graph's Save As uses the common item dialog (`PathDialogs`), which does not create the file and starts in the graph's folder;
+  - `PathBrowse.KeepTypedExtension` keeps a typed name whose extension is one of the offered kinds' (a unit test);
+  - the person check's reopen step closes its own Open dialog when it fails.
+  - **Launched** (the person check on the Windows test VM's desktop, the maintainer's session): the save step writes `person check.json` and the reopen step opens it; every step passed.
+  - **Left:** a graph's Open still uses the WinRT picker, whose host can outlive the app.
+
 ### B158. Mac: the wire does not follow a dragged bend point, and bend points show large on unselected wires
 
 - Reported: 2026-11-24
@@ -309,6 +324,7 @@ Closed without a fix: the maintainer decided they need no more work unless they 
   - **Quiet points:** a dot of radius 3 shows only while the wire or one of its bend points is under the pointer, while the wire has an end on a selected node, or while it is being bent. The scene has no wire selection, so "selected" means an end on a selected node. The hit radius is unchanged.
   - **Tests:** `crates/editor-core/tests/wire_drag_preview.rs` (4), a C ABI test, two Swift canvas tests, and a shared conformance case.
   - **Launched** (a scripted Mac copy through the control port): no dots on an unselected wire, small dots when its node is selected, and the move's path equal to the scene's path after the drag.
+  - **Proven by hand** (the maintainer, 2026-11-24, in an application built on the Mac shell from the dev branch at `22f5884`): "Drag works fine now."
   - **Not checked:** the live preview in the running app. A gesture sent through the control port does not pass through the canvas's own drag, so it was read in process only. No hand drag, no device.
   - **Not done:** egui still draws a handle at every bend point, always (its wire does follow a drag). The iPad has no hover, so an unselected wire's bend points can be taken but not seen. Windows: nothing written.
 

@@ -228,7 +228,7 @@ public sealed class ValueWindow : Window
         "hex" => new HexViewer(Pop),
         "audio" => new AudioViewer(Pop, pictures),
         "items" => new ItemsViewer(Pop, pictures),
-        "array.pictures" => new ArrayPicturesViewer(pictures),
+        "array.pictures" => new ArrayPicturesViewer(Pop, pictures),
         "error" => new MessageViewer(v => $"This value failed: {(v.Error is { ValueKind: JsonValueKind.String } e ? e.GetString() : v.Error.Get("message").Str() ?? v.Error?.GetRawText())}", error: true),
         "none" => new MessageViewer(v => v.Summary is null ? "Run the graph to see this value." : "No value yet."),
         _ => new OpaqueViewer(pictures),
@@ -270,6 +270,44 @@ public sealed class ValueWindow : Window
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(asCombo, "View As");
             asCombo.SelectionChanged += async (_, _) => { if (asCombo.SelectedItem is ComboBoxItem { Tag: string id } && id != v.Viewer) await Pop.ChooseViewerAsync(id); };
             left.Children.Add(asCombo);
+        }
+        // the array's view modes (B154 slice 1, 13.2.2): a View picker beside View As, each a `run.view` the core
+        // runs; the pictures that follow arrive in `views` or `picture`, and `viewMode` names the one shown
+        if (v.ViewModes is { Count: > 0 } modes)
+        {
+            var shownMode = v.ViewMode?.Id is { Length: > 0 } sm ? sm : "auto";
+            var turn = ArrayViews.Turn(v.ViewMode?.Params);
+            var viewCombo = new ComboBox { MinWidth = 110 };
+            foreach (var m in modes)
+            {
+                var item = new ComboBoxItem { Content = m, Tag = m };
+                ToolTipService.SetToolTip(item, ArrayViews.Tip(m));
+                viewCombo.Items.Add(item);
+                if (m == shownMode) viewCombo.SelectedItem = item;
+            }
+            ToolTipService.SetToolTip(viewCombo, "View: how the array's values become pictures");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(viewCombo, "View");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(viewCombo, "view-mode");
+            viewCombo.SelectionChanged += async (_, _) =>
+            {
+                if (viewCombo.SelectedItem is not ComboBoxItem { Tag: string id } || id == shownMode) return;
+                if (id == "angle") await Pop.CommandAsync("run.view", ("view", Jsonv.Of(id)), ("params", Jsonv.Object(("turn", Jsonv.Of(turn)))));
+                else await Pop.CommandAsync("run.view", ("view", Jsonv.Of(id)));
+            };
+            left.Children.Add(viewCombo);
+            if (shownMode == "angle")
+            {
+                // one full turn in the array's units: 1 for turns, 360 for degrees, 6.283 for radians
+                var turnBox = new NumberBox { Value = turn, Minimum = 0.001, Maximum = 1e6, SmallChange = 0.1, Width = 90, SpinButtonPlacementMode = NumberBoxSpinButtonPlacementMode.Compact };
+                ToolTipService.SetToolTip(turnBox, "turn: one full turn in the array's units (1 for turns, 360 for degrees, 6.283 for radians)");
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(turnBox, "turn");
+                turnBox.ValueChanged += async (_, e) =>
+                {
+                    if (double.IsFinite(e.NewValue) && e.NewValue > 0 && e.NewValue != turn)
+                        await Pop.CommandAsync("run.view", ("view", Jsonv.Of("angle")), ("params", Jsonv.Object(("turn", Jsonv.Of(e.NewValue)))));
+                };
+                left.Children.Add(turnBox);
+            }
         }
         if (v.Items is { } n && n > 1)
         {

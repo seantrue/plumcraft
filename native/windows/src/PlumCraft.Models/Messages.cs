@@ -640,6 +640,16 @@ public sealed record PopoutValue
     public List<ViewPicture>? Views { get; init; }
     public JsonElement? Peaks { get; init; }
     public JsonElement? Sheet { get; init; }
+    /// <summary>The view modes the value's type offers, in order (an ARRAY's `auto` … `angle`; 13.2.2), absent when none.</summary>
+    public List<string>? ViewModes { get; init; }
+    /// <summary>The view mode shown and its params (`angle` carries `turn`).</summary>
+    public ViewModeShown? ViewMode { get; init; }
+
+    public sealed record ViewModeShown
+    {
+        public required string Id { get; init; }
+        public JsonElement? Params { get; init; }
+    }
 
     public sealed record OfferedViewer
     {

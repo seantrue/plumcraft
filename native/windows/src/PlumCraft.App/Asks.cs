@@ -53,6 +53,9 @@ public sealed class Asks(DocWindow window, DocumentModel model)
             {
                 AskWord.FileOpen when IsPath(a.Params) => PathAsk(a.Params, a.Params.Get("multiple").IsTrue() ? PathDialogs.Pick.Many : PathDialogs.Pick.Open),
                 AskWord.FileSave when IsPath(a.Params) => PathAsk(a.Params, PathDialogs.Pick.Save),
+                // a workflow's Save As too (B160): the common dialog keeps a typed .json (the WinRT picker made
+                // "x.json" into "x.json.plum", and created the file it named)
+                AskWord.FileSave when a.Params.Get("purpose").Str() == "workflow" => PathAsk(a.Params, PathDialogs.Pick.Save),
                 AskWord.FolderPick when IsPath(a.Params) => PathAsk(a.Params, PathDialogs.Pick.Folder),
                 AskWord.FileOpen => await FileOpen(a.Params),
                 AskWord.FileSave => await FileSave(a.Params),
@@ -120,9 +123,13 @@ public sealed class Asks(DocWindow window, DocumentModel model)
         var start = PathBrowse.StartFolder(p.Get("current").Str(), p.Get("startIn").Str(), pick == PathDialogs.Pick.Folder);
         var got = PathDialogs.Show(window.Hwnd, pick, title, kinds, start, p.Get("name").Str());
         if (got is null) return null;
-        return pick is PathDialogs.Pick.Open or PathDialogs.Pick.Many
-            ? Jsonv.Object(("paths", Jsonv.Array(got.Select(x => Jsonv.Of(x)))))
-            : Jsonv.Object(("path", Jsonv.Of(got[0])));
+        return pick switch
+        {
+            PathDialogs.Pick.Open or PathDialogs.Pick.Many => Jsonv.Object(("paths", Jsonv.Array(got.Select(x => Jsonv.Of(x))))),
+            // the name as typed, if the dialog appended its selected type's extension to another offered one's
+            PathDialogs.Pick.Save => Jsonv.Object(("path", Jsonv.Of(PathBrowse.KeepTypedExtension(got[0], kinds)))),
+            _ => Jsonv.Object(("path", Jsonv.Of(got[0]))),
+        };
     }
 
     async Task<JsonElement?> FileOpen(JsonElement p)
