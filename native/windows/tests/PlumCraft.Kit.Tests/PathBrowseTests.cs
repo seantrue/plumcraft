@@ -47,6 +47,24 @@ public class PathBrowseTests
     }
 
     [Fact]
+    public void ATypedOfferedExtensionIsKeptB160()
+    {
+        // the core's workflow kinds (graph_file::save_kinds): .plum first, then .json
+        var kinds = new List<PathBrowse.Kind> { new("PlumCraft graph", ["plum"]), new("JSON graph", ["json"]) };
+        var dir = Path.Combine("C:", "graphs");
+        // "x.json" typed while .plum was selected: the dialog's appended .plum is dropped
+        Assert.Equal(Path.Combine(dir, "person check.json"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "person check.json.plum"), kinds));
+        Assert.Equal(Path.Combine(dir, "a.plum"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "a.plum.json"), kinds));
+        // otherwise the path as chosen
+        Assert.Equal(Path.Combine(dir, "x.plum"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "x.plum"), kinds));
+        Assert.Equal(Path.Combine(dir, "x.json"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "x.json"), kinds));
+        Assert.Equal(Path.Combine(dir, "notes.txt.plum"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "notes.txt.plum"), kinds));
+        Assert.Equal(Path.Combine(dir, "v1.2.plum"), PathBrowse.KeepTypedExtension(Path.Combine(dir, "v1.2.plum"), kinds));
+        Assert.Equal("x.JSON", PathBrowse.KeepTypedExtension("x.JSON.plum", kinds));
+        Assert.Equal("x.json.plum", PathBrowse.KeepTypedExtension("x.json.plum", [new("Any", ["*"])]));
+    }
+
+    [Fact]
     public void TheDialogStartsWhereTheValueIsElseWhereTheCoreSays()
     {
         var root = Path.Combine(Support.Scratch("browse"), Guid.NewGuid().ToString("N"));
