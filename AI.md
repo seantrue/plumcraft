@@ -30,6 +30,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects.** The earlier grading of F51 as met was wrong (an AI's grading, in note 24), found by this survey.
 
+**The Apple half (same day, same agent).** A View menu beside View As on the Mac, iPad and iPhone, the per-channel histograms drawn from the core's heights with a Log toggle, and NaN counts (about 250 LOC of Swift, mostly `Viewers.swift`); a kit test on a real core and a UI test that picks Heat and waits for a different picture. Launched: the Mac's scripted copy through the control port (auto, heat, log read back, the window pictured), the iPad and iPhone simulators' UI test, Mac conformance 72 of 72, the kit's 115 tests. **A defect in this work, found by looking at the iPad picture:** after Heat the core said `heat` but the window still drew the old picture, because both apps' redraw check ignored `views`; the first UI test passed anyway, since it read only the core's word. Fixed in both apps, and the test now checks the drawn picture's handle. Not done: a turn field for `angle`; a device; Windows.
+
 ### 2026-11-24 — An array marked as a table shows in the Table viewer (B152) (Claude Fable 5.2; launch proof by a Claude Opus 5.5 agent)
 
 **What the maintainer asked for.** "bug: can't view output of histogram", then a screenshot of the value window ("This table can't be shown: not a table: expected value at line 1 column 1"), then "fix b152".

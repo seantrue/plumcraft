@@ -229,6 +229,7 @@ final class PopoutViewController: NSViewController {
             shown = v
             summaryLabel.stringValue = ValueText.summary(v.watched)
             describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port)]
+                .merging(ArrayStats.facts(v)) { a, _ in a }
             if hosted == nil || current !== hosted {
                 current?.removeFromSuperview()
                 restyle = nil
@@ -239,13 +240,14 @@ final class PopoutViewController: NSViewController {
             }
             return
         }
-        let same = shown.map { $0.data == v.data && $0.picture == v.picture && $0.excerpt == v.excerpt && $0.value == v.value && $0.viewer == v.viewer } ?? false
+        let same = shown.map { $0.data == v.data && $0.picture == v.picture && $0.views == v.views && $0.excerpt == v.excerpt && $0.value == v.value && $0.viewer == v.viewer } ?? false
         shown = v
         let w = v.watched
         summaryLabel.stringValue = ValueText.summary(w)
         let kept = describe
         describe = ["viewer": v.viewer.map(JSONValue.string) ?? .null, "node": .string(v.node), "port": .string(v.port),
                     "mono": .bool(v.text?.mono ?? false), "wrap": .bool(v.text?.wrap ?? true), "fit": v.fit.map(JSONValue.string) ?? .null]
+            .merging(ArrayStats.facts(v)) { a, _ in a }
         // what the viewer drew stays said while only its state changes (the picture loaded, a reading)
         if same { for (key, x) in kept where describe[key] == nil { describe[key] = x } }
         if same, current != nil {
@@ -496,7 +498,7 @@ final class PopoutViewController: NSViewController {
             }
         }
         info.stringValue = "\(ps.shown.w) × \(ps.shown.h) · loading…"
-        describe["picture"] = ["w": .uint(UInt64(ps.shown.w)), "h": .uint(UInt64(ps.shown.h)), "loaded": false]
+        describe["picture"] = ["w": .uint(UInt64(ps.shown.w)), "h": .uint(UInt64(ps.shown.h)), "loaded": false, "handle": .string(ps.src.handle)]
         Task { [weak self] in
             // decoded on a worker (Pictures); only setting it here
             guard let got = await pics.load(ps.src.handle, want: ps.src.want, px: ps.src.px) else {
@@ -509,7 +511,7 @@ final class PopoutViewController: NSViewController {
             let f = ps.src.full
             info.stringValue = "\(got.width) × \(got.height) px\(f.map { " of \($0.w) × \($0.h)" } ?? "") · \(ps.src.want == "svg" ? "SVG" : (v.media ?? "picture"))"
             apply()
-            self?.describe["picture"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height)), "loaded": true]
+            self?.describe["picture"] = ["w": .uint(UInt64(got.width)), "h": .uint(UInt64(got.height)), "loaded": true, "handle": .string(ps.src.handle)]
         }
         return box
     }
@@ -674,7 +676,13 @@ final class ClosureTarget: NSObject {
 struct BarHost: SwiftUI.View {
     @Bindable var box: ViewerBox
     var body: some SwiftUI.View {
-        if let v = box.value { ViewerBar(box: box, value: v) }
+        if let v = box.value {
+            VStack(spacing: 0) {
+                ViewerBar(box: box, value: v)
+                // an array's channels and their histograms (B154 slice 1), above its picture
+                if v.viewer == "array.pictures", ArrayStats.shows(v) { ArrayStats(box: box, value: v) }
+            }
+        }
     }
 }
 

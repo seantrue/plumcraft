@@ -633,6 +633,17 @@ public struct PopoutValue: Codable, Hashable, Sendable {
     /// The value has a recipe (only a lineage-tracking engine sends one): the viewer bar offers
     /// its Recipe only then (absent from an older core: none).
     public var hasRecipe: Bool?
+    /// B154 slice 1: the view modes the value's wire type offers (an array's `auto`, `color`,
+    /// `stretch`, `clip`, `heat`, `labels`, `angle`; floor F51), and the one shown (`{id, params}`),
+    /// which `run.view {popout, view, params?}` changes. Kept as JSON: a field of the wrong shape
+    /// is skipped, never a value that can't be read.
+    public var viewModes: JSONValue?
+    public var viewMode: JSONValue?
+
+    /// The view modes offered, in order (none when the value has none).
+    public var modes: [String] { (viewModes?.array ?? []).compactMap(\.string) }
+    /// The view mode shown (`auto` when the core names none).
+    public var mode: String { viewMode?["id"].string ?? "auto" }
 
     public struct OfferedViewer: Codable, Hashable, Sendable {
         public var id: String
