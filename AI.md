@@ -20,6 +20,26 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Promoted labels carry their node's name and can be renamed (FR5) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming". The controller asked which name, how a rename is kept and what several parameters of one node show, and offered a default; the maintainer: "Go with your lean", then "build FR4.5".
+
+**What the AI did.** The agent ordered a group's promoted rows by source node and put the node's title in the scene as a header on the first row of each, so no shell composes it; gave a promoted row its own menu with rename and reset; kept the label in the graph file; and drew the headers on the Mac, iPad, iPhone, Windows and egui. About 355 lines over 23 files.
+
+**Verification.** The agent's runs: graph, session and scene tests, two conformance cases, Swift tests, an egui test; the Mac's workspace tests with the one known failure; Mac conformance 81 of 81 run; launches on a scripted Mac copy and iPad and iPhone simulators. The controller looked at the Mac picture after a rename: headers "Swap" and "Echo" with a rule each, "look for" and "with" under the first, "times" under the second. The full suite ran on the Linux test host. Windows was built and not launched.
+
+**Defects.** The agent's first Mac launch showed the header's rule running into the output labels on the right; found by looking at the picture, fixed to stop at the input column. The controller read "FR4.5" as FR4 and FR5 without asking; the maintainer has not said otherwise.
+
+### 2026-11-25 — B172: a queued node showed the last run's error (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Graph status not correct", with a labelled picture; "I did a run. The run finished properly. I captured this in the moddle of the run."; "Fix B172".
+
+**What the AI did.** The agent reproduced it with public engines (a first run that fails and skips, then a slow second run read while it goes), found the cause in the session's run state, and cleared a queued node's old error: one line, with a session test and a conformance case that holds a run mid-way.
+
+**Verification.** The agent's runs: both new tests fail without the fix; Mac conformance 89 of 89; the C ABI suite; a scripted Mac copy read mid-run and at the end. The full suite ran on the Linux test host. The controller looked at no picture for this one.
+
+**Defects.** The controller's guess, written into the agent's brief, was wrong: it blamed the coordinator's stages across engines, and the agent showed the coordinator says only true states. The agent's first conformance check could never fail (a matcher used where a literal was wanted); it found and fixed that itself. The fix has not been seen in the application where the maintainer met it.
+
 ### 2026-11-25 — A status line for the native shells, from an analysis of egui's; the Mac's About (FR3, B169) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Where is the status information that used to be at the bottom of the window?", then: "The information in the original egui status line was timely, centralized, and includes more than I can easily see now. Analyze the original egui status and provide it as an option status line for the editor." And: "bug: about entry continues to be greyed out.", "There is none under help, greyed out under app.", "fix b169". Asked first about open bugs, they said "check b148, fix b119,120, then procede."

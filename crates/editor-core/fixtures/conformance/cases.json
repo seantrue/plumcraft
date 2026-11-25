@@ -2697,6 +2697,349 @@
         {"geometry": [{"node": "group:$g", "size": [220, 120], "header": 28, "pins": {"in": [43]}, "rows": [[60, 32, 210, 54]]}]},
         {"gesture": {"kind": "context", "at": {"$locate": {"node": "group:$g", "row": 0}}, "slop": 2}, "only": "rows", "expect": {"/result/context": {"kind": "input", "port": {"node": "$a", "port": "find"}}, "/result/menu": {"$deep": {"label": "Rename Parameter…"}}}}
       ]
+    },
+    {
+      "name": "a node queued for a run says nothing of the last run's error",
+      "about": "B172: a run whose upstream failed leaves the node after it skipped (\"skipped: upstream … did not finish\"); the next run queues both, and in the middle of it (a large Mandelbrot computing) neither carries the last run's error; it ends done",
+      "half": "edit",
+      "needs": [
+        "engine:array"
+      ],
+      "steps": [
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.mandelbrot",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "m1": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.mandelbrot",
+              "pos": [
+                0,
+                500
+              ]
+            }
+          },
+          "save": {
+            "m2": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.arithmetic",
+              "pos": [
+                500,
+                0
+              ]
+            }
+          },
+          "save": {
+            "a1": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.arithmetic",
+              "pos": [
+                1000,
+                0
+              ]
+            }
+          },
+          "save": {
+            "a2": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m1",
+              "port": "width",
+              "value": 64
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m1",
+              "port": "height",
+              "value": 48
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m2",
+              "port": "width",
+              "value": 32
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m2",
+              "port": "height",
+              "value": 32
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$m1",
+                "port": "escape"
+              },
+              "to": {
+                "node": "$a1",
+                "port": "a"
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$m2",
+                "port": "escape"
+              },
+              "to": {
+                "node": "$a1",
+                "port": "b"
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$a1",
+                "port": "result"
+              },
+              "to": {
+                "node": "$a2",
+                "port": "a"
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "run.start",
+            "params": {}
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 120
+          }
+        },
+        {
+          "call": "scene.get",
+          "until": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$a2"
+                },
+                "want": {
+                  "/run/state": "skipped"
+                }
+              }
+            }
+          },
+          "timeout": 30,
+          "expect": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$a2"
+                },
+                "want": {
+                  "/footer": {
+                    "$deep": {
+                      "kind": "error",
+                      "full": {
+                        "$includes": "skipped: upstream"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m1",
+              "port": "width",
+              "value": 500
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m1",
+              "port": "height",
+              "value": 500
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m1",
+              "port": "max_iterations",
+              "value": 3000
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m2",
+              "port": "width",
+              "value": 500
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m2",
+              "port": "height",
+              "value": 500
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m2",
+              "port": "max_iterations",
+              "value": 3000
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "run.start",
+            "params": {}
+          }
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$a2"
+                },
+                "want": {
+                  "/footer": {
+                    "$len": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$a1"
+                },
+                "want": {
+                  "/footer": {
+                    "$len": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 300
+          }
+        },
+        {
+          "call": "scene.get",
+          "until": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$a2"
+                },
+                "want": {
+                  "/run/state": "done"
+                }
+              }
+            }
+          },
+          "timeout": 30
+        }
+      ]
     }
   ]
 }
