@@ -88,7 +88,9 @@ fn watch(s: &mut Session, p: &Value) -> Result<Value> {
         None | Some(Value::Null) => 0,
         Some(v) => v.as_i64().ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?,
     };
-    s.run.set_watch(WatchRole::Panel, Some(WatchRequest { node: node.0.clone(), port: port.clone(), index, ..Default::default() }));
+    let mut w = WatchRequest::new(node.0.clone(), port.clone());
+    w.index = index;
+    s.run.set_watch(WatchRole::Panel, Some(w));
     Ok(json!({"node": node, "port": port, "index": index}))
 }
 
@@ -112,17 +114,33 @@ fn item(s: &mut Session, p: &Value) -> Result<Value> {
         .get("index")
         .and_then(Value::as_i64)
         .ok_or_else(|| SessionError::Params("\"index\" (a whole number; negative counts from the end) is required".into()))?;
+    // a nested list (spec 7.6 rule 2): the item within run `index`, a level at a time; left out,
+    // the place within the run stays as it was (stepping runs keeps "item 2")
+    let path = match p.get("path") {
+        None | Some(Value::Null) => None,
+        Some(Value::Array(a)) if a.len() <= plumcraft_proto::display::MAX_PATH => Some(
+            a.iter()
+                .map(Value::as_i64)
+                .collect::<Option<Vec<i64>>>()
+                .ok_or_else(|| SessionError::Params("\"path\" must be whole numbers, a level at a time".into()))?,
+        ),
+        Some(_) => return Err(SessionError::Params(format!("\"path\" must be a list of at most {} whole numbers", plumcraft_proto::display::MAX_PATH))),
+    };
     let role = role_param(p)?;
     let w = s.run.entry_mut(role).ok_or_else(|| SessionError::Params("nothing is watched there".into()))?;
     w.index = index;
+    if let Some(path) = path {
+        w.path = path;
+    }
+    let path = w.path.clone();
     let watch = s.run.watch.clone();
     if !s.connected {
-        return Ok(json!({"index": index}));
+        return Ok(json!({"index": index, "path": path}));
     }
     let base = crate::paths::base_folder(s.path());
     let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, Instant::now());
-    Ok(json!({"index": index, "run_id": req.run_id}))
+    Ok(json!({"index": index, "path": path, "run_id": req.run_id}))
 }
 
 /// The views the watched value's wire type offers (spec 7.2), when it offers any.
@@ -268,7 +286,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Show List Item",
             menu: &[],
             shortcut: None,
-            params: "{index, popout?} (negative counts from the end) -> {index, run_id?}: show that item of the watched list (the panel's, or pop-out popout's); a run (cached) brings it",
+            params: "{index, path?, popout?} (negative counts from the end) -> {index, path, run_id?}: show that item of the watched list (the panel's, or pop-out popout's); a list of lists (a step run once per item that makes a list each run) takes path, the item within run index a level at a time, kept when left out; a run (cached) brings it",
             enabled: has_list,
             run: item,
             journal: false,

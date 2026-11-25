@@ -302,7 +302,9 @@ macro_rules! code_digest {
 /// Persisted records outlive the process, so a salt without the code would serve a fixed
 /// node the result of the old code.
 pub fn salt(prefix: &str, code_digest: &str) -> String {
-    format!("{prefix}+code:{code_digest}+sdk:{}", sdk_digest())
+    // the list rule a result was made under is part of what it is: nested lists (spec 7.6
+    // rule 2, `lists.nested`) change what a step mapped over a list gives
+    format!("{prefix}+code:{code_digest}+sdk:{}+lists:nested", sdk_digest())
 }
 
 /// A node's input values by port name, after wires, widget values and defaults are resolved.
@@ -425,6 +427,8 @@ pub struct Engine {
     wire_types: Vec<WireType>,
     nodes: BTreeMap<String, Box<dyn Node>>,
     caps: Caps,
+    /// A core ([`Engine::with_core`]) said it keeps each run's list (`lists.nested`).
+    core_nested: bool,
     limits: Limits,
     work_root: Option<std::path::PathBuf>,
     persist_ms: Option<f64>,
@@ -473,7 +477,8 @@ impl Engine {
             store: Some(plumcraft_store::Store::new(plumcraft_store::default_root())),
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
-            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]),
+            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "lists.nested"]),
+            core_nested: false,
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
@@ -553,6 +558,9 @@ impl Engine {
 
     /// Run graphs with `core` instead of this crate's executor; `catalogue` is what it offers,
     /// answered as this engine's schema. Nodes given with [`Engine::with_node`] aren't offered.
+    /// Nested lists are this crate's executor's: a core lists `lists.nested` only when it says it
+    /// keeps each run's list too ([`Engine::with_cap`]), so a coordinator never joins it to an
+    /// engine that does across a border it would read otherwise.
     pub fn with_core(mut self, catalogue: SchemaReply, core: CoreFactory) -> Self {
         self.catalogue = Some(catalogue);
         self.core = Some(core);
@@ -562,6 +570,9 @@ impl Engine {
     /// Declare a capability this engine has.
     pub fn with_cap(mut self, cap: &str) -> Self {
         self.caps.insert(cap);
+        if cap == plumcraft_proto::caps::known::LISTS_NESTED {
+            self.core_nested = true;
+        }
         self
     }
 
@@ -685,6 +696,10 @@ impl Engine {
     /// Its capabilities: those declared, and `output.save` when it lists a save format.
     pub fn caps(&self) -> Caps {
         let mut caps = self.caps.clone();
+        // nested lists are this crate's executor's: a core lists them only when it says so
+        if self.core.is_some() && !self.core_nested {
+            caps.remove(plumcraft_proto::caps::known::LISTS_NESTED);
+        }
         if self.saves() {
             caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
         }

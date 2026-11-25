@@ -422,22 +422,112 @@ def _run_one(node: Node, inputs: dict[str, Any], cx: Cx) -> dict[str, Any]:
     return outputs
 
 
+MAX_NESTING = 8
+"""How deep lists may nest (spec 7.6 rule 2, assumed: the depth bindings already allow)."""
+
+
+def is_nested(lst: List) -> bool:
+    """Whether `lst` is a list of lists that are levels (each carries an axis), not of tuples: what a
+    step run once per item makes when each run makes a list (spec 7.6 rule 2)."""
+    return bool(lst.items) and all(isinstance(i, List) and bool(i.axes) for i in lst.items)
+
+
 def _call(
     node: Node, d: dict, nid: str, inputs: dict[str, Any], cancel: CancelToken, record: Callable[[dict], None], setup: list[float] | None = None
 ) -> dict[str, Any]:
     """Run a node: once, or once per item when lists reach inputs that take one item (each run's
     progress scaled into the whole), its outputs then lists over the runs' axes. The time its calls
-    spent getting ready (`Cx.setup_took`) is added to `setup[0]`."""
-    setup = setup if setup is not None else [0.0]
+    spent getting ready (`Cx.setup_took`) is added to `setup[0]`.
+
+    **Nested lists** (spec 7.6 rule 2, `lists.nested`): a run whose output is a list keeps it as one
+    item, so a step run once per item that makes a list each run gives a list of lists. A level of
+    such a list (a list item that carries an axis) is mapped over again, a run at a time; a list item
+    without an axis is a tuple, passed whole. A port that takes a whole list fed a list of lists runs
+    once per item of every outer level, the innermost list whole, unless the node takes nested lists
+    whole (`flags.nested_input`)."""
+    return _call_level(node, d, nid, regroup(d, inputs) or inputs, cancel, record, setup if setup is not None else [0.0], 0)
+
+
+def regroup(d: dict, inputs: dict[str, Any]) -> dict[str, Any] | None:
+    """Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2):
+    a list over a sweep the others share and one of its own (a product made upstream, such as a
+    step run once per scale and once per value of a range) becomes a list over its own sweeps of
+    lists over the shared ones, so the node runs once per item of its own sweeps, each with the
+    shared sweep whole, as a list of lists does. A list whose sweeps no other whole-list input
+    shares, or all of whose sweeps they share, is taken whole as before. None: nothing to regroup
+    (as the Rust SDK's `exec::regroup`)."""
+    flags = d.get("flags") if isinstance(d.get("flags"), dict) else {}
+    if flags.get("nested_input") is True:
+        return None
+    whole_ports = {p.get("name") for p in d.get("inputs") or [] if isinstance(p, dict) and p.get("list") is True}
+    whole = [k for k in inputs if flags.get("input_list") is True or k in whole_ports]
+
+    def axes_of(k: str) -> list[tuple[str, int]] | None:
+        v = inputs.get(k)
+        return list(v.axes) if isinstance(v, List) and v.axes and not is_nested(v) else None
+
+    out: dict[str, Any] | None = None
+    for name in whole:
+        axes = axes_of(name)
+        if not axes:
+            continue
+        lst = inputs[name]
+        others = {a[0] for o in whole if o != name for a in (axes_of(o) or [])}
+        inner = [a for a in axes if a[0] in others]
+        outer = [a for a in axes if a[0] not in others]
+        total = 1
+        for _, n in axes:
+            total *= n
+        if not inner or not outer or total != len(lst.items):
+            continue
+        stride = [1] * len(axes)
+        for k in range(len(axes) - 2, -1, -1):
+            stride[k] = stride[k + 1] * axes[k + 1][1]
+        pos = {a[0]: k for k, a in enumerate(axes)}
+
+        def offset(want: list[tuple[str, int]], at: int, pos: dict[str, int] = pos, stride: list[int] = stride) -> int:
+            total = 0
+            for axis, n in reversed(want):
+                total += (at % max(n, 1)) * stride[pos[axis]]
+                at //= max(n, 1)
+            return total
+
+        outer_n = inner_n = 1
+        for _, n in outer:
+            outer_n *= n
+        for _, n in inner:
+            inner_n *= n
+        runs = []
+        for o in range(outer_n):
+            at = [offset(inner, i) + offset(outer, o) for i in range(inner_n)]
+            runs.append(List([lst.items[j] for j in at], list(inner), [lst.label(j) for j in at] if lst.labels else []))
+        out = out if out is not None else dict(inputs)
+        out[name] = List(runs, list(outer))
+    return out
+
+
+def _call_level(
+    node: Node, d: dict, nid: str, inputs: dict[str, Any], cancel: CancelToken, record: Callable[[dict], None], setup: list[float], depth: int
+) -> dict[str, Any]:
     flags = d.get("flags") if isinstance(d.get("flags"), dict) else {}
     whole_ports = {p.get("name") for p in d.get("inputs") or [] if isinstance(p, dict) and p.get("list") is True}
 
     def whole(k: str) -> bool:
         return flags.get("input_list") is True or k in whole_ports
 
-    lists = [(k, inputs[k]) for k in sorted(inputs) if not whole(k) and isinstance(inputs[k], List)]
+    def maps(k: str, lst: List) -> bool:
+        if whole(k):
+            return flags.get("nested_input") is not True and is_nested(lst)
+        # the top level maps any list, as before; a level inside an item maps only when it carries
+        # an axis (a list without one is a tuple, a value)
+        return depth == 0 or bool(lst.axes)
+
+    lists = [(k, inputs[k]) for k in sorted(inputs) if isinstance(inputs[k], List) and maps(k, inputs[k])]
     if not lists:
-        return _run_one(node, inputs, Cx(nid, cancel, record, setup))
+        # a list a run makes is a level of its own: named `<node>.<port>`
+        return _name_lists(nid, _run_one(node, inputs, Cx(nid, cancel, record, setup)))
+    if depth >= MAX_NESTING:
+        raise NodeError(NodeError.CONFIG, f"lists nest more than {MAX_NESTING} deep")
     axes, picks = _mapping_plan(lists)
     n = len(picks)
     at = {k: i for i, (k, _) in enumerate(lists)}
@@ -477,14 +567,15 @@ def _call(
             rec["fraction"] = 0.0
             scaled(rec)
         try:
-            out = _run_one(node, item, Cx(nid, cancel, scaled, setup))
+            # a run's own inputs may hold further levels: mapped again, one level down
+            out = _call_level(node, d, nid, item, cancel, scaled, setup, depth + 1)
         except NodeError as e:
             if e.kind == NodeError.CANCELLED:
                 raise
             raise NodeError(e.kind, f"item {i + 1} of {n}: {e.message}") from None
         per_item.append(out)
-    # An output of one item per run spans the runs' axes; one that is itself a list per run is a
-    # new, flat list (named as it leaves the node).
+    # Each output is a list over the runs' axes, an item a run: a run's single value, or the list it
+    # made (a level of its own, so the result is a list of lists).
     names = [p["name"] for p in d.get("outputs") or [] if isinstance(p, dict) and isinstance(p.get("name"), str)]
     for o in per_item:
         names.extend(sorted(k for k in o if k not in names))
@@ -493,19 +584,7 @@ def _call(
         vals = [o[name] for o in per_item if name in o]
         if len(vals) != len(per_item):
             continue
-        if not any(isinstance(v, List) for v in vals):
-            result[name] = List(vals, list(axes), list(labels))
-            continue
-        flat = List([])
-        for v, run_label in zip(vals, labels, strict=True):
-            if isinstance(v, List):
-                for j, x in enumerate(v.items):
-                    flat.items.append(x)
-                    flat.labels.append(" · ".join(s for s in (run_label, v.label(j)) if s))
-            else:
-                flat.items.append(v)
-                flat.labels.append(run_label)
-        result[name] = flat
+        result[name] = List(vals, list(axes), list(labels))
     return result
 
 
@@ -692,7 +771,9 @@ def _slice_text(wire: dict) -> str | None:
 
 def _deliver(wire: dict, value: Any) -> Any:
     """The value a wire delivers (spec 7.6 rule 3): a range keeps a list a list (a sweep of its
-    own, shorter than the list it came from), an index takes one item."""
+    own, shorter than the list it came from), an index takes one item. A nested list (a step run
+    once per item that made a list each run) is sliced at the level its source made, inside each run
+    (`lists.nested`)."""
     spec = wire.get("slice")
     if not spec:
         return value
@@ -701,9 +782,18 @@ def _deliver(wire: dict, value: Any) -> Any:
         s = slices.parse(spec)
         if not isinstance(value, List):
             raise ValueError(f"slice {quoted(spec)} needs a list, but the wire carries a single value")
-        picks = slices.picks(s, len(value.items))
+        return _slice_level(value, s, spec, 0)
     except ValueError as e:
         raise NodeError(NodeError.CONFIG, f"input {name}: {e}") from None
+
+
+def _slice_level(value: List, s: Any, spec: str, depth: int) -> Any:
+    """Slice `value` at its innermost level: the level a nested list's source made (spec 7.6 rule 3)."""
+    if is_nested(value):
+        if depth >= MAX_NESTING:
+            raise ValueError(f"lists nest more than {MAX_NESTING} deep")
+        return List([_slice_level(i, s, spec, depth + 1) for i in value.items], list(value.axes), list(value.labels))
+    picks = slices.picks(s, len(value.items))
     if isinstance(s, int):
         return value.items[picks[0]]
     names = "+".join(n for n, _ in value.axes_or_plain())
@@ -854,7 +944,16 @@ def _thumb(engine: Engine, type_id: str, v: Any, plane: data.Plane | None = None
     """A thumbnail for a value of a wire type: an excerpt for text, a picture of an array, a list's
     first item's thumb."""
     if isinstance(v, List):
-        return _thumb(engine, type_id, v.items[0], plane) if v.items else None
+        t = _thumb(engine, type_id, v.items[0], plane) if v.items else None
+        # a nested list's counts a level at a time (spec 7.6 rule 2), for the face: "3 × 2"
+        if t is not None and t.get("kind") == "rgba8":
+            counts, at = [len(v.items)], v
+            while at.items and is_nested(at) and len(counts) <= MAX_NESTING:
+                at = at.items[0]
+                counts.append(len(at.items))
+            if len(counts) > 1:
+                t = {**t, "items": len(v.items), "levels": counts}
+        return t
     if isinstance(v, np.ndarray) and plane is not None:
         return _array_thumb(v, plane)
     if isinstance(v, AudioValue) and plane is not None:
@@ -940,10 +1039,31 @@ def _display(engine: Engine, d: dict, nid: str, w: dict, outputs: dict, plane: d
         if sheet:
             disp["sheet"] = sheet
         if n:
-            _fill(lst.items[at], media, plane, disp, px)
-            label = lst.label(at)
+            # a nested list (spec 7.6 rule 2): down `w.path`, a level at a time
+            want = w.get("path") if isinstance(w.get("path"), list) else []
+            shown, labels, levels, path = lst.items[at], [lst.label(at)], [n], []
+            while isinstance(shown, List) and shown.axes and shown.items and len(path) < MAX_NESTING:
+                m = len(shown.items)
+                k = want[len(path)] if len(path) < len(want) else 0
+                k = k if isinstance(k, int) and not isinstance(k, bool) else 0
+                j = min(max(m + k if k < 0 else k, 0), m - 1)
+                levels.append(m)
+                path.append(j)
+                labels.append(shown.label(j))
+                shown = shown.items[j]
+            _fill(shown, media, plane, disp, px)
+            label = " · ".join(x for x in labels if x)
             label = f" ({label})" if label else ""
-            disp["summary"] = f"item {at + 1} of {n}{label}: {disp['summary']}"
+            if not path:
+                disp["summary"] = f"item {at + 1} of {n}{label}: {disp['summary']}"
+            else:
+                # run 2 of 5 · item 1 of 2 (each level's place, outermost first)
+                place = [f"run {at + 1} of {n}"]
+                for k, (j, m) in enumerate(zip(path, levels[1:], strict=True)):
+                    place.append(f"{'item' if k + 1 == len(path) else 'run'} {j + 1} of {m}")
+                disp["summary"] = f"{' · '.join(place)}{label}: {disp['summary']}"
+                disp["levels"] = levels
+                disp["path"] = path
         else:
             disp["summary"] = "an empty list"
     else:

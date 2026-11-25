@@ -196,7 +196,7 @@
       "type": "object"
     },
     "Display": {
-      "description": "What the viewer shows for one watched value.",
+      "description": "What the viewer shows for one watched value. Fields may be added: outside this crate, start\nfrom [`Display::new`] or `default()` and set the fields.",
       "properties": {
         "error": {
           "anyOf": [
@@ -233,6 +233,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "levels": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "live": {
           "$ref": "#/$defs/LiveMark",
           "default": {
@@ -247,6 +255,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item shown within item `index`, a level at a time, and\nhow many items each level along that way has (`levels[0]` is `items`). Empty for a list\nthat isn't nested.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",
@@ -1770,7 +1786,7 @@
       "type": "object"
     },
     "NodeFlags": {
-      "description": "Behaviour flags of a node.",
+      "description": "Behaviour flags of a node.\nFields may be added: outside this crate, start from `NodeFlags::default()` and set the fields.",
       "properties": {
         "bundle_port": {
           "description": "The input that takes the parameter bundle (protocol 1: `settings`).",
@@ -1786,6 +1802,10 @@
         "keep": {
           "default": null,
           "description": "`true`, `false` or `\"unit\"`: whether results keep colour-space tags."
+        },
+        "nested_input": {
+          "description": "Its inputs take a nested list whole, every level (Flatten): no level is mapped over\n(spec 7.6 rule 2, `lists.nested`). Without it a whole-list port fed a list of lists runs\nonce per outer item.",
+          "type": "boolean"
         },
         "output_node": {
           "default": false,
@@ -2388,9 +2408,10 @@
           "type": "object"
         },
         {
+          "description": "Built outside this crate with [`PortValue::list`] or [`PortValue::list_with_axes`]: fields\nmay be added (a pattern outside the crate ends with `..`).",
           "properties": {
             "axes": {
-              "description": "The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,\nspec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are\ndropped; axes whose lengths don't multiply to the item count are to be read as absent.\nCarried, not yet acted on: no executor reads or writes it (nested lists, slice 1).",
+              "description": "The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,\nspec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are\ndropped; axes whose lengths don't multiply to the item count are to be read as absent.",
               "items": {
                 "maxItems": 2,
                 "minItems": 2,
@@ -2555,7 +2576,7 @@
       "description": "An engine-made derivative the UI draws without understanding the value (spec 10.3).",
       "oneOf": [
         {
-          "description": "(h, w, 4) `u1`.",
+          "description": "(h, w, 4) `u1`. Built outside this crate with [`Rendition::rgba8`] and its `with_`\nmethods: fields may be added (a pattern outside the crate ends with `..`).",
           "properties": {
             "caption": {
               "type": "string"
@@ -2575,6 +2596,15 @@
             "kind": {
               "const": "rgba8",
               "type": "string"
+            },
+            "levels": {
+              "description": "A nested list's item counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2);\nempty when the list isn't nested (spec 7.6 rule 2).",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "ref": {
               "$ref": "#/$defs/DataRef"
@@ -3763,7 +3793,7 @@
       "type": "object"
     },
     "WatchRequest": {
-      "description": "One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).",
+      "description": "One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).\nFields may be added: outside this crate, start from [`WatchRequest::new`] or `default()` and\nset the fields.",
       "properties": {
         "index": {
           "default": 0,
@@ -3773,6 +3803,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item within item `index`, a level at a time (run, then\nitem). Negative counts from the end. Empty: the outer item itself.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",

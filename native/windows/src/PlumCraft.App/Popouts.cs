@@ -322,7 +322,7 @@ public sealed class ValueWindow : Window
             // a list of named pictures (contract 8.7): each item by its sheet label, with a pick list of all
             // of them ("logit · 5 of 11"); a list without names reads "item 5 of 11"
             var names = ListNames.Names(v.Sheet);
-            var title = ListNames.Title(names, i, n);
+            var title = ListNames.Title(names, i, n, ListNames.OuterWord(v.Levels));
             if (names.Count == 0)
                 steps.Children.Add(new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center, Style = Ui.TextStyle("CaptionTextBlockStyle") });
             else
@@ -342,6 +342,20 @@ public sealed class ValueWindow : Window
                 steps.Children.Add(pick);
             }
             steps.Children.Add(next);
+            // a list of lists (decision 6A): a stepper a level inside the run, each asking run.item {index, path}
+            foreach (var s in ListNames.Steps(v.Path, v.Levels))
+            {
+                var word = char.ToUpperInvariant(s.Word[0]) + s.Word[1..];
+                var before = Ui.GlyphButton(Ui.G.Back, $"Previous {word} in Run", async () => await Pop.CommandAsync("run.item", ("index", Jsonv.Of(i)), ("path", Jsonv.Array(s.PathTo(s.At - 1).Select(x => Jsonv.Of(x))))));
+                before.IsEnabled = s.At > 0;
+                var after = Ui.GlyphButton(Ui.G.Forward, $"Next {word} in Run", async () => await Pop.CommandAsync("run.item", ("index", Jsonv.Of(i)), ("path", Jsonv.Array(s.PathTo(s.At + 1).Select(x => Jsonv.Of(x))))));
+                after.IsEnabled = (ulong)(s.At + 1) < s.Of;
+                var where = new TextBlock { Text = $"{s.Word} {s.At + 1} of {s.Of}", VerticalAlignment = VerticalAlignment.Center, Style = Ui.TextStyle("CaptionTextBlockStyle"), Margin = new Thickness(8, 0, 0, 0) };
+                Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(where, $"viewer-level-{s.Level}");
+                steps.Children.Add(before);
+                steps.Children.Add(where);
+                steps.Children.Add(after);
+            }
         }
         if (bar.PrimaryCommands.Count > 0) return;
         // Drag Out: a real file drag of what value.export writes

@@ -1,0 +1,143 @@
+{
+ "name": "a whole-list input with a sweep of its own runs once per item of it (the report's wiring)",
+ "about": "The report's graph as it is: a range of 5 into a step that makes 2 a run (s), the slice 1 taking one of each run's, a step run once per scale of 3 and once per run (m, Join's slots: a product of 15 over two sweeps, as the report's mask step), and a step that takes the masks and the scales whole (z, Zip, as the report's combine step). The masks bring the runs' sweep, which the scales don't: nested, Zip runs 5 times, each with its 3 masks and the 3 scales. Today: the slice takes one item of the flat 10, so m runs 3 times and Zip once.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 1.0,
+     "stop": 5.0,
+     "num": 5,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "k": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 1.0,
+     "stop": 3.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "m": {
+    "kind": "ports.join",
+    "engine": "ports",
+    "values": {
+     "how": "space"
+    }
+   },
+   "z": {
+    "kind": "seq.zip",
+    "engine": "text"
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "m",
+     "port": "c1"
+    },
+    "slice": "1"
+   },
+   {
+    "from": {
+     "node": "k",
+     "port": "values"
+    },
+    "to": {
+     "node": "m",
+     "port": "c2"
+    }
+   },
+   {
+    "from": {
+     "node": "m",
+     "port": "text"
+    },
+    "to": {
+     "node": "z",
+     "port": "a"
+    }
+   },
+   {
+    "from": {
+     "node": "k",
+     "port": "values"
+    },
+    "to": {
+     "node": "z",
+     "port": "b"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "s.values": {
+   "shape": [
+    5,
+    2
+   ]
+  },
+  "m.text": {
+   "shape": [
+    15
+   ]
+  },
+  "z.tuples": {
+   "shape": [
+    5,
+    3,
+    2
+   ]
+  }
+ },
+ "today": {
+  "s.values": {
+   "shape": [
+    10
+   ]
+  },
+  "m.text": {
+   "shape": [
+    3
+   ]
+  },
+  "z.tuples": {
+   "shape": [
+    3,
+    2
+   ]
+  }
+ }
+}

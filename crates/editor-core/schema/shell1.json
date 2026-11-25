@@ -2374,7 +2374,7 @@
       "description": "A node's preview (only in view `full`).",
       "oneOf": [
         {
-          "description": "A picture, by its value reference (`media.get`). `items` above 1: the value is a list (of\nnamed pictures, when the engine names them) and this is one of them, `caption` its name.",
+          "description": "A picture, by its value reference (`media.get`). `items` above 1: the value is a list (of\nnamed pictures, when the engine names them) and this is one of them, `caption` its name.\nFields may be added: outside this crate a pattern ends with `..` (the core builds it).",
           "properties": {
             "caption": {
               "description": "The picture's own name (the rendition's `caption`), when the engine gives one.",
@@ -2406,6 +2406,15 @@
             "kind": {
               "const": "rgba8",
               "type": "string"
+            },
+            "levels": {
+              "description": "A nested list's counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2; the\nface says \"3 × 2\"); empty when the list isn't nested (spec 7.6 rule 2).",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "note": {
               "type": [

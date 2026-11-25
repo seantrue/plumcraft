@@ -1,10 +1,11 @@
 //! Joined lists (B164): what a wire or an input gets from a step that ran once per item of a
-//! list and made a list each run.
+//! list and made a list each run, on an engine that joins those lists.
 //!
-//! Every executor joins such a step's lists from all its runs into one list (`docs/interface.md`
-//! 7.6 rule 2; nested lists, research note 27, will keep each run's list apart). Two wirings then
-//! read that joined list otherwise than a person expects, and the core says so, on the wire's menu
-//! and the input row's hover:
+//! An engine with `lists.nested` (`docs/interface.md` 7.6 rule 2, research note 27) keeps each
+//! run's list as one item, so a slice takes from each run and a whole-list port runs once per run:
+//! nothing here applies, and the core says nothing ([`RunState::nested_lists`]). An engine without
+//! it joins the runs' lists into one, and two wirings then read that joined list otherwise than a
+//! person expects; the core says so, on the wire's menu and the input row's hover:
 //!
 //! - **an index slice** (`1`, `-1`) on the wire takes one item of all the runs' items together, so
 //!   one run's result goes on, not one from each run;
@@ -30,6 +31,9 @@ const MAX_DEPTH: usize = 64;
 /// The note for the wire into `to`, when it reads a list joined from several runs in one of the
 /// two ways above; `None` otherwise.
 pub fn note(graph: &Graph, catalog: &SchemaReply, run: &RunState, to: &PortRef) -> Option<String> {
+    if run.nested_lists {
+        return None;
+    }
     let w = graph.wire_into(to)?;
     let src = &w.from.node;
     let kind = &graph.node(src)?.kind;
@@ -47,11 +51,11 @@ pub fn note(graph: &Graph, catalog: &SchemaReply, run: &RunState, to: &PortRef) 
     let title = plumcraft_session::node_title(graph, catalog, src);
     if let Some(spec) = w.slice.as_deref().filter(|s| plumcraft_proto::slice::parse(s).is_ok_and(|p| p.is_index())) {
         return Some(format!(
-            "Slice {spec} takes one item. {title} runs once per item of a list and joins every run's list into one, so this is one run's result, not one from each run (B164)."
+            "Slice {spec} takes one item. {title} runs once per item of a list, and this engine joins every run's list into one, so this is one run's result, not one from each run (B164)."
         ));
     }
     if w.slice.is_none() && takes_whole(graph, catalog, to) {
-        return Some(format!("This input takes a whole list, and gets {title}'s runs joined into one list, not a list per run (B164)."));
+        return Some(format!("This input takes a whole list, and gets {title}'s runs joined into one list by this engine, not a list per run (B164)."));
     }
     None
 }
@@ -134,5 +138,23 @@ mod tests {
         let cx = crate::menu::Context::Wire { to: at(&upper, "folder"), bend: None };
         let menu = crate::menu::context(&crate::menu::Parts::of(&s), &crate::menu::Facts::default(), &cx);
         assert!(menu.iter().any(|i| i.label.starts_with("Slice 1 takes one item")), "{:?}", menu.iter().map(|i| &i.label).collect::<Vec<_>>());
+        // an engine that keeps each run's list (lists.nested): the slice takes from each run, and
+        // the whole-list port runs once per run, so the core says nothing
+        s.run.nested_lists = true;
+        assert_eq!(say(&s, &upper, "folder"), None);
+        assert_eq!(say(&s, &zip, "a"), None);
+    }
+
+    /// The engine's state says whether it keeps nested lists.
+    #[test]
+    fn the_engines_capability_decides_whether_the_note_shows() {
+        use plumcraft_proto::caps::{Caps, known};
+        use plumcraft_proto::session::EngineState;
+        let mut s = Session::new(plumcraft_text::engine().schema());
+        let state = |caps: &[&str]| EngineState::Connected { version: String::new(), nodes: 0, caps: Caps::new(caps.iter().copied()) };
+        crate::switchboard::sync_state(&mut s, &state(&[known::LISTS_NESTED]));
+        assert!(s.run.nested_lists);
+        crate::switchboard::sync_state(&mut s, &state(&[]));
+        assert!(!s.run.nested_lists);
     }
 }

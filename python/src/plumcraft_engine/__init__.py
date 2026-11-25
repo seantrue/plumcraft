@@ -43,7 +43,7 @@ UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question"}
+_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question", "lists.nested"}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1
@@ -307,7 +307,8 @@ def salt(prefix: str, code: str, dependencies: tuple[str, ...] = ()) -> str:
     Rust SDK's `salt`: persisted records outlive the process. `dependencies` names the packages
     an engine's results depend on, so upgrading one never serves a result the old version made."""
     deps = f"+deps:{dependency_digest(dependencies)}" if dependencies else ""
-    return f"{prefix}+code:{code}+sdk:{sdk_digest()}{deps}"
+    # the list rule a result was made under is part of it: nested lists (spec 7.6 rule 2)
+    return f"{prefix}+code:{code}+sdk:{sdk_digest()}{deps}+lists:nested"
 
 
 class Engine:
@@ -371,7 +372,7 @@ class Engine:
         self.info = info
         self.wire_types: list[dict] = []
         self.nodes: dict[str, Node] = {}
-        self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "run.stats", "status.progress"]
+        self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "lists.nested", "run.stats", "status.progress"]
         self.limits = {"max_inline": 64 << 10}
         # Blobs go to the shared commonkit store unless `with_store` says otherwise.
         import os

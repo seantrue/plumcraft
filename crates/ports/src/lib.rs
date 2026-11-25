@@ -15,6 +15,8 @@
 //! - `ports.edge`: an input and an output marked `external` (F17), which a collapsed group shows
 //!   as its own;
 //! - `ports.result`: a result node (the `result` flag, F19), whose output is the graph's result;
+//! - `ports.mixed`: an input that takes an item beside one that takes a whole list (nested lists,
+//!   the shared vector 5).
 //! - `ports.items` and `ports.count`: a list output and a list input (F20), and what a wire's
 //!   slice takes from a list (F21: `[:-1]` keeps a list, `-1` one item);
 //! - `ports.tune` and `ports.ink`: a bundle of settings and a node whose `ink.width` is bound to
@@ -182,7 +184,7 @@ struct ResultNode;
 impl Node for ResultNode {
     fn def(&self) -> NodeDef {
         let mut d = def("ports.result", "Result", vec![socket("text", TEXT)], vec![port("text", TEXT)]);
-        d.flags = NodeFlags { result: true, ..Default::default() };
+        d.flags = NodeFlags::default().with_result(true);
         // Save Result (F19): its own list, the engine's format first, then the SDK's text
         d.save_formats = Some(vec![QUOTED.into(), "txt".into()]);
         d
@@ -222,6 +224,24 @@ impl Node for Count {
     }
 }
 
+/// One input that takes an item and one that takes a whole list (nested lists, vector 5): `item:
+/// a,b` says which item and which list each run got.
+struct Mixed;
+impl Node for Mixed {
+    fn def(&self) -> NodeDef {
+        let items = Port { list: true, socket: Some(Socket::Socket), ..port("items", TEXT) };
+        def("ports.mixed", "Item and List", vec![widget("item", "STRING", json!("")), items], vec![port("text", TEXT)])
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        let joined = match i.get("items") {
+            Some(Data::List(l)) => l.items.iter().filter_map(Data::json).map(|v| v.as_str().unwrap_or_default().to_owned()).collect::<Vec<_>>().join(","),
+            Some(d) => d.json().and_then(Value::as_str).unwrap_or_default().to_owned(),
+            None => String::new(),
+        };
+        Ok(out(&[("text", json!(format!("{}: {joined}", text(i, "item"))))]))
+    }
+}
+
 struct Tune;
 impl Node for Tune {
     fn def(&self) -> NodeDef {
@@ -239,7 +259,7 @@ impl Node for Ink {
         width.param_ref = Some(plumcraft_proto::catalogue::ParamRef { group: "ink".into(), name: "width".into() });
         let tuning = Port { optional: true, ..socket("tuning", TUNE) };
         let mut d = def("ports.ink", "Ink", vec![tuning, width], vec![port("tuning", TUNE), port("level", "FLOAT")]);
-        d.flags = NodeFlags { bundle_port: Some("tuning".into()), ..Default::default() };
+        d.flags = NodeFlags::default().with_bundle_port(Some("tuning".into()));
         d
     }
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
@@ -256,7 +276,7 @@ struct Strip;
 impl Node for Strip {
     fn def(&self) -> NodeDef {
         let mut d = def("ports.strip", "Strip", vec![widget("level", "FLOAT", json!(0.5))], vec![port("strip", core_types::ARRAY)]);
-        d.flags = NodeFlags { result: true, ..Default::default() };
+        d.flags = NodeFlags::default().with_result(true);
         d
     }
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
@@ -345,6 +365,7 @@ pub fn engine() -> Engine {
         Box::new(ResultNode),
         Box::new(Items),
         Box::new(Count),
+        Box::new(Mixed),
         Box::new(Tune),
         Box::new(Curve),
         Box::new(Ink),

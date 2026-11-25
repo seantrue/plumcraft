@@ -61,7 +61,12 @@ impl Expanded {
             .iter()
             .map(|w| {
                 let (node, port) = self.out(&w.node, &w.port);
-                WatchRequest { node, port, ..w.clone() }
+                {
+                    let mut x = w.clone();
+                    x.node = node;
+                    x.port = port;
+                    x
+                }
             })
             .collect()
     }
@@ -413,7 +418,7 @@ mod tests {
         };
         assert!(has((&doc, "doc"), (&step, "doc")) && has((&step, "audio"), (&conv, "wav")) && has((&conv, "audio"), (&gain, "audio")), "{:?}", g.wires);
         assert_eq!(map.out(&conv, PORT), (conv.clone(), "audio".to_owned()));
-        assert_eq!(map.watch_out(&[WatchRequest { node: conv.clone(), port: PORT.into(), ..Default::default() }])[0].port, "audio");
+        assert_eq!(map.watch_out(&[WatchRequest::new(conv.clone(), PORT)])[0].port, "audio");
 
         // what comes back is the Convert's
         let mut reply = RunReply { ok: true, ..Default::default() };

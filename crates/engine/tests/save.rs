@@ -29,7 +29,7 @@ impl Node for Make {
             display: self.id.into(),
             inputs: vec![Port { name: "word".into(), ty: scalars::STRING.into(), default: json!("plum"), ..Default::default() }],
             outputs: vec![Port { name: "value".into(), ty: self.ty.into(), ..Default::default() }],
-            flags: NodeFlags { result: true, ..Default::default() },
+            flags: NodeFlags::default().with_result(true),
             save_formats: self.formats.clone(),
             ..Default::default()
         }

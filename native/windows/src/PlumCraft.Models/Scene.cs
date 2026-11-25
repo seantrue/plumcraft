@@ -505,6 +505,9 @@ public sealed record Preview
     public Point? Size { get; init; }
     public Point? HoverSize { get; init; }
     public ulong? Items { get; init; }
+    /// <summary>A list of lists' count at each level, outermost first ([3, 2]: 3 runs of 2; interface 7.6 rule 2);
+    /// absent for a list that isn't nested.</summary>
+    public List<ulong>? Levels { get; init; }
     /// <summary>The picture's own name (8.7): with `items` above 1, the first of a list of named pictures.</summary>
     public string? Caption { get; init; }
     public string? Summary { get; init; }

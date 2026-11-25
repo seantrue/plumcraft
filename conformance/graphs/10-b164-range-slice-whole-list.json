@@ -1,6 +1,6 @@
 {
- "name": "the wiring of B164, in public steps",
- "about": "A range of 5 into a step returning 2 a run, the slice 1, a step returning 3 a run, then a step taking whole lists (Zip of the list with itself). Nested: 5 runs carry through: 5 \u00d7 3 into Zip, which runs 5 times. Today: the slice takes one item of the flat 10, so one run of 3 reaches Zip.",
+ "name": "the wiring of B164 as research note 27 first read it, in public steps",
+ "about": "A range of 5 into a step returning 2 a run, the slice 1, a step returning 3 a run, then a step taking whole lists (Zip of the list with itself). Nested: 5 runs carry through: 5 \u00d7 3 into Zip, which runs 5 times. Today: the slice takes one item of the flat 10, so one run of 3 reaches Zip. Note 27 first read the report's mask step as one returning 3 a run; in the report's graph it runs once per scale and once per run, which vector 11 holds.",
  "needs": [
   "lists.nested"
  ],

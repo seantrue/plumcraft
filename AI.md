@@ -20,46 +20,65 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Nested lists, slice 8: decided rules, non-exhaustive types, the merge with the views work (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** On the checklist page, all fifteen nested-list points as built, and for the version: "Next release is 0.8.0, and mark these types non_exhaustive with constructors so it doesn't recur". Then "Chart: a;  merge", which the controller took as merging the four views pull requests, leaving the nested-list ones for the private half.
+
+**What the AI did.** The agent removed the assumed marks, marked seven public types `non_exhaustive` with constructors and rewrote every construction site, merged the dev branch after the views work landed (one real conflict, in egui's plot viewer, taken from the views side), and listed what a 0.8.0 release needs. No version was bumped.
+
+**Verification.** The agent's runs: the whole workspace on the Mac after the merge (1,750 passed, the known failure apart), Python 254, the vectors, schema, fmt, clippy; a scripted Mac copy read over the control port with a list-of-lists pop-out beside a chart pop-out, the item kept while runs step. No window was seen (the screen was off) and Windows was not rebuilt. The full suite ran on the Linux test host.
+
+**Defects.** The merge left the checked-in shell schema stale and two Python lines over the limit; the gate caught both. An earlier mistake of the controller's in this run: it read the maintainer's "29B" as an instruction to build, started an agent on it, and was stopped by the maintainer ("Stop. Take the long text") before anything was changed.
+
+### 2026-11-25 — Nested lists, slice 7: the SDKs agree with the research software's executors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Track 2 overnight "through to slice 6". Slice 7 is the controller's addition, without the maintainer: slice 6 had left the research software's executors with a rule the public SDKs lacked, so one graph could give different results in them.
+
+**What the AI did.** The agent put the regrouping rule into both SDKs and the spec as an assumption, built a vector of the report's wiring from public blocks, corrected note 27's walk-through, and ran the 13 vectors in all four executors. It found the SDKs already map lists in variadic slots, and listed the seven public types that gained fields across the slices.
+
+**Verification.** The agent's runs: the whole workspace on the Mac (1,727 of 1,728, the known failure), Python 254, the vectors in each executor (13, 11, 11 and 11, agreeing). The full suite ran on the Linux test host. Nothing was launched in this slice.
+
+**Defects.** The first gate run failed six Python store tests with the disk at 9 GB; they passed with more room, which the agent took as a disk effect without proving it. Note 27's walk-through, written by the same agent, had the mask step wrong; only running the real graph showed it.
+
+### 2026-11-25 — Nested lists, slices 5 and 6: the shells step runs and items; the report's graph gives five results (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** As the entry below: track 2 overnight "through to slice 6", on reasonable assumptions.
+
+**What the AI did.** Slice 5: a second stepper for the items inside a run, in egui, the shared Swift viewer bar and the Windows pop-outs, and the per-level count on a face. Slice 6, public part: an engine that runs graphs with its own core no longer lists `lists.nested` unless it declares it (without this an application's engine claimed a rule it did not have). Slice 6, private part, uncommitted in local worktrees: the same rules in the research software's Rust and Python executors and the application's engine. The agent met a case note 27's walk-through had wrong (a whole-list input swept on its own) and settled it in the two research executors only, as an assumption.
+
+**Verification.** The agent's runs: the whole workspace after slice 5 (1,726 of 1,727, the known failure); the crates touched by slice 6 (744); Python 253; Windows built with its 69 tests on the test VM, not launched; the Mac scripted copy and iPad and iPhone simulators showing both steppers and keeping the item while runs step. In the application, a scratch copy of the report's graph: 5 runs of 2 at the driven step, 5 after the slice, 5 at the result. The controller looked at the first and last result pictures, could not tell them apart by eye, and measured them: 1.49% of pixels differ, by at most 13 levels. The full suite ran on the Linux test host. No window of the application was seen: the screen was off.
+
+**Defects.** The first Mac launch squeezed the inner stepper's words out of the bar; fixed and relaunched. Note 27's walk-through of the report's graph was wrong about the mask step, found only when the real graph ran. The public SDKs and the research executors now differ on that case until slice 7. Slices 2 to 4 added public fields to structs that outside code builds field by field, which the agent found when the application's engine stopped compiling.
+
+### 2026-11-24 — Nested lists, slices 2 to 4: both SDKs, the coordinator and the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Overnight: one agent to pursue track 2, through to slice 6" and "Make reasonable assumptions about what I choose if I am not available for a decision". The eight points left open by slice 1 were not answered; the controller told the agent to take the recommendation for each and mark it assumed.
+
+**What the AI did.** The agent changed the Rust executor and then the Python one to keep each run's list, added Flatten and a test-engine step the fifth vector needed, made the coordinator refuse mixed engines, and gave watches, displays and `run.item` an item path with counts per level (about 1,030 LOC added and 130 removed across 42 files, the three interface documents among them). It narrowed the day's interim note to engines without the capability. It added four assumptions of its own and marked all twelve in the note and the spec.
+
+**Verification.** The agent's runs on the Mac: the whole workspace after slice 2 (1,720 of 1,721) and after slice 4 (1,722 of 1,725: the known baseline failure and two stale generated files, which it regenerated and then re-ran only the editor core, 222 passed); Python 253; the vectors on both SDKs. The full suite ran on the Linux test host. Nothing was launched: no shell shows a nested list yet.
+
+**Defects.** The agent left the whole-workspace run unrepeated after regenerating the two files. A consequence the controller noticed only when publishing: with these slices merged and slice 6 not, an application whose engine lacks the capability is refused every run that crosses to the public engines, so the pull request says to hold it.
 ### 2026-11-25 — Charts: time axes, zoom, a selection shared by a table and its chart, readouts (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
-
 **What the maintainer said.** Track 3 overnight, on reasonable assumptions. The selection belonging to the value is their decision 7A in note 26.
-
 **What the AI did.** A date and time parser in the protocol crate and calendar ticks; shares of a stack; a pop-out's range with lines reduced again inside it; a selection kept per node and port, set by a brush or by rows, drawn by the chart and marked by the table; a second window of one port; a readout written by the core; a probe on Compare's difference. Gestures on the Apple shells, drawing in egui, and the same on Windows. It stopped before hover and face previews: the plan in note 26 could not work, since a face shows the engine's thumbnail and the core holds only watched values, and it put three options to the controller, who left the choice to the maintainer.
-
 **Verification.** The agent's runs: Mac conformance 84 of 84 and the C ABI and egui suites; iPad and iPhone UI tests (a drag brush and Clear, the chart choices, the difference probe); the Swift kit's 126; 1,266 tests in the crates touched; Windows built on the test VM, not launched. The controller looked at three Mac pictures: the brushed line chart (a band from about 20 April to 9 May, 21 points marked, "21 selected"), the table window of the same value reading "21 of 366 rows selected", and that table showing only the 21 rows, dated 22 April onward. The full suite ran on the Linux test host.
-
 **Defects.** A selection made in another window did not redraw an Apple viewer, since it changes neither the value nor that viewer's state; every Apple viewer now keys on the observed stamp. The first iPhone run failed on the agent's own assertion of an exact pixel. Seen by the controller in the pictures and not fixed: selected rows are tinted cell by cell with gaps; the picture meant to show marked rows shows the top of the table, where none is selected; the Selected Only button looks the same on and off.
-
 **Follow-up, the same night.** The controller sent those three back. The agent made the Mac's selected rows the table's own row selection (whole rows; grey in an inactive window), gave Selected Only its own on and off looks, and had the core report the first selected row (`firstSelected`, `selectionSeq`) so a table scrolls to a selection that arrives unless the person has scrolled it. Mac conformance 84 of 84. The controller looked at two of the new Mac pictures: after a brush in the chart's window the table sits at late June with whole rows marked, and Selected Only shows an orange capsule with a check when on and an outline when off. Seen there and not fixed: after the scroll, the row above shows through the column header. Not checked: that a person's own scroll stops the follow on the Mac; egui's table shows no selection.
-
 ### 2026-11-25 — The 1-D series and the six chart kinds, chosen by command and kept in the graph (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
-
 **What the maintainer said.** Track 3 overnight, on reasonable assumptions; the six kinds are the ones they named when note 26 was decided.
-
 **What the AI did.** A line chart for 1-D arrays with a reduction that keeps each pixel column's first, lowest, highest and last value. A `viewer.chart` command with its choices checked against the value's columns and kept in the graph's meta; column, histogram, line and treemap layouts in the core; menus for the choices on the Apple shells; the same list painted by egui and a Win2D painter on Windows. It closed gaps it had listed: egui's CSV and SVG-text views, long SVG text, Windows painters for earlier slices. It was cut off once by a usage limit and resumed from its log.
-
 **Verification.** The agent's runs: Mac conformance 83 of 83 and the C ABI and egui suites, none skipped; the iPad's read half 44 of 44; an iPad UI test that picks a kind from the menu and follows an undo; the Swift kit's 126; 1,258 tests in the crates touched; Python with one known environment failure; Windows built on the test VM, not launched. The controller looked at two of the Mac pictures: the treemap (twelve labelled tiles in four colour groups, each naming its region and amount) and the stacked column (three products stacked over four regions, with a legend and axis titles). The full suite ran on the Linux test host.
-
 **Defects.** Three found by the Mac launch and fixed: a changed chart choice was not redrawn, since the pop-out's stamp ignored the spec; the Apple chart did not redraw after an undo, keyed on a stamp SwiftUI does not observe; a line through several rows per x zigzagged. The agent's build folder grew to 45 GB and took the disk to 7 GB, at which two conformance cases failed with the store declining a value, until it cleaned up.
-
 ### 2026-11-24 — Compare's difference, CSV and SVG text as views, and the core's chart (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
-
 **What the maintainer said.** As the entry below: track 3 overnight, "including view of tables (not just plots), and view of interchange formats (text/csv, text/svg)", on reasonable assumptions.
-
 **What the AI did.** Four stacked slices. Compare's difference computed in the core from both values' own numbers and served as pictures. The text engine's CSV reader moved into the protocol crate, with limits, and a `text/csv` value offered as a table; SVG text offered as a picture. Column widths by dragging on the iPad; selectable cells on Windows. A chart crate-within-the-core that lays a table's plot out as a display list at the size asked, with ticks and an accessibility outline, painted by a Swift view and by egui in place of egui_plot.
-
 **Verification.** The agent's runs: Mac conformance 81 of 81 with none skipped; the iPad's read half 42 of 42; iPad UI tests for the difference, the column drag and the histogram; the Swift kit's 125; the whole workspace 1,714 of 1,717 (the known baseline failure, and two tests that need an environment variable and pass with it); the Windows change built on the test VM with no warnings and not launched. It looked at pictures of each view; the controller looked at one, the histogram plot on the Mac, which shows bars from zero, ticks and axis titles. The full suite ran on the Linux test host.
-
 **Defects.** At launch the Mac drew "no picture" for SVG text, since an inline text has no full value; fixed by giving it a handle. A launch script reused a variable and left a scripted copy running, which the agent stopped by its PID. Three test cases were first written wrong (an expected mean, a matcher, a pop-out already closed). The iPhone run of the difference test never completed. A changed expectation the maintainer has not seen: a histogram's output now opens as a plot before a table.
-
 ### 2026-11-24 — Array views slice 2, a review of what each shell can show, and the iPhone's viewer bar (B154, B161) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
-
 **What the maintainer said.** "Overnight: … one agent to pursue track 3, including view of tables (not just plots), and view of interchange formats (text/csv, text/svg). Review the plumcraft capabilities." and "Make reasonable assumptions about what I choose if I am not available for a decision".
-
 **What the AI did.** The agent reviewed every viewer and capability in egui against the Mac, iPad and Windows from the code and the named tests (note 26 section 11), revised the slices to put tables and interchange formats among the regressions (section 12), and listed eight assumptions it made in the maintainer's absence. It then built slice 2 on the core and the Apple shells (shared zoom across an array's pictures, colour by value, number format, table colour) and fixed its own B161.
-
 **Verification.** The agent's runs: new unit tests and a conformance case passing on the C ABI, egui and the Mac app; Mac conformance 70 of 70 with 8 skipped because the test engine's program was not built in its fresh build folder; the iPad's read half 39 of 39; the Swift kit's 124; UI tests on iPad and iPhone simulators; pictures of each new view on the Mac, iPad and iPhone that it looked at. Three tests failed for the same unbuilt-program reason. The full suite ran on the Linux test host. The controller looked at none of the pictures.
-
 **Defects.** Two in merged AI-written work, found here: a table-flagged array was offered no Table viewer; and B159's zoom ask never moved the pop-out's stamp, so a shell heard it only when a rerun followed, which B159's own evidence happened to trigger. The agent's first draft of the review said the iPad's cells could not be selected; they can. Its first framework build ran against a half-edited core. Whether the Colour toggle looks different on and off on the Mac is not established: the offscreen picture shows no difference.
 
 ### 2026-11-24 — Insert Graph starts the engine it needs; Open Recent becomes the core's (B165, B166) (two Claude Opus 5.5 agents; Claude Fable 5.2 controlling)

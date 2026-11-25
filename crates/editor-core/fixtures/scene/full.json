@@ -1225,6 +1225,10 @@
         ],
         "items": 3,
         "kind": "rgba8",
+        "levels": [
+          3,
+          2
+        ],
         "note": null,
         "size": [
           80.0,

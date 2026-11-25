@@ -241,7 +241,10 @@ class Plane:
     def port_value(self, media: str, v: Any) -> dict:
         """The value a reply carries for a target's output (a list item by item)."""
         if isinstance(v, List):
-            return {"kind": "list", "items": [self.port_value(media, x) for x in v.items]}
+            pv: dict = {"kind": "list", "items": [self.port_value(media, x) for x in v.items]}
+            if v.axes:
+                pv["axes"] = [[name, n] for name, n in v.axes]
+            return pv
         try:
             if isinstance(v, Blob):
                 return {"kind": "blob", "ref": self.blob_ref(v)}

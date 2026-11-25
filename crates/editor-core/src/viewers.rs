@@ -293,6 +293,12 @@ pub fn popout_extra(d: Option<&Display>, state: &ViewerState) -> Map<String, Val
     m.insert("type".into(), json!(d.ty));
     m.insert("items".into(), json!(d.items));
     m.insert("index".into(), json!(d.index));
+    // a list of lists (interface 7.6 rule 2): the item shown within run `index`, and each level's
+    // count, for the run and item steppers (decision 6A)
+    if !d.levels.is_empty() {
+        m.insert("path".into(), json!(d.path));
+        m.insert("levels".into(), json!(d.levels));
+    }
     if let Some(f) = &d.full {
         m.insert("form".into(), serde_json::to_value(&f.meta.form).unwrap_or(Value::Null));
         m.insert("bytes".into(), json!(f.meta.size));
@@ -908,7 +914,9 @@ mod tests {
     use plumcraft_store::Blob;
 
     fn display(media: Media, value: Option<Value>) -> Display {
-        Display { media, value, ..Default::default() }
+        let mut d = Display::default();
+        (d.media, d.value) = (media, value);
+        d
     }
 
     #[test]
@@ -1018,6 +1026,17 @@ mod tests {
         };
         let mut st = ViewerState::default();
         let x = popout_extra(Some(&d), &st);
+        assert!(x.get("path").is_none() && x.get("levels").is_none(), "a list that isn't nested says nothing of levels");
+        let nested = {
+            let mut x = d.clone();
+            x.items = 3;
+            x.index = 1;
+            x.path = vec![1];
+            x.levels = vec![3, 2];
+            x
+        };
+        let y = popout_extra(Some(&nested), &st);
+        assert_eq!((&y["index"], &y["path"], &y["levels"]), (&json!(1), &json!([1]), &json!([3, 2])));
         let s = &x["stats"];
         assert_eq!((s[0]["nan"].as_u64(), s[1]["nan"].as_u64()), (Some(3), Some(7)));
         let l = &s[0]["histogram"];

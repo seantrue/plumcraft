@@ -89,7 +89,17 @@ def _read(root: str | None, port: str, v: Any, depth: int, count: list[int], tru
         return v.get("value")
     if kind == "list":
         items = v.get("items")
-        return List([_read(root, port, i, depth + 1, count, trusted) for i in (items if isinstance(items, list) else [])])
+        lst = List([_read(root, port, i, depth + 1, count, trusted) for i in (items if isinstance(items, list) else [])])
+        # its axes, when they fit it (spec 4.5): a nested list keeps its levels across a border
+        given = v.get("axes")
+        if isinstance(given, list) and given:
+            axes = [(a[0], a[1]) for a in given if isinstance(a, list) and len(a) == 2 and isinstance(a[0], str) and type(a[1]) is int and a[1] >= 0]
+            total = 1
+            for _, n in axes:
+                total *= n
+            if len(axes) == len(given) and total == len(lst.items):
+                lst.axes = axes
+        return lst
     if kind == "blob":
         return _blob(root, port, v.get("ref"), trusted)
     if kind == "opaque":

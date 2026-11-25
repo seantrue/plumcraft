@@ -222,10 +222,8 @@ mod tests {
 
     #[test]
     fn a_tables_columns_and_whether_they_are_numbers() {
-        let d = Display {
-            value: Some(json!({"columns": [{"name": "city", "type": "STRING", "values": []}, {"name": "n", "type": "INT", "values": []}]})),
-            ..Default::default()
-        };
+        let mut d = Display::default();
+        d.value = Some(json!({"columns": [{"name": "city", "type": "STRING", "values": []}, {"name": "n", "type": "INT", "values": []}]}));
         assert_eq!(columns_of(&d), vec![("city".into(), false), ("n".into(), true)]);
         assert!(columns_of(&Display::default()).is_empty());
     }

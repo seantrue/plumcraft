@@ -11,6 +11,9 @@ use plumcraft_proto::{Caps, DataRef, Handle, PortValue, ProtoError};
 const SEEDS: &[&str] = &[
     // a nested list with its axes (spec 4.5, capability `lists.nested`)
     r#"{"kind": "list", "items": [{"kind": "list", "items": [{"kind": "json", "value": 0.1}, {"kind": "json", "value": 0.2}], "axes": [["s.values", 2]]}, {"kind": "list", "items": [], "axes": [["s.values", 0]]}], "axes": [["r.values", 2], ["x", 1]]}"#,
+    // a watch and a display of a nested list: the item within the run, each level's count
+    r#"{"node": "s", "port": "values", "index": -1, "path": [1, -2], "sheet": true, "px": 64}"#,
+    r#"{"media": "image", "type": "IMAGE", "node": "s", "port": "p", "items": 3, "index": 1, "path": [1], "levels": [3, 2], "summary": "run 2 of 3 · item 2 of 2", "renditions": [{"kind": "rgba8", "ref": {"handle": "b3:aa"}, "w": 1, "h": 1, "items": 3, "levels": [3, 2]}]}"#,
     r#"{"v": 2, "seq": 1043, "ts": 1.5, "kind": "node.status", "run_id": "r", "generation": 17, "body": {"node_id": "n7", "state": "preview", "thumb": {"kind": "rgba8", "ref": {"handle": "md5:nd1:9e107d9d372bb6826bd81d3542a419d6", "at": [{"kind": "path", "path": "/x"}]}, "w": 4, "h": 3}, "display": [{"media": "ndarray"}]}}"#,
     r#"{"v": 2, "run_id": "0b5e", "generation": 17, "ok": true, "order": ["n1"], "nodes": {"n1": {"state": "done", "ms": 1.0, "outputs": {"value": {"kind": "list", "items": [{"kind": "json", "value": 1}]}}}}, "watch": [{"media": "text", "renditions": [{"kind": "excerpt", "text": "hi"}]}]}"#,
     r#"{"v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}], "wire_types": [{"id": "ARRAY", "view_params": {"angle": [{"name": "turn"}]}}]}"#,
