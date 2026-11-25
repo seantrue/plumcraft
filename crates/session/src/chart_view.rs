@@ -140,6 +140,7 @@ fn select(s: &mut Session, p: &Value) -> Result<Value> {
     if given != 1 {
         return Err(bad("viewer.select takes one of brush, rows or clear"));
     }
+    s.views.selection_seq = s.views.selection_seq.saturating_add(1);
     if p.get("clear").and_then(Value::as_bool) == Some(true) {
         s.views.selections.remove(&key);
         return Ok(json!({"popout": id, "port": key, "selection": null}));

@@ -375,16 +375,20 @@ struct PageRow: Identifiable, Hashable {
     var tints: [Double?] = []
     /// The row is in its value's selection (note 26 slice 8).
     var selected = false
+    /// Its row in the value (the page's `index`), what a selection names.
+    var index: UInt64 = 0
 
     /// A page's rows, with their tints when the page has them (`viewer.data`'s `tints`).
     static func of(_ page: JSONValue) -> [PageRow] {
         let start = page["start"].uint64 ?? 0
         let tints = page["tints"].array ?? []
         let selected = page["selected"].array ?? []
+        let index = page["index"].array ?? []
         return (page["cells"].array ?? []).enumerated().map { k, row in
             PageRow(id: Int(start) + k, cells: (row.array ?? []).map { $0.string ?? "" },
                     tints: k < tints.count ? (tints[k].array ?? []).map { $0.double.map { min(max($0, 0), 1) } } : [],
-                    selected: k < selected.count && selected[k].bool == true)
+                    selected: k < selected.count && selected[k].bool == true,
+                    index: k < index.count ? index[k].uint64 ?? UInt64(Int(start) + k) : UInt64(Int(start) + k))
         }
     }
 
@@ -503,6 +507,7 @@ final class PageLoader {
 struct TableViewer: SwiftUI.View {
     let box: ViewerBox
     @State private var loader = PageLoader()
+    @State private var follow = SelectionFollow()
 
     var body: some SwiftUI.View {
         let st = box.state("table")
@@ -519,11 +524,7 @@ struct TableViewer: SwiftUI.View {
                     // the value's selection (note 26 slice 8, decision 7A): its rows marked, or only they
                     HStack(spacing: 10) {
                         Text("\(n) of \(page["allRows"].uint64 ?? 0) rows selected").font(.caption.monospacedDigit()).foregroundStyle(.orange)
-                        Toggle("Selected Only", isOn: Binding(get: { st["selectedOnly"].bool == true }, set: { v in
-                            let p = box.popout
-                            Task { await p.command("viewer.table", ["selectedOnly": .bool(v)]) }
-                        }))
-                        .toggleStyle(.button).controlSize(.small).font(.caption).accessibilityIdentifier("table-selected-only")
+                        SelectedOnlyButton(box: box, on: st["selectedOnly"].bool == true)
                         Button("Clear Selection") {
                             let p = box.popout
                             Task { await p.command("viewer.select", ["clear": true]) }
@@ -544,24 +545,33 @@ struct TableViewer: SwiftUI.View {
                         }
                     })
                 #if os(macOS)
-                Table(rows, sortOrder: sort) {
+                ScrollViewReader { proxy in
+                Table(rows, selection: Binding(get: { Set(rows.filter(\.selected).map(\.id)) }, set: { ids in
+                    // a person's rows chosen in the table are the value's selection (decision 7A)
+                    let p = box.popout
+                    let picked = rows.filter { ids.contains($0.id) }.map { JSONValue.uint($0.index) }
+                    Task { await p.command("viewer.select", picked.isEmpty ? ["clear": true] : ["rows": .array(picked)]) }
+                }), sortOrder: sort) {
                     TableColumnForEach(cols) { c in
                         TableColumn(c.name, sortUsing: CoreSort(column: c.id)) { (r: PageRow) in
                             Text(c.id < r.cells.count ? r.cells[c.id] : "")
                                 .font(c.numeric ? .body.monospacedDigit() : .body)
                                 .frame(maxWidth: .infinity, alignment: c.numeric ? .trailing : .leading)
                                 .modifier(CellTint(t: r.tint(c.id)))
-                                .background(r.selected ? Color.orange.opacity(0.2) : .clear)
                                 .textSelection(.enabled)
                         }
                     }
                 }
                 .accessibilityIdentifier("viewer-table")
+                .onScrollPhaseChange { _, phase in if phase == .interacting { follow.personScrolled = true } }
+                .onChange(of: [page["selectionSeq"], page["selectedOnly"]]) { _, _ in follow.go(page, box: box) { proxy.scrollTo($0, anchor: .top) } }
+                .onAppear { follow.go(page, box: box) { proxy.scrollTo($0, anchor: .top) } }
+                }
                 #else
                 // a SwiftUI Table on iOS shows one column in compact width and starts its columns
                 // far from the edge in a sheet (N4 slice 6): a grid of the page's own widths, and a
                 // list of rows when the width is compact
-                PageGrid(cols: cols, rows: rows, sort: sort.wrappedValue.first, onSort: { sort.wrappedValue = $0.map { [$0] } ?? [] }, id: "viewer-table")
+                PageGrid(cols: cols, rows: rows, sort: sort.wrappedValue.first, onSort: { sort.wrappedValue = $0.map { [$0] } ?? [] }, id: "viewer-table", page: page, box: box)
                 #endif
                 Divider()
                 PageBar(what: "rows", start: start, shown: rows.count, total: page["rows"].uint64 ?? 0, page: page["page"].uint64 ?? 0, pages: page["pages"].uint64 ?? 1) { n in
@@ -588,6 +598,11 @@ struct PageGrid: SwiftUI.View {
     let onSort: ((CoreSort?) -> Void)?
     let id: String
     var rowNumbers = false
+    /// The table's page and viewer, when the grid shows a value's table: it goes to a selection
+    /// that arrives (`firstSelected`, `selectionSeq`) unless the person scrolled it.
+    var page: JSONValue = .null
+    var box: ViewerBox?
+    @State private var follow = SelectionFollow()
     @Environment(\.horizontalSizeClass) private var size
     /// Widths a person dragged, by column (note 26 slice 3): a column's width is the shell's
     /// (docs/shell-interface.md 13.2.1), kept while the viewer shows this table.
@@ -645,7 +660,7 @@ struct PageGrid: SwiftUI.View {
     private var grid: some SwiftUI.View {
         let w = widths
         // from the leading edge (a two-way scroll view centres content narrower than itself)
-        return GeometryReader { g in ScrollView([.horizontal, .vertical]) {
+        return GeometryReader { g in ScrollViewReader { proxy in ScrollView([.horizontal, .vertical]) {
             LazyVStack(alignment: .leading, spacing: 0, pinnedViews: [.sectionHeaders]) {
                 Section {
                     ForEach(rows) { r in
@@ -657,12 +672,14 @@ struct PageGrid: SwiftUI.View {
                                     .lineLimit(1)
                                     .frame(width: w[i] - 16, alignment: c.numeric ? .trailing : .leading)
                                     .padding(.horizontal, 8)
-                                    .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear)
+                                    .modifier(CellTint(t: r.tint(c.id)))
                                     .textSelection(.enabled)
                             }
                         }
                         .padding(.vertical, 7)
-                        .background(r.id % 2 == 1 ? Color.secondary.opacity(0.06) : Color.clear)
+                        // a selected row marked whole, under its cells (note 26 slice 8)
+                        .background(r.selected ? Color.orange.opacity(0.22) : r.id % 2 == 1 ? Color.secondary.opacity(0.06) : Color.clear)
+                        .id(r.id)
                     }
                 } header: {
                     HStack(spacing: 0) {
@@ -691,6 +708,10 @@ struct PageGrid: SwiftUI.View {
             }
             .padding(.leading, 8)
             .frame(minWidth: g.size.width, minHeight: g.size.height, alignment: .topLeading)
+        }
+        .onScrollPhaseChange { _, phase in if phase == .interacting { follow.personScrolled = true } }
+        .onChange(of: [page["selectionSeq"], page["selectedOnly"]]) { _, _ in if let box { follow.go(page, box: box) { proxy.scrollTo($0, anchor: .top) } } }
+        .onAppear { if let box { follow.go(page, box: box) { proxy.scrollTo($0, anchor: .top) } } }
         } }
         .accessibilityIdentifier(id)
     }
@@ -717,11 +738,12 @@ struct PageGrid: SwiftUI.View {
                             Text(c.name).font(.callout).foregroundStyle(.secondary)
                             Spacer(minLength: 12)
                             Text(cell(r, c)).font(c.numeric ? .body.monospacedDigit() : .body).multilineTextAlignment(.trailing)
-                                .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear).textSelection(.enabled)
+                                .modifier(CellTint(t: r.tint(c.id))).textSelection(.enabled)
                         }
                     }
                 }
                 .padding(.vertical, 2)
+                .listRowBackground(r.selected ? Color.orange.opacity(0.22) : nil)
             }
         }
         .listStyle(.plain)
@@ -790,7 +812,7 @@ struct GridViewer: SwiftUI.View {
                     TableColumnForEach(cols) { c in
                         TableColumn(c.name) { (r: PageRow) in
                             Text(c.id < r.cells.count ? r.cells[c.id] : "").font(.body.monospacedDigit()).frame(maxWidth: .infinity, alignment: .trailing)
-                                .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear)
+                                .modifier(CellTint(t: r.tint(c.id)))
                         }
                         .width(min: 56, ideal: 84)
                     }
@@ -1952,5 +1974,65 @@ public struct MessagesView: SwiftUI.View {
         }
         .onAppear { messages.start() }
         .onDisappear { messages.stop() }
+    }
+}
+
+/// How a table follows its value's selection (note 26 slice 8): a selection that arrives, from this
+/// window or another, is shown (the page holding its first row asked of the core, then that row
+/// scrolled to the top) unless the person has scrolled this table themselves.
+@MainActor
+final class SelectionFollow {
+    var personScrolled = false
+    private var seen: String?
+
+    func go(_ page: JSONValue, box: ViewerBox, scroll: (Int) -> Void) {
+        // a new selection, or Selected Only turned on or off: the rows move, the selection is shown again
+        guard let n = page["selectionSeq"].uint64 else { return }
+        let seq = "\(n)|\(page["selectedOnly"].bool == true)"
+        guard seq != seen else { return }
+        let first = page["firstSelected"]
+        guard let at = first["at"].uint64, !personScrolled else {
+            seen = seq
+            return
+        }
+        if let want = first["page"].uint64, want != (page["page"].uint64 ?? 0) {
+            // another page holds it: ask for that one; this runs again when it arrives
+            let p = box.popout
+            Task { await p.command("viewer.table", ["page": .uint(want)]) }
+            return
+        }
+        seen = seq
+        let start = page["start"].uint64 ?? 0
+        scroll(Int(start + (at - start)))
+        box.describe["followed"] = .uint(at)
+    }
+}
+
+/// Show only the selected rows, or all: on and off plainly different (a filled check, a prominent
+/// button, when on).
+struct SelectedOnlyButton: SwiftUI.View {
+    let box: ViewerBox
+    let on: Bool
+
+    var body: some SwiftUI.View {
+        // its own colours, not the control's tint (an inactive window greys a prominent button)
+        Button { set(!on) } label: {
+            Label("Selected Only", systemImage: on ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(on ? Color.white : Color.primary)
+                .padding(.horizontal, 8).padding(.vertical, 3)
+                .background(Capsule().fill(on ? Color.orange : Color.secondary.opacity(0.12)))
+                .overlay(Capsule().strokeBorder(on ? Color.orange : Color.secondary.opacity(0.4), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .controlSize(.small)
+        .font(.caption)
+        .accessibilityIdentifier("table-selected-only")
+        .accessibilityValue(on ? "on" : "off")
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+
+    private func set(_ v: Bool) {
+        let p = box.popout
+        Task { await p.command("viewer.table", ["selectedOnly": .bool(v)]) }
     }
 }

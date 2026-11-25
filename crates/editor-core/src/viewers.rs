@@ -386,7 +386,13 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
     let spec = plumcraft_session::chart_cmds::spec_of(session.graph(), &w.node, &w.port);
     let sel = session.views.selections.get(&format!("{}.{}", w.node, w.port));
     let mut out = match part {
-        "table" => table(d, media, &o.state, sel, spec.as_ref()),
+        "table" => {
+            let mut t = table(d, media, &o.state, sel, spec.as_ref());
+            if sel.is_some() && t.get("cells").is_some() {
+                t["selectionSeq"] = json!(session.views.selection_seq);
+            }
+            t
+        }
         "tree" => tree(d, media, &o.state),
         "yaml" => yaml(d, media),
         "chart" | "hit" => {
@@ -487,6 +493,12 @@ fn table(d: &Display, media: &MediaService, st: &ViewerState, sel: Option<&Selec
         _ => order,
     };
     let rows = order.as_ref().filter(|_| st.table_selected_only && mask.is_some()).map_or(t.rows as u64, |o| o.len() as u64);
+    // where the first selected row is in the order shown, and on which page: a shell's table
+    // goes there when a selection arrives (from this window or another)
+    let first_selected = mask.as_ref().and_then(|m| {
+        let at_row = |i: u64| order.as_ref().map_or(Some(i), |o| o.get(i as usize).map(|r| u64::from(*r)));
+        (0..rows).find_map(|i| at_row(i).filter(|r| m.get(*r as usize).copied().unwrap_or(false)).map(|r| (i, r)))
+    });
     let pages = rows.div_ceil(TABLE_PAGE).max(1);
     let page = st.page.min(pages - 1);
     let start = page * TABLE_PAGE;
@@ -519,7 +531,8 @@ fn table(d: &Display, media: &MediaService, st: &ViewerState, sel: Option<&Selec
         mask.as_ref().map(|m| index.iter().map(|r| json!(r.as_u64().and_then(|r| m.get(r as usize).copied()).unwrap_or(false))).collect());
     let mut out = json!({"columns": columns, "rows": rows, "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start,
            "sort": st.sort, "desc": st.desc, "index": index, "cells": cells, "colored": st.table_colored,
-           "selectedOnly": st.table_selected_only && mask.is_some(), "selectedRows": chosen, "allRows": t.rows});
+           "selectedOnly": st.table_selected_only && mask.is_some(), "selectedRows": chosen, "allRows": t.rows,
+           "firstSelected": first_selected.map(|(at, row)| json!({"at": at, "page": at / TABLE_PAGE, "row": row}))});
     if let Some(f) = flags {
         out["selected"] = Value::Array(f);
     }
