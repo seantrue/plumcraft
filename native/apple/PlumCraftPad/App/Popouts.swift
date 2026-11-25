@@ -46,6 +46,10 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
     private var asWindow: Set<UInt64> = []
     /// The one shown in a sheet.
     private(set) var sheet: (id: UInt64, nav: UINavigationController, vc: PopoutViewController)?
+    /// Pop-outs a newer one replaced in the sheet, newest last: still open in the core (their range,
+    /// their chart, their place in the value), each shown again when the one over it closes or
+    /// when it is raised (a value's second window beside its first, note 26 slice 8).
+    private(set) var behind: [UInt64] = []
     var onChange: (() -> Void)?
     static let live = NSHashTable<PadPopouts>.weakObjects()
 
@@ -120,13 +124,14 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
 
     private func showSheet(_ m: PopoutModel) {
         guard let host else { return }
+        behind.removeAll { $0 == m.id }
         if let s = sheet, s.id != m.id {
-            // one value at a time in a sheet: the one it replaces closes in the core too
-            let old = s.id
+            // one value at a time in a sheet: the one it replaces goes behind it, still open in
+            // the core, and comes back when this one closes
             sheet = nil
+            behind.append(s.id)
             host.coreWindows?.willBeReplaced(s.nav)
             (s.nav.presentingViewController ?? s.nav).dismiss(animated: false)
-            Task { await models[old]?.close() }
         }
         if sheet?.id == m.id { return }
         let vc = PopoutViewController(popout: m, pictures: pictures)
@@ -141,6 +146,7 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
                 (s.nav.presentingViewController ?? s.nav).dismiss(animated: !CoreHost.options.scratchState)
             }
             Task { await m.close() }
+            showBehind()
             onChange?()
         })
         vc.navigationItem.rightBarButtonItem?.accessibilityIdentifier = "popout-done"
@@ -150,6 +156,7 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
             sheet.map { $0.nav.presentingViewController ?? $0.nav }?.dismiss(animated: true)
             sheet = nil
             openScene(m.id)
+            showBehind()
         }
         // a window of its own only where there are windows (not on an iPhone, N4 slice 6)
         if UIApplication.shared.supportsMultipleScenes {
@@ -188,10 +195,23 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
             UIApplication.shared.requestSceneSessionDestruction(s, options: nil) { _ in }
             bringGraphForward()
         }
+        behind.removeAll { $0 == id }
         if let s = sheet, s.id == id, let host {
             sheet = nil
             host.coreWindows?.willBeReplaced(s.nav)
             Presentations.whenSettled(from: host) { (s.nav.presentingViewController ?? s.nav).dismiss(animated: true) }
+            showBehind()
+        }
+    }
+
+    /// The sheet closed: the pop-out it had replaced, if one is still open, shown again.
+    private func showBehind() {
+        guard sheet == nil else { return }
+        while let id = behind.popLast() {
+            if let m = models[id], scenes[id] == nil {
+                showSheet(m)
+                return
+            }
         }
     }
 
@@ -200,6 +220,7 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         guard let s = sheet, pc.presentedViewController === s.nav else { return }
         sheet = nil
         Task { await models[s.id]?.close() }
+        showBehind()
         onChange?()
     }
 
@@ -209,12 +230,13 @@ final class PadPopouts: NSObject, UIAdaptivePresentationControllerDelegate {
         if let n = sheet?.nav { host?.coreWindows?.willBeReplaced(n) }
         sheet.map { $0.nav.presentingViewController ?? $0.nav }?.dismiss(animated: false)
         sheet = nil
+        behind = []
     }
 
     var describe: JSONValue {
         .array(models.values.sorted { $0.id < $1.id }.map { m in
             var o: [String: JSONValue] = ["id": .uint(m.id), "title": .string(m.window.title), "viewer": m.value?.viewer.map(JSONValue.string) ?? .null,
-                                          "shown": .string(scenes[m.id] != nil ? "scene" : (sheet?.id == m.id ? "sheet" : "none")),
+                                          "shown": .string(scenes[m.id] != nil ? "scene" : (sheet?.id == m.id ? "sheet" : behind.contains(m.id) ? "behind" : "none")),
                                           "node": .string(m.window.node), "port": .string(m.window.port),
                                           // whether its bar offers Recipe (the value has one: a lineage-tracking engine's)
                                           "hasRecipe": .bool(m.value?.hasRecipe == true)]
