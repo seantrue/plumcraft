@@ -114,3 +114,66 @@ fn browse_field_and_editor_rows_each_take_their_own_tap() {
     assert_eq!(last(&t), Some(("node.editor".into(), true)), "{t}");
     assert_eq!(t["commands"].as_array().unwrap().last().unwrap()["params"], json!({"node": n}), "the member's");
 }
+
+/// B173: a node naming the core's mask editor on a path input (an application's "edit an
+/// intermediate" node): its row is a path field with a Browse button and a caption drawn as a
+/// link. A shell measures the row from its caption to its field's end; a tap on the caption opens
+/// the editor (before, the caption was not part of the row and a tap only selected the node), the
+/// Browse square still browses; the node's menu offers "Edit Mask…" (before, the C ABI's shells
+/// passed no editors, so the item was never there), and the row says the same words.
+#[test]
+fn a_path_row_naming_the_mask_editor_opens_it_by_its_caption_and_the_menu() {
+    let catalog = serde_json::from_value(json!({"nodes": [{"id": "t.edit", "display": "Edit",
+        "editor": {"kind": "mask", "port": "mask"},
+        "inputs": [{"name": "image", "type": "ARRAY", "socket": "socket"},
+                   {"name": "mask", "type": "STRING", "default": "", "path": {"mode": "save", "filters": []}}],
+        "outputs": [{"name": "out", "type": "ARRAY"}]}]}))
+    .unwrap();
+    let mut d = Document::new(Session::new(catalog));
+    let n = execute(&mut d, "node.add", &json!({"kind": "t.edit", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+    let sc = plumcraft_editor_core::control::Shell::scene(&d).unwrap();
+    let row = sc.nodes.iter().find(|f| f.id == n).unwrap().inputs.iter().find(|r| r.key == "mask").unwrap().clone();
+    let e = row.editor.as_ref().expect("the row opens the editor");
+    assert_eq!((e.kind.as_str(), e.label.as_str()), ("mask", "Edit Mask…"), "the core's own editor's words");
+    assert!(row.widget.is_some(), "and keeps its path field");
+    // the menu, as a native shell's (the C ABI document's facts)
+    let facts = plumcraft_editor_core::control::Shell::menu_facts(&d);
+    let items = plumcraft_editor_core::menu::context(
+        &plumcraft_editor_core::menu::Parts::of(&d.session),
+        &facts,
+        &plumcraft_editor_core::menu::Context::Node { node: plumcraft_graph::NodeId::from(n.as_str()) },
+    );
+    let item = items.iter().find(|i| i.command.as_deref() == Some("node.editor")).expect("Edit Mask… in the node's menu");
+    assert_eq!(item.label, "Edit Mask…");
+    // measured as the Apple and Windows shells now do: the caption (x 10) to the field's end (250)
+    execute(
+        &mut d,
+        "geometry.set",
+        &json!({"faces": [{"node": n, "size": [260, 90], "header": 28, "pins": {"in": [43, 65], "out": [43]},
+                           "rows": [null, [10, 56, 250, 74]]}]}),
+    )
+    .unwrap();
+    let last = |t: &Value| t["commands"].as_array().and_then(|c| c.last()).map(|c| (c["command"].as_str().unwrap_or("").to_owned(), c["ok"] == true));
+    let t = gesture(&mut d, json!({"kind": "tap", "at": [30, 65], "slop": 1}));
+    assert_eq!(last(&t), Some(("node.editor".into(), true)), "the caption: {t}");
+    execute(&mut d, "node.editor", &json!({"node": n, "open": false})).ok();
+    assert_eq!(last(&gesture(&mut d, json!({"kind": "tap", "at": [241, 65], "slop": 1}))).map(|c| c.0), Some("row.browse".into()), "the Browse square");
+    // wired, the value isn't the editor's: no item
+    let mut d2 = Document::new(Session::new(
+        serde_json::from_value(json!({"nodes": [{"id": "t.edit", "display": "Edit",
+        "editor": {"kind": "mask", "port": "mask"},
+        "inputs": [{"name": "mask", "type": "STRING", "default": "", "socket": "both"}], "outputs": [{"name": "out", "type": "STRING"}]},
+        {"id": "t.src", "display": "Src", "inputs": [], "outputs": [{"name": "out", "type": "STRING"}]}]}))
+        .unwrap(),
+    ));
+    let a = execute(&mut d2, "node.add", &json!({"kind": "t.src", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+    let b = execute(&mut d2, "node.add", &json!({"kind": "t.edit", "pos": [300, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+    execute(&mut d2, "wire.connect", &json!({"from": {"node": a, "port": "out"}, "to": {"node": b, "port": "mask"}})).unwrap();
+    let facts = plumcraft_editor_core::control::Shell::menu_facts(&d2);
+    let items = plumcraft_editor_core::menu::context(
+        &plumcraft_editor_core::menu::Parts::of(&d2.session),
+        &facts,
+        &plumcraft_editor_core::menu::Context::Node { node: plumcraft_graph::NodeId::from(b.as_str()) },
+    );
+    assert!(!items.iter().any(|i| i.command.as_deref() == Some("node.editor")));
+}

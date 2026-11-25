@@ -110,6 +110,24 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         }
     }
 
+    /// B173: a row whose value has an editor and a widget (a path field naming the mask editor)
+    /// is measured from its caption to its widget's end, so a tap on the caption (drawn as a
+    /// link) reaches the core as the row; a row with only a widget stays its widget's rect.
+    @Test func aRowWithAnEditorAndAWidgetIsMeasuredFromItsCaption() throws {
+        var f = try #require(try fixtureScene().nodes.first { n in n.view.word != .collapsed && FaceLayout.make(n).widgets.contains { $0 != nil } })
+        let k = try #require(FaceLayout.make(f).widgets.firstIndex { $0 != nil })
+        let plain = FaceLayout.make(f)
+        let w = try #require(plain.widgets[k])
+        let before = try #require(plain.measure(face: f.nid, rev: f.rev).rows[k])
+        #expect(abs(before.x0 - Double(w.minX)) < 0.01, "a widget alone: its own rect")
+        f.inputs[k].editor = try JSONValueDecoder().decode(RowOpens.self, from: Data(#"{"kind": "mask", "label": "Edit Mask…", "hover": "Paint the mask"}"#.utf8))
+        let L = FaceLayout.make(f)
+        let o = try #require(L.opens[k], "the caption is what a tap lands on")
+        let r = try #require(L.measure(face: f.nid, rev: f.rev).rows[k])
+        let wk = try #require(L.widgets[k])
+        #expect(abs(r.x0 - Double(o.minX)) < 0.01 && abs(r.x1 - Double(wk.maxX)) < 0.01, "caption to the widget's end: \(r)")
+    }
+
     /// FR5: a row with a section gets the header above it, its own row and pin pushed down by the
     /// header's height; the rows before it don't move.
     @Test func aPromotedRowsSectionHeaderIsDrawnAboveIt() throws {

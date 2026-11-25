@@ -1166,11 +1166,25 @@ impl<'a> NodeViewer<'a> {
                 let blank = self.catalog.text(plumcraft_proto::catalogue::texts::BLANK_VALUE);
                 // A value nobody changed stays quiet, and one somebody did stands out: a label's
                 // own colour is already the dim one.
-                let rich = if face.dim { egui::RichText::new(label) } else { egui::RichText::new(label).color(self.tokens.text) };
+                // a value its node names an editor for (B173): the caption is a link to it, as on
+                // the native shells (its field and Browse keep their own jobs here)
+                let opens = face.editor.as_ref().filter(|_| !proxy);
+                let rich = if opens.is_some() {
+                    egui::RichText::new(label).color(self.tokens.accent)
+                } else if face.dim {
+                    egui::RichText::new(label)
+                } else {
+                    egui::RichText::new(label).color(self.tokens.text)
+                };
                 let current = face.widget.as_ref().map_or(Value::Null, |w| w.value.clone());
                 ui.horizontal(|ui| {
                     Self::named_tag(ui, face.named.as_ref(), self.tokens);
                     let r = caption(ui, rich, label, hover);
+                    if let Some(e) = opens
+                        && r.interact(egui::Sense::click()).on_hover_text(&e.hover).clicked()
+                    {
+                        self.actions.push(("node.editor", json!({"node": node_id})));
+                    }
                     self.input_menu(&r, &at, port);
                     let key = (node_id.clone(), row.key.clone());
                     let start = ui.cursor().min;
