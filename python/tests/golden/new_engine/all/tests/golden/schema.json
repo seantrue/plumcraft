@@ -163,6 +163,35 @@
         "Building blocks",
         "Sequences"
       ],
+      "description": "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.",
+      "display": "Flatten",
+      "flags": {
+        "input_list": true,
+        "nested_input": true
+      },
+      "id": "seq.flatten",
+      "inputs": [
+        {
+          "name": "list",
+          "socket": "socket",
+          "tooltip": "A list of lists",
+          "type": "ANY"
+        }
+      ],
+      "outputs": [
+        {
+          "list": true,
+          "name": "list",
+          "socket": "socket",
+          "type": "ANY"
+        }
+      ]
+    },
+    {
+      "category": [
+        "Building blocks",
+        "Sequences"
+      ],
       "description": "Every combination of the items of a, b (and c), as one list of tuples, the first varying slowest. A single value goes with every item. Unzip splits the tuples again.",
       "display": "Outer Join",
       "flags": {

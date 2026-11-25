@@ -331,7 +331,11 @@ def test_a_raising_item_is_an_op_error_naming_the_item():
     assert r["nodes"]["b"]["error"] == {"kind": "op", "message": "item 2 of 2: ZeroDivisionError: no"}
 
 
-def test_a_node_returning_lists_per_run_gives_one_flat_labelled_list():
+def test_a_node_returning_lists_per_run_keeps_each_runs_list_and_flatten_joins_them():
+    """Nested lists (spec 7.6 rule 2, `lists.nested`): a node mapped over a list that returns a list
+    each run gives a list of lists, one a run; Flatten joins them back into today's flat list,
+    each item labelled with its run and its own label (this test pinned the flat rule before)."""
+
     class Pair(Node):
         definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
 
@@ -339,10 +343,34 @@ def test_a_node_returning_lists_per_run_gives_one_flat_labelled_list():
             return {"out": List([inputs["a"], -inputs["a"]], labels=["plus", "minus"])}
 
     e = engine().with_node(Pair())
-    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2"}}, "p": {"kind": "t.pair"}}
-    r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a")], ["p"], [{"node": "p", "port": "out"}])
-    assert out(r, "p", "out") == [1, -1, 2, -2]
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2"}}, "p": {"kind": "t.pair"}, "f": {"kind": "seq.flatten"}}
+    wires = [("v", "values", "p", "a"), ("p", "out", "f", "list")]
+    r, _ = go_with(e, exec.Memo(), nodes, wires, ["p", "f"], [{"node": "f", "port": "list"}])
+    assert out(r, "p", "out") == [[1, -1], [2, -2]]
+    assert r["nodes"]["p"]["outputs"]["out"]["axes"] == [["v.values", 2]]
+    assert all(i["axes"] == [["p.out", 2]] for i in r["nodes"]["p"]["outputs"]["out"]["items"])
+    assert out(r, "f", "list") == [1, -1, 2, -2]
     assert [c["label"] for c in r["watch"][0]["sheet"]] == ["a 1 · plus", "a 1 · minus", "a 2 · plus", "a 2 · minus"]
+
+
+def test_slices_and_whole_list_ports_work_inside_each_run():
+    """An index slice takes one item of each run's list; a range slice cuts each; a whole-list port
+    runs once per run; a tuple (a list without an axis) is a value, not a level."""
+
+    class Pair(Node):
+        definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
+
+        def run(self, inputs, cx):
+            return {"out": List([inputs["a"], 10 * inputs["a"]])}
+
+    e = engine().with_node(Pair())
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2, 3"}}, "p": {"kind": "t.pair"}, "q": {"kind": "t.pair"}, "s": {"kind": "t.sum"}}
+    r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a"), ("p", "out", "q", "a|1"), ("p", "out", "s", "xs")], ["q", "s"])
+    assert out(r, "q", "out") == [[10, 100], [20, 200], [30, 300]], "slice 1 inside each run, then mapped"
+    assert out(r, "s", "sum") == [11.0, 22.0, 33.0], "a whole-list port once per run"
+    pts = {"x": {"kind": "vary.range2d", "values": {"start_x": 0.0, "stop_x": 1.0, "start_y": 0.0, "stop_y": 1.0, "num": 2}}, "f": {"kind": "seq.flatten"}}
+    r, _ = go_with(e, exec.Memo(), pts, [("x", "xy", "f", "list")], ["f"])
+    assert out(r, "f", "list") == [0.0, 0.0, 1.0, 1.0], "points are tuples: one level, joined once"
 
 
 def test_short_number():
