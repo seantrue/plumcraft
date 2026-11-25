@@ -291,15 +291,15 @@ mod tests {
 </shelf>"#;
 
     fn text_display(excerpt: &str) -> Display {
-        Display { media: Media::Text, renditions: vec![Rendition::Excerpt { text: excerpt.into(), offset: 0, total_chars: 0, lines: 0 }], ..Default::default() }
+        let mut d = Display::default();
+        (d.media, d.renditions) = (Media::Text, vec![Rendition::Excerpt { text: excerpt.into(), offset: 0, total_chars: 0, lines: 0 }]);
+        d
     }
 
     fn blob_display(media: &str, kind: Media) -> Display {
-        Display {
-            media: kind,
-            full: Some(DataRef { meta: BlobMeta { media: media.into(), ..Default::default() }, ..Default::default() }),
-            ..Default::default()
-        }
+        let mut d = Display::default();
+        (d.media, d.full) = (kind, Some(DataRef { meta: BlobMeta { media: media.into(), ..Default::default() }, ..Default::default() }));
+        d
     }
 
     #[test]
@@ -325,10 +325,11 @@ mod tests {
             assert!(!accepts(&text_display(not)), "{not:?}");
         }
         assert!(
-            !accepts(&Display {
-                media: Media::Text,
-                renditions: vec![Rendition::Excerpt { text: "<a/>".into(), offset: 10, total_chars: 0, lines: 0 }],
-                ..Default::default()
+            !accepts(&{
+                let mut x = Display::default();
+                x.media = Media::Text;
+                x.renditions = vec![Rendition::Excerpt { text: "<a/>".into(), offset: 10, total_chars: 0, lines: 0 }];
+                x
             }),
             "the middle of a value"
         );

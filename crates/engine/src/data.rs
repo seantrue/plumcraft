@@ -137,7 +137,7 @@ impl Plane<'_> {
             _ => return None,
         };
         let data = self.array_ref(t).ok()?;
-        Some(Rendition::Rgba8 { data, w, h, role: role.into(), caption: caption.into(), summary: String::new(), items: 0 })
+        Some(Rendition::rgba8(data, w, h).with_role(role).with_caption(caption))
     }
 
     /// A table (columnar JSON) as a blob.
@@ -175,7 +175,10 @@ impl Plane<'_> {
             Data::Json(v) if media == Media::Table && json_len(v) > self.max_inline => as_blob(self.table_ref(v), "TABLE"),
             Data::Json(v) if media == Media::Tree && json_len(v) > self.max_inline => as_blob(self.json_ref(v), "JSON"),
             Data::Json(v) => PortValue::Json { value: v.clone() },
-            Data::List(l) => PortValue::List { items: l.items.iter().map(|i| self.port_value(media, i)).collect(), axes: Vec::new() },
+            Data::List(l) => PortValue::list_with_axes(
+                l.items.iter().map(|i| self.port_value(media, i)).collect(),
+                l.axes.iter().map(|(n, k)| (n.clone(), *k as u64)).collect(),
+            ),
         }
     }
 }

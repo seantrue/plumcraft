@@ -468,7 +468,11 @@ mod tests {
     #[test]
     fn the_cores_default_viewer_is_this_registrys_first() {
         for media in [Media::Image, Media::Vector, Media::Doc, Media::Ndarray, Media::Audio, Media::Table, Media::Text, Media::Scalar, Media::Tree] {
-            let d = Display { media, ..Default::default() };
+            let d = {
+                let mut x = Display::default();
+                x.media = media;
+                x
+            };
             let ours = kinds_for(&d).first().map(|k| k.id);
             assert_eq!(ours, Some(plumcraft_editor_core::values::default_viewer(&d)), "{media:?}");
         }
@@ -498,7 +502,12 @@ mod tests {
         for media in all {
             for full in [false, true] {
                 for value in [None, Some(serde_json::json!([[1, 2], [3, 4]])), Some(serde_json::json!({"a": 1}))] {
-                    let mut d = Display { media, value, ..Default::default() };
+                    let mut d = {
+                        let mut x = Display::default();
+                        x.media = media;
+                        x.value = value;
+                        x
+                    };
                     if full {
                         d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
                     }
@@ -513,11 +522,13 @@ mod tests {
             }
         }
         // the interchange formats (note 26 slice 4): a value typed text/csv, a TEXT that is SVG
-        let mut csv = Display { media: Media::Bytes, ..Default::default() };
+        let mut csv = Display::default();
+        csv.media = Media::Bytes;
         let mut r = DataRef::default();
         r.meta.media = "text/csv".into();
         csv.full = Some(r);
-        let svg = Display { media: Media::Text, value: Some(serde_json::json!("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")), ..Default::default() };
+        let mut svg = Display::default();
+        (svg.media, svg.value) = (Media::Text, Some(serde_json::json!("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")));
         for d in [csv, svg] {
             let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).collect();
             let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d).into_iter().map(|(id, _)| id).collect();

@@ -169,11 +169,13 @@ fn doc_apps() -> Vec<plumcraft_session::DocApp> {
 /// craft's documents (PdfCraft's PDFs: pages). Without one, a pop-out opens the app.
 fn has_own_view(wire: &str, media: &str, app: &str) -> bool {
     use plumcraft_proto::data::{BlobMeta, DataRef, Form};
-    let d = plumcraft_proto::display::Display {
-        media: plumcraft_proto::catalogue::Media::Doc,
-        ty: wire.to_owned(),
-        full: Some(DataRef { meta: BlobMeta { media: media.to_owned(), form: Form::Doc { app: app.to_owned() }, ..Default::default() }, ..Default::default() }),
-        ..Default::default()
+    let d = {
+        let mut x = plumcraft_proto::display::Display::default();
+        x.media = plumcraft_proto::catalogue::Media::Doc;
+        x.ty = wire.to_owned();
+        x.full =
+            Some(DataRef { meta: BlobMeta { media: media.to_owned(), form: Form::Doc { app: app.to_owned() }, ..Default::default() }, ..Default::default() });
+        x
     };
     plumcraft_ui::viewers::kinds_for(&d).iter().any(|k| !matches!(k.id, "doc" | "hex"))
 }

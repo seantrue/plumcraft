@@ -41,6 +41,8 @@ pub mod known {
     pub const EDITOR_MASK: &str = "editor.mask";
     pub const CODEC_JSON: &str = "codec.json";
     pub const CODEC_MSGPACK: &str = "codec.msgpack";
+    /// A step run once per item keeps each run's list as one item (spec 7.6 rule 2).
+    pub const LISTS_NESTED: &str = "lists.nested";
 
     /// Listed by the engine alone: on when the engine lists it (spec 5.3, "Who lists it").
     pub const ENGINE_ONLY: &[&str] = &[
@@ -60,6 +62,7 @@ pub mod known {
         OUTPUT_SAVE_QUESTION,
         EDITOR_CURVES,
         EDITOR_MASK,
+        LISTS_NESTED,
     ];
 
     /// Is this a pack operation's capability (`x.<pack>.<op>`)? Those are engine-only too.
@@ -118,6 +121,10 @@ impl Caps {
 
     pub fn insert(&mut self, cap: impl Into<String>) {
         self.0.insert(cap.into());
+    }
+
+    pub fn remove(&mut self, cap: &str) {
+        self.0.remove(cap);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &str> {

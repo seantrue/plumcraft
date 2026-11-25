@@ -117,3 +117,11 @@ B159 put `zoomAsk` in `popout.get` but left `zoom_seq` out of the pop-out's `sta
 - Mac launch (`mac-launch-s10.py`, `s10-mac/faces.png`): To Bytes' face a line, Histogram's columns, Random Points' points, Mandelbrot its picture; captions line, columns, points. Looked at. Seen: the whole offscreen window picture was upside down (every face's text mirrored top to bottom); nothing here touched the Mac shell, so it looks like the shell's offscreen capture of the document window, not this change. Library unchanged.
 - Python SDK: not ported (note 26 12.3 says how it would get it).
 - Disk: 22 GB free at the start (others' use); I thinned the Mac's local Time Machine snapshots (standing OK), 48 GB after; cleaned my debug profile at 17 GB free (16.8 GB).
+
+## Merge of `feat/native-n0` (nested lists slices 2 to 8) into views slice 10 (branch `feat/views-s10b`)
+
+- Conflicts: `docs/interface.md` 10.3's `rgba8` row (kept both: a list's `items` and `levels`, and the chart's face thumbnail); `AI.md` and `docs/STATUS.md` (every entry from both sides, newest first). `docs/BUGS.md` merged by itself.
+- No compile breaks: `chart_thumb` already went through `plane.rgba8`. New SDK test `a_list_of_series_shows_its_first_chart_with_its_levels`: a list of 1-D arrays shows its first item's line (no levels); a list of two lists of three shows the line with `items` 2 and `levels` [2, 3].
+- Gate on the merge: whole workspace 1,759 passed, 1 failed (`hidden_params_match_the_baseline`, known); Python 253 passed and the known `test_hash_is_what_was_asked`; fmt, clippy clean; core gate ok; private strings none; Mac conformance 85 of 85 none skipped; Swift tests 128 passed; schema staleness test passed (no schema change).
+- B168: the merged build's offscreen document picture (`s10b-mac/faces.png`) is upside down the same way. I have no build from before slice 10 to picture; by the code, `LayerCanvas.snapshot` (which flips only when `host.isGeometryFlipped` is false, while the Mac view sets it on `root`) and the screenshot ask have not changed since N3 slice 3 (`950bb7d`, 2026-11-20), and slice 10 touched no Swift: it predates slice 10.
+- Disk: thinned local snapshots at 28 GB free (standing OK), cleaned my debug profile after the workspace run at 14 GB free (18.5 GB).

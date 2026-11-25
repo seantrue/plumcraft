@@ -155,7 +155,7 @@ A port value in a reply, snapshot or event is one of:
 
 Protocol 1's `{array: ArrayRef, meta}`, `{list: […]}` and `{type}` map to `blob`, `list` and `opaque`.
 
-A list's `axes` (optional; capability `lists.nested`, section 7.6 rule 2) names how its items vary, outermost first: each `[name, length]`, the lengths multiplying to the item count. An axis is named where a list is made (`<node>.<port>`, or the names a node gives its outputs so they zip), so two lists that share an axis zip and two that don't form a product, across an engine border as inside one engine. Absent or empty, the list is one anonymous axis; malformed entries are dropped, and axes whose lengths don't multiply to the item count are read as absent. **Status:** specified, not built; no engine writes or reads `axes` yet, and a list crossing a border arrives as one anonymous axis.
+A list's `axes` (optional; capability `lists.nested`, section 7.6 rule 2) names how its items vary, outermost first: each `[name, length]`, the lengths multiplying to the item count. An axis is named where a list is made (`<node>.<port>`, or the names a node gives its outputs so they zip), so two lists that share an axis zip and two that don't form a product, across an engine border as inside one engine. Absent or empty, the list is one anonymous axis; malformed entries are dropped, and axes whose lengths don't multiply to the item count are read as absent. **Status:** both SDKs write and read `axes` (nested lists, slices 2 and 3); an engine on neither (an application's own, the research software) not yet.
 
 ### 4.6 A missing blob is a state
 
@@ -256,7 +256,7 @@ Engine → UI:
 | `output.save.question` | engine | A person's save (`ask`) may be answered with a `question` instead of a file (section 15) | Every save writes |
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
-| `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2) | Today's rule: a step run once per item joins its runs' lists into one flat list |
+| `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5), a watch's `path` and a display's `path` and `levels` (sections 10.2, 10.4). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2). In the Rust SDK an engine that runs graphs with its own core (`Engine::with_core`) lists it only when it declares it (`with_cap("lists.nested")`) | Today's rule: a step run once per item joins its runs' lists into one flat list |
 | `x.<pack>.<op>` | engine | A pack operation exists (`x.vi.export`, `x.vi.deliver`) | The pack's UI is hidden with a reason |
 | `codec.msgpack` | both | Reserved | JSON |
 
@@ -387,7 +387,7 @@ Every protocol 1 field stays with its meaning (F8–F23): `id, display, category
 | `memo` | `{scope, device_sensitive: bool, content: bool, persist: bool}`, scope one of `none`, `session`, `machine`, `global` (section 14.4); `content` asks for a content key (section 14.3); `persist` marks a node eligible for persistence (section 14.5) | absent → `machine`; `content` false; `persist` true for checkpoint-markable nodes |
 | `editor` | `{kind, port, interpolant?}`, kind `curves`, `mask` or a pack kind; for `curves`, `interpolant` names the curve maths (VI: `monotone_cubic`) and the engine ships its sample fixture | `"curves"` → `{kind:"curves", port: <the CURVES input>, interpolant: "monotone_cubic"}`; `"mask"` → `{kind:"mask", port:"mask"}` |
 | `export` | `{markable: bool, mark: "checkpoint", x: {…}}` opaque to core | `codegen{expr, imports, checkpointable}` → `export{markable: checkpointable, x.vi.codegen: {expr, imports}}` |
-| `flags` | as today, plus `bundle_port: "<name>"` and `result: true` | `bundle_port` defaults to `"settings"` on VI nodes with a SETTINGS input; `result` set on `vi.op.result` |
+| `flags` | as today, plus `bundle_port: "<name>"`, `result: true` and `nested_input: true` (takes nested lists whole, section 7.6 rule 2) | `bundle_port` defaults to `"settings"` on VI nodes with a SETTINGS input; `result` set on `vi.op.result` |
 | `x` | pack fields: `x.vi.code`, `x.vi.helpers`, `x.vi.picture` | Python's `code`, `helpers`, `picture` move here and pass through unchanged |
 | `engines` | Optional. In a catalogue merged from several engines by a coordinator (`docs/research/15-multi-engine.md`), the ids of the engines that offer the kind, the one that runs it by default first; a kind several engines offer appears once, its definition from the first. A single engine leaves it out | absent |
 | `converts` | Optional. One mark or a list of them (a craft's Open takes a picture, an SVG or a PDF), each `{from, to, input?, output?, lossless?, from_shape?, to_shape?}`: the node turns a value of type `from` into one of type `to` (`docs/research/20-convert.md`). `input` names the wire-only input that takes the `from` (default: the first of that type), `output` the output that gives the `to` (default: the first of that type); `lossless` says the inverse gives the value back. `from_shape` and `to_shape` say what an ARRAY end is, `image` (H, W[, C]), `series` (1-D, or frames × channels, or a table's rows × columns) or `video` (T, H, W, C): a path never gives an array of one shape to a step that wants another, so Audio to Array never leads to Encode Image; an array whose shape nobody says goes any way. A mark whose `from` is `ANY` takes any value and is a **last resort**: a path uses it only when there is no other, and only as its first step (the array engine's To Bytes, any value as its bytes). A mark that names a port the node lacks, a port of another type, `ANY` as its `to`, or the same type twice is ignored, as is one that doesn't read; it never fails the catalogue. An optional field like `editor`: a UI that doesn't know it ignores it, so it needs no capability. Craft packs mark every export (document → file type) and every Open (picture, SVG or PDF → document), none lossless. The SDKs: `@node(converts=True, lossless=…, shape=…)` or `converts=("WAV", "AUDIO")` in Python (`shape` is the ARRAY end's); `NodeDef.converts = vec![Converts::new(from, to, lossless)]` in Rust, with `.input(…)`, `.from_shape(…)` and `.to_shape(…)` | absent |
@@ -443,18 +443,20 @@ The UI types graphs exactly as engines run them. These rules are normative for e
 
 1. Topological order; cycles are a graph error (`kind: graph`).
 2. **Lists** (F20, F61): a `list: true` port takes or makes whole lists. A list into a single-item port maps the node over the list. Lists zip along a shared axis and form a product over different axes; a length mismatch on one axis is a node error.
-   - **Nested lists** (capability `lists.nested`; research note 27, decided 2026-11-24). **Status: specified, not built.** No engine lists `lists.nested` yet: every executor still joins the lists a step makes run by run into one flat list (today's rule, kept until each engine changes). The rules below are the contract for that change; the corpus's vectors marked `needs: ["lists.nested"]` check them once an engine lists the capability.
+   - **Nested lists** (capability `lists.nested`; research note 27, decided 2026-11-24). **Status: built in the Rust and Python SDKs** (every engine on them lists `lists.nested`) **and the coordinator** (its refusal, below), in the core (`run.item`'s path, a face's counts per level) and in the shells (a run stepper and an item stepper in the egui panel and the Apple and Windows pop-outs, decision 6A; the face's count "3 × 2 items"); not yet in an application's own engine or the research software, which still join a step's lists run by run into one flat list. The corpus's vectors marked `needs: ["lists.nested"]` hold each engine to these rules once it lists the capability.
    - *When a list is nested.* A step that runs once per item and makes a list each run keeps each run's list as one item: its output is a list over the runs (the runs' axes) of lists (its own axis, `<node>.<port>`). A step that makes one item a run gives a list over the runs, as today.
    - *Mapping.* A list into a port that takes one item maps the step over it, as today; a nested level maps too when it carries an axis, so a step fed a list of lists runs once per inner item and keeps both levels in its output. An item that is a list with no axis (a tuple, such as Vary Range 2D's points) is a value, not a level, and is passed whole.
    - *Several list inputs* combine per level as today: they zip along an axis they share and form a product over axes they don't; the runs of a product are one level with several axes, not a level per axis.
-   - *Whole-list ports.* A port that takes a whole list (`list: true`, or the node's `input_list`) fed a list of lists runs the step once per outer item, with that item's list whole.
-   - *Flatten.* A building block, Flatten, joins a nested list back into one flat list, for a graph that wants today's result. Not yet specified further.
+   - *Whole-list ports.* A port that takes a whole list (`list: true`, or the node's `input_list`) fed a list of lists runs the step once per item of every outer level, with the innermost list whole. A node that takes nested lists whole says so with `flags.nested_input` (Flatten): no level of its inputs is mapped over. A whole-list input that brings a sweep its sibling whole-list inputs don't, beside one they share (a product made upstream: a step run once per scale and once per run of a range), is regrouped as a list over its own sweeps of lists over the shared one, so the step runs once per item of its own sweeps, each with the shared sweep whole; an input none of whose sweeps a sibling shares, or all of whose sweeps they share, is taken whole as before (vector 11).
+   - *Flatten* (`seq.flatten`, a building block): joins a list of lists one level into one list, each item labelled with its run and its own label, for a graph that wants today's result (one level, kind `seq.flatten`).
+   - *Depth.* Lists nest at most 8 levels; deeper is the node's `config` error.
    - *Memo.* An engine that lists `lists.nested` changes its salt, so no result made under the flat rule is read as a nested one.
-   - *Across engines.* A coordinator doesn't join an engine that lists `lists.nested` with one that doesn't across a border: the run is refused as a graph error naming both engines (which runs exactly: below). A list crosses with its `axes` (section 4.5).
-   - *Not yet decided* (to settle before the first engine builds it): how a whole-list port is fed three or more levels; whether the coordinator refuses every border between disagreeing engines or only wires that can carry a list; whether Flatten joins one level or all, and its kind; a limit on how deep lists may nest.
+   - *Across engines.* A coordinator doesn't join an engine that lists `lists.nested` with one that doesn't across a border: any run (and any save) with a border between them is refused before it starts, as a graph error naming the wire and both engines, "This graph can't run: the wire from a.out to b.in goes from engine text to engine x, and engine text keeps a list per run … while engine x joins them into one list …". The coordinator reads each engine's `lists.nested` from its `hello`. A list crosses with its `axes` (section 4.5).
+   - *Seeing one.* A watch's `path` picks the item within run `index` a level at a time, and the display gives the place it showed (`path`) and each level's count along the way (`levels`); its summary says "run 2 of 3 · item 2 of 2 (labels): …". A node thumbnail of a list of lists (`rgba8`) gives `items` and each level's count (`levels`) for the face's "3 × 2" (sections 10.2 to 10.4).
+   - *Decided:* the points first assumed while the maintainer was away (2026-11-24) were confirmed as built on 2026-11-25 (research note 27, N1 to N15): among them, an inner level maps only when it carries an axis, and the runs of a product are one level with several axes (above).
 3. **Wire slices** (F21): Python slice or index syntax (`2`, `-1`, `1:4`, `::2`), parsed identically on both sides (`crates/proto/fixtures/slices.json`); part of the memo key and of stale reasons. A range keeps a list a list, an index takes one item; slicing a single value, an empty result or an index out of range is the node's `config` error. A wire between engines is sliced by the coordinator, since a binding replaces the wire.
-   - *With nested lists* (`lists.nested`, rule 2; **specified, not built**): a slice applies to the level the wire's source made. A step that ran once per item and made a list each run is sliced inside each run (an index takes one item of each run's list, a range keeps each run's list, cut); a list made in one run (a Vary node's, a step's own) is sliced as today. The coordinator slices a wire between engines the same way.
-4. **Variadic inputs** (F14) arrive as `{slot: value | absent}`: each wired slot (`c1`, `c2`, … from the template `c{n}`, or one of `names`) is an input under its own name; a variadic port with `min` ≥ 1 and no slot wired is a `config` error. (Rust executor; the Python one has no variadic nodes yet.)
+   - *With nested lists* (`lists.nested`, rule 2; built in both SDKs and the coordinator): a slice applies to the level the wire's source made. A step that ran once per item and made a list each run is sliced inside each run (an index takes one item of each run's list, a range keeps each run's list, cut); a list made in one run (a Vary node's, a step's own) is sliced as today. The coordinator slices a wire between engines the same way.
+4. **Variadic inputs** (F14) arrive as `{slot: value | absent}`: each wired slot (`c1`, `c2`, … from the template `c{n}`, or one of `names`) is an input under its own name, so a list into a slot maps the node as a list into a port does (rule 2); a variadic port with `min` ≥ 1 and no slot wired is a `config` error. (Rust executor; the Python one has no variadic nodes yet.)
 5. **Parameter precedence** (F43): a wire into the port, then the incoming bundle on `bundle_port`, then the node's widget, then blank. Memo keys use resolved values, never provenance.
 6. **Absent values** (F34): an absent input (an `ExecutionBlocker`, a missing channel) skips downstream nodes without an error.
 7. **Errors as data**: a failing node is `error` with `{kind: config|op, message, type}`; downstream nodes are `skipped`.
@@ -696,7 +698,7 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 
 ```json
 {"media": "ndarray", "type": "ARRAY", "node": "n7", "port": "value",
- "items": 7, "index": 2,
+ "items": 7, "index": 2, "path": [], "levels": [],
  "summary": "array Lab 812×808×3 float32",
  "full": <DataRef>,
  "view": {"id": "heat", "params": {}},
@@ -718,13 +720,14 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 - `stats` carries histograms inline, as today (F50). `value` carries a scalar.
 - `recipe` is REQUIRED from engines that track lineage (F56; the local engine must add it, plan G2), and only those send one (the maintainer, 2026-11-22: recipes stay with lineage-tracking engines; the SDKs and built-in engines send none). A viewer offers its Recipe only for a value that has one (`popout.get`'s `hasRecipe`; `viewer.recipe` answers `{recipe: null}` otherwise). In the Rust SDK a node that tracks lineage puts its recipe among its outputs under `_recipe` (`exec::RECIPE_KEY`, not a port), and every display of the node carries it; the test engine's `ports.traced` does.
 - `sheet` (≤ 64 items at 256 px) when the watch request asked for it (F55).
+- `path` and `levels` (`lists.nested`, section 7.6 rule 2; absent for a list that isn't nested): a list of lists shows the item the watch's `path` picks within item `index`, a level at a time, each clamped into its level (negative from the end, the first when the path stops short); `path` is the place it showed, and `levels` each level's count along the way, outermost first (`levels[0]` is `items`). The sheet still lists the outer items.
 - Inline budgets: a Display on a `preview` record may be up to `limits.max_display_inline` (64 KiB local, 16 KiB remote), which holds a Lab display with four 256-bin histograms and four renditions (about 6–10 KB, to be measured with the Lab fixture in G6); other status-event payloads ≤ 4 KiB; ≤ 64 KiB in replies. Above the budget, the engine moves `stats` into a JSON blob DataRef and keeps the rest inline.
 
 ### 10.3 Renditions
 
 | Kind | Payload | Used by |
 |---|---|---|
-| `rgba8` | DataRef to (h, w, 4) `u1`, ≤ requested px | Image, every fallback, page rasters, spectrogram pictures, mesh turntables, a chart's face thumbnail (the Rust SDK draws an array the core plots as that chart, its kind the `caption`) |
+| `rgba8` | DataRef to (h, w, 4) `u1`, ≤ requested px; a node thumbnail of a list also `items` and, for a list of lists, `levels` (each level's count, outermost first) | Image, every fallback, page rasters, spectrogram pictures, mesh turntables, a chart's face thumbnail (the Rust SDK draws an array the core plots as that chart, its kind the `caption`) |
 | `peaks` | Inline or DataRef: (levels, channels, bins, 2) min/max | Audio waveform, 1-D plots, thumbs |
 | `spectrogram` | DataRef to (frames, bins) f32 dB + `hop`, `fft`, `rate` | Audio |
 | `excerpt` | Inline text ≤ 4 KiB + `offset`, `total_chars`, `lines` | Text thumbs, paging |
@@ -736,7 +739,7 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 ### 10.4 WatchRequest
 
 ```json
-{"node": "n3", "port": "audio", "index": 0, "sheet": false,
+{"node": "n3", "port": "audio", "index": 0, "path": [], "sheet": false,
  "view": {"id": "auto", "params": {}},
  "want": [{"kind": "peaks", "px": 1600, "t0": 0.0, "t1": 12.5},
           {"kind": "spectrogram", "fft": 2048, "hop": 512},
@@ -745,6 +748,8 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 ```
 
 `px` is a request the viewer raises for 1:1 work: an engine sends view renditions at most that on their long side, up to what it can (the SDK, 4096), so a pixel of the picture can be a pixel of the array. A rerun for it is all memo hits.
+
+`path` (`lists.nested`, at most 8 levels; absent or empty: each level's first item) picks the item within item `index` of a list of lists, a level at a time, negative from the end (section 10.2).
 
 `want` defaults per media kind; an engine that cannot make a derivative omits it, and the UI computes it from `full` if it can or shows the summary. The `ndarray` default is today's request: one `rgba8` per channel view, histograms, `full`.
 

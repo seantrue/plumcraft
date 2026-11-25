@@ -239,7 +239,7 @@ impl Node for Choices {
                 ..Default::default()
             }],
             outputs: vec![list_out("values", "STRING")],
-            flags: NodeFlags { vary_choices: true, ..Default::default() },
+            flags: NodeFlags::default().with_vary_choices(true),
             ..Default::default()
         }
     }

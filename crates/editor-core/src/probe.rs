@@ -450,7 +450,11 @@ mod tests {
 
     #[test]
     fn a_value_that_cant_be_read_says_so_and_gives_no_number() {
-        let d = Display { full: Some(Default::default()), ..Default::default() };
+        let d = {
+            let mut x = Display::default();
+            x.full = Some(Default::default());
+            x
+        };
         let Source::Unreadable(why) = source_of(&d, None, true) else { panic!("a source without bytes") };
         assert!(why.contains("blob.range"), "{why}");
         let r = reading(&source_of(&d, None, true), (3, 4));

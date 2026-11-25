@@ -331,7 +331,11 @@ def test_a_raising_item_is_an_op_error_naming_the_item():
     assert r["nodes"]["b"]["error"] == {"kind": "op", "message": "item 2 of 2: ZeroDivisionError: no"}
 
 
-def test_a_node_returning_lists_per_run_gives_one_flat_labelled_list():
+def test_a_node_returning_lists_per_run_keeps_each_runs_list_and_flatten_joins_them():
+    """Nested lists (spec 7.6 rule 2, `lists.nested`): a node mapped over a list that returns a list
+    each run gives a list of lists, one a run; Flatten joins them back into today's flat list,
+    each item labelled with its run and its own label (this test pinned the flat rule before)."""
+
     class Pair(Node):
         definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
 
@@ -339,10 +343,34 @@ def test_a_node_returning_lists_per_run_gives_one_flat_labelled_list():
             return {"out": List([inputs["a"], -inputs["a"]], labels=["plus", "minus"])}
 
     e = engine().with_node(Pair())
-    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2"}}, "p": {"kind": "t.pair"}}
-    r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a")], ["p"], [{"node": "p", "port": "out"}])
-    assert out(r, "p", "out") == [1, -1, 2, -2]
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2"}}, "p": {"kind": "t.pair"}, "f": {"kind": "seq.flatten"}}
+    wires = [("v", "values", "p", "a"), ("p", "out", "f", "list")]
+    r, _ = go_with(e, exec.Memo(), nodes, wires, ["p", "f"], [{"node": "f", "port": "list"}])
+    assert out(r, "p", "out") == [[1, -1], [2, -2]]
+    assert r["nodes"]["p"]["outputs"]["out"]["axes"] == [["v.values", 2]]
+    assert all(i["axes"] == [["p.out", 2]] for i in r["nodes"]["p"]["outputs"]["out"]["items"])
+    assert out(r, "f", "list") == [1, -1, 2, -2]
     assert [c["label"] for c in r["watch"][0]["sheet"]] == ["a 1 · plus", "a 1 · minus", "a 2 · plus", "a 2 · minus"]
+
+
+def test_slices_and_whole_list_ports_work_inside_each_run():
+    """An index slice takes one item of each run's list; a range slice cuts each; a whole-list port
+    runs once per run; a tuple (a list without an axis) is a value, not a level."""
+
+    class Pair(Node):
+        definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
+
+        def run(self, inputs, cx):
+            return {"out": List([inputs["a"], 10 * inputs["a"]])}
+
+    e = engine().with_node(Pair())
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2, 3"}}, "p": {"kind": "t.pair"}, "q": {"kind": "t.pair"}, "s": {"kind": "t.sum"}}
+    r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a"), ("p", "out", "q", "a|1"), ("p", "out", "s", "xs")], ["q", "s"])
+    assert out(r, "q", "out") == [[10, 100], [20, 200], [30, 300]], "slice 1 inside each run, then mapped"
+    assert out(r, "s", "sum") == [11.0, 22.0, 33.0], "a whole-list port once per run"
+    pts = {"x": {"kind": "vary.range2d", "values": {"start_x": 0.0, "stop_x": 1.0, "start_y": 0.0, "stop_y": 1.0, "num": 2}}, "f": {"kind": "seq.flatten"}}
+    r, _ = go_with(e, exec.Memo(), pts, [("x", "xy", "f", "list")], ["f"])
+    assert out(r, "f", "list") == [0.0, 0.0, 1.0, 1.0], "points are tuples: one level, joined once"
 
 
 def test_short_number():
@@ -617,3 +645,65 @@ def test_rows_to_table():
     for bad in (7, [1, 2], {"rows": []}):
         with pytest.raises(NodeError):
             rows_table(bad)
+
+
+def test_a_watched_list_of_lists_shows_the_item_its_path_asks_for():
+    """A watched list of lists shows the item `path` asks for inside run `index`, says where it is a
+    level at a time, and gives each level's count (as the Rust SDK does)."""
+
+    class Pair(Node):
+        definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
+
+        def run(self, inputs, cx):
+            return {"out": List([inputs["a"], 10 * inputs["a"]])}
+
+    e = engine().with_node(Pair())
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2, 3"}}, "p": {"kind": "t.pair"}}
+
+    def watch(index, path):
+        r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a")], ["p"], [{"node": "p", "port": "out", "index": index, "path": path}])
+        return r["watch"][0]
+
+    d = watch(1, [1])
+    assert (d["items"], d["index"], d["path"], d["levels"], d["value"]) == (3, 1, [1], [3, 2], 20)
+    assert d["summary"].startswith("run 2 of 3 · item 2 of 2"), d["summary"]
+    d = watch(-1, [])
+    assert (d["index"], d["path"], d["value"]) == (2, [0], 3)
+    assert watch(0, [-1])["value"] == 10
+    assert watch(0, [9, 9, 9])["path"] == [1]
+    # a list that isn't nested says nothing of levels
+    r, _ = go_with(e, exec.Memo(), nodes, [], ["v"], [{"node": "v", "port": "values", "path": [1]}])
+    assert "path" not in r["watch"][0] and "levels" not in r["watch"][0]
+
+
+def test_a_whole_list_input_with_a_sweep_of_its_own_runs_once_per_item_of_it():
+    """Vector 11's wiring (the report's graph): a range of 5 into a step that makes 2 a run, the
+    slice 1, a step with a variadic input run once per scale and once per run (a product of 15 over
+    two sweeps, through its slots), and Zip taking the masks and the scales whole. The masks bring
+    the runs' sweep, which the scales don't: Zip runs once per run, each with its 3 (assumed, to be
+    confirmed)."""
+
+    class Join(Node):
+        definition = {
+            "id": "t.join",
+            "inputs": [{"name": "c", "type": "STRING", "variadic": {"template": "c{n}", "names": [], "min": 1, "max": 4}}],
+            "outputs": [{"name": "text", "type": "STRING"}],
+        }
+
+        def run(self, inputs, cx):
+            return {"text": " ".join(str(inputs[k]) for k in sorted(inputs) if k.startswith("c"))}
+
+    e = engine().with_node(Join())
+    nodes = {
+        "r": {"kind": "vary.range", "values": {"start": 1.0, "stop": 5.0, "num": 5, "endpoint": True}},
+        "s": {"kind": "vary.range", "values": {"start": 10.0, "num": 2, "endpoint": True}},
+        "k": {"kind": "vary.range", "values": {"start": 1.0, "stop": 3.0, "num": 3, "endpoint": True}},
+        "m": {"kind": "t.join"},
+        "z": {"kind": "seq.zip"},
+    }
+    wires = [("r", "values", "s", "stop"), ("s", "values", "m", "c1|1"), ("k", "values", "m", "c2"), ("m", "text", "z", "a"), ("k", "values", "z", "b")]
+    r, _ = go_with(e, exec.Memo(), nodes, wires, ["z", "m"])
+    assert len(out(r, "m", "text")) == 15, "lists into a variadic input's slots map as lists into ports do"
+    z = out(r, "z", "tuples")
+    assert [len(run) for run in z] == [3] * 5
+    assert z[1] == [["2.0 1.0", 1.0], ["2.0 2.0", 2.0], ["2.0 3.0", 3.0]]

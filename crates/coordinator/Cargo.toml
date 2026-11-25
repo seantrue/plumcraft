@@ -25,5 +25,6 @@ plumcraft-engine = { path = "../engine" }
 plumcraft-audio = { path = "../audio" }
 plumcraft-craft = { path = "../craft" }
 plumcraft-text = { path = "../text" }
+plumcraft-ports = { path = "../ports" }
 plumcraft-store = { path = "../store" }
 commonkit = { workspace = true, features = ["testing"] }

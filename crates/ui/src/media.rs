@@ -923,7 +923,14 @@ mod tests {
     fn the_views_follow_the_display_and_fall_back_to_the_rendition() {
         let ctx = egui::Context::default();
         let mut views = MediaViews::default();
-        let d = Display { media: Media::Vector, node: "s".into(), port: "svg".into(), summary: "svg".into(), ..Default::default() };
+        let d = {
+            let mut x = Display::default();
+            x.media = Media::Vector;
+            x.node = "s".into();
+            x.port = "svg".into();
+            x.summary = "svg".into();
+            x
+        };
         let blob = Arc::new(Blob { dtype: "|u1".into(), shape: vec![SVG.len() as u64], bytes: (SVG.as_bytes().to_vec()).into() });
         let start = std::time::Instant::now();
         while views.svg.raster().is_none() {
@@ -943,7 +950,11 @@ mod tests {
         }
         assert_eq!(views.svg.renders, 2);
         // a broken SVG: the rendition, with why
-        let bad = Display { summary: "bad".into(), ..d.clone() };
+        let bad = {
+            let mut x = d.clone();
+            x.summary = "bad".into();
+            x
+        };
         let junk = Arc::new(Blob { bytes: b"<svg".to_vec().into(), ..(*blob).clone() });
         while views.svg.inspect()["state"] != "fallback" {
             assert!(start.elapsed() < std::time::Duration::from_secs(10));

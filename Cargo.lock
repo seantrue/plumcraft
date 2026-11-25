@@ -3007,6 +3007,7 @@ dependencies = [
  "plumcraft-craft",
  "plumcraft-engine",
  "plumcraft-host",
+ "plumcraft-ports",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-store",

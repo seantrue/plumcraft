@@ -252,6 +252,35 @@
    }
   },
   {
+   "id": "seq.flatten",
+   "display": "Flatten",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.",
+   "inputs": [
+    {
+     "name": "list",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A list of lists"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "list",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true,
+    "nested_input": true
+   }
+  },
+  {
    "id": "seq.outer",
    "display": "Outer Join",
    "category": [

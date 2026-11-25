@@ -19,7 +19,9 @@ fn watched(recipe: Option<Value>) -> Harness<'static, EditorApp> {
     s.connected = true;
     s.execute("run.watch", &json!({"node": node})).unwrap();
     let port = s.run.panel().unwrap().0.port.clone();
-    s.run.set_display(WatchRole::Panel, Some(Display { node, port, media: Media::Text, summary: "a value".into(), recipe, ..Default::default() }));
+    let mut d = Display::new(node, port);
+    (d.media, d.summary, d.recipe) = (Media::Text, "a value".into(), recipe);
+    s.run.set_display(WatchRole::Panel, Some(d));
     let mut h = harness(EditorApp::new(s));
     h.run_steps(4);
     h
