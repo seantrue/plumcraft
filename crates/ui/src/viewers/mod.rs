@@ -67,6 +67,9 @@ pub struct ViewInput<'a> {
     /// `viewer.select`, note 26 slice 8).
     pub chart_range: plumcraft_session::chart_view::ChartRange,
     pub selection: Option<&'a plumcraft_session::chart_view::Selection>,
+    /// A pop-out's histogram (FR6), the core's (`viewer.histogram`, kept in the graph's meta):
+    /// `(spec, log)`; `None`: every value in the default bins.
+    pub histogram: Option<&'a (Value, bool)>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -169,6 +172,14 @@ fn builtin() -> Vec<ViewerKind> {
         ViewerKind { id: "doc", label: "Document", accepts: |d| media_is(d, &[Media::Doc]), make: || Box::new(wrap::Doc::default()), panel_builtin: true },
         // an (N, k) table of positions plots first; its numbers stay a tab away
         ViewerKind { id: "array.plot", label: "Plot", accepts: plot::accepts, make: || Box::new(plot::TablePlot::default()), panel_builtin: false },
+        // every value of a numeric array binned (FR6), where the core offers it
+        ViewerKind {
+            id: "view.histogram",
+            label: "Histogram",
+            accepts: plot::accepts_histogram,
+            make: || Box::new(plot::Histogram::default()),
+            panel_builtin: false,
+        },
         ViewerKind {
             id: "array.pictures",
             label: "Pictures",
@@ -283,6 +294,8 @@ pub struct Pane {
     /// Its chart range and its value's selection ([`ViewInput::chart_range`]).
     pub chart_range: plumcraft_session::chart_view::ChartRange,
     pub selection: Option<plumcraft_session::chart_view::Selection>,
+    /// A pop-out's histogram, the core's ([`ViewInput::histogram`]).
+    pub histogram: Option<(Value, bool)>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -352,6 +365,7 @@ impl Pane {
             chart: self.chart.as_ref(),
             chart_range: self.chart_range,
             selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -422,6 +436,7 @@ impl Pane {
             chart: self.chart.as_ref(),
             chart_range: self.chart_range,
             selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -444,6 +459,7 @@ impl Pane {
             chart: self.chart.as_ref(),
             chart_range: self.chart_range,
             selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);

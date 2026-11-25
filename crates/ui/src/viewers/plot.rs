@@ -373,3 +373,88 @@ pub fn paint(ui: &egui::Ui, rect: egui::Rect, list: &Value, tokens: &Tokens) {
         }
     }
 }
+
+/// Whether the Histogram viewer shows `d`: what the core offers (FR6).
+pub fn accepts_histogram(d: &Display) -> bool {
+    plumcraft_editor_core::viewers::offered(d).iter().any(|(id, _)| *id == "view.histogram")
+}
+
+/// Every value of a numeric array binned (FR6, note 30): the pop-out's kept histogram
+/// (`viewer.histogram`), else every value in the default bins, made from the bytes the editor
+/// holds (`plumcraft-views`, the editor's own deriver) and laid out by the core
+/// ([`plumcraft_editor_core::viewers::histogram_list`]), as the native shells draw it.
+#[derive(Default)]
+pub struct Histogram {
+    /// The value and spec the view was made for, and the view.
+    made: Option<(String, Value, Result<Value, String>)>,
+    list: Option<(Value, (u32, u32))>,
+    seen: String,
+}
+
+impl Histogram {
+    fn spec(v: &ViewInput<'_>) -> (Value, bool) {
+        v.histogram.cloned().unwrap_or_else(|| (json!({"kind": "histogram", "params": {}}), false))
+    }
+
+    fn list_at(&mut self, v: &ViewInput<'_>, size: egui::Vec2) -> Result<&Value, String> {
+        let want = (size.x.round().max(1.0) as u32, size.y.round().max(1.0) as u32);
+        let (spec, log) = Self::spec(v);
+        let (_, _, made) = self.made.as_ref().ok_or("no numbers yet")?;
+        let made = made.clone()?;
+        let seen = format!("{:?}{log}{spec}", v.chart_range);
+        if self.list.as_ref().is_none_or(|(_, s)| *s != want) || self.seen != seen {
+            self.seen = seen;
+            let l = plumcraft_editor_core::viewers::histogram_list(&made, &spec, log, (f64::from(want.0), f64::from(want.1)), v.chart_range)?;
+            self.list = Some((l, want));
+        }
+        self.list.as_ref().map(|(l, _)| l).ok_or_else(|| "no numbers yet".into())
+    }
+}
+
+impl Viewer for Histogram {
+    fn sync(&mut self, _: &egui::Context, v: &ViewInput<'_>) {
+        let (spec, _) = Self::spec(v);
+        let key = key_of(v.display);
+        if self.made.as_ref().is_some_and(|(k, s, _)| *k == key && *s == spec) {
+            return;
+        }
+        let Some(b) = v.full else { return };
+        let made = plumcraft_editor_core::media::service::derive_here(&spec, b);
+        self.made = Some((key, spec, made));
+        self.list = None;
+    }
+
+    fn preview(&mut self, ui: &mut egui::Ui, v: &ViewInput<'_>, max: egui::Vec2, tokens: &Tokens) {
+        let size = egui::vec2(max.x.max(chart::MIN_SIDE as f32), max.y.max(chart::MIN_SIDE as f32));
+        match self.list_at(v, size).cloned() {
+            Ok(list) => {
+                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                paint(ui, rect, &list, tokens);
+            }
+            Err(_) => super::preview_default(ui, v, max, tokens),
+        }
+    }
+
+    fn full(&mut self, ui: &mut egui::Ui, v: &ViewInput<'_>, tokens: &Tokens) -> Vec<Action> {
+        let w = ui.available_width().max(chart::MIN_SIDE as f32);
+        let h = (w * 0.75).clamp(chart::MIN_SIDE as f32, ui.available_height().max(chart::MIN_SIDE as f32));
+        match self.list_at(v, egui::vec2(w, h)).cloned() {
+            Ok(list) => {
+                let line = list["derived"]["caption"].as_str().unwrap_or_default().to_owned();
+                ui.label(egui::RichText::new(line).small().color(tokens.text_dim));
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+                paint(ui, rect, &list, tokens);
+            }
+            Err(e) => {
+                let text = if v.missing { "the values are gone (reaped); rerun to publish them".to_owned() } else { e };
+                ui.label(egui::RichText::new(text).color(tokens.text_dim));
+            }
+        }
+        Vec::new()
+    }
+
+    fn inspect(&self) -> Value {
+        let l = self.list.as_ref().map(|(l, _)| l);
+        json!({"kind": "histogram", "drawn": l.map(|l| l["drawn"].clone()), "derived": l.map(|l| l["derived"].clone())})
+    }
+}

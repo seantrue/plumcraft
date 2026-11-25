@@ -3001,6 +3001,7 @@ dependencies = [
 name = "plumcraft-coordinator"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
  "commonkit",
  "plumcraft-array",
  "plumcraft-audio",
@@ -3095,6 +3096,7 @@ dependencies = [
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-svg",
+ "plumcraft-views",
  "serde",
  "serde_json",
  "tiny_http",
@@ -3158,6 +3160,7 @@ dependencies = [
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-svg",
+ "plumcraft-views",
  "png 0.18.1",
  "rustfft",
  "serde",
@@ -3182,6 +3185,8 @@ dependencies = [
  "base64 0.22.1",
  "commonkit",
  "getrandom 0.3.4",
+ "plumcraft-engine",
+ "plumcraft-media",
  "plumcraft-views",
  "schemars",
  "serde",
@@ -3208,6 +3213,7 @@ dependencies = [
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-text",
+ "plumcraft-views",
  "serde",
  "serde_json",
  "thiserror 2.0.21",

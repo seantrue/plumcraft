@@ -174,6 +174,14 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     out
 }
 
+/// Whether a value is an array of numbers with values to bin (FR6's Histogram).
+pub fn histogrammed(d: &Display) -> bool {
+    d.full.as_ref().is_some_and(|f| match &f.meta.form {
+        Form::Array { dtype, shape, .. } => plumcraft_media::table::Table::fits_array(dtype, &[1]) && shape.iter().all(|n| *n > 0),
+        _ => false,
+    })
+}
+
 /// An array's viewers (FR6): see [`offered`].
 fn offered_array(d: &Display) -> Vec<(&'static str, &'static str)> {
     let (plot, table) = array_views(d);
@@ -199,6 +207,9 @@ fn offered_array(d: &Display) -> Vec<(&'static str, &'static str)> {
         add(table, "table.grid", "Table");
         add(table, "table.chart", "Chart");
     }
+    // every value of a numeric array of any rank, binned (FR6: the maintainer's 3-D array → View As
+    // › Histogram, no node added); an engine's `view.derive` or the editor's own makes it
+    add(histogrammed(d), "view.histogram", "Histogram");
     // an array carried inline as JSON (small) outlines as any JSON does
     add(d.value.as_ref().is_some_and(|v| v.is_object() || v.is_array()), "tree", "Tree");
     add(d.items > 1 && !d.sheet.is_empty(), "items", "Items");
@@ -212,6 +223,7 @@ pub const NATIVE: &[&str] = &[
     "picture",
     "svg",
     "array.plot",
+    "view.histogram",
     "array.pictures",
     "array.grid",
     "audio",
@@ -450,7 +462,13 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
                 _ => plotted && spec.is_none(),
             };
             let range = o.state.chart_range;
-            let mut list = if as_plot { chart(d, media, size, range, sel) } else { table_chart(d, media, spec, size, range, sel) };
+            let mut list = if shown.as_deref() == Some("view.histogram") {
+                histogram_chart(d, media, plumcraft_session::derive_cmds::histogram_of(session.graph(), &w.node, &w.port), size, range)
+            } else if as_plot {
+                chart(d, media, size, range, sel)
+            } else {
+                table_chart(d, media, spec, size, range, sel)
+            };
             if part == "hit" {
                 let at = |k: &str| params.get(k).and_then(Value::as_f64).filter(|f| f.is_finite()).ok_or(format!("hit needs {k}, a point in the chart"));
                 let (x, y) = (at("x")?, at("y")?);
@@ -750,6 +768,70 @@ fn chart(d: &Display, media: &MediaService, size: (f64, f64), range: plumcraft_s
         Ok(v) => v,
         Err(e) => json!({"status": "failed", "error": e}),
     }
+}
+
+/// A Histogram viewer's chart (FR6): every value of the array binned, by the engine that made it
+/// when it answers `view.derive`, else by the editor; drawn as a histogram table's columns (the
+/// `centre`/`count` plot), the counts on a log scale when asked. `derived` says what was made and
+/// by whom (`by`: `engine` or `editor`), and what fell outside the bins (`meta`: NaN, infinities,
+/// below and above).
+fn histogram_chart(d: &Display, media: &MediaService, (spec, log): (Value, bool), size: (f64, f64), range: plumcraft_session::chart_view::ChartRange) -> Value {
+    let Some(full) = d.full.as_ref().filter(|_| histogrammed(d)) else { return json!({"status": "failed", "error": "this value has no numbers to bin"}) };
+    let want = Want::View(plumcraft_media::service::view_id(&spec));
+    let made = match media.view(full, &spec).view() {
+        Fetch::Ready(v) => v,
+        f => return not_ready(&f, full, want),
+    };
+    match histogram_list(&made, &spec, log, size, range) {
+        Ok(l) => l,
+        Err(e) => json!({"status": "failed", "error": e}),
+    }
+}
+
+/// A derived histogram (`{table: {columns: [centre, count, …]}, meta, by}`) laid out as a chart at
+/// `size`: the core's and the egui editor's one drawing of it. `derived` in the list says what
+/// was made and by whom, and what fell outside the bins.
+pub fn histogram_list(made: &Value, spec: &Value, log: bool, size: (f64, f64), range: plumcraft_session::chart_view::ChartRange) -> Result<Value, String> {
+    let col = |name: &str| -> Vec<f64> {
+        made.get("table")
+            .and_then(|t| t.get("columns"))
+            .and_then(Value::as_array)
+            .and_then(|cs| cs.iter().find(|c| c.get("name").and_then(Value::as_str) == Some(name)))
+            .and_then(|c| c.get("values"))
+            .and_then(Value::as_array)
+            .map(|vs| vs.iter().map(|v| v.as_f64().unwrap_or(f64::NAN)).collect())
+            .unwrap_or_default()
+    };
+    let (centre, count) = (col("centre"), col("count"));
+    if centre.is_empty() || centre.len() != count.len() {
+        return Err("the view has no bins".into());
+    }
+    let mut bytes = Vec::with_capacity(centre.len() * 16);
+    for (c, n) in centre.iter().zip(&count) {
+        bytes.extend_from_slice(&c.to_le_bytes());
+        bytes.extend_from_slice(&(if log { n.ln_1p() } else { *n }).to_le_bytes());
+    }
+    let names = vec!["centre".to_owned(), "count".to_owned()];
+    let shape = [centre.len() as u64, 2];
+    let mut list =
+        crate::chart::layout_in(&crate::chart::Kind::Columns(0, 1), &names, "<f8", &shape, &bytes, size, &crate::chart::View { range, selected: None })?;
+    let meta = made.get("meta").cloned().unwrap_or(Value::Null);
+    let n = |k: &str| meta.get(k).and_then(Value::as_u64).unwrap_or(0);
+    let binned: u64 = count.iter().map(|c| if c.is_finite() && *c > 0.0 { *c as u64 } else { 0 }).sum();
+    let outside = [("nan", "NaN"), ("posinf", "+inf"), ("neginf", "-inf"), ("below", "below the range"), ("above", "above it")];
+    let total = outside.iter().fold(binned, |t, (k, _)| t.saturating_add(n(k)));
+    // the shells show this line as it is (the numbers are the core's)
+    let mut caption = format!("{} bins of all {total} values, made by the {}", centre.len(), made.get("by").and_then(Value::as_str).unwrap_or("editor"));
+    for (k, what) in outside {
+        if n(k) > 0 {
+            caption.push_str(&format!("; {} {what}", n(k)));
+        }
+    }
+    if log {
+        caption.push_str("; counts on a log scale");
+    }
+    list["derived"] = json!({"view": spec, "log": log, "by": made.get("by"), "meta": meta, "bins": centre.len(), "values": total, "caption": caption});
+    Ok(list)
 }
 
 /// A mask of `n` rows from their indices.
@@ -1220,14 +1302,14 @@ mod tests {
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
         assert_eq!(
             ids,
-            ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "hex"],
+            ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "view.histogram", "hex"],
             "a histogram plots first, its table next, a chart beside them (FR6)"
         );
         let mut p = DataRef::default();
         p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
         d.full = Some(p);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"], "a picture stays pictures first, and is a table and a chart too");
+        assert_eq!(ids, ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"], "a picture stays pictures first, and is a table and a chart too");
     }
 
     /// FR6 (note 30, "All A"; "In general, it's the user's job to deal with odd, and your job to
@@ -1243,20 +1325,31 @@ mod tests {
             offered(&d).into_iter().map(|x| x.0).collect()
         };
         // a series: plotted first, a one-column table and its chart
-        assert_eq!(offer("<f4", vec![100], vec![], false), ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "hex"]);
+        assert_eq!(
+            offer("<f4", vec![100], vec![], false),
+            ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "view.histogram", "hex"]
+        );
         // a picture of three channels: H×W rows of three columns
-        assert_eq!(offer("<f4", vec![64, 48, 3], vec!["L", "a", "b"], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        assert_eq!(
+            offer("<f4", vec![64, 48, 3], vec!["L", "a", "b"], false),
+            ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"]
+        );
         // a labelled map, an integer plane
-        assert_eq!(offer("<i4", vec![64, 48], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        assert_eq!(offer("<i4", vec![64, 48], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"]);
         // a volume, rank 3 with more planes than a picture takes; rank 4
-        assert_eq!(offer("<f4", vec![10, 32, 200], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
-        assert_eq!(offer("<u2", vec![2, 3, 4, 5], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        assert_eq!(offer("<f4", vec![10, 32, 200], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"]);
+        assert_eq!(offer("<u2", vec![2, 3, 4, 5], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"]);
         // two columns plot as points, unflagged too; the pictures stay first
-        assert_eq!(offer("<f8", vec![500, 2], vec![], false), ["array.pictures", "array.grid", "array.plot", "table.grid", "table.chart", "hex"]);
+        assert_eq!(
+            offer("<f8", vec![500, 2], vec![], false),
+            ["array.pictures", "array.grid", "array.plot", "table.grid", "table.chart", "view.histogram", "hex"]
+        );
         // past the table reader's limits (more columns than it reads): no Table, no Chart
-        assert_eq!(offer("<f4", vec![2, 5000], vec![], false), ["array.pictures", "array.grid", "hex"]);
+        assert_eq!(offer("<f4", vec![2, 5000], vec![], false), ["array.pictures", "array.grid", "view.histogram", "hex"]);
         // not numbers: no table
         assert_eq!(offer("<U8", vec![4], vec![], false), ["array.pictures", "array.grid", "hex"]);
+        // FR6 slice 3: a histogram of every value wherever there are numbers to bin, none of an empty one
+        assert_eq!(offer("<f4", vec![0, 3, 2], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
     }
 
     /// A `text/csv` value's page: read as CSV on the media workers, typed columns, sorted by the core.

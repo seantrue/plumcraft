@@ -31,6 +31,9 @@
 //                            maintainer, 2026-11-21, after a save landed in ~/Documents)
 //   context-pick:NODE:PATH   pick PATH (`Run on/Person Check Text`) in NODE's context menu, the menu a
 //                            secondary click on its face shows
+//   view-as:WINDOW|ITEM      in the window whose title has WINDOW (a pop-out's `s.stack`), View As
+//                            (`viewer-as`) pressed through accessibility and its item ITEM pressed
+//                            in the menu it shows, as VoiceOver or a click does (FR6 slice 3)
 //   open:PATH                open PATH as the Finder and Open Recent do
 //   dock-reopen              what a click on the Dock icon does with no window showing
 
@@ -38,6 +41,25 @@ import AppKit
 import PlumCraftKit
 import PlumCraftModels
 import PlumCraftShell
+
+/// A `view-as` step's state, read and written only on the main run loop (the step's timer and
+/// the step itself): unchecked, as AppKit's accessibility objects aren't Sendable.
+final class ViewAsRun: @unchecked Sendable {
+    let popup: AnyObject
+    let want: String
+    let window: Int
+    var picked = false
+    var pressed = false
+    var items: [String] = []
+    var ticks = 0
+    var missed = false
+    var timer: Timer?
+    init(popup: AnyObject, want: String, window: Int) {
+        self.popup = popup
+        self.want = want
+        self.window = window
+    }
+}
 
 @MainActor
 enum PersonSteps {
@@ -179,6 +201,8 @@ enum PersonSteps {
                 menu = s
             }
             return ["ok": false, "error": "empty path"]
+        case "view-as":
+            return await viewAs(arg)
         case "core-drag":
             // KEY|ID|FX,FY|TX,TY: in the core window KEY (`editor:n`), a mouse drag from fraction
             // (FX, FY) of the element ID's frame (`curves-plot`) to (TX, TY), as a person's: down,
@@ -294,6 +318,102 @@ enum PersonSteps {
         default:
             return nil
         }
+    }
+
+    /// `view-as:WINDOW|ITEM` (FR6 slice 3): View As pressed through accessibility, then, while its
+    /// menu tracks, the item pressed through accessibility. A timer in the common modes (the
+    /// tracking loop runs them) looks for the open menu's item under the pop-up; if the menu never
+    /// shows the item it is closed and the step fails with what it saw.
+    static func viewAs(_ arg: String) async -> [String: JSONValue] {
+        let parts = arg.split(separator: "|", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return ["ok": false, "error": "view-as takes WINDOW|ITEM"] }
+        let (title, want) = (parts[0], parts[1])
+        guard let win = NSApp.windows.first(where: { $0.isVisible && $0.title.contains(title) }) else {
+            return ["ok": false, "error": .string("no window \(title)"), "windows": .array(NSApp.windows.filter(\.isVisible).map { .string($0.title) })]
+        }
+        let candidates = viewAsControls(in: win)
+        var tried: [JSONValue] = []
+        for popup in candidates {
+            let run = ViewAsRun(popup: popup, want: want, window: win.windowNumber)
+            await onRunLoop {
+                win.makeKeyAndOrderFront(nil)
+                let t = Timer(timeInterval: 0.1, repeats: true) { _ in MainActor.assumeIsolated { viewAsTick(run) } }
+                run.timer = t
+                RunLoop.main.add(t, forMode: .common)
+                run.pressed = run.popup.accessibilityPerformPress?() ?? false
+            }
+            // a press that returns before the menu closes: wait for the timer's pick or miss
+            let end = Date().addingTimeInterval(8)
+            while !run.picked, !run.missed, run.ticks <= 60, Date() < end { try? await Task.sleep(nanoseconds: 100_000_000) }
+            await onRunLoop { run.timer?.invalidate() }
+            tried.append(["pressed": .bool(run.pressed), "items": .array(run.items.map { .string($0) })])
+            if run.picked {
+                // what the pop-up shows once the pick took: the item, by its title or its value
+                var shows = ""
+                let until = Date().addingTimeInterval(4)
+                repeat {
+                    try? await Task.sleep(nanoseconds: 150_000_000)
+                    shows = (popup as? NSPopUpButton)?.titleOfSelectedItem ?? ((popup as? NSAccessibilityElement)?.accessibilityValue() as? String) ?? ""
+                } while shows != want && Date() < until
+                return ["ok": .bool(shows == want), "shows": .string(shows), "items": .array(run.items.map { .string($0) }), "tried": .uint(UInt64(tried.count)),
+                        "error": shows == want ? .null : .string("View As shows \(shows), not \(want), after the pick")]
+            }
+            // let the menu that was cancelled close before the next press
+            try? await Task.sleep(nanoseconds: 400_000_000)
+        }
+        return ["ok": false, "error": .string("no pop-up in \(title) offered \(want) to accessibility"), "candidates": .uint(UInt64(candidates.count)), "tried": .array(tried)]
+    }
+
+    /// The window's pop-ups that may be View As, the one carrying its identifier first, then left
+    /// to right as a person reads the bar (SwiftUI keeps the identifier on its own accessibility
+    /// element, and builds a pop-up's menu only when it opens, so which one it is shows only then).
+    static func viewAsControls(in w: NSWindow) -> [AnyObject] {
+        let views = controls(w.contentView)
+        if let v = views.first(where: { $0.accessibilityIdentifier() == "viewer-as" }) { return [v] }
+        if let e = w.contentView.flatMap({ element("viewer-as", in: $0, depth: 0) }) { return [e] }
+        let pops = views.compactMap { $0 as? NSPopUpButton }.filter { !$0.isHidden && $0.window != nil }
+        return pops.sorted { a, b in
+            let (fa, fb) = (a.convert(a.bounds, to: nil), b.convert(b.bounds, to: nil))
+            return fa.maxY != fb.maxY ? fa.maxY > fb.maxY : fa.minX < fb.minX
+        }
+    }
+
+    /// One look for the open menu's item (`view-as`), on the main run loop in any mode.
+    static func viewAsTick(_ run: ViewAsRun) {
+        run.ticks += 1
+        let title = { (o: AnyObject) -> String? in (o.accessibilityTitle?() ?? nil) ?? (o.accessibilityLabel?() ?? nil) }
+        let items = menuItems(under: run.popup)
+        run.items = items.map { title($0) ?? "?" }
+        if let item = items.first(where: { title($0) == run.want }) {
+            // the press's own answer is not the word on it (an item of a menu not shown pressed
+            // answers false and still picks): what the pop-up shows after it is
+            _ = item.accessibilityPerformPress?()
+            run.picked = true
+            run.timer?.invalidate()
+        } else if !items.isEmpty || run.ticks > 60 {
+            run.missed = true
+            // the item never showed: close the menu rather than leave it tracking
+            _ = run.popup.accessibilityPerformCancel?()
+            if let esc = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: run.window,
+                                          context: nil, characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53) {
+                NSApp.postEvent(esc, atStart: false)
+            }
+            run.timer?.invalidate()
+        }
+    }
+
+    /// View As in `w`: the control (SwiftUI's menu picker is an AppKit pop-up button on the Mac)
+    /// carrying the identifier, else the accessibility element that does.
+    /// The menu items an open pop-up shows to accessibility: its children's children that are menu
+    /// items, a few levels down.
+    static func menuItems(under node: AnyObject, depth: Int = 0) -> [AnyObject] {
+        guard depth < 5 else { return [] }
+        var out: [AnyObject] = []
+        for c in node.accessibilityChildren?() ?? [] {
+            let o = c as AnyObject
+            if (o.accessibilityRole?() ?? nil) == .menuItem { out.append(o) } else { out += menuItems(under: o, depth: depth + 1) }
+        }
+        return out
     }
 
     /// The accessibility element with identifier `id` under `node` (the app's own tree, read in

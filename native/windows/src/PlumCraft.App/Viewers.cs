@@ -1041,11 +1041,14 @@ public sealed class ChartViewer : IViewer
     (double w, double h) size;
     PopoutValue? last;
     int reload;
+    readonly string? kind;
 
-    public ChartViewer(PopoutModel pop, bool table)
+    /// <param name="kind">The viewer it is, when not the plot or the table's chart: `view.histogram` (FR6), the core's chart of a value's derived bins.</param>
+    public ChartViewer(PopoutModel pop, bool table, string? kind = null)
     {
         this.pop = pop;
         this.table = table;
+        this.kind = kind;
         foreach (var h in new[] { GridLength.Auto, GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) g.RowDefinitions.Add(new RowDefinition { Height = h });
         g.Children.Add(choices);
         g.Children.Add(note.At(0, 1));
@@ -1100,7 +1103,7 @@ public sealed class ChartViewer : IViewer
         readout.Text = r.Get("hit").Get("text").Str() ?? "";
     }
 
-    public string Kind => table ? "table.chart" : "array.plot";
+    public string Kind => kind ?? (table ? "table.chart" : "array.plot");
     public FrameworkElement View => g;
 
     public async void Update(PopoutValue v)
@@ -1126,7 +1129,8 @@ public sealed class ChartViewer : IViewer
         else
         {
             list = r;
-            note.Text = r.Get("a11y").Get("summary").Str() ?? "";
+            // a histogram of every value says what it binned (FR6): the core's line
+            note.Text = r.Get("derived").Get("caption").Str() ?? r.Get("a11y").Get("summary").Str() ?? "";
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(canvas, r.Get("a11y").Get("title").Str() ?? "Chart");
             Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(canvas, note.Text);
         }

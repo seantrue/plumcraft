@@ -176,6 +176,26 @@ impl Coordinator {
                     None => Err(ProtoError::new(ErrorCode::UnknownOp, format!("no engine offers {:?}", m.chars().take(64).collect::<String>()))),
                 }
             }
+            // a derived view (FR6, spec 10.5): asked of each engine that lists the capability until
+            // one can read the value (an engine refuses one it doesn't hold); the last refusal
+            // otherwise, and the editor derives it itself
+            "view.derive" => {
+                let states = self.states();
+                let mut last = ProtoError::new(ErrorCode::UnknownOp, "no engine offers view.derive");
+                for e in self.engines() {
+                    let offers = states.iter().any(|(id, st)| {
+                        id == &e.id && matches!(st, EngineState::Connected { caps, .. } if caps.has(plumcraft_proto::caps::known::VIEW_DERIVE))
+                    });
+                    if !offers {
+                        continue;
+                    }
+                    match e.conn.call(method, params.clone()) {
+                        Ok(v) => return Ok(v),
+                        Err(err) => last = ProtoError::new(err.code, format!("engine {}: {}", e.id, err.message)),
+                    }
+                }
+                Err(last)
+            }
             // every engine may hold something of this graph; one without the capability refuses
             "graph.release" => {
                 for e in self.engines() {

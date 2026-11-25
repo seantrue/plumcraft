@@ -391,3 +391,53 @@ fn derived_views_never_panic() {
         try_all(j);
     }
 }
+
+/// FR6 slice 3: `view.derive`'s request, as the SDK host parses it (the reference, the view, the
+/// cap on the answer), and a derived view's key as the media service parses it, never panic.
+#[test]
+fn view_derive_requests_never_panic() {
+    use base64::Engine as _;
+    let bytes: Vec<u8> = (0..24u32).flat_map(|i| (i as f32).to_le_bytes()).collect();
+    let handle = plumcraft_proto::handle::Handle::nd1("<f4", &[2, 3, 4], &bytes).unwrap().to_string();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let seed = serde_json::json!({
+        "ref": {"handle": handle, "meta": {"media": "application/x-npy", "size": 96, "form": {"kind": "array", "dtype": "<f4", "shape": [2, 3, 4]}}, "at": [{"kind": "inline", "b64": b64}]},
+        "view": {"kind": "histogram", "params": {"bins": 4, "per": {"axis": 2}}},
+        "max_bytes": 100000
+    });
+    assert!(plumcraft_engine::views::derive(None, &seed).is_ok(), "the seed is answered");
+    let try_one = |text: &str| {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+            let _ = plumcraft_engine::views::derive(None, &v);
+        }
+    };
+    let text = seed.to_string();
+    let chars: Vec<char> = text.chars().collect();
+    for cut in (0..chars.len()).step_by(3) {
+        try_one(&chars[..cut].iter().collect::<String>());
+    }
+    let swaps = ["null", "-1", "1.5e308", "\"x\"", "[]", "{}", "true", "18446744073709551615", "[4294967296, 2]"];
+    let mut paths = Vec::new();
+    collect(&seed, &mut Vec::new(), &mut paths);
+    for path in &paths {
+        for s in swaps {
+            let mut w = seed.clone();
+            if let Some(slot) = pointer_mut(&mut w, path) {
+                *slot = serde_json::from_str(s).unwrap();
+            }
+            try_one(&w.to_string());
+        }
+    }
+    for j in JUNK {
+        try_one(j);
+    }
+    let key = format!("derive:view:{handle}@00000000deadbeef");
+    assert!(plumcraft_media::parse_derived(&key).is_some());
+    let kc: Vec<char> = key.chars().collect();
+    for cut in 0..kc.len() {
+        let _ = plumcraft_media::parse_derived(&kc[..cut].iter().collect::<String>());
+    }
+    for k in ["derive:view:", "derive:view:@", "derive:view:x@zz", "derive:view:x@ffffffffffffffffff", "derive:view:x@-0000000000000001", "derive:view:@@@"] {
+        let _ = plumcraft_media::parse_derived(k);
+    }
+}

@@ -644,6 +644,7 @@ fn describe(handle: &str, want: Want, f: &Fetch<Made>) -> Value {
             v["len"] = json!(o.len() * 4);
         }
         Fetch::Ready(Made::Json(_)) => v["format"] = json!("json"),
+        Fetch::Ready(Made::View(_)) => v["format"] = json!("view"),
         Fetch::Failed(why) => v["reason"] = json!(why),
         // B149: said, so a shell shows why and not only the word
         Fetch::Missing => v["reason"] = json!(MISSING_REASON),
@@ -798,7 +799,7 @@ impl Shared {
             // the order of a table's rows, as little-endian u32s
             Fetch::Ready(Made::Order(o)) => Ok(Lease::Bytes(Arc::new(o.iter().flat_map(|i| i.to_le_bytes()).collect()))),
             // a table or a tree is read through `viewer.data`, never lent as bytes
-            Fetch::Ready(Made::Table(_) | Made::Json(_)) => Err(crate::PLUM_ERR_ARG),
+            Fetch::Ready(Made::Table(_) | Made::Json(_) | Made::View(_)) => Err(crate::PLUM_ERR_ARG),
             Fetch::Pending => Err(crate::PLUM_PENDING),
             Fetch::Missing => Err(crate::PLUM_ERR_MISSING),
             Fetch::Failed(_) => Err(crate::PLUM_ERR_UNREADABLE),
@@ -918,6 +919,14 @@ impl Core {
             }
             let conns = lock(&s.conns).clone();
             conns.iter().find_map(|c| c.resolve(r)).or_else(|| r.handle.as_ref().and_then(|h| s.store.map_handle(h).or_else(|| s.store.read_handle(h))))
+        })));
+        // derived views (FR6): asked of the engines that answer `view.derive`, the first that has
+        // the value; none: the editor makes the view itself
+        let weak = Arc::downgrade(&shared);
+        shared.media.set_deriver(Some(Arc::new(move |r: &DataRef, spec: &Value| {
+            let s = weak.upgrade()?;
+            let conns = lock(&s.conns).clone();
+            conns.iter().find_map(|c| plumcraft_editor_core::values::derive_through(c.as_ref(), r, spec))
         })));
         let to_core = tx.clone();
         shared.media.set_wake(Some(Arc::new(move || {

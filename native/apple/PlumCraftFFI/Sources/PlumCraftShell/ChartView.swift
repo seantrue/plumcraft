@@ -371,6 +371,10 @@ struct ChartTools: SwiftUI.View {
                 Text("\(n) selected").font(.caption.monospacedDigit()).foregroundStyle(.orange)
                 Button("Clear Selection") { run("viewer.select", ["clear": true]) }.accessibilityIdentifier("chart-clear-selection")
             }
+            // what a histogram of every value binned (FR6): the core's line
+            if let c = list["derived"]["caption"].string {
+                Text(c).font(.caption.monospacedDigit()).foregroundStyle(.secondary).lineLimit(1).accessibilityIdentifier("chart-derived")
+            }
             if box.value?.viewer == "table.chart", let v = box.value {
                 // the table beside the chart: a second window of the value, sharing its selection
                 Button("Open Table") {

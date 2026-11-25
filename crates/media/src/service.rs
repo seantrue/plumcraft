@@ -64,6 +64,18 @@ pub type Resolve = Arc<dyn Fn(&DataRef) -> Option<Blob> + Send + Sync>;
 /// Something arrived: ask again. Called on a worker thread, with no payload.
 pub type Wake = Arc<dyn Fn() + Send + Sync>;
 
+/// A derived view through the engine link (FR6, spec 10.5: `view.derive` of the engine that made
+/// the value, when it lists the capability): `None` when no engine answers, and the editor makes
+/// it itself (`plumcraft-views`). Called only on a worker, like [`Resolve`].
+pub type Derive = Arc<dyn Fn(&DataRef, &Value) -> Option<Result<Value, String>> + Send + Sync>;
+
+/// The version of the editor's own views, in a derived view's identity (note 30: the derived
+/// value is named by its source, its canonical spec and its deriver's version).
+pub const VIEWS_VERSION: &str = "plumcraft-views/1";
+
+/// The most view specs remembered for [`Want::View`] keys.
+const MAX_VIEW_SPECS: usize = 4096;
+
 /// What to make of a value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Want {
@@ -89,6 +101,8 @@ pub enum Want {
     Sorted(u16, bool),
     /// A JSON value parsed, for an outline (N4 slice 5).
     Json,
+    /// A derived view (FR6), by its spec's identity ([`view_id`]); asked by [`MediaService::view`].
+    View(u64),
 }
 
 impl Want {
@@ -106,6 +120,7 @@ impl Want {
             Want::Table => "table".into(),
             Want::Sorted(c, desc) => format!("sorted@{c}{}", if desc { "d" } else { "a" }),
             Want::Json => "json".into(),
+            Want::View(h) => format!("view@{h:016x}"),
         }
     }
 
@@ -129,6 +144,9 @@ pub enum Made {
     Order(Arc<Vec<u32>>),
     /// A JSON value ([`Want::Json`]), and the bytes it was read from.
     Json(Arc<Value>),
+    /// A derived view ([`Want::View`]): `{table, meta, by}` or `{array, b64, by}`, `by` being
+    /// `engine` or `editor`.
+    View(Arc<Value>),
 }
 
 impl Made {
@@ -141,7 +159,7 @@ impl Made {
             Made::Table(t) => t.bytes(),
             Made::Order(o) => o.len() * 4 + 32,
             // a parsed tree is several times its text: counted as such
-            Made::Json(v) => json_bytes(v),
+            Made::Json(v) | Made::View(v) => json_bytes(v),
         }
     }
 }
@@ -205,6 +223,9 @@ impl Fetch<Made> {
     }
     pub fn json(self) -> Fetch<Arc<Value>> {
         self.and(|m| if let Made::Json(v) = m { Some(v) } else { None })
+    }
+    pub fn view(self) -> Fetch<Arc<Value>> {
+        self.and(|m| if let Made::View(v) = m { Some(v) } else { None })
     }
     fn and<U>(self, f: impl FnOnce(Made) -> Option<U>) -> Fetch<U> {
         match self {
@@ -358,6 +379,9 @@ struct St {
     frame: u64,
     epoch: u64,
     resolver: Option<Resolve>,
+    deriver: Option<Derive>,
+    /// The specs of the views asked for, by [`view_id`].
+    views: HashMap<u64, Arc<Value>>,
     wake: Option<Wake>,
     threads: usize,
     stop: bool,
@@ -380,6 +404,7 @@ impl Drop for Owner {
         st.stop = true;
         st.queue.clear();
         st.resolver = None;
+        st.deriver = None;
         st.wake = None;
         drop(st);
         self.0.cv.notify_all();
@@ -430,6 +455,8 @@ impl MediaService {
             frame: 0,
             epoch: 0,
             resolver: None,
+            deriver: None,
+            views: HashMap::new(),
             wake: None,
             threads: 0,
             stop: false,
@@ -453,6 +480,25 @@ impl MediaService {
         let mut st = lock(&self.inner().st);
         st.config.budget = budget;
         evict(&mut st);
+    }
+
+    /// How derived views are asked of the engines (FR6): none, the editor makes every one.
+    pub fn set_deriver(&self, deriver: Option<Derive>) {
+        lock(&self.inner().st).deriver = deriver;
+    }
+
+    /// A derived view of `r` (FR6, note 30): `spec` is `{kind, params?}`, checked when it is made.
+    /// Asked of the engine that made the value when it answers `view.derive`, else made here.
+    pub fn view(&self, r: &DataRef, spec: &Value) -> Fetch<Made> {
+        let id = view_id(spec);
+        {
+            let mut st = lock(&self.inner().st);
+            if st.views.len() >= MAX_VIEW_SPECS && !st.views.contains_key(&id) {
+                st.views.clear();
+            }
+            st.views.insert(id, Arc::new(spec.clone()));
+        }
+        self.get(r, Want::View(id))
     }
 
     /// How values are read: the engine link's `resolve` (none: no engine). A new link cancels
@@ -646,13 +692,16 @@ impl MediaService {
             Fetch::Pending => {}
             done => return done,
         }
-        let (resolver, have) = {
+        let (resolver, have, job) = {
             let st = lock(&self.inner().st);
-            (st.resolver.clone(), shared_bytes(&st, &key_of(r)))
+            (st.resolver.clone(), shared_bytes(&st, &key_of(r)), view_job(&st, want))
         };
         let Some(resolver) = resolver else { return Fetch::Missing };
         let table = shared_table(&lock(&self.inner().st), &key_of(r), want);
-        let fetch = settle(make(r, want, Some(&resolver), have, table));
+        let fetch = settle(match &job {
+            Some(j) => make_view(r, j, Some(&resolver), have),
+            None => make(r, want, Some(&resolver), have, table),
+        });
         let key = (key_of(r), want);
         let mut st = lock(&self.inner().st);
         st.stats.resolves += 1;
@@ -762,6 +811,68 @@ fn shared_bytes(st: &St, key: &str) -> Option<Arc<Blob>> {
     st.live.get(key).and_then(Weak::upgrade)
 }
 
+/// A derived view's identity: its canonical spec (serde_json's objects are sorted) and the
+/// deriver's version, hashed (FNV-1a, stable across runs).
+pub fn view_id(spec: &Value) -> u64 {
+    let text = format!("{VIEWS_VERSION}\n{spec}");
+    text.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
+}
+
+/// What a worker needs to make a view: its spec and the engines' `view.derive`.
+struct ViewJob {
+    spec: Option<Arc<Value>>,
+    deriver: Option<Derive>,
+}
+
+fn view_job(st: &St, want: Want) -> Option<ViewJob> {
+    match want {
+        Want::View(id) => Some(ViewJob { spec: st.views.get(&id).cloned(), deriver: st.deriver.clone() }),
+        _ => None,
+    }
+}
+
+/// A derived view: the engine's answer when one answers, else the editor's own (`by` says which).
+/// An engine that refuses (it no longer holds the value, an older engine) is not the last word:
+/// the editor reads the bytes and derives them itself.
+fn make_view(r: &DataRef, job: &ViewJob, resolver: Option<&Resolve>, have: Option<Arc<Blob>>) -> Outcome {
+    let Some(spec) = &job.spec else { return Outcome::Failed("this view was not asked for here".into()) };
+    let view = match plumcraft_views::parse(spec) {
+        Ok(v) => v,
+        Err(e) => return Outcome::Failed(e),
+    };
+    // the producer first, even with the bytes here (note 30: the engine that made a value knows it)
+    if let Some(Some(Ok(mut v))) = job.deriver.as_ref().map(|d| d(r, spec))
+        && (v.get("table").is_some() || v.get("array").is_some())
+    {
+        if let Some(o) = v.as_object_mut() {
+            o.entry("by").or_insert(json!("engine"));
+        }
+        return Outcome::Made(Made::View(Arc::new(v)));
+    }
+    let b = match have.or_else(|| resolver.and_then(|f| f(r)).map(Arc::new)) {
+        Some(b) => b,
+        None => return Outcome::Missing,
+    };
+    derive_parsed(&view, &b).map_or_else(Outcome::Failed, |v| Outcome::Made(Made::View(Arc::new(v))))
+}
+
+/// A view of bytes here, made by the editor (`plumcraft-views`): `{table, meta, by: "editor"}` or
+/// `{array, b64, by}`, as an engine's `view.derive` answers. For a shell that holds the bytes.
+pub fn derive_here(spec: &Value, b: &Blob) -> Result<Value, String> {
+    derive_parsed(&plumcraft_views::parse(spec)?, b)
+}
+
+fn derive_parsed(view: &plumcraft_views::View, b: &Blob) -> Result<Value, String> {
+    match plumcraft_views::derive(view, &plumcraft_views::Array { dtype: &b.dtype, shape: &b.shape, bytes: &b.bytes })? {
+        plumcraft_views::Derived::Table { table, meta } => Ok(json!({"table": table, "meta": meta, "by": "editor"})),
+        plumcraft_views::Derived::Array { dtype, shape, bytes } => {
+            use base64::Engine as _;
+            let b64 = base64::engine::general_purpose::STANDARD.encode(bytes);
+            Ok(json!({"array": {"dtype": dtype, "shape": shape}, "b64": b64, "by": "editor"}))
+        }
+    }
+}
+
 fn make(r: &DataRef, want: Want, resolver: Option<&Resolve>, have: Option<Arc<Blob>>, table: Option<Arc<Table>>) -> Outcome {
     match resolver {
         Some(f) => make_with(r, want, &|d: &DataRef| f(d), have, table),
@@ -847,6 +958,8 @@ fn make_with(r: &DataRef, want: Want, resolve: &dyn Fn(&DataRef) -> Option<Blob>
                 serde_json::from_slice::<Value>(&b.bytes).map_or_else(|e| Outcome::Failed(format!("not JSON: {e}")), |v| Outcome::Made(Made::Json(Arc::new(v))))
             }
         },
+        // a view is made with its spec ([`make_view`]); a bare key has none
+        Want::View(_) => Outcome::Failed("this view was not asked for here".into()),
     }
 }
 
@@ -865,6 +978,7 @@ pub fn derived_key(handle: &str, want: Want) -> String {
         Want::Table => format!("derive:table:{handle}"),
         Want::Sorted(c, desc) => format!("derive:sorted:{handle}@{c}{}", if desc { 'd' } else { 'a' }),
         Want::Json => format!("derive:json:{handle}"),
+        Want::View(h) => format!("derive:view:{handle}@{h:016x}"),
     }
 }
 
@@ -884,6 +998,10 @@ pub fn parse_derived(key: &str) -> Option<(String, Want)> {
         "spectrogram" => (rest.to_owned(), Want::Spectrogram),
         "table" => (rest.to_owned(), Want::Table),
         "json" => (rest.to_owned(), Want::Json),
+        "view" => {
+            let (h, n) = at(rest)?;
+            (h, Want::View(u64::from_str_radix(&n, 16).ok().filter(|_| n.len() == 16)?))
+        }
         "image" => px(rest).map(|(h, p)| (h, Want::Picture(p)))?,
         "svg" => px(rest).map(|(h, p)| (h, Want::Svg(p)))?,
         "waveform" => {
@@ -1019,7 +1137,7 @@ fn work_loop(inner: &Arc<Inner>) {
 /// Wait for one request and make it. `None` once stopped.
 fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
     let mut st = lock(&inner.st);
-    let (key, r, epoch, resolver, have, table) = loop {
+    let (key, r, epoch, resolver, have, table, job) = loop {
         if st.stop {
             return None;
         }
@@ -1031,9 +1149,10 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
             continue;
         };
         let (frame, keep, now_epoch) = (st.frame, st.config.keep_frames, st.epoch);
-        let have = if key.1.reads_full() || matches!(key.1, Want::Sorted(..)) { shared_bytes(&st, &key.0) } else { None };
+        let have = if key.1.reads_full() || matches!(key.1, Want::Sorted(..) | Want::View(_)) { shared_bytes(&st, &key.0) } else { None };
         let table = shared_table(&st, &key.0, key.1);
         let resolver = st.resolver.clone();
+        let job = view_job(&st, key.1);
         let Some(e) = st.entries.get_mut(&key) else { continue };
         // settled in place since it was queued (`blocking`), or a second queuing of a request
         // already being made: nothing to do, and a settled result is not made again
@@ -1047,11 +1166,14 @@ fn run_one(inner: &Arc<Inner>) -> Option<Fetch<Made>> {
             continue;
         }
         e.state = State::Working;
-        break (key, e.r.clone(), e.epoch, resolver, have, table);
+        break (key, e.r.clone(), e.epoch, resolver, have, table, job);
     };
     drop(st);
-    let made =
-        catch_unwind(AssertUnwindSafe(|| make(&r, key.1, resolver.as_ref(), have, table))).unwrap_or_else(|_| Outcome::Failed("the decoder stopped".into()));
+    let made = catch_unwind(AssertUnwindSafe(|| match &job {
+        Some(j) => make_view(&r, j, resolver.as_ref(), have),
+        None => make(&r, key.1, resolver.as_ref(), have, table),
+    }))
+    .unwrap_or_else(|_| Outcome::Failed("the decoder stopped".into()));
     let fetch = settle(made);
     let mut st = lock(&inner.st);
     st.stats.resolves += 1;
@@ -1097,6 +1219,46 @@ mod tests {
             std::thread::sleep(delay);
             picture_blob(r)
         })
+    }
+
+    /// A derived view (FR6 slice 3): the engine's answer when it gives one, the editor's own when no
+    /// engine answers or the engine refuses; its key names its spec, and a malformed spec fails.
+    #[test]
+    fn a_view_is_the_engines_else_the_editors() {
+        let view = |m: &MediaService, r: &DataRef, spec: &Value| {
+            let start = Instant::now();
+            loop {
+                match m.view(r, spec) {
+                    Fetch::Pending if start.elapsed() < Duration::from_secs(10) => {
+                        m.wait_idle(Duration::from_millis(50));
+                    }
+                    f => return f.view(),
+                }
+            }
+        };
+        let r = rgba_ref("v", 3, 2);
+        let spec = json!({"kind": "histogram", "params": {"bins": 4}});
+        let m = MediaService::default();
+        m.set_resolver(Some(Arc::new(picture_blob)));
+        let Fetch::Ready(v) = view(&m, &r, &spec) else { panic!("no view") };
+        assert_eq!(v["by"], "editor");
+        assert_eq!(v["table"]["columns"][1]["values"].as_array().map(Vec::len), Some(4));
+        let n: u64 = v["table"]["columns"][1]["values"].as_array().unwrap().iter().map(|c| c.as_u64().unwrap()).sum();
+        assert_eq!(n, 24, "every value");
+        assert!(matches!(view(&m, &r, &json!({"kind": "histogram", "params": {"bins": 0}})), Fetch::Failed(_)));
+        let m = MediaService::default();
+        m.set_resolver(Some(Arc::new(picture_blob)));
+        m.set_deriver(Some(Arc::new(|_: &DataRef, _: &Value| Some(Ok(json!({"table": {"columns": []}, "meta": {}}))))));
+        let Fetch::Ready(v) = view(&m, &r, &spec) else { panic!("no view") };
+        assert_eq!(v["by"], "engine");
+        let m = MediaService::default();
+        m.set_resolver(Some(Arc::new(picture_blob)));
+        m.set_deriver(Some(Arc::new(|_: &DataRef, _: &Value| Some(Err("gone".into())))));
+        let Fetch::Ready(v) = view(&m, &r, &spec) else { panic!("no view") };
+        assert_eq!(v["by"], "editor", "a refusal is not the last word");
+        let key = derived_key("h", Want::View(view_id(&spec)));
+        assert_eq!(parse_derived(&key), Some(("h".into(), Want::View(view_id(&spec)))));
+        assert_ne!(view_id(&spec), view_id(&json!({"kind": "histogram", "params": {"bins": 5}})));
     }
 
     fn until_ready(m: &MediaService, r: &DataRef, want: Want) -> Fetch<Made> {

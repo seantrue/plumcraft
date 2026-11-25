@@ -20,6 +20,7 @@ pub mod chart_view;
 pub mod commands;
 pub mod convert;
 pub mod curve_cmds;
+pub mod derive_cmds;
 pub mod doc_cmds;
 pub mod doc_edits;
 mod edit_cmds;
