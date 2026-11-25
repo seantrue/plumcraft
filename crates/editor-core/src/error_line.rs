@@ -10,6 +10,8 @@ use serde::{Serialize, Serializer};
 pub struct ErrorLine {
     text: Option<String>,
     seq: u64,
+    /// The text says the graph's problems (B163): it goes when they do.
+    problems: bool,
 }
 
 impl ErrorLine {
@@ -17,6 +19,18 @@ impl ErrorLine {
     pub fn set(&mut self, text: impl Into<String>) {
         self.text = Some(text.into());
         self.seq = self.seq.saturating_add(1);
+        self.problems = false;
+    }
+    /// Say the graph's problems (B163): a line the document takes away once the graph has none
+    /// ([`crate::document::Document::recheck_problems`]), however they went (an engine joined, a
+    /// node removed), rather than a picture of them that stays.
+    pub fn set_problems(&mut self, text: impl Into<String>) {
+        self.set(text);
+        self.problems = true;
+    }
+    /// Whether the line says the graph's problems.
+    pub fn about_problems(&self) -> bool {
+        self.problems && self.text.is_some()
     }
     /// Say `text` if there is one, else clear the line.
     pub fn put(&mut self, text: Option<String>) {
@@ -28,6 +42,7 @@ impl ErrorLine {
     /// Forget the text (the count stays: it numbers what was said).
     pub fn clear(&mut self) {
         self.text = None;
+        self.problems = false;
     }
     pub fn as_deref(&self) -> Option<&str> {
         self.text.as_deref()

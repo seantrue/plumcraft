@@ -511,12 +511,10 @@ impl Switchboard<'_> {
         let catalog = catalog.inspect_err(|e| self.last_error.set(format!("engine: {what}: {e}")))?;
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
-        self.last_error.put(
-            problems
-                .first()
-                .map(|first| format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len()))
-                .or_else(|| warnings.first().map(|w| format!("{what}: the engines disagree: {w}"))),
-        );
+        match problems.first() {
+            Some(first) => self.last_error.set_problems(format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len())),
+            None => self.last_error.put(warnings.first().map(|w| format!("{what}: the engines disagree: {w}"))),
+        }
         Ok(
             json!({"engines": self.session.engines.engine_ids(), "connected": self.session.connected, "label": self.label(), "problems": problems, "warnings": warnings}),
         )
@@ -593,7 +591,10 @@ impl Switchboard<'_> {
         };
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
-        self.last_error.put(problems.first().map(|first| format!("{wanted}: the graph has {} problem(s) with this engine: {first}", problems.len())));
+        match problems.first() {
+            Some(first) => self.last_error.set_problems(format!("{wanted}: the graph has {} problem(s) with this engine: {first}", problems.len())),
+            None => self.last_error.clear(),
+        }
         let mut out = target.to_json();
         out["connected"] = json!(self.session.connected);
         out["label"] = json!(self.label());

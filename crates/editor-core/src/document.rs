@@ -537,6 +537,7 @@ impl Document {
         self.link = Some(link);
         self.follow_link();
         switchboard::share_connection(&mut self.session, &self.link);
+        self.recheck_problems();
         first
     }
 
@@ -569,7 +570,19 @@ impl Document {
 
     /// What the shell must redo, gathered since the last call.
     pub fn take_effects(&mut self) -> Effects {
+        self.recheck_problems();
         std::mem::take(&mut self.effects)
+    }
+
+    /// B163: a status line that says the graph's problems goes once the graph has none, whatever
+    /// fixed them (an engine that joined, a catalogue read again, a node removed). It was a
+    /// picture of the problems when said, and stayed after they were gone. Every turn of every
+    /// shell passes here ([`Document::take_effects`]); the problems are read only while the line
+    /// says them.
+    pub fn recheck_problems(&mut self) {
+        if self.last_error.about_problems() && self.session.problems().is_empty() {
+            self.last_error.clear();
+        }
     }
 
     /// The media service reads through the current link (none: no engine), and the session's own
@@ -932,7 +945,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         }
         if let Some(n) = v.get("problemCount").and_then(Value::as_u64).filter(|n| *n > 0) {
             let first = v.get("problems").and_then(|p| p.get(0)).and_then(Value::as_str).unwrap_or_default();
-            d.last_error.set(format!("opened with {n} problem(s): {first}"));
+            d.last_error.set_problems(format!("opened with {n} problem(s): {first}"));
         }
         // what's missing is the banner's, for as long as it is; that says more than the first
         // node it left unknown
@@ -1910,6 +1923,31 @@ mod tests {
         fn resolve(&self, _: &DataRef) -> Option<Blob> {
             None
         }
+    }
+
+    /// B163: a graph opened with problems says so; once its catalogue has what it lacked, read
+    /// any way (here set straight, as an application's own setup can), the line goes. Before the
+    /// fix only a switch or a relink said the problems again, so the old count stayed.
+    #[test]
+    fn the_problems_line_goes_when_the_problems_do() {
+        let dir = plumcraft_scratch::dir("b163");
+        let path = dir.join("needs-ports.json");
+        std::fs::write(&path, json!({"version": 1, "nodes": {"j": {"kind": "ports.join", "pos": [0, 0]}}, "wires": []}).to_string()).unwrap();
+        let mut d = Document::new(Session::new(plumcraft_text::engine().schema()));
+        d.run("graph.open", &json!({"path": path, "discard": true})).unwrap();
+        // what graph.open gives a shell: the core says the problems on the status line
+        d.last_error.set_problems("opened with 1 problem(s): node j: unknown kind \"ports.join\"");
+        d.take_effects();
+        assert!(d.last_error.about_problems(), "still a problem: {:?}", d.last_error.as_deref());
+        // the catalogue gains the kind, without a switch or a relink
+        switchboard::set_catalog(&mut d.session, plumcraft_ports::engine().schema());
+        assert!(d.session.problems().is_empty(), "{:?}", d.session.problems());
+        d.take_effects();
+        assert_eq!(d.last_error.as_deref(), None, "the stale line went");
+        // another error isn't the problems', and stays
+        d.last_error.set("something else");
+        d.take_effects();
+        assert_eq!(d.last_error.as_deref(), Some("something else"));
     }
 
     #[test]
