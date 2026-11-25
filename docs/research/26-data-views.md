@@ -358,6 +358,8 @@ Regressions first (decision 2A); a table or interchange view egui has counts as 
 
 ### 12.2 Assumed (the controller's instruction, the maintainer away overnight)
 
+**Answered.** The maintainer, 2026-11-25, on the checklist page of 29 points (cards 1 to 15 are N1 to N15 here, 16 and 17 the release and merge points R1 and R2, 18 to 29 are V1 to V12 of note 26): "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15A; 16A; 17A; 18A; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29B". So items 1 to 11 below stand as built (cards 18 to 28). Item 12 is changed (29B): the editor asks the engine for the rest of a long TEXT, a new message, in place of the engine sending the whole text.
+
 The maintainer: "Make reasonable assumptions about what I choose if I am not available for a decision". Each with the option taken first and the alternative.
 
 1. **CSV as a table:** a value typed `text/csv` is offered Table, then Text (View As). Alternative: Text first, Table second.
