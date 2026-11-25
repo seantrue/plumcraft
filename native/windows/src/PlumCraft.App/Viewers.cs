@@ -738,6 +738,8 @@ public sealed class TableViewer : IViewer
         list.ItemTemplate = (DataTemplate)XamlReader.Load("<DataTemplate xmlns=\"http://schemas.microsoft.com/winfx/2006/xaml/presentation\"><Grid/></DataTemplate>");
         list.ItemContainerStyle = ContainerStyle();
         list.ContainerContentChanging += Fill;
+        list.PointerWheelChanged += (_, _) => personScrolled = true;
+        list.ManipulationStarted += (_, _) => personScrolled = true;
     }
 
     static Style ContainerStyle()
@@ -830,6 +832,7 @@ public sealed class TableViewer : IViewer
         Top(r, v);
         list.Width = widths.Sum() + (numericRows ? 64 : 0) + 40;
         list.ItemsSource = rows;
+        Follow(r, rows, start);
         pager.Content = V.PageBar("rows", start, rows.Count, r.Get("rows").U64() ?? 0, r.Get("page").U64() ?? 0, r.Get("pages").U64() ?? 1,
             async n => await pop.CommandAsync(grid ? "viewer.grid" : "viewer.table", ("page", Jsonv.Of(n))));
     }
@@ -948,6 +951,8 @@ public sealed class TableViewer : IViewer
     void Fill(ListViewBase sender, ContainerContentChangingEventArgs e)
     {
         if (e.InRecycleQueue || e.Item is not RowItem r || e.ItemContainer.ContentTemplateRoot is not Grid cellGrid) return;
+        // a selected row marked whole (note 26 slice 8)
+        e.ItemContainer.Background = r.Selected ? new SolidColorBrush(Windows.UI.Color.FromArgb(56, 255, 127, 14)) : null;
         var need = widths.Length + (numericRows ? 1 : 0);
         if (cellGrid.ColumnDefinitions.Count != need || cellGrid.Children.Count != need)
         {
@@ -975,11 +980,29 @@ public sealed class TableViewer : IViewer
             var cell = (Border)cellGrid.Children[i + k];
             var t = (TextBlock)cell.Child;
             t.Text = i < r.Cells.Length ? r.Cells[i] : "";
-            cell.Background = i < r.Tints.Length && r.Tints[i] is { } tint ? new SolidColorBrush(Tint(tint))
-                : r.Selected ? new SolidColorBrush(Windows.UI.Color.FromArgb(50, 255, 127, 14)) : null;
+            cell.Background = i < r.Tints.Length && r.Tints[i] is { } tint ? new SolidColorBrush(Tint(tint)) : null;
             t.TextAlignment = numeric[i] ? TextAlignment.Right : TextAlignment.Left;
             Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(t, numeric[i] ? Microsoft.UI.Xaml.FontNumeralAlignment.Tabular : Microsoft.UI.Xaml.FontNumeralAlignment.Normal);
         }
+    }
+
+    ulong? seenSeq;
+    bool personScrolled;
+
+    /// <summary>A selection that arrives (`selectionSeq`), from this window or another, is shown: the page holding its
+    /// first row (`firstSelected`) asked of the core, then that row scrolled to the top; unless the person scrolled.</summary>
+    void Follow(JsonElement r, List<RowItem> rows, ulong start)
+    {
+        if (r.Get("selectionSeq").U64() is not { } seq || seq == seenSeq) return;
+        var first = r.Get("firstSelected");
+        if (personScrolled || first.Get("at").U64() is not { } at) { seenSeq = seq; return; }
+        if (first.Get("page").U64() is { } want && want != (r.Get("page").U64() ?? 0))
+        {
+            _ = pop.CommandAsync("viewer.table", ("page", Jsonv.Of(want)));
+            return;
+        }
+        seenSeq = seq;
+        if (at >= start && (int)(at - start) < rows.Count) list.ScrollIntoView(rows[(int)(at - start)], ScrollIntoViewAlignment.Leading);
     }
 
     /// <summary>A cell's tint for its place `t` (0 to 1) in its range: the accent, from clear to strong.</summary>

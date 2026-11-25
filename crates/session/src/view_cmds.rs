@@ -110,6 +110,8 @@ pub struct Views {
     pub animate_asked: bool,
     /// The rows selected of each value, by `node.port` (note 26 slice 8, decision 7A).
     pub selections: crate::chart_view::Selections,
+    /// Rises with every selection made or cleared: a shell's table shows a new one's first row.
+    pub selection_seq: u64,
     next: u64,
 }
 
