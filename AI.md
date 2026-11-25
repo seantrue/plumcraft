@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — The 1-D series and the six chart kinds, chosen by command and kept in the graph (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Track 3 overnight, on reasonable assumptions; the six kinds are the ones they named when note 26 was decided.
+
+**What the AI did.** A line chart for 1-D arrays with a reduction that keeps each pixel column's first, lowest, highest and last value. A `viewer.chart` command with its choices checked against the value's columns and kept in the graph's meta; column, histogram, line and treemap layouts in the core; menus for the choices on the Apple shells; the same list painted by egui and a Win2D painter on Windows. It closed gaps it had listed: egui's CSV and SVG-text views, long SVG text, Windows painters for earlier slices. It was cut off once by a usage limit and resumed from its log.
+
+**Verification.** The agent's runs: Mac conformance 83 of 83 and the C ABI and egui suites, none skipped; the iPad's read half 44 of 44; an iPad UI test that picks a kind from the menu and follows an undo; the Swift kit's 126; 1,258 tests in the crates touched; Python with one known environment failure; Windows built on the test VM, not launched. The controller looked at two of the Mac pictures: the treemap (twelve labelled tiles in four colour groups, each naming its region and amount) and the stacked column (three products stacked over four regions, with a legend and axis titles). The full suite ran on the Linux test host.
+
+**Defects.** Three found by the Mac launch and fixed: a changed chart choice was not redrawn, since the pop-out's stamp ignored the spec; the Apple chart did not redraw after an undo, keyed on a stamp SwiftUI does not observe; a line through several rows per x zigzagged. The agent's build folder grew to 45 GB and took the disk to 7 GB, at which two conformance cases failed with the store declining a value, until it cleaned up.
+
 ### 2026-11-24 — Compare's difference, CSV and SVG text as views, and the core's chart (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** As the entry below: track 3 overnight, "including view of tables (not just plots), and view of interchange formats (text/csv, text/svg)", on reasonable assumptions.

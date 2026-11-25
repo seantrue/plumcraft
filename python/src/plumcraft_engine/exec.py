@@ -1011,7 +1011,9 @@ def _fill(v: Any, media: str, plane: data.Plane, disp: dict, px: int = 1024) -> 
     _summarize(v, media, disp)
     if isinstance(v, str):
         disp["renditions"] = [excerpt(v)]
-        if len(v.encode("utf-8")) > plane.max_inline:
+        # the whole text reaches the editor when its excerpt doesn't hold it (SVG text drawn as
+        # a picture, note 26 slice 6): inline up to max_inline, by the store past it
+        if len(v.encode("utf-8")) > plane.max_inline or len(v) > EXCERPT_CHARS:
             _full(disp, lambda: plane.text_ref(v))
     elif isinstance(v, List):
         # a tuple (a list inside a list): its values when they are plain, else its first item

@@ -370,6 +370,9 @@ final class PopoutViewController: UIViewController, UIScrollViewDelegate {
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
         box.value = v
+        // the core's stamp for it: a change that leaves the value as it was (a chart chosen, an undo)
+        // still draws again (the value set again unchanged drew nothing on the slice 7 Mac launch)
+        box.stamp = popout.window.stamp
         // a zoom asked of the pop-out (`viewer.zoom`), taken once (B159)
         if let a = v.zoomAsk, let seq = a["seq"].uint64, seq > askSeen {
             askSeen = seq

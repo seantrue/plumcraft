@@ -120,6 +120,119 @@ impl Viewer for TablePlot {
     }
 }
 
+/// Whether `d` is a table-flagged array.
+pub fn table_array(d: &Display) -> bool {
+    d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }))
+}
+
+/// Whether the table chart shows `d`: a TABLE, a CSV or rows the core doesn't plot as an array.
+pub fn accepts_table(d: &Display) -> bool {
+    use plumcraft_proto::catalogue::Media;
+    let csv = plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table;
+    (d.media == Media::Table || csv || d.value.as_ref().is_some_and(super::basic::is_rows)) && !table_array(d) && plotted(d).is_none()
+}
+
+/// A table's chart (note 26 slices 5 to 7): the spec the core keeps for the port (`viewer.chart`),
+/// or the one it picks from the columns, laid out by the core ([`plumcraft_editor_core::chart_kinds`]).
+#[derive(Default)]
+pub struct TableChart {
+    key: Option<String>,
+    table: Option<plumcraft_media::table::Table>,
+    list: Option<(Value, (u32, u32), Value)>,
+    error: Option<String>,
+}
+
+impl TableChart {
+    fn list_at(&mut self, v: &ViewInput<'_>, size: egui::Vec2) -> Option<&Value> {
+        let want = (size.x.round().max(1.0) as u32, size.y.round().max(1.0) as u32);
+        let t = self.table.as_ref()?;
+        let spec = v.chart.cloned().unwrap_or_else(|| plumcraft_editor_core::chart_kinds::auto_spec(t));
+        if self.list.as_ref().is_none_or(|(_, s, sp)| *s != want || *sp != spec) {
+            match plumcraft_editor_core::chart_kinds::layout(&spec, t, (f64::from(want.0), f64::from(want.1))) {
+                Ok(l) => {
+                    self.list = Some((l, want, spec));
+                    self.error = None;
+                }
+                Err(e) => {
+                    self.error = Some(e);
+                    self.list = None;
+                }
+            }
+        }
+        self.list.as_ref().map(|(l, ..)| l)
+    }
+}
+
+impl Viewer for TableChart {
+    fn sync(&mut self, _: &egui::Context, v: &ViewInput<'_>) {
+        let key = key_of(v.display);
+        if self.key.as_ref() == Some(&key) && self.table.is_some() {
+            return;
+        }
+        use plumcraft_media::table::Table;
+        let t = match (&v.display.value, v.full) {
+            (Some(val), _) => Table::from_value(val),
+            (None, Some(b)) if v.display.full.as_ref().is_some_and(|f| plumcraft_media::service::is_csv(&f.meta.media)) => Table::from_csv(&b.bytes),
+            (None, Some(b)) => Table::from_bytes(&b.bytes),
+            (None, None) => return,
+        };
+        self.key = Some(key);
+        self.list = None;
+        match t {
+            Ok(t) => {
+                self.table = Some(t);
+                self.error = None;
+            }
+            Err(e) => {
+                self.table = None;
+                self.error = Some(e);
+            }
+        }
+    }
+
+    fn preview(&mut self, ui: &mut egui::Ui, v: &ViewInput<'_>, max: egui::Vec2, tokens: &Tokens) {
+        if self.table.is_none() {
+            return super::preview_default(ui, v, max, tokens);
+        }
+        let size = egui::vec2(max.x.max(chart::MIN_SIDE as f32), max.y.max(chart::MIN_SIDE as f32));
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        if let Some(list) = self.list_at(v, size).cloned() {
+            paint(ui, rect, &list, tokens);
+        }
+    }
+
+    fn full(&mut self, ui: &mut egui::Ui, v: &ViewInput<'_>, tokens: &Tokens) -> Vec<Action> {
+        let w = ui.available_width().max(chart::MIN_SIDE as f32);
+        let h = (w * 0.66).clamp(chart::MIN_SIDE as f32, ui.available_height().max(chart::MIN_SIDE as f32));
+        match self.list_at(v, egui::vec2(w, h)).cloned() {
+            Some(list) => {
+                ui.label(egui::RichText::new(list["a11y"]["summary"].as_str().unwrap_or_default()).small().color(tokens.text_dim));
+                let (rect, _) = ui.allocate_exact_size(egui::vec2(w, h), egui::Sense::hover());
+                paint(ui, rect, &list, tokens);
+            }
+            None => {
+                ui.label(egui::RichText::new(self.error.clone().unwrap_or_else(|| "no table to chart".into())).color(tokens.text_dim));
+            }
+        }
+        Vec::new()
+    }
+
+    fn inspect(&self) -> Value {
+        let l = self.list.as_ref();
+        json!({"kind": "chart", "chart": l.map(|l| l.0["kind"].clone()), "spec": l.map(|l| l.2.clone()), "marks": l.map(|l| l.0["marks"].as_array().map_or(0, Vec::len))})
+    }
+}
+
+/// A mark's colour: the list's (`#rrggbb`), else the theme's accent.
+fn colour_of(m: &Value, tokens: &Tokens) -> egui::Color32 {
+    m["color"]
+        .as_str()
+        .and_then(|c| c.strip_prefix('#'))
+        .filter(|h| h.len() == 6)
+        .and_then(|h| u32::from_str_radix(h, 16).ok())
+        .map_or(tokens.accent, |n| egui::Color32::from_rgb((n >> 16) as u8, (n >> 8) as u8, n as u8))
+}
+
 fn nums(v: &Value) -> Vec<f32> {
     v.as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|x| x as f32).collect()).unwrap_or_default()
 }
@@ -139,30 +252,63 @@ pub fn paint(ui: &egui::Ui, rect: egui::Rect, list: &Value, tokens: &Tokens) {
         p.line_segment([at(px, y), at(px + pw, y)], grid);
     }
     for m in list["marks"].as_array().into_iter().flatten() {
+        let colour = colour_of(m, tokens);
         match m["kind"].as_str() {
             Some("points") => {
                 let r = m["r"].as_f64().unwrap_or(2.0) as f32;
                 for c in nums(&m["xy"]).as_chunks::<2>().0.iter() {
-                    p.circle_filled(at(c[0], c[1]), r, tokens.accent);
+                    p.circle_filled(at(c[0], c[1]), r, colour);
                 }
             }
             Some("segments") => {
-                let s = egui::Stroke::new(m["width"].as_f64().unwrap_or(1.0) as f32, tokens.accent);
+                let s = egui::Stroke::new(m["width"].as_f64().unwrap_or(1.0) as f32, colour);
                 for c in nums(&m["xy"]).as_chunks::<4>().0.iter() {
                     p.line_segment([at(c[0], c[1]), at(c[2], c[3])], s);
                 }
             }
             Some("rects") => {
                 for c in nums(&m["rects"]).as_chunks::<4>().0.iter() {
-                    p.rect_filled(egui::Rect::from_min_size(at(c[0], c[1]), egui::vec2(c[2], c[3])), 0.0, tokens.accent.gamma_multiply(0.85));
+                    p.rect_filled(egui::Rect::from_min_size(at(c[0], c[1]), egui::vec2(c[2], c[3])), 0.0, colour.gamma_multiply(0.85));
                 }
             }
             Some("line") => {
                 let pts: Vec<egui::Pos2> = nums(&m["xy"]).as_chunks::<2>().0.iter().map(|c| at(c[0], c[1])).collect();
-                p.add(egui::Shape::line(pts, egui::Stroke::new(m["width"].as_f64().unwrap_or(1.5) as f32, tokens.accent)));
+                p.add(egui::Shape::line(pts, egui::Stroke::new(m["width"].as_f64().unwrap_or(1.5) as f32, colour)));
+            }
+            // a stacked band: its top left to right, then its base back (not convex: drawn as
+            // a quad between each pair of x, which egui fills without a tessellator of its own)
+            Some("area") => {
+                let pts: Vec<egui::Pos2> = nums(&m["xy"]).as_chunks::<2>().0.iter().map(|c| at(c[0], c[1])).collect();
+                let n = pts.len() / 2;
+                let fill = colour.gamma_multiply(0.8);
+                for i in 0..n.saturating_sub(1) {
+                    let quad = vec![pts[i], pts[i + 1], pts[2 * n - 2 - i], pts[2 * n - 1 - i]];
+                    p.add(egui::Shape::convex_polygon(quad, fill, egui::Stroke::NONE));
+                }
+                let top: Vec<egui::Pos2> = pts.iter().take(n).copied().collect();
+                p.add(egui::Shape::line(top, egui::Stroke::new(1.0, colour)));
+            }
+            Some("labels") => {
+                for l in m["labels"].as_array().into_iter().flatten() {
+                    let (Some(x), Some(y)) = (l["x"].as_f64(), l["y"].as_f64()) else { continue };
+                    let pos = at(x as f32, y as f32);
+                    p.text(pos, egui::Align2::LEFT_TOP, l["text"].as_str().unwrap_or_default(), font.clone(), egui::Color32::WHITE);
+                    if let Some(d) = l["detail"].as_str() {
+                        p.text(pos + egui::vec2(0.0, font.size + 2.0), egui::Align2::LEFT_TOP, d, font.clone(), egui::Color32::from_white_alpha(200));
+                    }
+                }
             }
             _ => {}
         }
+    }
+    for l in list["legend"].as_array().into_iter().flatten() {
+        let (Some(x), Some(y)) = (l["x"].as_f64(), l["y"].as_f64()) else { continue };
+        let pos = at(x as f32, y as f32);
+        p.rect_filled(egui::Rect::from_min_size(pos, egui::vec2(10.0, 10.0)), 2.0, colour_of(l, tokens));
+        p.text(pos + egui::vec2(15.0, 5.0), egui::Align2::LEFT_CENTER, l["text"].as_str().unwrap_or_default(), font.clone(), tokens.text);
+    }
+    if list["axes"].as_array().is_none_or(Vec::is_empty) {
+        return;
     }
     let axis = egui::Stroke::new(1.0, tokens.text_faint);
     p.line_segment([at(px, py), at(px, py + ph)], axis);

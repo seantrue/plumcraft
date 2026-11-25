@@ -122,6 +122,9 @@ pub fn of(session: &Session) -> Windows {
             format!("{:?}{:?}", o.fit, o.viewer).hash(&mut h);
             // a zoom asked of it (`zoomAsk`, B159) is news to its shell even when nothing else moved
             o.zoom_seq.hash(&mut h);
+            // its chart's choices (`viewer.chart`, kept in the graph's meta): a change made anywhere, an
+            // undo included, is drawn again
+            serde_json::to_string(&plumcraft_session::chart_cmds::spec_of(graph, &w.node, &w.port)).unwrap_or_default().hash(&mut h);
             Some(PopoutWindow {
                 id: o.id,
                 node: w.node.clone(),

@@ -66,6 +66,15 @@ pub struct Svg(pub SvgView);
 
 impl Viewer for Svg {
     fn sync(&mut self, ctx: &egui::Context, v: &ViewInput<'_>) {
+        // a TEXT that is an SVG document with no bytes read: its text, the whole of it
+        if v.full.is_none()
+            && v.display.media == plumcraft_proto::catalogue::Media::Text
+            && let Some(t) = v.display.value.as_ref().and_then(Value::as_str)
+        {
+            let b = Arc::new(plumcraft_store::Blob { dtype: "|u1".into(), shape: vec![t.len() as u64], bytes: t.as_bytes().to_vec().into() });
+            self.0.sync(ctx, Some(v.display), Some(&b), v.rendition);
+            return;
+        }
         self.0.sync(ctx, Some(v.display), v.full, v.rendition);
     }
 
