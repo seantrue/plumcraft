@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Nested lists, slice 8: decided rules, non-exhaustive types, the merge with the views work (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** On the checklist page, all fifteen nested-list points as built, and for the version: "Next release is 0.8.0, and mark these types non_exhaustive with constructors so it doesn't recur". Then "Chart: a;  merge", which the controller took as merging the four views pull requests, leaving the nested-list ones for the private half.
+
+**What the AI did.** The agent removed the assumed marks, marked seven public types `non_exhaustive` with constructors and rewrote every construction site, merged the dev branch after the views work landed (one real conflict, in egui's plot viewer, taken from the views side), and listed what a 0.8.0 release needs. No version was bumped.
+
+**Verification.** The agent's runs: the whole workspace on the Mac after the merge (1,750 passed, the known failure apart), Python 254, the vectors, schema, fmt, clippy; a scripted Mac copy read over the control port with a list-of-lists pop-out beside a chart pop-out, the item kept while runs step. No window was seen (the screen was off) and Windows was not rebuilt. The full suite ran on the Linux test host.
+
+**Defects.** The merge left the checked-in shell schema stale and two Python lines over the limit; the gate caught both. An earlier mistake of the controller's in this run: it read the maintainer's "29B" as an instruction to build, started an agent on it, and was stopped by the maintainer ("Stop. Take the long text") before anything was changed.
+
 ### 2026-11-25 — Nested lists, slice 7: the SDKs agree with the research software's executors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** Track 2 overnight "through to slice 6". Slice 7 is the controller's addition, without the maintainer: slice 6 had left the research software's executors with a rule the public SDKs lacked, so one graph could give different results in them.
