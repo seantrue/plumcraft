@@ -1,0 +1,17 @@
+[package]
+name = "plumcraft-views"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "PlumCraft's derived views of a value (FR6, research note 30): histograms over all values or per plane, statistics, N-d slices, made from an array's bytes. Shared by the Rust engine SDK and the editor's built-in views engine; the Python SDK's port is held to it by shared vectors. No GUI toolkit, no engine."
+
+[lints]
+workspace = true
+
+[dependencies]
+serde_json = { workspace = true }
+
+[dev-dependencies]
+base64 = { workspace = true }

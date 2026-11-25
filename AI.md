@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — FR6 slice 2: the reductions, in Rust and in Python, held to one set of vectors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "My inclination would be to provide all of this functionality in engine base classes, so that it is only implemented a few times (maybe just twice: once for rust, once for python)."; "All A"; "m 222" for slice 1.
+
+**What the AI did.** The agent wrote the reductions twice, a Rust crate and a Python module, and a shared file of 40 cases whose expected answers come from a separate numpy reference written from the rules.
+
+**Verification.** Both implementations pass every case. The whole workspace ran on the Linux test host, by the agent and again for the published branch. Nothing was launched: the slice has nothing a person can see.
+
+**Defects.** The agent was stopped mid-slice when the controlling session restarted, with all its work uncommitted in its worktree; the controller told the maintainer it was working, on the strength of file times, and the maintainer saw that no such process existed. Nothing was lost; the agent now commits as it goes. Remaking the acknowledgements showed that the list attributes the editor core itself to an adapted project's licence text (B174), a fault in the list merged earlier the same day that neither the agent that built it nor the controller noticed.
+
 ### 2026-11-25 — Views from every port: a review of the brief, a design, and the offer rule (FR6, slice 1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** On an array's views: "I get an array with only picture/value/bytes. No charts or table options." To the controller's answer that a chart needs a table, so add a histogram node: "No." and "Exploratory data visualization should not require altering the graph. For each port, I should have the full range of visualizations available directly." Then: "Review the original brief for visualization. There was a lot agreed on.Let's take an instance. We have nodes that create labeled maps (each pixel has an assignment to a region). I expect that creating a treemap from the labeled map should be natural. Taking a histogram of 3d data should be as natural as 1/2d." and "My inclination would be to provide all of this functionality in engine base classes, so that it is only implemented a few times (maybe just twice: once for rust, once for python)." On whether to offer a view that may look odd for some values: "In general, it's the user's job to deal with odd, and your job to make seeing odd things easy." On the note's 14 points: "All A".

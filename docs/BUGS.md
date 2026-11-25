@@ -4,6 +4,14 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B174. Acknowledgements: the editor core itself is listed under a licence text that belongs to adapted code
+
+- Reported: 2026-11-25, found by an agent remaking the list; not reported by the maintainer.
+- Report: `bash scripts/acknowledgements.sh` attributes the crate `plumcraft-editor-core` to "MIT, SolidCraft contributors". cargo-about picks up `crates/editor-core/acknowledgements/other/solidcraft-mit.txt`, which sits inside the crate's own folder, as that crate's licence. The checked-in `crates/editor-core/acknowledgements/rust.json` carries the entry, so the Acknowledgements window shows it.
+- Cause (as the agent read it; not confirmed by a second look): the licence file of the adapted code lives under the crate's folder, where the tool looks for the crate's own licence.
+- Fix, proposed and not made: a clarification for the crate in `about.toml`, or the `other` folder moved out of the crate.
+- Issue: none
+
 ### B170. Mac: the offscreen picture of a window hosting an AppKit view draws the SwiftUI controls as a black band when the screen is locked
 
 - Reported: 2026-11-23, by an agent, as a related note under B148; split out 2026-11-25 when B148 was closed.

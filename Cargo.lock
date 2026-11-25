@@ -3087,6 +3087,7 @@ dependencies = [
 name = "plumcraft-engine"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
  "commonkit",
  "image",
  "plumcraft-chart",
@@ -3181,6 +3182,7 @@ dependencies = [
  "base64 0.22.1",
  "commonkit",
  "getrandom 0.3.4",
+ "plumcraft-views",
  "schemars",
  "serde",
  "serde_json",
@@ -3302,6 +3304,14 @@ dependencies = [
  "plumcraft-store",
  "plumcraft-text",
  "png 0.18.1",
+ "serde_json",
+]
+
+[[package]]
+name = "plumcraft-views"
+version = "0.7.0"
+dependencies = [
+ "base64 0.22.1",
  "serde_json",
 ]
 
