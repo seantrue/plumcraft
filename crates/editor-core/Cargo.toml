@@ -13,6 +13,8 @@ workspace = true
 # No GUI toolkit, directly or transitively: no egui, eframe, egui-snarl, winit, wgpu, rfd or
 # plumcraft-ui (scripts/check-core-toolkit-free.sh holds it to that, in CI beside the hash gates).
 [dependencies]
+# an SVG held as TEXT, lent to a shell as an inline reference to draw (note 26 slice 4)
+base64 = { workspace = true }
 # Starting engines (src/engines.rs): the hosts, the coordinator for several, and the engines built
 # in (text and array compiled in, the craft adapter's packs). The audio engine is only ever a
 # process, so it is not a dependency.

@@ -209,6 +209,8 @@ pub struct Document {
     pub launches: Option<invoke::Launches>,
     /// Every value shown, read and decoded off the shell's thread ([`MediaService`]).
     pub media_service: MediaService,
+    /// Compare's exact difference, computed for a shell that draws natively (note 26 slice 2b).
+    pub diffs: crate::compare::Diffs,
     /// Keeps the media service reading through the current engine link.
     pub media_follow: Follow,
     /// Whether the media service follows this document's link (a service shared by several
@@ -375,6 +377,7 @@ impl Document {
             asks: Asks::default(),
             launches,
             media_service: media,
+            diffs: Default::default(),
             media_follow: Follow::default(),
             follows_media: follow,
             engine_worker: EngineWorker::default(),
