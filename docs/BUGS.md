@@ -36,12 +36,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: opening a style graph of the research software in an application built on the Mac shell shows "the graph has 13 problem(s)… unknown kind …" for nodes of the array engine. The array engine is then added automatically and those nodes run, but the banner stays, out of date.
 - Issue: none
 
-### B161. iPhone: the pop-out's bar overflows since the View menu was added
-
-- Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
-- Report: the View menu added by B154 slice 1 makes the iPhone's compact viewer bar too wide: the Pictures picker is cut at the left and the icons at the right. Seen in an iPhone simulator picture taken while checking B159.
-- Issue: none
-
 ### B157. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
 
 - Reported: 2026-11-24 (found by the controller in a gate run, not by the maintainer)
@@ -58,6 +52,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Direction (the maintainer, 2026-11-24): asked whether to survey first and how columns should be chosen, they answered: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". The research is a note in `docs/research/`; nothing is built until it is read.
 - Research: `docs/research/26-data-views.md` (2026-11-24): 11 of egui's 17 array and table views are missing on every native shell; the gap is in the core.
 - Decisions (the maintainer, 2026-11-24): given the note's seven decisions with a recommendation for each, they answered: "Yes to all". So: (1) the core lays each chart out and each shell paints it; (2) the regressions first, then the named chart kinds, then interaction; (3) a chart's choices are saved with the graph, undoable; (4) egui paints the same chart list and its own plot is retired; (5) Win2D on Windows; (6) the note's ranking of the optional kinds; (7) a selection belongs to the value, shared by its table and chart windows.
+- Slice 2 of note 26 (2026-11-24, branch `pr/views-s2`; Mac, iPad, iPhone, egui's numbers through the core; not Windows): an array's several pictures share one zoom and view; Colour by Value and a number format on the grid, and colour on a table (`viewer.grid {colored, format}`, `viewer.table {colored}`). Compare's difference is not in it yet. Note 26 gains a capability table (section 11) and revised slices with tables as tables and the interchange formats (section 12), on eight assumptions made while the maintainer was away.
 - Issue: none
 
 ### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
@@ -340,6 +335,13 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B161. iPhone: the pop-out's bar overflows since the View menu was added
+
+- Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
+- Report: the View menu added by B154 slice 1 makes the iPhone's compact viewer bar too wide: the Pictures picker is cut at the left and the icons at the right. Seen in an iPhone simulator picture taken while checking B159.
+- Issue: none
+- Fixed: 2026-11-24, branch `pr/views-s2`: the viewer bar takes the widest of three arrangements that fits (one row, two, or three); on the iPhone it is two rows, all inside the window. UI test `testTheViewerBarFitsANarrowWindow`, passed on an iPhone simulator. Not on a device.
 
 ### B166. Mac: Open Recent never lists recent graphs
 

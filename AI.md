@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Array views slice 2, a review of what each shell can show, and the iPhone's viewer bar (B154, B161) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Overnight: … one agent to pursue track 3, including view of tables (not just plots), and view of interchange formats (text/csv, text/svg). Review the plumcraft capabilities." and "Make reasonable assumptions about what I choose if I am not available for a decision".
+
+**What the AI did.** The agent reviewed every viewer and capability in egui against the Mac, iPad and Windows from the code and the named tests (note 26 section 11), revised the slices to put tables and interchange formats among the regressions (section 12), and listed eight assumptions it made in the maintainer's absence. It then built slice 2 on the core and the Apple shells (shared zoom across an array's pictures, colour by value, number format, table colour) and fixed its own B161.
+
+**Verification.** The agent's runs: new unit tests and a conformance case passing on the C ABI, egui and the Mac app; Mac conformance 70 of 70 with 8 skipped because the test engine's program was not built in its fresh build folder; the iPad's read half 39 of 39; the Swift kit's 124; UI tests on iPad and iPhone simulators; pictures of each new view on the Mac, iPad and iPhone that it looked at. Three tests failed for the same unbuilt-program reason. The full suite ran on the Linux test host. The controller looked at none of the pictures.
+
+**Defects.** Two in merged AI-written work, found here: a table-flagged array was offered no Table viewer; and B159's zoom ask never moved the pop-out's stamp, so a shell heard it only when a rerun followed, which B159's own evidence happened to trigger. The agent's first draft of the review said the iPad's cells could not be selected; they can. Its first framework build ran against a half-edited core. Whether the Colour toggle looks different on and off on the Mac is not established: the offscreen picture shows no difference.
+
 ### 2026-11-24 — Insert Graph starts the engine it needs; Open Recent becomes the core's (B165, B166) (two Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "insert graph (components/condition) inserts nothong", "inserted condition.plum", "Fix b165". "open recent never has a list of recent graphs", "empty list. Never showed anything", "fix b166." And on packaging: "Can we fix multiple bugs per pass?", then "Yes, multiple per pass, please."
