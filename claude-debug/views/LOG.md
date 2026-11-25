@@ -27,3 +27,14 @@ Worktree the views worktree (`.wt/plumcraft-views`), own cargo target `target/` 
   - iPad simulator (own, `views-ipad`): UI test `testSliceTwoViews` passed (`s2-pad/views-s2-ui-pictures-200.png`, `s2-pad/views-s2-ui-table-colour.png`); conformance read half 39 of 39, 1 skipped.
   - iPhone simulator (own, `views-phone`): `testSliceTwoViews` passed (`s2-phone/`); a first run exited 148 at once (a stop signal to the backgrounded job, not the test); rerun with stdin closed passed.
 - Not built in slice 2: Compare's exact difference (slice 2b). Not checked: the Colour toggle's on look in an offscreen Mac picture (it looks the same on and off there); Windows (no C# yet for slice 2).
+
+### The stamp fault in the merged B159 (the coordinator asked which test should have caught it)
+
+B159 put `zoomAsk` in `popout.get` but left `zoom_seq` out of the pop-out's `stamp`, which is what tells a shell to read the pop-out again. Two merged tests could have caught it and didn't:
+
+- **Conformance "a zoom asked of a pop-out reaches its shell once, with where to centre"** read `popout.get` directly after each `viewer.zoom`, so it saw `zoomAsk` whether or not a shell would ever have asked. It should have checked that the scene's stamp for the pop-out moved (now it checks `popout.get`'s `stamp` against the one saved before the ask).
+- **iPad UI test `testItemsKeepTheZoomAndView`** and the Mac evidence zoomed a single picture to 200%, which is past its fit, so the core also asked for a rerun with more detail (`viewer.zoom` with a pixel scale sets `detail`); the rerun moved the stamp, and the shell heard the ask by that side effect. A zoom that asks for no detail (`in`, `out`, a centre alone, or two pictures as slice 2 has) was never heard. Found when slice 2's shared-zoom tiles didn't follow a script's `viewer.zoom`.
+
+## Slice 2b (branch `feat/views-s2b`)
+
+- Engine programs built once in my own target (`cargo build --bins`, and the test engine `plumcraft-ports` in release) so the engine-binary tests and the Mac's test-engine cases run.

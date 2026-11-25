@@ -605,6 +605,20 @@ impl MediaService {
         Fetch::Pending
     }
 
+    /// Keep `made` as what `r` gives for `want`, as if a worker had made it: a picture the core
+    /// computed itself (Compare's difference, note 26 slice 2b) is then lent as any other is,
+    /// by its handle (`media.get`, `plum_blob`).
+    pub fn put(&self, r: &DataRef, want: Want, made: Made) {
+        let inner = self.inner();
+        let mut st = lock(&inner.st);
+        if st.stop {
+            return;
+        }
+        st.used += 1;
+        let key = (key_of(r), want);
+        store(&mut st, key, r, &Fetch::Ready(made), false);
+    }
+
     /// [`MediaService::get`]'s bytes.
     pub fn bytes(&self, r: &DataRef) -> Fetch<Arc<Blob>> {
         self.get(r, Want::Bytes).bytes()

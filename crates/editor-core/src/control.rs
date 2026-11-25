@@ -730,7 +730,13 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         },
         // Compare's two sides, A and B (N4 slice 6)
         "compare.get" => match crate::windows::compare_json(s.session(), params) {
-            Ok(v) => ok(v),
+            Ok(mut v) => {
+                // the exact difference, while Compare shows it (note 26 slice 2b)
+                if let Some(d) = s.document_mut() {
+                    v["difference"] = d.diffs.difference(&d.session, &d.media_service);
+                }
+                ok(v)
+            }
             Err(e) => err(e),
         },
         // a page of what a pop-out's viewer shows, read on the media service's workers (N4 slice 5)
