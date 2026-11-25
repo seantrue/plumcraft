@@ -252,6 +252,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B173. Mac: a click on a node's mask row does not open the mask editor
+
+- Reported: 2026-11-25
+- Report: "Click on the edit field does nothing."
+- Context: an application built on the Mac shell, dev branch at `02e9804`. A node that names the mask editor on its `mask` input, already run ("cached"), nothing wired to `mask`, the row's label drawn in blue with an empty path field and a "…" button beside it. The maintainer had been told (by the AI, from reading the code, not from a launch) that a click on the blue `mask` label opens the editor, as does the item under "Edit Parameters…" in the node's menu.
+- Answer (the maintainer, 2026-11-25): "I clicked the blue \"edit\" text. There was no mask item in the menu." So neither way in works: the row's blue text does nothing, and the node's menu has no editor item.
+- Issue: none
+- Cause (confirmed by launch): two ways in were missing; the Mac's mask editor itself exists. The node's menu adds an editor item only for editor kinds the shell lists, and the native shells' documents listed none, so there was no item. And the shells measured a row with a widget as the widget alone, so the row's caption, drawn blue as a link, counted as the node's body: a click there only selected the node. A click on the path field itself did open the editor.
+- Fixed: 2026-11-25, branch `pr/fix-b173`: the core lists its own editors (`mask`, `curves`) for the native shells' scene and menu, so the node's menu has "Edit Mask…"; a row with an editor and a widget is measured from its caption to the widget's end, so the caption opens the editor while the Browse square still browses. A conformance case opens the editor by the caption and by the menu, never by command. Launched on a scripted copy of the application on the Mac (caption, menu, a stroke sent as the editor's command, not a drag); on the iPad in PlumCraft's own app on a simulator only. The curves editor's reach is by code and tests, not launched.
+
 ### B172. Mac: nodes in the middle of a chain show "queued" and "skipped: upstream did not finish" while the nodes before and after them show "cached"
 
 - Reported: 2026-11-25

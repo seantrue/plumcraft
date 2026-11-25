@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — B173: a node's mask editor could not be reached by a person on the Mac (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Asked how to edit a mask, then: "Click on the edit field does nothing."; "I clicked the blue \"edit\" text. There was no mask item in the menu."; "fix 173".
+
+**What the AI did.** The agent launched a scripted copy of the application, found the editor present and two ways into it missing, and fixed both in the core and the shells' row measurement, with a test-engine node so the path is tested without private code.
+
+**Verification.** The agent's runs: core tests, a Swift layout test, a conformance case that opens the editor by the caption and the menu on the Mac, the iPad simulator and the C ABI; the application's own case, which fails on the build before the fix. The controller looked at the Mac picture of the editor after a stroke: the run's picture with a blue stroke across it; the controls above it are drawn as a black band with white blobs, which is the offscreen picture's fault (B170), not checked on a real screen. The full suite ran on the Linux test host.
+
+**Defects.** The controller told the maintainer, from reading code and without a launch, that a click on the row's label and an item in the node's menu open the editor; neither did, and the maintainer found out by trying. All four causes the controller suggested in the agent's brief were wrong. The existing case for this editor drove it by command only, so the person's way in had never been launched. The stroke in this fix's launch was sent as a command, not dragged.
+
 ### 2026-11-25 — Promoted labels carry their node's name and can be renamed (FR5) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming". The controller asked which name, how a rename is kept and what several parameters of one node show, and offered a default; the maintainer: "Go with your lean", then "build FR4.5".
