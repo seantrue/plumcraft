@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — FR6 slice 3: a histogram of a 3-D array from its port, no node added (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Taking a histogram of 3d data should be as natural as 1/2d."; "Exploratory data visualization should not require altering the graph."; and, on what follows, "We're going to stop and merge to main after slice 3". The maintainer also asked the agent why a store variable was unset in its Linux runs, which is how the fault below was found.
+
+**What the AI did.** The agent added the op that asks an engine for a derived view, in both SDK hosts and through the coordinator, the editor's own fallback, the Histogram offer and its commands, and the drawing in egui, Swift and Windows (~1,140 LOC outside generated files). It added a click step for the Mac's View As control and a UI test for the iPad's.
+
+**Verification.** Conformance on the C ABI, egui, the Mac (95 of 95) and an iPad simulator (80 of 80); the launches on the Mac and the simulator clicked View As and picked Histogram, and the controller looked at both pictures. Windows was built and not launched. The whole workspace ran on the Linux test host, by the agent and again for the published branch.
+
+**Defects.** The first launches showed the histogram made by the editor, not the engine: the coordinator refused the new op; found by the launch, fixed. An existing test still expected the offer list without Histogram; the agent's Mac run hid the failure behind an output filter and the Linux run found it. The agent's own Linux commands, in this slice and earlier ones, left out the test environment CI sets, so it had been reporting a hash test as a known failure when the failure was its command; the maintainer's question exposed it. The controller's gate script was not affected. The controller told the maintainer more than once that the agent was working when it had stopped waiting on its own run.
+
 ### 2026-11-25 — FR6 slice 2: the reductions, in Rust and in Python, held to one set of vectors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "My inclination would be to provide all of this functionality in engine base classes, so that it is only implemented a few times (maybe just twice: once for rust, once for python)."; "All A"; "m 222" for slice 1.
