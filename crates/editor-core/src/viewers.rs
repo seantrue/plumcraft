@@ -86,7 +86,14 @@ pub fn svg_text_ref(d: &Display) -> Option<DataRef> {
             Rendition::Excerpt { text, offset: 0, total_chars, .. } if text.chars().count() as u64 == *total_chars => Some(text.clone()),
             _ => None,
         })
-    })?;
+    });
+    // longer than its excerpt: the value's own bytes, read as SVG (the media service's SVG
+    // picture reads the bytes, whatever their type)
+    let Some(whole) = whole else {
+        let mut r = d.full.clone().filter(|f| f.handle.is_some() && f.meta.size <= MAX_SVG_TEXT as u64)?;
+        r.meta.media = plumcraft_proto::catalogue::core_types::SVG_MEDIA.into();
+        return Some(r);
+    };
     let text = whole.as_str();
     if text.len() > MAX_SVG_TEXT {
         return None;
@@ -136,6 +143,9 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     add(m == Media::Audio, "audio", "Audio");
     // a CSV is a table first, its text a viewer away
     add((m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows)) && !(m == Media::Ndarray && table_array), "table.grid", "Table");
+    // a table's chart, its kind and columns chosen by `viewer.chart` (note 26 slices 5 to 7)
+    let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some());
+    add((m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows)) && !table_array && !plotted, "table.chart", "Chart");
     add(is_xml(d), "xml", "XML");
     add(m == Media::Text || m == Media::Vector || csv, "text.plain", if m == Media::Vector || svg_text { "Source" } else { "Text" });
     add(m == Media::Scalar, "scalar", "Value");
@@ -150,8 +160,22 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
 
 /// The viewers the Apple shells draw (N4 slice 5); any other offered falls back to the engine's
 /// rendition with the summary (contract 13.3).
-pub const NATIVE: &[&str] =
-    &["picture", "svg", "array.plot", "array.pictures", "array.grid", "audio", "table.grid", "text.plain", "scalar", "yaml", "tree", "items", "hex"];
+pub const NATIVE: &[&str] = &[
+    "picture",
+    "svg",
+    "array.plot",
+    "array.pictures",
+    "array.grid",
+    "audio",
+    "table.grid",
+    "table.chart",
+    "text.plain",
+    "scalar",
+    "yaml",
+    "tree",
+    "items",
+    "hex",
+];
 
 /// A number as the viewers show it: an integer whole; a float at the decimals it needs, at most
 /// six; past 1e9 or under 1e-4, four significant decimals in scientific notation; NaN and the
@@ -366,7 +390,11 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
                 None | Some(Value::Null) => Ok(dflt),
                 Some(v) => v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or(format!("{k} must be a positive number of points")),
             };
-            chart(d, media, (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?))
+            let size = (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?);
+            let (w, _) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
+            let spec = plumcraft_session::chart_cmds::spec_of(session.graph(), &w.node, &w.port);
+            let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some());
+            if plotted && spec.is_none() { chart(d, media, size) } else { table_chart(d, media, spec, size) }
         }
         "grid" => grid(d, media, &o.state),
         "hex" => hex(d, media, o.state.hex_page),
@@ -618,6 +646,34 @@ fn chart(d: &Display, media: &MediaService, size: (f64, f64)) -> Value {
     }
 }
 
+/// A table's chart (note 26 slices 5 to 7): its spec, or one chosen from its columns' types, laid
+/// out by [`crate::chart_kinds`]; the reply carries the spec drawn and the columns to choose from.
+fn table_chart(d: &Display, media: &MediaService, spec: Option<Value>, size: (f64, f64)) -> Value {
+    let t: Arc<Table> = match (&d.value, &d.full) {
+        (Some(v), _) => match Table::from_value(v) {
+            Ok(t) => Arc::new(t),
+            Err(e) => return json!({"status": "failed", "error": e}),
+        },
+        (None, Some(full)) => match media.get(full, Want::Table).table() {
+            Fetch::Ready(t) => t,
+            f => return not_ready(&f, full, Want::Table),
+        },
+        (None, None) => return json!({"status": "failed", "error": "this value has no table to chart"}),
+    };
+    let chosen = spec.is_some();
+    let spec = spec.unwrap_or_else(|| crate::chart_kinds::auto_spec(&t));
+    let columns: Vec<Value> = t.columns.iter().take(4096).map(|c| json!({"name": c.name, "numeric": c.numeric()})).collect();
+    match crate::chart_kinds::layout(&spec, &t, size) {
+        Ok(mut v) => {
+            v["spec"] = spec;
+            v["chosen"] = json!(chosen);
+            v["columns"] = json!(columns);
+            v
+        }
+        Err(e) => json!({"status": "failed", "error": e, "spec": spec, "chosen": chosen, "columns": columns}),
+    }
+}
+
 fn hex(d: &Display, media: &MediaService, page: u64) -> Value {
     let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no bytes to show"}) };
     let b = match media.get(full, Want::Bytes).bytes() {
@@ -838,13 +894,30 @@ mod tests {
     /// that is an SVG document is a picture first and its source second; text that only mentions
     /// svg, or merely looks like CSV, stays text.
     #[test]
+    fn svg_text_longer_than_its_excerpt_is_drawn_from_its_bytes() {
+        let long = format!("<svg xmlns=\"http://www.w3.org/2000/svg\">{}</svg>", "<g/>".repeat(5000));
+        let mut d = display(Media::Text, None);
+        d.renditions = vec![Rendition::Excerpt { text: long.chars().take(4096).collect(), offset: 0, total_chars: long.chars().count() as u64, lines: 1 }];
+        assert!(svg_text_ref(&d).is_none(), "no bytes: no picture");
+        let mut r = DataRef { handle: Some(plumcraft_proto::Handle::raw(long.as_bytes())), ..Default::default() };
+        r.meta.media = "text/plain".into();
+        r.meta.size = long.len() as u64;
+        d.full = Some(r.clone());
+        let got = svg_text_ref(&d).unwrap();
+        assert_eq!((got.handle, got.meta.media.as_str()), (r.handle.clone(), plumcraft_proto::catalogue::core_types::SVG_MEDIA));
+        r.meta.size = MAX_SVG_TEXT as u64 + 1;
+        d.full = Some(r);
+        assert!(svg_text_ref(&d).is_none(), "too large to draw");
+    }
+
+    #[test]
     fn interchange_formats_are_offered_as_what_they_are() {
         let mut r = DataRef::default();
         r.meta.media = "text/csv; charset=utf-8".into();
         let mut d = display(Media::Bytes, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["table.grid", "text.plain", "hex"]);
+        assert_eq!(ids, ["table.grid", "table.chart", "text.plain", "hex"]);
         for (text, svg) in [
             ("<svg xmlns='http://www.w3.org/2000/svg'/>", true),
             ("<?xml version='1.0'?>\n<!-- made -->\n<!DOCTYPE svg>\n  <svg width='4'>", true),

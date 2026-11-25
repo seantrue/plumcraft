@@ -294,7 +294,8 @@ The maintainer, 2026-11-24: "one agent to pursue track 3, including view of tabl
 | Array, several pictures | One shared zoom, pan and probe | R | T (slice 2: zoom asked through the core, both pictures at 200%) | T (slice 2, `testSliceTwoViews`) | no |
 | Array | View modes (auto … angle) | T | T (B154) | T (B154) | R (B154 on Windows, built) |
 | Array | Channel histograms, log scale, NaN counts | R | T (B154) | T (B154) | R |
-| Array | 1-D series plot, table-of-positions plot | T | positions and histograms: T (slice 5, the core's display list); 1-D: no | positions and histograms: T (slice 5); 1-D: no | no |
+| Array | 1-D series plot, table-of-positions plot | T (the core's list since slice 5; a series since slice 6, conformance) | T (slice 5; a series, slice 6: the core's line, reduced by M4) | T (slice 5; a series, slice 6, conformance) | no |
+| **Table chart** | Column, stacked column, line, stacked line, histogram, treemap; columns chosen, kept with the graph | R (painted from the core's list, the core's spec; no choices of its own: `viewer.chart` from the control port) | T (slice 7) | T (slice 7, conformance) | no |
 | Array grid | Paged, column window, plane | T | T | T | T |
 | Array grid | Number format; colour by value | R | T (slice 2, conformance and launch) | T (slice 2, conformance) | no |
 | **Table** (TABLE, rows, a table-flagged array) | Sort by a header | T (egui sorts in the UI) | T (the core sorts) | T | T |
@@ -317,9 +318,9 @@ The maintainer, 2026-11-24: "one agent to pursue track 3, including view of tabl
 | Compare | Exact difference (mean, per channel) with probe | T | T (slice 2b; no probe on it yet) | T (slice 2b; no probe yet) | no |
 | Mesh (STL) | Shaded, turned, zoomed | T | no | no | no |
 | PDF | Pages | R | no (engine picture) | no | no |
-| **`text/csv`** (TEXT holding CSV, or bytes typed `text/csv`) | As a table | no | T (slice 4, conformance and launch) | T (slice 4, conformance) | no |
-| `text/csv` | As text | TEXT: yes; bytes: no (hex and Open) | TEXT: yes; bytes: hex | same | same |
-| **SVG text** (TEXT holding SVG, or bytes typed `image/svg+xml`) | As a picture | SVG type: yes; TEXT: no | T (slice 4, launched) | T (slice 4, conformance) | no |
+| **`text/csv`** (TEXT holding CSV, or bytes typed `text/csv`) | As a table | R (slice 7: the registry test holds egui's offers to the core's; read by the shared reader) | T (slice 4, conformance and launch) | T (slice 4, conformance) | no |
+| `text/csv` | As text | R (slice 7) | T (slice 4) | T (slice 4) | no |
+| **SVG text** (TEXT holding SVG, or bytes typed `image/svg+xml`) | As a picture | R (slice 7, the registry test) | T (slice 4, launched; longer than its excerpt since slice 7, conformance) | T (slice 4, conformance) | no |
 
 ### 11.2 Tables as tables
 
@@ -350,8 +351,9 @@ Regressions first (decision 2A); a table or interchange view egui has counts as 
 | 3 | **Tables as tables**: cell text selectable and copied (Windows), column widths a person drags (iPad, Windows), the row and column count in the bar | UI test | iPad |
 | 4 (built) | **Interchange formats**: `text/csv` offered Table then Text, SVG text offered Picture then Source; the CSV reader shared (`plumcraft_proto::csv`), in the hostile sweep, with size limits | Conformance "a CSV value is a table a viewer away from its text"; hostile sweep | Mac, iPad |
 | 5 (built) | **The plot again, on the chart engine** (was 3): display list, scales, ticks; table of positions, B152's histogram as columns | Display-list fixtures in Rust, Swift, C# | Mac, iPad |
-| 6 | 1-D series and hover previews (was 4) | Fixtures | Mac, iPad |
-| 7 to 13 | Columns and histograms with column choice, line and stacked area, treemap, zoom and hover, selection and linked views, optional kinds (were 5 to 10) | As before | As before |
+| 6 (built, part) | **1-D series** (was 4): a 1-D array is `array.plot`, a line by index reduced by M4 to four points a pixel column. **Hover previews deferred:** a node's face and a wire's hover show the engine's thumbnail (`Rendition`), and the core has no picture of its own to put there; drawing one needs the chart's list made into a picture on the media workers (an SVG of the list, rasterised as SVG values are) and the scene asking for it, a slice of its own. Audio's (frames, channels) as lines waits with it: a 2-D array is a picture today | Conformance "a 1-D array is a line by index, reduced to the plot's width"; unit tests of the reduction (every spike kept) | Mac |
+| 7 (built) | **The maintainer's six kinds, with column choice** (were 5 to 7): `table.chart` offered after Table; `viewer.chart {popout, mark, x, y, color, size, path, agg, stack, bins, clear}` checked against the table's columns and types and kept in the graph's `meta.charts` (decision 3A); column, stacked column, line, stacked line, histogram and treemap (squarified) laid out by the core into the same list, with colours, legend, areas and labels; the Apple shells' choices as menus; egui paints the list and offers what the core does for CSV and SVG text; SVG text longer than its excerpt drawn from its bytes (both SDKs now send the whole text when the excerpt doesn't hold it) | Conformance "a table's chart is chosen by command, kept in the graph and drawn from the core's aggregate" (every kind, the refusals, undo, clear); the long-SVG steps; unit tests per kind (treemap areas within 1e-6 of their shares) | Mac |
+| 8 to 11 | Time axes and `normalize`, zoom and hover, selection and linked views, optional kinds | As before | As before |
 
 ### 12.2 Assumed (the controller's instruction, the maintainer away overnight)
 
@@ -365,3 +367,7 @@ The maintainer: "Make reasonable assumptions about what I choose if I am not ava
 6. **Colour by value** is off by default in the grid and the table, as in egui (it is a checkbox there, off until ticked). Alternative: on for numeric columns.
 7. **Shared zoom for several pictures** keeps one `PictureZoom` for all the value's pictures, in the shell, as B159 keeps a single picture's. Alternative: move the zoom into the core now (note 26 slice 2 as first written).
 8. **Compare's difference** is drawn from the core's `derive:compare` picture, as the contract (13.2) says, not computed in the shells. Alternative: each shell computes it.
+9. **Chart after Table** (slice 7): a TABLE, CSV or rows is offered Table first and Chart second; a table array the core plots keeps Plot first and gets no Chart beside it (one chart a value). Alternative: Chart first for tables with a number column.
+10. **The chart picked with no choice:** a column chart of the first measure (a column with fractions before one of whole numbers, which are often counts, months or codes) summed by the first category column; a histogram when there is no category. Alternative: always a histogram of the first number.
+11. **The spec's names** are note 26's (`mark`, `x`, `y`, `color`, `size`, `path`, `agg`, `stack`, `bins`); a stacked line is `line` with `stack`, a stacked column `column` with `stack`, so the six kinds are four marks. Time axes, `normalize` and `range` wait for slice 8. Alternative: six marks by name.
+12. **The whole of a long TEXT** goes to the editor when its excerpt doesn't hold it (both SDKs, `docs/interface.md` section 10, a SHOULD): before, a TEXT between 4096 characters and the inline limit reached the editor only as its first 4096, so an SVG of that size could never be drawn. Alternative: the editor asks the engine for the rest (a new message).

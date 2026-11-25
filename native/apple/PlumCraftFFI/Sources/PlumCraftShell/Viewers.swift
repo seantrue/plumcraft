@@ -26,6 +26,9 @@ public final class ViewerBox {
     public let popout: PopoutModel
     @ObservationIgnored public let pictures: Pictures
     public var value: PopoutValue?
+    /// The core's stamp for the pop-out when `value` was last given (`PopoutWindow.stamp`): a viewer
+    /// whose page depends on more than the value (a chart's spec in the graph) keys on it.
+    public var stamp: UInt64 = 0
     /// A scripted run (`--scratch-state` or `--status-file`): the audio device is never opened, the clock runs silent.
     public let muted: Bool
     /// What the viewer shows now, for scripts (`--status-file`).
@@ -42,7 +45,7 @@ public final class ViewerBox {
     }
 
     /// The viewers the apps draw in SwiftUI (picture, SVG, text and scalar are each app's own).
-    public static let kinds: Set<String> = ["array.plot", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
+    public static let kinds: Set<String> = ["array.plot", "table.chart", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
 
     /// Shown here: one of [`kinds`], or a viewer offered that no Apple viewer draws (the engine's
     /// picture stands in, contract 13.3), or a value whose kind has no viewer at all.
@@ -77,7 +80,7 @@ public struct ViewerView: SwiftUI.View {
     @ViewBuilder
     private func body(for v: PopoutValue) -> some SwiftUI.View {
         switch v.viewer ?? "" {
-        case "array.plot": ChartViewer(box: box)
+        case "array.plot", "table.chart": ChartViewer(box: box)
         case "table.grid": TableViewer(box: box)
         case "array.grid": GridViewer(box: box)
         case "tree": OutlineViewer(box: box)
@@ -484,7 +487,7 @@ final class PageLoader {
             if r["status"].string == "ready" {
                 // what a script reads back: the rows and the first of them, the members open
                 var d: [String: JSONValue] = ["status": "ready"]
-                for k in ["rows", "cols", "page", "pages", "sort", "desc", "plane", "bytes", "totalChars"] where r[k] != .null { d[k] = r[k] }
+                for k in ["rows", "cols", "page", "pages", "sort", "desc", "plane", "bytes", "totalChars", "kind"] where r[k] != .null { d[k] = r[k] }
                 if let first = r["cells"][0].array { d["first"] = .array(Array(first.prefix(6))) }
                 if let n = r["nodes"].object { d["open"] = .uint(UInt64(n.count)) }
                 box.describe[part] = .object(d)
@@ -877,7 +880,8 @@ struct YamlViewer: SwiftUI.View {
     @State private var loader = PageLoader()
 
     var body: some SwiftUI.View {
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp)]
+        // `box.stamp`, observed: the pop-out model itself isn't
+        let key: JSONValue = ["stamp": .uint(box.stamp)]
         Group {
             if let e = loader.error {
                 ViewerMessage(text: "This value can't be shown as YAML: \(e)")

@@ -714,7 +714,7 @@ public sealed class TableViewer : IViewer
     int fetches;
     public double LastPageMs { get; private set; }
 
-    sealed record RowItem(ulong Index, string[] Cells);
+    sealed record RowItem(ulong Index, string[] Cells, double?[] Tints);
 
     public TableViewer(PopoutModel pop, bool grid)
     {
@@ -815,7 +815,10 @@ public sealed class TableViewer : IViewer
             numeric = [.. cols.Select(c => c.Get("numeric").IsTrue())];
         }
         numericRows = grid;
-        var rows = cells.Select((c, i) => new RowItem(start + (ulong)i, [.. c.Items().Select(x => x.Str() ?? x.GetRawText())])).ToList();
+        // each cell's place in its range, 0 to 1, when colour by value is on (note 26 slice 2; the core's)
+        var tints = r.Get("tints").Items().ToList();
+        var rows = cells.Select((c, i) => new RowItem(start + (ulong)i, [.. c.Items().Select(x => x.Str() ?? x.GetRawText())],
+            i < tints.Count ? [.. tints[i].Items().Select(t => t.Double())] : [])).ToList();
         // each column as wide as its header and the page's cells need, within reason
         widths = [.. names.Select((n, i) =>
         {
@@ -830,11 +833,42 @@ public sealed class TableViewer : IViewer
             async n => await pop.CommandAsync(grid ? "viewer.grid" : "viewer.table", ("page", Jsonv.Of(n))));
     }
 
+    /// <summary>Colour by value and, for an array, the number format: each the core's (`viewer.grid {colored, format}`,
+    /// `viewer.table {colored}`, note 26 slice 2), as the Apple shells' `CellOptions`.</summary>
+    FrameworkElement Options(PopoutValue v)
+    {
+        var command = grid ? "viewer.grid" : "viewer.table";
+        var st = v.State.Get(grid ? "grid" : "table");
+        var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var colour = new ToggleButton { Content = "Colour by Value", IsChecked = st.Get("colored").IsTrue(), Padding = new Thickness(8, 2, 8, 2) };
+        ToolTipService.SetToolTip(colour, $"Tint each number from its range's lowest to its highest ({command} colored)");
+        colour.Click += async (_, _) => await pop.CommandAsync(command, ("colored", Jsonv.Of(colour.IsChecked == true)));
+        line.Children.Add(colour);
+        if (grid)
+        {
+            var shown = st.Get("format").Str();
+            var f = new MenuFlyout();
+            foreach (var name in new string?[] { null }.Concat(st.Get("formats").Items().Select(x => x.Str())))
+            {
+                var it = new ToggleMenuFlyoutItem { Text = name ?? "Default", IsChecked = shown == name };
+                it.Click += async (_, _) => await pop.CommandAsync("viewer.grid", ("format", name is null ? Jsonv.Null : Jsonv.Of(name)));
+                f.Items.Add(it);
+            }
+            var b = new DropDownButton { Content = $"Format: {shown ?? "Default"}", Flyout = f };
+            ToolTipService.SetToolTip(b, "How the numbers are written (viewer.grid format)");
+            line.Children.Add(b);
+        }
+        if (page is { } pg && pg.Get("range") is { } range && range.ValueKind == JsonValueKind.Array)
+            line.Children.Add(new TextBlock { Text = $"{range.At(0).Str()} to {range.At(1).Str()}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
+        return line;
+    }
+
     void Top(JsonElement r, PopoutValue v)
     {
         top.Children.Clear();
-        if (!grid) { top.Visibility = Visibility.Collapsed; return; }
         top.Visibility = Visibility.Visible;
+        top.Children.Add(Options(v));
+        if (!grid) return;
         var line = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
         line.Children.Add(new TextBlock { Text = $"{r.Get("dtype").Str()} · {string.Join("×", r.Get("shape").Items().Select(x => x.U64()?.ToString(CultureInfo.InvariantCulture)))}", Style = Ui.TextStyle("CaptionTextBlockStyle"), VerticalAlignment = VerticalAlignment.Center });
         if (r.Get("planes").U64() is { } planes && planes > 1)
@@ -916,30 +950,296 @@ public sealed class TableViewer : IViewer
             {
                 // a cell's text selects and copies (note 26 slice 3: tables as tables, as egui's and the Apple shells' do)
                 var t = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0), IsTextSelectionEnabled = true };
-                cellGrid.Children.Add(t.At(i));
+                cellGrid.Children.Add(new Border { Child = t, VerticalAlignment = VerticalAlignment.Stretch }.At(i));
             }
         }
         int k = 0;
         if (numericRows)
         {
-            var rt = (TextBlock)cellGrid.Children[0];
+            var rt = (TextBlock)((Border)cellGrid.Children[0]).Child;
             rt.Text = r.Index.ToString(CultureInfo.InvariantCulture);
             rt.Foreground = Ui.Brush("TextFillColorSecondaryBrush");
             k = 1;
         }
         for (int i = 0; i < widths.Length; i++)
         {
-            var t = (TextBlock)cellGrid.Children[i + k];
+            var cell = (Border)cellGrid.Children[i + k];
+            var t = (TextBlock)cell.Child;
             t.Text = i < r.Cells.Length ? r.Cells[i] : "";
+            cell.Background = i < r.Tints.Length && r.Tints[i] is { } tint ? new SolidColorBrush(Tint(tint)) : null;
             t.TextAlignment = numeric[i] ? TextAlignment.Right : TextAlignment.Left;
             Microsoft.UI.Xaml.Documents.Typography.SetNumeralAlignment(t, numeric[i] ? Microsoft.UI.Xaml.FontNumeralAlignment.Tabular : Microsoft.UI.Xaml.FontNumeralAlignment.Normal);
         }
     }
 
+    /// <summary>A cell's tint for its place `t` (0 to 1) in its range: the accent, from clear to strong.</summary>
+    static Windows.UI.Color Tint(double t)
+    {
+        var a = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        return Windows.UI.Color.FromArgb((byte)Math.Round(Math.Clamp(t, 0, 1) * 150), a.R, a.G, a.B);
+    }
+
     public System.Text.Json.Nodes.JsonObject? Describe() => page is not { } r ? new() { ["status"] = "loading" } : new()
     {
-        ["status"] = "ready", ["rows"] = r.Get("rows").U64(), ["page"] = r.Get("page").U64(), ["pages"] = r.Get("pages").U64(), ["sort"] = r.Get("sort").U64(),
+        ["status"] = "ready", ["colored"] = r.Get("colored").Bool(), ["rows"] = r.Get("rows").U64(), ["page"] = r.Get("page").U64(), ["pages"] = r.Get("pages").U64(), ["sort"] = r.Get("sort").U64(),
         ["desc"] = r.Get("desc").Bool(), ["first"] = r.Get("cells").At(0).At(0).Str(), ["fetches"] = fetches, ["pageMs"] = Math.Round(LastPageMs, 1),
+    };
+}
+
+// ---------------- charts: the core's display list ----------------
+
+/// <summary>A chart the core lays out (note 26 slices 5 to 7; the maintainer's decisions 1A and 5A: the core lays
+/// charts out, each shell paints them, Windows with Win2D). `viewer.data {part: "chart", width, height}` at this
+/// view's size gives the plot rectangle, marks in the chart's own points, the axes' ticks and titles, a legend and
+/// an accessibility outline; nothing is scaled or counted here. A table's chart (`table.chart`) adds its
+/// choices: the kind and the columns, each one `viewer.chart`.</summary>
+public sealed class ChartViewer : IViewer
+{
+    readonly PopoutModel pop;
+    readonly bool table;
+    readonly Grid g = new();
+    readonly StackPanel choices = new() { Orientation = Orientation.Horizontal, Spacing = 8, Padding = new Thickness(12, 6, 12, 2) };
+    readonly CanvasControl canvas = new() { MinHeight = 160 };
+    readonly TextBlock note = new() { Style = Ui.TextStyle("CaptionTextBlockStyle"), Margin = new Thickness(12, 2, 12, 2) };
+    JsonElement? list;
+    string? asked;
+    (double w, double h) size;
+    PopoutValue? last;
+    int reload;
+
+    public ChartViewer(PopoutModel pop, bool table)
+    {
+        this.pop = pop;
+        this.table = table;
+        foreach (var h in new[] { GridLength.Auto, GridLength.Auto, new GridLength(1, GridUnitType.Star) }) g.RowDefinitions.Add(new RowDefinition { Height = h });
+        g.Children.Add(choices);
+        g.Children.Add(note.At(0, 1));
+        g.Children.Add(canvas.At(0, 2));
+        canvas.Draw += Draw;
+        canvas.SizeChanged += (_, e) => { size = (Math.Round(e.NewSize.Width), Math.Round(e.NewSize.Height)); if (last is { } v) Update(v); };
+    }
+
+    public string Kind => table ? "table.chart" : "array.plot";
+    public FrameworkElement View => g;
+
+    public async void Update(PopoutValue v)
+    {
+        last = v;
+        try { await UpdateAsync(); }
+        catch (Exception e) { CoreHost.Log($"viewer {Kind}: {e}"); }
+    }
+
+    async Task UpdateAsync()
+    {
+        if (size.w < 2 || size.h < 2) return;
+        var key = $"{pop.Window.Stamp}|{size.w}x{size.h}|{reload}";
+        if (key == asked) return;
+        asked = key;
+        var r = await pop.DataAsync("chart", null, ("width", Jsonv.Of(Math.Max(size.w, 120))), ("height", Jsonv.Of(Math.Max(size.h, 120))));
+        if (key != asked) return;
+        if (r.Get("status").Str() is "failed" or "missing")
+        {
+            list = null;
+            note.Text = $"This chart can't be drawn: {r.Get("error").Str()}";
+        }
+        else
+        {
+            list = r;
+            note.Text = r.Get("a11y").Get("summary").Str() ?? "";
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(canvas, r.Get("a11y").Get("title").Str() ?? "Chart");
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetHelpText(canvas, note.Text);
+        }
+        Choices(r);
+        canvas.Invalidate();
+    }
+
+    static readonly (string label, string mark, bool stack)[] Kinds =
+        [("Column", "column", false), ("Stacked Column", "column", true), ("Line", "line", false), ("Stacked Line", "line", true), ("Histogram", "histogram", false), ("Treemap", "treemap", false)];
+
+    void Choices(JsonElement r)
+    {
+        choices.Children.Clear();
+        if (!table || r.Get("columns") is null) { choices.Visibility = Visibility.Collapsed; return; }
+        choices.Visibility = Visibility.Visible;
+        var spec = r.Get("spec");
+        var mark = spec.Get("mark").Str() ?? "column";
+        var stack = spec.Get("stack").IsTrue();
+        var cols = r.Get("columns").Items().Select(c => (name: c.Get("name").Str() ?? "", numeric: c.Get("numeric").IsTrue())).ToList();
+        var numbers = cols.Where(c => c.numeric).Select(c => c.name).ToList();
+        var all = cols.Select(c => c.name).ToList();
+        var kind = new MenuFlyout();
+        foreach (var k in Kinds)
+        {
+            var it = new ToggleMenuFlyoutItem { Text = k.label, IsChecked = k.mark == mark && k.stack == stack };
+            it.Click += (_, _) => Send(("mark", Jsonv.Of(k.mark)), ("stack", Jsonv.Of(k.stack)));
+            kind.Items.Add(it);
+        }
+        choices.Children.Add(new DropDownButton { Content = Kinds.FirstOrDefault(k => k.mark == mark && k.stack == stack).label ?? mark, Flyout = kind });
+        if (mark == "treemap")
+        {
+            Pick("Groups", spec.Get("path").At(0).Str(), all, null, n => n is null ? Jsonv.Null : Jsonv.Array([Jsonv.Of(n)]), "path");
+            Pick("Size", spec.Get("size").Str(), numbers, "Rows", n => n is null ? Jsonv.Null : Jsonv.Of(n), "size");
+        }
+        else
+        {
+            Pick("X", spec.Get("x").Str(), mark is "histogram" or "line" ? numbers : all, mark == "line" ? "Row" : null, n => n is null ? Jsonv.Null : Jsonv.Of(n), "x");
+            if (mark != "histogram") Pick("Y", spec.Get("y").At(0).Str(), numbers, mark == "column" ? "Count" : null, n => n is null ? Jsonv.Null : Jsonv.Array([Jsonv.Of(n)]), "y");
+            Pick("Colour", spec.Get("color").Str(), all, "None", n => n is null ? Jsonv.Null : Jsonv.Of(n), "color");
+        }
+    }
+
+    void Pick(string role, string? shown, List<string> names, string? none, Func<string?, JsonElement> value, string key)
+    {
+        var f = new MenuFlyout();
+        if (none is not null)
+        {
+            var it = new ToggleMenuFlyoutItem { Text = none, IsChecked = shown is null };
+            it.Click += (_, _) => Send((key, value(null)));
+            f.Items.Add(it);
+        }
+        foreach (var n in names)
+        {
+            var it = new ToggleMenuFlyoutItem { Text = n, IsChecked = shown == n };
+            it.Click += (_, _) => Send((key, value(n)));
+            f.Items.Add(it);
+        }
+        var b = new DropDownButton { Content = $"{role}: {shown ?? none ?? "–"}", Flyout = f };
+        ToolTipService.SetToolTip(b, $"The column for {role.ToLowerInvariant()} (viewer.chart)");
+        choices.Children.Add(b);
+    }
+
+    /// <summary>One choice, sent with the rest of the spec drawn (the core's own pick when none was made, so a
+    /// first choice changes only what it names).</summary>
+    async void Send(params (string, JsonElement)[] p)
+    {
+        try
+        {
+            var all = new Dictionary<string, JsonElement>();
+            foreach (var prop in list?.Get("spec") is { ValueKind: JsonValueKind.Object } spec ? spec.EnumerateObject() : default) all[prop.Name] = prop.Value.Clone();
+            foreach (var (k, value) in p) all[k] = value;
+            await pop.CommandAsync("viewer.chart", [.. all.Select(kv => (kv.Key, kv.Value))]);
+            reload++;
+            if (last is { } v) Update(v);
+        }
+        catch (Exception e) { CoreHost.Log($"viewer.chart: {e}"); }
+    }
+
+    static float[] Nums(JsonElement? v) => [.. v.Items().Select(x => (float)(x.Double() ?? double.NaN)).Where(x => !float.IsNaN(x))];
+
+    static Windows.UI.Color Colour(JsonElement? c, Windows.UI.Color accent)
+    {
+        var s = c.Str();
+        if (s is { Length: 7 } && s[0] == '#' && uint.TryParse(s.AsSpan(1), System.Globalization.NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var n))
+            return Windows.UI.Color.FromArgb(255, (byte)(n >> 16), (byte)(n >> 8), (byte)n);
+        return accent;
+    }
+
+    static Windows.UI.Color Alpha(Windows.UI.Color c, double a) => Windows.UI.Color.FromArgb((byte)(c.A * a), c.R, c.G, c.B);
+
+    void Draw(CanvasControl sender, CanvasDrawEventArgs e)
+    {
+        if (list is not { } l) return;
+        var ds = e.DrawingSession;
+        var accent = (Windows.UI.Color)Application.Current.Resources["SystemAccentColor"];
+        var text = Ui.Brush("TextFillColorPrimaryBrush") is SolidColorBrush tb ? tb.Color : Microsoft.UI.Colors.Black;
+        var dim = Ui.Brush("TextFillColorSecondaryBrush") is SolidColorBrush db ? db.Color : Microsoft.UI.Colors.Gray;
+        var p = Nums(l.Get("plot"));
+        if (p.Length != 4) return;
+        var (px, py, pw, ph) = (p[0], p[1], p[2], p[3]);
+        var font = (float)(l.Get("font").Double() ?? 11);
+        var fmt = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat { FontSize = font, WordWrapping = Microsoft.Graphics.Canvas.Text.CanvasWordWrapping.NoWrap };
+        var gridC = Alpha(dim, 0.25);
+        foreach (var x in Nums(l.Get("grid").Get("x"))) ds.DrawLine(x, py, x, py + ph, gridC, 0.5f);
+        foreach (var y in Nums(l.Get("grid").Get("y"))) ds.DrawLine(px, y, px + pw, y, gridC, 0.5f);
+        foreach (var m in l.Get("marks").Items())
+        {
+            var c = Colour(m.Get("color"), accent);
+            switch (m.Get("kind").Str())
+            {
+                case "points":
+                {
+                    var r = (float)(m.Get("r").Double() ?? 2);
+                    var xy = Nums(m.Get("xy"));
+                    for (int i = 0; i + 1 < xy.Length; i += 2) ds.FillCircle(xy[i], xy[i + 1], r, c);
+                    break;
+                }
+                case "segments":
+                {
+                    var w = (float)(m.Get("width").Double() ?? 1);
+                    var xy = Nums(m.Get("xy"));
+                    for (int i = 0; i + 3 < xy.Length; i += 4) ds.DrawLine(xy[i], xy[i + 1], xy[i + 2], xy[i + 3], c, w);
+                    break;
+                }
+                case "rects":
+                {
+                    var rs = Nums(m.Get("rects"));
+                    var fill = Alpha(c, 0.85);
+                    for (int i = 0; i + 3 < rs.Length; i += 4) ds.FillRectangle(rs[i], rs[i + 1], rs[i + 2], rs[i + 3], fill);
+                    break;
+                }
+                case "line":
+                case "area":
+                {
+                    var xy = Nums(m.Get("xy"));
+                    if (xy.Length < 4) break;
+                    using var pb = new Microsoft.Graphics.Canvas.Geometry.CanvasPathBuilder(sender);
+                    pb.BeginFigure(xy[0], xy[1]);
+                    for (int i = 2; i + 1 < xy.Length; i += 2) pb.AddLine(xy[i], xy[i + 1]);
+                    var area = m.Get("kind").Str() == "area";
+                    pb.EndFigure(area ? Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Closed : Microsoft.Graphics.Canvas.Geometry.CanvasFigureLoop.Open);
+                    using var geo = Microsoft.Graphics.Canvas.Geometry.CanvasGeometry.CreatePath(pb);
+                    if (area) ds.FillGeometry(geo, Alpha(c, 0.8));
+                    else ds.DrawGeometry(geo, c, (float)(m.Get("width").Double() ?? 1.5));
+                    break;
+                }
+                case "labels":
+                    foreach (var lb in m.Get("labels").Items())
+                    {
+                        if (lb.Get("x").Double() is not { } x || lb.Get("y").Double() is not { } y) continue;
+                        ds.DrawText(lb.Get("text").Str() ?? "", (float)x, (float)y, Microsoft.UI.Colors.White, fmt);
+                        if (lb.Get("detail").Str() is { } d) ds.DrawText(d, (float)x, (float)y + font + 2, Alpha(Microsoft.UI.Colors.White, 0.8), fmt);
+                    }
+                    break;
+            }
+        }
+        foreach (var lg in l.Get("legend").Items())
+        {
+            if (lg.Get("x").Double() is not { } x || lg.Get("y").Double() is not { } y) continue;
+            ds.FillRoundedRectangle((float)x, (float)y, 10, 10, 2, 2, Colour(lg.Get("color"), accent));
+            ds.DrawText(lg.Get("text").Str() ?? "", (float)x + 15, (float)y - 2, text, fmt);
+        }
+        var axes = l.Get("axes").Items().ToList();
+        if (axes.Count == 0) return;
+        var axis = Alpha(dim, 0.7);
+        ds.DrawLine(px, py, px, py + ph, axis, 1);
+        ds.DrawLine(px, py + ph, px + pw, py + ph, axis, 1);
+        var centre = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat { FontSize = font, HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Center, WordWrapping = Microsoft.Graphics.Canvas.Text.CanvasWordWrapping.NoWrap };
+        var right = new Microsoft.Graphics.Canvas.Text.CanvasTextFormat { FontSize = font, HorizontalAlignment = Microsoft.Graphics.Canvas.Text.CanvasHorizontalAlignment.Right, VerticalAlignment = Microsoft.Graphics.Canvas.Text.CanvasVerticalAlignment.Center, WordWrapping = Microsoft.Graphics.Canvas.Text.CanvasWordWrapping.NoWrap };
+        foreach (var a in axes)
+        {
+            var bottom = a.Get("side").Str() == "bottom";
+            foreach (var t in a.Get("ticks").Items())
+            {
+                if (t.Get("at").Double() is not { } at) continue;
+                var s = t.Get("text").Str() ?? "";
+                if (bottom) ds.DrawText(s, (float)at, py + ph + 4, dim, centre);
+                else ds.DrawText(s, px - 5, (float)at, dim, right);
+            }
+            var title = a.Get("title").Str() ?? "";
+            if (bottom) ds.DrawText(title, px + pw / 2, py + ph + font + 10, text, centre);
+            else
+            {
+                var old = ds.Transform;
+                ds.Transform = System.Numerics.Matrix3x2.CreateRotation(-MathF.PI / 2) * System.Numerics.Matrix3x2.CreateTranslation(4, py + ph / 2);
+                ds.DrawText(title, 0, 0, text, centre);
+                ds.Transform = old;
+            }
+        }
+    }
+
+    public System.Text.Json.Nodes.JsonObject? Describe() => list is not { } l ? new() { ["status"] = "loading" } : new()
+    {
+        ["status"] = "ready", ["chart"] = l.Get("kind").Str(), ["marks"] = l.Get("marks").Items().Count(), ["chartSize"] = $"{size.w}x{size.h}",
     };
 }
 

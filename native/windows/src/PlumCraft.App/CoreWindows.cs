@@ -359,18 +359,20 @@ public sealed class MessagesWindow : PanelWindow
     public override System.Text.Json.Nodes.JsonObject Describe() => new() { ["open"] = true, ["count"] = messages.Messages.Count };
 }
 
-/// <summary>Compare: A and B side by side, or one over the other with a divider (`viewer.compare {how,
-/// split}`). The exact difference is the egui editor's for now (card 15), and this says so.</summary>
+/// <summary>Compare: A and B side by side, one over the other with a divider, or their exact difference
+/// (`viewer.compare {how, split, diff}`). The difference is the core's (note 26 slice 2b: `compare.get`'s
+/// `difference`, its words and its pictures lent by handle), drawn here as the Apple shells draw it.</summary>
 public sealed class CompareWindow : PanelWindow
 {
     readonly CompareModel compare;
     readonly Pictures pictures;
     readonly SelectorBar how = new();
-    readonly SelectorBarItem side = new() { Text = "Side by Side" }, split = new() { Text = "Split" };
+    readonly SelectorBarItem side = new() { Text = "Side by Side" }, split = new() { Text = "Split" }, diff = new() { Text = "Difference" };
     readonly Grid stage = new();
     readonly Slider divider = new() { Minimum = 0, Maximum = 1, StepFrequency = 0.01, Margin = new Thickness(12, 0, 12, 0), IsThumbToolTipEnabled = false };
     readonly TextBlock error = new() { Foreground = new SolidColorBrush(Microsoft.UI.Colors.IndianRed), TextWrapping = TextWrapping.Wrap };
     readonly Dictionary<string, (string key, CanvasBitmap? bmp)> shown = [];
+    readonly TextBlock note = new() { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };
     bool following;
 
     public override (int w, int h) Size => (880, 560);
@@ -381,10 +383,12 @@ public sealed class CompareWindow : PanelWindow
         this.pictures = pictures;
         how.Items.Add(side);
         how.Items.Add(split);
+        how.Items.Add(diff);
         how.SelectionChanged += async (_, _) =>
         {
             if (following) return;
-            await compare.RunAsync("viewer.compare", Jsonv.Object(("how", Jsonv.Of(how.SelectedItem == split ? "split" : "side"))));
+            var h = how.SelectedItem == split ? "split" : how.SelectedItem == diff ? "difference" : "side";
+            await compare.RunAsync("viewer.compare", Jsonv.Object(("how", Jsonv.Of(h))));
         };
         divider.ValueChanged += (_, _) => PlaceSplit();
         divider.AddHandler(UIElement.PointerReleasedEvent, new Microsoft.UI.Xaml.Input.PointerEventHandler(async (_, _) => await compare.RunAsync("viewer.compare", Jsonv.Object(("split", Jsonv.Of(divider.Value))))), true);
@@ -395,7 +399,7 @@ public sealed class CompareWindow : PanelWindow
         g.Children.Add(error.At(0, 1));
         g.Children.Add(stage.At(0, 2));
         g.Children.Add(divider.At(0, 3));
-        g.Children.Add(Ui.Caption("The exact difference of A and B is the egui editor's for now.").At(0, 4));
+        g.Children.Add(note.At(0, 4));
         Content = Root(g);
         compare.Changed += () => _ = Show();
         _ = compare.ReloadAsync();
@@ -410,13 +414,21 @@ public sealed class CompareWindow : PanelWindow
     {
         if (Gone) return;
         following = true;
-        how.SelectedItem = compare.How == "split" ? split : side;
+        how.SelectedItem = compare.How switch { "split" => split, "difference" => diff, _ => side };
         following = false;
         error.Text = compare.Error ?? "";
         divider.Visibility = compare.How == "split" ? Visibility.Visible : Visibility.Collapsed;
         if (compare.Reply.Get("split").Double() is { } s) divider.Value = s;
         var a = compare.Reply.Get("a");
         var b = compare.Reply.Get("b");
+        note.Text = "";
+        if (compare.How == "difference")
+        {
+            await Difference(compare.Reply.Get("difference"));
+            PlaceSplit();
+            Owner.NoteStatus();
+            return;
+        }
         await Load("a", a);
         await Load("b", b);
         stage.Children.Clear();
@@ -496,6 +508,47 @@ public sealed class CompareWindow : PanelWindow
         }
         g.Children.Add(frame.At(0, 1));
         return g;
+    }
+
+    /// <summary>|A − B|: the core's words, then each picture it lends (the mean of the channels, or one a
+    /// channel, `viewer.compare {diff}`), NaN in magenta; asked again while it is still being computed.</summary>
+    async Task Difference(JsonElement? d)
+    {
+        stage.Children.Clear();
+        stage.ColumnDefinitions.Clear();
+        var status = d.Get("status").Str();
+        if (status == "failed") { note.Text = d.Get("error").Str() ?? "The difference couldn't be computed."; return; }
+        if (status != "ready")
+        {
+            note.Text = "Computing |A − B|…";
+            await Task.Delay(300);
+            if (!Gone) _ = compare.ReloadAsync();
+            return;
+        }
+        note.Text = d.Get("text").Str() ?? "";
+        var panel = new StackPanel { Spacing = 10 };
+        var mode = new ComboBox { Items = { "Mean of the Channels", "Each Channel" }, SelectedIndex = compare.Reply.Get("diff").Str() == "channels" ? 1 : 0 };
+        mode.SelectionChanged += async (_, _) => await compare.RunAsync("viewer.compare", Jsonv.Object(("diff", Jsonv.Of(mode.SelectedIndex == 1 ? "channels" : "mean"))));
+        panel.Children.Add(mode);
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        int i = 0;
+        foreach (var p in d.Get("pictures").Items())
+        {
+            if (p.Get("handle").Str() is not { } h) continue;
+            var slot = $"diff{i++}";
+            if (!shown.TryGetValue(slot, out var had) || had.key != h) shown[slot] = (h, await pictures.LoadAsync(h, "rgba", null));
+            var cell = new StackPanel { Spacing = 3 };
+            if (shown[slot].bmp is { } bmp)
+            {
+                var src = new CanvasImageSource(CanvasDevice.GetSharedDevice(), bmp.SizeInPixels.Width, bmp.SizeInPixels.Height, 96);
+                using (var ds = src.CreateDrawingSession(Microsoft.UI.Colors.Transparent)) ds.DrawImage(bmp);
+                cell.Children.Add(new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 360, MaxWidth = 420 });
+            }
+            cell.Children.Add(Ui.Caption($"{p.Get("caption").Str()} · largest {p.Get("top").Str()}"));
+            row.Children.Add(cell);
+        }
+        panel.Children.Add(new ScrollViewer { Content = row, HorizontalScrollMode = ScrollMode.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto, VerticalScrollMode = ScrollMode.Disabled });
+        stage.Children.Add(panel);
     }
 
     /// <summary>A's part of the split: a clip at the divider (the drag is the shell's; its end the core's).</summary>
