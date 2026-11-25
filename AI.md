@@ -30,6 +30,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects.** The controller told the maintainer, from reading code and without a launch, that a click on the row's label and an item in the node's menu open the editor; neither did, and the maintainer found out by trying. All four causes the controller suggested in the agent's brief were wrong. The existing case for this editor drove it by command only, so the person's way in had never been launched. The stroke in this fix's launch was sent as a command, not dragged.
 
+**Follow-up, the same day.** The Linux gate failed on the fix: the new conformance case did not pass on the egui editor, which the agent had left alone and whose tests it had not run. The gate caught it before the merge. The agent gave egui the same words, menu item and link, with the core's value window for the two kinds egui cannot draw. Its first whole-workspace run filled the Mac's disk (two agents building at once), and its first run on the Linux test host used nearly all of that machine's memory before it stopped its own build and reran with fewer jobs.
+
 ### 2026-11-25 — Promoted labels carry their node's name and can be renamed (FR5) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming". The controller asked which name, how a rename is kept and what several parameters of one node show, and offered a default; the maintainer: "Go with your lean", then "build FR4.5".
