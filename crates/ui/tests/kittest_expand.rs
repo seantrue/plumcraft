@@ -112,7 +112,7 @@ fn a_wire_that_cannot_come_across_is_said_in_the_status_bar() {
     h.run_steps(4);
     assert!(h.state().session.graph().groups.is_empty());
     assert_eq!(h.state().session.graph().nodes.len(), 5);
-    let said = h.state().last_error.clone().expect("the status bar says so");
+    let said = h.state().last_error.text().expect("the status bar says so");
     assert!(said.contains("1 wire(s) dropped") && said.contains("no output for note"), "{said}");
     assert!(h.query_by_label_contains("1 wire(s) dropped").is_some(), "on screen");
 }

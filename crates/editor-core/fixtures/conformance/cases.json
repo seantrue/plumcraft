@@ -1937,6 +1937,17 @@
       ]
     },
     {
+      "name": "the same error twice is counted twice",
+      "about": "B167: the status line's last error carries a count of the errors said (ui.inspect's errorSeq, the feed's document domain's errorSeq); the same refusal twice in a row is two errors with one text, so a shell's banner, which follows the count, shows the second one too",
+      "half": "read",
+      "steps": [
+        {"call": "ui.invoke", "params": {"command": "edit.copy"}},
+        {"call": "ui.inspect", "expect": {"/result/lastError": "select nodes to copy first", "/result/errorSeq": {"$min": 1}}, "save": {"e1": "/result/errorSeq"}},
+        {"call": "ui.invoke", "params": {"command": "edit.copy"}},
+        {"call": "ui.inspect", "expect": {"/result/lastError": "select nodes to copy first", "/result/errorSeq": {"$not": "$e1"}}}
+      ]
+    },
+    {
       "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
       "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
       "half": "read",

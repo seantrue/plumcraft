@@ -431,6 +431,8 @@ public struct Changed: Codable, Hashable, Sendable {
     public var undo: String?
     public var redo: String?
     public var lastError: String?
+    /// How many errors the document has said (B167): the same one twice is two.
+    public var errorSeq: UInt64?
     /// The core's autosave (N4 slice 4): `{on, state, error?, saves, failures}`.
     public var autosave: AutosaveState?
     /// An engine install under way (B71): `{repo, status}`; absent or null when none is.
@@ -478,6 +480,8 @@ public struct DocumentState: Hashable, Sendable {
     public var undo: String?
     public var redo: String?
     public var lastError: String?
+    /// How many errors were said (B167): a banner follows this, never the text.
+    public var errorSeq: UInt64 = 0
     /// The core's autosave, when on.
     public var autosave = AutosaveState()
     /// An engine install under way, while one is (B71).
@@ -496,6 +500,7 @@ public struct DocumentState: Hashable, Sendable {
         undo = c.undo
         redo = c.redo
         lastError = c.lastError
+        errorSeq = c.errorSeq ?? 0
         autosave = c.autosave ?? AutosaveState()
         installing = c.installing
     }

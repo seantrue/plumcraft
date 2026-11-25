@@ -85,7 +85,7 @@ fn a_bundle_goes_out_through_the_file_menu_and_comes_back_where_its_paths_work()
     file_menu(&mut h, "Export Bundle…");
     assert!(zip.is_file(), "{:?}", h.state().last_error);
     assert_eq!(asked.lock().unwrap().asked_for, [Some(dir.join("flow.json"))], "offered beside the workflow");
-    let said = h.state().last_error.clone().expect("what couldn't go in is said");
+    let said = h.state().last_error.text().expect("what couldn't go in is said");
     assert!(said.contains("1 path(s)") && said.contains("gone.txt"), "{said}");
     assert!(h.query_by_label_contains("couldn't go in").is_some(), "on screen");
 

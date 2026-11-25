@@ -1436,6 +1436,8 @@ impl Worker {
         let s = &d.doc.session;
         let now = json!({"title": control::window_title(s, &Shell::view(&d.doc)), "document": control::document_name(s, &d.doc.document),
                          "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error,
+                         // how many errors were said: the same one twice is news (B167)
+                         "errorSeq": d.doc.last_error.seq(),
                          "autosave": d.doc.autosave.status(),
                          // an engine install under way and what it is doing (B71), for a shell's
                          // progress line; null when none is

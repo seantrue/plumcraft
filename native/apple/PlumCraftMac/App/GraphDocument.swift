@@ -364,15 +364,16 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     func followState(_ st: DocumentState) {
         graphDocument?.follow(st)
         if let m = canvasView?.model { MenuBar.shared.modelChanged(m) }
-        if let e = st.lastError, !e.isEmpty, e != lastErrorShown {
-            lastErrorShown = e
+        // a banner for each error the core says, the same one again too (B167): by its count
+        if let e = st.lastError, !e.isEmpty, st.errorSeq != lastErrorShown {
+            lastErrorShown = st.errorSeq
             banner(e)
         }
         showEngine(canvasView?.model.engine ?? EngineState())
         reportNow()
     }
 
-    var lastErrorShown: String?
+    var lastErrorShown: UInt64 = 0
 
     func windowDidBecomeKey(_ notification: Notification) {
         if let m = canvasView?.model { MenuBar.shared.show(m) }
@@ -614,10 +615,8 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             let probs = (s["engine"]["manifestProblems"].array ?? []).compactMap(\.string)
             guard let first = probs.first, let self else { return }
             let said = probs.count == 1 ? "engine manifests: \(first)" : "engine manifests: \(probs.count) problems; the first: \(first)"
-            if self.lastErrorShown != said {
-                self.lastErrorShown = said
-                self.banner(said)
-            }
+            // once a window (manifestProblemsRead), whatever the status line said meanwhile
+            self.banner(said)
         }
     }
 

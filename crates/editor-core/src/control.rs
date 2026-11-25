@@ -100,6 +100,8 @@ pub struct View<'a> {
     pub coordinator: Option<&'a Arc<Coordinator>>,
     pub switching: &'a Switching,
     pub last_error: Option<&'a str>,
+    /// How many errors were said (B167): a shell's banner follows this, not the text.
+    pub error_seq: u64,
     pub asks: &'a Asks<Cont>,
     /// The title's name for a graph with no file ([`UNTITLED`], a demo's, what it came from).
     pub document: &'a str,
@@ -846,6 +848,7 @@ pub fn inspect_core<S: Shell>(s: &S) -> Map<String, Value> {
     put("about", json!(session.views.about.then_some(&session.about)));
     put("catalog", json!({"nodes": catalog.nodes.len(), "engine": catalog.engine.name, "version": catalog.engine.version}));
     put("lastError", json!(v.last_error));
+    put("errorSeq", json!(v.error_seq));
     put("run", session.run.summary(Instant::now()));
     if let Some(a) = v.run_anim {
         put("runAnim", run_anim_inspect(session, a));
@@ -1239,7 +1242,7 @@ mod tests {
         session: Session,
         asks: Asks<Cont>,
         parked: Parked,
-        last_error: Option<String>,
+        last_error: crate::error_line::ErrorLine,
         state: EngineState,
         switching: Switching,
     }
@@ -1250,7 +1253,7 @@ mod tests {
                 session: Session::new(plumcraft_text::engine().schema()),
                 asks: Asks::default(),
                 parked: Parked::default(),
-                last_error: None,
+                last_error: Default::default(),
                 state: EngineState::Off,
                 switching: Switching::default(),
             }
@@ -1271,7 +1274,7 @@ mod tests {
             self.session.execute(id, params).map_err(|e| e.to_string())
         }
         fn say(&mut self, text: String) {
-            self.last_error = Some(text);
+            self.last_error.set(text);
         }
     }
 
@@ -1283,6 +1286,7 @@ mod tests {
                 coordinator: None,
                 switching: &self.switching,
                 last_error: self.last_error.as_deref(),
+                error_seq: self.last_error.seq(),
                 asks: &self.asks,
                 document: UNTITLED,
                 app_title: APP_TITLE,
@@ -1295,7 +1299,7 @@ mod tests {
             &mut self.parked
         }
         fn clear_last_error(&mut self) {
-            self.last_error = None;
+            self.last_error.clear();
         }
     }
 

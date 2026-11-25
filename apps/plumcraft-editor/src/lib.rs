@@ -346,7 +346,7 @@ fn editor_with(
     match link {
         Ok(link) => app.with_link(link),
         Err(e) => {
-            app.last_error = Some(format!("engine: {e}"));
+            app.last_error.set(format!("engine: {e}"));
             app
         }
     }
@@ -531,7 +531,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         // is ready, and its control channel open, before its first frame, as before.
         app.wake_with(&cc.egui_ctx);
         if let Some(Err(e)) = app.pump_engine() {
-            app.last_error = Some(e);
+            app.last_error.set(e);
         }
         Ok(Box::new(app))
     };
@@ -1190,7 +1190,7 @@ mod tests {
             std::fs::write(&m, "id = \"Not An Id\"").unwrap();
             let r = command(&mut h, "engine.manifests.reload", json!({})).unwrap();
             assert!(r["problems"][0].as_str().unwrap().contains("lower-case"), "{r}");
-            assert!(h.state().last_error.as_ref().unwrap().contains("engine manifests"));
+            assert!(h.state().last_error.as_deref().unwrap().contains("engine manifests"));
             assert_eq!(offered(&mut h, "late"), []);
             assert_eq!(offered(&mut h, "text").len(), 5, "the built-in engines are still there");
         }
@@ -1239,14 +1239,14 @@ mod tests {
             let problems = r["problems"].as_array().unwrap();
             assert!(problems.len() >= before.nodes.len(), "{r}");
             assert!(problems.iter().any(|p| p.as_str().unwrap().contains("unknown kind \"text.")), "{r}");
-            let e = h.state().last_error.clone().unwrap();
+            let e = h.state().last_error.text().unwrap();
             assert!(e.contains("Audio · Rust · process (mode 2)") && e.contains("problem(s)"), "{e}");
             assert!(h.state().engine_label().contains("engine: Audio"), "{}", h.state().engine_label());
             h.get_by_label_contains("problem(s) with this engine");
             // back to text: no problems, and it runs
             let r = switch(&mut h, "text", "inproc").unwrap();
             assert_eq!(r["problems"], json!([]));
-            assert_eq!(h.state().last_error, None);
+            assert_eq!(h.state().last_error.as_deref(), None);
             run_all_done(&mut h, "back on text");
         }
 

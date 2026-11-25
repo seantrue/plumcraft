@@ -48,6 +48,7 @@ pub mod asks;
 pub mod autosave;
 pub mod bundle;
 pub mod canvas_cmds;
+pub mod error_line;
 /// The chart layout, shared with the engine SDK's thumbnails (`plumcraft-chart`, note 26 option A).
 pub use plumcraft_chart::layout as chart;
 pub mod chart_kinds;

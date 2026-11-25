@@ -92,6 +92,27 @@ fn the_feed_says_when_the_documents_title_dirty_state_and_undo_step_change() {
     c.close();
 }
 
+/// B167: the same error said twice is two errors: the `document` domain changes each time, its
+/// `errorSeq` rising, so a native shell's banner shows the second one too.
+#[test]
+fn the_same_error_twice_is_said_twice() {
+    let mut c = Client::open(&json!({"store_root": store_root("rw-error-twice")}));
+    let mut feed = Feed::default();
+    until(&mut c, &mut feed, "the first document state", |f| last_document(f).is_some());
+    let seq = |f: &Feed| last_document(f).and_then(|d| d["errorSeq"].as_u64()).unwrap_or(0);
+    let start = seq(&feed);
+    // a person's Copy with nothing selected: the status line says what to do
+    let invoke = |c: &mut Client, feed: &mut Feed| call(c, feed, "ui.invoke", json!({"command": "edit.copy", "by": "person"}));
+    invoke(&mut c, &mut feed);
+    until(&mut c, &mut feed, "the first error", |f| seq(f) > start);
+    let first = last_document(&feed).unwrap().clone();
+    assert_eq!(first["lastError"], "select nodes to copy first", "{first}");
+    invoke(&mut c, &mut feed);
+    until(&mut c, &mut feed, "the same error again, counted", |f| seq(f) > first["errorSeq"].as_u64().unwrap_or(0));
+    assert_eq!(last_document(&feed).unwrap()["lastError"], "select nodes to copy first");
+    c.close();
+}
+
 #[test]
 fn engines_also_puts_a_second_engines_kinds_in_every_documents_catalogue() {
     let mut c = Client::open(&json!({"store_root": store_root("rw-also"), "engines": {"default": "text", "mode": "inproc", "also": ["array"]}}));

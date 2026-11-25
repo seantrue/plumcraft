@@ -682,7 +682,7 @@ impl EditorApp {
                 self.tokens.name = t.name;
                 self.set_theme(ctx, &t);
             }
-            None => self.doc.last_error = Some(format!("no theme called {name:?}")),
+            None => self.doc.last_error.set(format!("no theme called {name:?}")),
         }
     }
 
@@ -1533,7 +1533,7 @@ impl EditorApp {
         }
         // (an install under way is followed there too: the core's step)
         if let Some(Err(e)) = self.pump_engine() {
-            self.doc.last_error = Some(e);
+            self.doc.last_error.set(e);
         }
         let semibold = fonts::has_semibold(&ctx);
         if semibold != self.tokens.semibold {
@@ -1883,7 +1883,7 @@ impl EditorApp {
         let (actions, note) = self.value_editors.show(ctx, &self.doc.session, &resolve, &self.tokens);
         self.run_all(actions);
         if note.is_some() {
-            self.doc.last_error = note;
+            self.doc.last_error.put(note);
         }
     }
 

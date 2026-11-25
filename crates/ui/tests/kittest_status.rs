@@ -20,7 +20,7 @@ fn long() -> String {
 #[test]
 fn a_short_message_shows_whole_with_no_more_button() {
     let mut app = EditorApp::new(session());
-    app.last_error = Some("select nodes first".into());
+    app.last_error.set("select nodes first");
     let h = harness(app);
     assert!(h.query_by_label("select nodes first").is_some());
     assert!(h.query_all_by_label_contains(MORE).next().is_none());
@@ -29,7 +29,7 @@ fn a_short_message_shows_whole_with_no_more_button() {
 #[test]
 fn a_long_message_is_cut_short_and_a_click_shows_it_in_full() {
     let mut app = EditorApp::new(session());
-    app.last_error = Some(long());
+    app.last_error.set(long());
     let mut h = harness(app);
     assert!(h.query_all_by_label_contains(MORE).next().is_some(), "the bar says something isn't shown");
     assert!(h.query_by_label(TITLE).is_none(), "no window yet");
@@ -40,7 +40,7 @@ fn a_long_message_is_cut_short_and_a_click_shows_it_in_full() {
     // the bar's chip and the window's whole message
     assert!(h.query_all_by_label_contains(TAIL).count() >= 2, "the whole message, in the window");
     // nothing left to show closes it
-    h.state_mut().last_error = None;
+    h.state_mut().last_error.clear();
     h.run_steps(4);
     assert!(!h.state().session.views.messages);
 }
@@ -48,7 +48,7 @@ fn a_long_message_is_cut_short_and_a_click_shows_it_in_full() {
 #[test]
 fn clicking_a_message_opens_the_window_too() {
     let mut app = EditorApp::new(session());
-    app.last_error = Some("select nodes first".into());
+    app.last_error.set("select nodes first");
     let mut h = harness(app);
     h.get_by_label("select nodes first").click();
     h.run_steps(4);
@@ -58,7 +58,7 @@ fn clicking_a_message_opens_the_window_too() {
 #[test]
 fn the_window_is_a_command() {
     let mut app = EditorApp::new(session());
-    app.last_error = Some("select nodes first".into());
+    app.last_error.set("select nodes first");
     let mut h = harness(app);
     h.state_mut().try_run("view.messages", &serde_json::json!({"open": true})).unwrap();
     h.run_steps(4);
@@ -85,6 +85,6 @@ fn backgrounds_differ_by_severity_and_text_keeps_its_colour() {
     assert_eq!(e, mix(t.panel, t.error, 0.28));
     // the messages carry their severity; the run's and the editor's errors are errors
     let mut app = app;
-    app.last_error = Some("x".into());
+    app.last_error.set("x");
     assert_eq!(app.status_messages()[0].tone, Tone::Error);
 }

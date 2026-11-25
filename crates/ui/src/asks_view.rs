@@ -47,7 +47,7 @@ impl Host for EditorApp {
         self.try_run(id, params)
     }
     fn say(&mut self, text: String) {
-        self.doc.last_error = Some(text);
+        self.doc.last_error.set(text);
     }
     fn prefs(&mut self) -> Option<&mut prefs::Store> {
         Some(&mut self.prefs)
@@ -249,7 +249,7 @@ impl EditorApp {
         match ask_dialogs(self.dialogs.as_mut(), a) {
             Some(answer) => {
                 if let Err(e) = invoke::answer(self, a.id, &answer) {
-                    self.doc.last_error = Some(e);
+                    self.doc.last_error.set(e);
                 }
             }
             None => {
