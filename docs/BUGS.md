@@ -4,6 +4,30 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B167. Mac: the same error twice in a row shows no banner the second time
+
+- Reported: 2026-11-24 (found by an agent while fixing B165, not by the maintainer)
+- Report: the Mac shows the document's last error as a banner only when its text differs from the last one shown (`GraphDocument.followState`). A second try at the same failing action, such as inserting the same refused file again, shows nothing at all. Likely why B165 looked silent.
+- Issue: none
+
+### B164. Mac: a node driven by a range does not give several results on its output
+
+- Reported: 2026-11-24
+- Report: "Node driven by range does not generate multiple results on output"
+- Context: the maintainer's first hand use of B162's fix, in an application built on the Mac shell from the dev branch at `3403749`, with the style graph of B162's report: a range driver of 5 values wired to a setting of a node of the application's own engine. The graph now runs.
+- Answer (the maintainer, 2026-11-24): asked which output, they answered: "I looked at right after the node, and the final result." So: one result both just after the driven node and at the end of the graph.
+- Then: "fix B164".
+- Found (an agent, a scripted copy with a scratch copy of the graph; no fix made):
+  - The driven node runs 5 times, once per value. Each run returns a list of 2 pictures, and the engine joins the runs into one flat list of 10 (seen: the odd items differ with the value).
+  - The wire out of the node carries the slice `1`, which takes one item of that flat list: the first run's picture. From there to the final result there is one picture.
+  - This is the list rule as written, not a fault in one place: a node run once per item whose runs each return a list gives "a new, flat list" (`crates/engine/src/exec.rs`; the Python SDK and the research software's executor the same), and a slice applies to the flat list (`docs/interface.md` 7.6 rule 3). The research software's own executor, read and not run, would give one result for this wiring too.
+  - Changing the slice to `1::2` on the wire gave 5 items just after the node, but a later node that takes a whole list of 3 then got 15 and refused. So slicing per run is not enough.
+  - Ruled out: the border between engines (the 5 values arrive), the inherited mark, dotted names.
+- Open question (the maintainer's decision; it changes the list rule in the spec, both SDKs and the research software): keep each run's list apart (nested lists), slice per run only, keep today's rule and say what it does, or have the core run the downstream part once per value.
+- Decision (the maintainer, 2026-11-24): asked which of the four, and whether to do the message of the third first: "Option 1, do the option 3 message first". So: nested lists (each run's list kept apart) is the fix; before it, the wire or face says what today's rule does.
+- Design: `docs/research/27-nested-lists.md`. Its nine decisions, answered by the maintainer on 2026-11-24: "Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A" (the interim message is a plain note with no new field; the rule for every graph, with an engine capability; a slice means the level its wire's source made; a whole-list port runs once per outer item; a Flatten building block; two steppers in pop-outs; an axes field on lists; tuples stay lists; the application's engine and the research software change together, last).
+- Issue: none
+
 ### B163. A graph's banner keeps "the graph has N problem(s)" after the missing engine was added
 
 - Reported: 2026-11-24 (found by an agent while reproducing B162, not by the maintainer)
@@ -51,6 +75,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Watch: record each sighting here with the reply.
 - Issue: none
 - Seen again: 2026-11-24, in the Linux gate on B151's branch (`ed7e6e3`, which changes no upload code). The second failure in a full run; still no cause.
+- Seen a third time: 2026-11-24, in the Linux gate on B164's branch (`dadb1e0`, which changes no upload code). Two of the day's last four full runs.
 
 ### B143. The conformance case "the engine's run changed while it goes" failed once on the Windows test VM
 
@@ -313,6 +338,27 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B166. Mac: Open Recent never lists recent graphs
+
+- Reported: 2026-11-24
+- Report: "open recent never has a list of recent graphs"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`, after opening and saving several graphs today (`.plum` and `.json`).
+- Answer (the maintainer, 2026-11-24): asked whether the menu is empty or greyed, and whether it ever listed anything: "empty list. Never showed anything".
+- Issue: none
+- Cause (reproduced in Plummer itself): Open Recent was AppKit's menu. AppKit did note every graph, but the Mac rebuilds its menu bar when the front document or the menu's structure changes, and AppKit fills only the Open Recent menu it adopted first. The core had no list at all, so it was a shell-side action, which the command rule counts as a defect.
+- Fixed: 2026-11-24, branch `fix/b165-b166-files`: the list, the menu and its items are the core's. `Prefs.recent` (newest first, once each, 10 kept, in the application's own preferences); a successful open, save, save as, rename or move notes the file; File › Open Recent in the core's menu model, a missing file disabled with why, then Clear Menu; commands `graph.recent`, `graph.openRecent {path}` (only a path in the list) and `graph.clearRecent`. egui, the iPad and Windows get the menu from the model. `docs/shell-interface.md` 12.24. Two test files that fail without the recording, a shared conformance case. Launched on the Mac: the list read back newest first, a deleted file disabled, kept across a relaunch, emptied by Clear. Not checked: picking an item by hand; the Mac with every window closed; iPad, Windows and egui launches; the application built on the shell.
+
+### B165. Mac: Insert Graph of a component graph inserts nothing
+
+- Reported: 2026-11-24
+- Report: "insert graph (components/condition) inserts nothong"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`. The graph inserted is a component graph of the research software's collection (a "condition" component, in a `components` folder).
+- Answer (the maintainer, 2026-11-24): "inserted condition.plum"; then "Fix b165". The component exists in both forms, `.json` and `.plum`.
+- Issue: none
+- What a person saw (an agent, Plummer built before the fix, the menu's command run through the control port): the graph does not change. The refusal shows once as a banner; a second try at the same file shows nothing, since the Mac shows an error only when its text differs from the last (B167).
+- Cause (proved by a test and a launch): `graph.insert` checked the file against the connected engines' node types only. Where engines start as a graph comes to use them, a component whose nodes belong to an engine not yet started was refused, before the step that starts newly needed engines could run. `graph.open` keeps kinds it does not know yet and then starts their engines. Not the extension (`.json` fails the same way), not the group, not the Mac's panel: the controller's first suspicion, the `.plum` type, was wrong.
+- Fixed: 2026-11-24, branch `fix/b165-b166-files`: the file is checked and inserted against the catalogue plus the node types of engines the host can start (`crates/session/src/insert_cmds.rs`, `Session::edit_against`), and the needed engine then starts. A kind no engine offers is still refused, by name. A test with a public component, as `.plum` and `.json`, fails without the fix. Launched in Plummer: the group, its promoted port, its output and its wires arrive and the array engine starts. Not checked: the application with the report's own file; iPad and Windows (the same core).
 
 ### B162. Mac: after wiring a range driving node into a style graph, the graph no longer runs at all
 
