@@ -30,4 +30,5 @@ required-features = ["schema"]
 
 [dev-dependencies]
 base64 = { workspace = true }
+plumcraft-views = { workspace = true }
 commonkit = { workspace = true, features = ["testing"] }

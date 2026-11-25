@@ -24,6 +24,7 @@ commonkit = { workspace = true }
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }
 plumcraft-store = { path = "../store" }
+base64 = { workspace = true }
 
 [build-dependencies]
 commonkit = { workspace = true }

@@ -776,6 +776,14 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 
 `blob.derive{handle, spec}` (and HTTP `GET /v1/blobs/derived/{handle}?spec=`) returns a derivative's DataRef or an inline readout. Specs: `thumb:<px>`, `preview:<px>:<view>`, `tile:<z>/<x>/<y>`, `region:<x>,<y>,<w>,<h>` (raw values, for a remote probe and curves), `probe:<locus>`, `diff:<handle>` (rendition plus stats, remote |A−B|), `peaks:<n>`, `frames:<a>-<b>`, `lines:<a>-<b>`, `raster:<px>`. A derivative's identity is `hash(source handle, spec, deriver version)`, so it is cacheable forever by URL. **`region` and `probe` readouts of floating-point data are returned as `.npy` DataRefs** (an `inline` b64 locator when small), never as JSON numbers, so NaN, ±Inf and −0.0 survive exactly; JSON readouts are allowed only for integer dtypes.
 
+**Derived views (FR6, research note 30; the operation that asks for them, `view.derive`, comes with slice 3).** The reductions a person's view asks of a value without a node are implemented twice, once per SDK, and held together by shared vectors: the Rust crate `plumcraft-views` (used by the Rust SDK and, as the fallback for an engine without the capability, by the editor) and the Python SDK's `plumcraft_engine.views`. Both read a view as `{kind, params}` and refuse anything else with the reason:
+
+- `histogram {bins? (1 to 65,536, default 256), lo?, hi?, per?: "all" | {axis}}` → a TABLE (`centre` FLOAT, `count` INT, and `plane` INT per plane), `meta` `{bins, lo, hi, nan, posinf, neginf, below, above, axis?}`;
+- `stats {per?, percentiles? (at most 32, each 0 to 100)}` → a TABLE, one row a plane: `count`, `nan`, `posinf`, `neginf`, `min`, `max`, `mean`, `sd`, then `p<q>` for each percentile;
+- `slice {axes: [i, j], at?: [index per axis]}` → the array of the same dtype, shape `[shape[i], shape[j]]`.
+
+The rules both follow: a finite `x` in `lo..=hi` goes to bin `floor(((x - lo) / (hi - lo)) * bins)` in f64, in that order of operations, the last bin taking `hi`; with no range given `lo..hi` is the finite min..max and `hi = lo + 1` when they are equal; NaN, ±inf and values outside a given range are counted apart, never binned; statistics are of the finite values in f64, the mean by a compensated (Neumaier) sum, the standard deviation the population's, percentiles by linear interpolation (numpy's default); a plane along axis `k` is every element whose index on that axis is the plane's. Bounds: at most 65,536 planes, 4,194,304 rows (planes × bins), 2^28 values sorted for percentiles, 2^26 elements in a slice, 32 axes. `crates/proto/fixtures/views.json` holds the cases both run (`crates/views/tests/vectors.rs`, `python/tests/test_views.py`): counts and whole numbers exact, other numbers within 1e-9 relative; its `sdk_stats` holds both SDKs' per-channel display stats (10.2 `stats`) to one another. The view parser is in the hostile-input sweep.
+
 ### 10.6 Live data in flight (`node.live`)
 
 ```json

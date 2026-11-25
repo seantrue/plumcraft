@@ -333,3 +333,61 @@ fn csv_text_never_panics() {
     assert!(read_csv(&format!("{}\n", "a,".repeat(MAX_COLUMNS + 1))).is_err());
     assert!(read_csv(&"a\n".repeat(MAX_ROWS + 2)).is_err());
 }
+
+/// FR6: a derived view (`view.derive`'s `{kind, params}`, `plumcraft-views`) is hostile input.
+/// Every seed view, every truncation of its text and every scalar swapped for every other JSON
+/// type is parsed or refused, and what parses is made over arrays of every dtype, including ones
+/// whose bytes don't fill their shape, an overflowing shape and a rank past the limit: never a
+/// panic.
+#[test]
+fn derived_views_never_panic() {
+    use plumcraft_views::{Array, derive, parse};
+    let seeds = [
+        r#"{"kind": "histogram", "params": {"bins": 4, "lo": 0, "hi": 1, "per": {"axis": 1}}}"#,
+        r#"{"kind": "stats", "params": {"per": "all", "percentiles": [0, 50, 99.5, 100]}}"#,
+        r#"{"kind": "slice", "params": {"axes": [0, 2], "at": [1, 2, 3]}}"#,
+    ];
+    let arrays: Vec<(&str, Vec<u64>, Vec<u8>)> = vec![
+        ("<f4", vec![2, 3, 4], (0..96).map(|i| i as u8).collect()),
+        ("|u1", vec![2, 3, 4], (0..24).collect()),
+        ("<f8", vec![3], vec![0xff; 24]),
+        ("<f2", vec![2, 2], vec![0x00, 0x7c, 0x01, 0x7c, 0x00, 0xfc, 0x00, 0x00]),
+        ("<i8", vec![1], vec![0x80; 8]),
+        ("<f4", vec![5], vec![0; 7]),
+        ("<f4", vec![u64::MAX, 2], vec![]),
+        ("<f4", vec![0, 3], vec![]),
+        ("<f4", vec![1; 40], vec![0; 4]),
+        ("bogus", vec![1], vec![0]),
+    ];
+    let try_all = |text: &str| {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text)
+            && let Ok(view) = parse(&v)
+        {
+            for (dtype, shape, bytes) in &arrays {
+                let _ = derive(&view, &Array { dtype, shape, bytes });
+            }
+        }
+    };
+    let swaps = ["null", "-1", "1.5e308", "\"x\"", "[]", "{}", "true", "18446744073709551615", "65537"];
+    for seed in seeds {
+        let chars: Vec<char> = seed.chars().collect();
+        for cut in 0..chars.len() {
+            try_all(&chars[..cut].iter().collect::<String>());
+        }
+        let v: serde_json::Value = serde_json::from_str(seed).unwrap();
+        let mut paths = Vec::new();
+        collect(&v, &mut Vec::new(), &mut paths);
+        for path in &paths {
+            for s in swaps {
+                let mut w = v.clone();
+                if let Some(slot) = pointer_mut(&mut w, path) {
+                    *slot = serde_json::from_str(s).unwrap();
+                }
+                try_all(&w.to_string());
+            }
+        }
+    }
+    for j in JUNK {
+        try_all(j);
+    }
+}

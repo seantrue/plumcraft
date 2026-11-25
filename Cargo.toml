@@ -31,6 +31,7 @@ plumcraft-automation = { path = "crates/automation", version = "=0.7.0" }
 plumcraft-scratch = { path = "crates/scratch", version = "=0.7.0" }
 plumcraft-svg = { path = "crates/svg", version = "=0.7.0" }
 plumcraft-chart = { path = "crates/chart", version = "=0.7.0" }
+plumcraft-views = { path = "crates/views", version = "=0.7.0" }
 plumcraft-conform = { path = "crates/conform", version = "=0.7.0" }
 plumcraft-build-stamp = { path = "crates/build-stamp", version = "=0.7.0" }
 
