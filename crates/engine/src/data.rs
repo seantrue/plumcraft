@@ -137,7 +137,7 @@ impl Plane<'_> {
             _ => return None,
         };
         let data = self.array_ref(t).ok()?;
-        Some(Rendition::Rgba8 { data, w, h, role: role.into(), caption: caption.into(), summary: String::new(), items: 0 })
+        Some(Rendition::Rgba8 { data, w, h, role: role.into(), caption: caption.into(), summary: String::new(), items: 0, levels: Vec::new() })
     }
 
     /// A table (columnar JSON) as a blob.

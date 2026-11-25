@@ -49,6 +49,9 @@ impl Want {
     }
 }
 
+/// The most levels a watch's `path` goes down: lists nest at most 8 deep (spec 7.6 rule 2).
+pub const MAX_PATH: usize = 8;
+
 /// One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "schema", derive(schemars::JsonSchema))]
@@ -60,6 +63,10 @@ pub struct WatchRequest {
     pub port: String,
     #[serde(deserialize_with = "null_as_default")]
     pub index: i64,
+    /// Nested lists (spec 7.6 rule 2): the item within item `index`, a level at a time (run, then
+    /// item). Negative counts from the end. Empty: the outer item itself.
+    #[serde(deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<i64>,
     /// Every item of a list, small and labelled.
     #[serde(deserialize_with = "null_as_default", skip_serializing_if = "std::ops::Not::not")]
     pub sheet: bool,
@@ -74,7 +81,7 @@ pub struct WatchRequest {
 
 impl Default for WatchRequest {
     fn default() -> Self {
-        WatchRequest { node: String::new(), port: String::new(), index: 0, sheet: false, view: View::default(), want: Vec::new(), px: 1024 }
+        WatchRequest { node: String::new(), port: String::new(), index: 0, path: Vec::new(), sheet: false, view: View::default(), want: Vec::new(), px: 1024 }
     }
 }
 
@@ -101,6 +108,10 @@ pub enum Rendition {
         /// List length when the value is a list (0: a single value).
         #[serde(default, skip_serializing_if = "is_zero")]
         items: u64,
+        /// A nested list's item counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2);
+        /// empty when the list isn't nested (spec 7.6 rule 2).
+        #[serde(default, deserialize_with = "crate::de::lenient_vec", skip_serializing_if = "Vec::is_empty")]
+        levels: Vec<u64>,
     },
     /// (levels, channels, bins, 2) min/max.
     Peaks {
@@ -237,6 +248,13 @@ pub struct Display {
     pub items: u64,
     #[serde(deserialize_with = "null_as_default")]
     pub index: i64,
+    /// Nested lists (spec 7.6 rule 2): the item shown within item `index`, a level at a time, and
+    /// how many items each level along that way has (`levels[0]` is `items`). Empty for a list
+    /// that isn't nested.
+    #[serde(deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
+    pub path: Vec<i64>,
+    #[serde(deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
+    pub levels: Vec<u64>,
     #[serde(deserialize_with = "null_as_default")]
     pub summary: String,
     /// The value itself, read lazily (probe, compare, playback, 1:1 zoom).

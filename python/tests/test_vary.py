@@ -645,3 +645,32 @@ def test_rows_to_table():
     for bad in (7, [1, 2], {"rows": []}):
         with pytest.raises(NodeError):
             rows_table(bad)
+
+
+def test_a_watched_list_of_lists_shows_the_item_its_path_asks_for():
+    """A watched list of lists shows the item `path` asks for inside run `index`, says where it is a
+    level at a time, and gives each level's count (as the Rust SDK does)."""
+
+    class Pair(Node):
+        definition = {"id": "t.pair", "inputs": [{"name": "a", "type": "FLOAT"}], "outputs": [{"name": "out", "type": "FLOAT", "list": True}]}
+
+        def run(self, inputs, cx):
+            return {"out": List([inputs["a"], 10 * inputs["a"]])}
+
+    e = engine().with_node(Pair())
+    nodes = {"v": {"kind": "vary.int", "values": {"values": "1, 2, 3"}}, "p": {"kind": "t.pair"}}
+
+    def watch(index, path):
+        r, _ = go_with(e, exec.Memo(), nodes, [("v", "values", "p", "a")], ["p"], [{"node": "p", "port": "out", "index": index, "path": path}])
+        return r["watch"][0]
+
+    d = watch(1, [1])
+    assert (d["items"], d["index"], d["path"], d["levels"], d["value"]) == (3, 1, [1], [3, 2], 20)
+    assert d["summary"].startswith("run 2 of 3 · item 2 of 2"), d["summary"]
+    d = watch(-1, [])
+    assert (d["index"], d["path"], d["value"]) == (2, [0], 3)
+    assert watch(0, [-1])["value"] == 10
+    assert watch(0, [9, 9, 9])["path"] == [1]
+    # a list that isn't nested says nothing of levels
+    r, _ = go_with(e, exec.Memo(), nodes, [], ["v"], [{"node": "v", "port": "values", "path": [1]}])
+    assert "path" not in r["watch"][0] and "levels" not in r["watch"][0]

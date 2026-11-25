@@ -660,6 +660,7 @@ pub fn share_connection(session: &mut Session, link: &Option<Link>) {
 pub fn sync_state(session: &mut Session, state: &EngineState) {
     session.connected = state.is_connected();
     session.caps = if let EngineState::Connected { caps, .. } = state { caps.clone() } else { Default::default() };
+    session.run.nested_lists = session.caps.has(plumcraft_proto::caps::known::LISTS_NESTED);
 }
 
 /// What `target` is called in the status bar and the title.

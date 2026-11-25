@@ -169,6 +169,10 @@ pub enum Outgoing {
 /// The run state of a session.
 #[derive(Debug, Clone, Default)]
 pub struct RunState {
+    /// The engine keeps each run's list apart when a step runs once per item (capability
+    /// `lists.nested`, spec 7.6 rule 2): set with the engine's state. Without it the engine joins
+    /// the runs' lists into one, and the core says so where a wire reads such a list (B164).
+    pub nested_lists: bool,
     /// The open graph's life, from its opening or making to the next, sent with every run: what
     /// the engine keeps for it goes when it ends. Empty: unscoped.
     pub scope: String,

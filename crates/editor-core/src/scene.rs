@@ -556,6 +556,10 @@ pub enum Preview {
         size: [f32; 2],
         hover_size: [f32; 2],
         items: u64,
+        /// A nested list's counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2; the
+        /// face says "3 × 2"); empty when the list isn't nested (spec 7.6 rule 2).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        levels: Vec<u64>,
         summary: String,
         /// The picture's own name (the rendition's `caption`), when the engine gives one.
         #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -1721,13 +1725,14 @@ fn run_footer(cx: &Ctx<'_>, id: &NodeId, def: Option<&NodeDef>, n: &NodeRun, ful
 fn preview(cx: &Ctx<'_>, id: &NodeId, n: &NodeRun) -> Option<Preview> {
     let handle = |d: &plumcraft_proto::data::DataRef| serde_json::to_value(d).unwrap_or(Value::Null);
     match n.thumb.as_ref()? {
-        Rendition::Rgba8 { data, w, h, summary, caption, items, .. } => Some(Preview::Rgba8 {
+        Rendition::Rgba8 { data, w, h, summary, caption, items, levels, .. } => Some(Preview::Rgba8 {
             handle: handle(data),
             w: *w,
             h: *h,
             size: thumb_size(*w as f32, *h as f32, THUMB_PX),
             hover_size: thumb_size(*w as f32, *h as f32, THUMB_HOVER_PX),
             items: *items,
+            levels: levels.clone(),
             summary: if summary.is_empty() { caption.clone() } else { summary.clone() },
             caption: caption.clone(),
             note: thumb_note(n),
@@ -2305,7 +2310,7 @@ mod tests {
                 Some(NodeState::Done) => {
                     r.ms = Some(12.5);
                     r.completed = true;
-                    r.thumb = Some(serde_json::from_value(json!({"kind": "rgba8", "ref": {"handle": "b3:aa", "meta": {"media": "image/x-rgba8"}, "at": []}, "w": 640, "h": 480, "summary": "picture 640×480", "caption": "first", "items": 3})).unwrap());
+                    r.thumb = Some(serde_json::from_value(json!({"kind": "rgba8", "ref": {"handle": "b3:aa", "meta": {"media": "image/x-rgba8"}, "at": []}, "w": 640, "h": 480, "summary": "picture 640×480", "caption": "first", "items": 3, "levels": [3, 2]})).unwrap());
                     r.text = Some("3 faces found".into());
                 }
                 Some(NodeState::Cached) => {
@@ -2417,6 +2422,8 @@ mod tests {
         let done = face(&sc, "done");
         assert_eq!(status(done), [run_text::format_ms(12.5)]);
         assert!(matches!(&done.preview, Some(Preview::Rgba8 { size, items: 3, caption, .. }) if *size == [80.0, 60.0] && caption == "first"));
+        // a list of lists: each level's count, for the face's "3 × 2" (spec 7.6 rule 2)
+        assert!(matches!(&done.preview, Some(Preview::Rgba8 { levels, .. }) if levels == &[3, 2]));
         assert!(done.footer.iter().any(|f| matches!(f, Footer::Save { sheet: true, .. })), "a result with items saves as a sheet too");
         assert!(done.footer.iter().any(|f| matches!(f, Footer::EngineText { .. })));
         assert!(face(&sc, "cached").footer.iter().any(|f| matches!(f, Footer::Excerpt { .. })));

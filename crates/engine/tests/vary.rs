@@ -510,3 +510,31 @@ fn a_tuple_is_a_value_not_a_level() {
     // the points list isn't nested (its tuples carry no axis), so Flatten joins the tuples once
     assert_eq!(out(&r, "f", "list"), json!([0.0, 0.0, 1.0, 1.0]));
 }
+
+/// A watched list of lists (spec 7.6 rule 2) shows the item `path` asks for inside run `index`,
+/// says where it is a level at a time, and gives each level's count.
+#[test]
+fn a_watched_list_of_lists_shows_the_item_its_path_asks_for() {
+    let nodes = json!({
+        "r": {"kind": "vary.range", "values": {"start": 0.0, "stop": 2.0, "num": 3, "endpoint": true}},
+        "s": {"kind": "vary.range", "values": {"start": 10.0, "num": 2, "endpoint": true}},
+    });
+    let watch = |index: i64, path: Value| json!([{"node": "s", "port": "values", "index": index, "path": path}]);
+    let go = |w: Value| go_with(&engine(), &mut Memo::default(), nodes.clone(), &[("r", "values", "s", "stop")], &["s"], w, &CancelToken::default()).0;
+    let r = go(watch(1, json!([1])));
+    let d = &r.watch[0];
+    assert_eq!((d.items, d.index, d.path.clone(), d.levels.clone()), (3, 1, vec![1], vec![3, 2]));
+    assert_eq!(d.value, Some(json!(1.0)), "run 2 makes [10, 1]; its item 2 is 1");
+    assert!(d.summary.starts_with("run 2 of 3 · item 2 of 2"), "{}", d.summary);
+    // no path: the first item of the run; negative counts from the end, and too far is clamped
+    let r = go(watch(-1, json!([])));
+    assert_eq!((r.watch[0].index, r.watch[0].path.clone(), r.watch[0].value.clone()), (2, vec![0], Some(json!(10.0))));
+    let r = go(watch(0, json!([-1])));
+    assert_eq!((r.watch[0].path.clone(), r.watch[0].value.clone()), (vec![1], Some(json!(0.0))));
+    let r = go(watch(0, json!([9, 9, 9])));
+    assert_eq!(r.watch[0].path, vec![1]);
+    // a list that isn't nested says nothing of levels
+    let r =
+        go_with(&engine(), &mut Memo::default(), nodes.clone(), &[], &["r"], json!([{"node": "r", "port": "values", "path": [1]}]), &CancelToken::default()).0;
+    assert!(r.watch[0].path.is_empty() && r.watch[0].levels.is_empty(), "{:?}", r.watch[0]);
+}

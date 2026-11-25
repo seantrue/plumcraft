@@ -2407,6 +2407,15 @@
               "const": "rgba8",
               "type": "string"
             },
+            "levels": {
+              "description": "A nested list's counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2; the\nface says \"3 × 2\"); empty when the list isn't nested (spec 7.6 rule 2).",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "note": {
               "type": [
                 "string",

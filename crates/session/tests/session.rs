@@ -582,3 +582,32 @@ fn a_removed_node_takes_its_watches_with_it() {
     let Some(Outgoing::Run(req)) = out.iter().find(|o| matches!(o, Outgoing::Run(_))) else { panic!("{out:?}") };
     assert_eq!(req.watch.iter().map(|w| w.node.as_str()).collect::<Vec<_>>(), [keep.as_str()]);
 }
+
+/// Nested lists (spec 7.6 rule 2): `run.item` takes the item within the run as a path, keeps it
+/// while the run steps, and refuses a path that isn't whole numbers or goes too deep.
+#[test]
+fn run_item_takes_a_path_inside_a_run_and_keeps_it() {
+    use plumcraft_proto::display::Display;
+    use plumcraft_session::run::WatchRole;
+    let mut s = session();
+    let u = add(&mut s, "text.upper");
+    s.execute("run.watch", &json!({"node": u})).unwrap();
+    // the display a run brings (each step asks for another, and the next run brings it)
+    let shown = |s: &mut Session| s.run.watched[0] = Some(Display { items: 3, levels: vec![3, 2], path: vec![0], ..Default::default() });
+    shown(&mut s);
+    let r = s.execute("run.item", &json!({"index": 1, "path": [1]})).unwrap();
+    assert_eq!((r["index"].clone(), r["path"].clone()), (json!(1), json!([1])));
+    // stepping the run keeps the place within it
+    shown(&mut s);
+    let r = s.execute("run.item", &json!({"index": 2})).unwrap();
+    assert_eq!(r["path"], json!([1]));
+    let entry = s.run.entry(WatchRole::Panel).unwrap().0;
+    assert_eq!((entry.index, entry.path.clone()), (2, vec![1]));
+    // an empty path goes back to the run's first item
+    shown(&mut s);
+    assert_eq!(s.execute("run.item", &json!({"index": 2, "path": []})).unwrap()["path"], json!([]));
+    shown(&mut s);
+    assert!(s.execute("run.item", &json!({"index": 0, "path": ["a"]})).is_err());
+    assert!(s.execute("run.item", &json!({"index": 0, "path": [0, 0, 0, 0, 0, 0, 0, 0, 0]})).is_err());
+    assert!(s.execute("run.item", &json!({"index": 0, "path": 1})).is_err());
+}

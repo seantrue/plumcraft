@@ -1171,7 +1171,24 @@ fn thumb(engine: &Engine, ty: &str, v: &Data, plane: &Plane<'_>) -> Option<Rendi
         return plane.blob_thumb(b);
     }
     if let Data::List(l) = v {
-        return l.items.first().and_then(|first| thumb(engine, ty, first, plane));
+        let mut t = l.items.first().and_then(|first| thumb(engine, ty, first, plane));
+        // a nested list's counts a level at a time (spec 7.6 rule 2), for the face: "3 × 2"
+        if let Some(Rendition::Rgba8 { items, levels, .. }) = &mut t {
+            let mut at = l;
+            let mut counts = vec![l.items.len() as u64];
+            while is_nested(at)
+                && let Some(Data::List(inner)) = at.items.first()
+                && counts.len() <= MAX_NESTING
+            {
+                counts.push(inner.items.len() as u64);
+                at = inner;
+            }
+            if counts.len() > 1 {
+                *items = l.items.len() as u64;
+                *levels = counts;
+            }
+        }
+        return t;
     }
     if let Data::Array(a) = v {
         return crate::arrays::thumb(a, THUMB_PX).and_then(|t| plane.rgba8(&t, "", ""));
@@ -1220,10 +1237,39 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
             }
             match l.items.get(at) {
                 Some(item) => {
-                    fill(item, media, plane, w.px, &mut d);
-                    let label = l.label(at);
+                    // a nested list (spec 7.6 rule 2): down `w.path`, a level at a time
+                    let (mut shown, mut labels, mut levels, mut path) = (item, vec![l.label(at).to_owned()], vec![n as u64], Vec::new());
+                    while let Data::List(inner) = shown
+                        && !inner.axes.is_empty()
+                        && path.len() < MAX_NESTING
+                    {
+                        let m = inner.items.len();
+                        let want = w.path.get(path.len()).copied().unwrap_or(0);
+                        let j = if want < 0 { m as i64 + want } else { want };
+                        let j = usize::try_from(j.max(0)).unwrap_or(0).min(m.saturating_sub(1));
+                        let Some(next) = inner.items.get(j) else { break };
+                        levels.push(m as u64);
+                        path.push(j as i64);
+                        labels.push(inner.label(j).to_owned());
+                        shown = next;
+                    }
+                    fill(shown, media, plane, w.px, &mut d);
+                    let label = labels.iter().filter(|l| !l.is_empty()).cloned().collect::<Vec<_>>().join(" · ");
                     let label = if label.is_empty() { String::new() } else { format!(" ({label})") };
-                    d.summary = format!("item {} of {n}{label}: {}", at + 1, d.summary);
+                    if path.is_empty() {
+                        d.summary = format!("item {} of {n}{label}: {}", at + 1, d.summary);
+                    } else {
+                        // run 2 of 5 · item 1 of 2 (each level's place, outermost first)
+                        let mut place = vec![format!("run {} of {n}", at + 1)];
+                        let deep = path.len();
+                        for (k, (j, m)) in path.iter().zip(levels.iter().skip(1)).enumerate() {
+                            let word = if k + 1 == deep { "item" } else { "run" };
+                            place.push(format!("{word} {} of {m}", j + 1));
+                        }
+                        d.summary = format!("{}{label}: {}", place.join(" · "), d.summary);
+                        d.levels = levels;
+                        d.path = path;
+                    }
                 }
                 None => d.summary = "an empty list".into(),
             }

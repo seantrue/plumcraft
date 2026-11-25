@@ -59,8 +59,16 @@ impl EngineCore for Writing {
         self.last_cancelled = cancel.is_cancelled();
         let GraphRef::Inline { graph } = &req.graph else { panic!("inline") };
         let mut reply = RunReply { run_id: req.run_id.clone(), generation: req.generation, ok: true, ..Default::default() };
-        let thumb =
-            Rendition::Rgba8 { data: Default::default(), w: 4, h: 4, role: "view".into(), caption: String::new(), summary: String::new(), items: ITEMS };
+        let thumb = Rendition::Rgba8 {
+            data: Default::default(),
+            w: 4,
+            h: 4,
+            role: "view".into(),
+            caption: String::new(),
+            summary: String::new(),
+            items: ITEMS,
+            levels: Vec::new(),
+        };
         for id in graph["nodes"].as_object().unwrap().keys() {
             reply.nodes.insert(id.clone(), NodeReport { state: NodeState::Done, thumb: Some(thumb.clone()), ..Default::default() });
         }

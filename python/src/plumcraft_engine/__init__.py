@@ -43,7 +43,7 @@ UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question"}
+_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question", "lists.nested"}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1

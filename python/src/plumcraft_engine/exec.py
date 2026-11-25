@@ -886,7 +886,16 @@ def _thumb(engine: Engine, type_id: str, v: Any, plane: data.Plane | None = None
     """A thumbnail for a value of a wire type: an excerpt for text, a picture of an array, a list's
     first item's thumb."""
     if isinstance(v, List):
-        return _thumb(engine, type_id, v.items[0], plane) if v.items else None
+        t = _thumb(engine, type_id, v.items[0], plane) if v.items else None
+        # a nested list's counts a level at a time (spec 7.6 rule 2), for the face: "3 × 2"
+        if t is not None and t.get("kind") == "rgba8":
+            counts, at = [len(v.items)], v
+            while at.items and is_nested(at) and len(counts) <= MAX_NESTING:
+                at = at.items[0]
+                counts.append(len(at.items))
+            if len(counts) > 1:
+                t = {**t, "items": len(v.items), "levels": counts}
+        return t
     if isinstance(v, np.ndarray) and plane is not None:
         return _array_thumb(v, plane)
     if isinstance(v, AudioValue) and plane is not None:
@@ -972,10 +981,31 @@ def _display(engine: Engine, d: dict, nid: str, w: dict, outputs: dict, plane: d
         if sheet:
             disp["sheet"] = sheet
         if n:
-            _fill(lst.items[at], media, plane, disp, px)
-            label = lst.label(at)
+            # a nested list (spec 7.6 rule 2): down `w.path`, a level at a time
+            want = w.get("path") if isinstance(w.get("path"), list) else []
+            shown, labels, levels, path = lst.items[at], [lst.label(at)], [n], []
+            while isinstance(shown, List) and shown.axes and shown.items and len(path) < MAX_NESTING:
+                m = len(shown.items)
+                k = want[len(path)] if len(path) < len(want) else 0
+                k = k if isinstance(k, int) and not isinstance(k, bool) else 0
+                j = min(max(m + k if k < 0 else k, 0), m - 1)
+                levels.append(m)
+                path.append(j)
+                labels.append(shown.label(j))
+                shown = shown.items[j]
+            _fill(shown, media, plane, disp, px)
+            label = " · ".join(x for x in labels if x)
             label = f" ({label})" if label else ""
-            disp["summary"] = f"item {at + 1} of {n}{label}: {disp['summary']}"
+            if not path:
+                disp["summary"] = f"item {at + 1} of {n}{label}: {disp['summary']}"
+            else:
+                # run 2 of 5 · item 1 of 2 (each level's place, outermost first)
+                place = [f"run {at + 1} of {n}"]
+                for k, (j, m) in enumerate(zip(path, levels[1:], strict=True)):
+                    place.append(f"{'item' if k + 1 == len(path) else 'run'} {j + 1} of {m}")
+                disp["summary"] = f"{' · '.join(place)}{label}: {disp['summary']}"
+                disp["levels"] = levels
+                disp["path"] = path
         else:
             disp["summary"] = "an empty list"
     else:

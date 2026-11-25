@@ -233,6 +233,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "levels": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "live": {
           "$ref": "#/$defs/LiveMark",
           "default": {
@@ -247,6 +255,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item shown within item `index`, a level at a time, and\nhow many items each level along that way has (`levels[0]` is `items`). Empty for a list\nthat isn't nested.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",
@@ -2580,6 +2596,15 @@
               "const": "rgba8",
               "type": "string"
             },
+            "levels": {
+              "description": "A nested list's item counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2);\nempty when the list isn't nested (spec 7.6 rule 2).",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
+            },
             "ref": {
               "$ref": "#/$defs/DataRef"
             },
@@ -3777,6 +3802,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item within item `index`, a level at a time (run, then\nitem). Negative counts from the end. Empty: the outer item itself.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",
