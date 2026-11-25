@@ -30,6 +30,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects.** A selection made in another window did not redraw an Apple viewer, since it changes neither the value nor that viewer's state; every Apple viewer now keys on the observed stamp. The first iPhone run failed on the agent's own assertion of an exact pixel. Seen by the controller in the pictures and not fixed: selected rows are tinted cell by cell with gaps; the picture meant to show marked rows shows the top of the table, where none is selected; the Selected Only button looks the same on and off.
 
+**Follow-up, the same night.** The controller sent those three back. The agent made the Mac's selected rows the table's own row selection (whole rows; grey in an inactive window), gave Selected Only its own on and off looks, and had the core report the first selected row (`firstSelected`, `selectionSeq`) so a table scrolls to a selection that arrives unless the person has scrolled it. Mac conformance 84 of 84. The controller looked at two of the new Mac pictures: after a brush in the chart's window the table sits at late June with whole rows marked, and Selected Only shows an orange capsule with a check when on and an outline when off. Seen there and not fixed: after the scroll, the row above shows through the column header. Not checked: that a person's own scroll stops the follow on the Mac; egui's table shows no selection.
+
 ### 2026-11-25 — The 1-D series and the six chart kinds, chosen by command and kept in the graph (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** Track 3 overnight, on reasonable assumptions; the six kinds are the ones they named when note 26 was decided.
