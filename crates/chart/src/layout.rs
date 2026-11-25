@@ -16,6 +16,7 @@
 use serde_json::{Value, json};
 
 use crate::dtype::Dtype;
+use crate::number;
 
 /// The most marks drawn (the rest are an even sample of the rows).
 pub const MAX_MARKS: usize = 50_000;
@@ -27,7 +28,7 @@ pub const MIN_SIDE: f64 = 120.0;
 pub const MAX_SIDE: f64 = 8192.0;
 /// The font size the layout assumes for tick text, and the share of it a character takes.
 pub const FONT: f64 = 11.0;
-pub(crate) const CHAR_W: f64 = 0.62;
+pub const CHAR_W: f64 = 0.62;
 
 /// What a table array is plotted as.
 #[derive(Debug, Clone, PartialEq)]
@@ -103,21 +104,21 @@ pub fn ticks(lo: f64, hi: f64, len: f64, px_per: f64) -> Vec<f64> {
 
 /// A linear scale from data to points.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Scale {
-    pub(crate) d0: f64,
-    pub(crate) d1: f64,
-    pub(crate) p0: f64,
-    pub(crate) p1: f64,
+pub struct Scale {
+    pub d0: f64,
+    pub d1: f64,
+    pub p0: f64,
+    pub p1: f64,
 }
 
 impl Scale {
-    pub(crate) fn at(&self, v: f64) -> f64 {
+    pub fn at(&self, v: f64) -> f64 {
         if self.d1 == self.d0 { (self.p0 + self.p1) / 2.0 } else { self.p0 + (v - self.d0) / (self.d1 - self.d0) * (self.p1 - self.p0) }
     }
 }
 
 /// A span with room around it, never empty.
-pub(crate) fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
+pub fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
     if !(lo.is_finite() && hi.is_finite()) {
         return (0.0, 1.0);
     }
@@ -129,7 +130,7 @@ pub(crate) fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
     (lo - d, hi + d)
 }
 
-pub(crate) fn round2(v: f64) -> f64 {
+pub fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
@@ -146,7 +147,7 @@ fn rows(dtype: Dtype, bytes: &[u8], rows: usize, columns: usize, cols: &[usize])
 /// (`viewer.range`) and the value's selected rows (`viewer.select`), a flag a row.
 #[derive(Debug, Clone, Default)]
 pub struct View {
-    pub range: plumcraft_session::chart_view::ChartRange,
+    pub range: crate::ChartRange,
     pub selected: Option<Vec<bool>>,
 }
 
@@ -164,7 +165,7 @@ pub const SELECTED_COLOUR: &str = "#ff7f0e";
 
 /// The scales of a chart, for a shell's gestures and the core's hit test: data `[d0, d1]` to
 /// points `[p0, p1]`, x then y.
-pub(crate) fn scale_json(sx: &Scale, sy: &Scale) -> Value {
+pub fn scale_json(sx: &Scale, sy: &Scale) -> Value {
     json!({"x": [sx.d0, sx.d1, round2(sx.p0), round2(sx.p1)], "y": [sy.d0, sy.d1, round2(sy.p0), round2(sy.p1)]})
 }
 
@@ -255,8 +256,8 @@ fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64), view: &Vie
         None => padded(y0, y1, 0.05),
     };
     let int = dt.integer();
-    let text = |v: f64| crate::viewers::number(v, int);
-    let idx = |v: f64| crate::viewers::number(v, true);
+    let text = |v: f64| number(v, int);
+    let idx = |v: f64| number(v, true);
     let yt_probe = ticks(y0p, y1p, h - 60.0, 48.0);
     let ywide = yt_probe.iter().map(|v| text(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
     let left = (ywide + 14.0 + FONT + 6.0).ceil();
@@ -376,7 +377,7 @@ pub fn layout_in(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], byte
     }
     // margins: the y ticks' widest text, an x tick row and the axis titles
     let int = dt.integer();
-    let text = |v: f64| crate::viewers::number(v, int);
+    let text = |v: f64| number(v, int);
     let yt_probe = ticks(y0, y1, h - 60.0, 48.0);
     let ywide = yt_probe.iter().map(|v| text(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
     let left = (ywide + 14.0 + FONT + 6.0).ceil();

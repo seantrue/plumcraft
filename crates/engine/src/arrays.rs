@@ -277,9 +277,34 @@ pub fn rgba8(p: &Picture, max_px: u32) -> Array {
     Array::new("|u1", vec![th as u64, tw as u64, 4], out)
 }
 
-/// A node thumbnail for an array: its first `auto` picture, at most `px` a side.
+/// A node thumbnail for an array: its chart when the core would plot it ([`chart_thumb`]), else
+/// its first `auto` picture, at most `px` a side.
 pub fn thumb(a: &Array, px: u32) -> Option<Array> {
+    if let Some((t, _)) = chart_thumb(a, px) {
+        return Some(t);
+    }
     views(a, "auto", 1.0).first().map(|p| rgba8(p, px))
+}
+
+/// The size a chart is laid out at before its plot is drawn into a thumbnail: the core's own
+/// default, so a face shows the picture the core's viewer lays out (note 26, option A).
+pub const CHART_LAYOUT: (f64, f64) = plumcraft_chart::DEFAULT_SIZE;
+
+/// A node thumbnail for an array the core plots rather than shows as a picture (note 26, face
+/// previews option A, the maintainer: "Chart: a"): a 1-D array's line, a table array's points,
+/// segments or a histogram's columns. Laid out by `plumcraft-chart` exactly as the core lays it
+/// out, its plot drawn into `px` × two thirds of `px`; with the chart's kind for a caption.
+/// `None` for an array the core shows as a picture.
+pub fn chart_thumb(a: &Array, px: u32) -> Option<(Array, String)> {
+    let form =
+        plumcraft_proto::data::Form::Array { dtype: a.dtype.clone(), shape: a.shape.clone(), space: a.space.clone(), names: a.names.clone(), table: a.table };
+    let kind = plumcraft_chart::plotted(&form)?;
+    let list = plumcraft_chart::layout(&kind, &a.names, &a.dtype, &a.shape, &a.bytes, CHART_LAYOUT).ok()?;
+    let (w, h) = (px.clamp(16, 1024), (px * 2 / 3).clamp(12, 1024));
+    let style = plumcraft_chart::raster::Style::default();
+    let pic = plumcraft_chart::raster::draw(&list, w, h, &style, plumcraft_chart::raster::Frame::Plot { inset: 3 }).ok()?;
+    let caption = list["kind"].as_str().unwrap_or("chart").to_owned();
+    Some((Array::new("|u1", vec![u64::from(h), u64::from(w), 4], pic.rgba), caption))
 }
 
 /// Per-channel stats: exact min and max over finite values, the NaN count, and a [`BINS`]-bin
@@ -368,6 +393,40 @@ mod tests {
         assert!(views(&f32s(vec![5], &[1.0; 5]), "auto", 1.0).is_empty(), "1-D: a plot, not a picture");
         let nan = f32s(vec![1, 3], &[f32::NAN, f32::INFINITY, 2.0]);
         assert!(views(&nan, "stretch", 1.0)[0].rgb.iter().all(|x| x.is_finite()));
+    }
+
+    fn px(t: &Array, x: u64, y: u64) -> [u8; 4] {
+        let w = t.shape[1];
+        let i = ((y * w + x) * 4) as usize;
+        [t.bytes[i], t.bytes[i + 1], t.bytes[i + 2], t.bytes[i + 3]]
+    }
+
+    /// Note 26, face previews (the maintainer: "Chart: a"): a 1-D array's face shows its line, a
+    /// histogram table's its bars, laid out by the core's own chart layout; a picture stays one.
+    #[test]
+    fn a_chart_is_its_own_thumbnail() {
+        let accent = plumcraft_chart::raster::Style::default().accent;
+        let near = |c: [u8; 4]| (0..3).all(|k| (c[k] as i32 - accent[k] as i32).abs() < 60);
+        // a ramp: the line from bottom left to top right
+        let ramp = f32s(vec![1000], &(0..1000).map(|i| i as f32).collect::<Vec<_>>());
+        let (t, caption) = chart_thumb(&ramp, 160).unwrap();
+        assert_eq!((caption.as_str(), t.shape.as_slice()), ("line", &[106u64, 160, 4][..]));
+        let on_line = (0..106).filter(|y| near(px(&t, 80, *y))).count();
+        assert!(on_line >= 1, "the line crosses the middle column");
+        assert!(!near(px(&t, 10, 10)) && !near(px(&t, 150, 95)), "the corners off the line are empty");
+        // a histogram's 4 bins of 10, 40, 20, 0: three bars from the bottom, the second tallest
+        let mut h = f32s(vec![4, 2], &[0.125, 10.0, 0.375, 40.0, 0.625, 20.0, 0.875, 0.0]);
+        h.names = vec!["centre".into(), "count".into()];
+        h.table = true;
+        let (t, caption) = chart_thumb(&h, 160).unwrap();
+        assert_eq!(caption, "columns");
+        let height = |x: u64| (0..106).filter(|y| near(px(&t, x, *y))).count();
+        let (a, b, c) = (height(30), height(65), height(100));
+        assert!(b > c && c > a && a > 0, "bars {a} {b} {c}");
+        assert_eq!(height(140), 0, "the empty bin");
+        // what the core shows as a picture keeps its picture
+        assert!(chart_thumb(&f32s(vec![40, 20], &vec![0.5; 800]), 160).is_none());
+        assert_eq!(thumb(&ramp, 160).unwrap().shape, t.shape, "thumb() gives the chart");
     }
 
     #[test]

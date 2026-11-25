@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 plumcraft-proto = { workspace = true }
+plumcraft-chart = { workspace = true, features = ["raster"] }
 plumcraft-store = { workspace = true }
 plumcraft-svg = { workspace = true }
 image = { workspace = true }

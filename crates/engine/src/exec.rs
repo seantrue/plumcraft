@@ -1246,6 +1246,10 @@ fn thumb(engine: &Engine, ty: &str, v: &Data, plane: &Plane<'_>) -> Option<Rendi
         return t;
     }
     if let Data::Array(a) = v {
+        // a chart the core lays out, its kind the caption (note 26, option A), or a picture
+        if let Some((t, caption)) = crate::arrays::chart_thumb(a, THUMB_PX) {
+            return plane.rgba8(&t, "", &caption);
+        }
         return crate::arrays::thumb(a, THUMB_PX).and_then(|t| plane.rgba8(&t, "", ""));
     }
     match engine.wire_type(ty).map(|w| w.media) {
@@ -1449,5 +1453,32 @@ fn fill(v: &Data, media: Media, plane: &Plane<'_>, px: u32, d: &mut Display) {
                 d.summary = format!("{summary}, the first: {}", d.summary);
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Note 26 option A with nested lists (spec 7.6 rule 2): a list of 1-D arrays shows its first
+    /// item's chart, a list of lists the first item of the first run's, with each level's count.
+    #[test]
+    fn a_list_of_series_shows_its_first_chart_with_its_levels() {
+        let engine = Engine::new(plumcraft_proto::session::EngineInfo::default());
+        let plane = Plane { store: None, shm: true, urls: false, max_inline: 1 << 22 };
+        let series = |k: f32| Data::Array(crate::Array::from_f32(vec![50], &(0..50).map(|i| i as f32 * k).collect::<Vec<_>>()));
+        let flat = crate::List { items: vec![series(1.0), series(2.0), series(3.0)], axes: vec![("r".into(), 0)], labels: vec![] };
+        match thumb(&engine, "ARRAY", &Data::List(flat.clone()), &plane) {
+            Some(Rendition::Rgba8 { caption, items, levels, .. }) => {
+                assert_eq!(caption, "line");
+                assert!(items <= 1 && levels.is_empty(), "a flat list says no levels: {items} {levels:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let nested = crate::List { items: vec![Data::List(flat.clone()), Data::List(flat)], axes: vec![("s".into(), 0)], labels: vec![] };
+        match thumb(&engine, "ARRAY", &Data::List(nested), &plane) {
+            Some(Rendition::Rgba8 { caption, items, levels, .. }) => assert_eq!((caption.as_str(), items, levels), ("line", 2, vec![2, 3])),
+            other => panic!("{other:?}"),
+        }
     }
 }
