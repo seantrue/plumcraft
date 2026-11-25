@@ -23,7 +23,7 @@ The maintainer, 2026-11-25, in an application built on the Mac shell, looking at
 - **The two instances, end to end** (section 3.3):
   - **A labelled map:** View As › Treemap. The engine counts the regions into a TABLE (label, area, bounding box, centroid). The core lays that out as a squarified treemap and every shell paints it.
   - **A 3-D array:** View As › Histogram. The engine bins all its values (or per plane along a chosen axis) into a TABLE of `centre`, `count`, which the core draws as the existing histogram chart.
-- **Fourteen decisions for the maintainer** are in section 8.
+- **Fourteen decisions** are in section 8, all decided A ("All A", 2026-11-25), with the principle "In general, it's the user's job to deal with odd, and your job to make seeing odd things easy."
 
 ## 2. The original brief, reviewed
 
@@ -359,7 +359,9 @@ Each slice is launchable, with a named person's check on the Mac scripted copy (
 
 ## 8. Decisions for the maintainer
 
-Written for a checklist page: title, a line of context, options, the recommended option first.
+**Decided (the maintainer, 2026-11-25): "All A".** Option A of every point below stands as decided. With it, a principle, said when the controller hesitated over offering Treemap on any integer array because a picture that isn't a labelled map "may look odd": **"In general, it's the user's job to deal with odd, and your job to make seeing odd things easy."** So every view that can be computed for a value's kind, dtype class and rank is offered; none is withheld or gated because its result may be strange; flags and heuristics only choose the default.
+
+Written for a checklist page: title, a line of context, options, the recommended option first (each A, decided).
 
 1. **Where the reductions run.** The bytes can be in the engine (remote, not kept) or mapped beside the editor. Options:
    - **A (recommended):** in both SDK bases, with the Rust one also compiled into the editor as the fallback for engines without the capability.
