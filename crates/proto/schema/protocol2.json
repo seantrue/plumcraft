@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "Acknowledgements": {
+      "description": "One program's licences.",
+      "properties": {
+        "groups": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LicenceGroup"
+          },
+          "type": "array"
+        },
+        "note": {
+          "description": "What [`Acknowledgements::bounded`] left out, in words; empty when nothing was.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "BlobMeta": {
       "properties": {
         "aliases": {
@@ -1161,6 +1178,33 @@
       },
       "type": "object"
     },
+    "LicenceGroup": {
+      "description": "A licence and the packages under it.",
+      "properties": {
+        "licence": {
+          "default": "",
+          "description": "The licence's SPDX id (`MIT`, `Apache-2.0`) or name.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its name as people say it (\"MIT License\"); may be empty.",
+          "type": "string"
+        },
+        "packages": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Package"
+          },
+          "type": "array"
+        },
+        "text": {
+          "default": "",
+          "description": "The full text, once for every package under it.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "Limits": {
       "description": "Session limits (spec 5.2). Absent fields take these defaults.",
       "properties": {
@@ -1993,6 +2037,23 @@
           "type": "string"
         }
       ]
+    },
+    "Package": {
+      "description": "A package under a licence.",
+      "properties": {
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "url": {
+          "description": "Where its source is (a repository, a registry page); may be empty.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "ParamRef": {
       "description": "The bundle parameter a port is tied to (protocol 1's impressionist `setting{section, name}`).",
@@ -3909,6 +3970,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "The UI <-> engine interface (docs/interface.md). An envelope's body is one of: EngineState (engine.state), StatusRecord (node.status), LiveUpdate (node.live), RunReply (run.reply), LogRecord (log), Resync (resync), {schema_digest} (schema.changed).",
   "messages": {
+    "Acknowledgements": {
+      "$ref": "#/$defs/Acknowledgements"
+    },
     "DataRef": {
       "$ref": "#/$defs/DataRef"
     },

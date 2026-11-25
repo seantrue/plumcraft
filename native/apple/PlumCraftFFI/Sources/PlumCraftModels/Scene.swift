@@ -219,10 +219,14 @@ public struct Windows: Codable, Hashable, Sendable {
     public var compare: Bool?
     /// Changes when what an open report reads changes: read it again then.
     public var reports: UInt64?
+    /// The Acknowledgements window is open (FR4): `acknowledgements.get`.
+    public var acknowledgements: Bool?
     public init(parameters: String? = nil, popouts: [PopoutWindow]? = nil, settings: String? = nil, messages: Bool? = nil,
-                cache: Bool? = nil, params: Bool? = nil, editors: [String]? = nil, compare: Bool? = nil, reports: UInt64? = nil) {
+                cache: Bool? = nil, params: Bool? = nil, editors: [String]? = nil, compare: Bool? = nil, reports: UInt64? = nil,
+                acknowledgements: Bool? = nil) {
         self.parameters = parameters; self.popouts = popouts; self.settings = settings; self.messages = messages
         self.cache = cache; self.params = params; self.editors = editors; self.compare = compare; self.reports = reports
+        self.acknowledgements = acknowledgements
     }
     /// The report windows open, as `report.get`'s keys: `cache`, `params`, `editor:<node>`.
     public var reportKeys: [String] {

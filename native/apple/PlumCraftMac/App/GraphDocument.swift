@@ -174,6 +174,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     var popouts: PopoutWindows?
     var parameters: ParametersPopover?
     var messagesWindow: MessagesWindow?
+    var acknowledgementsWindow: AcknowledgementsWindow?
     /// The Cache Report, Parameters, value editors and Compare (N4 slice 6).
     var coreWindows: CoreWindows?
     /// The way back out of an entered group: Graph › outer › inner (the scene's focus path).
@@ -344,12 +345,18 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         parameters = params
         let msgs = MessagesWindow(model: model)
         messagesWindow = msgs
+        let acks = AcknowledgementsWindow(model: model)
+        acks.onChange = { [weak self] in self?.reportNow() }
+        acknowledgementsWindow = acks
         let cw = CoreWindows(model: model, pictures: v.canvas.pictures)
         coreWindows = cw
-        model.onWindows = { [weak pops, weak params, weak model, weak self, weak msgs, weak cw] w in
+        model.onWindows = { [weak pops, weak params, weak model, weak self, weak msgs, weak acks, weak cw] w in
             pops?.follow(w)
             params?.params.follow(w)
             msgs?.follow(w.messages ?? false, over: self?.window)
+            let wasOpen = acks?.window != nil
+            acks?.follow(w.acknowledgements ?? false, over: self?.window)
+            if wasOpen != (acks?.window != nil) { self?.reportNow() }
             let had = !(cw?.windows.isEmpty ?? true)
             cw?.follow(w, over: self?.window)
             if had || !CoreWindowKeys.of(w).isEmpty { self?.reportNow() }
@@ -789,6 +796,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         if let p = popouts { s["popouts"] = p.describe }
         if let p = parameters { s["parameters"] = p.describe }
         if let m = messagesWindow { s["messages"] = m.describe }
+        if let a = acknowledgementsWindow { s["acknowledgements"] = a.describe }
         if let c = coreWindows { s["coreWindows"] = c.describe }
         if let n = canvasView?.nameField.field { s["nameField"] = ["text": .string(n.stringValue), "window": .int(Int64(n.window?.windowNumber ?? 0))] }
         s["toolbar"] = .array(coreIdentifiers().map { id in

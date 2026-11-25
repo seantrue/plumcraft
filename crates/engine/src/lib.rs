@@ -441,7 +441,19 @@ pub struct Engine {
     save_formats: Vec<save::Format>,
     removed_formats: Vec<String>,
     default_formats: bool,
+    /// The licences of what it is built from ([`Engine::with_acknowledgements`], FR4).
+    acknowledgements: Option<plumcraft_proto::acknowledgements::Acknowledgements>,
 }
+
+/// An engine built in PlumCraft's own workspace (array, text, audio, the crafts): the Rust packages
+/// it is built from are in PlumCraft's own list, so its list says so and gives only what is its
+/// own beyond them (`groups`: a font it draws with).
+pub fn workspace_acknowledgements(groups: Vec<plumcraft_proto::acknowledgements::LicenceGroup>) -> plumcraft_proto::acknowledgements::Acknowledgements {
+    plumcraft_proto::acknowledgements::Acknowledgements { groups, note: WORKSPACE_NOTE.into() }
+}
+
+/// What [`workspace_acknowledgements`] says.
+pub const WORKSPACE_NOTE: &str = "Built from PlumCraft's own source: the Rust packages it uses are listed under PlumCraft.";
 
 /// A pack operation's handler (spec `x.<pack>.<op>`, section 15): its params in, its result out.
 /// The host calls it on the requesting thread, beside runs, so it may be called while a run
@@ -489,7 +501,25 @@ impl Engine {
             save_formats: Vec::new(),
             removed_formats: Vec::new(),
             default_formats: true,
+            acknowledgements: None,
         }
+    }
+
+    /// Give the licences of what this engine is built from (FR4, research note 29), answered to
+    /// `acknowledgements` under the capability of that name; the editor shows them in its
+    /// Acknowledgements window under the engine's name. A Rust engine makes its list with
+    /// `cargo about` and PlumCraft's template, and reads it with
+    /// [`Acknowledgements::from_cargo_about`](plumcraft_proto::acknowledgements::Acknowledgements::from_cargo_about):
+    /// `.with_acknowledgements(Acknowledgements::from_cargo_about(include_str!("../acknowledgements.json")))`.
+    pub fn with_acknowledgements(mut self, list: plumcraft_proto::acknowledgements::Acknowledgements) -> Self {
+        self.caps.insert(plumcraft_proto::caps::known::ACKNOWLEDGEMENTS);
+        self.acknowledgements = Some(list.bounded());
+        self
+    }
+
+    /// The licences given with [`Engine::with_acknowledgements`].
+    pub fn acknowledgements(&self) -> Option<&plumcraft_proto::acknowledgements::Acknowledgements> {
+        self.acknowledgements.as_ref()
     }
 
     /// Offer save format `f` (Save Result, [`save`]): added, or in place of a format of the same

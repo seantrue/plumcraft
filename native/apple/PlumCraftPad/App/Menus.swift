@@ -108,7 +108,12 @@ enum PadMenus {
                 if let j = top.items.firstIndex(where: { $0.role?.word == .about }) {
                     let it = top.items[j]
                     let about = UICommand(title: "\(it.label) \(AppID.name)", action: run, propertyList: "\(k)/\(j)")
-                    builder.insertChild(UIMenu(options: .displayInline, children: [about]), atStartOfMenu: .help)
+                    // Acknowledgements beside it (FR4)
+                    var beside: [UIMenuElement] = [about]
+                    if let a = top.items.firstIndex(where: { $0.role?.word == .acknowledgements }) {
+                        beside.append(UICommand(title: top.items[a].label, action: run, propertyList: "\(k)/\(a)"))
+                    }
+                    builder.insertChild(UIMenu(options: .displayInline, children: beside), atStartOfMenu: .help)
                 }
             default:
                 let id = UIMenu.Identifier(AppID.bundle + ".menu.\(top.id.isEmpty ? "\(k)" : top.id)")
@@ -153,7 +158,7 @@ enum PadMenus {
                 continue
             }
             // the system has no Settings, About or Quit place here yet
-            if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about { continue }
+            if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about || it.role?.word == .acknowledgements { continue }
             if it.isSection {
                 // B80: inline, under its heading (it was an untitled submenu holding every engine)
                 flush()

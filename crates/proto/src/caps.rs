@@ -43,6 +43,8 @@ pub mod known {
     pub const CODEC_MSGPACK: &str = "codec.msgpack";
     /// A step run once per item keeps each run's list as one item (spec 7.6 rule 2).
     pub const LISTS_NESTED: &str = "lists.nested";
+    /// The engine answers `acknowledgements` with the licences of what it is built from (FR4).
+    pub const ACKNOWLEDGEMENTS: &str = "acknowledgements";
 
     /// Listed by the engine alone: on when the engine lists it (spec 5.3, "Who lists it").
     pub const ENGINE_ONLY: &[&str] = &[
@@ -63,6 +65,7 @@ pub mod known {
         EDITOR_CURVES,
         EDITOR_MASK,
         LISTS_NESTED,
+        ACKNOWLEDGEMENTS,
     ];
 
     /// Is this a pack operation's capability (`x.<pack>.<op>`)? Those are engine-only too.

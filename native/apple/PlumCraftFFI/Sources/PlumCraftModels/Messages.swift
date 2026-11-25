@@ -28,7 +28,7 @@ public struct SystemAppearance: Codable, Hashable, Sendable {
 // MARK: - Menus (12.1)
 
 public enum RoleWord: String, Sendable, CaseIterable {
-    case about, preferences, quit, new, open, save, saveAs, undo, redo, cut, copy, paste, delete, selectAll
+    case about, acknowledgements, preferences, quit, new, open, save, saveAs, undo, redo, cut, copy, paste, delete, selectAll
     case fileMenu, editMenu, viewMenu, helpMenu, windowMenu, fullScreen
 }
 

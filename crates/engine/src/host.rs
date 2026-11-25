@@ -471,6 +471,13 @@ impl Host {
                 Ok(serde_json::json!({}))
             }
             "events.poll" => json(&self.poll(n("since"), n("wait_ms"), s("run_id").as_deref())),
+            "acknowledgements" => {
+                let engine = self.shared.lock().engine.clone().ok_or_else(|| ProtoError::new(ErrorCode::Unavailable, "the engine isn't ready"))?;
+                match engine.acknowledgements() {
+                    Some(a) => json(a),
+                    None => Err(ProtoError::new(ErrorCode::UnknownOp, "this engine gives no acknowledgements")),
+                }
+            }
             other if crate::is_pack_op(other) => self.pack_op(other, params),
             other => Err(ProtoError::new(ErrorCode::UnknownOp, format!("unknown op {:?}", other.chars().take(64).collect::<String>()))),
         }
@@ -720,6 +727,34 @@ mod core_tests {
         let schema = h.schema(None).unwrap();
         assert_eq!(schema["engine"]["id"], "c");
         assert_eq!(schema["nodes"][0]["id"], "c.one");
+    }
+
+    /// FR4: an engine given acknowledgements lists the capability and answers them; one without
+    /// refuses the operation.
+    #[test]
+    fn acknowledgements_are_answered_under_their_capability() {
+        use plumcraft_proto::acknowledgements::{Acknowledgements, LicenceGroup, Package};
+        let list = Acknowledgements {
+            groups: vec![LicenceGroup {
+                licence: "MIT".into(),
+                text: "M".into(),
+                packages: vec![Package { name: "p".into(), ..Default::default() }],
+                ..Default::default()
+            }],
+            note: String::new(),
+        };
+        let given = list.clone();
+        let h = Host::start(
+            Box::new(move || Ok(Engine::new(EngineInfo { id: "a".into(), ..Default::default() }).with_store(None).with_acknowledgements(given.clone()))),
+            None,
+        );
+        let EngineState::Connected { caps, .. } = h.wait_ready(Duration::from_secs(5)) else { panic!("not connected") };
+        assert!(caps.has(plumcraft_proto::caps::known::ACKNOWLEDGEMENTS));
+        let got = Acknowledgements::from_value(h.dispatch("acknowledgements", serde_json::json!({})).unwrap());
+        assert_eq!(got, list);
+        let h = host();
+        h.wait_ready(Duration::from_secs(5));
+        assert!(h.dispatch("acknowledgements", serde_json::json!({})).is_err());
     }
 
     #[test]

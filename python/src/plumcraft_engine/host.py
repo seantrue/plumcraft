@@ -342,6 +342,12 @@ class Host:
             return self.poll(n("since"), n("wait_ms"), s("run_id") or None)
         if method == "output.save":
             return self.save(p)
+        if method == "acknowledgements":
+            engine = self._engine
+            ack = engine.acknowledgements_list() if engine is not None else None
+            if ack is None:
+                raise ProtoError(UNKNOWN_OP, "this engine gives no acknowledgements")
+            return ack
         raise ProtoError(UNKNOWN_OP, f"unknown op {exec.quoted(method[:64])}")
 
     def shutdown(self, wait: bool = True) -> None:

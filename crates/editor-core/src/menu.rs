@@ -215,6 +215,8 @@ pub fn shortcut_table() -> Vec<Binding> {
 pub enum Role {
     /// The application menu's About (macOS); Help elsewhere.
     About,
+    /// Acknowledgements (FR4): beside About, in the application menu on macOS; Help elsewhere.
+    Acknowledgements,
     /// Preferences / Settings: the application menu on macOS, ⌘, everywhere on Apple platforms.
     Preferences,
     /// Quit: the application menu on macOS; none on iPadOS and iOS.
@@ -469,6 +471,7 @@ fn menu_role(title: &str) -> Option<Role> {
 fn command_role(id: &str) -> Option<Role> {
     Some(match id {
         "app.about" => Role::About,
+        "app.acknowledgements" => Role::Acknowledgements,
         "app.settings" => Role::Preferences,
         "app.quit" => Role::Quit,
         "graph.new" => Role::New,
@@ -1635,6 +1638,7 @@ mod tests {
         assert_eq!((quit.role, quit.shortcut.clone()), (Some(Role::Quit), parse_shortcut("Cmd+Q")));
         assert_eq!(find(&bar, "app.settings").unwrap().role, Some(Role::Preferences));
         assert_eq!(find(&bar, "app.about").unwrap().role, Some(Role::About));
+        assert_eq!(find(&bar, "app.acknowledgements").unwrap().role, Some(Role::Acknowledgements));
         assert_eq!(bar[1].role, Some(Role::EditMenu));
         // a fresh document has nothing to undo, and says why
         let undo = find(&bar, "edit.undo").unwrap();

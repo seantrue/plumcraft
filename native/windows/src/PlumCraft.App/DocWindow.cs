@@ -520,8 +520,10 @@ public sealed class DocWindow : Window
         {
             Title = a.Get("title").Str() ?? CoreHost.AppName, XamlRoot = Content.XamlRoot, RequestedTheme = ContentTheme,
             Content = new TextBlock { Text = string.Join("\n", lines), IsTextSelectionEnabled = true }, CloseButtonText = "OK",
+            // Acknowledgements (FR4): the core's window, from About
+            PrimaryButtonText = "Acknowledgements",
         };
-        await d.ShowAsync();
+        if (await d.ShowAsync() == ContentDialogResult.Primary) await Run("app.acknowledgements", Jsonv.EmptyObject);
     }
 
     // ---------------- keys ----------------

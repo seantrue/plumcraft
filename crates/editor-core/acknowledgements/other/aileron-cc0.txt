@@ -1,0 +1,3 @@
+Aileron Regular, by Sora Sagano (dotcolon), https://dotcolon.net/fonts/aileron, is published as "No Rights Reserved" under CC0 1.0 Universal (Creative Commons Zero), a public domain dedication: https://creativecommons.org/publicdomain/zero/1.0/
+
+The engine SDKs draw contact sheet labels with glyphs rasterised from it (THIRD-PARTY.md says how). No notice is required; it is listed for provenance.

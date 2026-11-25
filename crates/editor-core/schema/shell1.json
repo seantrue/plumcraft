@@ -3164,6 +3164,10 @@
     "Windows": {
       "description": "The document's windows, in the scene's `view.windows`.",
       "properties": {
+        "acknowledgements": {
+          "description": "The Acknowledgements window is open (`app.acknowledgements`, FR4): a native shell shows\n`acknowledgements.get` in a window (a sheet on iPad and iPhone), and closes it with\n`app.acknowledgements {open: false}`.",
+          "type": "boolean"
+        },
         "cache": {
           "description": "The Cache Report is open (`run.cacheReport`, N4 slice 6): `report.get {window: \"cache\"}`.",
           "type": "boolean"

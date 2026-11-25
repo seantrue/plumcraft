@@ -54,7 +54,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session) {
                 rows(ui, "plumcraft-about-engine", &parts);
             }
             ui.separator();
-            closed = ui.button("Close").clicked();
+            let mut acks = false;
+            ui.horizontal(|ui| {
+                acks = ui.button("Acknowledgements…").clicked();
+                closed = ui.button("Close").clicked();
+            });
+            if acks {
+                let _ = s.execute("app.acknowledgements", &serde_json::json!({}));
+            }
         });
     if !open || closed {
         s.views.about = false;

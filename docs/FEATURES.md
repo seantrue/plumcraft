@@ -6,6 +6,8 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Open
 
+## Done
+
 ### FR4. A list of the licences that need display, in the Help/About dialog
 
 - Reported: 2026-11-25
@@ -13,8 +15,8 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 - Context: said while testing an application built on the Mac shell, the day About was made to work on the Mac (B169). About today shows the build line, the core, shell-interface and C ABI versions and the engine.
 - Design (the maintainer, 2026-11-25): "All licences, in a separate Acknowledgements window". So: the editor's own dependencies, each engine's, and an application's own engine's; shown in an Acknowledgements window of its own, reached from About.
 - Issue: none
-
-## Done
+- Decisions (the maintainer, 2026-11-25), on six points the research raised (note 29, `docs/research/29-acknowledgements.md`, has each option's text): "Decisions: 1A; 2A; 3A; 4A; 5A; 6B": Microsoft's Windows packages listed with their full terms; the MPL-2.0 audio decoders accepted, with the licence and the source's address; Python engines' installed licence files in full; the embedded fonts kept, with their notices; the permissive option where a crate offers a choice; the list made with cargo-about. Then "Get licenses from online if needed."; on a list with a row per distinct text, "coalesce license variations"; and on the maintainer's own crate whose licence text names its project, "npexact -a" (keep it as it is).
+- Done: 2026-11-25, branch `pr/fr4-acknowledgements`. `app.acknowledgements` beside About; one row per licence, each with its packages, their own copyright lines, the text once and any variant in full; engines add theirs through the `acknowledgements` capability. Mac, iPad, iPhone and egui launched (a scripted copy, simulators, a test with pictures); Windows built, not launched; an opened row not seen on Apple; a Python engine's list not seen in a running shell.
 
 ### FR5. Promoted labels carry the name of the node they came from, and can be renamed
 

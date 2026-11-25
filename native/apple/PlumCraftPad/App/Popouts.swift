@@ -960,6 +960,66 @@ final class PadMessages: NSObject, UIAdaptivePresentationControllerDelegate {
     }
 }
 
+/// The Acknowledgements sheet (FR4): the licences of what the app and its engines are built from,
+/// open while the core's `view.windows.acknowledgements` is (`app.acknowledgements`: Help, or
+/// About's button). Over About when About is showing, so it is a sheet from About; Done or a
+/// swipe down closes it in the core too.
+@MainActor
+final class PadAcknowledgements: NSObject, UIAdaptivePresentationControllerDelegate {
+    let acks: AcknowledgementsModel
+    weak var host: GraphViewController?
+    private var sheet: UIViewController?
+
+    init(model: DocumentModel) {
+        acks = AcknowledgementsModel(model: model, shell: "ios")
+    }
+
+    func follow(_ open: Bool) {
+        if open, sheet == nil, let host {
+            let h = UIHostingController(rootView: AcknowledgementsView(acks: acks, done: { [weak self] in self?.closed() }))
+            h.modalPresentationStyle = .formSheet
+            h.view.backgroundColor = .sheetGround
+            h.presentationController?.delegate = self
+            h.view.accessibilityIdentifier = "acknowledgements"
+            sheet = h
+            Presentations.whenSettled(from: host) { [weak host] in
+                guard let host else { return }
+                // About's sheet (no core window of its own) stays under it; anything else is replaced
+                if let about = host.presentedViewController, about.view.accessibilityIdentifier == "about", about.presentedViewController == nil {
+                    about.present(h, animated: !CoreHost.options.scratchState)
+                } else {
+                    host.presentReplacing(h)
+                }
+            }
+        } else if !open, let s = sheet, let host {
+            sheet = nil
+            Presentations.whenSettled(from: host) { s.dismiss(animated: !CoreHost.options.scratchState) }
+        }
+    }
+
+    /// Done: closed at once, the core told after.
+    func closed() {
+        if let s = sheet {
+            sheet = nil
+            s.dismiss(animated: true)
+        }
+        let a = acks
+        Task { await a.close() }
+    }
+
+    func presentationControllerDidDismiss(_ pc: UIPresentationController) {
+        sheet = nil
+        let a = acks
+        Task { await a.close() }
+    }
+
+    var describe: JSONValue {
+        var d = acks.describe.object ?? [:]
+        d["open"] = .bool(sheet != nil)
+        return .object(d)
+    }
+}
+
 /// The windows the core keeps and draws as a model (N4 slice 6): the Cache Report, the graph's
 /// Parameters window, value editors (`report.get`) and Compare (`compare.get`), each a sheet
 /// while the scene's `view.windows` says it is open (the newest shown: one presentation at a

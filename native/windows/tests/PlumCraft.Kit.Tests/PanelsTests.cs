@@ -235,6 +235,24 @@ public class Panels
         await m.ReadAsync();
         await m.CloseAsync();
         Assert.True(await model.WaitAsync(() => model.Windows.Messages != true));
+
+        // Acknowledgements (FR4): the editor's licences and the engine's, searched by the core
+        await model.RunAsync("app.acknowledgements", Jsonv.EmptyObject);
+        Assert.True(await model.WaitAsync(() => model.Windows.Acknowledgements == true));
+        var ack = new AcknowledgementsModel(model);
+        await ack.ReadAsync();
+        var programs = ack.Programs();
+        Assert.True(programs.Count >= 2, $"{programs.Count}");
+        Assert.EndsWith(" packages", AcknowledgementsModel.PackagesLine(programs[0].List), StringComparison.Ordinal);
+        Assert.Contains(programs[0].List.Get("rows").Items(), g => g.Get("licence").Str() == "LicenseRef-Microsoft-Win2D");
+        // one row per licence: its packages each with their own copyright lines
+        var mit = programs[0].List.Get("rows").Items().Single(g => g.Get("licence").Str() == "MIT");
+        Assert.Contains(mit.Get("packages").Items(), p => p.Get("notices").Items().Any());
+        await ack.ReadAsync("symphonia");
+        Assert.Single(ack.Programs()[0].List.Get("rows").Items());
+        Assert.StartsWith("MPL-2.0: symphonia", AcknowledgementsModel.GroupTitle(ack.Programs()[0].List.Get("rows").Items().First()));
+        await ack.CloseAsync();
+        Assert.True(await model.WaitAsync(() => model.Windows.Acknowledgements != true));
         model.Stop();
     });
 

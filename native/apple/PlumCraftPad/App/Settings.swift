@@ -81,8 +81,10 @@ enum PadSettings {
                 return "\(n) \(v)"
             }
             let view = AboutView(title: a["title"].string ?? AppID.name, version: a["version"].string ?? "", build: BuildStamp.line(about: a),
-                                 parts: parts, engine: a["engine"].string, done: { [weak vc] in vc?.dismiss(animated: true) })
+                                 parts: parts, engine: a["engine"].string, done: { [weak vc] in vc?.dismiss(animated: true) },
+                                 acknowledgements: { Task { _ = try? await model.run("app.acknowledgements") } })
             let host = UIHostingController(rootView: view)
+            host.view.accessibilityIdentifier = "about"
             host.modalPresentationStyle = .formSheet
             host.preferredContentSize = CGSize(width: 400, height: 420)
             vc?.present(host, animated: !CoreHost.options.scratchState)
@@ -99,6 +101,8 @@ struct AboutView: SwiftUI.View {
     let parts: [String]
     let engine: String?
     let done: () -> Void
+    /// Acknowledgements (FR4): a sheet over this one.
+    let acknowledgements: () -> Void
 
     var body: some SwiftUI.View {
         NavigationStack {
@@ -113,6 +117,8 @@ struct AboutView: SwiftUI.View {
                 }
                 ForEach(parts, id: \.self) { Text($0).font(.footnote).foregroundStyle(.secondary) }
                 if let e = engine, !e.isEmpty { Text("Engine: \(e)").font(.footnote).foregroundStyle(.secondary) }
+                Button("Acknowledgements", systemImage: "doc.text", action: acknowledgements).font(.footnote)
+                    .accessibilityIdentifier("about.acknowledgements")
             }
             .padding(24)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done", action: done) } }

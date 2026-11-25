@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — An Acknowledgements window with every licence (FR4) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Feat: Add list of licenses that need display on Help/About dialog"; "All licences, in a separate Acknowledgements window"; "build FR4.5"; on the research's six points, "Decisions: 1A; 2A; 3A; 4A; 5A; 6B"; "Get licenses from online if needed."; "coalesce license variations"; "npexact -a".
+
+**What the AI did.** The agent surveyed the dependency tree (research note 29) and stopped for decisions, as briefed, on finding licences that were not plain permissive ones. Then it built the list with cargo-about, a model in the core that every shell draws, an engine capability with helpers in both SDKs, the command beside About, and the window on the Mac, iPad, iPhone, Windows and egui; and, on the maintainer's word, coalesced 194 distinct texts to 12 rows, one per licence, keeping every copyright line with its package.
+
+**Verification.** The agent's runs: the workspace's tests with the one known failure, Python, Mac conformance 92 of 92, Swift tests, an egui test with pictures, a test that no copyright line is lost in coalescing; launches on a scripted Mac copy and iPad and iPhone simulators. The controller looked at the iPad picture before coalescing and the iPhone picture after: a row per licence, "443 packages". The full suite ran on the Linux test host. Windows was built and not launched; an opened row was not seen on Apple.
+
+**Defects.** The controller's private-strings list wrongly held a name the maintainer had said weeks before was public, which blocked the push and cost the maintainer two questions; the maintainer corrected it. The first list had a row per distinct text, eight of them "Apache-2.0" on the first screen; the maintainer saw it in the controller's report and asked for one row per licence. The install command the controller authorised lacked a needed feature flag; the agent added it and said so. Win2D's licence page is gone from its address; the checked-in text is an archive's copy and says so.
+
 ### 2026-11-25 — B173: a node's mask editor could not be reached by a person on the Mac (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** Asked how to edit a mask, then: "Click on the edit field does nothing."; "I clicked the blue \"edit\" text. There was no mask item in the menu."; "fix 173".
