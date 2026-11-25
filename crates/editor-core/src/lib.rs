@@ -62,6 +62,7 @@ pub mod icons;
 pub mod inline;
 pub mod install;
 pub mod invoke;
+pub mod joined;
 pub mod link;
 pub mod log;
 pub mod mask_cmds;

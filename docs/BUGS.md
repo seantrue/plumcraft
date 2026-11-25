@@ -4,6 +4,43 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B166. Mac: Open Recent never lists recent graphs
+
+- Reported: 2026-11-24
+- Report: "open recent never has a list of recent graphs"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`, after opening and saving several graphs today (`.plum` and `.json`).
+- Answer (the maintainer, 2026-11-24): asked whether the menu is empty or greyed, and whether it ever listed anything: "empty list. Never showed anything".
+- Not yet known: whether Plummer itself has the fault or only an application built on the shell.
+- Issue: none
+
+### B165. Mac: Insert Graph of a component graph inserts nothing
+
+- Reported: 2026-11-24
+- Report: "insert graph (components/condition) inserts nothong"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`. The graph inserted is a component graph of the research software's collection (a "condition" component, in a `components` folder).
+- Answer (the maintainer, 2026-11-24): "inserted condition.plum"; then "Fix b165". The component exists in both forms, `.json` and `.plum`.
+- Not yet known: whether anything is said (a banner, an error), and what was open when it was inserted.
+- Issue: none
+
+### B164. Mac: a node driven by a range does not give several results on its output
+
+- Reported: 2026-11-24
+- Report: "Node driven by range does not generate multiple results on output"
+- Context: the maintainer's first hand use of B162's fix, in an application built on the Mac shell from the dev branch at `3403749`, with the style graph of B162's report: a range driver of 5 values wired to a setting of a node of the application's own engine. The graph now runs.
+- Answer (the maintainer, 2026-11-24): asked which output, they answered: "I looked at right after the node, and the final result." So: one result both just after the driven node and at the end of the graph.
+- Then: "fix B164".
+- Found (an agent, a scripted copy with a scratch copy of the graph; no fix made):
+  - The driven node runs 5 times, once per value. Each run returns a list of 2 pictures, and the engine joins the runs into one flat list of 10 (seen: the odd items differ with the value).
+  - The wire out of the node carries the slice `1`, which takes one item of that flat list: the first run's picture. From there to the final result there is one picture.
+  - This is the list rule as written, not a fault in one place: a node run once per item whose runs each return a list gives "a new, flat list" (`crates/engine/src/exec.rs`; the Python SDK and the research software's executor the same), and a slice applies to the flat list (`docs/interface.md` 7.6 rule 3). The research software's own executor, read and not run, would give one result for this wiring too.
+  - Changing the slice to `1::2` on the wire gave 5 items just after the node, but a later node that takes a whole list of 3 then got 15 and refused. So slicing per run is not enough.
+  - Ruled out: the border between engines (the 5 values arrive), the inherited mark, dotted names.
+- Open question (the maintainer's decision; it changes the list rule in the spec, both SDKs and the research software): keep each run's list apart (nested lists), slice per run only, keep today's rule and say what it does, or have the core run the downstream part once per value.
+- Decision (the maintainer, 2026-11-24): asked which of the four, and whether to do the message of the third first: "Option 1, do the option 3 message first". So: nested lists (each run's list kept apart) is the fix; before it, the wire or face says what today's rule does.
+- Design: `docs/research/27-nested-lists.md`. Its nine decisions, answered by the maintainer on 2026-11-24: "Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A" (the interim message is a plain note with no new field; the rule for every graph, with an engine capability; a slice means the level its wire's source made; a whole-list port runs once per outer item; a Flatten building block; two steppers in pop-outs; an axes field on lists; tuples stay lists; the application's engine and the research software change together, last).
+- Interim (2026-11-24, branch `fix/b164-range-items`; the bug stays open until nested lists): after a run the core says what today's rule does, with no new message field and no numbers (it is not told a run count). On a wire whose index slice takes one item from a list output of a step that ran once per item: "Slice 1 takes one item. <Step> runs once per item of a list and joins every run's list into one, so this is one run's result, not one from each run (B164)." On an unsliced wire into an input that takes a whole list: "This input takes a whole list, and gets <Step>'s runs joined into one list, not a list per run (B164)." Shown in the wire's context menu and at the end of the input row's hover; the Mac canvas now shows an input's hover as its tooltip, as Windows does. Quiet for an ordinary list, a range slice, and before a run. Read back from the application on the Mac on a scratch copy of the report's graph; the menu line and tooltip have not been seen in a window.
+- Issue: none
+
 ### B163. A graph's banner keeps "the graph has N problem(s)" after the missing engine was added
 
 - Reported: 2026-11-24 (found by an agent while reproducing B162, not by the maintainer)

@@ -1565,6 +1565,15 @@ fn in_row(cx: &Ctx<'_>, node_id: &NodeId, row: &InputRow) -> InRow {
             r.named = named();
         }
     }
+    // B164: what this input gets from a list joined from several runs, after its own hover
+    if wire.is_some()
+        && let Some(n) = crate::joined::note(i.graph, i.catalog, i.run, &at)
+    {
+        r.hover = Some(match r.hover.take() {
+            Some(h) if !h.is_empty() => format!("{h}\n\n{n}"),
+            _ => n,
+        });
+    }
     r
 }
 
