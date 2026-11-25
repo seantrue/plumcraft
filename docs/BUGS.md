@@ -252,6 +252,16 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B172. Mac: nodes in the middle of a chain show "queued" and "skipped: upstream did not finish" while the nodes before and after them show "cached"
+
+- Reported: 2026-11-25
+- Report: "Graph status not correct", with a picture whose labels read "Status is incorrect" (on two nodes) and "This node status shows complete via cache." (on the node after them); and "Status line seems correct".
+- Context: an application built on the Mac shell, from the dev branch at `02e9804` (the first build with the status line). In the picture, left to right along one chain: a picture source node, green, "cached"; a curves node of the application's own engine, grey, "queued", with the line "skipped: upstream n1 did not finish"; a colour-space node of the array engine, grey, "queued", "skipped: upstream n9 did not finish"; a split node of the array engine, green, "cached", with its picture; further nodes cut off, one with "skipped: …". So two engines alternate along the chain, and the two wrong nodes sit between two that are done.
+- Answer (the maintainer, 2026-11-25): "I did a run. The run finished properly. I captured this in the moddle of the run." So the wrong states are shown while the run goes; whether they were right at its end was not said.
+- Issue: none
+- Cause (confirmed): the editor's session. A run's start set each node it would run to queued and kept the node's error from the run before, so until the run reached it a node showed "queued" with an old footer. The "skipped: upstream … did not finish" lines in the picture were left from an earlier run of that graph in which something upstream had failed. The coordinator and the engines said only true states: a chain alternating two engines was checked record by record.
+- Fixed: 2026-11-25, branch `pr/fix-b172`: a node queued for a new run has its error cleared (`RunState::request`). A session test and a conformance case (a run held on a slow node) fail without it. Seen on a scripted Mac copy with public engines mid-run and at the end; not checked in the application of the report.
+
 ### B171. iPad: opening a second pop-out of a value closed the first
 
 - Reported: 2026-11-25, found by an agent when a conformance case first ran on the iPad; not reported by the maintainer.

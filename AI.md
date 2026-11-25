@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — B172: a queued node showed the last run's error (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Graph status not correct", with a labelled picture; "I did a run. The run finished properly. I captured this in the moddle of the run."; "Fix B172".
+
+**What the AI did.** The agent reproduced it with public engines (a first run that fails and skips, then a slow second run read while it goes), found the cause in the session's run state, and cleared a queued node's old error: one line, with a session test and a conformance case that holds a run mid-way.
+
+**Verification.** The agent's runs: both new tests fail without the fix; Mac conformance 89 of 89; the C ABI suite; a scripted Mac copy read mid-run and at the end. The full suite ran on the Linux test host. The controller looked at no picture for this one.
+
+**Defects.** The controller's guess, written into the agent's brief, was wrong: it blamed the coordinator's stages across engines, and the agent showed the coordinator says only true states. The agent's first conformance check could never fail (a matcher used where a literal was wanted); it found and fixed that itself. The fix has not been seen in the application where the maintainer met it.
+
 ### 2026-11-25 — A status line for the native shells, from an analysis of egui's; the Mac's About (FR3, B169) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Where is the status information that used to be at the bottom of the window?", then: "The information in the original egui status line was timely, centralized, and includes more than I can easily see now. Analyze the original egui status and provide it as an option status line for the editor." And: "bug: about entry continues to be greyed out.", "There is none under help, greyed out under app.", "fix b169". Asked first about open bugs, they said "check b148, fix b119,120, then procede."
