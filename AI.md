@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Nested lists decided, and a note that says what today's rule does (B164) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Node driven by range does not generate multiple results on output"; where: "I looked at right after the node, and the final result."; "fix B164". Given four ways to fix it: "Option 1, do the option 3 message first". Given the note's nine decisions: "Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A".
+
+**What the AI did.** The agent showed the driven step does run once per value, and that the list rule itself (runs joined flat, a slice over the join) leaves one result: a rule shared by the spec, both SDKs and the research software, so it made no fix and brought options. It then stopped again rather than add a message field for run counts, wrote research note 27 (203 lines: the rule, a survey of 394 graphs finding one that relies on flattening, the wire format, six slices, nine decisions), and built the interim note in the core (`joined.rs`, 138 LOC with its test; 14 LOC in the menu and scene; 7 in the Mac canvas so an input's hover shows as a tooltip).
+
+**Verification.** The agent's runs: a new test seen failing with the menu hook disabled; the editor core's 239 tests; workspace clippy and fmt; Mac conformance 76 of 76; the note's words read back through the control port from the application on a scratch copy of the report's graph. The controller ran the Swift kit's tests (58 across its three runs) and read the Swift change. The full Rust suite ran on the Linux test host. Nobody has seen the menu line or the tooltip in a window, and the row-hover hook has no unit test.
+
+**Defects.** B162's evidence, "all 26 nodes done", said nothing of item counts, and the agent's test named "runs once per value" did not count; the maintainer found the single result by hand within minutes of the merge. The controller reported that fix as working on that evidence. The agent's first test wired a STRING into a TEXT port; its Swift edit was made while a build ran, so the public app binary it tested may predate it.
+
 ### 2026-11-24 — A value bound to a dotted setting reaches its node; a stopped run says why (B162) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "After wiring styles/cheap-and-cheerful-2bug.plum to have a range driving node, the graph no longer runs at all."; then "fix B162 (deleting the range let's it run)".

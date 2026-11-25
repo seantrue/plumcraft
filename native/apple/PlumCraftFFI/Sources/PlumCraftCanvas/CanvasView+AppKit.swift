@@ -324,6 +324,13 @@ public final class CanvasView: NSView, NSMenuItemValidation {
         var tip: String?
         if h.ok, h.kind == .node || h.kind == .pin, let f = model.faces[h.node]?.item {
             for case .error(let text, let full, _) in f.footer { tip = full.isEmpty ? text : full }
+            // else an input's own words, as Windows shows them on its pin (B164: what a wire into
+            // it takes from a list joined from several runs is said there)
+            if tip == nil {
+                let row: Int? = h.kind == .pin && h.part == 1 ? Int(h.pin)
+                    : h.kind == .node && h.part == HotHit.NodePart.row.rawValue && h.index >= 0 ? Int(h.index) : nil
+                if let row, row < f.inputs.count, let words = f.inputs[row].hover, !words.isEmpty { tip = words }
+            }
         }
         if toolTip != tip { toolTip = tip }
     }
