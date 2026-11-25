@@ -1309,7 +1309,11 @@ mod tests {
         p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
         d.full = Some(p);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"], "a picture stays pictures first, and is a table and a chart too");
+        assert_eq!(
+            ids,
+            ["array.pictures", "array.grid", "table.grid", "table.chart", "view.histogram", "hex"],
+            "a picture stays pictures first, and is a table and a chart too"
+        );
     }
 
     /// FR6 (note 30, "All A"; "In general, it's the user's job to deal with odd, and your job to
