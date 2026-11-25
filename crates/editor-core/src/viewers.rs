@@ -182,21 +182,7 @@ pub const NATIVE: &[&str] = &[
 /// six; past 1e9 or under 1e-4, four significant decimals in scientific notation; NaN and the
 /// infinities by name.
 pub fn number(x: f64, int: bool) -> String {
-    if x.is_nan() {
-        return "NaN".into();
-    }
-    if x.is_infinite() {
-        return if x > 0.0 { "inf".into() } else { "-inf".into() };
-    }
-    if int && x.fract() == 0.0 && x.abs() < 9.0e15 {
-        return format!("{}", x as i64);
-    }
-    let a = x.abs();
-    if a != 0.0 && !(1e-4..1e9).contains(&a) {
-        return format!("{x:.4e}");
-    }
-    let d = crate::widget_text::needed_decimals(&json!(x));
-    crate::widget_text::number_text(&json!(x), false, d)
+    plumcraft_chart::number(x, int)
 }
 
 /// `v` in `format` (`%.Nf`, `%.Ne`, `%.Ng`, `%d`; anything else reads as `%.4g`).

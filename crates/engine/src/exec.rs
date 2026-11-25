@@ -1138,6 +1138,10 @@ fn thumb(engine: &Engine, ty: &str, v: &Data, plane: &Plane<'_>) -> Option<Rendi
         return l.items.first().and_then(|first| thumb(engine, ty, first, plane));
     }
     if let Data::Array(a) = v {
+        // a chart the core lays out, its kind the caption (note 26, option A), or a picture
+        if let Some((t, caption)) = crate::arrays::chart_thumb(a, THUMB_PX) {
+            return plane.rgba8(&t, "", &caption);
+        }
         return crate::arrays::thumb(a, THUMB_PX).and_then(|t| plane.rgba8(&t, "", ""));
     }
     match engine.wire_type(ty).map(|w| w.media) {

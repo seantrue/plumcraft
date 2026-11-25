@@ -29,6 +29,7 @@ plumcraft-host = { workspace = true }
 plumcraft-media = { workspace = true }
 commonkit = { workspace = true }
 plumcraft-proto = { workspace = true }
+plumcraft-chart = { workspace = true }
 plumcraft-session = { workspace = true }
 plumcraft-store = { workspace = true }
 plumcraft-text = { workspace = true }

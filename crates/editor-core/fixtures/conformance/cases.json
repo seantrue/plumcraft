@@ -1918,6 +1918,25 @@
       ]
     },
     {
+      "name": "a chart's face shows the chart the core lays out",
+      "about": "note 26, face previews (the maintainer: \"Chart: a\"): an engine built on the Rust SDK sends, as the thumbnail of an array the core plots, that chart: laid out by plumcraft-chart as the core lays it out and drawn by its rasteriser, its kind the rendition's caption; a 1-D array's face shows a line, a histogram table's its columns, and a picture stays a picture",
+      "half": "read",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "width", "value": 64}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "height", "value": 48}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.to_bytes", "pos": [400, 0]}}, "save": {"b": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$b", "port": "value"}}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.histogram", "pos": [400, 300]}}, "save": {"h": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$h", "port": "array"}}}},
+        {"call": "command.run", "params": {"command": "run.start", "params": {}}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "scene.get", "until": {"/result/nodes": {"$deep": {"caption": "columns"}}}, "timeout": 60, "expect": {"/result/nodes": {"$deep": {"caption": "line"}}}},
+        {"call": "scene.get", "expect": {"/result/nodes": {"$deep": {"kind": "rgba8", "caption": "columns", "w": 160, "h": 106}}}}
+      ]
+    },
+    {
       "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
       "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
       "half": "read",

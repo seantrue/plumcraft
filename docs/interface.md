@@ -724,7 +724,7 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 
 | Kind | Payload | Used by |
 |---|---|---|
-| `rgba8` | DataRef to (h, w, 4) `u1`, ≤ requested px | Image, every fallback, page rasters, spectrogram pictures, mesh turntables |
+| `rgba8` | DataRef to (h, w, 4) `u1`, ≤ requested px | Image, every fallback, page rasters, spectrogram pictures, mesh turntables, a chart's face thumbnail (the Rust SDK draws an array the core plots as that chart, its kind the `caption`) |
 | `peaks` | Inline or DataRef: (levels, channels, bins, 2) min/max | Audio waveform, 1-D plots, thumbs |
 | `spectrogram` | DataRef to (frames, bins) f32 dB + `hop`, `fft`, `rate` | Audio |
 | `excerpt` | Inline text ≤ 4 KiB + `offset`, `total_chars`, `lines` | Text thumbs, paging |

@@ -2976,6 +2976,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumcraft-chart"
+version = "0.7.0"
+dependencies = [
+ "plumcraft-proto",
+ "serde",
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
 name = "plumcraft-conform"
 version = "0.7.0"
 dependencies = [
@@ -3053,6 +3063,7 @@ dependencies = [
  "base64 0.22.1",
  "commonkit",
  "plumcraft-array",
+ "plumcraft-chart",
  "plumcraft-coordinator",
  "plumcraft-craft",
  "plumcraft-engine",
@@ -3077,6 +3088,7 @@ version = "0.7.0"
 dependencies = [
  "commonkit",
  "image",
+ "plumcraft-chart",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-store",
@@ -3184,6 +3196,7 @@ name = "plumcraft-session"
 version = "0.7.0"
 dependencies = [
  "commonkit",
+ "plumcraft-chart",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",

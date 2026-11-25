@@ -1,0 +1,21 @@
+[package]
+name = "plumcraft-chart"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+description = "PlumCraft's charts as data: a value's chart laid out into a display list (marks, scales, nice ticks, the core's number text, M4 reduction), shared by the editor core and the engine SDK's thumbnails; with `raster`, the list drawn into RGBA8 (tiny-skia). No GUI toolkit, no engine."
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-proto = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tiny-skia = { workspace = true, optional = true }
+
+[features]
+# the display list drawn into a picture (the engine SDK's chart thumbnails)
+raster = ["dep:tiny-skia"]

@@ -48,14 +48,15 @@ pub mod asks;
 pub mod autosave;
 pub mod bundle;
 pub mod canvas_cmds;
-pub mod chart;
+/// The chart layout, shared with the engine SDK's thumbnails (`plumcraft-chart`, note 26 option A).
+pub use plumcraft_chart::layout as chart;
 pub mod chart_kinds;
 pub mod compare;
 pub mod conformance;
 pub mod control;
 pub mod diff;
 pub mod document;
-pub mod dtype;
+pub use plumcraft_chart::dtype;
 pub mod engines;
 pub mod export;
 pub mod geometry;

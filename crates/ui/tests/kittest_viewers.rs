@@ -199,6 +199,16 @@ fn hovering_a_port_shows_its_value_and_a_click_watches_it() {
     h.hover_at(at);
     until(&mut h, "the peeked value", |s| s.wires.cached(&c, &out).is_some());
     h.run_steps(3);
+    // the peek's run gave Codes' face its thumbnail (a 1-D array is a chart now, note 26 option A),
+    // so the face grew and its pin moved: the pointer follows it
+    let at = h.state().canvas.pin_screen(&catalog, &port, true).expect("the pin was drawn");
+    h.hover_at(at);
+    // the preview shows once the pointer rests again
+    let rest = std::time::Instant::now();
+    while rest.elapsed() < Duration::from_millis(400) {
+        std::thread::sleep(Duration::from_millis(30));
+        h.run_steps(1);
+    }
     assert_eq!(h.state().canvas.hover_wire.as_ref().map(|(f, t, _)| (f.clone(), t.clone())), Some((port.clone(), None)));
     h.get_by_label(&format!("{c}.{out}"));
     h.get_by_label("click: watch");
