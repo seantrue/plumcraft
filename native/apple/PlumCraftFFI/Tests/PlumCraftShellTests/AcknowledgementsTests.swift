@@ -10,6 +10,7 @@ import Testing
         let g: JSONValue = ["licence": "MIT", "packages": .array((1...6).map { ["name": .string("p\($0)")] })]
         #expect(groupTitle(g) == "MIT: p1, p2, p3, p4 and 2 more")
         #expect(groupTitle(["licence": "Zlib", "packages": [["name": "z"]]]) == "Zlib: z")
+        #expect(groupTitle(["licence": "MIT", "packages": [["name": "a"], ["name": "a"], ["name": "b"]]]) == "MIT: a, b")
     }
 
     @Test func aSearchSaysHowManyOfHowMany() {

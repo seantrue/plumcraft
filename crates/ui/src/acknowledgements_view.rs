@@ -69,14 +69,18 @@ fn list(ui: &mut egui::Ui, name: &str, list: &Value, salt: &str) {
     if let Some(note) = list["note"].as_str().filter(|n| !n.is_empty()) {
         ui.add(egui::Label::new(note).selectable(true));
     }
-    for (k, g) in list["groups"].as_array().into_iter().flatten().enumerate() {
-        let licence = g["licence"].as_str().unwrap_or("");
-        let packages = g["packages"].as_array().map_or(&[][..], Vec::as_slice);
-        let names: Vec<&str> = packages.iter().filter_map(|p| p["name"].as_str()).collect();
+    // a row per licence (the core coalesces its texts): its packages with their own notices, then
+    // its text once, and any variant under its packages
+    for r in list["rows"].as_array().into_iter().flatten() {
+        let licence = r["licence"].as_str().unwrap_or("");
+        let packages = r["packages"].as_array().map_or(&[][..], Vec::as_slice);
+        // each name once (a crate in two versions is two packages)
+        let mut names: Vec<&str> = packages.iter().filter_map(|p| p["name"].as_str()).collect();
+        names.dedup();
         let more = if names.len() > 4 { format!(" and {} more", names.len() - 4) } else { String::new() };
         let title = format!("{licence}: {}{more}", names.iter().take(4).copied().collect::<Vec<_>>().join(", "));
-        egui::CollapsingHeader::new(title).id_salt((salt, k)).show(ui, |ui| {
-            if let Some(n) = g["name"].as_str().filter(|n| !n.is_empty()) {
+        egui::CollapsingHeader::new(title).id_salt((salt, licence)).show(ui, |ui| {
+            if let Some(n) = r["name"].as_str().filter(|n| !n.is_empty()) {
                 ui.strong(n);
             }
             for p in packages {
@@ -87,9 +91,21 @@ fn list(ui: &mut egui::Ui, name: &str, list: &Value, salt: &str) {
                     .collect::<Vec<_>>()
                     .join("  ");
                 ui.add(egui::Label::new(line).selectable(true));
+                for n in p["notices"].as_array().into_iter().flatten().filter_map(Value::as_str) {
+                    ui.horizontal(|ui| {
+                        ui.add_space(16.0);
+                        ui.add(egui::Label::new(egui::RichText::new(n).small().weak()).selectable(true));
+                    });
+                }
             }
-            ui.add_space(4.0);
-            ui.add(egui::Label::new(egui::RichText::new(g["text"].as_str().unwrap_or("")).monospace().small()).selectable(true).wrap());
+            for t in r["texts"].as_array().into_iter().flatten() {
+                ui.add_space(6.0);
+                if t["standard"].as_bool() != Some(true) {
+                    let who: Vec<&str> = t["packages"].as_array().into_iter().flatten().filter_map(Value::as_str).collect();
+                    ui.strong(format!("As {} have it:", who.join(", ")));
+                }
+                ui.add(egui::Label::new(egui::RichText::new(t["text"].as_str().unwrap_or("")).monospace().small()).selectable(true).wrap());
+            }
         });
     }
 }

@@ -37,6 +37,19 @@ fn acknowledgements_open_from_about_and_from_help_and_search() {
     h.run_steps(4);
     h.get_by_label_contains("Mozilla Public License Version 2.0");
     shot(&mut h, "fr4-egui-acknowledgements-search");
+    // one row per licence: Apache-2.0's text once, each package's own copyright line under it
+    common::click_at(&mut h, egui::pos2(at.x as f32, at.y as f32));
+    h.key_press(egui::Key::End);
+    for _ in 0.."symphonia".len() {
+        h.key_press(egui::Key::Backspace);
+    }
+    h.event(egui::Event::Text("zopfli".into()));
+    h.run_steps(4);
+    h.get_by_label_contains("Apache-2.0: ").click();
+    h.run_steps(4);
+    shot(&mut h, "fr4-egui-acknowledgements-apache");
+    h.get_by_label("Copyright 2011 Google Inc.");
+    assert_eq!(h.get_all_by_label_contains("TERMS AND CONDITIONS FOR USE").count(), 1, "the text once");
     h.state_mut().run("app.acknowledgements", &serde_json::json!({"open": false}));
     h.run_steps(4);
     assert!(h.query_by_label("Acknowledgements").is_none());

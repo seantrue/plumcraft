@@ -71,7 +71,7 @@ public final class AcknowledgementsModel {
     /// `ui.inspect`'s words for it: what it shows.
     public var describe: JSONValue {
         let editor = reply["editor"]["list"]
-        return ["query": .string(query), "groups": .uint(UInt64(editor["groups"].array?.count ?? 0)), "packages": editor["packages"],
+        return ["query": .string(query), "rows": .uint(UInt64(editor["rows"].array?.count ?? 0)), "packages": editor["packages"],
                 "engines": .array((reply["engines"].array ?? []).map { ["id": $0["id"], "given": $0["given"]] })]
     }
 }
@@ -85,7 +85,9 @@ func packagesLine(_ list: JSONValue) -> String {
 
 /// A licence's section title: its id and its first packages.
 func groupTitle(_ g: JSONValue) -> String {
-    let names = (g["packages"].array ?? []).compactMap { $0["name"].string }
+    // each name once (a crate in two versions is two packages)
+    var seen = Set<String>()
+    let names = (g["packages"].array ?? []).compactMap { $0["name"].string }.filter { seen.insert($0).inserted }
     let more = names.count > 4 ? " and \(names.count - 4) more" : ""
     return "\(g["licence"].string ?? ""): \(names.prefix(4).joined(separator: ", "))\(more)"
 }
@@ -110,8 +112,9 @@ public struct AcknowledgementsView: SwiftUI.View {
                             if let note = list["note"].string, !note.isEmpty {
                                 Text(note).font(.footnote).foregroundStyle(.secondary).textSelection(.enabled)
                             }
-                            ForEach(Array((list["groups"].array ?? []).enumerated()), id: \.offset) { _, g in
-                                LicenceGroupRow(group: g)
+                            // keyed by licence: a row's open state stays with its licence as a search changes the list
+                            ForEach((list["rows"].array ?? []).map { (id: $0["licence"].string ?? "", row: $0) }, id: \.id) { r in
+                                LicenceGroupRow(group: r.row)
                             }
                         }
                     } header: {
@@ -133,21 +136,35 @@ public struct AcknowledgementsView: SwiftUI.View {
     }
 }
 
-/// One licence: closed, its id and first packages; opened, its packages and its full text.
+/// One licence (the core coalesces its texts): closed, its id and first packages; opened, each
+/// package with its own copyright lines, then the licence's text once and any variant under
+/// the packages whose it is.
 struct LicenceGroupRow: SwiftUI.View {
     let group: JSONValue
     @State private var open = false
 
     var body: some SwiftUI.View {
         DisclosureGroup(isExpanded: $open) {
-            if let n = group["name"].string, !n.isEmpty { Text(n).font(.subheadline.bold()) }
-            ForEach(Array((group["packages"].array ?? []).enumerated()), id: \.offset) { _, p in
-                let line = [p["name"].string, p["version"].string, p["url"].string].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ")
-                Text(line).font(.footnote).textSelection(.enabled)
-            }
             if open {
-                Text(group["text"].string ?? "").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if let n = group["name"].string, !n.isEmpty { Text(n).font(.subheadline.bold()) }
+                ForEach(Array((group["packages"].array ?? []).enumerated()), id: \.offset) { _, p in
+                    let line = [p["name"].string, p["version"].string, p["url"].string].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "  ")
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(line).font(.footnote).textSelection(.enabled)
+                        ForEach(Array((p["notices"].array ?? []).enumerated()), id: \.offset) { _, n in
+                            Text(n.string ?? "").font(.caption2).foregroundStyle(.secondary).textSelection(.enabled).padding(.leading, 12)
+                        }
+                    }
+                }
+                ForEach(Array((group["texts"].array ?? []).enumerated()), id: \.offset) { _, t in
+                    VStack(alignment: .leading, spacing: 4) {
+                        if t["standard"].bool != true {
+                            Text("As \((t["packages"].array ?? []).compactMap(\.string).joined(separator: ", ")) have it:").font(.footnote.bold())
+                        }
+                        Text(t["text"].string ?? "").font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
             }
         } label: {
             Text(groupTitle(group)).lineLimit(2)

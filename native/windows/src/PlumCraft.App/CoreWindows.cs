@@ -420,26 +420,38 @@ public sealed class AcknowledgementsWindow : PanelWindow
             }
             body.Children.Add(Ui.Caption(AcknowledgementsModel.PackagesLine(list)));
             if (list.Get("note").Str() is { Length: > 0 } note) body.Children.Add(new TextBlock { Text = note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
-            foreach (var group in list.Get("groups").Items())
+            // a row per licence (the core coalesces its texts): each package with its own
+            // copyright lines, then the text once, and any variant under its packages
+            foreach (var row in list.Get("rows").Items())
             {
-                var e = new Expander { Header = AcknowledgementsModel.GroupTitle(group), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-                var g = group;
-                // the text is laid out only when the licence is opened
+                var e = new Expander { Header = AcknowledgementsModel.GroupTitle(row), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+                var r = row;
+                // laid out only when the licence is opened
                 e.Expanding += (_, _) =>
                 {
                     if (e.Content is not null) return;
                     var inner = new StackPanel { Spacing = 4 };
-                    if (g.Get("name").Str() is { Length: > 0 } n) inner.Children.Add(new TextBlock { Text = n, Style = Ui.TextStyle("BodyStrongTextBlockStyle") });
-                    foreach (var p in g.Get("packages").Items())
+                    if (r.Get("name").Str() is { Length: > 0 } n) inner.Children.Add(new TextBlock { Text = n, Style = Ui.TextStyle("BodyStrongTextBlockStyle") });
+                    foreach (var p in r.Get("packages").Items())
                     {
                         var line = string.Join("  ", new[] { p.Get("name").Str(), p.Get("version").Str(), p.Get("url").Str() }.Where(s => !string.IsNullOrEmpty(s)));
                         inner.Children.Add(new TextBlock { Text = line, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap });
+                        foreach (var note in p.Get("notices").Items())
+                            inner.Children.Add(new TextBlock { Text = note.Str() ?? "", FontSize = 11, Margin = new Thickness(16, 0, 0, 0), IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap, Foreground = Ui.Brush("TextFillColorSecondaryBrush") });
                     }
-                    inner.Children.Add(new TextBlock
+                    foreach (var t in r.Get("texts").Items())
                     {
-                        Text = g.Get("text").Str() ?? "", FontFamily = new FontFamily("Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap,
-                        IsTextSelectionEnabled = true, Margin = new Thickness(0, 6, 0, 0),
-                    });
+                        if (t.Get("standard") is not { ValueKind: JsonValueKind.True })
+                        {
+                            var who = string.Join(", ", t.Get("packages").Items().Select(x => x.Str()).OfType<string>());
+                            inner.Children.Add(new TextBlock { Text = $"As {who} have it:", Style = Ui.TextStyle("BodyStrongTextBlockStyle"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0) });
+                        }
+                        inner.Children.Add(new TextBlock
+                        {
+                            Text = t.Get("text").Str() ?? "", FontFamily = new FontFamily("Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                            IsTextSelectionEnabled = true, Margin = new Thickness(0, 6, 0, 0),
+                        });
+                    }
                     e.Content = inner;
                 };
                 body.Children.Add(e);
@@ -451,7 +463,7 @@ public sealed class AcknowledgementsWindow : PanelWindow
     public override System.Text.Json.Nodes.JsonObject Describe() => new()
     {
         ["open"] = true, ["query"] = acks.Query,
-        ["groups"] = acks.Reply.ValueKind == JsonValueKind.Object ? acks.Reply.Get("editor").Get("list").Get("groups").Items().Count() : 0,
+        ["rows"] = acks.Reply.ValueKind == JsonValueKind.Object ? acks.Reply.Get("editor").Get("list").Get("rows").Items().Count() : 0,
         ["engines"] = acks.Reply.ValueKind == JsonValueKind.Object ? acks.Reply.Get("engines").Items().Count() : 0,
     };
 }

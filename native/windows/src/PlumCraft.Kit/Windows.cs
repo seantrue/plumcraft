@@ -689,7 +689,8 @@ public sealed class AcknowledgementsModel(DocumentModel model)
     /// <summary>A licence's section title: its id and first packages.</summary>
     public static string GroupTitle(JsonElement g)
     {
-        var names = g.Get("packages").Items().Select(p => p.Get("name").Str()).OfType<string>().ToList();
+        // each name once (a crate in two versions is two packages)
+        var names = g.Get("packages").Items().Select(p => p.Get("name").Str()).OfType<string>().Distinct().ToList();
         var more = names.Count > 4 ? $" and {names.Count - 4} more" : "";
         return $"{g.Get("licence").Str()}: {string.Join(", ", names.Take(4))}{more}";
     }

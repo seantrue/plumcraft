@@ -333,6 +333,7 @@ FR4 (research note 29). An engine with the capability `acknowledgements` answers
 - **Hostile input** (section 18): the editor reads it leniently (a malformed group or package is skipped; a group without a licence or packages dropped) and bounded: at most 512 groups, 4,096 packages a group, 256 Ki characters a text (cut, saying so), 512 a name, version, address or licence, 8 Mi characters in all; what goes is said in `note`.
 - **How the SDKs make it.** Rust: `cargo about` with the editor's template (`crates/editor-core/acknowledgements/about.hbs`), read with `Acknowledgements::from_cargo_about`, which leaves out the workspace's own crates. Python: `plumcraft_engine.acknowledgements.from_distributions(names)`, from installed distributions' metadata and every licence file they installed, in full, with the distributions they require.
 - An engine compiled into an application gives its list the same way; an engine without the capability is shown with "no list given".
+- **Shown coalesced.** The editor shows a list (its own and an engine's) as one row per licence id: texts the same but for their copyright lines, whitespace, wrapping and title shown once, each package's copyright lines kept with it, a text that differs in substance shown under its packages (`docs/shell-interface.md`). What an engine sends is not changed by this: one group per distinct text, as above.
 
 ## 7. The catalogue
 
