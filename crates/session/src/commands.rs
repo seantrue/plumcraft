@@ -346,6 +346,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(crate::viewer_cmds::specs());
         v.extend(crate::viewer_state::specs());
         v.extend(crate::chart_cmds::specs());
+        v.extend(crate::derive_cmds::specs());
         v.extend(crate::chart_view::specs());
         v.extend(crate::doc_cmds::specs());
         v.extend(crate::doc_edits::specs());

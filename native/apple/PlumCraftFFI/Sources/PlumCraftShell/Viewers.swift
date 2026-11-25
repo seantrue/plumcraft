@@ -45,7 +45,7 @@ public final class ViewerBox {
     }
 
     /// The viewers the apps draw in SwiftUI (picture, SVG, text and scalar are each app's own).
-    public static let kinds: Set<String> = ["array.plot", "table.chart", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
+    public static let kinds: Set<String> = ["array.plot", "table.chart", "view.histogram", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
 
     /// Shown here: one of [`kinds`], or a viewer offered that no Apple viewer draws (the engine's
     /// picture stands in, contract 13.3), or a value whose kind has no viewer at all.
@@ -80,7 +80,8 @@ public struct ViewerView: SwiftUI.View {
     @ViewBuilder
     private func body(for v: PopoutValue) -> some SwiftUI.View {
         switch v.viewer ?? "" {
-        case "array.plot", "table.chart": ChartViewer(box: box)
+        // a histogram of every value (FR6) is the core's chart of the derived bins
+        case "array.plot", "table.chart", "view.histogram": ChartViewer(box: box)
         case "table.grid": TableViewer(box: box)
         case "array.grid": GridViewer(box: box)
         case "tree": OutlineViewer(box: box)
@@ -553,6 +554,8 @@ final class PageLoader {
                 for k in ["rows", "cols", "page", "pages", "sort", "desc", "plane", "bytes", "totalChars", "kind", "selected", "selectedRows"] where r[k] != .null && r[k].array == nil { d[k] = r[k] }
                 if let first = r["cells"][0].array { d["first"] = .array(Array(first.prefix(6))) }
                 if let n = r["nodes"].object { d["open"] = .uint(UInt64(n.count)) }
+                // a derived view's line (FR6: a histogram of every value, and who made it)
+                if let c = r["derived"]["caption"].string { d["derived"] = .string(c) }
                 box.describe[part] = .object(d)
             }
         }

@@ -478,6 +478,11 @@ impl Host {
                     None => Err(ProtoError::new(ErrorCode::UnknownOp, "this engine gives no acknowledgements")),
                 }
             }
+            // a derived view of a value this engine can read (FR6, spec 10.5): the SDK's, not a node's
+            "view.derive" => {
+                let engine = self.shared.lock().engine.clone().ok_or_else(|| ProtoError::new(ErrorCode::Unavailable, "the engine isn't ready"))?;
+                crate::views::derive(engine.store(), &params)
+            }
             other if crate::is_pack_op(other) => self.pack_op(other, params),
             other => Err(ProtoError::new(ErrorCode::UnknownOp, format!("unknown op {:?}", other.chars().take(64).collect::<String>()))),
         }
@@ -755,6 +760,34 @@ mod core_tests {
         let h = host();
         h.wait_ready(Duration::from_secs(5));
         assert!(h.dispatch("acknowledgements", serde_json::json!({})).is_err());
+    }
+
+    /// FR6: `view.derive` is the SDK's, under its capability: a 3-D array's histogram over all its
+    /// values (the maintainer's instance), refused with a reason for junk, never a panic.
+    #[test]
+    fn a_derived_view_is_answered_by_the_sdk() {
+        let h = Host::start(Box::new(move || Ok(Engine::new(EngineInfo { id: "a".into(), ..Default::default() }).with_store(None))), None);
+        let EngineState::Connected { caps, .. } = h.wait_ready(Duration::from_secs(5)) else { panic!("not connected") };
+        assert!(caps.has(plumcraft_proto::caps::known::VIEW_DERIVE));
+        let bytes: Vec<u8> = (0..24).flat_map(|i| (i as f32).to_le_bytes()).collect();
+        let a = crate::Array::new("<f4", vec![2, 3, 4], bytes);
+        let plane = crate::data::Plane { store: None, shm: true, urls: false, max_inline: 1 << 20 };
+        let r = plane.array_ref(&a).unwrap();
+        let got = h.dispatch("view.derive", serde_json::json!({"ref": r, "view": {"kind": "histogram", "params": {"bins": 4}}})).unwrap();
+        let counts: Vec<u64> = got["table"]["columns"][1]["values"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+        assert_eq!(counts, [6, 6, 6, 6], "{got}");
+        assert_eq!(got["meta"]["nan"], 0);
+        for junk in [
+            serde_json::json!(null),
+            serde_json::json!({"ref": r, "view": {"kind": "nope"}}),
+            serde_json::json!({"ref": 7, "view": {"kind": "stats"}}),
+            serde_json::json!({"ref": r, "view": {"kind": "stats"}, "extra": 1}),
+            serde_json::json!({"ref": {"meta": {"media": "x"}}, "view": {"kind": "stats"}}),
+        ] {
+            assert!(h.dispatch("view.derive", junk).is_err());
+        }
+        let tight = h.dispatch("view.derive", serde_json::json!({"ref": r, "view": {"kind": "histogram"}, "max_bytes": 10}));
+        assert!(tight.is_err(), "the answer is held to max_bytes");
     }
 
     #[test]

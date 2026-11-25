@@ -11,7 +11,9 @@ import pathlib
 import numpy as np
 import pytest
 
-from plumcraft_engine import arrays, views
+from plumcraft_engine import Engine, ProtoError, arrays, views
+from plumcraft_engine.data import nd1
+from plumcraft_engine.host import Host
 
 FIXTURE = pathlib.Path(__file__).resolve().parents[2] / "crates" / "proto" / "fixtures" / "views.json"
 DOC = json.loads(FIXTURE.read_text())
@@ -82,3 +84,72 @@ def test_the_display_stats_agree_with_the_rust_sdk(case):
         assert g.get("nan", 0) == w["nan"]
         assert g["histogram"]["counts"] == w["counts"]
         assert math.isclose(g["histogram"]["hi"], w["hi"], rel_tol=TOL)
+
+
+class _Plain(Engine):
+    id = "plain"
+
+
+def _inline_ref(a: np.ndarray) -> dict:
+    a = np.ascontiguousarray(a)
+    meta = {"media": "application/x-npy", "size": int(a.nbytes), "form": {"kind": "array", "dtype": a.dtype.str, "shape": list(a.shape)}}
+    return {"handle": nd1(a), "meta": meta, "at": [{"kind": "inline", "b64": base64.b64encode(a.tobytes()).decode()}]}
+
+
+def test_the_sdk_answers_view_derive_under_its_capability():
+    """FR6: a 3-D array's histogram over all its values (the maintainer's instance), from the
+    host, the same as the Rust SDK's; junk is refused with a reason."""
+    h = Host(_Plain)
+    try:
+        assert h.wait_ready(5)["state"] == "connected"
+        assert "view.derive" in h.dispatch("hello", {"v": 2, "op": "hello", "caps": []})["caps"]
+        r = _inline_ref(np.arange(24, dtype="<f4").reshape(2, 3, 4))
+        got = h.dispatch("view.derive", {"ref": r, "view": {"kind": "histogram", "params": {"bins": 4}}})
+        assert got["table"]["columns"][1]["values"] == [6, 6, 6, 6]
+        assert got["meta"]["nan"] == 0
+        for junk in (
+            None,
+            {"ref": r, "view": {"kind": "nope"}},
+            {"ref": 7, "view": {"kind": "stats"}},
+            {"ref": r, "view": {"kind": "stats"}, "extra": 1},
+            {"ref": {"meta": {"media": "x"}}, "view": {"kind": "stats"}},
+        ):
+            with pytest.raises(ProtoError):
+                h.dispatch("view.derive", junk)
+        with pytest.raises(ProtoError):
+            h.dispatch("view.derive", {"ref": r, "view": {"kind": "histogram"}, "max_bytes": 10})
+    finally:
+        h.shutdown()
+
+
+@pytest.mark.parametrize("case", DOC["cases"], ids=[c["name"] for c in DOC["cases"]])
+def test_every_case_through_the_hosts_op(case):
+    """FR6 slice 3: the engine conformance of `view.derive`: each shared vector asked of the SDK's
+    op, its value an inline reference, answers as the reduction does (a refusal is a ProtoError)."""
+    i = case["input"]
+    data = base64.b64decode(i["b64"])
+    want = case["expect"]
+    a = np.frombuffer(data, dtype=np.dtype(i["dtype"])) if i["dtype"] else None
+    try:
+        arr = a.reshape(i["shape"]) if a is not None else None
+    except (ValueError, TypeError):
+        arr = None
+    if arr is None or not data:
+        pytest.skip("not an array a reference can carry")
+    ref = _inline_ref(arr)
+    req = {"ref": ref, "view": case["view"]}
+    if want.get("refused"):
+        with pytest.raises(ProtoError):
+            views.derive_op(None, req)
+        return
+    got = views.derive_op(None, req)
+    if "array" in want:
+        assert got["array"]["dtype"] == want["array"]["dtype"]
+        assert got["array"]["shape"] == want["array"]["shape"]
+        assert got["b64"] == want["array"]["b64"]
+        return
+    cols = got["table"]["columns"]
+    assert [c["name"] for c in cols] == want["order"]
+    for c in cols:
+        for k, (x, y) in enumerate(zip(c["values"], want["columns"][c["name"]], strict=True)):
+            _close(x, y, f"{c['name']}[{k}]")

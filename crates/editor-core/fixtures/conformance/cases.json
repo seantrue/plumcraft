@@ -3598,6 +3598,255 @@
           }
         }
       ]
+    },
+    {
+      "name": "a 3-D array's port shows a histogram of all its values through View As, with no node added",
+      "about": "FR6 slice 3, the maintainer's instance (note 30): a stack of two Mandelbrot planes, a (24, 32, 2) array, is offered Histogram; choosing it (view.viewer, the View As entry) bins every one of its 1536 values, 256 bins by default, made by the engine that made the value (view.derive) when it answers. viewer.histogram keeps 16 bins on a log scale in the graph's meta. Looking adds no node",
+      "half": "edit",
+      "needs": [
+        "engine:array"
+      ],
+      "steps": [
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.mandelbrot",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "m": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m",
+              "port": "width",
+              "value": 32
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m",
+              "port": "height",
+              "value": 24
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.stack",
+              "pos": [
+                500,
+                0
+              ]
+            }
+          },
+          "save": {
+            "s": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$m",
+                "port": "escape"
+              },
+              "to": {
+                "node": "$s",
+                "port": "c1"
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$m",
+                "port": "escape"
+              },
+              "to": {
+                "node": "$s",
+                "port": "c2"
+              }
+            }
+          }
+        },
+        {
+          "call": "graph.get",
+          "save": {
+            "before": "/result/nodes"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.popout",
+            "params": {
+              "node": "$s",
+              "port": "stack"
+            }
+          },
+          "save": {
+            "p": "/result/id"
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 120
+          }
+        },
+        {
+          "call": "popout.get",
+          "params": {
+            "id": "$p"
+          },
+          "until": {
+            "/result/form/shape": {
+              "$len": 3
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/form/shape": [
+              24,
+              32,
+              2
+            ],
+            "/result/viewers": {
+              "$find": {
+                "where": {
+                  "id": "view.histogram"
+                },
+                "want": {
+                  "/label": "Histogram",
+                  "/native": true
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.viewer",
+            "params": {
+              "popout": "$p",
+              "viewer": "view.histogram"
+            }
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$p",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/kind": "columns",
+            "/result/derived/bins": 256,
+            "/result/derived/by": "engine",
+            "/result/derived/meta/nan": 0,
+            "/result/derived/values": 1536,
+            "/result/derived/view/kind": "histogram",
+            "/result/marks": {
+              "$exists": true
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "viewer.histogram",
+            "params": {
+              "popout": "$p",
+              "bins": 16,
+              "log": true
+            }
+          },
+          "expect": {
+            "/result/view/params/bins": 16,
+            "/result/view/log": true
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$p",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/derived/bins": 16,
+            "/result/derived/log": true
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "viewer.histogram",
+            "params": {
+              "popout": "$p",
+              "bins": 0
+            }
+          },
+          "ok": false,
+          "expect": {
+            "/error": {
+              "$includes": "bins"
+            }
+          }
+        },
+        {
+          "call": "graph.get",
+          "expect": {
+            "/result/nodes": "$before"
+          }
+        }
+      ]
     }
   ]
 }

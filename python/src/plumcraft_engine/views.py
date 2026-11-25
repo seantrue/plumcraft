@@ -294,3 +294,47 @@ def derive(view: Any, dtype: str, shape: list[int], data: bytes) -> dict:
     if v["kind"] == "stats":
         return _stats(a, v)
     return _slice(a, v)
+
+
+MAX_ANSWER = 16 << 20
+
+
+def derive_op(store_root: str | None, params: Any) -> dict:
+    """`view.derive {ref, view, max_bytes?}` (FR6, spec 10.5): a derived view of a value this
+    engine can read, from its store by handle (or its inline bytes), checked against the handle.
+    Answers ``{table, meta}`` or ``{array: {dtype, shape}, b64}``; raises ``ProtoError``."""
+    import base64
+    import json
+
+    from . import BAD_PARAMS, NOT_FOUND, TOO_LARGE, NodeError, ProtoError, bind
+
+    if not isinstance(params, dict):
+        raise ProtoError(BAD_PARAMS, "view.derive takes {ref, view, max_bytes?}")
+    extra = [k for k in params if k not in ("ref", "view", "max_bytes")]
+    if extra:
+        raise ProtoError(BAD_PARAMS, f"view.derive takes ref, view and max_bytes, not {extra[0][:32]!r}")
+    mb = params.get("max_bytes")
+    limit = min(mb, MAX_ANSWER) if isinstance(mb, int) and not isinstance(mb, bool) and mb >= 0 else MAX_ANSWER
+    try:
+        parse(params.get("view"))
+    except ViewError as e:
+        raise ProtoError(BAD_PARAMS, str(e)) from e
+    try:
+        a = bind.to_value(store_root, "view", {"kind": "blob", "ref": params.get("ref")})
+    except NodeError as e:
+        raise ProtoError(NOT_FOUND, e.message) from e
+    if not isinstance(a, np.ndarray):
+        raise ProtoError(BAD_PARAMS, "a view is of an array")
+    arr = np.ascontiguousarray(np.asarray(a))
+    try:
+        made = derive(params.get("view"), arr.dtype.str, list(arr.shape), arr.tobytes())
+    except ViewError as e:
+        raise ProtoError(BAD_PARAMS, str(e)) from e
+    if "bytes" in made:
+        out = {"array": made["array"], "b64": base64.b64encode(made["bytes"]).decode()}
+    else:
+        out = made
+    size = len(json.dumps(out))
+    if size > limit:
+        raise ProtoError(TOO_LARGE, f"the view is {size} bytes, more than {limit}")
+    return out

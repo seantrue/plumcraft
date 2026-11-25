@@ -39,6 +39,7 @@ BAD_PARAMS = -32602
 INTERNAL = -32603
 VERSION = -32000
 NOT_FOUND = -32003
+TOO_LARGE = -32004
 UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
@@ -54,6 +55,7 @@ _ENGINE_ONLY = {
     "output.save.question",
     "lists.nested",
     "acknowledgements",
+    "view.derive",
 }
 
 # Progress records are sent at most this often per node (spec 9.4).
@@ -386,7 +388,17 @@ class Engine:
         self.info = info
         self.wire_types: list[dict] = []
         self.nodes: dict[str, Node] = {}
-        self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "lists.nested", "run.stats", "status.progress"]
+        self.caps = [
+            "codec.json",
+            "display.stream",
+            "events.poll",
+            "events.push",
+            "events.resume",
+            "lists.nested",
+            "run.stats",
+            "status.progress",
+            "view.derive",
+        ]
         self.limits = {"max_inline": 64 << 10}
         # Blobs go to the shared commonkit store unless `with_store` says otherwise.
         import os

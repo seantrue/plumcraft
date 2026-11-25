@@ -4,6 +4,15 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B175. Acknowledgements: duplicate entries in the licence list
+
+- Reported: 2026-11-25
+- Report: "Bug: There are duplicate entries in the license list."
+- Context: an application built on the Mac shell and its iPad build, from the dev branch at `63e9aad` (the first builds with the Acknowledgements window, FR4, after the licence variations were coalesced to a row per licence).
+- Answer (the maintainer, 2026-11-25), asked whether the repeat was in a row's title, inside an opened row, or across two licence rows: "Two different rows. Just remember it for now." So: a package appearing under two licences' rows. Not to be fixed yet.
+- Counted in the generated list (`crates/editor-core/acknowledgements/rust.json`, 2026-11-25; not looked at in the window): at least five packages are under more than one licence (two are a crate under both of the licences it offers a choice of, where decision 5A was to take the permissive one; one is a font package rightly under three); 14 package-and-version pairs appear more than once, some twice within one licence; 33 names are present at more than one version.
+- Issue: none
+
 ### B174. Acknowledgements: the editor core itself is listed under a licence text that belongs to adapted code
 
 - Reported: 2026-11-25, found by an agent remaking the list; not reported by the maintainer.

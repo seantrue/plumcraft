@@ -25,6 +25,7 @@ spectrogram = ["dep:rustfft"]
 [dependencies]
 plumcraft-proto = { workspace = true }
 plumcraft-store = { workspace = true }
+plumcraft-views = { workspace = true }
 base64 = { workspace = true }
 png = { workspace = true }
 serde = { workspace = true }

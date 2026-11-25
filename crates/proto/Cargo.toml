@@ -31,4 +31,7 @@ required-features = ["schema"]
 [dev-dependencies]
 base64 = { workspace = true }
 plumcraft-views = { workspace = true }
+# the hostile sweep of view.derive's request (the SDK's) and a derived view's key (the media service's)
+plumcraft-engine = { path = "../engine" }
+plumcraft-media = { path = "../media" }
 commonkit = { workspace = true, features = ["testing"] }

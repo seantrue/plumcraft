@@ -590,6 +590,7 @@ mod tests {
                 chart: None,
                 chart_range: Default::default(),
                 selection: None,
+                histogram: None,
             }
         }
         let mut view = Yaml::default();

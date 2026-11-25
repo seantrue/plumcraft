@@ -27,6 +27,7 @@ pub mod save;
 pub mod seq;
 pub mod serve;
 pub mod vary;
+pub mod views;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -733,6 +734,8 @@ impl Engine {
         if self.saves() {
             caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
         }
+        // derived views of a value it can read (FR6): every engine on this SDK makes them
+        caps.insert(plumcraft_proto::caps::known::VIEW_DERIVE);
         // a save may ask a person first (`SaveReply.question`): a format of its own that writes pictures
         if self.catalogue.is_none() && self.save_formats().iter().any(|f| f.questions) {
             caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE_QUESTION);

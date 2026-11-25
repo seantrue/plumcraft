@@ -23,6 +23,23 @@ pub fn resolver(conn: &Arc<dyn Connection>) -> Resolve {
     Arc::new(move |r: &DataRef| c.resolve(r))
 }
 
+/// A derived view of `r` asked of `conn` (FR6, spec 10.5), on a worker: `None` when it doesn't
+/// list `view.derive` (or isn't connected), so the editor makes the view itself; its answer or
+/// its refusal otherwise.
+pub fn derive_through(conn: &dyn Connection, r: &DataRef, spec: &serde_json::Value) -> Option<Result<serde_json::Value, String>> {
+    let plumcraft_proto::session::EngineState::Connected { caps, .. } = conn.state() else { return None };
+    if !caps.has(plumcraft_proto::caps::known::VIEW_DERIVE) {
+        return None;
+    }
+    Some(conn.call("view.derive", serde_json::json!({"ref": r, "view": spec})).map_err(|e| e.message))
+}
+
+/// The service's deriver for an engine connection ([`derive_through`]).
+pub fn deriver(conn: &Arc<dyn Connection>) -> plumcraft_media::service::Derive {
+    let c = Arc::clone(conn);
+    Arc::new(move |r: &DataRef, spec: &serde_json::Value| derive_through(c.as_ref(), r, spec))
+}
+
 /// Keeps a media service reading through a document's current engine connection.
 #[derive(Debug, Default)]
 pub struct Follow {
@@ -40,6 +57,7 @@ impl Follow {
         }
         self.last = now;
         media.set_resolver(conn.map(resolver));
+        media.set_deriver(conn.map(deriver));
         true
     }
 }

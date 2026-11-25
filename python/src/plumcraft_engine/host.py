@@ -22,7 +22,7 @@ from collections import deque
 from collections.abc import Callable
 from typing import Any
 
-from . import BAD_PARAMS, NOT_FOUND, PROTOCOL, UNAVAILABLE, UNKNOWN_OP, CancelToken, Engine, NodeError, ProtoError, data, exec, now_ts
+from . import BAD_PARAMS, NOT_FOUND, PROTOCOL, UNAVAILABLE, UNKNOWN_OP, CancelToken, Engine, NodeError, ProtoError, data, exec, now_ts, views
 from . import save as save_mod
 
 Factory = Callable[[], Engine]
@@ -342,6 +342,9 @@ class Host:
             return self.poll(n("since"), n("wait_ms"), s("run_id") or None)
         if method == "output.save":
             return self.save(p)
+        if method == "view.derive":
+            # a derived view of a value this engine can read (FR6, spec 10.5): the SDK's, not a node's
+            return views.derive_op(self._engine.store_root if self._engine is not None else None, p)
         if method == "acknowledgements":
             engine = self._engine
             ack = engine.acknowledgements_list() if engine is not None else None

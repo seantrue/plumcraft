@@ -27,6 +27,8 @@ pub mod known {
     pub const DATA_CAS: &str = "data.cas";
     pub const DATA_MEM: &str = "data.mem";
     pub const BLOB_DERIVE: &str = "blob.derive";
+    /// `view.derive`: derived views of a value the engine can read (FR6, spec 10.5).
+    pub const VIEW_DERIVE: &str = "view.derive";
     pub const BLOB_RANGE: &str = "blob.range";
     pub const MEMO_LOOKUP: &str = "memo.lookup";
     pub const MEMO_PERSIST: &str = "memo.persist";
@@ -55,6 +57,7 @@ pub mod known {
         GRAPH_PUT,
         DATA_CAS,
         BLOB_DERIVE,
+        VIEW_DERIVE,
         BLOB_RANGE,
         MEMO_LOOKUP,
         MEMO_PERSIST,

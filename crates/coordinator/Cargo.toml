@@ -19,6 +19,7 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }
+base64 = { workspace = true }
 serde = { workspace = true }
 plumcraft-array = { path = "../array" }
 plumcraft-engine = { path = "../engine" }
