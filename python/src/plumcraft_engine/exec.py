@@ -449,12 +449,13 @@ def _call(
 
 
 def regroup(d: dict, inputs: dict[str, Any]) -> dict[str, Any] | None:
-    """Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2): a list over a sweep the others share and one of its own (a product
-    made upstream, such as a step run once per scale and once per value of a range) becomes a list
-    over its own sweeps of lists over the shared ones, so the node runs once per item of its own
-    sweeps, each with the shared sweep whole, as a list of lists does. A list whose sweeps no other
-    whole-list input shares, or all of whose sweeps they share, is taken whole as before. None:
-    nothing to regroup (as the Rust SDK's `exec::regroup`)."""
+    """Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2):
+    a list over a sweep the others share and one of its own (a product made upstream, such as a
+    step run once per scale and once per value of a range) becomes a list over its own sweeps of
+    lists over the shared ones, so the node runs once per item of its own sweeps, each with the
+    shared sweep whole, as a list of lists does. A list whose sweeps no other whole-list input
+    shares, or all of whose sweeps they share, is taken whole as before. None: nothing to regroup
+    (as the Rust SDK's `exec::regroup`)."""
     flags = d.get("flags") if isinstance(d.get("flags"), dict) else {}
     if flags.get("nested_input") is True:
         return None
