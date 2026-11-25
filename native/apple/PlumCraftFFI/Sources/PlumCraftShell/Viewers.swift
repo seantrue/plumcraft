@@ -101,7 +101,41 @@ public struct ViewerBar: SwiftUI.View {
     }
 
     public var body: some SwiftUI.View {
-        HStack(spacing: 10) {
+        // B161: in a narrow window (an iPhone, a narrow iPad window) the bar takes two or three
+        // rows instead of running off both edges: the widest arrangement that fits is used
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                choosers
+                itemStepper
+                Spacer(minLength: 4)
+                actions
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    choosers
+                    itemStepper
+                }
+                HStack(spacing: 10) {
+                    Spacer(minLength: 4)
+                    actions
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) { choosers }
+                HStack(spacing: 10) { itemStepper }
+                HStack(spacing: 10) {
+                    Spacer(minLength: 4)
+                    actions
+                }
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    /// View As and an array's View mode.
+    @ViewBuilder private var choosers: some SwiftUI.View {
             if let offered = value.viewers, offered.count > 1 {
                 Picker("View As", selection: Binding(get: { value.viewer ?? "" }, set: { id in
                     let p = box.popout
@@ -118,6 +152,10 @@ public struct ViewerBar: SwiftUI.View {
             if value.modes.count > 1 {
                 ViewModePicker(box: box, value: value)
             }
+    }
+
+    /// A list's stepper (unchanged, moved here by B161).
+    @ViewBuilder private var itemStepper: some SwiftUI.View {
             if let n = value.items, n > 1 {
                 let i = value.index ?? 0
                 let names = Self.itemNames(value)
@@ -141,7 +179,10 @@ public struct ViewerBar: SwiftUI.View {
                 }
                 Button { step(i + 1, n) } label: { Image(systemName: "chevron.right") }.disabled(i + 1 >= n).accessibilityLabel("Next Item")
             }
-            Spacer(minLength: 4)
+    }
+
+    /// Drag out, Compare, Recipe, Copy, Share and Save As.
+    @ViewBuilder private var actions: some SwiftUI.View {
             let p = box.popout
             // drag the value out as a file of its own (`value.export`, N4 slice 6)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
@@ -172,10 +213,6 @@ public struct ViewerBar: SwiftUI.View {
                 .labelStyle(.iconOnly).help("Share the value").accessibilityIdentifier("viewer-share")
             Button { Task { await p.takeOut("value.saveAs") } } label: { Label("Save As…", systemImage: "square.and.arrow.down") }
                 .labelStyle(.iconOnly).help("Save the value to a file").accessibilityIdentifier("viewer-save")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     /// A list's items by name (`sheet`'s labels, in order), or none when the engine named none.
