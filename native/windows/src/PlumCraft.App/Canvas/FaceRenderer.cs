@@ -146,6 +146,14 @@ public static class FaceRenderer
 
     static void Rows(CanvasDrawingSession ds, Face face, FaceLayout L, CanvasColors C, FaceText T)
     {
+        // FR5: a promoted row's source node, as a section header: its title and a rule
+        foreach (var (text, rect) in L.Sections)
+        {
+            T.Draw(ds, text, TextStyle.Small, C.TextDim, new WRect(10, rect.Y, rect.Width - 20, rect.Height));
+            var tw = Math.Min(T.Width(text, TextStyle.Small), (float)rect.Width - 20);
+            if (rect.Width - tw - 26 > 8)
+                ds.DrawLine(10 + tw + 6, (float)rect.Y + (float)rect.Height / 2, (float)rect.Width - 10, (float)rect.Y + (float)rect.Height / 2, C.TextDim, 0.5f);
+        }
         for (int k = 0; k < face.Inputs.Count && k < L.InputRows.Length; k++)
         {
             var r = face.Inputs[k];

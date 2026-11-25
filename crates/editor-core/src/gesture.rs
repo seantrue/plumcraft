@@ -719,6 +719,16 @@ fn context(f: &Facts<'_>, snap: &Snapshot, h: &Hit) -> Option<Value> {
         kind::NODE => {
             let id = snap.face_id_of(h.node)?;
             Some(match id.strip_prefix("group:") {
+                // FR5: a promoted parameter's row on a group's face has the row's own menu (rename
+                // it, go back to the port's own name)
+                Some(g)
+                    if h.part == part::ROW
+                        && let Ok(row) = u32::try_from(h.index)
+                        && let Some(port) = snap.pin_port(h.node, false, row)
+                        && f.graph.group(&plumcraft_graph::GroupId::from(g)).is_some_and(|grp| grp.promoted.iter().any(|p| p.port == port)) =>
+                {
+                    json!({"kind": "input", "port": port_json(&port)})
+                }
                 Some(g) => json!({"kind": "proxy", "group": g}),
                 None => json!({"kind": "node", "node": id}),
             })

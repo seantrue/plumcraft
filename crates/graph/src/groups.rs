@@ -119,6 +119,12 @@ pub fn check_name(what: &'static str, name: &str) -> Result<()> {
     if ok { Ok(()) } else { Err(GraphError::BadName { what, name: name.chars().take(64).collect() }) }
 }
 
+/// A promoted parameter's default label: the inner port's own name (its last part, `width` for
+/// `strokes.width`). Renaming to an empty label goes back to it (FR5).
+pub fn default_promoted_label(port: &PortRef) -> String {
+    port.port.rsplit('.').next().unwrap_or(&port.port).to_owned()
+}
+
 /// Is `name` a good group, label or output name ([`check_name`])?
 pub fn is_name(name: &str) -> bool {
     check_name("name", name).is_ok()
@@ -321,6 +327,19 @@ impl Graph {
         let g = self.group(id).ok_or_else(|| GraphError::UnknownGroup(id.clone()))?;
         let no_such = || GraphError::NoSuch { what: "promoted label", name: label.chars().take(64).collect(), group: id.clone() };
         let current = g.promoted.iter().find(|p| p.label == label).ok_or_else(no_such)?.clone();
+        // an empty label goes back to the default, the inner port's own name, numbered when
+        // another parameter of the group already has it (FR5)
+        let reset;
+        let edit = match &edit.label {
+            Some(new) if new.trim().is_empty() => {
+                let base = default_promoted_label(&current.port);
+                let taken = |l: &str| g.promoted.iter().any(|p| p.label == l && p.label != label);
+                let free = std::iter::once(base.clone()).chain((2..).map(|n| format!("{base} {n}"))).find(|l| !taken(l)).unwrap_or(base);
+                reset = PromotedEdit { label: Some(free), ..edit.clone() };
+                &reset
+            }
+            _ => edit,
+        };
         if let Some(new) = &edit.label
             && new != label
         {
@@ -742,6 +761,36 @@ mod tests {
         // the last member gone, the group goes too
         g.remove_node(&case).unwrap();
         assert!(g.groups.is_empty());
+    }
+
+    /// FR5: a promoted parameter's label is the group's own name for it, kept in the graph file;
+    /// the inner port keeps its name; an empty name goes back to the port's own, numbered when the
+    /// group already has a parameter by that name.
+    #[test]
+    fn a_promoted_label_is_renamed_kept_and_reset() {
+        let c = catalog();
+        let mut g = Graph::new();
+        let (slow, case) = (add(&mut g, &c, "text.slow"), add(&mut g, &c, "text.case"));
+        let id = g.create_group("think", &[slow.clone(), case.clone()], &[]).unwrap();
+        let seconds = PortRef::new(slow.clone(), "seconds");
+        g.promote(&c, &id, seconds.clone(), &default_promoted_label(&seconds), "").unwrap();
+        let rename = |l: &str| PromotedEdit { label: Some(l.to_owned()), ..Default::default() };
+        g.edit_promoted(&c, &id, "seconds", &rename("delay")).unwrap();
+        // the file keeps the group's name for it and the inner port as it was; an old file loads unchanged
+        let saved = g.to_json().unwrap();
+        let back = Graph::from_json(&saved).unwrap();
+        let p = &back.group(&id).unwrap().promoted[0];
+        assert_eq!((p.label.as_str(), &p.port), ("delay", &seconds));
+        assert_eq!(back.to_json().unwrap(), saved, "a round trip changes nothing");
+        // empty (or blank): back to the port's own name
+        g.edit_promoted(&c, &id, "delay", &rename("  ")).unwrap();
+        assert_eq!(g.group(&id).unwrap().promoted[0].label, "seconds");
+        // the default taken by another parameter: numbered
+        g.edit_promoted(&c, &id, "seconds", &rename("delay")).unwrap();
+        g.promote(&c, &id, PortRef::new(case.clone(), "mode"), "seconds", "").unwrap();
+        g.edit_promoted(&c, &id, "delay", &rename("")).unwrap();
+        assert_eq!(g.group(&id).unwrap().promoted[0].label, "seconds 2");
+        assert_eq!(default_promoted_label(&PortRef::new(case, "mode.small")), "small");
     }
 
     #[test]

@@ -110,6 +110,27 @@ func add(_ model: DocumentModel, _ kind: String, _ x: Double, _ y: Double) async
         }
     }
 
+    /// FR5: a row with a section gets the header above it, its own row and pin pushed down by the
+    /// header's height; the rows before it don't move.
+    @Test func aPromotedRowsSectionHeaderIsDrawnAboveIt() throws {
+        var f = try #require(try fixtureScene().nodes.first { $0.inputs.count >= 2 && $0.view.word != .collapsed })
+        let before = FaceLayout.make(f)
+        f.inputs[1].section = "Swap"
+        let L = FaceLayout.make(f)
+        #expect(L.sections.map(\.text) == ["Swap"])
+        let s = try #require(L.sections.first)
+        #expect(abs(s.rect.minY - before.inputRows[1].minY) < 0.01 && s.rect.height == FaceMetrics.section)
+        #expect(abs(L.inputRows[1].minY - (before.inputRows[1].minY + FaceMetrics.section)) < 0.01)
+        #expect(abs(L.inputPins[1] - (before.inputPins[1] + FaceMetrics.section)) < 0.01)
+        #expect(L.inputPins[0] == before.inputPins[0], "rows before the header stay")
+        #expect(L.size.height == before.size.height + FaceMetrics.section)
+        #expect(L != before)
+        #expect(FaceRenderer.render(f, L, colors: CanvasColors(), scale: 1) != nil)
+        // decoded from the scene's JSON
+        let row = try JSONValueDecoder().decode(InRow.self, from: Data(#"{"key": "find", "node": "n1", "label": "find", "list": false, "ty": "STRING", "pin": {"shape": "circle", "fill": {"token": "text"}, "wire": {"token": "text"}, "wireable": true}, "source": "own", "dim": false, "section": "Swap"}"#.utf8))
+        #expect(row.section == "Swap")
+    }
+
     @Test func hostileTextIsCutNotGrown() throws {
         var f = try #require(try fixtureScene().nodes.first { !$0.inputs.isEmpty && $0.proxy == nil })
         f.header.title.text = String(repeating: "W", count: 5000)

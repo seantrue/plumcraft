@@ -17,7 +17,9 @@ namespace PlumCraft.App.Canvas;
 public static class FaceMetrics
 {
     public const float Header = 28, Row = 22, MultilineRow = 56, PinRadius = 4.5f, Corner = 6, MinWidth = 140, MaxWidth = 440,
-        TitleMax = 230, StatusSlot = 88, FooterLine = 15, Icon = 14, More = 18;
+        TitleMax = 230, StatusSlot = 88, FooterLine = 15, Icon = 14, More = 18,
+        /// <summary>A section header above a group's promoted rows (FR5): the source node's title.</summary>
+        Section = 18;
     /// <summary>The face's picture reaches this far past its rect on every side (pins, border, shadow).</summary>
     public const float Margin = 8;
 }
@@ -52,6 +54,8 @@ public sealed class FaceLayout
     public PlacedText Title = new("", 0, TextStyle.Title, 0);
     public float TitleWidth;
     public List<(string Text, WRect Rect)> Badges = [];
+    /// <summary>FR5: each section header above a promoted row (its text and rect, face coordinates).</summary>
+    public List<(string Text, WRect Rect)> Sections = [];
     public List<PlacedText> Status = [];
     public PlacedText? Engine;
 
@@ -151,6 +155,7 @@ public sealed class FaceLayout
             if (r.Named is { } n) lw += t.Width(n.Name + " →", TextStyle.Small) + 6;
             if (r.Badge is { } bd) lw += t.Width(bd.Text, TextStyle.Small) + 14;
             labelWidths[k] = lw;
+            if (r.Section is { } sec) inW = Math.Max(inW, 10 + t.Width(sec, TextStyle.Small) + 8);
             (float, float)? ws = r.SourceWord == RowSourceWord.Own && r.Widget is { } wd ? WidgetSize(wd, r, t) : null;
             widgetSizes[k] = ws;
             inHeights[k] = (ws?.Item2 ?? 0) > 30 ? FaceMetrics.MultilineRow : FaceMetrics.Row;
@@ -176,6 +181,12 @@ public sealed class FaceLayout
         for (int k = 0; k < face.Inputs.Count; k++)
         {
             var rh = inHeights[k];
+            // FR5: the source node's title above its promoted rows
+            if (face.Inputs[k].Section is { } sec && !collapsed)
+            {
+                L.Sections.Add((sec, new WRect(0, y, Math.Max(40, Math.Min(inW, width - outW - (outW > 0 ? 12 : 0))), FaceMetrics.Section)));
+                y += FaceMetrics.Section;
+            }
             L.InputRows[k] = new WRect(0, y, inW, rh);
             L.InputPins[k] = collapsed ? M / 2 : y + Math.Min(rh, FaceMetrics.Row) / 2;
             if (widgetSizes[k] is { } ws && !collapsed)

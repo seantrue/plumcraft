@@ -456,6 +456,9 @@ public struct InRow: Codable, Hashable, Sendable {
     /// The value its node names an editor for (FR1): a tap on the row opens it (`node.editor`
     /// on the row's `node`, the core's gesture). Absent for every other row.
     public var editor: RowOpens?
+    /// FR5: on a collapsed group's face, a header drawn above this row: the title of the node the
+    /// promoted rows from here on come from. Absent for every other row.
+    public var section: String?
 }
 
 /// What a row whose value has an editor says of it (8.4, the scene's `RowEditor`): the editor a

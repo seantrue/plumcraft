@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use frames::{Frame, FrameId, Held, MAX_FRAME_COORD, MAX_FRAME_TITLE, MIN_FRAME_SIDE};
-pub use groups::{Group, GroupId, GroupOutput, Promoted, PromotedEdit, check_name, is_name};
+pub use groups::{Group, GroupId, GroupOutput, Promoted, PromotedEdit, check_name, default_promoted_label, is_name};
 pub use insert::Inserted;
 pub use nets::{MAX_LABEL_OFFSET, MAX_NET_CHARS, Net, NetKey, Scope, check_net_name};
 pub use plumcraft_proto::slice::{Slice, parse as parse_slice};

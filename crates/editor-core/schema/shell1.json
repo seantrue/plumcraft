@@ -1441,6 +1441,13 @@
         "pin": {
           "$ref": "#/$defs/Pin"
         },
+        "section": {
+          "description": "FR5: on a collapsed group's face, a header before this row: the title of the node the\npromoted rows from here on come from, as that node's face shows it. Absent for every other\nrow; a shell draws it as a section header above the row.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "source": {
           "description": "`wired`, `socket`, `inherited`, `own` or `readonly` (section 8.4).",
           "type": "string"

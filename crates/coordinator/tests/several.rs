@@ -281,3 +281,39 @@ fn a_vary_in_one_engine_drives_a_setting_in_another() {
     let PortValue::List { items, .. } = &reply.nodes["times"].outputs["result"] else { panic!("one result a value: {:?}", reply.nodes["times"].outputs) };
     assert_eq!(items.len(), 3, "once per value of the range");
 }
+
+/// B172: along a chain alternating two engines (text, the test engine, text, …), a run and a
+/// rerun served from the caches say only what is true: every node done, then cached, and no
+/// node said skipped or left without a state at any point of the run (the coordinator's records,
+/// in order). The stale "skipped" a person saw mid-run was the editor's (plumcraft-session's
+/// `a_queued_node_carries_no_error_from_the_last_run`), not the coordinator's.
+#[test]
+fn an_alternating_chain_says_only_true_states_as_it_runs() {
+    let c = Coordinator::new().with_engine("text", host(plumcraft_text::engine)).with_engine("ports", host(plumcraft_ports::engine));
+    let g = graph(
+        json!({
+            "n1": {"kind": "text.literal", "values": {"text": "a corgi wakes"}},
+            "n2": {"kind": "ports.result"},
+            "n3": {"kind": "text.upper"},
+            "n4": {"kind": "ports.result"},
+            "n5": {"kind": "text.lower"},
+        }),
+        &[("n1", "text", "n2", "text"), ("n2", "text", "n3", "text"), ("n3", "text", "n4", "text"), ("n4", "text", "n5", "text")],
+    );
+    for (id, want) in [("b172-a", NodeState::Done), ("b172-b", NodeState::Cached)] {
+        let (events, reply) = run(&c, id, g.clone(), json!({"targets": ["n5"]}));
+        assert!(reply.ok, "{id}: {:?}", reply.error);
+        for n in ["n1", "n2", "n3", "n4", "n5"] {
+            assert_eq!(reply.nodes.get(n).map(|r| r.state), Some(want), "{id} {n}");
+            let said: Vec<NodeState> = events
+                .iter()
+                .filter_map(|e| match &e.event {
+                    Event::Status(s) if s.node_id == n => Some(s.state),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(said.last(), Some(&want), "{id} {n}: {said:?}");
+            assert!(!said.iter().any(|s| matches!(s, NodeState::Skipped | NodeState::Error | NodeState::Cancelled)), "{id} {n}: {said:?}");
+        }
+    }
+}

@@ -427,6 +427,9 @@ public sealed record InRow
     public string? Inactive { get; init; }
     /// <summary>The value its node names an editor for, not on a wire (FR1, 8.4): a tap on the row opens it.</summary>
     public EditorLink? Editor { get; init; }
+    /// <summary>FR5: on a collapsed group's face, a header drawn above this row: the title of the node the promoted
+    /// rows from here on come from. Absent for every other row.</summary>
+    public string? Section { get; init; }
 
     [JsonIgnore] public RowSourceWord? SourceWord => Words.Of<RowSourceWord>(Source);
 }
