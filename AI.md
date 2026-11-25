@@ -20,7 +20,7 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
-### 2026-11-25 — Compare's difference, CSV and SVG text as views, and the core's chart (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+### 2026-11-24 — Compare's difference, CSV and SVG text as views, and the core's chart (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** As the entry below: track 3 overnight, "including view of tables (not just plots), and view of interchange formats (text/csv, text/svg)", on reasonable assumptions.
 
