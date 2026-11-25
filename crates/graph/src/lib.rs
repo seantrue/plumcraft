@@ -42,7 +42,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub use frames::{Frame, FrameId, Held, MAX_FRAME_COORD, MAX_FRAME_TITLE, MIN_FRAME_SIDE};
-pub use groups::{Group, GroupId, GroupOutput, Promoted, PromotedEdit, check_name, is_name};
+pub use groups::{Group, GroupId, GroupOutput, Promoted, PromotedEdit, check_name, default_promoted_label, is_name};
 pub use insert::Inserted;
 pub use nets::{MAX_LABEL_OFFSET, MAX_NET_CHARS, Net, NetKey, Scope, check_net_name};
 pub use plumcraft_proto::slice::{Slice, parse as parse_slice};
@@ -259,6 +259,12 @@ pub struct Node {
     /// Show the fields its choice doesn't use ([`ports::tucked`]) in full.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub all_fields: bool,
+    /// Inputs shown on the face, or hidden from it, against the default rule (N4 slice 3: the
+    /// parameters inspector's Show on Face): `true` shows a field its choice tucks away, `false`
+    /// hides one the face would show. A wired input always shows (its wire needs the pin). Keys
+    /// are input addresses, as `values`'.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub face: BTreeMap<String, bool>,
     /// Whether the engine persists this node's result (spec 14.5): when it was slow (`auto`),
     /// `always` or `never`. Sent with the workflow; it doesn't change what the node computes.
     #[serde(default, skip_serializing_if = "NodeCache::is_auto")]
@@ -465,26 +471,70 @@ impl Graph {
     /// choices bring) at its default.
     pub fn add_node(&mut self, def: &NodeDef, pos: [f32; 2]) -> NodeId {
         let id = self.fresh_node_id();
-        let mut node = Node {
-            kind: def.id.clone(),
-            pos,
-            values: BTreeMap::new(),
-            inherited: BTreeSet::new(),
-            title: None,
-            serial: None,
-            view: NodeView::Full,
-            cache: NodeCache::Auto,
-            engine: None,
-            all_fields: false,
-            extra: BTreeMap::new(),
-        };
-        node.values = input_ports(def, &node).into_iter().filter(|(_, p)| p.has_widget()).map(|(n, p)| (n, p.default.clone())).collect();
-        ports::drop_filled(def, &mut node);
+        let node = new_node(def, pos);
         self.nodes.insert(id.clone(), node);
         self.touch();
         id
     }
 
+    /// The input a new node of type `def` would give a wire from output `from` (a wire dropped on
+    /// empty canvas, the palette filtered by it; N3 slice 1): the first, in the definition's
+    /// order (variadic slots and default sub-ports included), that [`Graph::connect`] would take,
+    /// by wireability, types and list-ness. None when no input fits. Core's Convert node is
+    /// neither offered nor looked through: its rules are its own, at the drop.
+    pub fn input_for_new(&self, catalog: &SchemaReply, from: &PortRef, def: &NodeDef) -> Option<String> {
+        if def.id == plumcraft_proto::convert::KIND || self.is_convert(&from.node) {
+            return None;
+        }
+        let out = def_of(catalog, self, &from.node).ok()?.output(&from.port)?;
+        let list = self.output_is_list(catalog, from);
+        let node = new_node(def, [0.0, 0.0]);
+        input_ports(def, &node)
+            .into_iter()
+            .find(|(name, p)| p.wireable() && check_wire(catalog, from, out, list, &PortRef::new("new", name.as_str()), p).is_ok())
+            .map(|(name, _)| name)
+    }
+
+    /// The output a new node of type `def` would feed input `to` from: the first, in the
+    /// definition's order, that [`Graph::connect`] would take into it. None when `to` can't be
+    /// wired (hidden, or a named port) or no output fits. Convert as [`Graph::input_for_new`].
+    pub fn output_for_new(&self, catalog: &SchemaReply, def: &NodeDef, to: &PortRef) -> Option<String> {
+        if def.id == plumcraft_proto::convert::KIND || self.is_convert(&to.node) {
+            return None;
+        }
+        let to_def = def_of(catalog, self, &to.node).ok()?;
+        let to_node = self.nodes.get(&to.node)?;
+        let inp = resolve_input(to_def, to_node, &to.node, &to.port).ok()?.port;
+        if !inp.wireable() || self.name_of_port(to).is_some() {
+            return None;
+        }
+        def.outputs.iter().find(|o| check_wire(catalog, &PortRef::new("new", o.name.as_str()), o, o.list, to, inp).is_ok()).map(|o| o.name.clone())
+    }
+}
+
+/// A node of type `def` at `pos`, with each widget (including the sub-ports its default choices
+/// bring) at its default.
+fn new_node(def: &NodeDef, pos: [f32; 2]) -> Node {
+    let mut node = Node {
+        kind: def.id.clone(),
+        pos,
+        values: BTreeMap::new(),
+        inherited: BTreeSet::new(),
+        title: None,
+        serial: None,
+        view: NodeView::Full,
+        cache: NodeCache::Auto,
+        engine: None,
+        all_fields: false,
+        face: BTreeMap::new(),
+        extra: BTreeMap::new(),
+    };
+    node.values = input_ports(def, &node).into_iter().filter(|(_, p)| p.has_widget()).map(|(n, p)| (n, p.default.clone())).collect();
+    ports::drop_filled(def, &mut node);
+    node
+}
+
+impl Graph {
     /// Give serials to the nodes titled by their type (`display(kind)`) that need one: those
     /// without a serial, and each node in `fresh` (just added: a paste or a duplicate) whose
     /// serial another node with the same type name already has. A serial is one past the
@@ -584,6 +634,39 @@ impl Graph {
             Some(k) if shared => format!("{stem} {k}"),
             _ => stem,
         })
+    }
+
+    /// Every node's title, as [`Graph::node_title`] gives it, in one pass: `display` once a
+    /// node type, the shared names counted once. What draws every node (the scene) uses this:
+    /// `node_title` looks at every other node, so a title each was quadratic in the graph.
+    pub fn node_titles(&self, display: impl Fn(&str) -> String) -> BTreeMap<NodeId, String> {
+        let mut stems: BTreeMap<&str, String> = BTreeMap::new();
+        for n in self.nodes.values() {
+            if !stems.contains_key(n.kind.as_str()) {
+                stems.insert(n.kind.as_str(), display(&n.kind));
+            }
+        }
+        // how many untitled nodes go by each type name
+        let mut count: BTreeMap<&str, usize> = BTreeMap::new();
+        for n in self.nodes.values().filter(|n| n.title.is_none()) {
+            if let Some(stem) = stems.get(n.kind.as_str()) {
+                *count.entry(stem.as_str()).or_default() += 1;
+            }
+        }
+        self.nodes
+            .iter()
+            .map(|(id, n)| {
+                let title = match (&n.title, stems.get(n.kind.as_str())) {
+                    (Some(t), _) => t.clone(),
+                    (None, Some(stem)) => match n.serial {
+                        Some(k) if count.get(stem.as_str()).copied().unwrap_or(0) > 1 => format!("{stem} {k}"),
+                        _ => stem.clone(),
+                    },
+                    (None, None) => n.kind.clone(),
+                };
+                (id.clone(), title)
+            })
+            .collect()
     }
 
     /// Add a copy of `node` (from another graph, say: a paste) under a fresh id. Its wires are
@@ -725,6 +808,26 @@ impl Graph {
             self.touch();
         }
         Ok(())
+    }
+
+    /// Show input `port` of a node on its face (`Some(true)`), hide it (`Some(false)`), or leave
+    /// it to the default rule (`None`): [`Node::face`]. Whether anything changed.
+    pub fn set_face(&mut self, id: &NodeId, port: &str, shown: Option<bool>) -> Result<bool> {
+        let node = self.nodes.get_mut(id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?;
+        let before = node.face.get(port).copied();
+        if before == shown {
+            return Ok(false);
+        }
+        match shown {
+            Some(b) => {
+                node.face.insert(port.to_owned(), b);
+            }
+            None => {
+                node.face.remove(port);
+            }
+        }
+        self.touch();
+        Ok(true)
     }
 
     /// Drop, on every node, the values that only repeat what a filling choice gives them
@@ -871,6 +974,67 @@ impl Graph {
         def.output(&at.port).is_some_and(|p| p.list) || self.is_mapped(catalog, &at.node, &mut BTreeMap::new())
     }
 
+    /// Every node run once per item of a list (what [`Graph::output_is_list`] asks of one node),
+    /// worked out in one pass, upstream first, each node's wires looked at once: asking it of
+    /// every node one at a time looks at every wire for each. Nodes on a (corrupt) cycle aren't
+    /// mapped.
+    pub fn mapped_nodes(&self, catalog: &SchemaReply) -> BTreeSet<NodeId> {
+        self.mapped_walk(catalog).0
+    }
+
+    /// [`Graph::mapped_nodes`], and whether the walk reached every node (false on a cycle, where
+    /// the nodes on it and after it are left out, and [`Graph::output_is_list`] may differ).
+    fn mapped_walk(&self, catalog: &SchemaReply) -> (BTreeSet<NodeId>, bool) {
+        // nodes by their place in the map, so the walk compares no ids (N3 slice 1: by id, through
+        // ordered maps, this was over half of the hot calls' snapshot at 2,000 nodes)
+        let nodes: Vec<(&NodeId, &Node)> = self.nodes.iter().collect();
+        let ix: std::collections::HashMap<&str, usize> = nodes.iter().enumerate().map(|(k, (id, _))| (id.0.as_str(), k)).collect();
+        let defs: Vec<Option<&NodeDef>> = nodes.iter().map(|(id, _)| def_of(catalog, self, id).ok()).collect();
+        let mut into: Vec<Vec<&Wire>> = vec![Vec::new(); nodes.len()];
+        let mut after: Vec<Vec<usize>> = vec![Vec::new(); nodes.len()];
+        let mut waiting: Vec<usize> = vec![0; nodes.len()];
+        for w in &self.wires {
+            let (Some(&a), Some(&b)) = (ix.get(w.from.node.0.as_str()), ix.get(w.to.node.0.as_str())) else { continue };
+            if let (Some(i), Some(f), Some(n)) = (into.get_mut(b), after.get_mut(a), waiting.get_mut(b)) {
+                i.push(w);
+                f.push(b);
+                *n += 1;
+            }
+        }
+        let mut ready: Vec<usize> = waiting.iter().enumerate().filter(|(_, n)| **n == 0).map(|(k, _)| k).collect();
+        let mut mapped = vec![false; nodes.len()];
+        let mut reached = 0usize;
+        while let Some(k) = ready.pop() {
+            reached += 1;
+            if let (Some((id, node)), Some(Some(def))) = (nodes.get(k), defs.get(k))
+                && !def.flags.input_list
+                && into.get(k).into_iter().flatten().any(|w| {
+                    let single = resolve_input(def, node, id, &w.to.port).is_ok_and(|r| !r.port.list);
+                    let indexed = matches!(w.parsed_slice(), Some(Ok(s)) if s.is_index());
+                    single
+                        && !indexed
+                        && ix.get(w.from.node.0.as_str()).is_some_and(|&f| {
+                            defs.get(f).copied().flatten().is_some_and(|src| src.output(&w.from.port).is_some_and(|p| p.list))
+                                || mapped.get(f).copied().unwrap_or(false)
+                        })
+                })
+                && let Some(m) = mapped.get_mut(k)
+            {
+                *m = true;
+            }
+            for &next in after.get(k).into_iter().flatten() {
+                if let Some(n) = waiting.get_mut(next) {
+                    *n = n.saturating_sub(1);
+                    if *n == 0 {
+                        ready.push(next);
+                    }
+                }
+            }
+        }
+        let all = reached == nodes.len();
+        (nodes.iter().zip(mapped).filter(|(_, m)| *m).map(|((id, _), _)| (*id).clone()).collect(), all)
+    }
+
     /// Is `id` run once per item of a list? Memoized over the (acyclic) upstream graph.
     fn is_mapped(&self, catalog: &SchemaReply, id: &NodeId, memo: &mut BTreeMap<NodeId, bool>) -> bool {
         if let Some(&m) = memo.get(id) {
@@ -1002,6 +1166,13 @@ impl Graph {
     /// Wires that no longer pass the type rules (after an upstream change stopped a node being
     /// mapped, say, or a new engine schema), each with the reason. For the UI to flag.
     pub fn wire_problems(&self, catalog: &SchemaReply) -> Vec<(Wire, String)> {
+        // which nodes are mapped, worked out once for every wire (N3 slice 5: asked of each
+        // wire's source one at a time, each looking at every wire upstream, this was two thirds
+        // of a `node.set` at 2,000 nodes); on a (corrupt) cycle, asked one at a time as before
+        let (mapped, whole) = self.mapped_walk(catalog);
+        let is_list = |at: &PortRef, out: &plumcraft_proto::catalogue::Port| {
+            if whole { out.list || mapped.contains(&at.node) } else { self.output_is_list(catalog, at) }
+        };
         let check = |w: &Wire| -> Result<()> {
             let from_def = def_of(catalog, self, &w.from.node)?;
             let to_def = def_of(catalog, self, &w.to.node)?;
@@ -1031,7 +1202,7 @@ impl Graph {
                 }
                 return Ok(());
             }
-            check_sliced_wire(catalog, &w.from, out, self.output_is_list(catalog, &w.from), parsed.as_ref(), &w.to, inp)
+            check_sliced_wire(catalog, &w.from, out, is_list(&w.from, out), parsed.as_ref(), &w.to, inp)
         };
         self.wires.iter().filter_map(|w| check(w).err().map(|e| (w.clone(), e.to_string()))).collect()
     }
@@ -1393,6 +1564,63 @@ mod tests {
         g.connect(&c, p(&sp, "parts"), p(&u, "text")).unwrap();
         assert!(g.output_is_list(&c, &p(&u, "text")), "upper is mapped over the parts");
         g.connect(&c, p(&u, "text"), p(&j, "parts")).expect("a mapped node's output is a list");
+        // mapped twice over (upper of upper), and an index that stops it
+        let (u2, u3) = (add(&mut g, &c, "text.upper"), add(&mut g, &c, "text.upper"));
+        g.connect(&c, p(&u, "text"), p(&u2, "text")).unwrap();
+        g.connect(&c, p(&sp, "parts"), p(&u3, "text")).unwrap();
+        g.set_slice(&c, &p(&u3, "text"), Some("0")).unwrap();
+        let all = g.mapped_nodes(&c);
+        for id in g.nodes.keys() {
+            assert_eq!(all.contains(id), g.output_is_list(&c, &p(id, "text")) && id != &sp, "{id}: the bulk answer is each node's");
+        }
+        assert!(all.contains(&u) && all.contains(&u2) && !all.contains(&u3) && !all.contains(&a));
+    }
+
+    /// Each wire's problem, its source's list-ness asked of that node alone (what
+    /// `wire_problems` did before it worked them all out in one pass).
+    fn problems_one_at_a_time(g: &Graph, c: &SchemaReply) -> Vec<PortRef> {
+        g.wires
+            .iter()
+            .filter(|w| {
+                let out = def_of(c, g, &w.from.node).unwrap().output(&w.from.port).unwrap();
+                let inp = resolve_input(def_of(c, g, &w.to.node).unwrap(), &g.nodes[&w.to.node], &w.to.node, &w.to.port).unwrap().port;
+                let slice = w.parsed_slice().transpose().unwrap();
+                check_sliced_wire(c, &w.from, out, g.output_is_list(c, &w.from), slice.as_ref(), &w.to, inp).is_err()
+            })
+            .map(|w| w.to.clone())
+            .collect()
+    }
+
+    #[test]
+    fn wire_problems_find_what_asking_each_wire_found() {
+        let c = catalog();
+        let mut g = Graph::new();
+        let (a, sp, j, u, u2) = (
+            add(&mut g, &c, "text.literal"),
+            add(&mut g, &c, "text.split"),
+            add(&mut g, &c, "text.join_all"),
+            add(&mut g, &c, "text.upper"),
+            add(&mut g, &c, "text.upper"),
+        );
+        g.connect(&c, p(&a, "text"), p(&sp, "text")).unwrap();
+        g.connect(&c, p(&sp, "parts"), p(&u, "text")).unwrap();
+        g.connect(&c, p(&u, "text"), p(&u2, "text")).unwrap();
+        g.connect(&c, p(&u2, "text"), p(&j, "parts")).unwrap();
+        assert!(g.wire_problems(&c).is_empty());
+        assert!(problems_one_at_a_time(&g, &c).is_empty());
+        // upper fed a single value again: nothing downstream is mapped, so join_all's list
+        // input is fed a single value, two nodes on
+        g.wires.retain(|w| w.to != p(&u, "text"));
+        g.wires.push(Wire::new(p(&a, "text"), p(&u, "text")));
+        let found: Vec<PortRef> = g.wire_problems(&c).into_iter().map(|(w, _)| w.to).collect();
+        assert_eq!(found, vec![p(&j, "parts")]);
+        assert_eq!(found, problems_one_at_a_time(&g, &c));
+        // a (corrupt) cycle: asked one at a time, as before
+        g.wires.retain(|w| w.to != p(&u, "text"));
+        g.wires.push(Wire::new(p(&u2, "text"), p(&u, "text")));
+        assert!(!g.mapped_walk(&c).1, "the walk doesn't reach the cycle");
+        let found: Vec<PortRef> = g.wire_problems(&c).into_iter().map(|(w, _)| w.to).collect();
+        assert_eq!(found, problems_one_at_a_time(&g, &c));
     }
 
     #[test]
@@ -1498,5 +1726,24 @@ mod tests {
         assert_eq!(g.node_title(&b, display).unwrap(), "upper 2");
         g.remove_node(&b).unwrap();
         assert_eq!(g.node_title(&a, display).unwrap(), "upper", "a serial shows only when another shares the name");
+    }
+
+    #[test]
+    fn every_title_at_once_is_each_title() {
+        let c = catalog();
+        let mut g = Graph::new();
+        let ids: Vec<NodeId> =
+            ["text.upper", "text.upper", "text.literal", "text.words", "text.upper", "text.words"].iter().map(|k| add(&mut g, &c, k)).collect();
+        // two types sharing a display name, a node titled by hand, one serial missing
+        let display = |k: &str| if k == "text.words" { "upper".to_owned() } else { k.trim_start_matches("text.").to_owned() };
+        g.assign_serials(&BTreeSet::new(), display);
+        g.nodes.get_mut(&ids[1]).unwrap().title = Some("mine".into());
+        g.nodes.get_mut(&ids[4]).unwrap().serial = None;
+        let all = g.node_titles(display);
+        assert_eq!(all.len(), g.nodes.len());
+        for id in g.nodes.keys() {
+            assert_eq!(all.get(id), g.node_title(id, display).as_ref(), "{id}");
+        }
+        assert_eq!(all[&ids[2]], "literal", "alone in its name: no serial");
     }
 }

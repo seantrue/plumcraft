@@ -1,0 +1,115 @@
+{
+ "name": "the wiring of B164 as research note 27 first read it, in public steps",
+ "about": "A range of 5 into a step returning 2 a run, the slice 1, a step returning 3 a run, then a step taking whole lists (Zip of the list with itself). Nested: 5 runs carry through: 5 \u00d7 3 into Zip, which runs 5 times. Today: the slice takes one item of the flat 10, so one run of 3 reaches Zip. Note 27 first read the report's mask step as one returning 3 a run; in the report's graph it runs once per scale and once per run, which vector 11 holds.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.1,
+     "stop": 1.0,
+     "num": 5,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "m": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "stop": 30.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "z": {
+    "kind": "seq.zip",
+    "engine": "text"
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "m",
+     "port": "start"
+    },
+    "slice": "1"
+   },
+   {
+    "from": {
+     "node": "m",
+     "port": "values"
+    },
+    "to": {
+     "node": "z",
+     "port": "a"
+    }
+   },
+   {
+    "from": {
+     "node": "m",
+     "port": "values"
+    },
+    "to": {
+     "node": "z",
+     "port": "b"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "m.values": {
+   "shape": [
+    5,
+    3
+   ]
+  },
+  "z.tuples": {
+   "shape": [
+    5,
+    3,
+    2
+   ]
+  }
+ },
+ "today": {
+  "m.values": {
+   "shape": [
+    3
+   ]
+  },
+  "z.tuples": {
+   "shape": [
+    3,
+    2
+   ]
+  }
+ }
+}

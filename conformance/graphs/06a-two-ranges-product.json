@@ -1,0 +1,77 @@
+{
+ "name": "two ranges on different axes make every combination",
+ "about": "A range of 2 into start and a range of 3 into stop of a range of 1: 6 runs (a product), each a list of 1. Nested: 6 lists of 1 (the outer level is the product, one level of two axes). Today: joined, 6.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "a": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 1.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "b": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "stop": 12.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "u": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "num": 1,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "a",
+     "port": "values"
+    },
+    "to": {
+     "node": "u",
+     "port": "start"
+    }
+   },
+   {
+    "from": {
+     "node": "b",
+     "port": "values"
+    },
+    "to": {
+     "node": "u",
+     "port": "stop"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "u.values": {
+   "shape": [
+    6,
+    1
+   ]
+  }
+ },
+ "today": {
+  "u.values": {
+   "shape": [
+    6
+   ]
+  }
+ }
+}

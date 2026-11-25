@@ -31,6 +31,8 @@ const FILTER_ROWS: usize = 8;
 
 /// The width of the reset column.
 const RESET_W: f32 = 26.0;
+/// The width of a row's Show on Face box.
+const FACE_W: f32 = 22.0;
 
 /// The room the header keeps for its Rename… button.
 const RENAME_W: f32 = 84.0;
@@ -159,6 +161,8 @@ impl ParamsPanel {
             ui.add_space(4.0);
         }
         let tucked = cx.graph.node(node).map(|n| ports::tucked(def, n, |k| cx.graph.wire_into(&PortRef::new(node.clone(), k)).is_some())).unwrap_or_default();
+        // which rows the face shows (the core's rule, `node.face` and the default together)
+        let on_face: std::collections::BTreeSet<String> = plumcraft_editor_core::rows::shown_rows(def, node, cx.graph).0.into_iter().map(|r| r.key).collect();
         let needle = self.filter.to_lowercase();
         let matches = |row: &InputRow| {
             needle.is_empty()
@@ -197,7 +201,7 @@ impl ParamsPanel {
             for (section, list) in &sections {
                 if single {
                     for row in list {
-                        self.row(ui, cx, node, row, actions);
+                        self.row(ui, cx, node, row, on_face.contains(&row.key), actions);
                     }
                     continue;
                 }
@@ -212,7 +216,7 @@ impl ParamsPanel {
                             ui.label(RichText::new("Fields this node's preset doesn't use, at the preset's values.").small().color(cx.tokens.text_faint));
                         }
                         for row in list {
-                            self.row(ui, cx, node, row, actions);
+                            self.row(ui, cx, node, row, on_face.contains(&row.key), actions);
                         }
                     });
                 ui.add_space(4.0);
@@ -220,8 +224,9 @@ impl ParamsPanel {
         });
     }
 
-    /// One input: its label and "?", what feeds it or its widget, and its reset.
-    fn row(&mut self, ui: &mut egui::Ui, cx: &Context<'_>, node: &NodeId, row: &InputRow, actions: &mut Vec<Action>) {
+    /// One input: its label and "?", what feeds it or its widget, its reset, and Show on Face
+    /// (`on_face`: the face shows it now).
+    fn row(&mut self, ui: &mut egui::Ui, cx: &Context<'_>, node: &NodeId, row: &InputRow, on_face: bool, actions: &mut Vec<Action>) {
         let port = &row.port;
         let at = PortRef::new(node.clone(), row.key.clone());
         let wire = cx.graph.wire_into(&at);
@@ -258,7 +263,7 @@ impl ParamsPanel {
             });
             // the widget column: as wide as the window allows, less the reset and the gaps (a
             // row wider than the window would widen it a little every frame)
-            let width = (ui.available_width() - RESET_W - 2.0 * ui.spacing().item_spacing.x).max(120.0);
+            let width = (ui.available_width() - RESET_W - FACE_W - 3.0 * ui.spacing().item_spacing.x).max(120.0);
             let r = ui.allocate_ui_with_layout(egui::vec2(width, 20.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
                 ui.set_width(width);
                 self.value_cell(ui, cx, node, row, &at, &current, wire, &source, editable, actions)
@@ -275,6 +280,16 @@ impl ParamsPanel {
                 }
             } else {
                 ui.add_space(RESET_W);
+            }
+            // Show on Face (N4 slice 3, the Apple inspectors' eye): `node.face`, the core's; a
+            // wired input always shows, since its wire needs the pin
+            let mut shown = on_face;
+            let what = format!("Show {} on Face", row.label);
+            let r = ui.add_enabled(wire.is_none(), egui::Checkbox::without_text(&mut shown));
+            r.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, wire.is_none(), on_face, &what));
+            let hover = if wire.is_some() { "A wired input always shows on the face: its wire needs the pin".to_owned() } else { what.clone() };
+            if r.on_hover_text(hover).on_disabled_hover_text("A wired input always shows on the face: its wire needs the pin").changed() {
+                actions.push(("node.face", json!({"node": node, "port": row.key, "shown": shown})));
             }
         });
         ui.add_space(3.0);
@@ -521,7 +536,7 @@ mod tests {
     #[test]
     fn help_holds_the_doc_the_facts_and_when_it_is_read() {
         let port = Port { ty: "FLOAT".into(), tooltip: Some("How wide".into()), default: json!(1.0), ..Default::default() };
-        let row = InputRow { key: "strokes.width".into(), label: "width".into(), port, kind: crate::canvas::RowKind::Plain };
+        let row = InputRow { key: "strokes.width".into(), label: "width".into(), port, section: None, kind: crate::canvas::RowKind::Plain };
         let help = help_text(&row, Some("Not used now."), &SchemaReply::default());
         assert_eq!(help, "How wide\n\nFLOAT · default 1.0\n\nNot used now.\n\nKey: strokes.width");
     }

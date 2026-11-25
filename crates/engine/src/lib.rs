@@ -12,6 +12,7 @@
 
 pub mod arrays;
 pub mod bind;
+pub mod clock;
 pub mod color;
 pub mod data;
 pub mod exec;
@@ -22,9 +23,11 @@ pub mod local;
 pub mod persist;
 pub mod register;
 pub mod rpc;
+pub mod save;
 pub mod seq;
 pub mod serve;
 pub mod vary;
+pub mod views;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -300,7 +303,9 @@ macro_rules! code_digest {
 /// Persisted records outlive the process, so a salt without the code would serve a fixed
 /// node the result of the old code.
 pub fn salt(prefix: &str, code_digest: &str) -> String {
-    format!("{prefix}+code:{code_digest}+sdk:{}", sdk_digest())
+    // the list rule a result was made under is part of what it is: nested lists (spec 7.6
+    // rule 2, `lists.nested`) change what a step mapped over a list gives
+    format!("{prefix}+code:{code_digest}+sdk:{}+lists:nested", sdk_digest())
 }
 
 /// A node's input values by port name, after wires, widget values and defaults are resolved.
@@ -423,13 +428,33 @@ pub struct Engine {
     wire_types: Vec<WireType>,
     nodes: BTreeMap<String, Box<dyn Node>>,
     caps: Caps,
+    /// A core ([`Engine::with_core`]) said it keeps each run's list (`lists.nested`).
+    core_nested: bool,
     limits: Limits,
     work_root: Option<std::path::PathBuf>,
     persist_ms: Option<f64>,
+    /// What a node's own work is measured on (the real clock unless a test gives one).
+    clock: std::sync::Arc<dyn clock::Clock>,
     core: Option<CoreFactory>,
     catalogue: Option<SchemaReply>,
     pack_ops: BTreeMap<String, PackOp>,
+    /// Save formats of its own ([`save`]), and the defaults' ids it took away.
+    save_formats: Vec<save::Format>,
+    removed_formats: Vec<String>,
+    default_formats: bool,
+    /// The licences of what it is built from ([`Engine::with_acknowledgements`], FR4).
+    acknowledgements: Option<plumcraft_proto::acknowledgements::Acknowledgements>,
 }
+
+/// An engine built in PlumCraft's own workspace (array, text, audio, the crafts): the Rust packages
+/// it is built from are in PlumCraft's own list, so its list says so and gives only what is its
+/// own beyond them (`groups`: a font it draws with).
+pub fn workspace_acknowledgements(groups: Vec<plumcraft_proto::acknowledgements::LicenceGroup>) -> plumcraft_proto::acknowledgements::Acknowledgements {
+    plumcraft_proto::acknowledgements::Acknowledgements { groups, note: WORKSPACE_NOTE.into() }
+}
+
+/// What [`workspace_acknowledgements`] says.
+pub const WORKSPACE_NOTE: &str = "Built from PlumCraft's own source: the Rust packages it uses are listed under PlumCraft.";
 
 /// A pack operation's handler (spec `x.<pack>.<op>`, section 15): its params in, its result out.
 /// The host calls it on the requesting thread, beside runs, so it may be called while a run
@@ -465,13 +490,85 @@ impl Engine {
             store: Some(plumcraft_store::Store::new(plumcraft_store::default_root())),
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
-            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json"]),
+            caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "lists.nested"]),
+            core_nested: false,
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
+            clock: std::sync::Arc::new(clock::RealClock::default()),
             core: None,
             catalogue: None,
             pack_ops: BTreeMap::new(),
+            save_formats: Vec::new(),
+            removed_formats: Vec::new(),
+            default_formats: true,
+            acknowledgements: None,
+        }
+    }
+
+    /// Give the licences of what this engine is built from (FR4, research note 29), answered to
+    /// `acknowledgements` under the capability of that name; the editor shows them in its
+    /// Acknowledgements window under the engine's name. A Rust engine makes its list with
+    /// `cargo about` and PlumCraft's template, and reads it with
+    /// [`Acknowledgements::from_cargo_about`](plumcraft_proto::acknowledgements::Acknowledgements::from_cargo_about):
+    /// `.with_acknowledgements(Acknowledgements::from_cargo_about(include_str!("../acknowledgements.json")))`.
+    pub fn with_acknowledgements(mut self, list: plumcraft_proto::acknowledgements::Acknowledgements) -> Self {
+        self.caps.insert(plumcraft_proto::caps::known::ACKNOWLEDGEMENTS);
+        self.acknowledgements = Some(list.bounded());
+        self
+    }
+
+    /// The licences given with [`Engine::with_acknowledgements`].
+    pub fn acknowledgements(&self) -> Option<&plumcraft_proto::acknowledgements::Acknowledgements> {
+        self.acknowledgements.as_ref()
+    }
+
+    /// Offer save format `f` (Save Result, [`save`]): added, or in place of a format of the same
+    /// id, the SDK's defaults' included.
+    pub fn with_save_format(mut self, f: save::Format) -> Self {
+        self.removed_formats.retain(|id| *id != f.def.id);
+        self.save_formats.retain(|x| x.def.id != f.def.id);
+        self.save_formats.push(f);
+        self
+    }
+
+    /// Don't offer the save format `id` (a default, or one of its own).
+    pub fn without_save_format(mut self, id: &str) -> Self {
+        self.save_formats.retain(|x| x.def.id != id);
+        if !self.removed_formats.iter().any(|r| r == id) {
+            self.removed_formats.push(id.to_owned());
+        }
+        self
+    }
+
+    /// Offer none of the SDK's default save formats, only its own.
+    pub fn without_default_save_formats(mut self) -> Self {
+        self.default_formats = false;
+        self
+    }
+
+    /// The save formats it offers ([`save::formats_of`]): the SDK's defaults for the core types
+    /// its nodes output, then its own. An engine with a core of its own offers its catalogue's.
+    pub fn save_formats(&self) -> Vec<save::Format> {
+        if self.catalogue.is_some() {
+            return Vec::new();
+        }
+        let mut types: Vec<String> = Vec::new();
+        for n in self.nodes.values() {
+            for o in n.def().outputs {
+                if !types.contains(&o.ty) {
+                    types.push(o.ty);
+                }
+            }
+        }
+        save::formats_of(&types, &self.save_formats, &self.removed_formats, self.default_formats)
+    }
+
+    /// Whether it saves results (`output.save`): it lists a save format.
+    fn saves(&self) -> bool {
+        match &self.catalogue {
+            Some(c) => !c.save_formats.is_empty(),
+            None => !self.save_formats().is_empty(),
         }
     }
 
@@ -492,6 +589,9 @@ impl Engine {
 
     /// Run graphs with `core` instead of this crate's executor; `catalogue` is what it offers,
     /// answered as this engine's schema. Nodes given with [`Engine::with_node`] aren't offered.
+    /// Nested lists are this crate's executor's: a core lists `lists.nested` only when it says it
+    /// keeps each run's list too ([`Engine::with_cap`]), so a coordinator never joins it to an
+    /// engine that does across a border it would read otherwise.
     pub fn with_core(mut self, catalogue: SchemaReply, core: CoreFactory) -> Self {
         self.catalogue = Some(catalogue);
         self.core = Some(core);
@@ -501,6 +601,9 @@ impl Engine {
     /// Declare a capability this engine has.
     pub fn with_cap(mut self, cap: &str) -> Self {
         self.caps.insert(cap);
+        if cap == plumcraft_proto::caps::known::LISTS_NESTED {
+            self.core_nested = true;
+        }
         self
     }
 
@@ -517,6 +620,17 @@ impl Engine {
 
     pub fn persist_ms(&self) -> Option<f64> {
         self.persist_ms
+    }
+
+    /// Measure nodes' work on `clock` instead of the real one (tests: [`clock::VirtualClock`]).
+    pub fn with_clock(mut self, clock: std::sync::Arc<dyn clock::Clock>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    /// The clock nodes' work is measured on.
+    pub fn clock(&self) -> &dyn clock::Clock {
+        self.clock.as_ref()
     }
 
     /// Declare a work root (spec 4.4): `path` locators under it are the engine's own files,
@@ -610,8 +724,23 @@ impl Engine {
         &self.info
     }
 
-    pub fn caps(&self) -> &Caps {
-        &self.caps
+    /// Its capabilities: those declared, and `output.save` when it lists a save format.
+    pub fn caps(&self) -> Caps {
+        let mut caps = self.caps.clone();
+        // nested lists are this crate's executor's: a core lists them only when it says so
+        if self.core.is_some() && !self.core_nested {
+            caps.remove(plumcraft_proto::caps::known::LISTS_NESTED);
+        }
+        if self.saves() {
+            caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
+        }
+        // derived views of a value it can read (FR6): every engine on this SDK makes them
+        caps.insert(plumcraft_proto::caps::known::VIEW_DERIVE);
+        // a save may ask a person first (`SaveReply.question`): a format of its own that writes pictures
+        if self.catalogue.is_none() && self.save_formats().iter().any(|f| f.questions) {
+            caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE_QUESTION);
+        }
+        caps
     }
 
     pub fn schema(&self) -> SchemaReply {
@@ -633,6 +762,7 @@ impl Engine {
             wire_types: self.wire_types.clone(),
             compat,
             nodes: self.nodes.values().map(|n| n.def()).collect(),
+            save_formats: self.save_formats().into_iter().map(|f| f.def).collect(),
             ..Default::default()
         }
     }
@@ -647,7 +777,7 @@ impl Engine {
             protocol,
             session: session.into(),
             engine: self.info.clone(),
-            caps: Caps::negotiate(&req.caps, &self.caps),
+            caps: Caps::negotiate(&req.caps, &self.caps()),
             limits: self.limits,
             // spec 4.3: the one algorithm it hashes in (commonkit's switch), which the client
             // must share exactly (D8)

@@ -1,6 +1,6 @@
-//! Connected Components and Region Outlines (yapocis_external `label`, written plainly: a
+//! Connected Components and Region Outlines (the external kernel library's `label`, written plainly: a
 //! union-find gives the labels its propagation converges to), Grid Segments, and Segment Average
-//! (yapocis_external `averagesegments` / `applysegments`).
+//! (the external kernel library's `averagesegments` / `applysegments`).
 
 use plumcraft_engine::{Cx, Inputs, Outputs};
 use plumcraft_proto::error::NodeError;
@@ -34,7 +34,7 @@ fn union(parent: &mut [usize], a: usize, b: usize) {
     }
 }
 
-/// The labels yapocis_external's propagation converges to, renumbered 0, 1, 2, ... as the research software
+/// The labels the external kernel library's propagation converges to, renumbered 0, 1, 2, ... as the research software
 /// does (`np.unique`): every pixel starts as its flat index; a pixel not on an edge spreads its
 /// label to its 4-neighbours; each takes the smallest it sees. So an area between edges is
 /// labelled by its first pixel in scan order, and an edge pixel by the smallest of itself and the
@@ -102,7 +102,7 @@ pub(super) fn connected_components(i: &Inputs, _: &mut Cx) -> Result<Outputs, No
 
 // ---------- Region Outlines ----------
 
-/// 1 where a pixel's label differs from one of its 4-neighbours' (yapocis_external `hollow`).
+/// 1 where a pixel's label differs from one of its 4-neighbours' (the external kernel library's `hollow`).
 /// Labels are rounded half to even first, as `np.rint` does.
 pub fn outlines_of(labels: &[f32], h: usize, w: usize) -> Vec<f32> {
     let lab: Vec<i64> = labels.iter().map(|v| v.round_ties_even() as i64).collect();
@@ -160,7 +160,7 @@ pub(super) fn grid_segments(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError
 /// point of the rectangle, as the kernels do).
 const MAX_VISITS: u128 = 1 << 28;
 
-/// `HALF * (a + b)`, or the circular midpoint with period `maxval` (yapocis_external
+/// `HALF * (a + b)`, or the circular midpoint with period `maxval` (the external kernel library
 /// `_pair_mean`), in float32.
 fn pair_mean(a: f32, b: f32, maxval: f32) -> f32 {
     let mut m = 0.5f32 * (a + b);
@@ -175,7 +175,7 @@ fn pair_mean(a: f32, b: f32, maxval: f32) -> f32 {
 
 /// Each segment's rectangle replaced by its mean (clamped to [0, 1 - eps)) or median (the upper
 /// middle value), each two-point segment by the pair's midpoint, each one-point segment left
-/// alone; coordinates are clamped to the array (yapocis_external `averagesegments` and
+/// alone; coordinates are clamped to the array (the external kernel library's `averagesegments` and
 /// `applysegments`, run segment by segment in order). `segments` holds rows of n, x1, y1, x2,
 /// y2, already truncated to integers.
 pub fn segment_average_of(img: &[f32], h: usize, w: usize, segments: &[[i64; 5]], median: bool, maxval: f32) -> Result<Vec<f32>, String> {

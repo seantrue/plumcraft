@@ -24,6 +24,10 @@ plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-automation = { workspace = true }
 plumcraft-session = { workspace = true }
+# The toolkit-free core under this shell: preferences, themes as data, the event pump, geometry.
+plumcraft-editor-core = { workspace = true }
+# Values as plain pictures, read and decoded on workers (the media service); this shell uploads them.
+plumcraft-media = { workspace = true }
 plumcraft-store = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
@@ -61,6 +65,8 @@ plumcraft-engine = { path = "../engine" }
 plumcraft-text = { path = "../text" }
 plumcraft-audio = { path = "../audio" }
 plumcraft-array = { path = "../array" }
+# the test engine for the port and graph rows (the conformance suite's ports cases)
+plumcraft-ports = { path = "../ports" }
 serde_yaml = "0.9"
 # wgpu: the offscreen snapshot example renders with it; the kittests only query the
 # accessibility tree and never render.

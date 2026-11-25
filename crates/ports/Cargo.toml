@@ -1,0 +1,21 @@
+[package]
+name = "plumcraft-ports"
+version.workspace = true
+edition.workspace = true
+publish = false
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft's test engine for the port and graph features (docs/research/24-native-shells.md, the engine half): variadic inputs, a choice's sub-ports, path hints, external ports, machine-dependent choices, node flags, list typing and slices, a setting binding; installed from a scratch engines folder as a separate process by the launched-app checks"
+
+[lints]
+workspace = true
+
+[dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-proto = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-store = { workspace = true }

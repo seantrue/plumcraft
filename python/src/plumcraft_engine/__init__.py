@@ -27,6 +27,8 @@ from typing import Any, ClassVar
 
 from commonkit import digest as ck_digest
 
+from .clock import Clock, RealClock, VirtualClock
+
 PROTOCOL = 2
 
 # Protocol error codes (spec 12.2), as JSON-RPC numbers.
@@ -37,11 +39,24 @@ BAD_PARAMS = -32602
 INTERNAL = -32603
 VERSION = -32000
 NOT_FOUND = -32003
+TOO_LARGE = -32004
 UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas"}
+_ENGINE_ONLY = {
+    "run.plan",
+    "run.peek",
+    "run.watch",
+    "run.multi",
+    "graph.put",
+    "data.cas",
+    "output.save",
+    "output.save.question",
+    "lists.nested",
+    "acknowledgements",
+    "view.derive",
+}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1
@@ -305,7 +320,8 @@ def salt(prefix: str, code: str, dependencies: tuple[str, ...] = ()) -> str:
     Rust SDK's `salt`: persisted records outlive the process. `dependencies` names the packages
     an engine's results depend on, so upgrading one never serves a result the old version made."""
     deps = f"+deps:{dependency_digest(dependencies)}" if dependencies else ""
-    return f"{prefix}+code:{code}+sdk:{sdk_digest()}{deps}"
+    # the list rule a result was made under is part of it: nested lists (spec 7.6 rule 2)
+    return f"{prefix}+code:{code}+sdk:{sdk_digest()}{deps}+lists:nested"
 
 
 class Engine:
@@ -341,6 +357,14 @@ class Engine:
     vary: ClassVar[bool] = False
     # Offer every building block (`with_building_blocks`: Vary, sequences, files) too.
     building_blocks: ClassVar[bool] = False
+    # Save formats of its own (`plumcraft_engine.save.Format`), beside (or in place of) the SDK's
+    # defaults for the core types its nodes output (Save Result, `output.save`).
+    save_formats: ClassVar[tuple[Any, ...]] = ()
+    # Offer the SDK's default save formats.
+    default_save_formats: ClassVar[bool] = True
+    # The distributions it is built from (`("numpy", "pillow")`): their licences, and those of
+    # what they require, are its acknowledgements (`with_acknowledgements`, FR4). None gives none.
+    acknowledgements: ClassVar[tuple[str, ...] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -364,16 +388,37 @@ class Engine:
         self.info = info
         self.wire_types: list[dict] = []
         self.nodes: dict[str, Node] = {}
-        self.caps = ["codec.json", "display.stream", "events.poll", "events.push", "events.resume", "run.stats", "status.progress"]
+        self.caps = [
+            "codec.json",
+            "display.stream",
+            "events.poll",
+            "events.push",
+            "events.resume",
+            "lists.nested",
+            "run.stats",
+            "status.progress",
+            "view.derive",
+        ]
         self.limits = {"max_inline": 64 << 10}
         # Blobs go to the shared commonkit store unless `with_store` says otherwise.
         import os
 
         self.store_root: str | None = os.environ.get("COMMONKIT_STORE_ROOT") or _default_root()
         self.persist_ms: float | None = persist_ms_from_env()
+        # what a node's own work is measured on (the real clock unless a test gives one)
+        self.clock: Clock = RealClock()
+        # Save Result: its own formats, the defaults' ids it took away, and whether it has them
+        self._own_formats: list[Any] = list(type(self).save_formats)
+        self._removed_formats: list[str] = []
+        self._default_formats = bool(type(self).default_save_formats)
         from .declare import bind
 
         bind(self)
+        self._acknowledgements: dict | None = None
+        if type(self).acknowledgements is not None:
+            from .acknowledgements import from_distributions
+
+            self.with_acknowledgements(from_distributions(type(self).acknowledgements))
         if type(self).building_blocks:
             self.with_building_blocks()
         elif type(self).vary:
@@ -416,6 +461,26 @@ class Engine:
         self.persist_ms = ms
         return self
 
+    def with_clock(self, clock: Clock) -> Engine:
+        """Measure nodes' work on `clock` instead of the real one (tests: `VirtualClock`, on which
+        a node's work is exactly what it sleeps on that clock)."""
+        self.clock = clock
+        return self
+
+    def with_acknowledgements(self, ack: dict) -> Engine:
+        """Give the licences of what this engine is built from (FR4): `{groups: [{licence, name?,
+        text, packages: [{name, version?, url?}]}], note?}`, as
+        `plumcraft_engine.acknowledgements.from_distributions` makes it from installed
+        distributions. The editor shows it in its Acknowledgements window under the engine's name."""
+        self._acknowledgements = ack
+        if "acknowledgements" not in self.caps:
+            self.caps.append("acknowledgements")
+        return self
+
+    def acknowledgements_list(self) -> dict | None:
+        """The licences given with `with_acknowledgements`, or None."""
+        return self._acknowledgements
+
     def with_wire_type(self, w: dict) -> Engine:
         self.wire_types.append(w)
         return self
@@ -429,6 +494,37 @@ class Engine:
         self.nodes[n.definition["id"]] = n
         return self
 
+    def with_save_format(self, f: Any) -> Engine:
+        """Offer save format `f` (a `plumcraft_engine.save.Format`): added, or in place of a
+        format of the same id, the SDK's defaults' included."""
+        self._removed_formats = [i for i in self._removed_formats if i != f.id]
+        self._own_formats = [x for x in self._own_formats if x.id != f.id] + [f]
+        return self
+
+    def without_save_format(self, format_id: str) -> Engine:
+        """Don't offer the save format `format_id` (a default, or one of its own)."""
+        self._own_formats = [x for x in self._own_formats if x.id != format_id]
+        if format_id not in self._removed_formats:
+            self._removed_formats.append(format_id)
+        return self
+
+    def without_default_save_formats(self) -> Engine:
+        """Offer none of the SDK's default save formats, only its own."""
+        self._default_formats = False
+        return self
+
+    def all_save_formats(self) -> list[Any]:
+        """The save formats it offers (`plumcraft_engine.save.formats_of`): the SDK's defaults for
+        the core types its nodes output, then its own."""
+        from . import save
+
+        types: list[str] = []
+        for k in sorted(self.nodes):
+            for o in self.nodes[k].definition.get("outputs", []):
+                if o.get("type") not in types:
+                    types.append(o.get("type"))
+        return save.formats_of(types, self._own_formats, self._removed_formats, self._default_formats)
+
     def wire_type(self, type_id: str) -> dict | None:
         return next((w for w in self.wire_types if w["id"] == type_id), None)
 
@@ -439,6 +535,9 @@ class Engine:
             "wire_types": self.wire_types,
             "nodes": [self.nodes[k].definition for k in sorted(self.nodes)],
         }
+        formats = self.all_save_formats()
+        if formats:
+            out["save_formats"] = [f.definition() for f in formats]
         # With ANY declared: the base conversions, plus every type to and from ANY.
         if self.wire_type(ANY) is not None:
             compat = [{"from": f, "to": t} for f, t in (("INT", "FLOAT"), ("STRING", "ENUM"), ("ENUM", "STRING"))]
@@ -458,7 +557,9 @@ class Engine:
         if hi < lo:
             raise ProtoError(VERSION, f"engine speaks protocol {PROTOCOL}–{PROTOCOL}, this app {rng.get('min')}–{rng.get('max')}")
         client = req.get("caps") if isinstance(req.get("caps"), list) else []
-        caps = sorted(c for c in self.caps if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
+        formats = self.all_save_formats()
+        offered = set(self.caps) | ({"output.save"} if formats else set()) | ({"output.save.question"} if any(f.questions for f in formats) else set())
+        caps = sorted(c for c in offered if c in client or c in _ENGINE_ONLY or _is_pack_op(c))
         reply = {"v": PROTOCOL, "protocol": hi, "session": session, "engine": self.info, "caps": caps}
         # spec 4.3: the one algorithm this process hashes in, which the client must share (D8)
         reply["data"] = {"algos": [ck_digest.current()]}
@@ -521,6 +622,7 @@ __all__ = [
     "Blob",
     "Bool",
     "CancelToken",
+    "Clock",
     "ConfigError",
     "Cx",
     "DeclarationError",
@@ -537,10 +639,12 @@ __all__ = [
     "Port",
     "ProtoError",
     "Range",
+    "RealClock",
     "String",
     "Svg",
     "Table",
     "Text",
+    "VirtualClock",
     "WireType",
     "image",
     "node",

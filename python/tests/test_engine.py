@@ -196,7 +196,7 @@ def test_locators_are_unix_paths_or_loopback_tcp():
     assert parse_endpoint("/tmp/x/e.sock") == ("unix", "/tmp/x/e.sock")
     assert parse_endpoint("tcp:127.0.0.1:4100") == ("tcp", ("127.0.0.1", 4100))
     assert parse_endpoint("tcp:[::1]:9") == ("tcp", ("::1", 9))
-    for bad in ["tcp:192.168.2.5:80", "tcp:nonsense", "tcp:127.0.0.1:x", "unix:"]:
+    for bad in ["tcp:192.0.2.5:80", "tcp:nonsense", "tcp:127.0.0.1:x", "unix:"]:
         with pytest.raises(ValueError):
             parse_endpoint(bad)
     assert endpoint_from_env(["--connect", "tcp:127.0.0.1:1"])[0] == "tcp:127.0.0.1:1"

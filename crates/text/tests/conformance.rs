@@ -341,8 +341,11 @@ fn memo_reuses_unchanged_nodes(mk: fn() -> Conn) {
         if !memo.is_empty() {
             extra["memo"] = json!(memo);
         }
-        run(&h, id, generation, graph, extra);
+        // B38: timed from before the run is sent. The engine starts the graph before its
+        // acceptance reaches here, so timing from the acceptance took a slow one's lateness (a
+        // busy host) off the slow node's 300 ms.
         let t = Instant::now();
+        run(&h, id, generation, graph, extra);
         let (events, reply) = collect(&h, id, 0);
         (events, reply, t.elapsed())
     };
@@ -872,28 +875,36 @@ fn mode3_a_wrong_token_is_refused() {
 /// An engine that dies at once is reported down with its stderr, not hung on.
 #[test]
 fn mode2_an_engine_that_cannot_start_is_down_not_hung() {
+    let starts = plumcraft_scratch::dir("b72-starts").join("starts");
     let m = Manifest {
         name: "broken".into(),
         command: if cfg!(windows) {
             vec!["cmd".into(), "/C".into(), "echo no models found 1>&2 & exit 3".into()]
         } else {
-            vec!["/bin/sh".into(), "-c".into(), "echo 'no models found' >&2; exit 3".into()]
+            vec!["/bin/sh".into(), "-c".into(), format!("echo start >> '{}'; echo 'no models found' >&2; exit 3", starts.display())]
         },
         env: Vec::new(),
         hint: "install the models".into(),
         store: None,
         cwd: None,
     };
-    let h = ProcessHost::start(m).unwrap();
     let t = Instant::now();
-    // Five starts and 1.5 s of backoff before the host gives up: under 3 s here, but a process
-    // start costs more on Windows.
-    let wait = if cfg!(windows) { Duration::from_secs(10) } else { Duration::from_secs(3) };
-    let state = h.wait_ready(wait);
-    assert!(t.elapsed() <= wait + Duration::from_secs(1));
-    assert!(!matches!(state, EngineState::Connected { .. }));
+    let h = ProcessHost::start(m).unwrap();
+    // B72: it exited before it ever connected, so the host gives up at once, with its last
+    // words, rather than restart it (and nobody waits out the wait given).
+    let why = h.wait_started(Duration::from_secs(60)).unwrap_err();
+    let limit = if cfg!(windows) { Duration::from_secs(5) } else { Duration::from_secs(2) };
+    assert!(t.elapsed() < limit, "{:?}", t.elapsed());
+    assert!(why.contains("exited before connecting") && why.contains("exit 3") && why.contains("no models found"), "{why}");
+    assert!(!matches!(h.wait_ready(Duration::from_secs(60)), EngineState::Connected { .. }));
+    assert!(t.elapsed() < limit, "wait_ready doesn't wait for an engine given up on: {:?}", t.elapsed());
+    // started once, never again (a restart would come after 100 ms)
+    std::thread::sleep(Duration::from_millis(500));
+    if !cfg!(windows) {
+        assert_eq!(std::fs::read_to_string(&starts).unwrap_or_default().lines().count(), 1, "it was started again");
+    }
     let EngineState::EngineDown { reason, stderr_tail, hint, .. } = h.state() else { panic!("{:?}", h.state()) };
-    assert!(reason.contains("exit 3"), "{reason}");
+    assert_eq!(reason, why);
     assert!(stderr_tail.unwrap_or_default().contains("no models found"));
     assert_eq!(hint, "install the models");
     assert!(h.call("schema", json!({})).is_err(), "calls fail at once while the engine is down");
@@ -942,4 +953,39 @@ fn current_handles_cross_both_ways() {
         let PortValue::Blob { data } = &reply.nodes["b"].outputs["text"] else { panic!("{name}: {:?}", reply.nodes["b"].outputs) };
         assert_eq!(&h.resolve(data).unwrap().bytes[..], input.to_uppercase().as_bytes(), "{name} bind");
     }
+}
+
+/// `text.gate` (the person check's F29 and F36): it waits while its file isn't there, passes the
+/// text once it is, and a cancel stops it while it waits.
+#[test]
+fn the_gate_waits_for_its_file_and_stops_on_cancel() {
+    let c = inproc();
+    let file = plumcraft_scratch::dir("text-gate").join("open");
+    let g = |text: &str| {
+        graph(
+            json!({"a": {"kind": "text.literal", "values": {"text": text}}, "g": {"kind": "text.gate", "values": {"open": file.display().to_string(), "timeout": 30.0}}}),
+            &[("a", "text", "g", "text")],
+        )
+    };
+    // shut: it waits; the file comes; it passes
+    run(&*c, "shut", 1, g("plum"), json!({}));
+    let opener = {
+        let file = file.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(300));
+            std::fs::write(&file, "").unwrap();
+        })
+    };
+    let (_, reply) = collect(&*c, "shut", 0);
+    opener.join().unwrap();
+    assert!(reply.ok, "{reply:?}");
+    assert_eq!(reply.nodes["g"].state, NodeState::Done, "{reply:?}");
+    // shut again, cancelled while it waits
+    std::fs::remove_file(&file).unwrap();
+    run(&*c, "cut", 2, g("pear"), json!({}));
+    std::thread::sleep(Duration::from_millis(200));
+    call(&*c, "run.cancel", json!({"run_id": "cut"}));
+    let (_, reply) = collect(&*c, "cut", 0);
+    assert!(!reply.ok);
+    assert_eq!(reply.nodes["g"].state, NodeState::Cancelled, "{reply:?}");
 }

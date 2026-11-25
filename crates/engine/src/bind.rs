@@ -28,14 +28,18 @@ const MAX_VALUES: usize = 100_000;
 pub fn by_node(inputs: &BTreeMap<String, PortValue>, has_node: impl Fn(&str) -> bool) -> BTreeMap<String, BTreeMap<String, &PortValue>> {
     let mut out: BTreeMap<String, BTreeMap<String, &PortValue>> = BTreeMap::new();
     for (key, v) in inputs {
-        // Port names never hold a dot; node ids might.
-        let Some((node, port)) = key.rsplit_once('.') else { continue };
-        if node.is_empty() || port.is_empty() || !has_node(node) {
-            continue;
-        }
+        let Some((node, port)) = split(key, &has_node) else { continue };
         out.entry(node.to_owned()).or_default().insert(port.to_owned(), v);
     }
     out
+}
+
+/// A binding's key split into its node and port (B162). Either may hold a dot: a node id
+/// sometimes, and a port often in an application's engine (a sub-step's setting,
+/// `edges.threshold`). The node is the part before a dot that names a node the graph has; when
+/// more than one does, the longest. None when no split names one.
+pub fn split<'a>(key: &'a str, has_node: &impl Fn(&str) -> bool) -> Option<(&'a str, &'a str)> {
+    key.match_indices('.').rev().map(|(i, _)| (&key[..i], &key[i + 1..])).find(|(node, port)| !node.is_empty() && !port.is_empty() && has_node(node))
 }
 
 /// A bound value's memo identity: its content.
@@ -43,7 +47,7 @@ pub fn identity(v: &PortValue) -> Value {
     match v {
         PortValue::Blob { data } => data.handle.as_ref().map_or(Value::Null, |h| Value::from(h.to_string())),
         PortValue::Json { value } => json!({"json": value}),
-        PortValue::List { items } => Value::Array(items.iter().map(identity).collect()),
+        PortValue::List { items, .. } => Value::Array(items.iter().map(identity).collect()),
         PortValue::Opaque { ty, .. } => json!({"opaque": ty}),
     }
 }
@@ -61,7 +65,15 @@ fn read(store: Option<&Store>, trusted: &[String], port: &str, v: &PortValue, de
     }
     match v {
         PortValue::Json { value } => Ok(Data::Json(value.clone())),
-        PortValue::List { items } => Ok(Data::List(List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?))),
+        PortValue::List { items, axes, .. } => {
+            let mut l = List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?);
+            // its axes, when they fit it (spec 4.5): a nested list keeps its levels across a border
+            let given: Vec<(String, usize)> = axes.iter().filter_map(|(a, k)| Some((a.clone(), usize::try_from(*k).ok()?))).collect();
+            if !given.is_empty() && given.len() == axes.len() && given.iter().try_fold(1usize, |t, (_, k)| t.checked_mul(*k)) == Some(l.items.len()) {
+                l.axes = given;
+            }
+            Ok(Data::List(l))
+        }
         PortValue::Blob { data } => blob(store, trusted, port, data),
         PortValue::Opaque { ty, .. } => Err(NodeError::new(NodeError::CONFIG, format!("input {port:?}: a {ty} value stays in the engine that made it"))),
     }

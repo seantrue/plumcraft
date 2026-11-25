@@ -1,10 +1,10 @@
 //! The About window (`app.about`, Help › About): what the application is, what it was built from,
 //! and what the connected engine says of itself. All of it comes from the application and the
-//! catalogue, so PlumImpress's revisions are its own and core names none.
+//! catalogue, so an application's revisions are its own and core names none.
 
 use plumcraft_session::Session;
 
-/// The window's title: `About PlumImpress`.
+/// The window's title: `About <title>`.
 pub fn title(s: &Session) -> String {
     format!("About {}", s.about.title)
 }
@@ -35,6 +35,10 @@ pub fn show(ctx: &egui::Context, s: &mut Session) {
         .show(ctx, |ui| {
             ui.heading(&s.about.title);
             ui.label(format!("Version {}", s.about.version));
+            // which build this is (B151), as text a person can select and copy
+            if let Some(line) = s.about.build.as_ref().and_then(|b| b.get("line")).and_then(serde_json::Value::as_str) {
+                ui.add(egui::Label::new(egui::RichText::new(line).small()).selectable(true));
+            }
             if !s.about.parts.is_empty() {
                 ui.separator();
                 let parts: Vec<(&str, &str)> = s.about.parts.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();
@@ -50,7 +54,14 @@ pub fn show(ctx: &egui::Context, s: &mut Session) {
                 rows(ui, "plumcraft-about-engine", &parts);
             }
             ui.separator();
-            closed = ui.button("Close").clicked();
+            let mut acks = false;
+            ui.horizontal(|ui| {
+                acks = ui.button("Acknowledgements…").clicked();
+                closed = ui.button("Close").clicked();
+            });
+            if acks {
+                let _ = s.execute("app.acknowledgements", &serde_json::json!({}));
+            }
         });
     if !open || closed {
         s.views.about = false;

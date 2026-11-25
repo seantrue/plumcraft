@@ -18,110 +18,11 @@ const HEADER_W: f32 = 56.0;
 /// The formats offered (any `%.Nf`, `%.Ne`, `%.Ng` or `%d` can be typed).
 pub const FORMATS: &[&str] = &["%.4g", "%.3f", "%.6f", "%.3e", "%d"];
 
-/// How to read one element.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Dtype {
-    U8,
-    I8,
-    Bool,
-    U16,
-    I16,
-    U32,
-    I32,
-    U64,
-    I64,
-    F32,
-    F64,
-}
+/// How to read one element (moved to the core, stage N1).
+pub use plumcraft_editor_core::dtype::Dtype;
 
-impl Dtype {
-    pub fn parse(s: &str) -> Option<Dtype> {
-        Some(match s {
-            "|u1" => Dtype::U8,
-            "|i1" => Dtype::I8,
-            "|b1" => Dtype::Bool,
-            "<u2" => Dtype::U16,
-            "<i2" => Dtype::I16,
-            "<u4" => Dtype::U32,
-            "<i4" => Dtype::I32,
-            "<u8" => Dtype::U64,
-            "<i8" => Dtype::I64,
-            "<f4" => Dtype::F32,
-            "<f8" => Dtype::F64,
-            _ => return None,
-        })
-    }
-
-    pub fn size(self) -> usize {
-        match self {
-            Dtype::U8 | Dtype::I8 | Dtype::Bool => 1,
-            Dtype::U16 | Dtype::I16 => 2,
-            Dtype::U32 | Dtype::I32 | Dtype::F32 => 4,
-            Dtype::U64 | Dtype::I64 | Dtype::F64 => 8,
-        }
-    }
-
-    pub fn integer(self) -> bool {
-        !matches!(self, Dtype::F32 | Dtype::F64)
-    }
-
-    /// Element `i` of `bytes`, or `None` past the end.
-    pub fn read(self, bytes: &[u8], i: usize) -> Option<f64> {
-        let at = i.checked_mul(self.size())?;
-        let b = bytes.get(at..at + self.size())?;
-        let arr = |n: usize| -> [u8; 8] {
-            let mut a = [0u8; 8];
-            a[..n].copy_from_slice(&b[..n]);
-            a
-        };
-        Some(match self {
-            Dtype::U8 => f64::from(b[0]),
-            Dtype::I8 => f64::from(b[0] as i8),
-            Dtype::Bool => f64::from(u8::from(b[0] != 0)),
-            Dtype::U16 => f64::from(u16::from_le_bytes([b[0], b[1]])),
-            Dtype::I16 => f64::from(i16::from_le_bytes([b[0], b[1]])),
-            Dtype::U32 => f64::from(u32::from_le_bytes([b[0], b[1], b[2], b[3]])),
-            Dtype::I32 => f64::from(i32::from_le_bytes([b[0], b[1], b[2], b[3]])),
-            Dtype::U64 => u64::from_le_bytes(arr(8)) as f64,
-            Dtype::I64 => i64::from_le_bytes(arr(8)) as f64,
-            Dtype::F32 => f64::from(f32::from_le_bytes([b[0], b[1], b[2], b[3]])),
-            Dtype::F64 => f64::from_le_bytes(arr(8)),
-        })
-    }
-}
-
-/// `v` in `format` (`%.Nf`, `%.Ne`, `%.Ng`, `%d`; anything else reads as `%.4g`).
-pub fn format_value(v: f64, format: &str) -> String {
-    if v.is_nan() {
-        return "nan".into();
-    }
-    if v.is_infinite() {
-        return if v > 0.0 { "inf".into() } else { "-inf".into() };
-    }
-    let f = format.trim();
-    let prec =
-        |default: usize| f.strip_prefix("%.").and_then(|r| r.get(..r.len().saturating_sub(1))).and_then(|n| n.parse::<usize>().ok()).unwrap_or(default).min(17);
-    match f.chars().last() {
-        Some('d') => format!("{}", v.round() as i64),
-        Some('f') => format!("{v:.*}", prec(3)),
-        Some('e') => format!("{v:.*e}", prec(3)),
-        _ => {
-            // %g: fixed for moderate magnitudes, else scientific, trailing zeros dropped.
-            let p = prec(4).max(1);
-            if v == 0.0 {
-                return "0".into();
-            }
-            let exp = v.abs().log10().floor() as i32;
-            if exp < -4 || exp >= p as i32 {
-                format!("{v:.*e}", p.saturating_sub(1))
-            } else {
-                let decimals = (p as i32 - 1 - exp).max(0) as usize;
-                let s = format!("{v:.decimals$}");
-                if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_owned() } else { s }
-            }
-        }
-    }
-}
+/// `v` in `format`: the core's (moved there by note 26 slice 2), which a native grid shows too.
+pub use plumcraft_editor_core::viewers::format_value;
 
 /// An array's shape as rows and columns, and the strides (in elements) to find a cell.
 #[derive(Debug, Clone, PartialEq)]
@@ -280,8 +181,31 @@ impl Viewer for ArrayGrid {
             .small()
             .color(tokens.text_faint),
         );
+        // a pop-out's window of columns is the core's (viewer.grid {cols}, decision 26): 64 at a
+        // time, stepped by these buttons; elsewhere (the Watched panel) every column scrolls
+        let mut asks = Vec::new();
+        let (w0, w1) = match v.grid_col {
+            Some(c) => {
+                let cols = l.cols as u64;
+                let c0 = c.min(plumcraft_session::viewer_state::last_window(cols));
+                let c1 = (c0 + plumcraft_session::viewer_state::GRID_COLUMNS).min(cols);
+                (usize::try_from(c0).unwrap_or(0), usize::try_from(c1).unwrap_or(l.cols))
+            }
+            None => (0, l.cols),
+        };
+        if w1 - w0 < l.cols {
+            ui.horizontal(|ui| {
+                if ui.add_enabled(w0 > 0, egui::Button::new("◀")).on_hover_text("viewer.grid {cols: \"prev\"}").clicked() {
+                    asks.push(("viewer.grid", json!({"cols": "prev"})));
+                }
+                ui.label(egui::RichText::new(format!("columns {}–{} of {}", w0, w1.saturating_sub(1), l.cols)).small().color(tokens.text_dim));
+                if ui.add_enabled(w1 < l.cols, egui::Button::new("▶")).on_hover_text("viewer.grid {cols: \"next\"}").clicked() {
+                    asks.push(("viewer.grid", json!({"cols": "next"})));
+                }
+            });
+        }
         let row_h = ui.text_style_height(&egui::TextStyle::Monospace) + 6.0;
-        let content = egui::vec2(HEADER_W + l.cols as f32 * CELL_W, row_h * (l.rows as f32 + 1.0));
+        let content = egui::vec2(HEADER_W + (w1 - w0) as f32 * CELL_W, row_h * (l.rows as f32 + 1.0));
         let font = egui::FontId::monospace(12.0);
         let (fmt, colored) = (self.format.clone(), self.colored);
         let slice = self.slice.clone();
@@ -289,13 +213,13 @@ impl Viewer for ArrayGrid {
             let (rect, _) = ui.allocate_exact_size(content, egui::Sense::hover());
             let p = ui.painter_at(rect.intersect(ui.clip_rect()));
             let origin = rect.min;
-            let c0 = ((view.min.x - HEADER_W) / CELL_W).floor().max(0.0) as usize;
-            let c1 = (((view.max.x - HEADER_W) / CELL_W).ceil().max(0.0) as usize).min(l.cols);
+            let c0 = w0 + ((view.min.x - HEADER_W) / CELL_W).floor().max(0.0) as usize;
+            let c1 = (w0 + ((view.max.x - HEADER_W) / CELL_W).ceil().max(0.0) as usize).min(w1);
             let r0 = ((view.min.y - row_h) / row_h).floor().max(0.0) as usize;
             let r1 = (((view.max.y - row_h) / row_h).ceil().max(0.0) as usize).min(l.rows);
             // Column headers, then row headers, then the cells.
             for c in c0..c1 {
-                let x = origin.x + HEADER_W + c as f32 * CELL_W;
+                let x = origin.x + HEADER_W + (c - w0) as f32 * CELL_W;
                 let label = names.get(c).filter(|_| l.extra.is_empty()).cloned().unwrap_or_else(|| c.to_string());
                 p.text(
                     egui::pos2(x + CELL_W - 6.0, origin.y + view.min.y.max(0.0) + row_h / 2.0),
@@ -315,7 +239,7 @@ impl Viewer for ArrayGrid {
                     tokens.text_dim,
                 );
                 for c in c0..c1 {
-                    let x = origin.x + HEADER_W + c as f32 * CELL_W;
+                    let x = origin.x + HEADER_W + (c - w0) as f32 * CELL_W;
                     let cell = egui::Rect::from_min_size(egui::pos2(x, y), egui::vec2(CELL_W, row_h));
                     let value = dt.read(&b.bytes, l.index(r, c, &slice));
                     if colored
@@ -329,7 +253,7 @@ impl Viewer for ArrayGrid {
                 }
             }
         });
-        Vec::new()
+        asks
     }
 
     fn inspect(&self) -> Value {

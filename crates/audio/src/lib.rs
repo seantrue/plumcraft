@@ -78,6 +78,7 @@ pub fn engine() -> Engine {
     };
     let scalar = |id: &str| WireType { id: id.into(), media: Media::Scalar, ..Default::default() };
     let mut e = Engine::new(info)
+        .with_acknowledgements(plumcraft_engine::workspace_acknowledgements(Vec::new()))
         .with_wire_type(plumcraft_proto::catalogue::core_types::audio())
         .with_wire_type(scalar(FLOAT))
         .with_wire_type(scalar(INT))
@@ -91,6 +92,10 @@ pub fn engine() -> Engine {
         .with_wire_type(WireType { id: AIFF.into(), media: Media::Bytes, ..Default::default() });
     for n in nodes() {
         e = e.with_node(n);
+    }
+    // Save Result: SoundCraft's encoders in place of the SDK's WAV, and FLAC and AIFF beside it
+    for f in io::save_formats() {
+        e = e.with_save_format(f);
     }
     e.with_building_blocks()
 }

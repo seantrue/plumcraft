@@ -1,0 +1,22 @@
+{
+  "version": 1,
+  "nodes": {
+    "t": {"kind": "text.literal", "pos": [0, 0], "values": {"text": "n,name,score\n3,carrot,0.375\n1,apple,12.5\n2,banana,7\n"}},
+    "tab": {"kind": "text.text_to_table", "pos": [640, 0]},
+    "j": {"kind": "text.literal", "pos": [0, 220], "values": {"text": "{\"name\": \"plum\", \"sizes\": [1, 2.5, 4], \"nested\": {\"deep\": [true, null]}}"}},
+    "js": {"kind": "text.text_to_json", "pos": [640, 220]},
+    "m": {"kind": "array.mandelbrot", "pos": [0, 440], "values": {"width": 96, "height": 72}},
+    "img": {"kind": "array.encode_image", "pos": [640, 440]},
+    "snd": {"kind": "array.to_audio", "pos": [640, 640], "values": {"sample_rate": 8000}},
+    "s": {"kind": "array.mandelbrot", "pos": [0, 860], "values": {"width": 16, "height": 12}},
+    "svg": {"kind": "array.array_to_svg", "pos": [640, 860]}
+  },
+  "wires": [
+    {"from": {"node": "t", "port": "text"}, "to": {"node": "tab", "port": "text"}},
+    {"from": {"node": "j", "port": "text"}, "to": {"node": "js", "port": "text"}},
+    {"from": {"node": "m", "port": "escape"}, "to": {"node": "img", "port": "image"}},
+    {"from": {"node": "m", "port": "escape"}, "to": {"node": "snd", "port": "array"}},
+    {"from": {"node": "s", "port": "escape"}, "to": {"node": "svg", "port": "image"}}
+  ],
+  "next_id": 10
+}

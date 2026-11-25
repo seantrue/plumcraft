@@ -1,0 +1,225 @@
+{
+  "anim": {
+    "fade_ms": 600,
+    "generation": 0,
+    "hold_ms": 1000,
+    "on": false,
+    "pulse_ms": 1200,
+    "replay": false
+  },
+  "doc": 1,
+  "focus": null,
+  "full": false,
+  "gen": 2,
+  "remove": {
+    "frames": [],
+    "groups": [],
+    "marks": [],
+    "nets": [],
+    "nodes": [],
+    "wires": []
+  },
+  "selection": {
+    "groups": [],
+    "net": null,
+    "nodes": []
+  },
+  "shell": 1,
+  "since": 1,
+  "upsert": {
+    "frames": [],
+    "groups": [],
+    "marks": [],
+    "nets": [],
+    "nodes": [
+      {
+        "border": {
+          "paint": {
+            "token": "state_running"
+          },
+          "width": 2.5
+        },
+        "footer": [
+          {
+            "fraction": 0.5,
+            "kind": "progress",
+            "stage": null
+          }
+        ],
+        "header": {
+          "about": {
+            "description": "",
+            "family": null,
+            "id": "t.src",
+            "known": true,
+            "name": "Source",
+            "path": null
+          },
+          "badges": [],
+          "engine": null,
+          "enter": false,
+          "icon": "box",
+          "open": true,
+          "state": {
+            "hover": "running",
+            "kind": "spinner",
+            "paint": {
+              "token": "state_running"
+            }
+          },
+          "status": [
+            {
+              "hover": null,
+              "paint": {
+                "token": "state_running"
+              },
+              "strong": true,
+              "text": "running 50%"
+            }
+          ],
+          "title": {
+            "text": "queued",
+            "watch": true
+          }
+        },
+        "id": "n6",
+        "inputs": [],
+        "kind": "t.src",
+        "menu": "node",
+        "nid": 18,
+        "outputs": [
+          {
+            "hover": "Type: x.t.pic",
+            "key": "pic",
+            "label": "pic",
+            "list": false,
+            "node": "n6",
+            "pin": {
+              "fill": {
+                "color": [
+                  204,
+                  68,
+                  102,
+                  255
+                ]
+              },
+              "shape": "square",
+              "wire": {
+                "color": [
+                  204,
+                  68,
+                  102,
+                  255
+                ]
+              },
+              "wireable": true
+            },
+            "ty": "x.t.pic"
+          },
+          {
+            "hover": "Type: TEXT",
+            "key": "text",
+            "label": "text",
+            "list": false,
+            "node": "n6",
+            "pin": {
+              "fill": {
+                "color": [
+                  212,
+                  160,
+                  32,
+                  255
+                ]
+              },
+              "shape": "square",
+              "wire": {
+                "color": [
+                  212,
+                  160,
+                  32,
+                  255
+                ]
+              },
+              "wireable": true
+            },
+            "ty": "TEXT"
+          },
+          {
+            "hover": "Type: x.t.pic",
+            "key": "pics",
+            "label": "[ ] pics · pic",
+            "list": true,
+            "node": "n6",
+            "pin": {
+              "fill": {
+                "color": [
+                  204,
+                  68,
+                  102,
+                  255
+                ]
+              },
+              "shape": "square",
+              "wire": {
+                "color": [
+                  204,
+                  68,
+                  102,
+                  255
+                ]
+              },
+              "wireable": true
+            },
+            "ty": "x.t.pic"
+          }
+        ],
+        "pos": [
+          0.0,
+          300.0
+        ],
+        "preview": null,
+        "proxy": null,
+        "rev": 2,
+        "run": {
+          "fraction": 0.5,
+          "notRun": false,
+          "stale": false,
+          "state": "progress"
+        },
+        "shown": null,
+        "tint": {
+          "body": {
+            "color": [
+              251,
+              250,
+              246,
+              255
+            ]
+          },
+          "header": {
+            "color": [
+              221,
+              216,
+              207,
+              255
+            ]
+          }
+        },
+        "view": "full",
+        "watched": false
+      }
+    ],
+    "wires": []
+  },
+  "view": {
+    "fit": {
+      "rect": [
+        -352.0,
+        -72.0,
+        1452.0,
+        2192.0
+      ],
+      "seq": 1
+    }
+  }
+}

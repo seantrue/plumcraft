@@ -1,4 +1,4 @@
-//! Saving a node's output with its recipe: `run.save` asks the engine to write the file
+//! Saving a node's output: `run.save` asks the engine to write the file
 //! (`output.save`, spec 15), as PNG, JPEG or whatever else its catalogue's `save_formats` list.
 //! The Watched panel's and a result node's "Save Result…" and "Contact Sheet…" use it.
 //!
@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use plumcraft_graph::NodeId;
 use plumcraft_proto::catalogue::{Media, Port, SaveFormat, SchemaReply, scalars, texts};
 use plumcraft_proto::error::NodeError;
-use plumcraft_proto::run::{GraphRef, SaveReply, SaveRequest};
+use plumcraft_proto::run::{GraphInfo, GraphRef, SaveReply, SaveRequest};
 use serde::Serialize;
 use serde_json::{Map, Value, json};
 
@@ -32,6 +32,11 @@ pub struct SaveAsk {
     pub path: String,
     /// Every item of a list on one picture, labelled with what varied.
     pub sheet: bool,
+    /// Who may be asked about it (`person` or `script`, the ask chain that started it), so the
+    /// engine may answer with a question (`output.save.question`); `None`, a scripted save,
+    /// never asked.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub question: Option<String>,
 }
 
 /// The save in flight, and the last outcome.
@@ -71,7 +76,7 @@ impl SaveState {
     /// The state as JSON (`ui.inspect`): the pending save and the last outcome.
     pub fn summary(&self) -> Value {
         let last = self.last.as_ref().map(|(ask, r)| {
-            json!({"request": ask, "ok": r.ok, "paths": r.paths, "recipe": r.recipe, "items": r.items, "labels": r.labels, "error": r.error.as_ref().map(|e| &e.message)})
+            json!({"request": ask, "ok": r.ok, "paths": r.paths, "recipe": r.recipe, "stamped": r.stamped, "items": r.items, "labels": r.labels, "error": r.error.as_ref().map(|e| &e.message)})
         });
         json!({"pending": self.pending, "last": last})
     }
@@ -84,8 +89,33 @@ fn bare(ext: &str) -> &str {
 
 /// The format that writes files with `path`'s extension.
 pub fn format_of<'a>(catalog: &'a SchemaReply, path: &Path) -> Option<&'a SaveFormat> {
+    format_in(&catalog.save_formats.iter().collect::<Vec<_>>(), path)
+}
+
+/// The format of `formats` that writes files with `path`'s extension.
+pub fn format_in<'a>(formats: &[&'a SaveFormat], path: &Path) -> Option<&'a SaveFormat> {
     let ext = path.extension()?.to_str()?;
-    catalog.save_formats.iter().find(|f| f.extensions.iter().any(|e| bare(e).eq_ignore_ascii_case(ext)))
+    formats.iter().find(|f| f.extensions.iter().any(|e| bare(e).eq_ignore_ascii_case(ext))).copied()
+}
+
+/// The formats `node`'s output `port` saves as, its default first (spec 7.1, 15: the node's own
+/// list, or every format whose media takes the port's). Empty for a node not in the graph.
+pub fn formats_for<'a>(s: &'a Session, node: &NodeId, port: &str) -> Vec<&'a SaveFormat> {
+    let Some(kind) = s.graph().node(node).map(|n| n.kind.clone()) else { return Vec::new() };
+    // a Convert's value is its last step's (spec 7.3): that step's output saves it
+    if kind == plumcraft_proto::convert::KIND
+        && let Some((step_kind, step_output)) = s.graph().convert_path(s.catalog(), node).and_then(|p| p.last().map(|l| (l.kind, l.output)))
+        && let Some(def) = s.catalog().node(step_kind)
+    {
+        return s.catalog().save_formats_for(def, step_output);
+    }
+    let Some(def) = s.catalog().node(&kind) else { return Vec::new() };
+    s.catalog().save_formats_for(def, port)
+}
+
+/// The extension a bare name gets among `formats`: the first's first.
+pub fn first_extension<'a>(formats: &[&'a SaveFormat]) -> Option<&'a str> {
+    formats.first().and_then(|f| f.extensions.first()).map(|e| bare(e)).filter(|e| !e.is_empty())
 }
 
 /// Does some format write a value of kind `media`?
@@ -110,8 +140,14 @@ pub fn save_path(path: &str, base: Option<&Path>, extension: Option<&str>) -> Pa
 }
 
 /// The file name offered for a save: the node's title without the catalogue's result prefix,
-/// made safe for a file name, with the list item's number when there is one.
+/// made safe for a file name, with the list item's number when there is one, and the catalogue's
+/// first format's extension.
 pub fn suggested_name(catalog: &SchemaReply, title: &str, index: Option<i64>) -> String {
+    suggested_name_as(catalog, title, index, default_extension(catalog))
+}
+
+/// [`suggested_name`] with extension `ext` (a node's first format's, [`first_extension`]).
+pub fn suggested_name_as(catalog: &SchemaReply, title: &str, index: Option<i64>, ext: Option<&str>) -> String {
     let prefix = catalog.text(texts::RESULT_PREFIX).unwrap_or_default().trim();
     let stem = title.trim();
     let stem = if prefix.is_empty() { stem } else { [prefix, prefix.trim_end_matches(':')].iter().find_map(|p| stem.strip_prefix(p)).unwrap_or(stem).trim() };
@@ -119,7 +155,7 @@ pub fn suggested_name(catalog: &SchemaReply, title: &str, index: Option<i64>) ->
     let safe = safe.trim_matches(|c: char| c == '.' || c == '-' || c.is_whitespace());
     let name = if safe.is_empty() { "result" } else { safe };
     let numbered = index.map_or_else(|| name.to_owned(), |i| format!("{name}-{i:02}"));
-    match default_extension(catalog) {
+    match ext {
         Some(e) => format!("{numbered}.{e}"),
         None => numbered,
     }
@@ -177,6 +213,14 @@ fn can_save(s: &Session) -> std::result::Result<(), String> {
     Ok(())
 }
 
+/// What a saved file says of the workflow (spec 15, `graph_info`; purely informational): the
+/// document's name (its file's name without the extension, or `Untitled`) and the hash of what
+/// makes its result ([`crate::trust::result_hash`]: kinds, values, pins and wires; decision 1B).
+pub fn graph_info(s: &Session) -> GraphInfo {
+    let name = s.path().and_then(Path::file_stem).map_or_else(|| "Untitled".to_owned(), |n| n.to_string_lossy().into_owned());
+    GraphInfo { name, hash: crate::trust::result_hash(s.graph()) }
+}
+
 /// `run.save {node, port?, index?, sheet?, path, options?}`.
 fn save(s: &mut Session, p: &Value) -> Result<Value> {
     let node = NodeId::from(str_param(p, "node")?);
@@ -195,6 +239,11 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         Some(v) => Some(v.as_i64().filter(|i| *i >= 0).ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?),
     };
     let sheet = crate::commands::opt_bool_param(p, "sheet", false)?;
+    let question = match p.get("question") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(by)) if by == "person" || by == "script" => Some(by.clone()),
+        Some(_) => return Err(SessionError::Params("\"question\" is who may be asked: \"person\" or \"script\"".into())),
+    };
     if sheet && index.is_some() {
         return Err(SessionError::Params("\"sheet\" takes every item: leave \"index\" out".into()));
     }
@@ -203,8 +252,13 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(SessionError::Params("\"path\" names where to save".into()));
     }
     let base = crate::paths::base_folder(s.path());
-    let path = save_path(raw, base.as_deref(), default_extension(s.catalog()));
-    let format = format_of(s.catalog(), &path);
+    // what this output saves as: the node's own list, or every format that takes its media
+    let offered = formats_for(s, &node, &port);
+    if offered.is_empty() {
+        return Err(SessionError::Params(format!("{node}.{port} has no save format: nothing its engine saves takes this value")));
+    }
+    let path = save_path(raw, base.as_deref(), first_extension(&offered));
+    let format = format_in(&offered, &path);
     let options = options(p, format)?;
     let format = format.map(|f| f.id.clone()).unwrap_or_default();
     let path = path.to_string_lossy().into_owned();
@@ -220,7 +274,8 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         s.run.ask_review();
         return Err(SessionError::Params("this workflow came from elsewhere: review it before saving a result (graph.review, then graph.trust)".into()));
     }
-    let ask = SaveAsk { node: node.0.clone(), port: port.clone(), index, path: path.clone(), sheet };
+    let ask = SaveAsk { node: node.0.clone(), port: port.clone(), index, path: path.clone(), sheet, question: question.clone() };
+    let graph_info = Some(graph_info(s));
     s.save.outbox.push(SaveRequest {
         graph: GraphRef::Inline { graph },
         node: node.0,
@@ -230,6 +285,8 @@ fn save(s: &mut Session, p: &Value) -> Result<Value> {
         format,
         options,
         sheet,
+        graph_info,
+        ask: question.is_some(),
         ..Default::default()
     });
     s.save.pending = Some(ask.clone());
@@ -242,7 +299,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label: "Save Result…",
         menu: &[],
         shortcut: None,
-        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats)} -> {pending} (the engine writes the file, its recipe included, by the extension; the reply arrives later: ui.inspect's save)",
+        params: "{node, port? (default: its first output), index? (one item of a list; default: every item, numbered), sheet? (true: every item of a list on one picture, each labelled with what varied), path (relative to the workflow's folder; the first format's extension added to a bare name), options? (the format's, from the catalogue's save_formats), question? (person or script: a save the Save Result… chain started, which the engine may answer with a question instead of writing; a scripted save leaves it out and is never asked)} -> {pending} (the engine writes the file by the extension, with the workflow's name and graph hash where the format has room; the reply arrives later: ui.inspect's save)",
         enabled: can_save,
         run: save,
         journal: false,
@@ -312,6 +369,11 @@ mod tests {
         let body = &out[0];
         assert_eq!((body.node.as_str(), body.port.as_str(), body.index, body.format.as_str(), body.sheet), (id.as_str(), "picture", Some(2), "pic", false));
         assert_eq!(body.options["dither"], "some");
+        // the workflow's name and its graph's hash, informational (2026-11-22)
+        let info = body.graph_info.clone().unwrap();
+        assert_eq!(info.name, "Untitled");
+        assert_eq!(info.hash, crate::trust::result_hash(s.graph()));
+        assert_eq!(info.hash.len(), "sha256:".len() + 64);
         let path = PathBuf::from(body.path.clone().unwrap());
         assert!(path.is_absolute() && path.ends_with("prints/one.pic"), "{}", path.display());
         let GraphRef::Inline { graph } = &body.graph else { panic!("inline") };
@@ -359,6 +421,35 @@ mod tests {
         let mut empty = Session::new(catalog());
         empty.connected = true;
         assert!(empty.execute("run.save", &json!({"node": "n", "path": "a.pic"})).unwrap_err().to_string().contains("empty"));
+    }
+
+    /// Spec 7.3 `save_formats`: each output offers the formats that take its media, or the
+    /// node's own list in its order; the first names a bare file, and one with none refuses.
+    #[test]
+    fn each_output_offers_its_own_formats() {
+        let (mut s, id) = session();
+        let ids = |s: &Session, port: &str| formats_for(s, &NodeId::from(id.as_str()), port).iter().map(|f| f.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&s, "picture"), ["pic", "rough"]);
+        assert_eq!(ids(&s, "note"), ["rough"], "TEXT isn't what Picture writes");
+        s.execute("run.save", &json!({"node": id, "port": "note", "path": "n"})).unwrap();
+        let out = s.save.take_outbox();
+        assert!(out[0].path.as_deref().is_some_and(|p| p.ends_with("n.rgh")) && out[0].format == "rough", "{:?}", out[0].path);
+        s.save.fail("done");
+        // a node's own list
+        let mut c = catalog();
+        c.nodes[0].save_formats = Some(vec!["rough".into(), "pic".into()]);
+        c.nodes.push(serde_json::from_value(json!({"id": "t.none", "outputs": [{"name": "picture", "type": "ARRAY"}], "save_formats": []})).unwrap());
+        let mut s = Session::new(c);
+        s.connected = true;
+        let a = s.execute("node.add", &json!({"kind": "t.out"})).unwrap()["id"].as_str().unwrap().to_owned();
+        let b = s.execute("node.add", &json!({"kind": "t.none"})).unwrap()["id"].as_str().unwrap().to_owned();
+        assert_eq!(formats_for(&s, &NodeId::from(a.as_str()), "picture").iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["rough", "pic"]);
+        s.execute("run.save", &json!({"node": a, "path": "p"})).unwrap();
+        assert_eq!(s.save.take_outbox()[0].format, "rough", "the node's first");
+        s.save.fail("done");
+        let e = s.execute("run.save", &json!({"node": b, "path": "p.pic"})).unwrap_err().to_string();
+        assert!(e.contains("no save format"), "{e}");
+        assert_eq!(suggested_name_as(&s.catalog().clone(), "Out: x", None, Some("rgh")), "x.rgh");
     }
 
     #[test]

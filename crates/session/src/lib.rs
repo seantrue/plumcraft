@@ -15,8 +15,12 @@
 
 pub mod archive;
 pub mod bundle_cmds;
+pub mod chart_cmds;
+pub mod chart_view;
 pub mod commands;
 pub mod convert;
+pub mod curve_cmds;
+pub mod derive_cmds;
 pub mod doc_cmds;
 pub mod doc_edits;
 mod edit_cmds;
@@ -25,6 +29,7 @@ pub mod expand_cmds;
 pub mod file_cmds;
 mod frame_cmds;
 mod graph_cmds;
+pub mod graph_file;
 mod group_cmds;
 pub mod insert_cmds;
 pub mod labels_cmds;
@@ -41,6 +46,7 @@ pub mod settings_cmds;
 pub mod trust;
 pub mod view_cmds;
 pub mod viewer_cmds;
+pub mod viewer_state;
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -64,6 +70,11 @@ pub const UNDO_LIMIT: usize = 200;
 /// The title node `id` shows on the canvas (its id when the graph doesn't have it).
 pub fn node_title(graph: &Graph, catalog: &SchemaReply, id: &NodeId) -> String {
     graph.node_title(id, |kind| display_name(catalog, kind)).unwrap_or_else(|| id.to_string())
+}
+
+/// Every node's title, as [`node_title`] gives each, in one pass ([`Graph::node_titles`]).
+pub fn node_titles(graph: &Graph, catalog: &SchemaReply) -> std::collections::BTreeMap<plumcraft_graph::NodeId, String> {
+    graph.node_titles(|kind| display_name(catalog, kind))
 }
 
 /// A node type's display name, or its id when the catalog has none: the stem of new nodes'
@@ -109,6 +120,41 @@ pub const JOURNAL_LIMIT: usize = 10_000;
 struct Snapshot {
     label: String,
     graph: Graph,
+    /// Which step this is: rises with every step pushed (a move that follows one may join it,
+    /// [`MoveMark`]).
+    serial: u64,
+}
+
+/// How far apart two moves of the same things may come, naming no drag, and still be one undo
+/// step: a held arrow key, a script's run of `node.move`s (N3 slice 1).
+pub const MOVE_COALESCE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// The undo step a move made, for the next move to join ([`Session::edit_move`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MoveMark {
+    /// What was moved (`node:<id>`, `group:<id>`, `frame:<id>`, `size:<frame id>`), sorted.
+    pub items: Vec<String>,
+    /// The drag that moved them, when one was named.
+    pub drag: Option<String>,
+    /// When the last move joined it.
+    pub at: std::time::Instant,
+    /// The step's [`Snapshot::serial`].
+    step: u64,
+}
+
+impl MoveMark {
+    /// Does a move of `items` by `drag` at `now` join this step? The rule (N3 slice 1): the same
+    /// things, and either the same drag named, or no drag named by either and at most
+    /// [`MOVE_COALESCE`] since the last move joined. A move naming another drag, or a drag where
+    /// the step named none (or none where it named one), is a step of its own.
+    pub fn joins(&self, items: &[String], drag: Option<&str>, now: std::time::Instant) -> bool {
+        self.items == items
+            && match (self.drag.as_deref(), drag) {
+                (Some(a), Some(b)) => a == b,
+                (None, None) => now.saturating_duration_since(self.at) <= MOVE_COALESCE,
+                _ => false,
+            }
+    }
 }
 
 /// What is wrong with `graph` against `catalog`: nodes of kinds it doesn't have, wires that
@@ -127,17 +173,21 @@ pub fn graph_problems(graph: &Graph, catalog: &SchemaReply) -> BTreeSet<String> 
 /// What an application says about itself: its About window and `--version`.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize)]
 pub struct About {
-    /// The title ("PlumImpress").
+    /// The title ("PlumCraft", or an application's own name).
     pub title: String,
     pub version: String,
     /// What it was built from: a name and its version, in order.
     pub parts: Vec<(String, String)>,
+    /// Which build this is (B151): `{line, shell, app, ui}`, each stamp `{commit, dirty, date}`
+    /// (`plumcraft_build_stamp::about`); None where the program says nothing.
+    pub build: Option<serde_json::Value>,
 }
 
 /// What a graph needs that no connected engine has.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct MissingEngines {
-    /// The engines the file names that aren't connected. Empty when it names none.
+    /// The engines the file names that aren't connected, and those the host knows offer the
+    /// missing kinds ([`Engines::offered`]). Empty when neither says.
     pub engines: Vec<String>,
     /// The node types nothing here offers.
     pub kinds: Vec<String>,
@@ -160,12 +210,20 @@ pub struct Session {
     graph: Graph,
     undo: Vec<Snapshot>,
     redo: Vec<Snapshot>,
+    /// The serial the next undo step gets.
+    next_step: u64,
+    /// The move step on top of the undo stack, while it is there ([`Session::edit_move`]).
+    last_move: Option<MoveMark>,
     journal: Vec<JournalEntry>,
     generation: u64,
     /// The workflow file this graph was opened from or last saved to.
     path: Option<PathBuf>,
     /// Changed since it was opened or saved.
     dirty: bool,
+    /// Bumped by every change that makes the graph dirty (an edit, a move, a change that isn't an
+    /// undo step such as Show on Face, undo, redo): what an autosave compares, so a save taken of
+    /// one state never marks a later one saved ([`Session::changes`], N4 slice 4).
+    changes: u64,
     /// Run state: per-node results, staleness, auto-run, requests for the engine.
     pub run: RunState,
     /// The host has a connected engine (runs are offered only then).
@@ -190,6 +248,9 @@ pub struct Session {
     from_file: bool,
     /// The window's engine connection, as the editor last linked it ([`Session::connection`]).
     connection: SharedConnection,
+    /// The document this session is, among the editor's open documents (0: none named). The
+    /// application's `before` and `after` hooks read it ([`Session::doc_id`]).
+    doc: u64,
 }
 
 /// The window's engine connection, held for an application's commands. Debug says only whether
@@ -229,10 +290,13 @@ impl Session {
             graph: Graph::new(),
             undo: Vec::new(),
             redo: Vec::new(),
+            next_step: 1,
+            last_move: None,
             journal: Vec::new(),
             generation: 0,
             path: None,
             dirty: false,
+            changes: 0,
             run: RunState::for_new_graph(),
             connected: false,
             engines: Engines::default(),
@@ -244,6 +308,7 @@ impl Session {
             trust_file: None,
             from_file: false,
             connection: SharedConnection::default(),
+            doc: 0,
         }
     }
 
@@ -320,6 +385,30 @@ impl Session {
         Session { graph, ..Session::new(catalog) }
     }
 
+    /// The document this session is (`docs/shell-interface.md` 4.3): what an application's hooks
+    /// tell two documents apart by (decision 3). 0 when the editor named none.
+    pub fn doc_id(&self) -> u64 {
+        self.doc
+    }
+
+    /// Name the document this session is.
+    pub fn set_doc_id(&mut self, doc: u64) {
+        self.doc = doc;
+    }
+
+    /// Show `graph` as the one the session was made with ([`Session::with_graph`]), once the
+    /// catalogue it is titled against has arrived: no undo step, nothing unsaved, no file. For a
+    /// shell that opens its window before its engine has connected.
+    pub fn start_graph(&mut self, mut graph: Graph) {
+        let catalog = &self.catalog;
+        graph.assign_serials(&BTreeSet::new(), |kind| display_name(catalog, kind));
+        self.graph = graph;
+        self.undo.clear();
+        self.redo.clear();
+        self.dirty = false;
+        self.path = None;
+    }
+
     pub fn graph(&self) -> &Graph {
         &self.graph
     }
@@ -350,6 +439,31 @@ impl Session {
     /// Has the graph changed since it was opened or saved?
     pub fn is_dirty(&self) -> bool {
         self.dirty
+    }
+
+    /// How many changes have made the graph dirty, ever: it rises with each one, so an autosave
+    /// knows whether the graph it wrote is still the graph (N4 slice 4).
+    pub fn changes(&self) -> u64 {
+        self.changes
+    }
+
+    /// The graph as of change `as_of` was written to `path` by an autosave: the document's file is
+    /// `path` from now on, and it is clean unless it has changed since (then it stays dirty, and
+    /// the next save takes the later change). True when it is clean.
+    pub fn mark_autosaved(&mut self, path: PathBuf, as_of: u64) -> bool {
+        self.path = Some(path);
+        if self.changes == as_of {
+            self.dirty = false;
+            self.remember_saved();
+        }
+        !self.dirty
+    }
+
+    /// The document's file is `path` from now on, as it is (an autosave given a file before
+    /// anything was written to it): dirty, so the next save writes it.
+    pub fn relocate(&mut self, path: PathBuf) {
+        self.path = Some(path);
+        self.touch();
     }
 
     /// The workflow file this graph was opened from or last saved to.
@@ -384,7 +498,9 @@ impl Session {
 
     /// What this graph needs that no connected engine has, naming the engines when the file does
     /// (a node's `engine`, the workflow's `engines`, spec 8.2; a recipe saved across engines holds
-    /// them, spec 15). `None` when every node's kind is offered.
+    /// them, spec 15) or when the host knows which engine offers a kind without starting it
+    /// ([`Engines::offered`], [`engine_cmds::engines_used`]). `None` when every node's kind is
+    /// offered.
     pub fn missing_engines(&self) -> Option<MissingEngines> {
         let unknown = self.graph.nodes.values().filter(|n| self.catalog.node(&n.kind).is_none());
         let (mut kinds, mut pinned) = (BTreeSet::new(), BTreeSet::new());
@@ -407,6 +523,17 @@ impl Session {
         for e in named {
             if !here.contains(e.as_str()) && !engines.contains(e) {
                 engines.push(e.clone());
+            }
+        }
+        // and the engines the host knows offer the kinds that are missing, though the file doesn't
+        // name them (decision 8C: start only the engines the graph uses)
+        let unknown = self.graph.nodes.values().filter(|n| self.catalog.node(&n.kind).is_none());
+        let prefer: Vec<&str> = self.engines.engine_ids();
+        let offered_here: engine_cmds::Offered =
+            self.engines.offered.iter().filter(|(e, _)| !here.contains(e.as_str())).map(|(e, k)| (e.clone(), k.clone())).collect();
+        for e in engine_cmds::engines_used(unknown.map(|n| (n.kind.as_str(), n.engine.as_deref())), &self.graph.engines, &offered_here, &prefer) {
+            if !here.contains(e.as_str()) && !engines.contains(&e) {
+                engines.push(e);
             }
         }
         let kinds: Vec<String> = kinds.into_iter().collect();
@@ -467,12 +594,17 @@ impl Session {
                     // a new graph: its pop-outs followed the old one's ports
                     self.views.popouts.clear();
                     self.views.editors.clear();
+                    // and its parameters inspector was on one of its nodes (N4 slice 3)
+                    self.views.parameters = None;
                     viewer_cmds::clear(self);
                     doc_edits::clear(self);
                 } else {
                     self.run.on_edit(before, &self.graph, now);
                     view_cmds::prune(self);
                     viewer_cmds::prune(self);
+                    if self.views.parameters.as_ref().is_some_and(|n| self.graph.node(n).is_none()) {
+                        self.views.parameters = None;
+                    }
                     doc_edits::prune(self);
                 }
             }
@@ -499,13 +631,24 @@ impl Session {
     /// it is fixed). On error the graph is left as it was. An application's commands make their
     /// undo steps here too, under their own `label`.
     pub fn edit<T>(&mut self, label: &str, f: impl FnOnce(&mut Graph, &SchemaReply) -> Result<T>) -> Result<T> {
+        let catalog = std::mem::take(&mut self.catalog);
+        let result = self.edit_against(label, &catalog, f);
+        self.catalog = catalog;
+        result
+    }
+
+    /// [`Session::edit`], checked against `catalog` instead of the session's own: the catalogue
+    /// with the definitions of engines that are starting, for an insert that brings their nodes
+    /// (B165: `graph.insert`). Problems the session's catalogue sees only for want of those
+    /// engines go once they connect.
+    pub(crate) fn edit_against<T>(&mut self, label: &str, catalog: &SchemaReply, f: impl FnOnce(&mut Graph, &SchemaReply) -> Result<T>) -> Result<T> {
         let before = self.graph.clone();
-        let result = f(&mut self.graph, &self.catalog).and_then(|v| {
+        let result = f(&mut self.graph, catalog).and_then(|v| {
             let fresh: BTreeSet<NodeId> = self.graph.nodes.keys().filter(|id| !before.nodes.contains_key(*id)).cloned().collect();
-            self.graph.assign_serials(&fresh, |kind| display_name(&self.catalog, kind));
-            if self.graph.check(&self.catalog).is_err() {
-                let had = graph_problems(&before, &self.catalog);
-                if let Some(new) = graph_problems(&self.graph, &self.catalog).into_iter().find(|p| !had.contains(p)) {
+            self.graph.assign_serials(&fresh, |kind| display_name(catalog, kind));
+            if self.graph.check(catalog).is_err() {
+                let had = graph_problems(&before, catalog);
+                if let Some(new) = graph_problems(&self.graph, catalog).into_iter().find(|p| !had.contains(p)) {
                     return Err(GraphError::Broken(new).into());
                 }
             }
@@ -513,11 +656,8 @@ impl Session {
         });
         match result {
             Ok(v) => {
-                self.dirty = true;
-                self.undo.push(Snapshot { label: label.to_owned(), graph: before });
-                if self.undo.len() > UNDO_LIMIT {
-                    self.undo.remove(0);
-                }
+                self.touch();
+                self.push_undo(label.to_owned(), before);
                 self.redo.clear();
                 Ok(v)
             }
@@ -528,6 +668,47 @@ impl Session {
         }
     }
 
+    fn push_undo(&mut self, label: String, graph: Graph) {
+        let serial = self.next_step;
+        self.next_step = self.next_step.wrapping_add(1);
+        self.undo.push(Snapshot { label, graph, serial });
+        if self.undo.len() > UNDO_LIMIT {
+            self.undo.remove(0);
+        }
+    }
+
+    /// A move (`node.move`, `group.move`, `frame.move`, `frame.resize`, `edit.move`; N3 slice 1):
+    /// one undo step under `label`, or, when it follows a move of the same `items` that it
+    /// [joins](MoveMark::joins), part of that step (its label kept). So a drag is one step however
+    /// many moves it sends, and a held arrow key is one step. `f` must change the graph (the
+    /// caller leaves out moves to where things already are) and must not fail once the caller has
+    /// checked the ids: a step joined is not snapshotted again, so an error there leaves what `f`
+    /// did so far, positions only.
+    pub fn edit_move<T>(&mut self, label: &str, mut items: Vec<String>, drag: Option<&str>, f: impl FnOnce(&mut Graph) -> Result<T>) -> Result<T> {
+        items.sort();
+        items.dedup();
+        let now = std::time::Instant::now();
+        let top = self.undo.last().map(|s| s.serial);
+        let joined = self.last_move.as_ref().is_some_and(|m| Some(m.step) == top && self.redo.is_empty() && m.joins(&items, drag, now));
+        if joined {
+            let v = f(&mut self.graph)?;
+            self.touch();
+            if let Some(m) = &mut self.last_move {
+                m.at = now;
+            }
+            return Ok(v);
+        }
+        let v = self.edit(label, |g, _| f(g))?;
+        self.last_move = self.undo.last().map(|s| MoveMark { items, drag: drag.map(str::to_owned), at: now, step: s.serial });
+        Ok(v)
+    }
+
+    /// The move step on top of the undo stack, if the last step was a move (tests, `ui.inspect`).
+    pub fn last_move(&self) -> Option<&MoveMark> {
+        let top = self.undo.last().map(|s| s.serial);
+        self.last_move.as_ref().filter(|m| Some(m.step) == top && self.redo.is_empty())
+    }
+
     /// A change that isn't an undo step (canvas positions while dragging). Call
     /// [`Session::mark_dirty`] when it succeeds, since positions are saved.
     pub(crate) fn graph_mut_untracked(&mut self) -> &mut Graph {
@@ -535,7 +716,13 @@ impl Session {
     }
 
     pub(crate) fn mark_dirty(&mut self) {
+        self.touch();
+    }
+
+    /// Dirty, and one change more.
+    fn touch(&mut self) {
         self.dirty = true;
+        self.changes = self.changes.wrapping_add(1);
     }
 
     /// The graph was written to, or read from, `path`.
@@ -589,8 +776,8 @@ impl Session {
     pub(crate) fn step_undo(&mut self) -> bool {
         let Some(prev) = self.undo.pop() else { return false };
         let current = std::mem::replace(&mut self.graph, prev.graph);
-        self.redo.push(Snapshot { label: prev.label, graph: current });
-        self.dirty = true;
+        self.redo.push(Snapshot { label: prev.label, graph: current, serial: prev.serial });
+        self.touch();
         true
     }
 
@@ -598,8 +785,9 @@ impl Session {
     pub(crate) fn step_redo(&mut self) -> bool {
         let Some(next) = self.redo.pop() else { return false };
         let current = std::mem::replace(&mut self.graph, next.graph);
-        self.undo.push(Snapshot { label: next.label, graph: current });
-        self.dirty = true;
+        // a step redone is a new step: a move after it doesn't join it
+        self.push_undo(next.label, current);
+        self.touch();
         true
     }
 }

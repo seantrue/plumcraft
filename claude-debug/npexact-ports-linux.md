@@ -10,8 +10,8 @@ The maintainer asked: "Move the hand-ported behaviours into npexact, record fixt
 ## Summary
 
 - **Moved.** The 15 families of numpy behaviour that `plumcraft-array` had written itself now live in npexact, each held to fixtures numpy recorded. `plumcraft-array` calls them through its own small wrappers, so its nodes and tests didn't change.
-- **Recorded on Linux.** yellowfin (Xeon E5-2698 v4, x86-64, AVX2, no AVX-512) now has a full fixture set beside the M4 Max's, from the same numpy 2.3.3 and Python 3.13.7.
-- **Tested.** All npexact tests pass on both machines, and the pure-Rust sections replay both machines' fixtures on either. All of `plumcraft-array`'s tests pass on the Mac. On yellowfin one fails, the same way it does without this work.
+- **Recorded on Linux.** the Linux test host (Xeon E5-2698 v4, x86-64, AVX2, no AVX-512) now has a full fixture set beside the M4 Max's, from the same numpy 2.3.3 and Python 3.13.7.
+- **Tested.** All npexact tests pass on both machines, and the pure-Rust sections replay both machines' fixtures on either. All of `plumcraft-array`'s tests pass on the Mac. On the Linux test host one fails, the same way it does without this work.
 - **The fixtures found four things:**
   - two bugs in npexact's existing code: `quantile` on both hosts, and `sin`/`cos` on x86-64;
   - one in PlumCraft's hand port: `clip(-0, 0)` gave `-0`;
@@ -50,14 +50,14 @@ The existing `quantile_linear_f32` and `median_f32` had no fixtures. They have t
 
 ## Fixtures
 
-The recorder is Yapocis3's `src/yapocis/codegen/host_fixtures.py` (branch `host-fixtures-ports`). It gains four sections (`elementwise`, `extrema`, `order`, `fft`) plus three `linspace` cases in `hist`. Its inputs include:
+The recorder is the kernel library's `codegen/host_fixtures.py` (branch `host-fixtures-ports`). It gains four sections (`elementwise`, `extrema`, `order`, `fft`) plus three `linspace` cases in `hist`. Its inputs include:
 
 - every pair of 25 special values;
 - long arrays with NaN and signed zeros sprinkled in;
 - 75 lengths for the reductions, so the SIMD body and tail are both exercised;
 - all-NaN arrays and ties.
 
-The script needs only numpy. On yellowfin it ran from a temporary directory (`uv run --no-project --with numpy==2.3.3`), with yellowfin's own checkouts untouched.
+The script needs only numpy. On the Linux test host it ran from a temporary directory (`uv run --no-project --with numpy==2.3.3`), with the Linux test host's own checkouts untouched.
 
 Re-recording the Mac gave byte-identical files for every earlier case. Only `hist.npz` changed, since it gained three keys.
 
@@ -90,16 +90,16 @@ The `simd_math` test also assumed numpy's float32 `exp`/`log` are libm, which is
 | Where | What | Result |
 |---|---|---|
 | Mac | `cargo test -p npexact --release` | all pass (7 suites) |
-| Mac | `cargo clippy --workspace --all-targets` (yapocis-rs, `ocl`, `metal`) with `-D warnings`, `cargo fmt --check` | clean |
-| yellowfin | `cargo test -p npexact --release` against its own fixtures, plus clippy | all pass, clean |
+| Mac | `cargo clippy --workspace --all-targets` (the Rust kernel library, `ocl`, `metal`) with `-D warnings`, `cargo fmt --check` | clean |
+| The Linux test host | `cargo test -p npexact --release` against its own fixtures, plus clippy | all pass, clean |
 | both | `elementwise`, `extrema`, `order`, `fft` replayed for **both** hosts | 24, 2,054, 84 and 7 shapes per host |
 | Mac | `cargo test -p plumcraft-array --release` | 52 passed |
 | Mac | PlumCraft gate: `cargo test --all-features`, clippy with `-D warnings`, fmt; `pytest`, `ruff` | 1,037 passed, 0 failed, 3 ignored; clean; 208 passed; clean |
-| yellowfin | `cargo test -p plumcraft-array --release` | 51 passed, 1 failed: `mandelbrot_matches_numba`, 9 points. The unmodified code fails identically: the references are the Mac's numba (fused complex multiply) and x86 uses the plain contraction. Not caused by this work |
+| The Linux test host | `cargo test -p plumcraft-array --release` | 51 passed, 1 failed: `mandelbrot_matches_numba`, 9 points. The unmodified code fails identically: the references are the Mac's numba (fused complex multiply) and x86 uses the plain contraction. Not caused by this work |
 
 ## Still to do
 
-- **Publish npexact.** The changes are additive (new modules, `_with` variants, two policies) plus two bug fixes, so 0.1.1 fits. npexact takes its version from the yapocis-rs workspace (0.1.0), so it needs its own `version` or a workspace bump. Then remove `[patch.crates-io]` from PlumCraft's `Cargo.toml`. Publishing `plumcraft-array` needs this first.
+- **Publish npexact.** The changes are additive (new modules, `_with` variants, two policies) plus two bug fixes, so 0.1.1 fits. npexact takes its version from the Rust kernel library's workspace (0.1.0), so it needs its own `version` or a workspace bump. Then remove `[patch.crates-io]` from PlumCraft's `Cargo.toml`. Publishing `plumcraft-array` needs this first.
 - **AVX-512.** A CPU with it runs numpy's AVX-512 loops, with 16 lanes and its own reductions. Neither the zero-sign rule nor the quadrant rounding is proven there.
 - **The array engine's other hosts.** Its references are the Mac's; Mandelbrot shows that an x86 run can't match them all.
 - **Docs and correction.** `lib.rs` says npexact was ported from numpy 2.5.3's sources, while every fixture was recorded with 2.3.3. `npexact-numpy-gap.md` repeated "2.5.3". (Its remark that npexact has no sort is now out of date.)

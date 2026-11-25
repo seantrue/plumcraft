@@ -37,3 +37,19 @@ fn pack_ops_go_to_the_engine_that_offers_them_or_the_one_named() {
     assert_eq!(c.call("x.p.one", json!({"engine": "b"})).unwrap()["from"], "b", "the one named");
     assert_eq!(c.call("x.p.three", json!({})).unwrap_err().code, ErrorCode::UnknownOp);
 }
+
+/// FR6 slice 3: `view.derive` over several engines goes to each that lists it until one reads
+/// the value, so the editor's view of an engine's value is that engine's (an app links its
+/// document to a coordinator of several); junk is still refused.
+#[test]
+fn a_derived_view_goes_to_an_engine_that_reads_the_value() {
+    use base64::Engine as _;
+    let c = Coordinator::new().with_engine("a", engine_with("a", &[])).with_engine("b", engine_with("b", &[]));
+    let bytes: Vec<u8> = (0..24u32).flat_map(|i| (i as f32).to_le_bytes()).collect();
+    let handle = plumcraft_proto::handle::Handle::nd1("<f4", &[2, 3, 4], &bytes).unwrap();
+    let r = json!({"handle": handle.to_string(), "meta": {"media": "application/x-npy", "size": 96, "form": {"kind": "array", "dtype": "<f4", "shape": [2, 3, 4]}},
+                   "at": [{"kind": "inline", "b64": base64::engine::general_purpose::STANDARD.encode(&bytes)}]});
+    let got = c.call("view.derive", json!({"ref": r, "view": {"kind": "histogram", "params": {"bins": 4}}})).unwrap();
+    assert_eq!(got["table"]["columns"][1]["values"], json!([6, 6, 6, 6]));
+    assert!(c.call("view.derive", json!({"ref": r, "view": {"kind": "nope"}})).is_err());
+}

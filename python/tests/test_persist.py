@@ -1,31 +1,39 @@
 """Persisted memo records (spec 14.5), as `crates/engine/tests/persist.rs`: a slow node's result
 survives the engine (a fresh memo, the same store) as `cached`; a fast one, a `cache: never` one,
 one too big to be worth writing and one whose time was setup are not persisted; `cache: always`
-is; a reaped value or a hostile record is a miss that recomputes, never an error."""
+is; a reaped value or a hostile record is a miss that recomputes, never an error.
+
+Whether a result is too big is weighed against the node's measured work (spec 14.5), so a test of
+it can't use the wall clock: on a host whose memory is fragmented, the kernel's compaction when
+numpy faults in a fresh 8 MB array (numpy asks for huge pages) has taken over 150 ms (B49). Those
+tests give the engine a `VirtualClock` (`Engine.with_clock`), on which a node's work is exactly the
+time it sleeps on that clock."""
 
 import json
 import os
-import time
 
 import numpy as np
+import pytest
 import scratch
 from commonkit import digest as ck_digest
 
-from plumcraft_engine import Blob, CancelToken, Engine, List, Node, data, exec
+from plumcraft_engine import Blob, CancelToken, Clock, Engine, List, Node, RealClock, VirtualClock, data, exec
 
 
 class Slow(Node):
-    """Sleeps `ms` (of which `setup` counts as setup), then makes one of every kind of value."""
+    """Sleeps `ms` on `clock` (of which `setup` counts as setup), then makes one of every kind of
+    value."""
 
-    def __init__(self, ident="t.slow", scope="machine"):
+    def __init__(self, ident="t.slow", scope="machine", clock: Clock | None = None):
         ints = [{"name": n, "type": "INT", "default": d} for n, d in (("n", 1), ("ms", 0), ("setup", 0), ("big", 0))]
         outs = [{"name": o, "type": "ANYTHING"} for o in ("json", "array", "blob", "list")]
         self.definition = {"id": ident, "inputs": ints, "outputs": outs, "memo": {"scope": scope}}
         self.runs = 0
+        self.clock = clock or RealClock()
 
     def run(self, inputs, cx):
         self.runs += 1
-        time.sleep(inputs["ms"] / 1000)
+        self.clock.sleep(inputs["ms"] / 1000)
         cx.setup_took(inputs["setup"] / 1000)
         n = inputs["n"]
         text = (json.dumps({"n": n}) + " ") * 20_000
@@ -42,14 +50,18 @@ class Slow(Node):
 ZERO = "0" * len(ck_digest.raw(b""))
 ZERO_ND1 = f"{ck_digest.current()}:nd1:{ZERO}"
 
+
 def root() -> str:
     return scratch.mkdtemp("persist-")
 
 
-def engine(store_root, salt="s"):
-    slow, session = Slow(), Slow("t.session", "session")
+def engine(store_root, salt="s", clock: Clock | None = None):
+    """An engine whose nodes sleep, and have their work measured, on `clock` (the real one when
+    none is given)."""
+    clock = clock or RealClock()
+    slow, session = Slow(clock=clock), Slow("t.session", "session", clock)
     e = Engine({"id": "t", "salt": salt}).with_store(store_root).with_persist_ms(40.0).with_wire_type({"id": "ANYTHING", "media": "tree"})
-    return e.with_node(slow).with_node(session), slow, session
+    return e.with_clock(clock).with_node(slow).with_node(session), slow, session
 
 
 def run(e, store_root, node, memo="use"):
@@ -59,11 +71,12 @@ def run(e, store_root, node, memo="use"):
 
 
 def twice(store_root, node):
-    """Run `node` in one engine, then in a fresh one over the same store: its state there, and how
-    many times it ran in all."""
-    a, sa, ta = engine(store_root)
+    """Run `node` in one engine, then in a fresh one over the same store, both on a virtual clock:
+    its state there, and how many times it ran in all."""
+    clock = VirtualClock()
+    a, sa, ta = engine(store_root, clock=clock)
     assert run(a, store_root, node)["nodes"]["n"]["state"] == "done"
-    b, sb, tb = engine(store_root)
+    b, sb, tb = engine(store_root, clock=clock)
     state = run(b, store_root, node)["nodes"]["n"]["state"]
     return state, sa.runs + ta.runs + sb.runs + tb.runs
 
@@ -101,6 +114,39 @@ def test_fast_never_session_too_big_and_setup_bound_results_are_not_persisted():
     assert twice(r, {"kind": "t.slow", "values": {"n": 5, "ms": 60, "setup": 60}}) == ("done", 2), "setup"
     assert twice(r, {"kind": "t.slow", "values": {"n": 6}, "cache": "always"}) == ("cached", 1), "always"
     assert twice(r, {"kind": "t.slow", "values": {"n": 8}, "cache": ["junk"]}) == ("done", 2), "junk is auto"
+
+
+def test_too_big_is_weighed_against_the_work_measured():
+    """B49: about 8.2 MB of outputs costs ~82 ms to write and read back at the rule's 200 MB/s, so
+    60 ms of work isn't worth persisting, and the 96.8 ms a run measured on a busy host is."""
+    r = root()
+    assert twice(r, {"kind": "t.slow", "values": {"n": 10, "ms": 60, "big": 8_000_000}}) == ("done", 2), "60 ms: too big"
+    a, _, _ = engine(r, clock=VirtualClock())
+    busy = run(a, r, {"kind": "t.slow", "values": {"n": 11, "ms": 97, "big": 8_000_000}})["nodes"]["n"]
+    assert busy["memo"]["computed_ms"] == pytest.approx(97.0), "the work is what the node slept"
+    assert twice(r, {"kind": "t.slow", "values": {"n": 12, "ms": 97, "big": 8_000_000}}) == ("cached", 1), "97 ms: worth it"
+
+
+def test_work_is_measured_on_the_engines_clock():
+    """The engine's clock, not the machine's: a node that sleeps no time on a virtual clock did no
+    work, however long it really took; one that sleeps on it did exactly that much; and an engine
+    measures on the real clock unless it is given another."""
+    assert isinstance(Engine({"id": "t", "salt": "s"}).clock, RealClock)
+    r = root()
+
+    class Busy(Node):
+        definition = {"id": "t.busy", "inputs": [], "outputs": [{"name": "n", "type": "ANYTHING"}], "memo": {"scope": "machine"}}
+
+        def run(self, inputs, cx):
+            sum(range(200_000))  # real work the virtual clock doesn't see
+            return {"n": 1}
+
+    clock = VirtualClock()
+    e, _, _ = engine(r, clock=clock)
+    e.with_node(Busy())
+    assert run(e, r, {"kind": "t.busy", "values": {}})["nodes"]["n"]["memo"]["computed_ms"] == 0.0
+    assert run(e, r, {"kind": "t.slow", "values": {"n": 13, "ms": 250}})["nodes"]["n"]["memo"]["computed_ms"] == pytest.approx(250.0)
+    assert clock.now() == pytest.approx(0.25), "the node slept on it, no real time"
 
 
 def test_a_reaped_value_or_a_hostile_record_is_a_miss_that_recomputes():

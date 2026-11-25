@@ -179,7 +179,7 @@ fn a_collapsed_groups_node_has_no_node_rename() {
     h.get_by_label("Rename…").click();
     h.run_steps(4);
     assert!(h.state().rename.is_none(), "that item is the group's, with its own window");
-    assert!(h.query_by_label("Rename group G").is_some());
+    assert!(h.query_by_label("Rename “G”").is_some());
 }
 
 // ---------- the parameter editor's header ----------

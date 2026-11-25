@@ -83,6 +83,33 @@ fn inspect_reports_graph_selection_and_run() {
     assert_eq!(g["result"]["wires"].as_array().unwrap().len(), 1);
 }
 
+/// B83: the egui editor serves one document and names none, so a request over the port that
+/// names a document is refused (`unknown_doc`), never answered for this one; one that names
+/// none is answered.
+#[test]
+fn a_request_naming_a_document_is_refused_not_answered_for_this_one() {
+    let mut s = session();
+    add(&mut s, "text.literal", 20.0, 20.0);
+    let mut h = harness(EditorApp::new(s));
+    let (tx, rx) = channel();
+    h.state_mut().control_rx = Some(rx);
+    let ask = |h: &mut Harness<'static, EditorApp>, doc: Value| -> Value {
+        let (req, reply) = server::ControlRequest::for_doc("graph.get", Value::Null, doc);
+        tx.send(req).unwrap();
+        let ctx = h.ctx.clone();
+        h.state_mut().drain_control(&ctx);
+        h.run_steps(3);
+        reply.recv_timeout(Duration::from_secs(10)).unwrap()
+    };
+    for doc in [json!(1), json!(2), json!("x")] {
+        let r = ask(&mut h, doc.clone());
+        assert_eq!((r["ok"].as_bool(), r["code"].as_str()), (Some(false), Some("unknown_doc")), "{doc}: {r}");
+    }
+    let r = ask(&mut h, Value::Null);
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(r["result"]["nodes"].as_object().map(|n| n.len()), Some(1), "{r}");
+}
+
 #[test]
 fn commands_run_through_the_app_with_their_errors() {
     let mut h = harness(EditorApp::new(session()));

@@ -17,7 +17,7 @@ use serde_json::{Value, json};
 
 use super::{ViewInput, Viewer};
 use crate::canvas::Action;
-use crate::media::{Job, Rgba, key_of};
+use crate::media::{Job, Rgba, RgbaImage, key_of};
 use crate::theme::Tokens;
 
 /// The largest picture rendered, a side, before supersampling.
@@ -440,17 +440,24 @@ mod tests {
 
     #[test]
     fn stl_values_are_accepted_by_media_type() {
-        let display = |media: &str, kind: Media| Display {
-            media: kind,
-            full: Some(DataRef { meta: BlobMeta { media: media.into(), ..Default::default() }, ..Default::default() }),
-            ..Default::default()
+        let display = |media: &str, kind: Media| {
+            let mut d = Display::default();
+            (d.media, d.full) = (kind, Some(DataRef { meta: BlobMeta { media: media.into(), ..Default::default() }, ..Default::default() }));
+            d
         };
         assert!(accepts(&display("model/stl", Media::Bytes)));
         assert!(accepts(&display("model/stl", Media::Mesh)));
         assert!(accepts(&display("application/sla", Media::Bytes)));
         assert!(!accepts(&display("model/obj", Media::Mesh)));
         assert!(!accepts(&display("text/plain", Media::Text)));
-        assert!(!accepts(&Display { media: Media::Mesh, ..Default::default() }), "no bytes");
+        assert!(
+            !accepts(&{
+                let mut x = Display::default();
+                x.media = Media::Mesh;
+                x
+            }),
+            "no bytes"
+        );
         let ids: Vec<&str> = super::super::kinds_for(&display("model/stl", Media::Bytes)).iter().map(|k| k.id).collect();
         assert_eq!(ids.first(), Some(&"mesh"), "{ids:?}");
         // the file reads, binary

@@ -7,6 +7,7 @@
 use std::path::{Path, PathBuf};
 
 use plumcraft_proto::manifest::{EngineManifest, MAX_BYTES, Mode};
+use plumcraft_proto::programs;
 
 use crate::process::Manifest;
 
@@ -31,6 +32,23 @@ pub struct Resolved {
     pub start: Start,
     /// Its demo workflow, absolute, when it names one.
     pub demo: Option<PathBuf>,
+    /// What loaded but will very likely stop it starting ([`folder_warnings`]): shown with the
+    /// manifests that couldn't be read, and its advice added to a failed start's reason.
+    pub warnings: Vec<String>,
+}
+
+/// What to do about a manifest whose relative folder holds no project: the line a failed start
+/// ends with ([`Resolved::failed`]).
+pub const COPY_ADVICE: &str =
+    "this manifest's folder has no pyproject.toml: it may be a copy; register the engine from its project (register --folder) or link the manifest instead";
+
+impl Resolved {
+    /// `reason`, why its engine didn't start, with [`COPY_ADVICE`] on a line of its own when
+    /// loading it warned that its folder holds no project.
+    pub fn failed(&self, reason: impl Into<String>) -> String {
+        let reason = reason.into();
+        if self.warnings.is_empty() { reason } else { format!("{reason}\n{COPY_ADVICE}") }
+    }
 }
 
 /// `~` and `~/…` expanded (`~\…` too on Windows, where home is `USERPROFILE`).
@@ -106,7 +124,114 @@ pub fn load(path: &Path) -> Result<Resolved, String> {
     let dir = real.parent().unwrap_or(Path::new("/")).to_path_buf();
     let demo = manifest.demo.as_deref().map(|d| against(&dir, d));
     let start = start_of(&manifest, &dir).map_err(|e| format!("{shown}: {e}"))?;
-    Ok(Resolved { manifest, path: real, start, demo })
+    let warnings = match &start {
+        Start::Command(m) => folder_warnings(&manifest, m.cwd.as_deref().unwrap_or(&dir)),
+        Start::Attach { .. } => Vec::new(),
+    };
+    Ok(Resolved { manifest, path: real, start, demo, warnings })
+}
+
+/// The value of option `name` in `args` (`--name VALUE` or `--name=VALUE`), up to a `--`.
+fn option<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
+    let args = args.split(|a| a == "--").next().unwrap_or_default();
+    args.iter().enumerate().find_map(|(i, a)| match a.strip_prefix(name) {
+        Some("") => args.get(i + 1).map(String::as_str),
+        Some(rest) => rest.strip_prefix('='),
+        None => None,
+    })
+}
+
+/// Does a project file `uv run --project` would find sit in `dir` or a folder above it? uv walks
+/// up from the folder it is given, as it does from its working directory.
+fn has_pyproject(dir: &Path) -> bool {
+    dir.ancestors().any(|d| d.join("pyproject.toml").is_file())
+}
+
+/// Options of `uv run` that bring an environment of their own, or choose the interpreter, so a
+/// folder with no project says nothing about whether the module is there.
+const OWN_ENVIRONMENT: [&str; 8] = ["--with", "--script", "--gui-script", "--no-project", "--active", "--python", "--env-file", "--isolated"];
+
+/// Environment variables that point uv or Python somewhere else than the folder's project.
+fn points_elsewhere(name: &str) -> bool {
+    ["VIRTUAL_ENV", "PYTHONPATH", "PYTHONHOME", "PYTHONUSERBASE"].contains(&name) || name.starts_with("UV_PROJECT") || name.starts_with("UV_PYTHON")
+}
+
+/// The module a `uv run … python -m <module>` runs: a `python`, `python3` or `python3.N` (`.exe`
+/// too), then `-m` and the module, before any `--`.
+fn python_module(args: &[String]) -> Option<&str> {
+    let args = args.split(|a| a == "--").next().unwrap_or_default();
+    let python = |a: &str| {
+        let name = Path::new(a).file_stem().and_then(|s| s.to_str()).unwrap_or_default();
+        name == "python"
+            || name
+                .strip_prefix("python3")
+                .is_some_and(|v| v.is_empty() || v.strip_prefix('.').is_some_and(|n| !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit())))
+    };
+    args.windows(3).find(|w| python(&w[0]) && w[1] == "-m").map(|w| w[2].as_str())
+}
+
+/// Why a manifest that loaded will very likely fail to start because the folder its relative
+/// paths name isn't its project: a copy of a project's own manifest, which runs in the copy's
+/// folder (a link is followed back to the project, a copy isn't). Judged only where the answer
+/// is certain, for a `uv run` (uv walks up from the folder it starts from to find a project, as
+/// it does from `--project`):
+/// - with a relative `--project` (against `cwd`, or uv's `--directory`) that names a folder that
+///   doesn't exist, or one with no `pyproject.toml` in it or above it, where uv runs a bare
+///   interpreter that can't import the engine;
+/// - with no `--project`, run from a relative `cwd` (and a relative `--directory`, if any) with
+///   no `pyproject.toml` and no `.venv` in it or above it, when the command is `python -m
+///   <module>`, nothing brings an environment of its own ([`OWN_ENVIRONMENT`]), and neither the
+///   manifest's `env` nor this process's points uv or Python elsewhere ([`points_elsewhere`]).
+///
+/// Any other command can't be judged from outside (a plain `python -m` may have its package
+/// installed), so says nothing.
+pub fn folder_warnings(m: &EngineManifest, cwd: &Path) -> Vec<String> {
+    let Some((program, args)) = m.command.split_first() else { return Vec::new() };
+    let is_uv = Path::new(program).file_stem().is_some_and(|s| s == "uv");
+    let runs = args.split(|a| a == "--").next().unwrap_or_default().iter().any(|a| a == "run");
+    if !(is_uv && runs) {
+        return Vec::new();
+    }
+    let Some(project) = option(args, "--project") else { return no_project_warnings(m, args, cwd) };
+    let project = expand(project);
+    if !from_here(&project) {
+        return Vec::new();
+    }
+    let base = option(args, "--directory").map_or_else(|| cwd.to_path_buf(), |d| against(cwd, d));
+    let dir = base.join(&project);
+    let shown = project.display();
+    match std::fs::canonicalize(&dir) {
+        Err(_) => vec![format!("uv run --project {shown} names {}, which doesn't exist: {COPY_ADVICE}", programs::shown(&dir))],
+        Ok(real) if !has_pyproject(&real) => {
+            vec![format!("uv run --project {shown} names {}, with no pyproject.toml in it or above it: {COPY_ADVICE}", programs::shown(&real))]
+        }
+        Ok(_) => Vec::new(),
+    }
+}
+
+/// Whether `p` is taken against the folder it is named from: relative, and on Windows without a root
+/// either (`\\elsewhere` names the current drive's root, never the manifest's folder; B97).
+fn from_here(p: &Path) -> bool {
+    p.is_relative() && !p.has_root()
+}
+
+/// [`folder_warnings`] for a `uv run` with no `--project`: uv's own search from where it runs.
+fn no_project_warnings(m: &EngineManifest, args: &[String], cwd: &Path) -> Vec<String> {
+    let before: &[String] = args.split(|a| a == "--").next().unwrap_or_default();
+    let own = before.iter().any(|a| OWN_ENVIRONMENT.iter().any(|o| a.starts_with(o)) || (a.starts_with("-p") && !a.starts_with("--")));
+    let elsewhere = m.env.keys().any(|k| points_elsewhere(k)) || std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(points_elsewhere));
+    // relative paths only: an absolute cwd or --directory isn't the manifest's folder
+    let relative = from_here(&expand(m.cwd.as_deref().unwrap_or("."))) && option(args, "--directory").is_none_or(|d| from_here(&expand(d)));
+    let Some(module) = python_module(args).filter(|_| !own && !elsewhere && relative) else { return Vec::new() };
+    let base = option(args, "--directory").map_or_else(|| cwd.to_path_buf(), |d| against(cwd, d));
+    match std::fs::canonicalize(&base) {
+        Err(_) => vec![format!("uv run (no --project) would run in {}, which doesn't exist: {COPY_ADVICE}", programs::shown(&base))],
+        Ok(real) if !real.ancestors().any(|d| d.join("pyproject.toml").is_file() || d.join(".venv").is_dir()) => vec![format!(
+            "uv run (no --project) runs in {}, with no pyproject.toml or .venv in it or above it, so uv runs a bare Python, very likely without {module}: {COPY_ADVICE}",
+            programs::shown(&real)
+        )],
+        Ok(_) => Vec::new(),
+    }
 }
 
 fn start_of(m: &EngineManifest, dir: &Path) -> Result<Start, String> {
@@ -222,6 +347,174 @@ mod tests {
         assert_eq!((url.as_str(), token.as_str()), ("http://127.0.0.1:1", "secret"));
         write(&d.join("n.toml"), "id = \"w\"\nmode = \"http\"\nurl = \"http://127.0.0.1:1\"\ntoken_file = \"gone\"\n");
         assert!(load(&d.join("n.toml")).unwrap_err().contains("token_file"));
+    }
+
+    fn parsed(command: &str) -> EngineManifest {
+        EngineManifest::parse(&format!("id = \"w\"\ncommand = {command}\n")).unwrap()
+    }
+
+    /// A `uv run --project` whose relative folder holds no project warns, with the advice; one
+    /// that finds a `pyproject.toml` (in the folder or above it, as uv walks up) doesn't, and
+    /// neither does any command the rule can't judge.
+    #[test]
+    fn a_uv_project_folder_with_no_pyproject_warns() {
+        let root = dir("folder-rule");
+        let (copy, project) = (root.join("copy"), root.join("project"));
+        std::fs::create_dir_all(project.join("sub")).unwrap();
+        std::fs::create_dir_all(&copy).unwrap();
+        assert!(!has_pyproject(&copy), "the scratch folder already has a project above it: the test can't tell");
+        write(&project.join("pyproject.toml"), "[project]\nname = \"w\"\n");
+        let uv = r#"["uv", "run", "--quiet", "--project", ".", "python", "-m", "w_engine"]"#;
+
+        let w = folder_warnings(&parsed(uv), &copy);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].contains("no pyproject.toml in it or above it") && w[0].contains(COPY_ADVICE), "{}", w[0]);
+        assert!(w[0].contains(&programs::shown(&copy)), "it names the folder: {}", w[0]);
+        // as a person reads it (B95): the folder is canonical, and on Windows that spells it \\?\C:\…
+        assert!(!w[0].contains(r"\\?\"), "{}", w[0]);
+        assert_eq!(folder_warnings(&parsed(uv), &project), Vec::<String>::new());
+        assert_eq!(folder_warnings(&parsed(uv), &project.join("sub")), Vec::<String>::new(), "uv walks up");
+        // --project=DIR, uv.exe, and uv's --directory, which relative paths are taken against
+        assert_eq!(folder_warnings(&parsed(r#"["/opt/uv.exe", "run", "--project=.", "python"]"#), &copy).len(), 1);
+        assert_eq!(folder_warnings(&parsed(r#"["uv", "--directory", "../project", "run", "--project", ".", "python"]"#), &copy), Vec::<String>::new());
+        let gone = folder_warnings(&parsed(r#"["uv", "run", "--project", "engine", "python"]"#), &copy);
+        assert!(gone.len() == 1 && gone[0].contains("doesn't exist"), "{gone:?}");
+
+        // what the rule can't judge says nothing
+        for unjudged in [
+            r#"["python", "-m", "w_engine"]"#,                                                     // may be installed
+            r#"["uv", "sync", "--project", "."]"#,                                                 // not `uv run`
+            r#"["uv", "run", "--project", "/nowhere/at/all", "python"]"#,                          // absolute: not the manifest's folder
+            r#"["uv", "run", "--with", "w", "python", "-m", "w_engine", "--", "--project", "."]"#, // the engine's own argument
+            r#"["./not-uv", "run", "--project", ".", "python"]"#,
+        ] {
+            assert_eq!(folder_warnings(&parsed(unjudged), &copy), Vec::<String>::new(), "{unjudged}");
+        }
+    }
+
+    /// A `uv run` with no `--project` from a relative `cwd` is judged as uv searches from there:
+    /// it warns where neither a `pyproject.toml` nor a `.venv` is in the folder or above it and the
+    /// command is `python -m <module>`; anything that brings its own environment, an absolute
+    /// folder, or an environment variable pointing elsewhere says nothing.
+    #[test]
+    fn a_uv_run_with_no_project_from_a_folder_with_none_warns() {
+        let root = dir("no-project-rule");
+        let (copy, project, venv) = (root.join("copy"), root.join("project"), root.join("venv"));
+        for d in [&copy, &project.join("sub"), &venv.join(".venv")] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        assert!(
+            !copy.ancestors().any(|d| d.join("pyproject.toml").is_file() || d.join(".venv").is_dir()),
+            "the scratch folder has a project or .venv above it: the test can't tell"
+        );
+        if std::env::vars_os().any(|(k, _)| k.to_str().is_some_and(points_elsewhere)) {
+            eprintln!("skipped: this process's environment points uv or Python elsewhere, so the rule says nothing");
+            return;
+        }
+        write(&project.join("pyproject.toml"), "[project]\nname = \"w\"\n");
+        let uv = r#"["uv", "run", "--quiet", "python", "-m", "w_engine"]"#;
+        let w = folder_warnings(&parsed(uv), &copy);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(
+            w[0].contains("no --project") && w[0].contains("no pyproject.toml or .venv") && w[0].contains("w_engine") && w[0].contains(COPY_ADVICE),
+            "{}",
+            w[0]
+        );
+        assert_eq!(folder_warnings(&parsed(r#"["uv", "run", "python3.12", "-m", "w_engine"]"#), &copy).len(), 1, "python3.N");
+        assert_eq!(folder_warnings(&parsed(uv), &project.join("sub")), Vec::<String>::new(), "a project above");
+        assert_eq!(folder_warnings(&parsed(uv), &venv), Vec::<String>::new(), "a .venv there");
+        assert!(folder_warnings(&parsed(uv), &root.join("gone"))[0].contains("doesn't exist"));
+        let with = |extra: &str| EngineManifest::parse(&format!("id = \"w\"\ncommand = {uv}\n{extra}\n")).unwrap();
+        for (unjudged, why) in [
+            (parsed(r#"["uv", "run", "--with", "w-engine", "python", "-m", "w_engine"]"#), "its own environment"),
+            (parsed(r#"["uv", "run", "--with=w-engine", "python", "-m", "w_engine"]"#), "its own environment"),
+            (parsed(r#"["uv", "run", "-p", "3.12", "python", "-m", "w_engine"]"#), "an interpreter chosen"),
+            (parsed(r#"["uv", "run", "--python=3.12", "python", "-m", "w_engine"]"#), "an interpreter chosen"),
+            (parsed(r#"["uv", "run", "--no-project", "python", "-m", "w_engine"]"#), "asked for no project"),
+            (parsed(r#"["uv", "run", "--script", "engine.py"]"#), "a script with its own dependencies"),
+            (parsed(r#"["uv", "run", "w-engine"]"#), "not python -m"),
+            (parsed(r#"["uv", "run", "pythonista", "-m", "w_engine"]"#), "not python"),
+            (parsed(r#"["uv", "--directory", "/elsewhere", "run", "python", "-m", "w_engine"]"#), "an absolute folder"),
+            (with("cwd = \"/elsewhere\""), "an absolute cwd"),
+            (with("env = { VIRTUAL_ENV = \"/somewhere/.venv\" }"), "VIRTUAL_ENV"),
+            (with("env = { PYTHONPATH = \"src\" }"), "PYTHONPATH"),
+            (with("env = { UV_PROJECT_ENVIRONMENT = \"/x\" }"), "UV_PROJECT_ENVIRONMENT"),
+        ] {
+            assert_eq!(folder_warnings(&unjudged, &copy), Vec::<String>::new(), "{why}");
+        }
+    }
+
+    /// The rule reads a manifest's command, which is hostile input: any arguments, however odd,
+    /// give an answer and never panic.
+    #[test]
+    fn the_folder_rule_never_panics() {
+        let cwd = dir("folder-rule-hostile");
+        let words = [
+            "uv",
+            "uv.exe",
+            "run",
+            "--project",
+            "--project=",
+            "--directory",
+            "--directory=",
+            "-p",
+            "-m",
+            "--",
+            "python",
+            "python3.",
+            "python3.x",
+            "",
+            "=",
+            "~",
+            "~/",
+            "..",
+            "/",
+            "\u{0}",
+            "é",
+            "--with",
+        ];
+        let mut n = 0u64;
+        for a in words {
+            for b in words {
+                for c in words {
+                    for d in ["python", "-m", "--", ""] {
+                        let mut m = parsed(r#"["uv"]"#);
+                        m.command = vec![a.into(), b.into(), c.into(), d.into()];
+                        let _ = folder_warnings(&m, &cwd);
+                        m.command.truncate(2);
+                        let _ = folder_warnings(&m, &cwd);
+                        n += 1;
+                    }
+                }
+            }
+        }
+        assert!(n > 40_000, "{n}");
+    }
+
+    /// The report's case: a project's manifest loads with no warning from the project and through
+    /// a link, and a copy of it elsewhere warns; a failed start then ends with the advice.
+    #[cfg(unix)]
+    #[test]
+    fn a_copy_of_a_projects_manifest_warns_and_a_link_does_not() {
+        let root = dir("copy-link");
+        let (project, config, copies) = (root.join("project"), root.join("config"), root.join("copies"));
+        for d in [&project, &config, &copies] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        let text = "id = \"w\"\ncommand = [\"./uv\", \"run\", \"--project\", \".\", \"python\", \"-m\", \"w_engine\"]\ncwd = \".\"\n";
+        write(&project.join("pyproject.toml"), "[project]\nname = \"w\"\n");
+        for d in [&project, &copies] {
+            program(&d.join("uv"));
+            write(&d.join("plumcraft-engine.toml"), text);
+        }
+        symlink(project.join("plumcraft-engine.toml"), config.join("w.toml")).unwrap();
+        let own = load(&project.join("plumcraft-engine.toml")).unwrap();
+        let linked = load(&config.join("w.toml")).unwrap();
+        let copied = load(&copies.join("plumcraft-engine.toml")).unwrap();
+        assert!(own.warnings.is_empty() && linked.warnings.is_empty(), "{:?} {:?}", own.warnings, linked.warnings);
+        assert_eq!(copied.warnings.len(), 1, "{:?}", copied.warnings);
+        assert_eq!(own.failed("exit 1"), "exit 1");
+        assert_eq!(copied.failed("exit 1"), format!("exit 1\n{COPY_ADVICE}"));
     }
 
     #[test]

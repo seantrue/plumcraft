@@ -12,7 +12,7 @@ Adapted from the research software's `AGENTS.md`.
    - Non-test code never panics: no `unwrap`, `expect`, `panic!`, `unreachable!`, `todo!` or `unimplemented!`.
    - Every crate starts with `#![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]`; `clippy.toml` allows them in tests only.
    - Every message from the other side is hostile input (spec section 18). Parsing never panics; an unknown kind, locator or state is skipped, not fatal. Every new parser joins the hostile-input sweep (`crates/proto/tests/hostile.rs`).
-2. **No `unsafe`**, except a future shared-memory reader crate, for `Mmap::map`, with a `SAFETY:` comment on every block.
+2. **No `unsafe`**, except in two places, with a `SAFETY:` comment on every block: a future shared-memory reader crate, for `Mmap::map`; and `crates/ffi`, the C ABI the native shells call (maintainer, 2026-11-19, research note 24 decision 3), which holds nothing but that boundary and catches unwinds on every entry.
 3. **No engine in core.** No node id, port name or wire type is hard-coded beyond the scalars `FLOAT INT BOOL STRING ENUM` and the core types in `plumcraft_proto::catalogue::core_types`, today `ARRAY` (maintainer, 2026-10-29: "Make arrays first class"; an array means the same thing in every engine, so values cross engine borders unchanged) `SVG` (maintainer, 2026-10-30: "Make SVG first class"), and `TEXT`, `TABLE`, `IMAGE`, `AUDIO` and `JSON` ("yes core data types", "Core audio, please", "JSON yes"; their bytes are in `docs/interface.md`). Core's own node kind is Convert (`core.convert`, maintainer, 2026-11-03: "a core node that will transform between all conformant data types"; `docs/research/20-convert.md`): it holds no conversion code and no engine runs it, since the session replaces it with engine nodes before a run. Pack data stays opaque (`x.<pack>`). Protocol 1 (the research software's own protocol) is mapped on the research software's side, never here.
 4. **Everything is a command** in the editor, as in the crafts: every user action has an id, label, `enabled` and `run`, and the UI, CLI, control channel and MCP dispatch by id.
 5. **The interface is the contract.** A change to a message changes `docs/interface.md` in the same commit. Additive changes are capabilities, never minor versions.
@@ -28,7 +28,7 @@ cargo fmt --all --check
 (cd python && uv run pytest && uv run ruff check .)
 ```
 
-A change to a message type regenerates the schema: `cargo run -p plumcraft-proto --example export_schema --features schema` (a test fails while `schema/protocol2.json` is stale). Update `docs/STATUS.md`. Update `AI.md` whenever you write a commit message (the `ai-md` skill). Commit only when asked.
+A change to `Cargo.lock` remakes the acknowledgements (FR4): `bash scripts/acknowledgements.sh` (it needs `cargo install cargo-about --locked --features cli`, once; CI never runs it; a test fails while `crates/editor-core/acknowledgements/rust.json` is older than the lockfile, and a licence not in `about.toml`'s `accepted` stops it until someone looks). A change to a message type regenerates the schema: `cargo run -p plumcraft-proto --example export_schema --features schema` (a test fails while `schema/protocol2.json` is stale). Update `docs/STATUS.md`. Update `AI.md` whenever you write a commit message (the `ai-md` skill). Commit only when asked.
 
 ## Scratch scripts and data
 

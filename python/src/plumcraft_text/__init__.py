@@ -9,7 +9,7 @@ import json
 import os
 import re
 import time
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import numpy as np
 
@@ -17,6 +17,7 @@ from plumcraft_engine import (
     Array,
     ArrayValue,
     Blob,
+    Bool,
     ConfigError,
     Cx,
     Engine,
@@ -26,6 +27,7 @@ from plumcraft_engine import (
     Json,
     NodeError,
     OpError,
+    Port,
     Range,
     String,
     Table,
@@ -47,6 +49,8 @@ Txt = Annotated[object, WireType("TXT")]
 Md = Annotated[object, WireType("MD")]
 Html = Annotated[object, WireType("HTML")]
 Csv = Annotated[object, WireType("CSV")]
+# A choice (`text.widgets`' mode): the scalar ENUM, as the Rust engine declares it.
+Enum = Annotated[str, WireType("ENUM", media="scalar")]
 _MEDIA = {"TXT": "text/plain", "MD": "text/markdown", "HTML": "text/html", "CSV": "text/csv"}
 MAX_FILE = 64 << 20
 MAX_ROWS = 1_000_000
@@ -58,6 +62,12 @@ _DECIMAL = re.compile(r"-?([0-9]+(\.[0-9]*)?|\.[0-9]+)([eE][-+]?[0-9]+)?")
 _WHITESPACE = re.compile("[\t\n\x0b\x0c\r \x85\xa0  -     　]+")
 
 
+def widgets_text(text, label, count, amount, flag, mode, tags, note, tint) -> str:
+    """`text.widgets`' text, as the Rust engine words it."""
+    shown = {"upper": text.upper(), "lower": text.lower(), "title": text.title()}.get(mode, text) if flag else text
+    return f"{label}: {shown}\ncount={count} amount={amount:.2f} flag={'on' if flag else 'off'} mode={mode}\ntags={tags} tint={tint}\n{note}"
+
+
 class TextEngine(Engine):
     id = "text"
     name = "Text"
@@ -65,7 +75,7 @@ class TextEngine(Engine):
     salt = f"py:plumcraft-text+{__version__}"
     category = "Text"
     family = "text"
-    wires = (Text, String, Int, Float, Table, Array, Json, Txt, Md, Html, Csv)
+    wires = (Text, String, Int, Float, Bool, Enum, Table, Array, Json, Txt, Md, Html, Csv)
     # Every building block (Vary, sequences, files), as the Rust engine's `.with_building_blocks()`.
     building_blocks = True
 
@@ -114,6 +124,39 @@ class TextEngine(Engine):
             cx.progress(done, f"{done * 100:.0f}%")
             time.sleep(0.01)
         return text
+
+    # Passes text through once the file `open` names exists (none named: at once), saying it is
+    # waiting, stopping on cancel, giving up after `timeout` seconds: a node that waits for a
+    # signal rather than a time (the person check's F29 and F36).
+    @node("Gate", category=("Text", "Testing"))
+    def gate(self, text: Text, open: str = "", timeout: Annotated[float, Range(0, 600, invalid="clamp")] = 60.0, *, cx: Cx) -> Text:
+        start = time.monotonic()
+        while open and not os.path.exists(open):
+            if cx.cancelled():
+                raise NodeError.cancelled()
+            if time.monotonic() - start > timeout:
+                raise OpError(f"the gate's file never came: {open}")
+            cx.progress(0.0, "waiting")
+            time.sleep(0.02)
+        return text
+
+    # Every kind of widget a face can hold, for the editors' inline-edit tests (N4 slice 2): a
+    # text, a whole and a fractional number with their ranges, a switch, a choice, several
+    # choices, several lines and a colour. It says what it was given, one line a setting.
+    @node("Every widget", category=("Text", "Testing"))
+    def widgets(
+        self,
+        text: Text,
+        label: str = "hello",
+        count: Annotated[int, Range(0, 10, 1)] = 3,
+        amount: Annotated[float, Range(0, 1), Port(decimals=2)] = 0.5,
+        flag: bool = True,
+        mode: Literal["upper", "lower", "title"] = "upper",
+        tags: Annotated[str, Port(widget="multichoice")] = "",
+        note: Annotated[str, Port(widget="multiline")] = "",
+        tint: Annotated[str, Port(widget="hexcolor")] = "#3366cc",
+    ) -> Text:
+        return widgets_text(text, label, count, amount, flag, mode, tags, note, tint)
 
     # As the Rust engine: anything but a non-negative integer repeats twice, a million at most.
     @node("Repeat")

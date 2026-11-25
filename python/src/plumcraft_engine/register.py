@@ -59,6 +59,22 @@ def _demo(package: str) -> Path | None:
     return path if path.is_file() else None
 
 
+def shown(p: Path | str) -> str:
+    """A path as a person reads it: without Windows' long-path prefix, as the Rust SDK's
+    `plumcraft_proto::programs::shown` (B95): `\\\\?\\C:\\x` shows as `C:\\x` and
+    `\\\\?\\UNC\\server\\share` as `\\\\server\\share`; anything else is unchanged. For messages
+    only: a path used to open, run or compare files keeps its prefix. Plain string handling, the
+    same on every platform."""
+    s = str(p)
+    if s.startswith("\\\\?\\UNC\\"):
+        return "\\\\" + s[len("\\\\?\\UNC\\") :]
+    rest = s[len("\\\\?\\") :] if s.startswith("\\\\?\\") else None
+    # only a drive path loses it: `\\\\?\\GLOBALROOT\\…` and the like have no other spelling
+    if rest is not None and len(rest) > 1 and rest[1] == ":":
+        return rest
+    return s
+
+
 def _sdk_version() -> str:
     try:
         return metadata.version("plumcraft-engine")
@@ -66,13 +82,70 @@ def _sdk_version() -> str:
         return "?"
 
 
+def _command(cls: type) -> list[str]:
+    """How the manifest starts engine class `cls`: this Python with its package's `__main__`,
+    else the program this was run as. Every path in it is absolute, so the manifest doesn't depend
+    on the folder it is written to (`docs/interface.md` 16.6)."""
+    package = _package(cls)
+    if importlib.util.find_spec(f"{package}.__main__") is not None:
+        return [sys.executable, "-m", package]
+    return [str(Path(sys.argv[0]).resolve())]
+
+
+def _unstartable(command: list[str]) -> str | None:
+    """Why a manifest running `command` wouldn't start, when it certainly wouldn't: its program
+    isn't a file this user may run (a script run as `python path/to/script.py register`)."""
+    program = Path(command[0])
+    if program.is_file() and os.access(program, os.X_OK):
+        return None
+    return (
+        f"the manifest would start {shown(program)}, which isn't a program this user can run; "
+        "run register from the engine's installed command, or from its project (`uv run <command> register`)"
+    )
+
+
+#: What a cache folder's `CACHEDIR.TAG` starts with (the Cache Directory Tagging spec, which uv
+#: follows: it writes one at the root of its cache).
+CACHEDIR_SIGNATURE = "Signature: 8a477f597d28d172789f06886806bc55"
+
+
+def _bucket(name: str) -> bool:
+    """A uv cache bucket's name (`archive-v0`, `builds-v0`, `environments-v2`), or one of its
+    temporary folders (`.tmpXXXX`)."""
+    stem, _, version = name.rpartition("-v")
+    return name.startswith(".tmp") or (stem.replace("-", "").isalpha() and stem.islower() and version.isdigit())
+
+
+def uv_cache(program: str) -> tuple[Path, bool] | None:
+    """Where `program` is when it is inside uv's cache: the cache's root, and whether it is in a
+    temporary environment there (a `.tmp…` folder or `builds-v0`, as `uv run --with` makes and
+    removes when it ends). `None` when it isn't (a `uv tool install`, a project's `.venv`).
+
+    uv's cache is found by what it is, not by where uv says it is: a folder holding a
+    `CACHEDIR.TAG` whose child on the way down is a uv bucket. The folder holding the program
+    is taken as a real path (not the program, which in a virtual environment links to the base
+    interpreter), so a cache reached through a link is found too."""
+    try:
+        here = Path(program).parent.resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+    below: list[str] = []
+    for d in [here, *here.parents]:
+        tag = d / "CACHEDIR.TAG"
+        try:
+            tagged = tag.is_file() and tag.read_text("utf-8", errors="replace").startswith(CACHEDIR_SIGNATURE)
+        except OSError:
+            tagged = False
+        if tagged and below and _bucket(below[-1]):
+            return d, below[-1] == "builds-v0" or any(p.startswith(".tmp") for p in below)
+        below.append(d.name)
+    return None
+
+
 def manifest(cls: type, script: str) -> str:
     """The manifest for engine class `cls` as installed here."""
     package = _package(cls)
-    if importlib.util.find_spec(f"{package}.__main__") is not None:
-        command = [sys.executable, "-m", package]
-    else:
-        command = [str(Path(sys.argv[0]).resolve())]
+    command = _command(cls)
     name = getattr(cls, "name", None) or cls.id
     lines = [
         f"{MARK.format(script=script)} (plumcraft-engine {_sdk_version()}): how PlumCraft starts the installed {name}.",
@@ -102,11 +175,48 @@ def register(cls: type, args: list[str], script: str) -> int:
     text = manifest(cls, script)
     if "--print" in args:
         sys.stdout.write(text)
+        # it writes nothing, but says what register would about where it is (decision 18)
+        cached = uv_cache(_command(cls)[0])
+        if cached is not None and cached[1]:
+            print(
+                f"{script}: warning: this Python is a temporary environment in uv's cache ({shown(cached[0])}), as `uv run --with` makes,"
+                " which uv removes when that command ends, so this manifest could never start it; register refuses to write it."
+                " Install the engine (`uv tool install <package>`) and run register from the command that installs",
+                file=sys.stderr,
+            )
+        elif cached is not None:
+            print(
+                f"{script}: warning: this Python is in uv's cache ({shown(cached[0])}), as `uvx` and `uv tool run` make: a cache clean"
+                " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
+                " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
+                file=sys.stderr,
+            )
         return 0
+    why = _unstartable(_command(cls))
+    if why is not None:
+        # a manifest that can't start is worse than none: the editor would offer a dead engine
+        print(f"{script}: not registered: {why}", file=sys.stderr)
+        return 1
+    cached = uv_cache(_command(cls)[0])
+    if cached is not None and cached[1]:
+        print(
+            f"{script}: not registered: this Python is a temporary environment in uv's cache ({shown(cached[0])}), as `uv run --with` makes,"
+            " which uv removes when that command ends, so the manifest could never start it."
+            " Install the engine (`uv tool install <package>`) and run register from the command that installs",
+            file=sys.stderr,
+        )
+        return 1
+    if cached is not None:
+        print(
+            f"{script}: warning: this Python is in uv's cache ({shown(cached[0])}), as `uvx` and `uv tool run` make: a cache clean"
+            " (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting."
+            " For an install that lasts, `uv tool install <package>` and run register from the command that installs",
+            file=sys.stderr,
+        )
     target = folder(args) / f"{cls.id}.toml"
     if (target.exists() or target.is_symlink()) and not _ours(target) and "--force" not in args:
-        what = f"a link to {os.path.realpath(target)} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"
-        print(f"{script}: {target} is {what}; leaving it. --force replaces it", file=sys.stderr)
+        what = f"a link to {shown(os.path.realpath(target))} (a checkout's scripts/install)" if target.is_symlink() else "a manifest this command didn't write"
+        print(f"{script}: {shown(target)} is {what}; leaving it. --force replaces it", file=sys.stderr)
         return 1
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink():
@@ -114,17 +224,18 @@ def register(cls: type, args: list[str], script: str) -> int:
     tmp = target.with_suffix(".toml.tmp")
     tmp.write_text(text, "utf-8", newline="\n")
     tmp.replace(target)
-    print(f"registered {cls.id}: {target}\nA running editor offers it after Engine › Reload Engine List.")
+    print(f"registered {cls.id}: {shown(target)}\nA running editor offers it after Engine › Reload Engine List.")
     return 0
 
 
 def unregister(cls: type, args: list[str], script: str) -> int:
     target = folder(args) / f"{cls.id}.toml"
     if not (target.exists() or target.is_symlink()):
-        print(f"{script}: {cls.id} isn't registered ({target})", file=sys.stderr)
+        print(f"{script}: {cls.id} isn't registered ({shown(target)})", file=sys.stderr)
         return 1
     if not _ours(target):
-        print(f"{script}: {target} wasn't written by `{script} register`; leaving it (a checkout's link goes with its scripts/uninstall)", file=sys.stderr)
+        why = f"{shown(target)} wasn't written by `{script} register`; leaving it (a checkout's link goes with its scripts/uninstall)"
+        print(f"{script}: {why}", file=sys.stderr)
         return 1
     target.unlink()
     print(f"unregistered {cls.id}")

@@ -105,23 +105,27 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
       # every test binary in parallel, each test in its own process; --no-fail-fast lists every
-      # failing test in one run. There are no doc tests (cargo test --doc finds none). Once per
-      # hash algorithm, each with a fresh store root, mark folder and craft root inside a fresh
-      # run folder (the commonkit hash facade); a leaked foreign or bad key fails the run.
-      - name: cargo nextest, under md5 and then b3
+      # failing test in one run. There are no doc tests (cargo test --doc finds none). Under b3
+      # only (the maintainer, 2026-11-19: "Drop all MD5 tests from the active tests"), with a
+      # fresh store root, mark folder and craft root inside a fresh run folder (the commonkit
+      # hash facade); a leaked foreign or bad key fails the run.
+      - name: cargo nextest, under b3
         run: |
-          for algo in md5 b3; do
-            run=$(mktemp -d)
-            COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
-              COMMONKIT_MARK_DIR=$run/marks PLUMCRAFT_CRAFT_ROOT=$run/craft \
-              cargo nextest run --all-features --no-fail-fast
-            if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
-          done
+          run=$(mktemp -d)
+          COMMONKIT_HASH=b3 COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
+            COMMONKIT_MARK_DIR=$run/marks PLUMCRAFT_CRAFT_ROOT=$run/craft \
+            cargo nextest run --all-features --no-fail-fast
+          if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
 
       # Every digest goes through commonkit::digest (D10).
       - name: hash gates
         if: ${{ !cancelled() }}
         run: scripts/check-hash-gates.sh
+
+      # The editor core builds no GUI toolkit (docs/research/24-native-shells.md section 3).
+      - name: core gate
+        if: ${{ !cancelled() }}
+        run: scripts/check-core-toolkit-free.sh
 
   # The Python SDK's tests and lint: they don't use the Rust build, so they run beside it.
   python:
@@ -137,15 +141,13 @@ jobs:
           enable-cache: true
           cache-dependency-glob: "**/uv.lock"
 
-      - name: pytest, under md5 and then b3
+      - name: pytest, under b3
         working-directory: python
         run: |
-          for algo in md5 b3; do
-            run=$(mktemp -d)
-            COMMONKIT_HASH=$algo COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
-              COMMONKIT_MARK_DIR=$run/marks uv run pytest
-            if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
-          done
+          run=$(mktemp -d)
+          COMMONKIT_HASH=b3 COMMONKIT_TEST_RUN=$run COMMONKIT_STORE_ROOT=$run/store \
+            COMMONKIT_MARK_DIR=$run/marks uv run pytest
+          if ls "$run/marks" 2>/dev/null | grep -E 'shm_(foreign_digest|bad_key)'; then exit 1; fi
 
       - name: ruff
         if: ${{ !cancelled() }}

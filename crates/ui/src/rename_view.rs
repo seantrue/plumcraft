@@ -94,7 +94,7 @@ impl RenameDialog {
         let name = if self.current.is_empty() { &self.hint } else { &self.current };
         let title = match &self.target {
             RenameTarget::Node(_) => format!("Rename {name}"),
-            RenameTarget::Frame(_) => format!("Rename frame {name}"),
+            RenameTarget::Frame(_) => format!("Rename “{name}”"),
         };
         let mut open = true;
         let mut command = None;

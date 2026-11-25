@@ -40,6 +40,10 @@ pub struct EngineChoice {
     pub engine_label: String,
     /// The hosting's menu item ("Rust · in-process (mode 1)").
     pub mode_label: String,
+    /// What loading its manifest warned about, when it very likely won't start (a copy of a
+    /// project's manifest, `docs/interface.md` 16.6): the Engine menu marks its items with it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// What to connect to.
@@ -80,21 +84,108 @@ pub struct Engines {
     pub current: Option<EngineTarget>,
     /// Attaching to a running HTTP engine is offered.
     pub can_attach: bool,
-    /// Installing an engine from GitHub is offered (the host has an installer).
+    /// Installing an engine from GitHub is offered: the editor core decides, from the platform's
+    /// capabilities (it can start programs and has a Python) and whether the host has an
+    /// installer (`plumcraft_editor_core::document::Document::offer_installs`).
     pub can_install: bool,
+    /// Why installing isn't offered, in words a person reads (a disabled Install Engine… says
+    /// it): "This device can't install engines: …". `None`: nothing more to say.
+    pub install_refused: Option<String>,
+    /// What the last read of the engine manifests couldn't use, or warned about (B87): one line a
+    /// manifest, `path: why`. A manifest the core can't read is left out of the menu, and said
+    /// here, in the status bar and in the log, never skipped without a word.
+    pub manifest_problems: Vec<String>,
     /// The repository being installed, while it is.
     pub installing: Option<String>,
+    /// What the install under way is doing ("uv is downloading and building it…"), while it is.
+    pub install_status: Option<String>,
     /// Engines connected beside [`Engines::current`], in the order they were added.
     pub added: Vec<EngineTarget>,
     request: Option<EngineTarget>,
     changes: Vec<EngineChange>,
     /// Pick engines automatically (`engine.auto`): an engine started on the editor's own account
     /// is hosted the fastest way it can be ([`mode_rank`]), and a graph opened or inserted starts
-    /// the engines it names that aren't connected.
+    /// the engines it uses that aren't connected ([`engines_used`]).
     pub auto: bool,
     /// Engines a graph asked for that were already started on its account (each once, so one
     /// that fails to start isn't tried every time): cleared when nothing is missing.
     pub(crate) tried: std::collections::BTreeSet<String>,
+    /// The node kinds of each engine the host can start, by engine id, where the host knows them
+    /// without starting the engine (the engines compiled in; empty: it knows none). How a graph
+    /// that doesn't name its engines still says which it uses ([`engines_used`]; decision 8C at
+    /// N3's exit, "start only the engines the graph uses").
+    pub offered: Offered,
+    /// The node types behind [`Engines::offered`], each with its engine in `engines` (N4 slice 1:
+    /// the palette lists the kinds an engine not started offers, and choosing one starts it;
+    /// [`startable_defs`]). Empty where the host knows only the kinds, or none.
+    pub offered_defs: Vec<plumcraft_proto::catalogue::NodeDef>,
+}
+
+/// The node kinds each engine offers, by engine id ([`Engines::offered`]).
+pub type Offered = std::collections::BTreeMap<String, std::collections::BTreeSet<String>>;
+
+/// The engines a graph's nodes use, as far as the file and `offered` say (decision 8C at N3's
+/// exit). `nodes` are each node's kind and the engine it is pinned to, if any; `named` the engines
+/// the workflow names (spec 8.2); `prefer` the order to pick in when several engines offer a kind
+/// and the file doesn't say (the host's own engine first).
+///
+/// A pinned node uses its engine. A kind exactly one engine in `offered` has uses that one. A kind
+/// several have uses one already used, else the first of `named` that has it, else the first of
+/// `prefer`, else the first by id. A kind no engine in `offered` has uses the engines the
+/// workflow names that `offered` doesn't know (as [`Session::missing_engines`] always read them),
+/// or none when it names none. In the order the workflow names them, then as nodes need them.
+pub fn engines_used<'a>(nodes: impl IntoIterator<Item = (&'a str, Option<&'a str>)>, named: &[String], offered: &Offered, prefer: &[&str]) -> Vec<String> {
+    let mut used: Vec<String> = Vec::new();
+    let mut shared: Vec<Vec<&str>> = Vec::new();
+    let add = |used: &mut Vec<String>, e: &str| {
+        if !used.iter().any(|u| u == e) {
+            used.push(e.to_owned());
+        }
+    };
+    for (kind, pin) in nodes {
+        if let Some(p) = pin {
+            add(&mut used, p);
+            continue;
+        }
+        let having: Vec<&str> = offered.iter().filter(|(_, kinds)| kinds.contains(kind)).map(|(e, _)| e.as_str()).collect();
+        match having.len() {
+            0 => {
+                for e in named.iter().filter(|e| !offered.contains_key(*e)) {
+                    add(&mut used, e);
+                }
+            }
+            1 => add(&mut used, having[0]),
+            _ => shared.push(having),
+        }
+    }
+    // a kind several engines have is decided once the others have said what is used
+    for having in shared {
+        if having.iter().any(|h| used.iter().any(|u| u == h)) {
+            continue;
+        }
+        let pick = named
+            .iter()
+            .map(String::as_str)
+            .find(|n| having.contains(n))
+            .or_else(|| prefer.iter().copied().find(|p| having.contains(p)))
+            .or_else(|| having.first().copied());
+        if let Some(e) = pick {
+            add(&mut used, e);
+        }
+    }
+    // in the workflow's order first
+    let mut out: Vec<String> = named.iter().filter(|n| used.contains(n)).cloned().collect();
+    for u in used {
+        if !out.contains(&u) {
+            out.push(u);
+        }
+    }
+    out
+}
+
+/// The engines graph `g` uses ([`engines_used`] over all its nodes).
+pub fn graph_engines(g: &plumcraft_graph::Graph, offered: &Offered, prefer: &[&str]) -> Vec<String> {
+    engines_used(g.nodes.values().map(|n| (n.kind.as_str(), n.engine.as_deref())), &g.engines, offered, prefer)
 }
 
 /// How fast a hosting is: mode 1 (compiled in) first, then a separate process (Rust before
@@ -115,6 +206,8 @@ pub enum EngineChange {
     Clear,
     /// Download an engine from GitHub and install it (`https://github.com/owner/repo`).
     Install(String),
+    /// Stop the install under way (`engine.install.cancel`).
+    CancelInstall,
 }
 
 impl Engines {
@@ -166,6 +259,19 @@ impl Engines {
     /// Is `engine`/`mode` the current choice?
     pub fn is_current(&self, engine: &str, mode: &str) -> bool {
         matches!(&self.current, Some(EngineTarget::Choice { engine: e, mode: m }) if e == engine && m == mode)
+    }
+
+    /// Ask the host to connect `target` in place of the engines there are, as `engine.switch`
+    /// does: how a shell starts its first engine without waiting for it (the host connects it
+    /// off the shell's thread, and the editor shows it as connecting meanwhile).
+    pub fn ask_switch(&mut self, target: EngineTarget) {
+        self.request = Some(target);
+    }
+
+    /// Ask the host for an engine change (an add, say: `--engine a,b`'s others), after any
+    /// switch asked for.
+    pub fn ask_change(&mut self, change: EngineChange) {
+        self.changes.push(change);
     }
 }
 
@@ -285,6 +391,54 @@ pub(crate) fn start_needed(s: &mut Session) -> Vec<String> {
     started
 }
 
+/// The engine the host could start for node kind `kind`, which the catalogue lacks: the one
+/// [`engines_used`] picks from [`Engines::offered`] among those not connected or asked for, and
+/// that the host can start. `None`: the catalogue has it, or no engine the host knows of offers it.
+pub fn engine_for_kind(s: &Session, kind: &str) -> Option<String> {
+    if s.catalog().node(kind).is_some() {
+        return None;
+    }
+    let here = s.engines.engine_ids();
+    let offered: Offered = s.engines.offered.iter().filter(|(e, _)| !here.contains(&e.as_str())).map(|(e, k)| (e.clone(), k.clone())).collect();
+    engines_used([(kind, None)], &s.graph().engines, &offered, &here).into_iter().find(|e| offered.contains_key(e) && s.engines.best(e).is_some())
+}
+
+/// The node types the catalogue lacks that adding would start an engine for (N4 slice 1: the
+/// palette lists them, saying which engine starts): those of [`Engines::offered_defs`] whose kind
+/// [`engine_for_kind`] would start their own engine for, once each, with picking on. Empty with
+/// picking off, since then such an add is refused.
+pub fn startable_defs(s: &Session) -> Vec<&plumcraft_proto::catalogue::NodeDef> {
+    if !s.engines.auto {
+        return Vec::new();
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    s.engines.offered_defs.iter().filter(|d| engine_for_kind(s, &d.id).is_some_and(|e| d.engines.contains(&e))).filter(|d| seen.insert(d.id.as_str())).collect()
+}
+
+/// Adding a node of a kind only an engine not started offers (N4's palette offers such kinds;
+/// the conformance suite's picture case adds one): with [`Engines::auto`] on, ask for that engine
+/// beside the others, once, as [`start_needed`] does. The engine asked for, or already asked for
+/// and still coming; `None` when there is none to start, or picking is off.
+pub fn start_for_kind(s: &mut Session, kind: &str) -> Option<String> {
+    if !s.engines.auto {
+        return None;
+    }
+    let e = engine_for_kind(s, kind)?;
+    if s.engines.tried.contains(&e) {
+        // asked for already: still coming while a change is pending
+        return s.engines.is_pending().then_some(e);
+    }
+    s.engines.tried.insert(e.clone());
+    let choice = s.engines.best(&e)?;
+    let target = EngineTarget::Choice { engine: e.clone(), mode: choice.mode.clone() };
+    if !s.connected && s.engines.request.is_none() && s.engines.current.is_none() {
+        s.engines.request = Some(target);
+    } else {
+        s.engines.changes.push(EngineChange::Add(target));
+    }
+    Some(e)
+}
+
 fn can_clear(s: &Session) -> std::result::Result<(), String> {
     if s.engines.current.is_some() { Ok(()) } else { Err("no engine to clear".into()) }
 }
@@ -351,10 +505,20 @@ pub fn github_repo(text: &str) -> Option<String> {
 
 fn can_install(s: &Session) -> std::result::Result<(), String> {
     match (s.engines.can_install, &s.engines.installing) {
-        (false, _) => Err("this editor can't install engines".into()),
+        (false, _) => Err(s.engines.install_refused.clone().unwrap_or_else(|| "this editor can't install engines".into())),
         (true, Some(r)) => Err(format!("installing {r}")),
         (true, None) => Ok(()),
     }
+}
+
+fn can_cancel_install(s: &Session) -> std::result::Result<(), String> {
+    if s.engines.installing.is_some() { Ok(()) } else { Err("no engine is being installed".into()) }
+}
+
+fn cancel_install(s: &mut Session, _: &Value) -> Result<Value> {
+    let url = s.engines.installing.clone().ok_or_else(|| SessionError::Params("no engine is being installed".into()))?;
+    s.engines.changes.push(EngineChange::CancelInstall);
+    Ok(json!({"cancelling": url}))
 }
 
 fn install(s: &mut Session, p: &Value) -> Result<Value> {
@@ -379,7 +543,8 @@ fn list(s: &mut Session, _: &Value) -> Result<Value> {
     let e = &s.engines;
     let added: Vec<Value> = e.added.iter().map(EngineTarget::to_json).collect();
     Ok(
-        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install, "installing": e.installing, "pending": e.is_pending()}),
+        json!({"choices": e.choices, "current": e.current.as_ref().map(EngineTarget::to_json), "added": added, "canAttach": e.can_attach, "canInstall": e.can_install,
+               "installRefused": e.install_refused, "installing": e.installing, "installStatus": e.install_status, "pending": e.is_pending(), "manifestProblems": e.manifest_problems}),
     )
 }
 
@@ -484,9 +649,19 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Install Engine…",
             menu: &["Engine"],
             shortcut: None,
-            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install git+URL`, then its own `register`), then read the engine manifests again; it runs in the background, and the status bar says when it is done (ui.inspect's engine.installing until then). It runs the package's code: install only what you trust",
+            params: "{repo: \"owner/repo\" | \"https://github.com/owner/repo\"} -> {installing: url}: download a Python engine from GitHub and install it (`uv tool install --reinstall git+URL`, then its own `register --folder` into the engines folder), then read the engine manifests again; it runs in the background, saying what it is doing (ui.inspect's engine.installing and installStatus, engine.list, the status line), and the status line says when it is done. Offered where the platform declares subprocess and python; elsewhere disabled with the reason (engine.list's installRefused). It runs the package's code: install only what you trust",
             enabled: can_install,
             run: install,
+            journal: false,
+        },
+        CommandSpec {
+            id: "engine.install.cancel",
+            label: "Cancel Install",
+            menu: &["Engine"],
+            shortcut: None,
+            params: "{} -> {cancelling: url}: stop the install under way (its uv or register is stopped); the status line says it was cancelled",
+            enabled: can_cancel_install,
+            run: cancel_install,
             journal: false,
         },
         CommandSpec {
@@ -494,7 +669,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Engines",
             menu: &[],
             shortcut: None,
-            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, pending}",
+            params: "{} -> {choices: [{engine, mode, engineLabel, modeLabel, warning?}], current: {engine, mode, url?} | null, added: [{engine, mode}], canAttach, canInstall, installRefused, installing, installStatus, pending, manifestProblems: [text] (what the last read of the engine manifests could not use or warned about, B87)}",
             enabled: always,
             run: list,
             journal: false,
@@ -509,11 +684,77 @@ mod tests {
     fn offered() -> Session {
         let mut s = Session::default();
         for (engine, mode) in [("text", "inproc"), ("text", "python"), ("audio", "inproc")] {
-            s.engines.choices.push(EngineChoice { engine: engine.into(), mode: mode.into(), engine_label: engine.into(), mode_label: mode.into() });
+            s.engines.choices.push(EngineChoice {
+                engine: engine.into(),
+                mode: mode.into(),
+                engine_label: engine.into(),
+                mode_label: mode.into(),
+                warning: None,
+            });
         }
         s.engines.current = Some(EngineTarget::Choice { engine: "text".into(), mode: "inproc".into() });
         s.engines.can_attach = true;
         s
+    }
+
+    fn kinds(list: &[(&str, &[&str])]) -> Offered {
+        list.iter().map(|(e, k)| ((*e).to_owned(), k.iter().map(|k| (*k).to_owned()).collect())).collect()
+    }
+
+    #[test]
+    fn the_engines_a_graph_uses_come_from_pins_the_file_and_what_engines_offer() {
+        let offered = kinds(&[("text", &["text.upper", "shared.vary"]), ("array", &["array.blur", "shared.vary"])]);
+        let used = |nodes: &[(&str, Option<&str>)], named: &[&str], prefer: &[&str]| {
+            let named: Vec<String> = named.iter().map(|n| (*n).to_owned()).collect();
+            engines_used(nodes.iter().copied(), &named, &offered, prefer)
+        };
+        // one engine's kinds: that engine alone
+        assert_eq!(used(&[("text.upper", None)], &[], &["text"]), ["text"]);
+        assert_eq!(used(&[("array.blur", None)], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("text.upper", None), ("array.blur", None)], &[], &["text"]), ["text", "array"]);
+        // a kind both offer goes with an engine already used, else the file's, else the host's
+        assert_eq!(used(&[("shared.vary", None), ("array.blur", None)], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("shared.vary", None)], &["array"], &["text"]), ["array"]);
+        assert_eq!(used(&[("shared.vary", None)], &[], &["text"]), ["text"]);
+        // a pin wins; the file's order comes first
+        assert_eq!(used(&[("text.upper", Some("array"))], &[], &["text"]), ["array"]);
+        assert_eq!(used(&[("text.upper", None), ("array.blur", None)], &["array", "text"], &["text"]), ["array", "text"]);
+        // a kind no engine here offers: the engines the file names that aren't known here (a craft)
+        assert_eq!(used(&[("vc.open", None)], &["vectorcraft", "text"], &["text"]), ["vectorcraft"]);
+        assert!(used(&[("vc.open", None)], &[], &["text"]).is_empty(), "nothing says");
+        assert!(used(&[], &["text"], &["text"]).is_empty(), "no nodes, no engines");
+    }
+
+    #[test]
+    fn a_missing_kind_an_engine_offers_names_that_engine_and_picking_starts_it() {
+        let mut s = offered();
+        s.engines.choices.push(EngineChoice {
+            engine: "array".into(),
+            mode: "inproc".into(),
+            engine_label: "array".into(),
+            mode_label: "inproc".into(),
+            warning: None,
+        });
+        s.engines.offered = kinds(&[("array", &["array.blur"]), ("text", &["text.upper"])]);
+        s.connected = true;
+        // the file names no engine: the host's kinds say which
+        s.graph = plumcraft_graph::Graph::from_json(r#"{"version": 1, "nodes": {"b": {"kind": "array.blur"}, "x": {"kind": "nowhere.x"}}}"#).unwrap();
+        let m = s.missing_engines().unwrap();
+        assert_eq!(m.engines, ["array"], "{m:?}");
+        assert!(m.text.contains("array"), "{}", m.text);
+        assert_eq!(engine_for_kind(&s, "array.blur").as_deref(), Some("array"));
+        assert_eq!(engine_for_kind(&s, "nowhere.x"), None);
+        // not picking: nothing starts
+        assert_eq!(start_for_kind(&mut s, "array.blur"), None);
+        assert!(!s.engines.is_pending());
+        s.engines.auto = true;
+        assert_eq!(start_for_kind(&mut s, "array.blur").as_deref(), Some("array"));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::Add(EngineTarget::Choice { engine: "array".into(), mode: "inproc".into() })));
+        // asked once: not again while it is tried (one that failed isn't tried on every add)
+        assert_eq!(start_for_kind(&mut s, "array.blur"), None);
+        // an engine the host can't start isn't named
+        s.engines.offered.insert("film".into(), ["film.cut".to_owned()].into_iter().collect());
+        assert_eq!(engine_for_kind(&s, "film.cut"), None);
     }
 
     #[test]
@@ -597,9 +838,21 @@ mod tests {
         // audio is offered over HTTP and as a process too: the process is faster than HTTP,
         // in-process faster still
         for mode in ["http", "process"] {
-            s.engines.choices.push(EngineChoice { engine: "audio".into(), mode: mode.into(), engine_label: "audio".into(), mode_label: mode.into() });
+            s.engines.choices.push(EngineChoice {
+                engine: "audio".into(),
+                mode: mode.into(),
+                engine_label: "audio".into(),
+                mode_label: mode.into(),
+                warning: None,
+            });
         }
-        s.engines.choices.push(EngineChoice { engine: "film".into(), mode: "http".into(), engine_label: "film".into(), mode_label: "http".into() });
+        s.engines.choices.push(EngineChoice {
+            engine: "film".into(),
+            mode: "http".into(),
+            engine_label: "film".into(),
+            mode_label: "http".into(),
+            warning: None,
+        });
         assert_eq!(s.engines.best("audio").map(|c| c.mode.as_str()), Some("inproc"));
         assert_eq!(s.engines.best("film").map(|c| c.mode.as_str()), Some("http"), "the only way there is");
         s.connected = true;
@@ -685,12 +938,18 @@ mod tests {
         }
         let mut s = offered();
         assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("can't install"));
+        // the host's reason, when it gives one, is what a person reads
+        s.engines.install_refused = Some("This device can't install engines: it can't start programs".into());
+        assert!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap_err().to_string().contains("This device can't install engines"));
+        assert!(s.execute("engine.install.cancel", &Value::Null).is_err(), "nothing to cancel");
         s.engines.can_install = true;
         assert!(s.execute("engine.install", &json!({"repo": "nope"})).is_err());
         assert_eq!(s.execute("engine.install", &json!({"repo": "a/b"})).unwrap(), json!({"installing": "https://github.com/a/b"}));
         assert_eq!(s.engines.take_change(), Some(EngineChange::Install("https://github.com/a/b".into())));
         s.engines.installing = Some("https://github.com/a/b".into());
         assert!(s.execute("engine.install", &json!({"repo": "c/d"})).unwrap_err().to_string().contains("installing"));
+        assert_eq!(s.execute("engine.install.cancel", &Value::Null).unwrap(), json!({"cancelling": "https://github.com/a/b"}));
+        assert_eq!(s.engines.take_change(), Some(EngineChange::CancelInstall));
         assert!(s.journal().is_empty(), "not journaled");
     }
 

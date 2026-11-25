@@ -1,0 +1,264 @@
+{
+  "about": "Test vectors for graph_info.hash (docs/interface.md section 15; decision 1B, 2026-11-22): what makes a graph's result, in its result form, in the typed canonical form of section 14.1, SHA-256. `canon` is the canonical text, `hash` its digest. `base` and `moved` differ only in positions, titles, views, the persist choice, bends and meta, so they hash alike; `param` and `wire` change what is computed. Checked by crates/session/src/trust.rs and python/tests/test_result_hash.py.",
+  "graphs": {
+    "base": {
+      "version": 1,
+      "nodes": {
+        "n1": {
+          "kind": "text.literal",
+          "pos": [
+            0,
+            0
+          ],
+          "values": {
+            "text": "the corgi",
+            "how.width": 3,
+            "gain": 1.5
+          }
+        },
+        "n2": {
+          "kind": "text.upper",
+          "pos": [
+            400,
+            0
+          ],
+          "engine": "text"
+        },
+        "n3": {
+          "kind": "core.convert",
+          "pos": [
+            800,
+            0
+          ],
+          "convert": [
+            "a.to_b"
+          ]
+        }
+      },
+      "wires": [
+        {
+          "from": {
+            "node": "n2",
+            "port": "text"
+          },
+          "to": {
+            "node": "n3",
+            "port": "value"
+          }
+        },
+        {
+          "from": {
+            "node": "n1",
+            "port": "text"
+          },
+          "to": {
+            "node": "n2",
+            "port": "text"
+          },
+          "slice": ":-1"
+        }
+      ]
+    },
+    "moved": {
+      "version": 1,
+      "meta": {
+        "note": "laid out again"
+      },
+      "nodes": {
+        "n1": {
+          "kind": "text.literal",
+          "pos": [
+            120,
+            -40
+          ],
+          "title": "Words",
+          "view": "collapsed",
+          "values": {
+            "gain": 1.5,
+            "text": "the corgi",
+            "how.width": 3
+          }
+        },
+        "n2": {
+          "kind": "text.upper",
+          "pos": [
+            10,
+            300
+          ],
+          "cache": "always",
+          "engine": "text"
+        },
+        "n3": {
+          "kind": "core.convert",
+          "pos": [
+            5,
+            5
+          ],
+          "title": "To B",
+          "convert": [
+            "a.to_b"
+          ]
+        }
+      },
+      "wires": [
+        {
+          "from": {
+            "node": "n1",
+            "port": "text"
+          },
+          "to": {
+            "node": "n2",
+            "port": "text"
+          },
+          "slice": ":-1",
+          "via": [
+            [
+              50,
+              50
+            ]
+          ]
+        },
+        {
+          "from": {
+            "node": "n2",
+            "port": "text"
+          },
+          "to": {
+            "node": "n3",
+            "port": "value"
+          }
+        }
+      ]
+    },
+    "param": {
+      "version": 1,
+      "nodes": {
+        "n1": {
+          "kind": "text.literal",
+          "pos": [
+            0,
+            0
+          ],
+          "values": {
+            "text": "the corgi",
+            "how.width": 3,
+            "gain": 1.25
+          }
+        },
+        "n2": {
+          "kind": "text.upper",
+          "pos": [
+            400,
+            0
+          ],
+          "engine": "text"
+        },
+        "n3": {
+          "kind": "core.convert",
+          "pos": [
+            800,
+            0
+          ],
+          "convert": [
+            "a.to_b"
+          ]
+        }
+      },
+      "wires": [
+        {
+          "from": {
+            "node": "n2",
+            "port": "text"
+          },
+          "to": {
+            "node": "n3",
+            "port": "value"
+          }
+        },
+        {
+          "from": {
+            "node": "n1",
+            "port": "text"
+          },
+          "to": {
+            "node": "n2",
+            "port": "text"
+          },
+          "slice": ":-1"
+        }
+      ]
+    },
+    "wire": {
+      "version": 1,
+      "nodes": {
+        "n1": {
+          "kind": "text.literal",
+          "pos": [
+            0,
+            0
+          ],
+          "values": {
+            "text": "the corgi",
+            "how.width": 3,
+            "gain": 1.5
+          }
+        },
+        "n2": {
+          "kind": "text.upper",
+          "pos": [
+            400,
+            0
+          ],
+          "engine": "text"
+        },
+        "n3": {
+          "kind": "core.convert",
+          "pos": [
+            800,
+            0
+          ],
+          "convert": [
+            "a.to_b"
+          ]
+        }
+      },
+      "wires": [
+        {
+          "from": {
+            "node": "n2",
+            "port": "text"
+          },
+          "to": {
+            "node": "n3",
+            "port": "value"
+          }
+        },
+        {
+          "from": {
+            "node": "n1",
+            "port": "text"
+          },
+          "to": {
+            "node": "n2",
+            "port": "text"
+          }
+        }
+      ]
+    }
+  },
+  "expect": {
+    "base": {
+      "canon": "{\"format\":\"plumcraft.result\",\"nodes\":{\"n1\":{\"kind\":\"text.literal\",\"values\":{\"gain\":{\"f\":\"0x3ff8000000000000\"},\"how.width\":{\"i\":\"3\"},\"text\":\"the corgi\"}},\"n2\":{\"engine\":\"text\",\"kind\":\"text.upper\",\"values\":{}},\"n3\":{\"convert\":[\"a.to_b\"],\"kind\":\"core.convert\",\"values\":{}}},\"v\":{\"i\":\"1\"},\"wires\":[{\"from\":{\"node\":\"n1\",\"port\":\"text\"},\"slice\":\":-1\",\"to\":{\"node\":\"n2\",\"port\":\"text\"}},{\"from\":{\"node\":\"n2\",\"port\":\"text\"},\"to\":{\"node\":\"n3\",\"port\":\"value\"}}]}",
+      "hash": "sha256:b2a5977a3410b9df0972670f9c7be3e5102a142097282663022a7dbc6d554ee8"
+    },
+    "moved": {
+      "hash": "sha256:b2a5977a3410b9df0972670f9c7be3e5102a142097282663022a7dbc6d554ee8"
+    },
+    "param": {
+      "hash": "sha256:dbbb936fe3a3941adb8c81e32824fe59d3fa05e107717b7209784dc32a64bb6c"
+    },
+    "wire": {
+      "hash": "sha256:47d27cecf92a9e5a49d3d59334f92cc0d6408c12de579195dc934962e5d169af"
+    }
+  }
+}

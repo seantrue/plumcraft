@@ -79,6 +79,8 @@ pub struct DocApps {
     /// Where copies go (default [`default_root`]).
     pub root: PathBuf,
     pub(crate) launch: Launch,
+    /// `launch` is [`spawn_app`], as nobody set another.
+    default_launch: bool,
     pending: Option<(String, String)>,
     /// The latest open, or why it failed.
     pub last: Option<std::result::Result<Opened, String>>,
@@ -108,6 +110,7 @@ impl Default for DocApps {
             apps: Vec::new(),
             root: default_root(),
             launch: Arc::new(spawn_app),
+            default_launch: true,
             pending: None,
             last: None,
             pending_value: None,
@@ -126,8 +129,20 @@ impl DocApps {
 
     /// Start apps with `launch` instead of spawning them (tests).
     pub fn with_launcher(mut self, launch: Launch) -> Self {
-        self.launch = launch;
+        self.set_launcher(launch);
         self
+    }
+
+    /// Start apps with `launch` from now on (the editor core routes them through its
+    /// `open.external` ask).
+    pub fn set_launcher(&mut self, launch: Launch) {
+        self.launch = launch;
+        self.default_launch = false;
+    }
+
+    /// Apps are still started by spawning them here ([`spawn_app`]): nobody set a launcher.
+    pub fn launches_by_default(&self) -> bool {
+        self.default_launch
     }
 
     pub fn with_root(mut self, root: PathBuf) -> Self {
@@ -168,12 +183,17 @@ impl DocApps {
     }
 }
 
-/// `<cache>/plumcraft/open`: `~/Library/Caches` on macOS, `%LOCALAPPDATA%` on Windows, else
+/// `<cache>/plumcraft/open`: `~/Library/Caches` on macOS and iOS (an iOS app may not write at
+/// its container's root, B42; a shell gives `dirs.caches` anyway), `%LOCALAPPDATA%` on Windows, else
 /// `$XDG_CACHE_HOME` or `~/.cache`.
 pub fn default_root() -> PathBuf {
+    // a test never writes a person's caches: its own, under its scratch root
+    if plumcraft_scratch::testing() {
+        return plumcraft_scratch::dir("open");
+    }
     let env = |k: &str| std::env::var_os(k).filter(|v| !v.is_empty()).map(PathBuf::from);
     let home = env("HOME").or_else(|| env("USERPROFILE")).unwrap_or_else(std::env::temp_dir);
-    let cache = if cfg!(target_os = "macos") {
+    let cache = if cfg!(any(target_os = "macos", target_os = "ios")) {
         home.join("Library/Caches")
     } else if cfg!(windows) {
         env("LOCALAPPDATA").unwrap_or_else(|| home.join("AppData").join("Local"))
@@ -511,7 +531,7 @@ pub(crate) fn open(s: &mut Session, p: &Value) -> Result<Value> {
         return Err(SessionError::File(format!("{node}.{} has no value yet, and the engine is not connected", t.port)));
     }
     // Watch it and run: the memo answers the rest at once; poll_doc_open opens it on arrival.
-    let watch = vec![WatchRequest { node: node.clone(), port: t.port.clone(), ..Default::default() }];
+    let watch = vec![WatchRequest::new(node.clone(), t.port.clone())];
     let base = crate::paths::base_folder(s.path());
     let graph = crate::convert::runnable(s, base.as_deref());
     let req = s.run.request(&graph, Vec::new(), watch, std::time::Instant::now());
@@ -622,10 +642,21 @@ mod tests {
         let watch = req
             .watch
             .iter()
-            .map(|w| Display { node: w.node.clone(), port: w.port.clone(), media: Media::Doc, full: Some(d.clone()), ..Default::default() })
+            .map(|w| {
+                let mut x = Display::new(w.node.clone(), w.port.clone());
+                (x.media, x.full) = (Media::Doc, Some(d.clone()));
+                x
+            })
             .collect();
         let reply = RunReply { run_id: req.run_id.clone(), generation: req.generation, ok: true, nodes, watch, ..Default::default() };
         assert!(s.run.apply_reply(&reply, Instant::now()));
+    }
+
+    /// A test's copies and exports go under its scratch root, never the person's caches (the
+    /// home-probe run of 2026-11-22 found exports under `Library/Caches/plumcraft/open`).
+    #[test]
+    fn a_tests_copies_and_exports_stay_in_its_scratch_root() {
+        assert!(default_root().starts_with(plumcraft_scratch::root()), "{}", default_root().display());
     }
 
     #[test]
@@ -665,6 +696,28 @@ mod tests {
         assert_eq!(calls.lock().unwrap().len(), 3);
         assert_eq!(s.docs.inspect()["last"]["ok"], true);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// The app saves `bytes` over its copy at `path`, as a later save does: one the copy's
+    /// modification time tells from the last.
+    ///
+    /// A save is seen by the copy's size or time. Two saves of the same size within one tick of
+    /// the file system's clock (1 ms on the Linux test host) leave both unchanged. Polls 500 ms
+    /// apart in real time never meet that. This test's polls follow a made-up clock and come
+    /// well under a millisecond apart, so its saves would (B34). So this waits for the clock to
+    /// move.
+    fn save(path: &Path, bytes: &[u8]) {
+        let stamp = |p: &Path| std::fs::metadata(p).ok().map(|m| (m.modified().ok(), m.len()));
+        let before = stamp(path);
+        let t = Instant::now();
+        loop {
+            std::fs::write(path, bytes).unwrap();
+            if stamp(path) != before {
+                return;
+            }
+            assert!(t.elapsed() < std::time::Duration::from_secs(5), "{}: its modification time never moved", path.display());
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
     }
 
     /// Look at the tracked copies twice, a poll apart: a save is taken back once it holds still.
@@ -725,7 +778,7 @@ mod tests {
         assert!(s.execute("doc.revert", &json!({"node": "o"})).is_err(), "no edit yet");
 
         // the app saves its copy
-        std::fs::write(&opened.path, b"{\"doc\": 2, \"edited\": true}").unwrap();
+        save(&opened.path, b"{\"doc\": 2, \"edited\": true}");
         let applied = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 2).unwrap().unwrap();
         let edited = Handle::raw(b"{\"doc\": 2, \"edited\": true}");
         assert_eq!(applied["edited"], true, "{applied}");
@@ -762,17 +815,17 @@ mod tests {
         assert!(opened.path.is_file(), "the edited file stays");
 
         // saving again brings it back; saving the original bytes drops it
-        std::fs::write(&opened.path, b"{\"doc\": 3}").unwrap();
+        save(&opened.path, b"{\"doc\": 3}");
         assert_eq!(poll_twice(&mut s, t0 + crate::doc_edits::POLL * 4).unwrap().unwrap()["edited"], true);
         assert!(queued(&mut s).inputs.contains_key("s.doc"));
-        std::fs::write(&opened.path, b"{\"doc\": 1}").unwrap();
+        save(&opened.path, b"{\"doc\": 1}");
         let back = poll_twice(&mut s, t0 + crate::doc_edits::POLL * 6).unwrap().unwrap();
         assert_eq!(back["edited"], false, "{back}");
         assert!(queued(&mut s).inputs.is_empty());
         assert!(s.run.node("s").unwrap().stale_why.iter().any(|w| w.contains("its own value again")));
 
         // a new graph forgets it all
-        std::fs::write(&opened.path, b"{\"doc\": 4}").unwrap();
+        save(&opened.path, b"{\"doc\": 4}");
         poll_twice(&mut s, t0 + crate::doc_edits::POLL * 8).unwrap().unwrap();
         s.execute("graph.new", &json!({})).unwrap();
         assert!(s.run.doc_edits.is_empty() && s.docs.edits.tracked.is_empty());

@@ -1,0 +1,49 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- PlumCraft for Windows (N5 slice 2): a WinUI 3 app on the Windows kit, a window per document, the
+       canvas drawn with Composition visuals. Unpackaged and self-contained through N5's slices (MSIX at
+       N5's gate): its folder runs as it is. Windows 10 1809 and later, ARM64 and x64. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <AssemblyName>Plummer</AssemblyName>
+    <Product>Plummer</Product>
+    <AssemblyTitle>Plummer</AssemblyTitle>
+    <RootNamespace>PlumCraft.App</RootNamespace>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+    <!-- only Interop.cs (the display and adapter queries, the window's handle) -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <UseWinUI>true</UseWinUI>
+    <Platforms>ARM64;x64</Platforms>
+    <Platform Condition="'$(Platform)' == '' Or '$(Platform)' == 'AnyCPU'">ARM64</Platform>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'ARM64'">win-arm64</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(Platform)' == 'x64'">win-x64</RuntimeIdentifier>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <Version>0.1.0</Version>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\PlumCraft.Kit\PlumCraft.Kit.csproj" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(Platform)' == 'x64'">
+    <!-- an x64 build carries an x64 core (cargo build of plumcraft-ffi for x86_64-pc-windows-msvc),
+         never the ARM64 one Directory.Build.props finds; without one it builds and runs only to say so -->
+    <PlumFfiDir>$(PlumRepo)\target\x86_64-pc-windows-msvc\release</PlumFfiDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <None Include="$(PlumFfiDir)\plumcraft_ffi.dll" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft_ffi.dll')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft_ffi.dll" />
+    <!-- the engines a person can host as a separate process (Engine › Text › process), beside the app where
+         the core looks for them (engine_binary), as the Mac app bundles them; built with the core
+         (cargo build -p plumcraft-text -p plumcraft-array for the same target). Without them those hostings
+         are offered and never connect (B91). -->
+    <None Include="$(PlumFfiDir)\plumcraft-text-engine.exe" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft-text-engine.exe')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft-text-engine.exe" />
+    <None Include="$(PlumFfiDir)\plumcraft-array-engine.exe" Condition="'$(PlumFfiDir)' != '' And Exists('$(PlumFfiDir)\plumcraft-array-engine.exe')" CopyToOutputDirectory="PreserveNewest" Link="plumcraft-array-engine.exe" />
+  </ItemGroup>
+</Project>

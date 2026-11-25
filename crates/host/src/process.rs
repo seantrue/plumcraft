@@ -78,6 +78,11 @@ struct Inner {
     child: Mutex<Option<Child>>,
     stderr: Arc<Mutex<VecDeque<u8>>>,
     stop: AtomicBool,
+    /// The engine has been `Connected` at least once.
+    connected_once: AtomicBool,
+    /// Why supervision stopped for good: the engine exited before it ever connected (B72), or
+    /// crashed too often. Nothing restarts it, so nobody should wait for it.
+    gave_up: Mutex<Option<String>>,
     /// The UI's store, for its proof file and for reading blobs.
     store: Store,
     /// This connection's same-host verdicts and the engine's declared store roots.
@@ -127,6 +132,40 @@ impl Inner {
         out
     }
 
+    /// [`Inner::request`], giving up as soon as `alive` says the engine is gone.
+    fn request_while(&self, method: &str, params: Value, timeout: Duration, alive: impl Fn() -> bool) -> Reply {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let (tx, rx) = channel();
+        lock(&self.pending).insert(id, tx);
+        let sent = {
+            let mut w = lock(&self.writer);
+            match w.as_mut() {
+                Some(s) => rpc::write_frame(s, &Request::call(id, method, params)).is_ok(),
+                None => false,
+            }
+        };
+        let deadline = Instant::now() + timeout;
+        let out = loop {
+            if !sent {
+                break Err(ProtoError::new(ErrorCode::Unavailable, "the engine is not connected"));
+            }
+            match rx.recv_timeout(Duration::from_millis(20)) {
+                Ok(r) => break r,
+                Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break Err(ProtoError::new(ErrorCode::Unavailable, "the engine is not connected")),
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                    if !alive() {
+                        break Err(ProtoError::new(ErrorCode::Unavailable, format!("{method}: the engine exited")));
+                    }
+                    if Instant::now() > deadline {
+                        break Err(ProtoError::new(ErrorCode::Unavailable, format!("{method}: no answer in {timeout:?}")));
+                    }
+                }
+            }
+        };
+        lock(&self.pending).remove(&id);
+        out
+    }
+
     /// The engine is gone: every pending call and every live run gets its one outcome.
     fn fail_everything(&self, why: &str) {
         for (_, tx) in lock(&self.pending).drain() {
@@ -140,13 +179,80 @@ impl Inner {
         }
     }
 
+    /// The engine is down: the state says so before any call or run hears of it. A caller that
+    /// gets its failure and then asks for the state (or waits to be ready again) must never find
+    /// the dead connection's `Connected`: it would send its next call to no one.
+    fn went_down(&self, why: &str) {
+        self.set_state(EngineState::EngineDown {
+            reason: why.to_owned(),
+            queues: None,
+            stderr_tail: Some(self.stderr_tail()),
+            hint: self.manifest.hint.clone(),
+        });
+        self.fail_everything(why);
+    }
+
     fn stderr_tail(&self) -> String {
-        let b = lock(&self.stderr);
-        let bytes: Vec<u8> = b.iter().copied().collect();
-        let text = String::from_utf8_lossy(&bytes);
-        text.lines().rev().take(20).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+        last_lines(&self.stderr, 20)
+    }
+
+    /// Supervision has stopped for good, saying why.
+    fn give_up(&self, why: &str) {
+        *lock(&self.gave_up) = Some(why.to_owned());
+        self.set_state(EngineState::EngineDown {
+            reason: why.to_owned(),
+            queues: None,
+            stderr_tail: Some(self.stderr_tail()),
+            hint: self.manifest.hint.clone(),
+        });
     }
 }
+
+/// The last `n` lines of a captured stderr.
+pub(crate) fn last_lines(tail: &Mutex<VecDeque<u8>>, n: usize) -> String {
+    let bytes: Vec<u8> = lock(tail).iter().copied().collect();
+    let text = String::from_utf8_lossy(&bytes);
+    text.lines().rev().take(n).collect::<Vec<_>>().into_iter().rev().collect::<Vec<_>>().join("\n")
+}
+
+/// Keep the last [`STDERR_TAIL`] bytes of a child's stderr in `tail` (copying them to this
+/// process's stderr too when `echo`), on a thread of its own. The receiver hears once the pipe
+/// has closed, so a caller can wait (boundedly) for the last words of a program that exited.
+pub(crate) fn capture_stderr(err: std::process::ChildStderr, tail: Arc<Mutex<VecDeque<u8>>>, echo: bool) -> std::sync::mpsc::Receiver<()> {
+    let (done, closed) = channel();
+    let mut err = err;
+    // (no thread, no capture: `done` is dropped with the closure, so the receiver hears at once)
+    let _ = std::thread::Builder::new().name("plumcraft-stderr".into()).spawn(move || {
+        let mut buf = [0u8; 4096];
+        while let Ok(n) = err.read(&mut buf) {
+            if n == 0 {
+                break;
+            }
+            let chunk = buf.get(..n).unwrap_or_default();
+            if echo {
+                let _ = std::io::Write::write_all(&mut std::io::stderr(), chunk);
+            }
+            let mut t = lock(&tail);
+            t.extend(chunk.iter());
+            let excess = t.len().saturating_sub(STDERR_TAIL);
+            t.drain(..excess);
+        }
+        let _ = done.send(());
+    });
+    closed
+}
+
+/// What a person reads when an engine exits before it starts: `why`, then the last few lines
+/// it wrote to stderr, if any.
+pub(crate) fn with_last_words(why: &str, tail: &Mutex<VecDeque<u8>>) -> String {
+    let words = last_lines(tail, 5);
+    let words = words.trim();
+    if words.is_empty() { format!("{why}; it wrote nothing to stderr") } else { format!("{why}. Its stderr ends:\n{words}") }
+}
+
+/// How long to wait for the stderr of a program that has exited to close: a program it started
+/// may still hold the pipe.
+pub(crate) const LAST_WORDS_WAIT: Duration = Duration::from_secs(1);
 
 /// An engine process, supervised.
 pub struct ProcessHost {
@@ -175,6 +281,8 @@ impl ProcessHost {
             child: Mutex::new(None),
             stderr: Arc::new(Mutex::new(VecDeque::new())),
             stop: AtomicBool::new(false),
+            connected_once: AtomicBool::new(false),
+            gave_up: Mutex::new(None),
             store: Store::new(manifest_store.unwrap_or_else(plumcraft_store::default_root)),
             data: Mutex::new(DataSession::default()),
         });
@@ -187,7 +295,10 @@ impl ProcessHost {
     pub fn wait_ready(&self, timeout: Duration) -> EngineState {
         let deadline = Instant::now() + timeout;
         let mut s = lock(&self.inner.state);
-        while matches!(*s, EngineState::Connecting { .. } | EngineState::EngineDown { .. }) && !self.inner.stop.load(Ordering::SeqCst) {
+        while matches!(*s, EngineState::Connecting { .. } | EngineState::EngineDown { .. })
+            && !self.inner.stop.load(Ordering::SeqCst)
+            && lock(&self.inner.gave_up).is_none()
+        {
             let left = deadline.saturating_duration_since(Instant::now());
             if left.is_zero() {
                 break;
@@ -195,6 +306,18 @@ impl ProcessHost {
             s = self.inner.state_cv.wait_timeout(s, left).map(|(g, _)| g).unwrap_or_else(|e| e.into_inner().0);
         }
         s.clone()
+    }
+
+    /// [`ProcessHost::wait_ready`], failing at once with the reason when supervision has given
+    /// up: an engine that exited before it ever connected (its exit status and the end of its
+    /// stderr), or one that crashed too often. A start that is still connecting at `timeout` is
+    /// not a failure: the engine may connect later.
+    pub fn wait_started(&self, timeout: Duration) -> Result<EngineState, String> {
+        let state = self.wait_ready(timeout);
+        match lock(&self.inner.gave_up).clone() {
+            Some(why) => Err(why),
+            None => Ok(state),
+        }
     }
 
     /// The engine's process id, while it runs.
@@ -298,11 +421,23 @@ impl Drop for ProcessHost {
 fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
     let mut crashes: VecDeque<Instant> = VecDeque::new();
     while !inner.stop.load(Ordering::SeqCst) {
-        let why = match connect_once(inner, listener, socket) {
-            Ok(why) => why,
-            Err(e) => format!("could not start the engine: {e}"),
+        let (why, exited) = match connect_once(inner, listener, socket) {
+            Ok(ended) => ended,
+            Err(e) => (format!("could not start the engine: {e}"), true),
         };
         if inner.stop.load(Ordering::SeqCst) {
+            break;
+        }
+        // B72: an engine that exited (or couldn't be started) before it ever connected will do
+        // the same again. Say so now, with its own last words, rather than restart it.
+        if exited && !inner.connected_once.load(Ordering::SeqCst) {
+            let why = match known_cause(&inner.stderr_tail()) {
+                Some(cause) => format!("{why}: {cause}"),
+                None => why,
+            };
+            let why = with_last_words(&why, &inner.stderr);
+            inner.give_up(&why);
+            inner.fail_everything(&why);
             break;
         }
         // what stderr says, when it is a cause we know (an engine built on an SDK too old for
@@ -311,25 +446,14 @@ fn supervise(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) {
             Some(cause) => format!("{why}: {cause}"),
             None => why,
         };
-        inner.fail_everything(&why);
-        inner.set_state(EngineState::EngineDown {
-            reason: why.clone(),
-            queues: None,
-            stderr_tail: Some(inner.stderr_tail()),
-            hint: inner.manifest.hint.clone(),
-        });
+        inner.went_down(&why);
         let now = Instant::now();
         crashes.push_back(now);
         while crashes.front().is_some_and(|t| now.duration_since(*t) > CRASH_WINDOW) {
             crashes.pop_front();
         }
         if crashes.len() >= MAX_CRASHES {
-            inner.set_state(EngineState::EngineDown {
-                reason: format!("{} crashes in a minute; stopped. Last: {why}", crashes.len()),
-                queues: None,
-                stderr_tail: Some(inner.stderr_tail()),
-                hint: inner.manifest.hint.clone(),
-            });
+            inner.give_up(&format!("{} crashes in a minute; stopped. Last: {why}", crashes.len()));
             break;
         }
         // Backoff: 100 ms, 200, 400 … up to 2 s.
@@ -348,8 +472,9 @@ fn known_cause(stderr: &str) -> Option<&'static str> {
     )
 }
 
-/// Spawn, accept, read until the connection ends. Returns why it ended.
-fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> std::io::Result<String> {
+/// Spawn, accept, read until the connection ends. Returns why it ended, and whether the engine
+/// ended it by exiting before it was connected (not killed here for being too slow).
+fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> std::io::Result<(String, bool)> {
     let m = &inner.manifest;
     let (program, args) = m.command.split_first().ok_or_else(|| std::io::Error::other("the manifest has no command"))?;
     let mut cmd = Command::new(program);
@@ -368,23 +493,15 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
         cmd.current_dir(dir);
     }
     let mut child = cmd.spawn()?;
-    if let Some(mut err) = child.stderr.take() {
-        let tail = Arc::clone(&inner.stderr);
-        std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
-            while let Ok(n) = err.read(&mut buf) {
-                if n == 0 {
-                    break;
-                }
-                let mut t = lock(&tail);
-                t.extend(buf.iter().take(n));
-                while t.len() > STDERR_TAIL {
-                    t.pop_front();
-                }
-            }
-        });
-    }
+    let stderr_closed = child.stderr.take().map(|err| capture_stderr(err, Arc::clone(&inner.stderr), false));
     *lock(&inner.child) = Some(child);
+    let exited = || lock(&inner.child).as_mut().and_then(|c| c.try_wait().ok().flatten());
+    // its last words, once it has exited (a program it started may hold the pipe: bounded)
+    let last_words = || {
+        if let Some(closed) = &stderr_closed {
+            let _ = closed.recv_timeout(LAST_WORDS_WAIT);
+        }
+    };
 
     // Accept within the connect timeout, or notice the engine died first.
     let deadline = Instant::now() + CONNECT_TIMEOUT;
@@ -392,12 +509,13 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
         match listener.accept() {
             Ok(s) => break s,
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                if let Some(status) = lock(&inner.child).as_mut().and_then(|c| c.try_wait().ok().flatten()) {
-                    return Ok(format!("the engine exited before connecting ({})", describe(status)));
+                if let Some(status) = exited() {
+                    last_words();
+                    return Ok((format!("the engine exited before connecting ({})", describe(status)), true));
                 }
                 if Instant::now() > deadline || inner.stop.load(Ordering::SeqCst) {
                     kill(inner);
-                    return Ok("the engine didn't connect within 10 s".into());
+                    return Ok(("the engine didn't connect within 10 s".into(), false));
                 }
                 std::thread::sleep(Duration::from_millis(5));
             }
@@ -417,7 +535,8 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
     if let Some((path, nonce)) = &ours {
         hello_req["proof"] = json!({"path": path, "nonce": nonce});
     }
-    let hello = inner.request("hello", hello_req, CONNECT_TIMEOUT);
+    // an engine that exits before it answers fails the hello at once, not after the timeout
+    let hello = inner.request_while("hello", hello_req, CONNECT_TIMEOUT, || exited().is_none());
     if let Some((path, _)) = &ours {
         let _ = std::fs::remove_file(path); // read or not, it has done its job
     }
@@ -428,7 +547,7 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
             if let Some(why) = data.refusal() {
                 kill(inner);
                 let _ = reader.join();
-                return Ok(why);
+                return Ok((why, false));
             }
             // The proof, both directions (spec 5.4), then tell the engine.
             let proof = h.get("proof").cloned().and_then(|p| serde_json::from_value::<Proof>(p).ok()).unwrap_or_default();
@@ -437,17 +556,23 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
             // The work root's files are the engine's own, readable after the proof (spec 4.4).
             stores.extend(h.get("data").and_then(|d| d.get("work_root")).and_then(Value::as_str).filter(|w| !w.is_empty()).map(str::to_owned));
             *lock(&inner.data) = DataSession { shm, path: proof.client_proof_read, stores };
-            let _ = inner.request("session.confirm", json!({"shm": shm, "path": proof.client_proof_read}), CONNECT_TIMEOUT);
-            let schema = inner.request("schema", json!({}), CONNECT_TIMEOUT).ok();
+            let _ = inner.request_while("session.confirm", json!({"shm": shm, "path": proof.client_proof_read}), CONNECT_TIMEOUT, || exited().is_none());
+            let schema = inner.request_while("schema", json!({}), CONNECT_TIMEOUT, || exited().is_none()).ok();
             let nodes = schema.as_ref().and_then(|s| s.get("nodes")).and_then(Value::as_array).map_or(0, |n| n.len() as u64);
             let version = h.get("engine").and_then(|e| e.get("version")).and_then(Value::as_str).unwrap_or_default().to_owned();
             let caps = h.get("caps").cloned().and_then(|c| serde_json::from_value(c).ok()).unwrap_or_default();
+            inner.connected_once.store(true, Ordering::SeqCst);
             inner.set_state(EngineState::Connected { version, nodes, caps });
         }
         Err(e) => {
+            let gone = exited();
             kill(inner);
             let _ = reader.join();
-            return Ok(format!("hello failed: {}", e.message));
+            if let Some(status) = gone {
+                last_words();
+                return Ok((format!("the engine exited before it answered hello ({})", describe(status)), true));
+            }
+            return Ok((format!("hello failed: {}", e.message), false));
         }
     }
     let _ = reader.join();
@@ -472,10 +597,13 @@ fn connect_once(inner: &Arc<Inner>, listener: &Listener, socket: &Endpoint) -> s
         *c = None;
         status
     };
-    Ok(match status {
-        Some(s) => format!("the engine stopped ({}); restarting", describe(s)),
-        None => "the engine closed its connection; restarting".into(),
-    })
+    Ok((
+        match status {
+            Some(s) => format!("the engine stopped ({}); restarting", describe(s)),
+            None => "the engine closed its connection; restarting".into(),
+        },
+        false,
+    ))
 }
 
 fn kill(inner: &Inner) {
@@ -537,7 +665,59 @@ pub(crate) fn private_dir(prefix: &str) -> std::io::Result<PathBuf> {
 
 #[cfg(test)]
 mod tests {
-    use super::known_cause;
+    use super::*;
+
+    fn connected() -> Inner {
+        Inner {
+            manifest: Manifest::default(),
+            token: String::new(),
+            writer: Mutex::new(None),
+            pending: Mutex::new(HashMap::new()),
+            next_id: AtomicU64::new(1),
+            ring: Ring::default(),
+            live: Mutex::new(BTreeMap::new()),
+            synthesised: Mutex::new(BTreeMap::new()),
+            state: Mutex::new(EngineState::Connected { version: String::new(), nodes: 1, caps: Default::default() }),
+            state_cv: Condvar::new(),
+            child: Mutex::new(None),
+            stderr: Arc::new(Mutex::new(VecDeque::new())),
+            stop: AtomicBool::new(false),
+            connected_once: AtomicBool::new(true),
+            gave_up: Mutex::new(None),
+            store: Store::new(PathBuf::from("unused")),
+            data: Mutex::new(DataSession::default()),
+        }
+    }
+
+    /// B29: a run in flight was failed while the state still said `Connected`, so a caller that
+    /// then waited to be ready went straight on and sent its next run to a closed connection
+    /// ("the engine is not connected"), on a slow machine. Whoever hears of the failure, by a
+    /// pending call or by a run's reply in the ring, finds the engine down already.
+    #[test]
+    fn the_state_is_down_before_anyone_hears_of_the_failure() {
+        for _ in 0..200 {
+            let inner = Arc::new(connected());
+            let (tx, rx) = channel();
+            lock(&inner.pending).insert(1, tx);
+            lock(&inner.live).insert("r".into(), 1);
+            let (a, b) = (Arc::clone(&inner), Arc::clone(&inner));
+            let call = std::thread::spawn(move || {
+                let reply = rx.recv();
+                (reply, lock(&a.state).clone())
+            });
+            let run = std::thread::spawn(move || {
+                let page = b.ring.poll(0, 5_000, Some("r"));
+                (page.events.len(), lock(&b.state).clone())
+            });
+            inner.went_down("the engine stopped (signal 9); restarting");
+            let (reply, at_reply) = call.join().unwrap();
+            assert!(matches!(reply, Ok(Err(_))), "{reply:?}");
+            assert!(matches!(at_reply, EngineState::EngineDown { .. }), "a failed call saw {at_reply:?}");
+            let (events, at_event) = run.join().unwrap();
+            assert!(events >= 1);
+            assert!(matches!(at_event, EngineState::EngineDown { .. }), "a failed run saw {at_event:?}");
+        }
+    }
 
     /// The maintainer's report: the OpenCV engine, installed on Windows with an SDK pinned before
     /// the Windows port, died with this, and the banner showed only the traceback.

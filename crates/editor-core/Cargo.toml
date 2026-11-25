@@ -1,0 +1,51 @@
+[package]
+name = "plumcraft-editor-core"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L4: the editor's toolkit-free core (preferences, themes as data, run animation, starting and switching engines, the engine event pump, the windowless commands, wire geometry, the palette's index, probes and differences, run texts), under every shell (docs/research/24-native-shells.md)"
+
+[lints]
+workspace = true
+
+# No GUI toolkit, directly or transitively: no egui, eframe, egui-snarl, winit, wgpu, rfd or
+# plumcraft-ui (scripts/check-core-toolkit-free.sh holds it to that, in CI beside the hash gates).
+[dependencies]
+# an SVG held as TEXT, lent to a shell as an inline reference to draw (note 26 slice 4)
+base64 = { workspace = true }
+# Starting engines (src/engines.rs): the hosts, the coordinator for several, and the engines built
+# in (text and array compiled in, the craft adapter's packs). The audio engine is only ever a
+# process, so it is not a dependency.
+plumcraft-array = { workspace = true }
+plumcraft-coordinator = { workspace = true }
+plumcraft-craft = { workspace = true }
+plumcraft-engine = { workspace = true }
+plumcraft-graph = { workspace = true }
+plumcraft-scratch = { path = "../scratch" }
+plumcraft-host = { workspace = true }
+# Values as plain pictures, decoded on workers (src/values.rs ties a document's engine link to it).
+plumcraft-media = { workspace = true }
+commonkit = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-chart = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-store = { workspace = true }
+plumcraft-text = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+# JSON Schema for the shell interface (src/shell_schema.rs, schema/shell1.json).
+schemars = { workspace = true, optional = true }
+
+[features]
+schema = ["dep:schemars"]
+
+[[example]]
+name = "export_shell_schema"
+required-features = ["schema"]
+
+[dev-dependencies]
+serde_yaml = "0.9"
+# The test engine for the port and graph rows (Save Result's case on the core's own document)
+plumcraft-ports = { path = "../ports" }

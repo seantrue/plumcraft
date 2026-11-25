@@ -1,0 +1,22 @@
+# Patterns for scripts/check-private-strings.sh: one extended regex per line, matched
+# case-insensitively. Copy this file to scripts/private-strings.local (ignored by git) and add the
+# real strings there: host names, device ids, private project and repository names, volume
+# names, subnets. Never commit the .local file.
+#
+# `skip PATH` leaves out one tracked file whose match is functional and kept on purpose.
+
+# an iPhone or iPad UDID (8 hex, dash, 16 hex)
+\b[0-9a-f]{8}-[0-9a-f]{16}\b
+# a home folder with a real login (tests and docs use /Users/me and /home/me, too short to match;
+# the /home shape also finds CI's /home/runner in docs/BUGS.md, which is public)
+/Users/[a-z]{3,}/
+(^|[[:space:]`'"(=])/home/[a-z]{3,}/
+C:\\Users\\[a-z]+\\
+# a local network name
+\b[a-z0-9-]+\.lan\b
+# a Windows default host name
+\bWIN-[A-Z0-9]{11}\b
+
+# Shapes that also match test fixtures here: add the specific values to the .local file instead.
+#   a private subnet:   \b192\.168\.N\.
+#   a disk volume:      /Volumes/NAME

@@ -735,9 +735,9 @@ dependencies = [
 
 [[package]]
 name = "commonkit"
-version = "0.2.0"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d0711e7f5a855b74458d0dcccc7724c7459cf56da9b66de2ae20693439b547ff"
+checksum = "8d2d3a5b40b9e53fbfebfc5187c132224e3f197d456f08b626fd9c865738ddd6"
 dependencies = [
  "blake3",
  "bytemuck",
@@ -2969,6 +2969,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumcraft-build-stamp"
+version = "0.7.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
+name = "plumcraft-chart"
+version = "0.7.0"
+dependencies = [
+ "plumcraft-proto",
+ "serde",
+ "serde_json",
+ "tiny-skia",
+]
+
+[[package]]
 name = "plumcraft-conform"
 version = "0.7.0"
 dependencies = [
@@ -2984,16 +3001,19 @@ dependencies = [
 name = "plumcraft-coordinator"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
  "commonkit",
  "plumcraft-array",
  "plumcraft-audio",
  "plumcraft-craft",
  "plumcraft-engine",
  "plumcraft-host",
+ "plumcraft-ports",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-text",
+ "serde",
  "serde_json",
 ]
 
@@ -3022,10 +3042,10 @@ dependencies = [
  "eframe",
  "egui",
  "egui_kittest",
- "plumcraft-array",
  "plumcraft-automation",
- "plumcraft-coordinator",
+ "plumcraft-build-stamp",
  "plumcraft-craft",
+ "plumcraft-editor-core",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
@@ -3039,18 +3059,69 @@ dependencies = [
 ]
 
 [[package]]
+name = "plumcraft-editor-core"
+version = "0.7.0"
+dependencies = [
+ "base64 0.22.1",
+ "commonkit",
+ "plumcraft-array",
+ "plumcraft-chart",
+ "plumcraft-coordinator",
+ "plumcraft-craft",
+ "plumcraft-engine",
+ "plumcraft-graph",
+ "plumcraft-host",
+ "plumcraft-media",
+ "plumcraft-ports",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-session",
+ "plumcraft-store",
+ "plumcraft-text",
+ "schemars",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+]
+
+[[package]]
 name = "plumcraft-engine"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
  "commonkit",
  "image",
+ "plumcraft-chart",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-svg",
+ "plumcraft-views",
  "serde",
  "serde_json",
  "tiny_http",
+]
+
+[[package]]
+name = "plumcraft-ffi"
+version = "0.7.0"
+dependencies = [
+ "jni-sys 0.4.1",
+ "plumcraft-audio",
+ "plumcraft-automation",
+ "plumcraft-build-stamp",
+ "plumcraft-coordinator",
+ "plumcraft-editor-core",
+ "plumcraft-engine",
+ "plumcraft-graph",
+ "plumcraft-host",
+ "plumcraft-media",
+ "plumcraft-ports",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-session",
+ "plumcraft-store",
+ "serde_json",
 ]
 
 [[package]]
@@ -3080,12 +3151,43 @@ name = "plumcraft-layout"
 version = "0.7.0"
 
 [[package]]
+name = "plumcraft-media"
+version = "0.7.0"
+dependencies = [
+ "base64 0.22.1",
+ "image",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-store",
+ "plumcraft-svg",
+ "plumcraft-views",
+ "png 0.18.1",
+ "rustfft",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "plumcraft-ports"
+version = "0.7.0"
+dependencies = [
+ "plumcraft-engine",
+ "plumcraft-proto",
+ "plumcraft-scratch",
+ "plumcraft-store",
+ "serde_json",
+]
+
+[[package]]
 name = "plumcraft-proto"
 version = "0.7.0"
 dependencies = [
  "base64 0.22.1",
  "commonkit",
  "getrandom 0.3.4",
+ "plumcraft-engine",
+ "plumcraft-media",
+ "plumcraft-views",
  "schemars",
  "serde",
  "serde_json",
@@ -3102,6 +3204,7 @@ name = "plumcraft-session"
 version = "0.7.0"
 dependencies = [
  "commonkit",
+ "plumcraft-chart",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
@@ -3110,6 +3213,7 @@ dependencies = [
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-text",
+ "plumcraft-views",
  "serde",
  "serde_json",
  "thiserror 2.0.21",
@@ -3170,9 +3274,12 @@ dependencies = [
  "plumcraft-audio",
  "plumcraft-automation",
  "plumcraft-coordinator",
+ "plumcraft-editor-core",
  "plumcraft-engine",
  "plumcraft-graph",
  "plumcraft-host",
+ "plumcraft-media",
+ "plumcraft-ports",
  "plumcraft-proto",
  "plumcraft-scratch",
  "plumcraft-session",
@@ -3203,6 +3310,14 @@ dependencies = [
  "plumcraft-store",
  "plumcraft-text",
  "png 0.18.1",
+ "serde_json",
+]
+
+[[package]]
+name = "plumcraft-views"
+version = "0.7.0"
+dependencies = [
+ "base64 0.22.1",
  "serde_json",
 ]
 

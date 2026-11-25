@@ -23,16 +23,15 @@ workspace = true
 
 [dependencies]
 plumcraft-automation = { workspace = true }
-plumcraft-engine = { workspace = true }
 plumcraft-graph = { workspace = true }
-plumcraft-host = { workspace = true }
 plumcraft-proto = { workspace = true }
 plumcraft-session = { workspace = true }
-plumcraft-text = { workspace = true }
-plumcraft-array = { workspace = true }
-plumcraft-coordinator = { workspace = true }
 plumcraft-craft = { workspace = true }
 plumcraft-ui = { workspace = true }
+plumcraft-build-stamp = { workspace = true }
+# Starting and connecting engines, and the windowless commands (`run`, `check`, `tidy`, `nodes`),
+# are the editor core's: this crate keeps the window.
+plumcraft-editor-core = { workspace = true }
 serde_json = { workspace = true }
 egui = { workspace = true, features = ["default_fonts"] }
 eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
@@ -43,5 +42,8 @@ eframe = { workspace = true, features = ["wgpu", "accesskit", "default_fonts"] }
 winit = { version = "0.30", default-features = false }
 
 [dev-dependencies]
+plumcraft-engine = { workspace = true }
+plumcraft-host = { workspace = true }
 plumcraft-scratch = { path = "../../crates/scratch" }
+plumcraft-text = { workspace = true }
 egui_kittest = { workspace = true }

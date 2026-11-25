@@ -15,42 +15,47 @@
 //! held when it began, so a frame dragged over a node doesn't collect it (the research software's asks again
 //! at every step); retitling uses [`crate::rename_view`].
 
+use std::collections::HashMap;
+
 use egui::{Color32, Pos2, Rect, Vec2};
 use plumcraft_graph::{Frame, FrameId, Graph};
 use serde_json::{Value, json};
 
 use crate::canvas::{Action, Canvas};
-use crate::rename_view::{self, RenameTarget};
+
 use crate::theme::{Tokens, parse_hex};
 
 /// The icon before a frame's title.
 pub const FRAME_ICON: &str = "frame";
 
 /// What a frame with no title is called.
-const UNTITLED: &str = "Frame";
+pub(crate) const UNTITLED: &str = "Frame";
 
 /// Colours a frame can take from its menu (the theme's accent when none is chosen).
-pub const SWATCHES: [(&str, &str); 6] =
-    [("Blue", "#3d6fb6"), ("Green", "#3f8f5a"), ("Amber", "#b5852e"), ("Red", "#b54a4a"), ("Violet", "#7a58b0"), ("Grey", "#6b7280")];
+pub use plumcraft_editor_core::menu::SWATCHES;
 
 fn tint(frame: &Frame, tokens: &Tokens) -> Color32 {
     frame.color.as_deref().and_then(parse_hex).unwrap_or(tokens.accent)
 }
 
-fn rect_of(frame: &Frame) -> Rect {
-    Rect::from_min_size(Pos2::new(frame.pos[0], frame.pos[1]), Vec2::new(frame.size[0], frame.size[1]))
+/// A frame's rect as shown: at its position, its size the scene's (`sizes`, grown round members
+/// a push moved: N4 slice 4), else its own.
+fn rect_of(id: &FrameId, frame: &Frame, sizes: &HashMap<String, [f32; 2]>) -> Rect {
+    let size = sizes.get(&id.0).copied().unwrap_or(frame.size);
+    Rect::from_min_size(Pos2::new(frame.pos[0], frame.pos[1]), Vec2::new(size[0], size[1]))
 }
 
-/// The frames' rects in graph coordinates (Fit takes them in).
-pub fn frame_rects(graph: &Graph) -> impl Iterator<Item = Rect> + '_ {
-    graph.frames.values().map(rect_of)
+/// The frames' rects in graph coordinates, as shown (Fit takes them in).
+pub fn frame_rects<'a>(graph: &'a Graph, sizes: &'a HashMap<String, [f32; 2]>) -> impl Iterator<Item = Rect> + 'a {
+    graph.frames.iter().map(|(id, f)| rect_of(id, f, sizes))
 }
 
-/// Paint the frames with snarl's background painter (graph coordinates, under the nodes).
-pub fn paint_frames(painter: &egui::Painter, graph: &Graph, tokens: &Tokens) {
+/// Paint the frames with snarl's background painter (graph coordinates, under the nodes), at the
+/// sizes they are shown.
+pub fn paint_frames(painter: &egui::Painter, graph: &Graph, sizes: &HashMap<String, [f32; 2]>, tokens: &Tokens) {
     let radius = f32::from(tokens.radius) * 2.0;
-    for frame in graph.frames.values() {
-        let r = rect_of(frame);
+    for (id, frame) in &graph.frames {
+        let r = rect_of(id, frame, sizes);
         let c = tint(frame, tokens);
         painter.rect_filled(r, radius, c.gamma_multiply(0.08));
         painter.rect_stroke(r, radius, egui::Stroke::new(1.0, c.gamma_multiply(0.6)), egui::StrokeKind::Inside);
@@ -73,7 +78,8 @@ impl Canvas {
             return actions;
         }
         for (id, frame) in &graph.frames {
-            let screen = Rect::from_min_max(t * rect_of(frame).min, t * rect_of(frame).max);
+            let shown = rect_of(id, frame, &self.frame_sizes);
+            let screen = Rect::from_min_max(t * shown.min, t * shown.max);
             if !screen.intersects(self.rect) {
                 continue;
             }
@@ -101,7 +107,7 @@ impl Canvas {
                         ui.set_max_width((screen.width() - 12.0).max(180.0));
                         ui.horizontal(|ui| {
                             ui.spacing_mut().button_padding = Vec2::splat(2.0);
-                            crate::icons::menu(ui, "menu", size + 1.0, tokens.text, "Frame actions", |ui| frame_menu(ui, id, frame, &mut actions));
+                            crate::icons::menu(ui, "menu", size + 1.0, tokens.text, "Frame actions", |ui| frame_menu(ui, graph, id, tokens, &mut actions));
                             crate::icons::icon(ui, FRAME_ICON, size + 1.0, tokens.text, "");
                             ui.add(egui::Label::new(text).truncate().selectable(false).sense(egui::Sense::click_and_drag()))
                         })
@@ -116,7 +122,8 @@ impl Canvas {
                 if r.dragged() {
                     let d = r.drag_delta() / t.scaling;
                     if d != Vec2::ZERO {
-                        let mut p = json!({"frame": id, "pos": [frame.pos[0] + d.x, frame.pos[1] + d.y]});
+                        // named by the press, so the drag is one undo step (N3 slice 1)
+                        let mut p = json!({"frame": id, "pos": [frame.pos[0] + d.x, frame.pos[1] + d.y], "drag": format!("egui:{}", self.press)});
                         if let Some((_, held)) = self.frame_drag.as_ref().filter(|(f, _)| f == id) {
                             p["nodes"] = json!(held.nodes);
                             p["groups"] = json!(held.groups);
@@ -127,12 +134,14 @@ impl Canvas {
                 if r.drag_stopped() {
                     self.frame_drag = None;
                 }
+                // a double click on the tab edits its name, as the core's double tap there does
+                // (the tab takes the click from the canvas, so it sends the core's command itself)
                 if r.double_clicked() {
-                    rename_view::request(ui.ctx(), RenameTarget::Frame(id.clone()), &frame.title, UNTITLED);
+                    actions.push(("name.edit", json!({"frame": id})));
                 }
                 r.on_hover_cursor(egui::CursorIcon::Grab)
                     .on_hover_text(format!("{title}\n\nDrag to move the frame and its nodes; double-click to rename; right-click for its menu"))
-                    .context_menu(|ui| frame_menu(ui, id, frame, &mut actions));
+                    .context_menu(|ui| frame_menu(ui, graph, id, tokens, &mut actions));
             });
             self.frame_tabs.push(shown.response.rect);
             let handle = egui::Area::new(egui::Id::new(("plumcraft-frame-resize", id.0.as_str())))
@@ -153,7 +162,10 @@ impl Canvas {
                 if r.dragged() {
                     let d = r.drag_delta() / t.scaling;
                     if d != Vec2::ZERO {
-                        actions.push(("frame.resize", json!({"frame": id, "size": [frame.size[0] + d.x, frame.size[1] + d.y]})));
+                        actions.push((
+                            "frame.resize",
+                            json!({"frame": id, "size": [frame.size[0] + d.x, frame.size[1] + d.y], "drag": format!("egui:{}", self.press)}),
+                        ));
                     }
                 }
             });
@@ -163,43 +175,18 @@ impl Canvas {
     }
 }
 
-/// A frame's menu: its title, a colour, remove.
-fn frame_menu(ui: &mut egui::Ui, id: &FrameId, frame: &Frame, actions: &mut Vec<Action>) {
-    ui.weak(format!("frame {id}"));
-    // (a window: a text field can't live in a menu, crate::rename_view)
-    if ui.button("Rename…").clicked() {
-        rename_view::request(ui.ctx(), RenameTarget::Frame(id.clone()), &frame.title, UNTITLED);
-        ui.close();
-    }
-    ui.menu_button("Colour", |ui| {
-        for (name, hex) in SWATCHES {
-            let c = parse_hex(hex).unwrap_or(Color32::GRAY);
-            let picked = frame.color.as_deref() == Some(hex);
-            if ui.add(egui::Button::new(egui::RichText::new(format!("■ {name}")).color(c)).selected(picked)).clicked() {
-                actions.push(("frame.set", json!({"frame": id, "color": hex})));
-                ui.close();
-            }
+/// A frame's menu: its title, a colour, remove (the core's menu model).
+fn frame_menu(ui: &mut egui::Ui, graph: &Graph, id: &FrameId, tokens: &Tokens, actions: &mut Vec<Action>) {
+    let items = plumcraft_editor_core::menu::frame_menu(graph, &id.0);
+    if let Some(item) = crate::menu_view::draw(ui, &items, crate::menu_view::Style { tokens, bar: false, close: true }) {
+        match crate::menu_view::action(&item) {
+            Some(a) => actions.push(a),
+            None => crate::menu_view::open_window(ui.ctx(), &item),
         }
-        if ui.add(egui::Button::new("Theme accent").selected(frame.color.is_none())).clicked() {
-            actions.push(("frame.set", json!({"frame": id, "color": null})));
-            ui.close();
-        }
-    });
-    if ui.button("Remove Frame").on_hover_text("Its nodes stay").clicked() {
-        actions.push(("frame.remove", json!({"frame": id})));
-        ui.close();
     }
 }
 
 /// `ui.inspect`'s `frames`: each frame, with what it holds now.
 pub fn inspect(graph: &Graph) -> Value {
-    let list: Vec<Value> = graph
-        .frames
-        .iter()
-        .map(|(id, f)| {
-            let held = graph.frame_held(id);
-            json!({"id": id, "title": f.title, "pos": f.pos, "size": f.size, "color": f.color, "nodes": held.nodes, "groups": held.groups})
-        })
-        .collect();
-    Value::Array(list)
+    plumcraft_editor_core::control::frames_inspect(graph)
 }

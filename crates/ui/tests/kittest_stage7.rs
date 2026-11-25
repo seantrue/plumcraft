@@ -75,7 +75,7 @@ fn file_open_on_a_picture_opens_its_graph_unsaved_and_says_what_it_lacks() {
     h.get_by_label("mine.pic");
     assert!(h.state().window_title().starts_with("mine.pic"), "{}", h.state().window_title());
     assert_eq!(h.state().session.path(), None);
-    assert_eq!(h.state().last_error, None);
+    assert_eq!(h.state().last_error.as_deref(), None);
 
     // Save doesn't write over the picture: it asks where
     h.state_mut().invoke("graph.save");
@@ -107,7 +107,7 @@ fn file_open_on_a_picture_opens_its_graph_unsaved_and_says_what_it_lacks() {
 #[test]
 fn about_opens_from_the_help_menu_and_says_what_this_is() {
     let mut app = EditorApp::new(Session::new(catalog()));
-    app.session.about = About { title: "PlumThing".into(), version: "1.2.3".into(), parts: vec![("renderer".into(), "abc123".into())] };
+    app.session.about = About { title: "PlumThing".into(), version: "1.2.3".into(), parts: vec![("renderer".into(), "abc123".into())], build: None };
     let mut h = harness(app);
     assert!(h.query_by_label("About PlumThing").is_none());
     h.get_by_label("Help").click();

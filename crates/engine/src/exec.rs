@@ -115,23 +115,47 @@ impl WorkflowWire {
     }
 
     /// The value this wire delivers from `value` (spec 7.6 rule 3): a range keeps a list a list
-    /// (a sweep of its own, shorter than the list it came from), an index takes one item.
+    /// (a sweep of its own, shorter than the list it came from), an index takes one item. A
+    /// nested list (a step run once per item that made a list each run) is sliced at the level
+    /// its source made, inside each run (`lists.nested`).
     fn deliver(&self, value: &Data) -> Result<Data, NodeError> {
         let Some(spec) = self.slice.as_deref() else { return Ok(value.clone()) };
         let bad = |why: String| NodeError::new(NodeError::CONFIG, format!("input {:?}: {why}", self.to.port));
         let s = slice::parse(spec).map_err(bad)?;
         let Data::List(l) = value else { return Err(bad(format!("slice {spec:?} needs a list, but the wire carries a single value"))) };
-        let picks = s.picks(l.items.len()).map_err(bad)?;
-        if s.is_index() {
-            return picks.first().and_then(|&i| l.items.get(i)).cloned().ok_or_else(|| bad(format!("slice {spec:?} picks nothing")));
-        }
-        let names: Vec<String> = l.axes_or_plain().into_iter().map(|(name, _)| name).collect();
-        Ok(Data::List(crate::List {
-            items: picks.iter().filter_map(|&i| l.items.get(i).cloned()).collect(),
-            axes: vec![(format!("{}[{s}]", names.join("+")), picks.len())],
-            labels: picks.iter().filter_map(|&i| l.labels.get(i).cloned()).collect(),
-        }))
+        slice_level(l, &s, spec, 0).map_err(bad)
     }
+}
+
+/// Slice `l` at its innermost level: the level a nested list's source made (spec 7.6 rule 3).
+fn slice_level(l: &crate::List, s: &slice::Slice, spec: &str, depth: usize) -> Result<Data, String> {
+    if is_nested(l) {
+        if depth >= MAX_NESTING {
+            return Err(format!("lists nest more than {MAX_NESTING} deep"));
+        }
+        let items =
+            l.items.iter().map(|i| i.list().map_or_else(|| Ok(i.clone()), |inner| slice_level(inner, s, spec, depth + 1))).collect::<Result<Vec<_>, _>>()?;
+        return Ok(Data::List(crate::List { items, axes: l.axes.clone(), labels: l.labels.clone() }));
+    }
+    let picks = s.picks(l.items.len())?;
+    if s.is_index() {
+        return picks.first().and_then(|&i| l.items.get(i)).cloned().ok_or_else(|| format!("slice {spec:?} picks nothing"));
+    }
+    let names: Vec<String> = l.axes_or_plain().into_iter().map(|(name, _)| name).collect();
+    Ok(Data::List(crate::List {
+        items: picks.iter().filter_map(|&i| l.items.get(i).cloned()).collect(),
+        axes: vec![(format!("{}[{s}]", names.join("+")), picks.len())],
+        labels: picks.iter().filter_map(|&i| l.labels.get(i).cloned()).collect(),
+    }))
+}
+
+/// How deep lists may nest (spec 7.6 rule 2, assumed: the depth bindings already allow).
+pub const MAX_NESTING: usize = 8;
+
+/// Whether `l` is a list of lists that are levels (each carries an axis), not of tuples: what a
+/// step run once per item makes when each run makes a list (spec 7.6 rule 2).
+pub fn is_nested(l: &crate::List) -> bool {
+    !l.items.is_empty() && l.items.iter().all(|i| matches!(i, Data::List(x) if !x.axes.is_empty()))
 }
 
 #[derive(Debug, Default, Deserialize, Clone)]
@@ -287,20 +311,34 @@ impl Run<'_> {
 /// Run a request to completion and return the authoritative reply. Never panics on a bad graph:
 /// that is a reply with a `graph` error.
 pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &CancelToken, publisher: &str, memo: &mut Memo, plane: &Plane<'_>) -> RunReply {
+    run_values(engine, req, emit, cancel, publisher, memo, plane).0
+}
+
+/// [`run`], and the values each node that finished made, by node id (what `output.save` writes,
+/// [`crate::save`]).
+pub fn run_values(
+    engine: &Engine,
+    req: &RunRequest,
+    emit: &mut dyn Emit,
+    cancel: &CancelToken,
+    publisher: &str,
+    memo: &mut Memo,
+    plane: &Plane<'_>,
+) -> (RunReply, BTreeMap<String, Outputs>) {
     let started = Instant::now();
     let mut reply = RunReply { v: PROTOCOL, run_id: req.run_id.clone(), generation: req.generation, ..Default::default() };
     let mut workflow = match parse(engine, req) {
         Ok(w) => w,
         Err(e) => {
             reply.error = Some(e);
-            return reply;
+            return (reply, BTreeMap::new());
         }
     };
     let order = match topo_order(&workflow) {
         Ok(o) => o,
         Err(e) => {
             reply.error = Some(e);
-            return reply;
+            return (reply, BTreeMap::new());
         }
     };
     // Bindings (spec 7.6 rule 10) replace the wires into the ports they name, so what fed those
@@ -428,6 +466,7 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
                 ms,
                 thumb,
                 outputs,
+                editor: editor_data(&hit, plane),
                 memo: Some(MemoInfo {
                     plan_key: key.clone().unwrap_or_default(),
                     content_key: content,
@@ -446,9 +485,9 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
         let mut work_ms = 0.0;
         let result = resolved.and_then(|(inputs, _)| {
             let mut forward = |rec: StatusRecord| r.record(rec);
-            let t1 = Instant::now();
+            let t1 = engine.clock().now();
             let out = call(node, &def, id, &inputs, cancel, &mut forward, &mut setup).map(|o| name_lists(id, o));
-            work_ms = t1.elapsed().saturating_sub(setup).as_secs_f64() * 1000.0;
+            work_ms = engine.clock().now().saturating_sub(t1).saturating_sub(setup).as_secs_f64() * 1000.0;
             out
         });
         let ms = t0.elapsed().as_secs_f64() * 1000.0;
@@ -469,9 +508,18 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
                 let memo_info = key.clone().map(|plan_key| MemoInfo { plan_key, content_key: content.clone(), source: None, computed_ms: Some(work_ms) });
                 stats.computed += 1;
                 stats.computed_ms += work_ms;
-                reply
-                    .nodes
-                    .insert(id.clone(), NodeReport { state: NodeState::Done, ms, thumb, outputs: report_outputs, memo: memo_info, ..Default::default() });
+                reply.nodes.insert(
+                    id.clone(),
+                    NodeReport {
+                        state: NodeState::Done,
+                        ms,
+                        thumb,
+                        outputs: report_outputs,
+                        memo: memo_info,
+                        editor: editor_data(&outputs, plane),
+                        ..Default::default()
+                    },
+                );
                 outcome.insert(id.clone(), Outcome::Done);
                 if let Some(k) = key.filter(|_| stores) {
                     // Slow enough, and cheap to write and read back next to recomputing it.
@@ -516,11 +564,10 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
         .iter()
         .zip(watch)
         .map(|(w, d)| {
-            d.unwrap_or_else(|| Display {
-                node: w.node.clone(),
-                port: w.port.clone(),
-                error: Some(NodeError::new(NodeError::OP, "no value")),
-                ..Default::default()
+            d.unwrap_or_else(|| {
+                let mut d = Display::new(w.node.clone(), w.port.clone());
+                d.error = Some(NodeError::new(NodeError::OP, "no value"));
+                d
             })
         })
         .collect();
@@ -531,13 +578,39 @@ pub fn run(engine: &Engine, req: &RunRequest, emit: &mut dyn Emit, cancel: &Canc
         stats.tree = Some(st.usage());
     }
     reply.stats = Some(stats);
-    reply
+    (reply, values)
 }
 
 /// The input key under which a Vary Choices node gets the choices of the inputs it feeds.
 pub const CHOICES_KEY: &str = "_choices";
 /// The memo parameter under which a node's [`crate::Node::volatile`] identity goes.
 pub const VOLATILE_KEY: &str = "_volatile";
+/// The output key under which a node that tracks lineage puts what made its outputs (an object:
+/// `{style?, params, settings?, graph?}`), which every watched display of the node carries as
+/// `Display.recipe` (spec 10.2, F56). Not a port: nothing wires it, and it is kept with the
+/// outputs in the memo. Only such a node sets it (the maintainer, 2026-11-22: recipes stay with
+/// engines that track lineage).
+pub const RECIPE_KEY: &str = "_recipe";
+/// The output key under which a node puts what a value editor needs from its run (an object:
+/// editor kind → data, spec 7.4 and `NodeReport.editor`; for `curves`, `docs/shell-interface.md`
+/// 12.21's curves data). Not a port, kept with the outputs in the memo, so a cached run sends it too.
+pub const EDITOR_KEY: &str = "_editor";
+/// The output key under which a node puts a picture for its editor (an array, shown as its first
+/// `auto` view, at most [`EDITOR_PICTURE_PX`] a side): it goes into each kind's data under `picture`
+/// as an `rgba8` rendition.
+pub const EDITOR_PICTURE_KEY: &str = "_editor_picture";
+/// The largest side of an editor's picture: a mask's largest (`plumcraft_proto::masks::MAX_SIDE`),
+/// scaled down by the same arithmetic, so a mask editor's picture is the mask's size.
+pub const EDITOR_PICTURE_PX: u32 = 2048;
+/// The prefix of an output key under which a node puts another picture for its editor: an array
+/// under `_editor_picture:<name>` goes into each kind's data under `<name>` (a mask editor's
+/// `base`, the mask it starts from), as [`EDITOR_PICTURE_KEY`]'s goes under `picture`.
+pub const EDITOR_PICTURES_PREFIX: &str = "_editor_picture:";
+
+/// Is `key` one of a node's editor outputs rather than a port?
+pub fn is_editor_key(key: &str) -> bool {
+    key == EDITOR_KEY || key == EDITOR_PICTURE_KEY || key.starts_with(EDITOR_PICTURES_PREFIX)
+}
 /// The most runs a node mapped over lists makes.
 pub const MAX_RUNS: usize = 100_000;
 /// The most items a list display's sheet describes.
@@ -610,9 +683,15 @@ fn mapping_plan(lists: &[(&str, &crate::List)]) -> Result<(Vec<(String, usize)>,
 }
 
 /// Run a node: once, or once per item when lists reach inputs that take one item (each run's
-/// progress scaled into the whole), its outputs then lists over the runs' axes.
-/// Run a node (once, or once per item of the lists it is mapped over), adding the time its
-/// calls spent getting ready ([`Cx::setup_took`]) to `setup`.
+/// progress scaled into the whole), its outputs then lists over the runs' axes, adding the time
+/// its calls spent getting ready ([`Cx::setup_took`]) to `setup`.
+///
+/// **Nested lists** (spec 7.6 rule 2, `lists.nested`): a run whose output is a list keeps it as
+/// one item, so a step run once per item that makes a list each run gives a list of lists. A
+/// level of such a list (a list item that carries an axis) is mapped over again, a run at a time;
+/// a list item without an axis is a tuple, passed whole. A port that takes a whole list fed a list
+/// of lists runs once per item of every outer level, the innermost list whole, unless the node
+/// takes nested lists whole (`flags.nested_input`).
 fn call(
     node: &dyn crate::Node,
     def: &NodeDef,
@@ -622,13 +701,96 @@ fn call(
     records: &mut dyn FnMut(StatusRecord),
     setup: &mut std::time::Duration,
 ) -> Result<Outputs, NodeError> {
+    let regrouped = regroup(def, inputs);
+    call_level(node, def, id, regrouped.as_ref().unwrap_or(inputs), cancel, records, setup, 0)
+}
+
+/// Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2): a list over a sweep the others share and one of its own (a product
+/// made upstream, such as a step run once per scale and once per value of a range) becomes a list
+/// over its own sweeps of lists over the shared ones, so the node runs once per item of its own
+/// sweeps, each with the shared sweep whole, as a list of lists does. A list whose sweeps no
+/// other whole-list input shares, or all of whose sweeps they share, is taken whole as before.
+/// `None`: nothing to regroup.
+pub fn regroup(def: &NodeDef, inputs: &crate::Inputs) -> Option<crate::Inputs> {
+    type Axes = Vec<(String, usize)>;
+    if def.flags.nested_input {
+        return None;
+    }
+    let whole: Vec<&String> = inputs.keys().filter(|k| def.flags.input_list || def.inputs.iter().any(|p| &p.name == *k && p.list)).collect();
+    let axes_of = |k: &str| match inputs.get(k) {
+        Some(Data::List(l)) if !is_nested(l) && !l.axes.is_empty() => Some(l.axes.clone()),
+        _ => None,
+    };
+    let mut out: Option<crate::Inputs> = None;
+    for name in &whole {
+        let Some(axes) = axes_of(name) else { continue };
+        let Some(Data::List(l)) = inputs.get(*name) else { continue };
+        let others: Vec<String> = whole.iter().filter(|o| **o != *name).filter_map(|o| axes_of(o)).flatten().map(|a| a.0).collect();
+        let (inner, outer): (Axes, Axes) = axes.iter().cloned().partition(|a| others.contains(&a.0));
+        if inner.is_empty() || outer.is_empty() || axes.iter().map(|a| a.1).product::<usize>() != l.items.len() {
+            continue;
+        }
+        // row-major: each axis's stride in the flat list
+        let mut stride = vec![1usize; axes.len()];
+        for k in (0..axes.len().saturating_sub(1)).rev() {
+            stride[k] = stride[k + 1] * axes[k + 1].1;
+        }
+        let offset = |want: &[(String, usize)], mut at: usize| -> usize {
+            let mut sum = 0;
+            for (axis, n) in want.iter().rev() {
+                let pos = axes.iter().position(|a| &a.0 == axis).unwrap_or(0);
+                sum += (at % (*n).max(1)) * stride.get(pos).copied().unwrap_or(0);
+                at /= (*n).max(1);
+            }
+            sum
+        };
+        let (outer_n, inner_n): (usize, usize) = (outer.iter().map(|a| a.1).product(), inner.iter().map(|a| a.1).product());
+        let runs = (0..outer_n)
+            .map(|o| {
+                let at: Vec<usize> = (0..inner_n).map(|i| offset(&inner, i) + offset(&outer, o)).collect();
+                Data::List(crate::List {
+                    items: at.iter().filter_map(|&j| l.items.get(j).cloned()).collect(),
+                    axes: inner.clone(),
+                    labels: if l.labels.is_empty() { Vec::new() } else { at.iter().map(|&j| l.label(j).to_owned()).collect() },
+                })
+            })
+            .collect();
+        out.get_or_insert_with(|| inputs.clone()).insert((*name).clone(), Data::List(crate::List { items: runs, axes: outer, labels: Vec::new() }));
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn call_level(
+    node: &dyn crate::Node,
+    def: &NodeDef,
+    id: &str,
+    inputs: &crate::Inputs,
+    cancel: &CancelToken,
+    records: &mut dyn FnMut(StatusRecord),
+    setup: &mut std::time::Duration,
+    depth: usize,
+) -> Result<Outputs, NodeError> {
     let whole = |k: &str| def.flags.input_list || def.inputs.iter().any(|p| p.name == k && p.list);
-    let lists: Vec<(&str, &crate::List)> = inputs.iter().filter(|(k, _)| !whole(k)).filter_map(|(k, v)| v.list().map(|l| (k.as_str(), l))).collect();
+    let maps = |k: &str, l: &crate::List| {
+        if whole(k) {
+            !def.flags.nested_input && is_nested(l)
+        } else {
+            // the top level maps any list, as before; a level inside an item maps only when it
+            // carries an axis (a list without one is a tuple, a value)
+            depth == 0 || !l.axes.is_empty()
+        }
+    };
+    let lists: Vec<(&str, &crate::List)> = inputs.iter().filter_map(|(k, v)| v.list().filter(|l| maps(k, l)).map(|l| (k.as_str(), l))).collect();
     if lists.is_empty() {
         let mut cx = Cx { node_id: id, cancel, records, last_progress: None, setup: std::time::Duration::ZERO };
         let out = node.run(inputs, &mut cx);
         *setup += cx.setup;
-        return out;
+        // a list a run makes is a level of its own: named `<node>.<port>`
+        return out.map(|o| name_lists(id, o));
+    }
+    if depth >= MAX_NESTING {
+        return Err(NodeError::new(NodeError::CONFIG, format!("lists nest more than {MAX_NESTING} deep")));
     }
     let (axes, picks) = mapping_plan(&lists)?;
     let n = picks.len();
@@ -675,15 +837,14 @@ fn call(
             rec.fraction = Some(0.0);
             scaled(rec);
         }
-        let mut cx = Cx { node_id: id, cancel, records: &mut scaled, last_progress: None, setup: std::time::Duration::ZERO };
-        let out = node.run(&item, &mut cx);
-        *setup += cx.setup;
+        // a run's own inputs may hold further levels: mapped again, one level down
+        let out = call_level(node, def, id, &item, cancel, &mut scaled, setup, depth + 1);
         let out =
             out.map_err(|e| if e.kind == NodeError::CANCELLED { e } else { NodeError { message: format!("item {} of {n}: {}", i + 1, e.message), ..e } })?;
         per_item.push(out);
     }
-    // An output of one item per run spans the runs' axes; one that is itself a list per run is
-    // a new, flat list (named as it leaves the node).
+    // Each output is a list over the runs' axes, an item a run: a run's single value, or the
+    // list it made (a level of its own, so the result is a list of lists).
     let mut names: Vec<String> = def.outputs.iter().map(|p| p.name.clone()).collect();
     for o in &per_item {
         names.extend(o.keys().filter(|k| !names.contains(k)).cloned().collect::<Vec<_>>());
@@ -694,27 +855,7 @@ fn call(
         if vals.len() != per_item.len() {
             continue;
         }
-        let list = if vals.iter().all(|v| v.list().is_none()) {
-            crate::List { items: vals.into_iter().cloned().collect(), axes: axes.clone(), labels: labels.clone() }
-        } else {
-            let mut flat = crate::List::default();
-            for (v, run) in vals.into_iter().zip(&labels) {
-                match v {
-                    Data::List(l) => {
-                        for (j, x) in l.items.iter().enumerate() {
-                            flat.items.push(x.clone());
-                            flat.labels.push([run.as_str(), l.label(j)].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join(" · "));
-                        }
-                    }
-                    one => {
-                        flat.items.push(one.clone());
-                        flat.labels.push(run.clone());
-                    }
-                }
-            }
-            flat
-        };
-        out.insert(name, Data::List(list));
+        out.insert(name, Data::List(crate::List { items: vals.into_iter().cloned().collect(), axes: axes.clone(), labels: labels.clone() }));
     }
     Ok(out)
 }
@@ -788,12 +929,44 @@ fn preview(
     thumb
 }
 
-/// The outputs a reply carries: a target's only, each crossing as [`Plane::port_value`] decides.
+/// The outputs a reply carries: a target's only, each crossing as [`Plane::port_value`] decides
+/// (never the editor's keys, which aren't ports).
 fn target_outputs(engine: &Engine, def: &NodeDef, req: &RunRequest, id: &str, outputs: &Outputs, plane: &Plane<'_>) -> BTreeMap<String, PortValue> {
     if !req.targets.iter().any(|t| t == id) {
         return BTreeMap::new();
     }
-    outputs.iter().map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v))).collect()
+    outputs.iter().filter(|(k, _)| !is_editor_key(k)).map(|(k, v)| (k.clone(), plane.port_value(port_media(engine, def, k), v))).collect()
+}
+
+/// What a node's value editors need from this run (`NodeReport.editor`): its [`EDITOR_KEY`]
+/// object, kind by kind, each with the [`EDITOR_PICTURE_KEY`] picture as `picture` when the node
+/// gave one and the kind's data has none. Empty when the node gave none.
+fn editor_data(outputs: &Outputs, plane: &Plane<'_>) -> BTreeMap<String, Value> {
+    let Some(Value::Object(kinds)) = outputs.get(EDITOR_KEY).and_then(Data::json) else { return BTreeMap::new() };
+    // each picture by the field it goes under: `picture`, and `<name>` for `_editor_picture:<name>`
+    let pictures: Vec<(String, Value)> = outputs
+        .iter()
+        .filter_map(|(k, v)| {
+            let field = if k == EDITOR_PICTURE_KEY { "picture" } else { k.strip_prefix(EDITOR_PICTURES_PREFIX).filter(|n| !n.is_empty())? };
+            let Data::Array(a) = v else { return None };
+            let r = crate::arrays::thumb(a, EDITOR_PICTURE_PX).and_then(|t| plane.rgba8(&t, "editor", "")).and_then(|r| serde_json::to_value(r).ok())?;
+            Some((field.to_owned(), r))
+        })
+        .collect();
+    kinds
+        .iter()
+        .map(|(kind, data)| {
+            let mut data = data.clone();
+            if let Value::Object(o) = &mut data {
+                for (field, p) in &pictures {
+                    if !o.contains_key(field) {
+                        o.insert(field.clone(), p.clone());
+                    }
+                }
+            }
+            (kind.clone(), data)
+        })
+        .collect()
 }
 
 fn port_media(engine: &Engine, def: &NodeDef, port: &str) -> Media {
@@ -943,12 +1116,50 @@ fn resolve_inputs(
                 None => None,
             },
         };
+        // A choice with sub-ports (spec 7.6, `options`): the chosen option's ports arrive as
+        // `<port>.<sub>`, wired or from their widgets or defaults, and key the memo as inputs do.
+        // Found missing by the ports test engine (2026-11-22): the SDK's executor passed none.
+        let chosen = match &value {
+            Some(Data::Json(Value::String(s))) => Some(s.clone()),
+            Some(Data::Json(v)) if !v.is_null() => Some(v.to_string()),
+            _ => None,
+        };
         match value {
             Some(v) => {
                 inputs.insert(port.name.clone(), v);
             }
             None if port.optional => {}
             None => return Err(NodeError::new(NodeError::CONFIG, format!("input {:?} has no value", port.name))),
+        }
+        let subs = port.options.as_ref().zip(chosen.as_ref()).and_then(|(o, c)| o.get(c)).cloned().unwrap_or_default();
+        for sub in &subs {
+            let key = format!("{}.{}", port.name, sub.name);
+            let wired = match bound.get(&key) {
+                Some(v) => Some(v.clone()),
+                None => upstream
+                    .iter()
+                    .find(|w| w.to.port == key)
+                    .and_then(|w| values.get(&w.from.node).and_then(|o| o.get(&w.from.port)).map(|v| w.deliver(v)))
+                    .transpose()?,
+            };
+            let numeric = match sub.ty.as_str() {
+                "INT" => Some(Numeric::Int),
+                "FLOAT" => Some(Numeric::Float),
+                _ => None,
+            };
+            let own = wn.values.get(&key).filter(|v| !v.is_null()).cloned().or_else(|| (!sub.default.is_null()).then(|| sub.default.clone()));
+            match (wired, own) {
+                (Some(v), _) => {
+                    inputs.insert(key, v);
+                }
+                (None, Some(v)) => {
+                    let v = memo::coerce(&v, numeric);
+                    params.insert(key.clone(), v.clone());
+                    inputs.insert(key, Data::Json(v));
+                }
+                (None, None) if sub.optional => {}
+                (None, None) => return Err(NodeError::new(NodeError::CONFIG, format!("input {key:?} has no value"))),
+            }
         }
     }
     Ok((inputs, params))
@@ -1015,9 +1226,30 @@ fn thumb(engine: &Engine, ty: &str, v: &Data, plane: &Plane<'_>) -> Option<Rendi
         return plane.blob_thumb(b);
     }
     if let Data::List(l) = v {
-        return l.items.first().and_then(|first| thumb(engine, ty, first, plane));
+        let mut t = l.items.first().and_then(|first| thumb(engine, ty, first, plane));
+        // a nested list's counts a level at a time (spec 7.6 rule 2), for the face: "3 × 2"
+        if let Some(Rendition::Rgba8 { items, levels, .. }) = &mut t {
+            let mut at = l;
+            let mut counts = vec![l.items.len() as u64];
+            while is_nested(at)
+                && let Some(Data::List(inner)) = at.items.first()
+                && counts.len() <= MAX_NESTING
+            {
+                counts.push(inner.items.len() as u64);
+                at = inner;
+            }
+            if counts.len() > 1 {
+                *items = l.items.len() as u64;
+                *levels = counts;
+            }
+        }
+        return t;
     }
     if let Data::Array(a) = v {
+        // a chart the core lays out, its kind the caption (note 26, option A), or a picture
+        if let Some((t, caption)) = crate::arrays::chart_thumb(a, THUMB_PX) {
+            return plane.rgba8(&t, "", &caption);
+        }
         return crate::arrays::thumb(a, THUMB_PX).and_then(|t| plane.rgba8(&t, "", ""));
     }
     match engine.wire_type(ty).map(|w| w.media) {
@@ -1047,7 +1279,8 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
     {
         media = value_media(v.list().and_then(|l| l.items.first()).unwrap_or(v));
     }
-    let mut d = Display { media, ty: ty.clone(), node: id.into(), port: w.port.clone(), items: 1, view: w.view.clone(), ..Default::default() };
+    let mut d = Display::new(id, w.port.clone());
+    (d.media, d.ty, d.items, d.view) = (media, ty.clone(), 1, w.view.clone());
     match outputs.get(&w.port) {
         None => d.error = Some(NodeError::new(NodeError::OP, format!("no output {:?}", w.port))),
         Some(Data::List(l)) => {
@@ -1057,22 +1290,56 @@ fn display(engine: &Engine, def: &NodeDef, id: &str, w: &WatchRequest, outputs: 
             let at = usize::try_from(at.max(0)).unwrap_or(0).min(n.saturating_sub(1));
             d.index = at as i64;
             for (j, item) in l.items.iter().take(MAX_SHEET).enumerate() {
-                let mut cell = Display { media, ..Default::default() };
+                let mut cell = Display::default();
+                cell.media = media;
                 summarize(item, media, &mut cell);
                 let thumb = if w.sheet { thumb(engine, &ty, item, plane) } else { None };
                 d.sheet.push(plumcraft_proto::display::SheetCell { label: l.label(j).to_owned(), summary: cell.summary, thumb });
             }
             match l.items.get(at) {
                 Some(item) => {
-                    fill(item, media, plane, w.px, &mut d);
-                    let label = l.label(at);
+                    // a nested list (spec 7.6 rule 2): down `w.path`, a level at a time
+                    let (mut shown, mut labels, mut levels, mut path) = (item, vec![l.label(at).to_owned()], vec![n as u64], Vec::new());
+                    while let Data::List(inner) = shown
+                        && !inner.axes.is_empty()
+                        && path.len() < MAX_NESTING
+                    {
+                        let m = inner.items.len();
+                        let want = w.path.get(path.len()).copied().unwrap_or(0);
+                        let j = if want < 0 { m as i64 + want } else { want };
+                        let j = usize::try_from(j.max(0)).unwrap_or(0).min(m.saturating_sub(1));
+                        let Some(next) = inner.items.get(j) else { break };
+                        levels.push(m as u64);
+                        path.push(j as i64);
+                        labels.push(inner.label(j).to_owned());
+                        shown = next;
+                    }
+                    fill(shown, media, plane, w.px, &mut d);
+                    let label = labels.iter().filter(|l| !l.is_empty()).cloned().collect::<Vec<_>>().join(" · ");
                     let label = if label.is_empty() { String::new() } else { format!(" ({label})") };
-                    d.summary = format!("item {} of {n}{label}: {}", at + 1, d.summary);
+                    if path.is_empty() {
+                        d.summary = format!("item {} of {n}{label}: {}", at + 1, d.summary);
+                    } else {
+                        // run 2 of 5 · item 1 of 2 (each level's place, outermost first)
+                        let mut place = vec![format!("run {} of {n}", at + 1)];
+                        let deep = path.len();
+                        for (k, (j, m)) in path.iter().zip(levels.iter().skip(1)).enumerate() {
+                            let word = if k + 1 == deep { "item" } else { "run" };
+                            place.push(format!("{word} {} of {m}", j + 1));
+                        }
+                        d.summary = format!("{}{label}: {}", place.join(" · "), d.summary);
+                        d.levels = levels;
+                        d.path = path;
+                    }
                 }
                 None => d.summary = "an empty list".into(),
             }
         }
         Some(v) => fill(v, media, plane, w.px, &mut d),
+    }
+    // what made the value, from a node that tracks lineage (spec 10.2 `recipe`, F56)
+    if let Some(Data::Json(r)) = outputs.get(RECIPE_KEY).filter(|r| r.json().is_some_and(Value::is_object)) {
+        d.recipe = Some(r.clone());
     }
     d
 }
@@ -1142,7 +1409,9 @@ fn fill(v: &Data, media: Media, plane: &Plane<'_>, px: u32, d: &mut Display) {
     match v {
         Data::Json(Value::String(s)) => {
             d.renditions.push(excerpt(s));
-            if s.len() > plane.max_inline {
+            // the whole text reaches the editor when its excerpt doesn't hold it: inline up to
+            // max_inline, by the store past it (SVG text drawn as a picture, note 26 slice 4)
+            if s.len() > plane.max_inline || s.chars().nth(EXCERPT_CHARS).is_some() {
                 full(plane.text_ref(s), d);
             }
         }
@@ -1184,5 +1453,32 @@ fn fill(v: &Data, media: Media, plane: &Plane<'_>, px: u32, d: &mut Display) {
                 d.summary = format!("{summary}, the first: {}", d.summary);
             }
         },
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Note 26 option A with nested lists (spec 7.6 rule 2): a list of 1-D arrays shows its first
+    /// item's chart, a list of lists the first item of the first run's, with each level's count.
+    #[test]
+    fn a_list_of_series_shows_its_first_chart_with_its_levels() {
+        let engine = Engine::new(plumcraft_proto::session::EngineInfo::default());
+        let plane = Plane { store: None, shm: true, urls: false, max_inline: 1 << 22 };
+        let series = |k: f32| Data::Array(crate::Array::from_f32(vec![50], &(0..50).map(|i| i as f32 * k).collect::<Vec<_>>()));
+        let flat = crate::List { items: vec![series(1.0), series(2.0), series(3.0)], axes: vec![("r".into(), 0)], labels: vec![] };
+        match thumb(&engine, "ARRAY", &Data::List(flat.clone()), &plane) {
+            Some(Rendition::Rgba8 { caption, items, levels, .. }) => {
+                assert_eq!(caption, "line");
+                assert!(items <= 1 && levels.is_empty(), "a flat list says no levels: {items} {levels:?}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let nested = crate::List { items: vec![Data::List(flat.clone()), Data::List(flat)], axes: vec![("s".into(), 0)], labels: vec![] };
+        match thumb(&engine, "ARRAY", &Data::List(nested), &plane) {
+            Some(Rendition::Rgba8 { caption, items, levels, .. }) => assert_eq!((caption.as_str(), items, levels), ("line", 2, vec![2, 3])),
+            other => panic!("{other:?}"),
+        }
     }
 }

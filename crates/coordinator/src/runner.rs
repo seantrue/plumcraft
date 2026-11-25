@@ -123,16 +123,37 @@ pub fn start(runs: &Arc<Runs>, req: RunRequest, plan: Result<Plan, NodeError>, e
 }
 
 /// What a wire between fragments delivers: `value` through its slice, if it has one (spec 7.6
-/// rule 3). Applied here because a binding replaces the wire, so the engine never sees it.
+/// rule 3). Applied here because a binding replaces the wire, so the engine never sees it. A
+/// nested list (its items lists with axes) is sliced inside each run, as an engine slices it.
 fn sliced(value: &PortValue, spec: Option<&str>) -> Result<PortValue, String> {
     let Some(spec) = spec else { return Ok(value.clone()) };
     let s = slice::parse(spec)?;
-    let PortValue::List { items } = value else { return Err(format!("slice {spec:?} needs a list, but the wire carries a single value")) };
+    let PortValue::List { .. } = value else { return Err(format!("slice {spec:?} needs a list, but the wire carries a single value")) };
+    slice_level(value, &s, spec, 0)
+}
+
+/// How deep a coordinator follows nested lists (spec 7.6 rule 2).
+const MAX_NESTING: usize = 8;
+
+fn is_nested(items: &[PortValue]) -> bool {
+    !items.is_empty() && items.iter().all(|i| matches!(i, PortValue::List { axes, .. } if !axes.is_empty()))
+}
+
+fn slice_level(value: &PortValue, s: &slice::Slice, spec: &str, depth: usize) -> Result<PortValue, String> {
+    let PortValue::List { items, axes, .. } = value else { return Ok(value.clone()) };
+    if is_nested(items) {
+        if depth >= MAX_NESTING {
+            return Err(format!("lists nest more than {MAX_NESTING} deep"));
+        }
+        let items = items.iter().map(|i| slice_level(i, s, spec, depth + 1)).collect::<Result<Vec<_>, _>>()?;
+        return Ok(PortValue::list_with_axes(items, axes.clone()));
+    }
     let picks = s.picks(items.len())?;
     if s.is_index() {
         return picks.first().and_then(|&i| items.get(i)).cloned().ok_or_else(|| format!("slice {spec:?} picks nothing"));
     }
-    Ok(PortValue::List { items: picks.iter().filter_map(|&i| items.get(i).cloned()).collect() })
+    let name = axes.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join("+");
+    Ok(PortValue::list_with_axes(picks.iter().filter_map(|&i| items.get(i).cloned()).collect(), vec![(format!("{name}[{s}]"), picks.len() as u64)]))
 }
 
 fn report(state: NodeState, error: Option<NodeError>) -> NodeReport {
@@ -277,7 +298,9 @@ fn finish(runs: &Runs, reply: RunReply, cancel: &AtomicBool) {
 }
 
 fn no_value(node: &str, port: &str) -> Display {
-    Display { node: node.into(), port: port.into(), error: Some(NodeError::new(NodeError::OP, "no value")), ..Default::default() }
+    let mut d = Display::new(node, port);
+    d.error = Some(NodeError::new(NodeError::OP, "no value"));
+    d
 }
 
 /// `nodes` and everything downstream of them inside fragment `f`.
@@ -488,16 +511,34 @@ mod tests {
     use super::*;
 
     fn list(n: i64) -> PortValue {
-        PortValue::List { items: (0..n).map(|v| PortValue::Json { value: json!(v) }).collect() }
+        PortValue::list((0..n).map(|v| PortValue::Json { value: json!(v) }).collect())
     }
 
     #[test]
     fn a_crossing_is_sliced_as_an_engine_would() {
         assert_eq!(sliced(&list(3), None).unwrap(), list(3));
-        assert_eq!(sliced(&list(4), Some(":3")).unwrap(), list(3));
+        let PortValue::List { items, axes, .. } = sliced(&list(4), Some(":3")).unwrap() else { panic!("a list") };
+        assert_eq!((items.len(), axes), (3, vec![("[:3]".to_owned(), 3)]), "a range keeps a list, its own axis");
         assert_eq!(sliced(&list(3), Some("-1")).unwrap(), PortValue::Json { value: json!(2) });
         assert!(sliced(&list(3), Some("9")).unwrap_err().contains("out of range"));
         assert!(sliced(&PortValue::Json { value: json!(1) }, Some("0")).unwrap_err().contains("needs a list"));
         assert!(sliced(&list(3), Some("junk")).is_err());
+    }
+
+    /// Nested lists (spec 7.6 rules 2 and 3): a list of runs' lists is sliced inside each run.
+    #[test]
+    fn a_nested_crossing_is_sliced_inside_each_run() {
+        let run = |v: i64| {
+            PortValue::list_with_axes(vec![PortValue::Json { value: json!(v) }, PortValue::Json { value: json!(v * 10) }], vec![("s.values".into(), 2)])
+        };
+        let nested = PortValue::list_with_axes(vec![run(1), run(2), run(3)], vec![("r.values".into(), 3)]);
+        let PortValue::List { items, axes, .. } = sliced(&nested, Some("1")).unwrap() else { panic!("a list over the runs") };
+        assert_eq!(items, vec![PortValue::Json { value: json!(10) }, PortValue::Json { value: json!(20) }, PortValue::Json { value: json!(30) }]);
+        assert_eq!(axes, vec![("r.values".to_owned(), 3)]);
+        let PortValue::List { items, .. } = sliced(&nested, Some("::2")).unwrap() else { panic!("a list over the runs") };
+        assert!(items.iter().all(|i| matches!(i, PortValue::List { items, .. } if items.len() == 1)));
+        // a list of tuples (no axes) is one level: sliced as before
+        let tuples = PortValue::list(vec![list(2), list(2)]);
+        assert_eq!(sliced(&tuples, Some("0")).unwrap(), list(2));
     }
 }

@@ -34,6 +34,40 @@ pub struct Popout {
     /// Its probe and zoom.
     #[serde(skip)]
     pub tools: Tools,
+    /// How many times it was asked for while open (`view.popout` of a port already out): a
+    /// shell brings its window to the front each time this rises (N4 slice 3).
+    pub raised: u64,
+    /// How a text viewer shows it (`viewer.text`).
+    pub text: TextView,
+    /// The last whole-view zoom asked for (`viewer.zoom {to: "fit" | "1:1"}`): a picture viewer
+    /// keeps showing it that way until another is asked for.
+    pub fit: Option<crate::viewer_cmds::Zoom>,
+    /// Its viewer's state: a table's sort and page, an outline's open members, play, a channel
+    /// (`viewer_state`, N4 slice 5).
+    pub state: crate::viewer_state::ViewerState,
+    /// Rises with every zoom asked of it (`viewer.zoom {to?, at?}`): a native shell, which keeps
+    /// its picture's zoom and view itself, applies the ask in `tools.zoom` once when this rises
+    /// (B159; `popout.get`'s `zoomAsk`).
+    pub zoom_seq: u64,
+    /// The latest zoom asked of it, kept for a native shell (egui's viewer takes `tools.zoom`).
+    #[serde(skip)]
+    pub zoom_asked: Option<crate::viewer_cmds::ZoomAsk>,
+}
+
+/// How a text or scalar viewer shows its value (`viewer.text`, `docs/shell-interface.md` 13.2;
+/// N4 slice 3): wrapped at the window's width, in a monospaced face, and all of it rather than
+/// the excerpt a run sends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct TextView {
+    pub wrap: bool,
+    pub mono: bool,
+    pub all: bool,
+}
+
+impl Default for TextView {
+    fn default() -> Self {
+        TextView { wrap: true, mono: false, all: false }
+    }
 }
 
 /// The pop-outs open, and the viewer the panel uses.
@@ -50,6 +84,9 @@ pub struct Views {
     pub graph_params: bool,
     /// The Messages window (the status bar's messages in full) is open (`view.messages`).
     pub messages: bool,
+    /// The Acknowledgements window (the licences of what the editor and its engines are built
+    /// from) is open (`app.acknowledgements`, FR4).
+    pub acknowledgements: bool,
     /// The node the parameter editor is open on.
     pub parameters: Option<NodeId>,
     /// The nodes whose own editors are open (`node.editor`), oldest first.
@@ -68,12 +105,18 @@ pub struct Views {
     /// Run colours are off (`view.runColors`): node bodies keep their family colour while a
     /// run computes them.
     pub run_colors_off: bool,
+    /// The status line is hidden (`view.statusLine`, research note 28): on by default.
+    pub status_line_off: bool,
     /// The animation speed (`view.animationSpeed`): the least time, in milliseconds, each node
     /// is shown running when the last run is animated; 0 is real time, with no least time.
     /// `None`: [`DEFAULT_ANIM_MS`].
     pub anim_ms: Option<u32>,
     /// View › Animate Last Run was asked for, until the window starts it.
     pub animate_asked: bool,
+    /// The rows selected of each value, by `node.port` (note 26 slice 8, decision 7A).
+    pub selections: crate::chart_view::Selections,
+    /// Rises with every selection made or cleared: a shell's table shows a new one's first row.
+    pub selection_seq: u64,
     next: u64,
 }
 
@@ -96,7 +139,11 @@ fn target(s: &Session, p: &Value) -> Result<WatchRequest> {
         None | Some(Value::Null) => 0,
         Some(v) => v.as_i64().ok_or_else(|| SessionError::Params("\"index\" must be a whole number".into()))?,
     };
-    Ok(WatchRequest { node: node.0, port, index, ..Default::default() })
+    Ok({
+        let mut x = WatchRequest::new(node.0, port);
+        x.index = index;
+        x
+    })
 }
 
 fn viewer_param(p: &Value) -> Result<Option<String>> {
@@ -139,18 +186,38 @@ fn popout(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(out);
     }
     let viewer = viewer_param(p)?;
-    // The same port and item already open: bring that one forward.
-    if let Some(open) =
-        s.views.popouts.iter().find(|o| s.run.entry(WatchRole::Popout(o.id)).is_some_and(|(x, _)| x.node == w.node && x.port == w.port && x.index == w.index))
+    // The same port and item already open: bring that one forward, unless another window of it
+    // is asked for (`another: true`, note 26 slice 8: its table beside its chart)
+    let another = p.get("another").and_then(Value::as_bool) == Some(true);
+    if !another
+        && let Some(open) = s
+            .views
+            .popouts
+            .iter()
+            .find(|o| s.run.entry(WatchRole::Popout(o.id)).is_some_and(|(x, _)| x.node == w.node && x.port == w.port && x.index == w.index))
     {
-        return Ok(json!({"id": open.id, "node": w.node, "port": w.port, "existing": true}));
+        let id = open.id;
+        if let Some(o) = s.views.popouts.iter_mut().find(|o| o.id == id) {
+            o.raised = o.raised.saturating_add(1);
+        }
+        return Ok(json!({"id": id, "node": w.node, "port": w.port, "existing": true}));
     }
     if s.views.popouts.len() >= MAX_POPOUTS {
         return Err(SessionError::Params(format!("at most {MAX_POPOUTS} pop-outs; close one first")));
     }
     s.views.next = s.views.next.saturating_add(1);
     let id = s.views.next;
-    s.views.popouts.push(Popout { id, viewer, tools: Tools::default() });
+    s.views.popouts.push(Popout {
+        id,
+        viewer,
+        tools: Tools::default(),
+        raised: 0,
+        text: TextView::default(),
+        fit: None,
+        state: Default::default(),
+        zoom_seq: 0,
+        zoom_asked: None,
+    });
     let mut out = json!({"id": id, "node": w.node, "port": w.port, "index": w.index});
     s.run.set_watch(WatchRole::Popout(id), Some(w));
     out["run_id"] = json!(refresh(s));
@@ -196,6 +263,35 @@ fn set_viewer(s: &mut Session, p: &Value) -> Result<Value> {
     let viewer = viewer_param(p)?;
     set_viewer_of(s, role_param(p)?, viewer.clone())?;
     Ok(json!({"viewer": viewer}))
+}
+
+/// `viewer.text {popout, wrap?, mono?, all?}`: how a pop-out's text viewer shows its value. Each
+/// field left out keeps what it was; `all` asks for the whole value rather than the excerpt.
+fn text_view(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = p.get("popout").and_then(Value::as_u64).ok_or_else(|| SessionError::Params("\"popout\" (a pop-out's id) is required".into()))?;
+    if let Some(Value::Object(o)) = Some(p)
+        && let Some(k) = o.keys().find(|k| !matches!(k.as_str(), "popout" | "wrap" | "mono" | "all"))
+    {
+        return Err(SessionError::Params(format!("viewer.text takes popout, wrap, mono and all, not {k:?}")));
+    }
+    let flag = |k: &str| -> Result<Option<bool>> {
+        match p.get(k) {
+            None | Some(Value::Null) => Ok(None),
+            Some(v) => v.as_bool().map(Some).ok_or_else(|| SessionError::Params(format!("\"{k}\" must be true or false"))),
+        }
+    };
+    let (wrap, mono, all) = (flag("wrap")?, flag("mono")?, flag("all")?);
+    let o = s.views.popouts.iter_mut().find(|o| o.id == id).ok_or_else(|| SessionError::Params(format!("no pop-out {id}")))?;
+    if let Some(b) = wrap {
+        o.text.wrap = b;
+    }
+    if let Some(b) = mono {
+        o.text.mono = b;
+    }
+    if let Some(b) = all {
+        o.text.all = b;
+    }
+    Ok(json!({"popout": id, "wrap": o.text.wrap, "mono": o.text.mono, "all": o.text.all}))
 }
 
 fn peek(s: &mut Session, p: &Value) -> Result<Value> {
@@ -270,6 +366,17 @@ fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"on": on}))
 }
 
+/// `view.statusLine {on?}`: show the status line, the core's model of what the editor is doing
+/// (research note 28); a toggle when `on` is absent.
+fn status_line(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = match p.get("on") {
+        None | Some(Value::Null) => s.views.status_line_off,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"on\" must be true or false".into()))?,
+    };
+    s.views.status_line_off = !on;
+    Ok(json!({"on": on}))
+}
+
 /// `view.animationSpeed {ms}`: the least time each node is shown running when the last run is
 /// animated.
 fn animation_speed(s: &mut Session, p: &Value) -> Result<Value> {
@@ -317,6 +424,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
         CommandSpec {
+            id: "view.statusLine",
+            label: "Status Line",
+            menu: &["View"],
+            shortcut: None,
+            params: "{on?: bool (default: toggle)} -> {on}: show the status line at the bottom of the window: the engine, the document, the hash, the run (its progress, its time, the cache), Auto-run, a save, the selection and the newest messages, as the core's model (`ui.inspect`'s and the feed's statusLine). On by default, kept in the preferences",
+            enabled: always,
+            run: status_line,
+            journal: false,
+        },
+        CommandSpec {
             id: "view.animateRun",
             label: "Animate Last Run",
             menu: &["View"],
@@ -351,7 +468,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Pop Out",
             menu: &[],
             shortcut: None,
-            params: "{node, port?, index?, viewer?, window?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor. viewer picks one of the value's viewers (array.grid, table.grid, …). A craft document PlumCraft has no view of its own for opens in its app instead, as doc.open does ({in_app, path, …}, or {pending, in_app, run_id}), and a save there feeds the nodes downstream; window: true asks for PlumCraft's window anyway",
+            params: "{node, port?, index?, viewer?, window?, another?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor; a port already open is brought forward unless another: true asks for a second window of it (its table beside its chart, which share the value's selection). viewer picks one of the value's viewers (array.grid, table.grid, …). A craft document PlumCraft has no view of its own for opens in its app instead, as doc.open does ({in_app, path, …}, or {pending, in_app, run_id}), and a save there feeds the nodes downstream; window: true asks for PlumCraft's window anyway",
             enabled: always,
             run: popout,
             journal: false,
@@ -394,6 +511,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{viewer: id | null, popout?} -> {viewer}: the viewer the panel (or pop-out popout) uses; null: the value's default",
             enabled: always,
             run: set_viewer,
+            journal: false,
+        },
+        CommandSpec {
+            id: "viewer.text",
+            label: "Text View",
+            menu: &[],
+            shortcut: None,
+            params: "{popout, wrap?: bool, mono?: bool, all?: bool} -> {popout, wrap, mono, all}: how a pop-out's text viewer shows its value: wrapped at the window's width (default on), in a monospaced face (default off), all of it rather than the run's excerpt (default off); a field left out keeps what it was",
+            enabled: has_popouts,
+            run: text_view,
             journal: false,
         },
         CommandSpec {

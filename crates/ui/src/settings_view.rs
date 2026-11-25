@@ -34,6 +34,9 @@ fn tab_label(tab: &str) -> &'static str {
     }
 }
 
+/// The Settings window's Match the System box (tests find it by this label).
+pub const MATCH_SYSTEM: &str = "Match the System";
+
 /// `p[key]` as a theme's name: the current one when it's left out.
 fn theme_of(p: &Value, current: &'static str) -> Result<&'static str, String> {
     match p.get("theme").and_then(Value::as_str) {
@@ -50,8 +53,22 @@ impl EditorApp {
     /// After a command ran: carry out what it left for the window (the look), and fill in
     /// `app.settings`'s reply. Anything else passes `v` through.
     pub(crate) fn window_command(&mut self, id: &str, v: Value) -> Result<Value, String> {
+        // a theme's name is checked as the core's look checks it (N4 slice 4: `system` follows
+        // the system's appearance); the theme changes at the next frame
+        if id == "view.theme"
+            && let Some(name) = self.doc.session.views.theme_asked.as_deref()
+            && name != plumcraft_editor_core::settings::SYSTEM
+            && theme::by_name(name).is_none()
+        {
+            let name = name.chars().take(64).collect::<String>();
+            self.doc.session.views.theme_asked = None;
+            return Err(format!("no theme called {name:?}; there are system, paper, pewter, dusk"));
+        }
+        // the canvas's commands: what the core keeps, shown; what only the view does, done
+        self.follow_core();
+        self.canvas_command(id, &v);
         let mut out = v;
-        for (ask, p) in std::mem::take(&mut self.session.views.ui_asks) {
+        for (ask, p) in std::mem::take(&mut self.doc.session.views.ui_asks) {
             out = self.appearance_command(&ask, &p)?;
         }
         if id == "app.settings"
@@ -72,8 +89,8 @@ impl EditorApp {
             "themes": theme::ALL.iter().map(|t| json!({"name": t.name, "label": t.label})).collect::<Vec<_>>(),
             "appearance": a.summary(),
             "contrast": {"pairs": self.tokens.checks().len(), "below": below},
-            "autoEngines": self.session.engines.auto,
-            "cacheReport": self.session.views.cache_report,
+            "autoEngines": self.doc.session.engines.auto,
+            "cacheReport": self.doc.session.views.cache_report,
         })
     }
 
@@ -107,7 +124,7 @@ impl EditorApp {
                 }
                 let color = color_param(p);
                 self.change_appearance(|a| a.set_token(theme, token, color));
-                let t = self.prefs.prefs().appearance.resolve(theme);
+                let t = Tokens::from(self.prefs.prefs().appearance.resolve(theme));
                 let checks: Vec<Value> = t
                     .checks_of(token)
                     .into_iter()
@@ -127,7 +144,7 @@ impl EditorApp {
                 }
                 let color = color_param(p);
                 self.change_appearance(|a| a.set_fruit(theme, fruit, color));
-                let t = self.prefs.prefs().appearance.resolve(theme);
+                let t = Tokens::from(self.prefs.prefs().appearance.resolve(theme));
                 Ok(json!({"theme": theme, "fruit": fruit, "color": t.fruit(fruit).map(theme::hex)}))
             }
             "theme.pinFamily" => {
@@ -144,7 +161,7 @@ impl EditorApp {
                     ));
                 }
                 self.change_appearance(|a| a.pin(family, to));
-                let header = self.tokens.family_tint(self.session.catalog(), family).header;
+                let header = self.tokens.family_tint(self.doc.session.catalog(), family).header;
                 Ok(json!({"family": family, "to": to, "fruit": theme::hex(header)}))
             }
             "theme.reset" => {
@@ -179,7 +196,7 @@ impl EditorApp {
     /// Draw the Settings window while it is open; what its controls ask for is returned.
     pub(crate) fn settings_window(&mut self, ctx: &egui::Context) -> Vec<Action> {
         let mut out = Vec::new();
-        let Some(tab) = self.session.views.settings.clone() else { return out };
+        let Some(tab) = self.doc.session.views.settings.clone() else { return out };
         let mut open = true;
         egui::Window::new("Settings")
             .id(egui::Id::new("plumcraft-settings"))
@@ -205,22 +222,20 @@ impl EditorApp {
         if !open {
             out.push(("app.settings", json!({"open": false})));
         }
-        if std::mem::take(&mut self.settings_ui.import)
-            && let Some(path) = self.dialogs.open_theme()
-        {
-            out.push(("theme.import", json!({"path": path.display().to_string()})));
+        // the core asks for the file, and runs theme.import or theme.export with it
+        if std::mem::take(&mut self.settings_ui.import) {
+            plumcraft_editor_core::invoke::theme_file(self, true, crate::By::Person);
+            self.present_asks();
         }
         if std::mem::take(&mut self.settings_ui.export) {
-            let name = format!("{}.plumtheme.json", self.tokens.name);
-            if let Some(path) = self.dialogs.save_theme(&name) {
-                out.push(("theme.export", json!({"path": path.display().to_string()})));
-            }
+            plumcraft_editor_core::invoke::theme_file(self, false, crate::By::Person);
+            self.present_asks();
         }
         out
     }
 
     fn engines_tab(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
-        let mut auto = self.session.engines.auto;
+        let mut auto = self.doc.session.engines.auto;
         let tip = "Start the engines a workflow needs when it is opened or inserted, each hosted the fastest way it can be: in-process (mode 1), then a separate process, then HTTP";
         if ui.checkbox(&mut auto, "Pick Engines Automatically").on_hover_text(tip).changed() {
             out.push(("engine.auto", json!({"on": auto})));
@@ -233,11 +248,11 @@ impl EditorApp {
     fn cache_tab(&self, ui: &mut egui::Ui, out: &mut Vec<Action>) {
         ui.label("What the caches did: the latest run, this session, each engine and each node.");
         ui.add_space(4.0);
-        let label = if self.session.views.cache_report { "Close Cache Report" } else { "Open Cache Report" };
+        let label = if self.doc.session.views.cache_report { "Close Cache Report" } else { "Open Cache Report" };
         if ui.button(label).clicked() {
-            out.push(("run.cacheReport", json!({"open": !self.session.views.cache_report})));
+            out.push(("run.cacheReport", json!({"open": !self.doc.session.views.cache_report})));
         }
-        if self.session.run.cache.last.is_none() {
+        if self.doc.session.run.cache.last.is_none() {
             ui.label(RichText::new("No run has reported yet.").color(self.tokens.text_dim));
         }
     }
@@ -246,11 +261,21 @@ impl EditorApp {
         let t = self.tokens.clone();
         let a = self.prefs.prefs().appearance.clone();
         ui.heading("Theme");
+        // Match the System (N4 slice 4, the core's `system` theme and its default): Paper in
+        // light mode, Dusk in dark, following the system as it changes
+        let following = matches!(self.prefs.prefs().theme.as_deref(), None | Some(plumcraft_editor_core::settings::SYSTEM));
+        let mut matching = following;
+        let r = ui.checkbox(&mut matching, MATCH_SYSTEM).on_hover_text("Paper while the system is light, Dusk while it is dark, changing with it");
+        if r.changed() {
+            // off: keep the theme shown now as the choice
+            let name = if matching { plumcraft_editor_core::settings::SYSTEM } else { t.name };
+            out.push(("view.theme", json!({"name": name})));
+        }
         ui.horizontal_wrapped(|ui| {
             for th in &theme::ALL {
-                let shown = a.resolve(th.name);
-                let r = theme_card(ui, &shown, th.name == t.name);
-                if r.clicked() && th.name != t.name {
+                let shown = Tokens::from(a.resolve(th.name));
+                let r = theme_card(ui, &shown, !following && th.name == t.name);
+                if r.clicked() && (following || th.name != t.name) {
                     out.push(("view.theme", json!({"name": th.name})));
                 }
             }
@@ -324,18 +349,18 @@ impl EditorApp {
                 }
             });
             let families: std::collections::BTreeSet<String> =
-                self.session.catalog().nodes.iter().map(|n| n.family.clone()).filter(|f| !f.is_empty()).collect();
+                self.doc.session.catalog().nodes.iter().map(|n| n.family.clone()).filter(|f| !f.is_empty()).collect();
             if !families.is_empty() {
                 ui.add_space(6.0);
                 ui.label(RichText::new("This catalogue's families").color(t.text_dim));
                 egui::Grid::new("plumcraft-settings-families").num_columns(3).spacing([10.0, 4.0]).show(ui, |ui| {
                     for f in &families {
-                        let tint = t.family_tint(self.session.catalog(), f);
+                        let tint = t.family_tint(self.doc.session.catalog(), f);
                         let (rect, _) = ui.allocate_exact_size(egui::vec2(28.0, 16.0), egui::Sense::hover());
                         ui.painter().rect_filled(rect, 3.0, tint.header);
                         ui.label(f);
                         let pinned = a.families.get(f).cloned();
-                        let own = t.family_fruit(self.session.catalog(), f).unwrap_or("default");
+                        let own = t.family_fruit(self.doc.session.catalog(), f).unwrap_or("default");
                         let shown = pinned.clone().unwrap_or_else(|| format!("its own ({own})"));
                         egui::ComboBox::from_id_salt(("plumcraft-pin", f.as_str())).selected_text(shown).show_ui(ui, |ui| {
                             if ui.selectable_label(pinned.is_none(), format!("its own ({own})")).clicked() {

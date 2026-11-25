@@ -2,7 +2,7 @@
 //! Clamp, Stretch, Binarize, Set Where, Normalize, Equalize, Histogram, Histogram Match, Apply
 //! Curve, Matrix Multiply, Wrap Angle.
 //!
-//! The arithmetic is in [`kernels`] (yapocis's numba kernels and host code) and [`curves`]
+//! The arithmetic is in [`kernels`] (the kernel library's numba kernels and host code) and [`curves`]
 //! (impressionist's tone curves). A node that the research software runs "per channel" applies to each
 //! channel of a stack and refuses a table; whether the result keeps the array's colour space
 //! and channel names follows the research software's `keep` (always, only for the 0-1 spaces RGB, HSI, IHSL
@@ -74,14 +74,14 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.arithmetic",
             display: "Arithmetic",
             group: "Math",
-            description: "a (operation) b elementwise (yapocis operators). b is an array (one channel applies to every channel of a), or the constant when b isn't connected. The result keeps a's colour tags: intensity × 1.2 is still intensity. Besides add, subtract, multiply and divide it does numpy's steps: subtract from (b - a: 1 - x with the constant 1), minimum and maximum.",
+            description: "a (operation) b elementwise (the kernel library's operators). b is an array (one channel applies to every channel of a), or the constant when b isn't connected. The result keeps a's colour tags: intensity × 1.2 is still intensity. Besides add, subtract, multiply and divide it does numpy's steps: subtract from (b - a: 1 - x with the constant 1), minimum and maximum.",
             inputs: vec![
                 array_in("a", ARRAY_TIP),
                 enum_in(
                     "operation",
                     &Arith::NAMES,
                     "multiply",
-                    "a + b, a - b, a × b, a / b (yapocis divides by b + 1e-20), b - a, or the smaller or larger of a and b (numpy minimum and maximum: NaN wins)",
+                    "a + b, a - b, a × b, a / b (the kernel library divides by b + 1e-20), b - a, or the smaller or larger of a and b (numpy minimum and maximum: NaN wins)",
                 ),
                 float_in("constant", 1.0, -1e9, 1e9, "b when no array is connected"),
                 array_opt("b", "Same size as a: one channel, or as many as a"),
@@ -93,7 +93,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.clamp",
             display: "Clamp",
             group: "Math",
-            description: "Limits values to low..high (yapocis clamp_pixels).",
+            description: "Limits values to low..high (the kernel library's clamp_pixels).",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 float_in("low", 0.0, -1e9, 1e9, "The lowest value"),
@@ -106,7 +106,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.stretch",
             display: "Stretch",
             group: "Math",
-            description: "Maps values linearly from an input range to low..high, clipping outside it (yapocis stretch). Each channel of a stack is stretched over its own range in auto mode.",
+            description: "Maps values linearly from an input range to low..high, clipping outside it (the kernel library's stretch). Each channel of a stack is stretched over its own range in auto mode.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 enum_in(
@@ -128,7 +128,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.binarize",
             display: "Binarize",
             group: "Math",
-            description: "1 where the value is at least the threshold, 0 elsewhere (yapocis binarize).",
+            description: "1 where the value is at least the threshold, 0 elsewhere (the kernel library's binarize).",
             inputs: vec![array_in("array", ARRAY_TIP), float_in("threshold", 0.5, -1e9, 1e9, "Values at or above it become 1")],
             outputs: vec![array_out("binary", "1 or 0")],
             run: binarize,
@@ -150,7 +150,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.normalize",
             display: "Normalize",
             group: "Math",
-            description: "Values mapped from their min..max to 0..1 (yapocis normalize): each channel over its own range, or a whole stack over one range, keeping its colour balance (as the commands normalize the picture). A constant array becomes 0.",
+            description: "Values mapped from their min..max to 0..1 (the kernel library's normalize): each channel over its own range, or a whole stack over one range, keeping its colour balance (as the commands normalize the picture). A constant array becomes 0.",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
                 enum_in("over", &["each channel", "whole array"], "each channel", "each channel: its own min..max; whole array: one min..max for the stack"),
@@ -162,7 +162,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.equalize",
             display: "Equalize",
             group: "Math",
-            description: "Histogram equalization of each channel (yapocis histeq): values spread evenly over 0-1. Black (bin 0) is left out of the histogram, as yapocis does.",
+            description: "Histogram equalization of each channel (the kernel library's histeq): values spread evenly over 0-1. Black (bin 0) is left out of the histogram, as the kernel library does.",
             inputs: vec![
                 array_in("array", "Values in 0-1 (or choose stretch)"),
                 enum_in(
@@ -186,7 +186,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.histogram",
             display: "Histogram",
             group: "Math",
-            description: "Counts of one channel's values in equal bins over low..high (yapocis histogram), as a table of bin centre and count; View Array plots it. Values outside low..high count in the end bins, as yapocis counts them.",
+            description: "Counts of one channel's values in equal bins over low..high (the kernel library's histogram), as a table of bin centre and count; View Array plots it. Values outside low..high count in the end bins, as the kernel library counts them.",
             inputs: vec![
                 array_in("array", "One channel"),
                 int_in("bins", 256, 2.0, 65536.0, "How many bins"),
@@ -200,7 +200,7 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.histogram_match",
             display: "Histogram Match",
             group: "Math",
-            description: "Remaps each channel of `array` so its histogram matches the same channel of `target` (yapocis histmatch): borrow another picture's tonal distribution.",
+            description: "Remaps each channel of `array` so its histogram matches the same channel of `target` (the kernel library's histmatch): borrow another picture's tonal distribution.",
             inputs: vec![
                 array_in("array", "Values in 0-1"),
                 array_in("target", "Values in 0-1; one channel, or as many as array"),
@@ -213,13 +213,13 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.apply_curve",
             display: "Apply Curve",
             group: "Math",
-            description: "Tone curves (impressionist's core.curves, as the research software's curve editor draws them): an all-channels curve and one per channel (R, G, B, or the stack's own first three channels), applied in that order. Until PlumCraft has a curve editor, the curves are typed in as the research software stores them (see the curves tooltip).",
+            description: "Tone curves (a curves value, as the research software's curve editor draws them): an all-channels curve and one per channel (R, G, B, or the stack's own first three channels), applied in that order. Edit Value… opens the curves editor, which shows each channel's histogram and a preview after a run.",
             inputs: vec![
                 array_in("array", "Values in 0-1, or any range with input_range own range"),
                 string_in(
                     "curves",
                     &curves::default_json(),
-                    "The curves, as alexandria's ColorCurvesData JSON: {\"master\": {\"points\": [{\"x\": 0, \"y\": 0}, {\"x\": 1, \"y\": 1}], \"enabled\": true}, \"red\": {…}, \"green\": {…}, \"blue\": {…}}, points in 0..1 (a point may be [x, y]). Each channel goes through master, then its own. A missing curve is the identity; {\"points\": [[x, y], …]} (ComfyUI's curve widget) is the master curve. Smooth cubic segments through the points, flat beyond the first and last.",
+                    "The curves, as the archive project's ColorCurvesData JSON: {\"master\": {\"points\": [{\"x\": 0, \"y\": 0}, {\"x\": 1, \"y\": 1}], \"enabled\": true}, \"red\": {…}, \"green\": {…}, \"blue\": {…}}, points in 0..1 (a point may be [x, y]). Each channel goes through master, then its own. A missing curve is the identity; {\"points\": [[x, y], …]} (ComfyUI's curve widget) is the master curve. Smooth cubic segments through the points, flat beyond the first and last.",
                 ),
                 enum_in(
                     "input_range",
@@ -244,10 +244,10 @@ pub fn nodes() -> Vec<Box<dyn Node>> {
             id: "array.wrap_angle",
             display: "Wrap Angle",
             group: "Math",
-            description: "Angles wrapped into one turn: signed (-½..½ turn, like yapocis compute_360_to_180) or unsigned (0..1 turn).",
+            description: "Angles wrapped into one turn: signed (-½..½ turn, like the kernel library's compute_360_to_180) or unsigned (0..1 turn).",
             inputs: vec![
                 array_in("array", ARRAY_TIP),
-                float_in("turn", 360.0, 1e-6, 1e9, "One full turn: 360 degrees, 1 for HSI hue, 6.2832 radians, 2 for yapocis π units"),
+                float_in("turn", 360.0, 1e-6, 1e9, "One full turn: 360 degrees, 1 for HSI hue, 6.2832 radians, 2 for the kernel library's π units"),
                 enum_in("range", &["signed", "unsigned"], "signed", "signed: -½..½ turn; unsigned: 0..1 turn"),
             ],
             outputs: vec![array_out("wrapped", "The wrapped angles")],
@@ -447,7 +447,71 @@ fn apply_curve(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
     let own_range = choice(i, "input_range", &["0-1", "own range"], "0-1")? == "own range";
     let planes = curves::curve_planes(&a.planes(), &set, own_range);
     let out = Img::from_planes(a.h, a.w, &planes);
-    Ok(one("curved", tagged(out, &a, if own_range { Keep::All } else { Keep::Unit })))
+    let mut outputs = one("curved", tagged(out, &a, if own_range { Keep::All } else { Keep::Unit }));
+    // what the curves editor shows: each channel's values as the curves see them (0..1), their
+    // histograms, and that picture for its live preview
+    let (data, picture) = curves_editor_data(&a, own_range);
+    outputs.insert(plumcraft_engine::exec::EDITOR_KEY.to_owned(), Data::Json(serde_json::json!({"curves": data})));
+    outputs.insert(plumcraft_engine::exec::EDITOR_PICTURE_KEY.to_owned(), Data::Array(picture.to_array()));
+    Ok(outputs)
+}
+
+/// The largest side of the curves editor's preview picture.
+const CURVE_PICTURE_PX: usize = 1024;
+
+/// The bins of a curves editor's histograms, over 0..1.
+const CURVE_BINS: usize = 256;
+
+/// The `curves` editor's data for input `a` (`docs/shell-interface.md` 12.21): the channels'
+/// names, each channel's 256-bin histogram of its values on 0..1 (clipped, or mapped from its own
+/// min..max with `own_range`, as the curves see them), and whether an 8-bit preview through lookup
+/// tables shows what the curves do (one channel or three); and that 0..1 picture, at most
+/// [`CURVE_PICTURE_PX`] a side.
+fn curves_editor_data(a: &Img, own_range: bool) -> (serde_json::Value, Img) {
+    let c = a.c.max(1);
+    let names: Vec<String> = (0..c.min(3))
+        .map(|k| match (a.names.get(k), c) {
+            (Some(n), _) if !n.is_empty() => n.clone(),
+            (_, 1) => "value".into(),
+            _ => ["red", "green", "blue"].get(k).map_or_else(|| format!("{}", k + 1), |s| (*s).to_owned()),
+        })
+        .collect();
+    let unit: Vec<Vec<f32>> = (0..c.min(3))
+        .map(|k| {
+            let p = a.plane(k);
+            if own_range {
+                let (lo, hi) = kernels::nan_min_max(&p);
+                let d = if hi - lo == 0.0 { 1.0 } else { (hi - lo) as f32 };
+                p.iter().map(|&v| (v - lo as f32) / d).collect()
+            } else {
+                p.iter().map(|&v| if v.is_nan() { v } else { v.clamp(0.0, 1.0) }).collect()
+            }
+        })
+        .collect();
+    let histograms: Vec<Vec<u64>> = unit
+        .iter()
+        .map(|p| {
+            let mut h = vec![0u64; CURVE_BINS];
+            for v in p.iter().filter(|v| v.is_finite()) {
+                let i = ((f64::from(*v) * CURVE_BINS as f64) as usize).min(CURVE_BINS - 1);
+                if let Some(b) = h.get_mut(i) {
+                    *b += 1;
+                }
+            }
+            h
+        })
+        .collect();
+    // the picture, every `step`th pixel so its larger side is at most the editor's
+    let px = CURVE_PICTURE_PX;
+    let step = a.h.max(a.w).div_ceil(px).max(1);
+    let (ph, pw) = (a.h.div_ceil(step), a.w.div_ceil(step));
+    let small: Vec<Vec<f32>> = unit
+        .iter()
+        .map(|p| (0..ph).flat_map(|y| (0..pw).map(move |x| (y, x))).map(|(y, x)| p.get(y * step * a.w + x * step).copied().unwrap_or(0.0)).collect())
+        .collect();
+    let picture = Img { space: (small.len() == 3).then(|| "RGB".to_owned()), ..Img::from_planes(ph, pw, &small) };
+    let data = serde_json::json!({"names": names, "histograms": histograms, "live": c == 1 || c == 3, "bins": CURVE_BINS});
+    (data, picture)
 }
 
 /// The largest matrix product computed (multiply-adds).

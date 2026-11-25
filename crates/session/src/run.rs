@@ -166,9 +166,15 @@ pub enum Outgoing {
     Cancel(String),
 }
 
-/// The run state of a session.
+/// The run state of a session. Fields may be added: outside this crate, start from
+/// `RunState::default()` and set the fields.
+#[non_exhaustive]
 #[derive(Debug, Clone, Default)]
 pub struct RunState {
+    /// The engine keeps each run's list apart when a step runs once per item (capability
+    /// `lists.nested`, spec 7.6 rule 2): set with the engine's state. Without it the engine joins
+    /// the runs' lists into one, and the core says so where a wire reads such a list (B164).
+    pub nested_lists: bool,
     /// The open graph's life, from its opening or making to the next, sent with every run: what
     /// the engine keeps for it goes when it ends. Empty: unscoped.
     pub scope: String,
@@ -250,8 +256,11 @@ fn short_value(v: Option<&Value>) -> String {
 /// [`changed_nodes`] with the reasons: for each node an edit invalidates, what changed on it (a
 /// widget, an input's wire, its type) or which edited nodes upstream reach it.
 pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<String>> {
-    let incoming =
-        |g: &Graph, id: &NodeId| -> BTreeMap<String, Wire> { g.wires.iter().filter(|w| &w.to.node == id).map(|w| (w.to.port.clone(), w.clone())).collect() };
+    // Each graph's wires indexed once by the node and port they feed (a later wire to the same
+    // port wins, as before). Scanning every wire per node made an edit O(nodes × wires):
+    // 30 ms for one `node.add` on a 2,000-node graph (N0(b), claude-debug/native-n0-ffi.md).
+    let (in_before, in_after) = (incoming_by_node(before), incoming_by_node(after));
+    let none = BTreeMap::new();
     let mut out: BTreeMap<NodeId, Vec<String>> = BTreeMap::new();
     for (id, n) in &after.nodes {
         let Some(b) = before.nodes.get(id) else {
@@ -273,8 +282,8 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
                 why.push(format!("widget {k} changed: {} → {}", short_value(old), short_value(new)));
             }
         }
-        let (wb, wa) = (incoming(before, id), incoming(after, id));
-        let ports: BTreeSet<&String> = wb.keys().chain(wa.keys()).collect();
+        let (wb, wa) = (in_before.get(id).unwrap_or(&none), in_after.get(id).unwrap_or(&none));
+        let ports: BTreeSet<&str> = wb.keys().chain(wa.keys()).copied().collect();
         for port in ports {
             match (wb.get(port), wa.get(port)) {
                 (None, Some(w)) => why.push(format!("input {port} wired from {}", w.from)),
@@ -296,10 +305,11 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
     }
     // Everything downstream, naming the edited nodes that reach it.
     let roots: Vec<NodeId> = out.keys().cloned().collect();
+    let next = outgoing_by_node(after);
     let mut reached: BTreeMap<NodeId, BTreeSet<NodeId>> = BTreeMap::new();
     for root in &roots {
         let mut set = BTreeSet::from([root.clone()]);
-        downstream(after, &mut set);
+        downstream_indexed(&next, &mut set);
         set.remove(root);
         for n in set {
             reached.entry(n).or_default().insert(root.clone());
@@ -318,13 +328,36 @@ pub fn stale_reasons(before: &Graph, after: &Graph) -> BTreeMap<NodeId, Vec<Stri
     out
 }
 
+/// The wires into each node, by input port (a later wire to the same port wins).
+fn incoming_by_node(g: &Graph) -> BTreeMap<&NodeId, BTreeMap<&str, &Wire>> {
+    let mut idx: BTreeMap<&NodeId, BTreeMap<&str, &Wire>> = BTreeMap::new();
+    for w in &g.wires {
+        idx.entry(&w.to.node).or_default().insert(w.to.port.as_str(), w);
+    }
+    idx
+}
+
+/// The nodes each node's wires feed.
+fn outgoing_by_node(g: &Graph) -> BTreeMap<&NodeId, Vec<&NodeId>> {
+    let mut idx: BTreeMap<&NodeId, Vec<&NodeId>> = BTreeMap::new();
+    for w in &g.wires {
+        idx.entry(&w.from.node).or_default().push(&w.to.node);
+    }
+    idx
+}
+
 /// Add everything downstream of `set` (in `graph`) to it.
 pub fn downstream(graph: &Graph, set: &mut BTreeSet<NodeId>) {
+    downstream_indexed(&outgoing_by_node(graph), set);
+}
+
+/// [`downstream`] over a prebuilt [`outgoing_by_node`] index.
+fn downstream_indexed(next: &BTreeMap<&NodeId, Vec<&NodeId>>, set: &mut BTreeSet<NodeId>) {
     let mut frontier: Vec<NodeId> = set.iter().cloned().collect();
     while let Some(id) = frontier.pop() {
-        for w in graph.wires.iter().filter(|w| w.from.node == id) {
-            if set.insert(w.to.node.clone()) {
-                frontier.push(w.to.node.clone());
+        for &to in next.get(&id).map(Vec::as_slice).unwrap_or_default() {
+            if set.insert(to.clone()) {
+                frontier.push(to.clone());
             }
         }
     }
@@ -335,7 +368,18 @@ pub const MAX_LOG: usize = 100_000;
 
 /// A run id unique per client: an engine may outlive this editor and remember its runs.
 fn new_run_id(generation: u64) -> String {
-    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
+    // Strictly increasing within the process: two documents sharing an engine (one engine
+    // compiled in serves every document) never give it the same id, even in the same tick.
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX));
+    let mut last = LAST.load(std::sync::atomic::Ordering::Acquire);
+    let nanos = loop {
+        let next = now.max(last.saturating_add(1));
+        match LAST.compare_exchange_weak(last, next, std::sync::atomic::Ordering::AcqRel, std::sync::atomic::Ordering::Acquire) {
+            Ok(_) => break next,
+            Err(seen) => last = seen,
+        }
+    };
     format!("ed-{}-{generation}-{nanos:x}", std::process::id())
 }
 
@@ -437,6 +481,10 @@ impl RunState {
             n.generation = self.generation;
             n.fraction = None;
             n.stage = None;
+            // what went wrong last time is not this run's (B172: a node not reached yet said
+            // "skipped: upstream … did not finish" from an earlier run while its upstream was
+            // cached and done in this one); this run says its own when it reaches the node
+            n.error = None;
         }
         if self.review_due {
             self.held = Some(Box::new(req.clone()));
@@ -664,10 +712,23 @@ impl RunState {
                     n.thumb = self.reducer.node(&id).and_then(|v| v.thumb.clone());
                     n.thumb_generation = self.generation;
                 }
-            } else if let Some(n) = self.nodes.get_mut(&id).filter(|n| n.is_active()) {
-                // Not part of the run (the engine ran only what the targets needed), or the run
-                // failed as a whole.
-                n.state = None;
+            }
+            // The run is over, so nothing more comes for a node still marked active. Queued
+            // only: not part of the run (the engine ran only what the targets needed), or the run
+            // failed as a whole: unmarked. Working (started, progress, preview) when a failed
+            // run's reply came: its engine went away mid-node (a coordinator's reply carries
+            // the engines that answered), and the face would show its last progress for good
+            // (B110): the run's error stands in for the node's own (F35, "failure stands in for
+            // a reply").
+            if let Some(n) = self.nodes.get_mut(&id).filter(|n| n.is_active()) {
+                n.fraction = None;
+                match (&reply.error, n.state) {
+                    (Some(e), Some(NodeState::Started | NodeState::Progress | NodeState::Preview)) => {
+                        n.state = Some(NodeState::Error);
+                        n.error = Some(NodeError::new(NodeError::ENGINE, e.message.clone()));
+                    }
+                    _ => n.state = None,
+                }
             }
             if let Some(n) = self.nodes.get_mut(&id)
                 && n.stale_since.is_some_and(|since| since < self.edits_at_request)
@@ -994,6 +1055,39 @@ mod not_run_tests {
         }
     }
 
+    /// B110 (F35, found by the person check's engine half): a failed run's reply that carries no
+    /// final word for a node still working (its engine killed mid-node, the other engines'
+    /// reply coming back) leaves it in error with the run's error, not in progress for good; a
+    /// node only queued is unmarked; a node the reply finished keeps what it says.
+    #[test]
+    fn a_node_still_working_when_a_failed_run_ends_is_in_error() {
+        let now = Instant::now();
+        let g = Graph::from_json(r#"{"version": 1, "nodes": {"n1": {"kind": "k"}, "n2": {"kind": "k"}, "n3": {"kind": "k"}}, "wires": []}"#).unwrap();
+        let mut run = RunState::default();
+        let req = run.request(&g, Vec::new(), Vec::new(), now);
+        run.nodes.get_mut("n1").unwrap().state = Some(NodeState::Progress);
+        run.nodes.get_mut("n1").unwrap().fraction = Some(0.4);
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: [("n3".to_owned(), NodeReport { state: NodeState::Done, ..Default::default() })].into(),
+            error: Some(NodeError::new(NodeError::ENGINE, "the engine person_text went away")),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, now));
+        let n1 = run.node("n1").unwrap();
+        assert_eq!((n1.state, n1.fraction), (Some(NodeState::Error), None));
+        assert!(n1.error.as_ref().is_some_and(|e| e.message.contains("went away")), "{:?}", n1.error);
+        assert_eq!(run.node("n2").unwrap().state, None, "only queued: unmarked");
+        assert_eq!(run.node("n3").unwrap().state, Some(NodeState::Done));
+        // a reply with no error leaves nothing working either, and marks nothing in error
+        let req = run.request(&g, Vec::new(), Vec::new(), now);
+        run.nodes.get_mut("n1").unwrap().state = Some(NodeState::Progress);
+        let ok = RunReply { run_id: req.run_id.clone(), generation: req.generation, ..Default::default() };
+        assert!(run.apply_reply(&ok, now));
+        assert_eq!(run.node("n1").unwrap().state, None);
+    }
+
     #[test]
     fn a_node_left_waiting_is_not_run_and_one_queued_is_not() {
         let now = Instant::now();
@@ -1151,6 +1245,36 @@ mod queued_tests {
         run.node(id).and_then(|n| n.state)
     }
 
+    /// B172: a node queued for a new run carries no error from the last one: in the middle of
+    /// the run, before it is reached, it is queued and nothing else.
+    #[test]
+    fn a_queued_node_carries_no_error_from_the_last_run() {
+        let g = graph();
+        let mut run = RunState::default();
+        let req = run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        let skipped = NodeError::new(NodeError::SKIPPED, "upstream a did not finish");
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: [
+                ("a".to_owned(), NodeReport { state: NodeState::Error, error: Some(NodeError::new(NodeError::OP, "boom")), ..Default::default() }),
+                ("b".to_owned(), NodeReport { state: NodeState::Skipped, error: Some(skipped), ..Default::default() }),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, Instant::now()));
+        assert_eq!(run.node("b").and_then(|n| n.error.as_ref()).map(|e| e.kind.as_str()), Some(NodeError::SKIPPED));
+        let req = run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        for id in ["a", "b"] {
+            assert_eq!(state(&run, id), Some(NodeState::Queued), "{id}");
+            assert!(run.node(id).and_then(|n| n.error.as_ref()).is_none(), "{id} still says the last run's error while queued");
+        }
+        // reached in this run: it says this run's state
+        done(&mut run, &req, &["a", "b", "c", "d"]);
+        assert!(run.node("b").and_then(|n| n.error.as_ref()).is_none());
+    }
+
     #[test]
     fn a_whole_graph_run_queues_every_node() {
         let mut run = RunState::default();
@@ -1193,7 +1317,7 @@ mod queued_tests {
 
     #[test]
     fn a_watched_node_joins_the_run() {
-        let watch = vec![WatchRequest { node: "c".to_owned(), port: "out".to_owned(), ..Default::default() }];
+        let watch = vec![WatchRequest::new("c".to_owned(), "out".to_owned())];
         let got = needed(&graph(), &["b".to_owned()], &watch, &BTreeSet::new());
         assert_eq!(got, ["a", "b", "c"].map(str::to_owned).into());
     }

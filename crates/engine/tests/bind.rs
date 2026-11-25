@@ -66,6 +66,8 @@ impl Node for Echo {
             id: "t.echo".into(),
             inputs: vec![
                 Port { name: "x".into(), ty: "ANY".into(), default: json!("widget"), ..Default::default() },
+                // a sub-step's setting, named with a dot as an application's engine names them
+                Port { name: "edges.threshold".into(), ty: "ANY".into(), default: json!("widget"), ..Default::default() },
                 Port {
                     name: "c".into(),
                     ty: "ANY".into(),
@@ -77,6 +79,7 @@ impl Node for Echo {
             outputs: vec![
                 Port { name: "x".into(), ty: "ANY".into(), ..Default::default() },
                 Port { name: "slots".into(), ty: "ANY".into(), ..Default::default() },
+                Port { name: "threshold".into(), ty: "ANY".into(), ..Default::default() },
             ],
             ..Default::default()
         }
@@ -85,7 +88,11 @@ impl Node for Echo {
     fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
         self.0.fetch_add(1, Ordering::SeqCst);
         let slots: Vec<&String> = i.keys().filter(|k| k.starts_with('c')).collect();
-        Ok(Outputs::from([("x".to_owned(), i.get("x").cloned().unwrap_or(Data::Json(Value::Null))), ("slots".to_owned(), Data::Json(json!(slots)))]))
+        Ok(Outputs::from([
+            ("x".to_owned(), i.get("x").cloned().unwrap_or(Data::Json(Value::Null))),
+            ("slots".to_owned(), Data::Json(json!(slots))),
+            ("threshold".to_owned(), i.get("edges.threshold").cloned().unwrap_or(Data::Json(Value::Null))),
+        ]))
     }
 }
 
@@ -231,6 +238,28 @@ fn a_variadic_slot_can_be_bound() {
     assert_eq!(r.nodes["e"].outputs["slots"], PortValue::Json { value: json!(["c2"]) }, "c0 and cx aren't slots");
 }
 
+/// B162: a port whose name holds a dot is bound by `node.port` (a coordinator's key for a value
+/// from another engine), and so is a node whose id holds one. The key was split at its last dot,
+/// so `e.edges.threshold` named a node `e.edges`, which an engine dropped (the SDK) or refused,
+/// stopping the whole run (an application's engine).
+#[test]
+fn a_port_or_a_node_with_a_dot_in_its_name_is_bound() {
+    let store = root("dots");
+    let mut a = rig(&store);
+    let v = PortValue::Json { value: json!(0.5) };
+    let r = a.run(echo_graph(), json!({"e.edges.threshold": v}), &["e"], 1 << 20);
+    assert!(r.ok, "{r:?}");
+    assert_eq!(r.nodes["e"].outputs["threshold"], v, "the dotted port got the bound value");
+    let dotted = json!({"version": 1, "nodes": {"g.e": {"kind": "t.echo"}}, "wires": []});
+    let r = a.run(dotted, json!({"g.e.x": v, "g.e.edges.threshold": v}), &["g.e"], 1 << 20);
+    assert!(r.ok, "{r:?}");
+    assert_eq!((&r.nodes["g.e"].outputs["x"], &r.nodes["g.e"].outputs["threshold"]), (&v, &v), "a node id with a dot");
+    let has = |n: &str| ["a", "a.b"].contains(&n);
+    assert_eq!(plumcraft_engine::bind::split("a.b.c", &has), Some(("a.b", "c")), "two nodes fit: the longest");
+    assert_eq!(plumcraft_engine::bind::split("a.x.y", &has), Some(("a", "x.y")));
+    assert_eq!(plumcraft_engine::bind::split("z.x", &has), None);
+}
+
 #[test]
 fn keys_naming_nothing_are_ignored() {
     let store = root("unknown");
@@ -256,7 +285,7 @@ fn bad_bindings_are_node_errors() {
     let opaque = PortValue::Opaque { ty: "STYLE".into(), summary: "s".into(), held: None };
     let mut deep = PortValue::Json { value: json!(0) };
     for _ in 0..20 {
-        deep = PortValue::List { items: vec![deep] };
+        deep = PortValue::list(vec![deep]);
     }
     for (v, kind) in [(gone, NodeError::MISSING_SOURCE), (no_handle, NodeError::CONFIG), (opaque, NodeError::CONFIG), (deep, NodeError::CONFIG)] {
         let r = a.run(echo_graph(), bound(&v), &["e"], 1 << 20);

@@ -1,6 +1,6 @@
 //! Resize: virtual_impressionist's `core.resize` (the target size, alignment to 4, nearest for
 //! integer arrays, `keep_range`) with Pillow's float32 (`F` mode) resampling
-//! (`libImaging/Resample.c`), adapted from yapocis-rs's `lib/pil.rs`: the filter's coefficients
+//! (`libImaging/Resample.c`), adapted from the Rust kernel library's `lib/pil.rs`: the filter's coefficients
 //! in float64 normalised per output pixel, a horizontal pass over only the rows the vertical
 //! pass reads, then the vertical pass, summing in float64. The vertical sum uses fused
 //! multiply-adds, as clang compiles Pillow on arm64 (`f64::mul_add` is exact IEEE fused, so the

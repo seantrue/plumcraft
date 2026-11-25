@@ -5,7 +5,7 @@ use plumcraft_graph::{Graph, GraphError, NodeCache, NodeId, NodeView, PortRef, W
 use plumcraft_proto::catalogue::SchemaReply;
 use serde_json::{Value, json};
 
-use crate::commands::{CommandSpec, always, node_list_param, opt_bool_param, opt_str_param, port_param, pos_param, str_param};
+use crate::commands::{CommandSpec, always, drag_param, node_list_param, opt_bool_param, opt_str_param, port_param, pos_param, str_param};
 use crate::{Result, Session, SessionError};
 
 fn has_schema(s: &Session) -> std::result::Result<(), String> {
@@ -43,6 +43,7 @@ pub(crate) fn wire_json(w: &Wire) -> Value {
 fn node_add(s: &mut Session, p: &Value) -> Result<Value> {
     let kind = str_param(p, "kind")?;
     let pos = pos_param(p, "pos")?.unwrap_or([0.0, 0.0]);
+    not_started(s, kind)?;
     let order: Vec<String> = s.engines.engine_ids().into_iter().map(str::to_owned).collect();
     let id = s.edit("Add Node", |g, catalog| {
         let def = catalog.node(kind).ok_or_else(|| GraphError::UnknownKind(kind.to_owned()))?;
@@ -59,6 +60,19 @@ fn node_add(s: &mut Session, p: &Value) -> Result<Value> {
         Ok(id)
     })?;
     Ok(json!({"id": id}))
+}
+
+/// A kind the catalogue lacks that an engine the host can start offers (decision 8C: engines
+/// start as the graph comes to use them): refused, naming the engine, which is asked for when
+/// engines are picked automatically ([`engine_cmds::start_for_kind`]), so the same add succeeds
+/// once it has connected. A kind nothing offers is left to the edit's own refusal.
+fn not_started(s: &mut Session, kind: &str) -> Result<()> {
+    let Some(engine) = crate::engine_cmds::engine_for_kind(s, kind) else { return Ok(()) };
+    let how = match crate::engine_cmds::start_for_kind(s, kind) {
+        Some(_) => "it is starting: add the node again once it has connected",
+        None => "the Engine menu starts it",
+    };
+    Err(SessionError::Params(format!("{kind} is the {engine} engine's, which isn't connected; {how}")))
 }
 
 /// `{nodes: [ids]}`, or the older single `{id}`.
@@ -100,12 +114,63 @@ fn node_duplicate(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"nodes": pairs.iter().map(|(_, new)| new).collect::<Vec<_>>(), "map": map}))
 }
 
+/// `node.move {id, pos, drag?}`: an undo step since N3 slice 1, joined by the moves of the same
+/// node that follow it (the same `drag`, or none within [`crate::MOVE_COALESCE`]; see
+/// [`Session::edit_move`]). A move to where the node is changes nothing.
 fn node_move(s: &mut Session, p: &Value) -> Result<Value> {
     let id = NodeId::from(str_param(p, "id")?);
     let pos = pos_param(p, "pos")?.ok_or_else(|| SessionError::Params("\"pos\" is required".into()))?;
-    s.graph_mut_untracked().move_node(&id, pos)?;
-    s.mark_dirty();
+    let drag = drag_param(p)?;
+    let was = s.graph().node(&id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?.pos;
+    if was != pos {
+        s.edit_move("Move Node", vec![format!("node:{}", id.0)], drag.as_deref(), |g| Ok(g.move_node(&id, pos)?))?;
+    }
     Ok(Value::Null)
+}
+
+/// What a dropped wire hands a new node (`node.addWired`): an output it takes (`from`), or an
+/// input it feeds (`to`).
+fn wired_end(p: &Value) -> Result<(PortRef, bool)> {
+    match (p.get("from").filter(|v| !v.is_null()), p.get("to").filter(|v| !v.is_null())) {
+        (Some(_), None) => Ok((port_param(p, "from")?, true)),
+        (None, Some(_)) => Ok((port_param(p, "to")?, false)),
+        _ => Err(SessionError::Params("give one of \"from\" (the output the wire leaves) or \"to\" (the input it enters)".into())),
+    }
+}
+
+/// `node.addWired {kind, pos?, from: {node, port} | to: {node, port}, port?}` (N3 slice 1,
+/// contract question 8): a node of `kind` at `pos` with the dropped wire connected, in one undo
+/// step: from output `from` into its input `port` (default the first that fits), or from its
+/// output `port` (default the first that fits) into input `to`.
+fn node_add_wired(s: &mut Session, p: &Value) -> Result<Value> {
+    let kind = str_param(p, "kind")?.to_owned();
+    let pos = pos_param(p, "pos")?.unwrap_or([0.0, 0.0]);
+    not_started(s, &kind)?;
+    let (end, from_output) = wired_end(p)?;
+    let port = opt_str_param(p, "port")?.map(str::to_owned);
+    let order: Vec<String> = s.engines.engine_ids().into_iter().map(str::to_owned).collect();
+    let (id, wire, replaced) = s.edit("Add and Connect", |g, catalog| {
+        let def = catalog.node(&kind).ok_or_else(|| GraphError::UnknownKind(kind.clone()))?;
+        let port = match port {
+            Some(p) => p,
+            None => {
+                let fit = if from_output { g.input_for_new(catalog, &end, def) } else { g.output_for_new(catalog, def, &end) };
+                fit.ok_or_else(|| SessionError::Params(format!("{} has no {} that fits {end}", def.id, if from_output { "input" } else { "output" })))?
+            }
+        };
+        let id = g.add_node(def, pos);
+        if def.engines.len() > 1 {
+            g.set_engine(&id, def.engines.first().cloned())?;
+        }
+        if !def.engines.is_empty() && g.engines.is_empty() {
+            g.engines = order;
+        }
+        let (from, to) = if from_output { (end.clone(), PortRef::new(id.clone(), port)) } else { (PortRef::new(id.clone(), port), end.clone()) };
+        let replaced = g.connect(catalog, from.clone(), to.clone())?;
+        seed_choices(g, catalog, &from, &to, None);
+        Ok((id, Wire::new(from, to), replaced))
+    })?;
+    Ok(json!({"id": id, "wire": wire_json(&wire), "replaced": replaced.as_ref().map(wire_json)}))
 }
 
 /// `node.view {nodes, view}`: show nodes in full, without their previews, or collapsed. A view
@@ -136,6 +201,28 @@ fn node_fields(s: &mut Session, p: &Value) -> Result<Value> {
     s.graph_mut_untracked().set_all_fields(&id, all)?;
     s.mark_dirty();
     Ok(json!({"node": id, "all": all}))
+}
+
+/// `node.face {node, port, shown}` (N4 slice 3): show an input on the node's face, hide it, or
+/// (`shown: null`) leave it to the default rule. A view change, saved with the workflow, not an
+/// undo step, like `node.fields`. A wired input shows whatever this says.
+fn node_face(s: &mut Session, p: &Value) -> Result<Value> {
+    let id = NodeId::from(str_param(p, "node")?);
+    let port = str_param(p, "port")?.to_owned();
+    let shown = match p.get("shown") {
+        None => return Err(SessionError::Params("\"shown\" (true, false or null) is required".into())),
+        Some(Value::Null) => None,
+        Some(v) => Some(v.as_bool().ok_or_else(|| SessionError::Params("\"shown\" must be true, false or null".into()))?),
+    };
+    let node = s.graph().node(&id).ok_or_else(|| GraphError::UnknownNode(id.clone()))?;
+    let def = s.catalog().node(&node.kind).ok_or_else(|| SessionError::Params(format!("{id} is of a kind no engine has")))?;
+    if plumcraft_graph::resolve_input(def, node, &id, &port).is_err() {
+        return Err(SessionError::Params(format!("{id} has no input {port:?}")));
+    }
+    if s.graph_mut_untracked().set_face(&id, &port, shown)? {
+        s.mark_dirty();
+    }
+    Ok(json!({"node": id, "port": port, "shown": shown}))
 }
 
 /// `node.parameters {node?}`: open the parameter editor on a node, or close it with no node.
@@ -437,6 +524,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             journal: false,
         },
         CommandSpec {
+            id: "node.face",
+            label: "Show on Face",
+            menu: &[],
+            shortcut: None,
+            params: "{node: node id, port: input address, shown: true | false | null} -> {node, port, shown} (true shows the input on the node's face even where its choice tucks it away; false hides it from the face; null goes back to the default rule; a wired input always shows. A view change, saved with the workflow, not an undo step)",
+            enabled: always,
+            run: node_face,
+            journal: false,
+        },
+        CommandSpec {
             id: "node.parameters",
             label: "Edit Parameters…",
             menu: &[],
@@ -491,10 +588,20 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Move Node",
             menu: &[],
             shortcut: None,
-            params: "{id: node id, pos: [x, y]} (not journaled)",
+            params: "{id: node id, pos: [x, y], drag?: string | whole number} (not journaled; an undo step, \"Move Node\", that the moves of the same node after it join: the same drag named, or none named within a second; a move to where it is changes nothing)",
             enabled: always,
             run: node_move,
             journal: false,
+        },
+        CommandSpec {
+            id: "node.addWired",
+            label: "Add and Connect",
+            menu: &[],
+            shortcut: None,
+            params: "{kind: node type, pos?: [x, y], from: {node, port} (the output a dropped wire leaves) | to: {node, port} (the input it enters), port?: the new node's input (with from) or output (with to); default the first that fits} -> {id, wire: {from, to}, replaced: wire | null} (one undo step: the node added and the wire connected; what the palette does when a wire was dropped on empty canvas, palette.choose)",
+            enabled: has_schema,
+            run: node_add_wired,
+            journal: true,
         },
         CommandSpec {
             id: "node.set",

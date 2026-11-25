@@ -36,11 +36,25 @@ def by_node(inputs: Any, has_node) -> dict[str, dict[str, Any]]:
     for key, v in inputs.items():
         if not isinstance(key, str) or not isinstance(v, dict) or v.get("kind") not in ("json", "blob", "list", "opaque"):
             continue
-        node, dot, port = key.rpartition(".")
-        if not dot or not node or not port or not has_node(node):
+        split = split_key(key, has_node)
+        if split is None:
             continue
+        node, port = split
         out.setdefault(node, {})[port] = v
     return out
+
+
+def split_key(key: str, has_node) -> tuple[str, str] | None:
+    """A binding's key split into its node and port (B162). Either may hold a dot: a node id
+    sometimes, and a port often in an application's engine (a sub-step's setting,
+    `edges.threshold`). The node is the part before a dot that names a node the graph has; when
+    more than one does, the longest. None when no split names one."""
+    at = len(key)
+    while (at := key.rfind(".", 0, at)) > 0:
+        node, port = key[:at], key[at + 1 :]
+        if port and has_node(node):
+            return node, port
+    return None
 
 
 def identity(v: dict) -> Any:
@@ -75,7 +89,17 @@ def _read(root: str | None, port: str, v: Any, depth: int, count: list[int], tru
         return v.get("value")
     if kind == "list":
         items = v.get("items")
-        return List([_read(root, port, i, depth + 1, count, trusted) for i in (items if isinstance(items, list) else [])])
+        lst = List([_read(root, port, i, depth + 1, count, trusted) for i in (items if isinstance(items, list) else [])])
+        # its axes, when they fit it (spec 4.5): a nested list keeps its levels across a border
+        given = v.get("axes")
+        if isinstance(given, list) and given:
+            axes = [(a[0], a[1]) for a in given if isinstance(a, list) and len(a) == 2 and isinstance(a[0], str) and type(a[1]) is int and a[1] >= 0]
+            total = 1
+            for _, n in axes:
+                total *= n
+            if len(axes) == len(given) and total == len(lst.items):
+                lst.axes = axes
+        return lst
     if kind == "blob":
         return _blob(root, port, v.get("ref"), trusted)
     if kind == "opaque":

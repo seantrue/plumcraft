@@ -146,6 +146,32 @@ pub(crate) fn hooks() -> Hooks {
     HOOKS.get().copied().unwrap_or_default()
 }
 
+thread_local! {
+    /// The document whose work this thread is doing ([`with_doc`]).
+    static CURRENT_DOC: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+/// The document the editor is working on as a hook is called (`docs/shell-interface.md` 4.3,
+/// decision 3): `None` outside one. The hooks keep their signatures, so an application's hook
+/// that must tell two documents apart asks here (`before` and `after` also have the session's
+/// [`Session::doc_id`]).
+pub fn current_doc() -> Option<u64> {
+    CURRENT_DOC.with(std::cell::Cell::get)
+}
+
+/// Run `f` as document `doc`'s work: the hooks it calls see `doc` in [`current_doc`]. Nests; the
+/// document before is restored afterwards, whatever `f` does.
+pub fn with_doc<R>(doc: u64, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<u64>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            CURRENT_DOC.with(|c| c.set(self.0));
+        }
+    }
+    let _restore = Restore(CURRENT_DOC.with(|c| c.replace(Some(doc))));
+    f()
+}
+
 /// A form a command asks with before it runs from a menu or a shortcut: a small window of
 /// fields whose values become its params. The command itself is unchanged: the control channel,
 /// scripts and the CLI still name its params, so everything stays a command (golden rule 4). An
@@ -193,6 +219,25 @@ pub enum FieldKind {
     Secret,
     /// Several lines.
     Text,
+    /// One of a list of choices, drawn as a pop-up or combo box beside the label; with `other`,
+    /// a line of text too for any value not on the list (Install Engine…'s repository: the
+    /// public engines, or any other). The param is the chosen choice's `value`, or the text.
+    Pick {
+        choices: &'static [PickChoice],
+        /// May the person type a value that isn't one of `choices`?
+        other: bool,
+    },
+}
+
+/// One choice of a [`FieldKind::Pick`] field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PickChoice {
+    /// What the param is set to when it is chosen.
+    pub value: &'static str,
+    /// What the list shows.
+    pub label: &'static str,
+    /// More about it (a tooltip, a subtitle); may be empty.
+    pub hint: &'static str,
 }
 
 impl CommandForm {
@@ -207,6 +252,11 @@ impl CommandForm {
                     return Err(format!("{} is needed", field.label));
                 }
                 continue;
+            }
+            if let FieldKind::Pick { choices, other: false } = field.kind
+                && !choices.iter().any(|c| c.value == value)
+            {
+                return Err(format!("{} must be one of the choices offered", field.label));
             }
             out.insert(field.key.to_owned(), Value::String(value.to_owned()));
         }
@@ -286,6 +336,7 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(crate::named_cmds::specs());
         v.extend(crate::file_cmds::quit_specs());
         v.extend(crate::group_cmds::specs());
+        v.extend(crate::curve_cmds::specs());
         v.extend(crate::run_cmds::specs());
         v.extend(crate::save_cmds::specs());
         v.extend(crate::trust::specs());
@@ -293,6 +344,10 @@ pub fn command_specs() -> &'static [CommandSpec] {
         v.extend(crate::engine_cmds::specs());
         v.extend(crate::view_cmds::specs());
         v.extend(crate::viewer_cmds::specs());
+        v.extend(crate::viewer_state::specs());
+        v.extend(crate::chart_cmds::specs());
+        v.extend(crate::derive_cmds::specs());
+        v.extend(crate::chart_view::specs());
         v.extend(crate::doc_cmds::specs());
         v.extend(crate::doc_edits::specs());
         v.extend(crate::open_cmds::specs());
@@ -377,6 +432,18 @@ pub(crate) fn node_list_param(p: &Value, key: &str) -> Result<Vec<NodeId>> {
 }
 
 /// An optional `[x, y]` of finite numbers.
+/// A move's `drag` (N3 slice 1): what names the drag that sent it, so its moves are one undo step
+/// ([`crate::Session::edit_move`]): a string of at most 64 characters or a whole number; none or
+/// null names none.
+pub(crate) fn drag_param(p: &Value) -> Result<Option<String>> {
+    match p.get("drag") {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(s)) if !s.is_empty() && s.chars().count() <= 64 => Ok(Some(s.clone())),
+        Some(Value::Number(n)) if n.as_u64().is_some() => Ok(Some(n.to_string())),
+        Some(_) => Err(SessionError::Params("\"drag\" must name the drag: a string of 1 to 64 characters or a whole number".into())),
+    }
+}
+
 pub(crate) fn pos_param(p: &Value, key: &str) -> Result<Option<[f32; 2]>> {
     let Some(v) = p.get(key) else { return Ok(None) };
     let bad = || SessionError::Params(format!("{key:?} must be [x, y] with finite numbers"));
@@ -400,6 +467,25 @@ mod tests {
         for junk in ["", "  ", "warning!", "fatal", "\u{0}", "info,error", &"x".repeat(10_000)] {
             assert_eq!(Tone::from_text(junk), Tone::Info, "{junk:?}");
         }
+    }
+
+    /// Decision 5 (N4 person gate): a pick field takes one of its choices, or with `other` any
+    /// text; without `other` anything else is refused, naming the field.
+    #[test]
+    fn a_pick_field_takes_its_choices_and_other_text_only_when_offered() {
+        const CHOICES: &[PickChoice] = &[PickChoice { value: "a/one", label: "One", hint: "" }, PickChoice { value: "a/two", label: "Two", hint: "x" }];
+        let pick = |other| CommandForm {
+            command: "test.pick",
+            title: "Pick",
+            intro: "",
+            fields: vec![FormField { key: "repo", label: "Repository", hint: "", kind: FieldKind::Pick { choices: CHOICES, other }, required: true }],
+            submit: "Go",
+            prefill: None,
+        };
+        assert_eq!(pick(false).params(&[" a/two ".into()]).unwrap(), json!({"repo": "a/two"}));
+        assert!(pick(false).params(&["b/three".into()]).unwrap_err().contains("Repository must be one of"));
+        assert_eq!(pick(true).params(&["b/three".into()]).unwrap(), json!({"repo": "b/three"}));
+        assert!(pick(true).params(&["  ".into()]).unwrap_err().contains("Repository is needed"));
     }
 
     fn form() -> CommandForm {

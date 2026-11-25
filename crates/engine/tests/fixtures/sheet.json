@@ -1,0 +1,6 @@
+{
+ "about": "The contact sheet of crates/engine/src/save.rs tests::sheet_items with these labels (and python/tests/test_save.py), an (H, W, 3) |u1 array: its shape and the SHA-256 of its bytes. Both SDKs must make these exact pixels, labels drawn with the shared Aileron glyph table and its integer coverage blend (decisions 2A and 4B, 2026-11-22; B125). Aileron has no é, so the third label ends in ?.",
+ "labels": ["dim 1", "x=2.5", "Sweep: 3 é"],
+ "shape": [566, 536, 3],
+ "sha256": "869f49f2722a15a540a0b74e30eaaa323a576540980e94d98dee37977f527094"
+}

@@ -1,0 +1,84 @@
+{
+ "name": "a whole-list port runs once per outer item",
+ "about": "Vector 1's lists into both inputs of Zip, which take whole lists: nested, Zip runs 3 times, each with one run's list of 2, making 2 pairs each. Today: once, with the flat 6.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "z": {
+    "kind": "seq.zip",
+    "engine": "text"
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "z",
+     "port": "a"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "z",
+     "port": "b"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "z.tuples": {
+   "shape": [
+    3,
+    2,
+    2
+   ]
+  }
+ },
+ "today": {
+  "z.tuples": {
+   "shape": [
+    6,
+    2
+   ]
+  }
+ }
+}

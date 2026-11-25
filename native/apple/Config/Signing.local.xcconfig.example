@@ -1,0 +1,6 @@
+// Copy to Signing.local.xcconfig (untracked, never committed) to sign builds made in Xcode.
+// release.sh doesn't need it: it reads PLUMCRAFT_TEAM_ID from the environment.
+//
+// DEVELOPMENT_TEAM = YOURTEAMID
+// CODE_SIGN_IDENTITY[sdk=macosx*] = Developer ID Application
+// CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development

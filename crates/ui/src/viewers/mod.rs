@@ -23,10 +23,9 @@ pub mod pdf;
 pub mod plot;
 pub mod wrap;
 pub mod xml;
-pub mod yaml;
+pub use plumcraft_editor_core::yaml;
 
 use plumcraft_proto::catalogue::Media;
-use plumcraft_proto::data::DataRef;
 use plumcraft_proto::display::{Display, Rendition};
 use plumcraft_session::run::WatchRole;
 use plumcraft_session::viewer_cmds::Tools;
@@ -55,6 +54,22 @@ pub struct ViewInput<'a> {
     pub offered_views: &'a [String],
     /// Its probe and any zoom asked for (`viewer.probe`, `viewer.zoom`).
     pub tools: Tools,
+    /// A pop-out's picture channel, the core's (`viewer.picture`); `None` where there is no
+    /// pop-out to keep one (the Watched panel, a wire's preview).
+    pub channel: Option<plumcraft_session::viewer_state::Channel>,
+    /// A pop-out's first grid column shown, the core's (`viewer.grid {col, cols}`, decision 26);
+    /// `None` where there is no pop-out (every column scrolls).
+    pub grid_col: Option<u64>,
+    /// A pop-out's chart spec, the core's (`viewer.chart`, kept in the graph's meta); `None`: the
+    /// chart the core picks from the table's columns.
+    pub chart: Option<&'a Value>,
+    /// A pop-out's chart range and its value's selection, the core's (`viewer.range`,
+    /// `viewer.select`, note 26 slice 8).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<&'a plumcraft_session::chart_view::Selection>,
+    /// A pop-out's histogram (FR6), the core's (`viewer.histogram`, kept in the graph's meta):
+    /// `(spec, log)`; `None`: every value in the default bins.
+    pub histogram: Option<&'a (Value, bool)>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -143,13 +158,28 @@ fn builtin() -> Vec<ViewerKind> {
             make: || Box::new(wrap::Picture::default()),
             panel_builtin: true,
         },
-        ViewerKind { id: "svg", label: "SVG", accepts: |d| media_is(d, &[Media::Vector]), make: || Box::new(wrap::Svg::default()), panel_builtin: true },
+        // SVG, or a TEXT that is an SVG document (note 26 slice 4: a picture first, its source next)
+        ViewerKind {
+            id: "svg",
+            label: "SVG",
+            accepts: |d| media_is(d, &[Media::Vector]) || (d.media == Media::Text && plumcraft_editor_core::viewers::is_svg_text(d)),
+            make: || Box::new(wrap::Svg::default()),
+            panel_builtin: true,
+        },
         ViewerKind { id: "pdf.pages", label: "Pages", accepts: is_pdf, make: || Box::new(pdf::Pages::default()), panel_builtin: false },
         // an STL file is a mesh to turn and zoom; its bytes stay a tab away (#38)
         ViewerKind { id: "mesh", label: "Mesh", accepts: mesh::accepts, make: || Box::new(mesh::MeshView::default()), panel_builtin: false },
         ViewerKind { id: "doc", label: "Document", accepts: |d| media_is(d, &[Media::Doc]), make: || Box::new(wrap::Doc::default()), panel_builtin: true },
         // an (N, k) table of positions plots first; its numbers stay a tab away
         ViewerKind { id: "array.plot", label: "Plot", accepts: plot::accepts, make: || Box::new(plot::TablePlot::default()), panel_builtin: false },
+        // every value of a numeric array binned (FR6), where the core offers it
+        ViewerKind {
+            id: "view.histogram",
+            label: "Histogram",
+            accepts: plot::accepts_histogram,
+            make: || Box::new(plot::Histogram::default()),
+            panel_builtin: false,
+        },
         ViewerKind {
             id: "array.pictures",
             label: "Pictures",
@@ -169,16 +199,20 @@ fn builtin() -> Vec<ViewerKind> {
             id: "table.grid",
             label: "Table",
             // a table, or rows (a list of lists: Table to Rows', a spreadsheet's Read range)
-            accepts: |d| media_is(d, &[Media::Table]) || d.value.as_ref().is_some_and(basic::is_rows),
+            // a value typed text/csv too (note 26 slice 4: a table first, its text next)
+            // and any numeric array that reads as a table (FR6): what the core offers
+            accepts: |d| plumcraft_editor_core::viewers::offered(d).iter().any(|(id, _)| *id == "table.grid"),
             make: || Box::new(basic::Table::default()),
             panel_builtin: false,
         },
+        // a table's chart, its kind and columns the core's (`viewer.chart`)
+        ViewerKind { id: "table.chart", label: "Chart", accepts: plot::accepts_table, make: || Box::new(plot::TableChart::default()), panel_builtin: false },
         // XML text reads as an outline first; its text stays a tab away (B4)
         ViewerKind { id: "xml", label: "XML", accepts: xml::accepts, make: || Box::new(xml::Xml::default()), panel_builtin: false },
         ViewerKind {
             id: "text.plain",
             label: "Text",
-            accepts: |d| media_is(d, &[Media::Text]),
+            accepts: |d| media_is(d, &[Media::Text]) || (plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table),
             make: || Box::new(basic::Text::default()),
             panel_builtin: true,
         },
@@ -197,9 +231,17 @@ fn builtin() -> Vec<ViewerKind> {
     ]
 }
 
-/// The kinds that show `d`, its default first.
+/// The kinds that show `d`, its default first. An array's are in the core's order (FR6: its flag
+/// picks the default, the core decides), after any an application registered.
 pub fn kinds_for(d: &Display) -> Vec<&'static ViewerKind> {
-    registry().iter().filter(|k| (k.accepts)(d)).collect()
+    let mut out: Vec<&'static ViewerKind> = registry().iter().filter(|k| (k.accepts)(d)).collect();
+    if d.media == Media::Ndarray {
+        let core: Vec<&str> = plumcraft_editor_core::viewers::offered(d).into_iter().map(|(id, _)| id).collect();
+        let rank = |k: &ViewerKind| core.iter().position(|id| *id == k.id);
+        // stable: the application's own (not in the core's list) first, then the core's order
+        out.sort_by_key(|k| rank(k).map_or(0, |r| r + 1));
+    }
+    out
 }
 
 /// Whether something other than the hex dump shows `d`. Every value of every engine must be
@@ -220,7 +262,7 @@ pub fn aim(asks: Vec<Action>, role: WatchRole) -> Vec<Action> {
     let WatchRole::Popout(id) = role else { return asks };
     asks.into_iter()
         .map(|(cmd, mut p)| {
-            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet")
+            if matches!(cmd, "run.view" | "run.item" | "view.viewer" | "viewer.probe" | "viewer.zoom" | "viewer.sheet" | "viewer.picture" | "viewer.grid")
                 && let Some(o) = p.as_object_mut()
             {
                 o.insert("popout".into(), json!(id));
@@ -243,6 +285,17 @@ pub struct Pane {
     viewers: Vec<(&'static str, Box<dyn Viewer>)>,
     /// The viewer shown; `None`: the value's default.
     pub chosen: Option<String>,
+    /// A pop-out's picture channel, the core's ([`ViewInput::channel`]).
+    pub channel: Option<plumcraft_session::viewer_state::Channel>,
+    /// A pop-out's first grid column, the core's ([`ViewInput::grid_col`]).
+    pub grid_col: Option<u64>,
+    /// A pop-out's chart spec, the core's ([`ViewInput::chart`]).
+    pub chart: Option<Value>,
+    /// Its chart range and its value's selection ([`ViewInput::chart_range`]).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<plumcraft_session::chart_view::Selection>,
+    /// A pop-out's histogram, the core's ([`ViewInput::histogram`]).
+    pub histogram: Option<(Value, bool)>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -250,31 +303,30 @@ pub struct Pane {
 impl Pane {
     /// Take the newest display for the port (`None` while a run hasn't sent one: the last
     /// stays). True when the value's bytes are gone and a rerun should publish them again.
-    /// `full` reads the full value, `resolve` renditions; `tools` is this pane's probe and zoom.
-    #[allow(clippy::too_many_arguments)]
+    /// `source` reads the full value and renditions (the media service: off the UI thread, each
+    /// arriving on a later frame); `tools` is this pane's probe and zoom.
     pub fn sync(
         &mut self,
         ctx: &egui::Context,
         display: Option<&Display>,
         offered_views: Vec<String>,
         thumbs: &mut Thumbs,
-        resolve: &dyn Fn(&DataRef) -> Option<Blob>,
-        full: &dyn Fn(&DataRef) -> Option<Arc<Blob>>,
+        source: &dyn plumcraft_media::Source,
         tools: Tools,
     ) -> bool {
         self.tools = tools;
         let Some(d) = display.or(self.display.as_ref()).cloned() else { return false };
-        let rerun = self.read.update(Some(&d), full);
+        let rerun = self.read.update_from(Some(&d), source);
         let rgba = |r: &Rendition| match r {
             Rendition::Rgba8 { data, role, .. } if role.is_empty() || role == "thumb" => Some(data.clone()),
             _ => None,
         };
-        self.rendition = d.renditions.iter().find_map(rgba).and_then(|data| thumbs.get(ctx, &data, resolve).ok());
+        self.rendition = d.renditions.iter().find_map(rgba).and_then(|data| thumbs.get_from(ctx, &data, source).ok());
         self.pictures = d
             .renditions
             .iter()
             .filter_map(|r| match r {
-                Rendition::Rgba8 { data, role, caption, .. } if role == "view" => thumbs.picture(ctx, data, resolve).ok().map(|t| (caption.clone(), t)),
+                Rendition::Rgba8 { data, role, caption, .. } if role == "view" => thumbs.picture_from(ctx, data, source).ok().map(|t| (caption.clone(), t)),
                 _ => None,
             })
             .collect();
@@ -285,7 +337,7 @@ impl Pane {
             .sheet
             .iter()
             .map(|c| match &c.thumb {
-                Some(Rendition::Rgba8 { data, .. }) => thumbs.get(ctx, data, resolve).ok(),
+                Some(Rendition::Rgba8 { data, .. }) => thumbs.get_from(ctx, data, source).ok(),
                 _ => None,
             })
             .collect();
@@ -308,6 +360,12 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
+            grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -373,6 +431,12 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
+            grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -390,6 +454,12 @@ impl Pane {
             sheet: &self.sheet,
             offered_views: &self.offered_views,
             tools: self.tools,
+            channel: self.channel,
+            grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
+            histogram: self.histogram.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);
@@ -407,5 +477,84 @@ impl Pane {
             "full": self.read.full.is_some(),
             "missing": self.read.missing,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The core names a watched value's viewer for a shell with no registry of its own
+    /// (`plumcraft_editor_core::values::default_viewer`, N3 slice 1); for the media it decides by
+    /// media alone, this registry's first choice is the same.
+    #[test]
+    fn the_cores_default_viewer_is_this_registrys_first() {
+        for media in [Media::Image, Media::Vector, Media::Doc, Media::Ndarray, Media::Audio, Media::Table, Media::Text, Media::Scalar, Media::Tree] {
+            let d = {
+                let mut x = Display::default();
+                x.media = media;
+                x
+            };
+            let ours = kinds_for(&d).first().map(|k| k.id);
+            assert_eq!(ours, Some(plumcraft_editor_core::values::default_viewer(&d)), "{media:?}");
+        }
+    }
+
+    /// N4 slice 5: the core's registry (`plumcraft_editor_core::viewers::offered`) offers what this
+    /// one does, in its order (SVG's source as text is the core's addition), for every medium and
+    /// for rows, a list with a sheet, and a value with its full bytes.
+    #[test]
+    fn the_cores_registry_offers_what_this_one_does() {
+        use plumcraft_proto::data::DataRef;
+        let all = [
+            Media::Image,
+            Media::Vector,
+            Media::Doc,
+            Media::Ndarray,
+            Media::Audio,
+            Media::Table,
+            Media::Text,
+            Media::Scalar,
+            Media::Tree,
+            Media::Bytes,
+            Media::Mesh,
+            Media::Composite,
+            Media::Sequence,
+        ];
+        for media in all {
+            for full in [false, true] {
+                for value in [None, Some(serde_json::json!([[1, 2], [3, 4]])), Some(serde_json::json!({"a": 1}))] {
+                    let mut d = {
+                        let mut x = Display::default();
+                        x.media = media;
+                        x.value = value;
+                        x
+                    };
+                    if full {
+                        d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
+                    }
+                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| *id != "mesh").collect();
+                    let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d)
+                        .into_iter()
+                        .map(|(id, _)| id)
+                        .filter(|id| !(media == Media::Vector && *id == "text.plain"))
+                        .collect();
+                    assert_eq!(ours, core, "{media:?} full {full} {:?}", d.value);
+                }
+            }
+        }
+        // the interchange formats (note 26 slice 4): a value typed text/csv, a TEXT that is SVG
+        let mut csv = Display::default();
+        csv.media = Media::Bytes;
+        let mut r = DataRef::default();
+        r.meta.media = "text/csv".into();
+        csv.full = Some(r);
+        let mut svg = Display::default();
+        (svg.media, svg.value) = (Media::Text, Some(serde_json::json!("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")));
+        for d in [csv, svg] {
+            let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).collect();
+            let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d).into_iter().map(|(id, _)| id).collect();
+            assert_eq!(ours, core, "{:?}", d.full.as_ref().map(|f| &f.meta.media));
+        }
     }
 }

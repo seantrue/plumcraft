@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "Acknowledgements": {
+      "description": "One program's licences.",
+      "properties": {
+        "groups": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/LicenceGroup"
+          },
+          "type": "array"
+        },
+        "note": {
+          "description": "What [`Acknowledgements::bounded`] left out, in words; empty when nothing was.",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "BlobMeta": {
       "properties": {
         "aliases": {
@@ -196,7 +213,7 @@
       "type": "object"
     },
     "Display": {
-      "description": "What the viewer shows for one watched value.",
+      "description": "What the viewer shows for one watched value. Fields may be added: outside this crate, start\nfrom [`Display::new`] or `default()` and set the fields.",
       "properties": {
         "error": {
           "anyOf": [
@@ -233,6 +250,14 @@
           "minimum": 0,
           "type": "integer"
         },
+        "levels": {
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
         "live": {
           "$ref": "#/$defs/LiveMark",
           "default": {
@@ -247,6 +272,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item shown within item `index`, a level at a time, and\nhow many items each level along that way has (`levels[0]` is `items`). Empty for a list\nthat isn't nested.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",
@@ -328,7 +361,7 @@
             "type": "string"
           },
           "default": {},
-          "description": "Component versions (`impressionist`, `yapocis`, …).",
+          "description": "Component versions (`impressionist`, `kernels`, …).",
           "type": "object"
         },
         "id": {
@@ -869,6 +902,22 @@
         }
       ]
     },
+    "GraphInfo": {
+      "description": "What a saved file says of the workflow that made it: purely informational (spec 15).",
+      "properties": {
+        "hash": {
+          "default": "",
+          "description": "`sha256:<hex>` of the open graph's JSON as the editor writes it to its file.",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "The document's title (its file's name without the extension, or `Untitled`).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "GraphRef": {
       "description": "The graph a run executes: the workflow JSON inline, or a handle from `graph.put`.",
       "oneOf": [
@@ -1125,6 +1174,33 @@
             "type": "string"
           },
           "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "LicenceGroup": {
+      "description": "A licence and the packages under it.",
+      "properties": {
+        "licence": {
+          "default": "",
+          "description": "The licence's SPDX id (`MIT`, `Apache-2.0`) or name.",
+          "type": "string"
+        },
+        "name": {
+          "description": "Its name as people say it (\"MIT License\"); may be empty.",
+          "type": "string"
+        },
+        "packages": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Package"
+          },
+          "type": "array"
+        },
+        "text": {
+          "default": "",
+          "description": "The full text, once for every package under it.",
+          "type": "string"
         }
       },
       "type": "object"
@@ -1707,6 +1783,16 @@
           "description": "`cpu`, `gpu`, `mlx`, …",
           "type": "string"
         },
+        "save_formats": {
+          "description": "The `save_formats` (by id) its outputs save as, the first the one a bare name gets (spec\n7.1, 15). `None`: every format of the catalogue whose `media` takes the output's. An empty\nlist: it offers none. Ids the catalogue doesn't list are skipped.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
         "version": {
           "default": 1,
           "description": "Part of the memo key; absent → 1.",
@@ -1744,7 +1830,7 @@
       "type": "object"
     },
     "NodeFlags": {
-      "description": "Behaviour flags of a node.",
+      "description": "Behaviour flags of a node.\nFields may be added: outside this crate, start from `NodeFlags::default()` and set the fields.",
       "properties": {
         "bundle_port": {
           "description": "The input that takes the parameter bundle (protocol 1: `settings`).",
@@ -1760,6 +1846,10 @@
         "keep": {
           "default": null,
           "description": "`true`, `false` or `\"unit\"`: whether results keep colour-space tags."
+        },
+        "nested_input": {
+          "description": "Its inputs take a nested list whole, every level (Flatten): no level is mapped over\n(spec 7.6 rule 2, `lists.nested`). Without it a whole-list port fed a list of lists runs\nonce per outer item.",
+          "type": "boolean"
         },
         "output_node": {
           "default": false,
@@ -1947,6 +2037,23 @@
           "type": "string"
         }
       ]
+    },
+    "Package": {
+      "description": "A package under a licence.",
+      "properties": {
+        "name": {
+          "default": "",
+          "type": "string"
+        },
+        "url": {
+          "description": "Where its source is (a repository, a registry page); may be empty.",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "ParamRef": {
       "description": "The bundle parameter a port is tied to (protocol 1's impressionist `setting{section, name}`).",
@@ -2362,7 +2469,27 @@
           "type": "object"
         },
         {
+          "description": "Built outside this crate with [`PortValue::list`] or [`PortValue::list_with_axes`]: fields\nmay be added (a pattern outside the crate ends with `..`).",
           "properties": {
+            "axes": {
+              "description": "The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,\nspec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are\ndropped; axes whose lengths don't multiply to the item count are to be read as absent.",
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
             "items": {
               "default": [],
               "items": {
@@ -2510,7 +2637,7 @@
       "description": "An engine-made derivative the UI draws without understanding the value (spec 10.3).",
       "oneOf": [
         {
-          "description": "(h, w, 4) `u1`.",
+          "description": "(h, w, 4) `u1`. Built outside this crate with [`Rendition::rgba8`] and its `with_`\nmethods: fields may be added (a pattern outside the crate ends with `..`).",
           "properties": {
             "caption": {
               "type": "string"
@@ -2530,6 +2657,15 @@
             "kind": {
               "const": "rgba8",
               "type": "string"
+            },
+            "levels": {
+              "description": "A nested list's item counts a level at a time, outermost first (`[3, 2]`: 3 runs of 2);\nempty when the list isn't nested (spec 7.6 rule 2).",
+              "items": {
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "type": "array"
             },
             "ref": {
               "$ref": "#/$defs/DataRef"
@@ -3147,6 +3283,32 @@
       },
       "type": "object"
     },
+    "SaveQuestion": {
+      "description": "What a save asks the person instead of writing (spec 15, `output.save.question`; the\nmaintainer, 2026-11-22, decisions 2A and 3A): the value isn't shaped like a picture.",
+      "properties": {
+        "offer": {
+          "default": "",
+          "description": "The format offered instead (`npy`).",
+          "type": "string"
+        },
+        "shape": {
+          "default": [],
+          "description": "The value's shape.",
+          "items": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "text": {
+          "default": "",
+          "description": "Why, in a sentence (`a 4 by 1000 array is narrower than a picture`).",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "SaveReply": {
       "properties": {
         "error": {
@@ -3190,9 +3352,24 @@
           },
           "type": "array"
         },
+        "question": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SaveQuestion"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Asked instead of written (`ok: false`, nothing written): the request had `ask` and the\nvalue isn't shaped like a picture for the picture format chosen."
+        },
         "recipe": {
           "default": false,
-          "description": "Every file carries its recipe.",
+          "description": "Every file carries its recipe (the research software's floor, F64; the SDKs never set it).",
+          "type": "boolean"
+        },
+        "stamped": {
+          "description": "Every file carries the request's `graph_info` (spec 15): informational.",
           "type": "boolean"
         }
       },
@@ -3201,6 +3378,10 @@
     "SaveRequest": {
       "description": "`output.save`: write (or return) a node's output.",
       "properties": {
+        "ask": {
+          "description": "A person started this save and may be asked about it (`output.save.question`, spec 15):\nthe engine may answer a picture format for a value that isn't shaped like a picture with\n`question` instead of writing. A script's save never sets it.",
+          "type": "boolean"
+        },
         "format": {
           "default": "",
           "type": "string"
@@ -3211,6 +3392,17 @@
             "graph": null,
             "kind": "inline"
           }
+        },
+        "graph_info": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GraphInfo"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The workflow's name and the hash of its graph, for the engine to write into the files where\na format has room for them (spec 15; the maintainer, 2026-11-22: \"store a name and a hash of\ngraph instead. Purely informational\"). Nothing reads it back; absent, nothing is written."
         },
         "index": {
           "default": null,
@@ -3662,7 +3854,7 @@
       "type": "object"
     },
     "WatchRequest": {
-      "description": "One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).",
+      "description": "One value the UI wants to see while (or after) a run (spec 10.4; protocol 1 `inspect`).\nFields may be added: outside this crate, start from [`WatchRequest::new`] or `default()` and\nset the fields.",
       "properties": {
         "index": {
           "default": 0,
@@ -3672,6 +3864,14 @@
         "node": {
           "default": "",
           "type": "string"
+        },
+        "path": {
+          "description": "Nested lists (spec 7.6 rule 2): the item within item `index`, a level at a time (run, then\nitem). Negative counts from the end. Empty: the outer item itself.",
+          "items": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "type": "array"
         },
         "port": {
           "default": "",
@@ -3770,6 +3970,9 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "description": "The UI <-> engine interface (docs/interface.md). An envelope's body is one of: EngineState (engine.state), StatusRecord (node.status), LiveUpdate (node.live), RunReply (run.reply), LogRecord (log), Resync (resync), {schema_digest} (schema.changed).",
   "messages": {
+    "Acknowledgements": {
+      "$ref": "#/$defs/Acknowledgements"
+    },
     "DataRef": {
       "$ref": "#/$defs/DataRef"
     },

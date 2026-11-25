@@ -1,0 +1,1589 @@
+//! Running a command as its menu item or shortcut does: the invoke state machine
+//! (`docs/shell-interface.md` 11.4, `docs/research/24-native-shells.md` 4.1).
+//!
+//! A command run from the UI needs things the command's params don't carry: a path from a file
+//! dialog, an answer to the unsaved-changes prompt, a form's fields, the canvas selection. The
+//! machine fills them in. Where it needs the platform it raises an ask ([`crate::asks`]) with a
+//! continuation ([`Then`]) and returns; the answer, whenever it comes, carries the chain on:
+//!
+//! ```text
+//! graph.new over unsaved changes → prompt unsavedChanges → "save" → file.save (no file yet)
+//!     → graph.saveAs {path} → graph.new {discard: false}
+//! ```
+//!
+//! The machine runs commands through its [`Host`]: the editor that holds the session, its
+//! selection and canvas, which runs a command as `try_run` does (an engine switch included: a
+//! shell that may not wait has it finish later, and a control reply waits for it). Nothing here
+//! waits for anything.
+
+use std::path::{Path, PathBuf};
+use std::time::Duration;
+
+use plumcraft_graph::GroupId;
+use plumcraft_proto::catalogue::{PathHint, SaveFormat};
+use plumcraft_proto::run::RunRequest;
+use plumcraft_session::trust::Review;
+use plumcraft_session::{Session, paths};
+use serde_json::{Map, Value, json};
+
+use crate::asks::{Answer, Ask, AskId, Asks, By, Kind};
+use crate::prefs;
+
+/// The workflow file extension a new graph gets (FR2: `.plum`; `.json` still opens and saves,
+/// [`plumcraft_session::graph_file`]).
+pub const WORKFLOW_EXT: &str = plumcraft_session::graph_file::DEFAULT_EXTENSION;
+/// How long Edit › Paste waits for the shell to read the clipboard: an empty clipboard answers
+/// nothing.
+pub const PASTE_WAIT: Duration = Duration::from_secs(5);
+
+/// What a "Discard" in [`Prompt::Discard`] goes on to do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AfterDiscard {
+    /// `graph.new`.
+    New,
+    /// Ask for a workflow (`file.open`), then `graph.open` it.
+    Open,
+    /// Close the window (quit).
+    Quit,
+    /// Close this document's window, one of several (N5 slice 3: the prompt says close, not quit).
+    Close,
+    /// `graph.open` this recent graph (File › Open Recent, B166).
+    OpenRecent(PathBuf),
+}
+
+impl AfterDiscard {
+    pub fn name(&self) -> &'static str {
+        match self {
+            AfterDiscard::New => "new",
+            AfterDiscard::Open | AfterDiscard::OpenRecent(_) => "open",
+            AfterDiscard::Quit => "quit",
+            AfterDiscard::Close => "close",
+        }
+    }
+}
+
+/// A question the window is asking: a `prompt` ask.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Prompt {
+    /// The graph has unsaved changes: discard them to go on with `then`?
+    Discard { then: AfterDiscard },
+    /// A workflow from elsewhere is about to run, and this is what it touches.
+    Review(Box<Review>),
+    /// A run would send these local files to an engine nobody here started: `(where to, file)`.
+    Uploads(Vec<(String, String)>),
+    /// A person's save of an array not shaped like a picture, as PNG or JPEG (the engine's
+    /// `question`, decision 2A): save it anyway, as NumPy instead, or not. `params` are the
+    /// `run.save` it asked about (JSON), `why` the engine's sentence, `npy` the path as `.npy`.
+    SaveShape { params: String, why: String, shape: Vec<u64>, npy: String },
+    /// Clean Up Mask Files (S4b): remove the `count` files (`files`, mask files and their
+    /// sidecars) nothing reaches, in `folder`?
+    PruneMasks { count: usize, files: Vec<String>, folder: String, age_s: Option<u64> },
+}
+
+/// An answer to a [`Prompt`]: its buttons, and `ui.prompt`'s `answer`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PromptAnswer {
+    /// Drop the unsaved changes and go on.
+    Discard,
+    /// Save first (the save dialog for a graph with no file), then go on once saved.
+    Save,
+    /// Do nothing.
+    Cancel,
+    /// Trust the workflow; its held run is dropped ([`Prompt::Review`]).
+    Trust,
+    /// Save the array as the picture asked for anyway ([`Prompt::SaveShape`]).
+    Png,
+    /// Save it as NumPy (`.npy`) instead ([`Prompt::SaveShape`]).
+    Npy,
+    /// Remove the files ([`Prompt::PruneMasks`]).
+    Remove,
+}
+
+impl PromptAnswer {
+    pub fn name(self) -> &'static str {
+        match self {
+            PromptAnswer::Discard => "discard",
+            PromptAnswer::Save => "save",
+            PromptAnswer::Cancel => "cancel",
+            PromptAnswer::Trust => "trust",
+            PromptAnswer::Png => "png",
+            PromptAnswer::Npy => "npy",
+            PromptAnswer::Remove => "remove",
+        }
+    }
+
+    /// What a shell's button for it says, where the word alone doesn't (`labels` in the
+    /// prompt's params).
+    pub fn label(self) -> &'static str {
+        match self {
+            PromptAnswer::Discard => "Discard",
+            PromptAnswer::Save => "Save",
+            PromptAnswer::Cancel => "Cancel",
+            PromptAnswer::Trust => "Trust",
+            PromptAnswer::Png => "Save as PNG anyway",
+            PromptAnswer::Npy => "Save as NumPy (.npy)",
+            PromptAnswer::Remove => "Remove",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<PromptAnswer> {
+        [PromptAnswer::Discard, PromptAnswer::Save, PromptAnswer::Cancel, PromptAnswer::Trust, PromptAnswer::Png, PromptAnswer::Npy, PromptAnswer::Remove]
+            .into_iter()
+            .find(|a| a.name() == name)
+    }
+}
+
+impl Prompt {
+    /// The prompt's id for the control channel (`ui.inspect`'s `prompt.kind`).
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Prompt::Discard { .. } => "unsavedChanges",
+            Prompt::Review(_) => "reviewWorkflow",
+            Prompt::Uploads(_) => "allowUploads",
+            Prompt::SaveShape { .. } => "saveShape",
+            Prompt::PruneMasks { .. } => "pruneMasks",
+        }
+    }
+
+    pub fn text(&self) -> String {
+        if let Prompt::SaveShape { why, .. } = self {
+            // the engine's reason is a clause ("this 4 by 1000 array is…"): a sentence here
+            let mut c = why.trim().chars();
+            let why: String = c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default();
+            return format!("{why}. Save it as a PNG anyway, or as a NumPy array (.npy), which keeps its numbers?");
+        }
+        match self {
+            Prompt::Discard { then: AfterDiscard::New } => "The graph has unsaved changes. Discard them and start a new graph?",
+            Prompt::Discard { then: AfterDiscard::Open } => "The graph has unsaved changes. Discard them and open another workflow?",
+            Prompt::Discard { then: AfterDiscard::OpenRecent(_) } => "The graph has unsaved changes. Discard them and open the recent graph?",
+            Prompt::Uploads(_) => "This run would send these files from your computer to an engine you attached to.",
+            Prompt::Review(_) => "This workflow came from elsewhere, and it runs with your permissions. Check what it touches before you run it.",
+            Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
+            Prompt::Discard { then: AfterDiscard::Close } => "The graph has unsaved changes. Discard them and close the window?",
+            Prompt::SaveShape { .. } => "",
+            Prompt::PruneMasks { count, folder, .. } => {
+                return format!(
+                    "{count} mask file{} in {folder} {} nothing in this graph, its undo history or the graphs beside it names. Remove {}? This can't be undone.",
+                    if *count == 1 { "" } else { "s" },
+                    if *count == 1 { "is one" } else { "are ones" },
+                    if *count == 1 { "it" } else { "them" }
+                );
+            }
+        }
+        .to_owned()
+    }
+
+    /// Its window's heading.
+    pub fn title(&self) -> &'static str {
+        match self {
+            Prompt::Discard { .. } => "Unsaved changes",
+            Prompt::Review(_) => "Review before running",
+            Prompt::Uploads(_) => "Send files to this engine?",
+            Prompt::SaveShape { .. } => "Not shaped like a picture",
+            Prompt::PruneMasks { .. } => "Clean up mask files?",
+        }
+    }
+
+    /// What it may be answered.
+    pub fn answers(&self) -> &'static [&'static str] {
+        match self {
+            Prompt::Discard { .. } => &["save", "discard", "cancel"],
+            Prompt::Review(_) | Prompt::Uploads(_) => &["trust", "cancel"],
+            Prompt::SaveShape { .. } => &["png", "npy", "cancel"],
+            Prompt::PruneMasks { .. } => &["remove", "cancel"],
+        }
+    }
+
+    /// The `prompt` ask's params: `{kind, title, text, answers, labels, then?, detail?}`;
+    /// `labels` are the buttons' words, by answer.
+    pub fn params(&self) -> Value {
+        let labels: Map<String, Value> =
+            self.answers().iter().filter_map(|a| PromptAnswer::from_name(a).map(|x| ((*a).to_owned(), Value::from(x.label())))).collect();
+        let mut p = json!({"kind": self.kind(), "title": self.title(), "text": self.text(), "answers": self.answers(), "labels": labels});
+        match self {
+            Prompt::Discard { then } => p["then"] = json!(then.name()),
+            Prompt::Review(r) => p["detail"] = serde_json::to_value(r).unwrap_or(Value::Null),
+            Prompt::Uploads(files) => p["detail"] = Value::Array(files.iter().map(|(to, file)| json!({"to": to, "file": file})).collect()),
+            Prompt::SaveShape { shape, npy, .. } => p["detail"] = json!({"shape": shape, "npy": npy}),
+            Prompt::PruneMasks { files, folder, .. } => p["detail"] = json!({"folder": folder, "files": files}),
+        }
+        p
+    }
+}
+
+/// What to do with an ask's answer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Then {
+    /// A [`Prompt`] answered.
+    Prompt(Prompt),
+    /// `graph.open {path, discard}`.
+    OpenWorkflow { discard: bool },
+    /// `graph.saveAs {path}`, then go on with `after` once nothing is unsaved.
+    SaveWorkflow { after: Option<AfterDiscard> },
+    /// `graph.bundle {path}`.
+    Bundle,
+    /// `graph.insert` or `graph.insertGroup {path, pos}`, then select what came in.
+    Insert { command: String, pos: Option<[f32; 2]> },
+    /// `node.set` a path input to the path chosen, relative to `base` where it is inside it.
+    Path { node: String, port: String, save: bool, base: Option<PathBuf> },
+    /// `node.set` a `files` input to the paths chosen, one a line.
+    Files { node: String, port: String, base: Option<PathBuf> },
+    /// `value.open` with the app chosen (Open With › Choose an App…).
+    App { params: Value },
+    /// `run.save` to the path chosen (Save Result…), asking the chosen format's options first.
+    SaveResult { params: Value },
+    /// `run.save` with the options a form asked for (Save Result…'s second ask): `params` hold
+    /// the path; `format` is the one its name chose, whose options read each answer.
+    SaveOptions { params: Value, format: SaveFormat },
+    /// `theme.import {path}`.
+    ThemeImport,
+    /// `theme.export {path}`.
+    ThemeExport,
+    /// `graph.saveCopy {path}` (Save a Copy…, N4 slice 4).
+    SaveCopy,
+    /// `graph.move {folder}` (Move…, N4 slice 4).
+    Move,
+    /// A command's form: run `command` with the fields.
+    Form { command: String },
+    /// `edit.paste` the clipboard's text.
+    Paste,
+    /// `mask.folder` the folder chosen, then the stroke that had nowhere to go (S4b).
+    MaskFolder { stroke: Value },
+    /// Nothing follows; a failure goes to the status bar.
+    Notice,
+}
+
+/// An ask's continuation: what follows, and the preference key under which the folder of a
+/// chosen file is remembered.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Cont {
+    pub then: Then,
+    pub remember: Option<&'static str>,
+}
+
+impl Cont {
+    fn new(then: Then) -> Self {
+        Cont { then, remember: None }
+    }
+}
+
+/// What the machine needs of the editor that hosts it. Everything but the first five has a
+/// default for a host without a canvas (the C ABI's core, a headless session).
+pub trait Host {
+    fn session(&self) -> &Session;
+    fn session_mut(&mut self) -> &mut Session;
+    fn asks(&mut self) -> &mut Asks<Cont>;
+    /// Run a command as the editor runs any (`try_run`: its error is kept for the status bar).
+    fn run(&mut self, id: &str, params: &Value) -> Result<Value, String>;
+    /// A word for the status bar.
+    fn say(&mut self, text: String);
+    /// Where the folder each kind of dialog last used is kept.
+    fn prefs(&mut self) -> Option<&mut prefs::Store> {
+        None
+    }
+    /// The selected nodes and collapsed groups.
+    fn selection(&self) -> (Vec<String>, Vec<GroupId>) {
+        (Vec::new(), Vec::new())
+    }
+    /// What Ungroup acts on.
+    fn group_to_ungroup(&self) -> Option<GroupId> {
+        None
+    }
+    /// The canvas centre in graph coordinates, where an insert lands.
+    fn canvas_center(&self) -> Option<[f32; 2]> {
+        None
+    }
+    /// The node sizes and pin positions the canvas measured (`graph.tidy`'s `sizes`, `pins`).
+    fn measured(&self) -> (Map<String, Value>, Map<String, Value>) {
+        (Map::new(), Map::new())
+    }
+    /// Fit the view to the graph.
+    fn fit(&mut self) {}
+    /// The sizes the core has for these nodes and collapsed groups (what the shell measured,
+    /// `geometry.set`): Align, Distribute and Frame Selection's `sizes`. None: the session
+    /// estimates each, as it does for a script.
+    fn sizes(&self, _nodes: &[String], _groups: &[plumcraft_graph::GroupId]) -> std::collections::BTreeMap<String, [f32; 2]> {
+        std::collections::BTreeMap::new()
+    }
+    /// Edit › Frame Selection: a frame around the selection, at the sizes the core has
+    /// ([`Host::sizes`]; N2 slice 3, where it was the shell's).
+    fn frame_selection(&mut self) {
+        let (nodes, groups) = self.selection();
+        if nodes.is_empty() && groups.is_empty() {
+            self.say("select nodes to frame first".into());
+            return;
+        }
+        let sizes = self.sizes(&nodes, &groups);
+        let _ = self.run("frame.add", &json!({"nodes": nodes, "groups": groups, "sizes": sizes}));
+    }
+    /// Where a paste lands (the pointer, over the canvas).
+    fn paste_pos(&self) -> Option<[f32; 2]> {
+        None
+    }
+    /// Close the window (quit), unsaved changes dealt with.
+    fn close(&mut self) {}
+    /// Each document is a window of the shell's own (the C ABI's `platform.document_windows`, N5
+    /// slice 3): File › New makes a new document, File › Open opens the graph in a new one (or in
+    /// this one while it is untouched), and the shell makes a window for each as the core says;
+    /// Quit closes every document in turn. False (the egui editor, the Apple apps' cores): New and
+    /// Open replace this document's graph, and Quit closes this one.
+    fn document_windows(&self) -> bool {
+        false
+    }
+    /// Open a new document, on a graph's file or untitled, for the shell to show in a window of
+    /// its own ([`Host::document_windows`]).
+    fn open_document(&mut self, _path: Option<PathBuf>, _by: By) {}
+    /// Quit the application: every document closed in turn, each asking first over unsaved
+    /// changes. False when this host has only this document to close ([`quit`] closes it).
+    fn quit_all(&mut self, _by: By) -> bool {
+        false
+    }
+    /// The window may close already.
+    fn closing(&self) -> bool {
+        false
+    }
+    /// Open a window of the shell's own for `id` (Engine › Attach…, Install Engine…); false
+    /// when it has none, and the command runs as it is.
+    fn open_window(&mut self, _id: &str) -> bool {
+        false
+    }
+    /// Allow these files to go to the attached engine.
+    fn allow_uploads(&mut self, _files: &[String]) {}
+    /// The run held back by [`Prompt::Uploads`], taken.
+    fn take_held_run(&mut self) -> Option<Box<RunRequest>> {
+        None
+    }
+    /// The theme in use, for an exported theme's file name.
+    fn theme_name(&self) -> String {
+        "theme".into()
+    }
+    /// Apps the session asked to start since the last call ([`route_launches`]).
+    fn take_launches(&mut self) -> Vec<(PathBuf, Vec<String>, PathBuf)> {
+        Vec::new()
+    }
+}
+
+/// Apps the session asked to start (`program args… file`), waiting to become `open.external`
+/// asks ([`route_launches`]).
+pub type Launches = std::sync::Arc<std::sync::Mutex<Vec<(PathBuf, Vec<String>, PathBuf)>>>;
+
+/// Route the session's app starts (`doc.open`, `value.open`: `/usr/bin/open`, `xdg-open`, a
+/// craft's app) through `open.external` asks, so the shell starts them (decision 19 of
+/// `docs/shell-interface.md`): the session records them, and [`raise_launches`] asks. Only a
+/// session that still spawns apps itself is routed; one given a launcher (a test's) keeps it.
+pub fn route_launches(s: &mut Session) -> Option<Launches> {
+    if !s.docs.launches_by_default() {
+        return None;
+    }
+    let q: Launches = Default::default();
+    let into = std::sync::Arc::clone(&q);
+    s.docs.set_launcher(std::sync::Arc::new(move |program: &Path, args: &[String], file: &Path| {
+        into.lock().map_err(|_| "the launch queue is poisoned".to_owned())?.push((program.to_path_buf(), args.to_vec(), file.to_path_buf()));
+        Ok(())
+    }));
+    Some(q)
+}
+
+/// The `open.external` asks for what the session asked to start: `{path, app?, program, args}`.
+/// `app` is the application chosen (Open With); `program` and `args` are how a desktop starts it.
+pub fn raise_launches(h: &mut impl Host) {
+    for (program, args, file) in h.take_launches() {
+        let app = match args.as_slice() {
+            [a, app] if a == "-a" => Some(app.clone()),
+            _ => None,
+        };
+        let params = json!({"path": file, "app": app, "program": program, "args": args});
+        raise(h, Kind::OpenExternal, params, By::Person, Cont::new(Then::Notice));
+    }
+}
+
+/// Take the queued launches from `q`.
+pub fn drain_launches(q: Option<&Launches>) -> Vec<(PathBuf, Vec<String>, PathBuf)> {
+    q.and_then(|q| q.lock().ok().map(|mut v| std::mem::take(&mut *v))).unwrap_or_default()
+}
+
+/// Raise an ask, dropping the continuations of what it withdrew.
+pub fn raise(h: &mut impl Host, kind: Kind, params: Value, by: By, cont: Cont) -> AskId {
+    h.asks().raise(kind, params, by, cont).0
+}
+
+/// The folder `key`'s dialogs last used, as a `startIn` param.
+fn start_in(h: &mut impl Host, key: &str) -> Value {
+    h.prefs().and_then(|p| p.dir(key)).map_or(Value::Null, |d| json!(d))
+}
+
+fn workflow_kinds() -> Value {
+    // what the application opens beside workflows, in the one filter: macOS has no choice of them
+    let openers = plumcraft_session::file_cmds::openers();
+    let mut exts: Vec<&str> = plumcraft_session::graph_file::EXTENSIONS.to_vec();
+    exts.push("zip");
+    exts.extend(openers.iter().flat_map(|o| o.extensions.iter().copied()));
+    let name = std::iter::once("Workflow or bundle").chain(openers.iter().map(|o| o.label)).collect::<Vec<_>>().join(", ");
+    json!([{"label": name, "extensions": exts}])
+}
+
+/// Ask for a workflow to read: `file.open {purpose: "workflow"}`.
+fn ask_workflow(h: &mut impl Host, by: By, then: Then) -> AskId {
+    let params = json!({"purpose": "workflow", "title": "Open Workflow", "kinds": workflow_kinds(), "multiple": false,
+                        "startIn": start_in(h, prefs::keys::WORKFLOW_READ)});
+    raise(h, Kind::FileOpen, params, by, Cont { then, remember: Some(prefs::keys::WORKFLOW_READ) })
+}
+
+/// Ask where to save the workflow: `file.save {purpose: "workflow"}`.
+fn ask_save_workflow(h: &mut impl Host, by: By, after: Option<AfterDiscard>) -> AskId {
+    let current = h.session().path().map(Path::to_path_buf);
+    // FR2: a new graph and Save As are offered `.plum` (a `.json` graph's own Save never asks)
+    let name = plumcraft_session::graph_file::save_as_name(current.as_deref());
+    let params = json!({"purpose": "workflow", "title": "Save Workflow", "kinds": plumcraft_session::graph_file::save_kinds(),
+                        "name": name, "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+    raise(h, Kind::FileSave, params, by, Cont { then: Then::SaveWorkflow { after }, remember: Some(prefs::keys::WORKFLOW_WRITE) })
+}
+
+/// Run command `id` as its menu item or shortcut does, filling in what the UI knows: a
+/// command's form, file asks for open and save, a prompt before unsaved changes are dropped,
+/// the selection for node commands.
+pub fn invoke(h: &mut impl Host, id: &str, by: By) {
+    invoke_with(h, id, &Value::Null, by);
+}
+
+/// [`invoke`] with the command's own parameters (`ui.invoke {command, params}`, N4 slice 5: a
+/// pop-out's Copy, Share… and Save As… name the pop-out).
+pub fn invoke_with(h: &mut impl Host, id: &str, params: &Value, by: By) {
+    // a command with a form asks for its params first
+    if let Some(form) = plumcraft_session::commands::form(id) {
+        if let Err(why) = plumcraft_session::find(id).map_or(Ok(()), |c| (c.enabled)(h.session())) {
+            h.say(why);
+            return;
+        }
+        let values = form.initial(h.session());
+        raise(h, Kind::Form, form_params(&form, &values, None), by, Cont::new(Then::Form { command: form.command.to_owned() }));
+        return;
+    }
+    let (nodes, groups) = h.selection();
+    match id {
+        // a window per document (N5 slice 3): New is a document of its own, and Open asks for
+        // the file first; nothing here is discarded, so neither asks about unsaved changes
+        "graph.new" if h.document_windows() => h.open_document(None, by),
+        "graph.open" if h.document_windows() => {
+            ask_workflow(h, by, Then::OpenWorkflow { discard: false });
+        }
+        "graph.new" | "graph.open" => {
+            let then = if id == "graph.new" { AfterDiscard::New } else { AfterDiscard::Open };
+            if h.session().is_dirty() {
+                raise_prompt(h, Prompt::Discard { then }, by);
+            } else {
+                go_on(h, then, false, by);
+            }
+        }
+        "app.quit" => {
+            if !h.quit_all(by) {
+                quit(h, by);
+            }
+        }
+        "engine.install" | "engine.attach" if h.open_window(id) => {}
+        // a shell without a window of its own for them (the Apple apps, N4 slice 6): the core's
+        // form asks for the address or the repository, then runs the command
+        "engine.install" | "engine.attach" => {
+            if let Err(why) = plumcraft_session::find(id).map_or(Ok(()), |c| (c.enabled)(h.session())) {
+                h.say(why);
+                return;
+            }
+            if let Some(form) = engine_form(id) {
+                let values = form.initial(h.session());
+                raise(h, Kind::Form, form_params(&form, &values, None), by, Cont::new(Then::Form { command: form.command.to_owned() }));
+            }
+        }
+        "graph.save" if h.session().path().is_some() => {
+            let _ = h.run(id, &json!({}));
+        }
+        "graph.save" | "graph.saveAs" => {
+            ask_save_workflow(h, by, None);
+        }
+        // Save a Copy… and Move… (N4 slice 4): where, then the command
+        "graph.saveCopy" => {
+            let current = h.session().path().map(Path::to_path_buf);
+            let stem = current.as_deref().and_then(Path::file_stem).and_then(|n| n.to_str()).unwrap_or("untitled").to_owned();
+            let params = json!({"purpose": "copy", "title": "Save a Copy", "kinds": plumcraft_session::graph_file::save_kinds(),
+                                "name": plumcraft_session::graph_file::default_name(&format!("{stem} copy")), "current": current, "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+            raise(h, Kind::FileSave, params, by, Cont { then: Then::SaveCopy, remember: Some(prefs::keys::WORKFLOW_WRITE) });
+        }
+        "graph.move" => {
+            if h.session().path().is_none() {
+                h.say("save the graph first: it has no file yet".into());
+            } else {
+                let params = json!({"purpose": "move", "title": "Move To", "startIn": start_in(h, prefs::keys::WORKFLOW_WRITE)});
+                raise(h, Kind::FolderPick, params, by, Cont { then: Then::Move, remember: Some(prefs::keys::WORKFLOW_WRITE) });
+            }
+        }
+        // Settings › Import… and Export… (N4 slice 4: a native shell's settings ask for the file)
+        "theme.import" | "theme.export" => {
+            theme_file(h, id == "theme.import", by);
+        }
+        "graph.bundle" => {
+            let current = h.session().path().map(Path::to_path_buf);
+            let stem = current.as_deref().and_then(Path::file_stem).and_then(|n| n.to_str()).unwrap_or("untitled").to_owned();
+            let params = json!({"purpose": "bundle", "title": "Export Bundle", "kinds": [{"label": "Bundle", "extensions": ["zip"]}],
+                                "name": format!("{stem}.zip"), "current": current, "startIn": start_in(h, prefs::keys::BUNDLE_WRITE)});
+            raise(h, Kind::FileSave, params, by, Cont { then: Then::Bundle, remember: Some(prefs::keys::BUNDLE_WRITE) });
+        }
+        "group.create" => {
+            if nodes.is_empty() && groups.is_empty() {
+                h.say("select the nodes to group first".into());
+            } else {
+                let _ = h.run(id, &json!({"nodes": nodes, "groups": groups}));
+            }
+        }
+        "node.expand" => match nodes.as_slice() {
+            [one] => {
+                let _ = h.run(id, &json!({"node": one}));
+            }
+            _ => h.say("select one node to expand".into()),
+        },
+        "group.ungroup" => match h.group_to_ungroup() {
+            Some(g) => {
+                let _ = h.run(id, &json!({"group": g}));
+            }
+            None => h.say("select a group (or a node in one) to ungroup".into()),
+        },
+        "graph.insert" | "graph.insertGroup" => {
+            let pos = h.canvas_center();
+            ask_workflow(h, by, Then::Insert { command: id.to_owned(), pos });
+        }
+        "frame.add" => h.frame_selection(),
+        // Edit › Cut and Copy: the selection (with the members of selected collapsed groups) as
+        // workflow JSON on the clipboard; a cut's nodes go, and the selection with them
+        "edit.cut" | "edit.copy" => {
+            let members = crate::selection::Selection { nodes: nodes.iter().map(|n| plumcraft_graph::NodeId::from(n.as_str())).collect(), groups, net: None }
+                .members(h.session().graph());
+            let what = if id == "edit.cut" { "cut" } else { "copy" };
+            if members.is_empty() {
+                h.say(format!("select nodes to {what} first"));
+                return;
+            }
+            let Ok(r) = h.run(id, &json!({"nodes": members})) else { return };
+            let Some(text) = r.get("text").and_then(Value::as_str) else { return };
+            copy(h, text, "workflow", by);
+            if id == "edit.cut" {
+                let _ = h.run("selection.clear", &Value::Null);
+            }
+        }
+        // a pop-out's value out of the editor (N4 slice 5)
+        "value.copy" => match h.run(id, params) {
+            Ok(r) => {
+                let text = r.get("text").and_then(Value::as_str).unwrap_or_default().to_owned();
+                copy(h, &text, "text", by);
+            }
+            Err(e) => h.say(e),
+        },
+        "value.share" => match h.run(id, params) {
+            Ok(r) => {
+                raise(h, Kind::Share, r, by, Cont::new(Then::Notice));
+            }
+            Err(e) => h.say(e),
+        },
+        // Save Result… and Contact Sheet… (a result node's menu and footer, the Watched panel):
+        // the core asks where (the format by its name) and the format's options, then saves;
+        // every shell gets it by invoking the menu item's params (golden rule 4)
+        "run.save" if params.get("ask").and_then(Value::as_bool) == Some(true) => {
+            save_result(h, params.clone(), by);
+        }
+        // a path row's Browse (B133): the system's dialog by the input's hints, then the value
+        // set as typing sets it; a field open on a row goes first (Browse's choice replaces it)
+        "row.browse" => match path_input(h.session(), params) {
+            Ok((node, port, hint, current)) => {
+                let _ = h.run("row.edit", &json!({"open": false}));
+                browse(h, &node, &port, &hint, &current, by);
+            }
+            Err(why) => h.say(why),
+        },
+        // Clean Up Mask Files (S4b): what would go, asked first with the count
+        "mask.prune" => {
+            let mut dry = params.clone();
+            dry["dry_run"] = json!(true);
+            match h.run(id, &dry) {
+                Ok(r) => {
+                    let files: Vec<String> =
+                        r["removed"].as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default();
+                    let count = files.iter().filter(|f| f.ends_with(".png")).count();
+                    if count == 0 {
+                        h.say("no mask files to remove".into());
+                    } else {
+                        let folder = r["folders"].as_array().and_then(|a| a.first()).and_then(Value::as_str).unwrap_or_default().to_owned();
+                        let age_s = params.get("age_s").and_then(Value::as_f64).filter(|a| a.is_finite() && *a >= 0.0).map(|a| a.round() as u64);
+                        raise_prompt(h, Prompt::PruneMasks { count, files, folder, age_s }, by);
+                    }
+                }
+                Err(e) => h.say(e),
+            }
+        }
+        // a person's mask stroke (S4b): with nowhere to write, ask for a folder once, then stroke
+        "mask.stroke" => match h.run(id, params) {
+            Ok(_) => {}
+            Err(e) if e.contains(crate::mask_cmds::NEEDS_FOLDER) => {
+                let p = json!({"purpose": "edits", "title": "Choose a Folder for Mask Files", "why": e});
+                raise(h, Kind::FolderPick, p, by, Cont::new(Then::MaskFolder { stroke: params.clone() }));
+            }
+            Err(e) => h.say(e),
+        },
+        "value.saveAs" => {
+            let pid = params.get("popout").and_then(Value::as_u64);
+            let target =
+                pid.and_then(|p| h.session().run.entry(plumcraft_session::run::WatchRole::Popout(p)).map(|(w, _)| (w.node.clone(), w.port.clone(), w.index)));
+            match target {
+                Some((node, port, index)) => {
+                    save_result(h, json!({"node": node, "port": port, "index": index}), by);
+                }
+                None => h.say("Save Value As… needs a pop-out".into()),
+            }
+        }
+        // File › Share… (N4 slice 3): the graph's file to the platform's share sheet
+        "graph.share" => match h.run(id, &json!({})) {
+            Ok(r) => {
+                raise(h, Kind::Share, r, by, Cont::new(Then::Notice));
+            }
+            Err(e) => h.say(e),
+        },
+        // Edit › Paste: the shell reads the clipboard, then it is pasted
+        "edit.paste" => {
+            ask_paste(h, by);
+        }
+        // Edit › Delete: what isn't selected can't be deleted, which the status bar says
+        "edit.delete" => {
+            if let Err(e) = h.run(id, &Value::Null) {
+                h.say(e);
+            }
+        }
+        "graph.tidy" => {
+            // the selection when there is one to arrange, else everything; with the sizes and
+            // pins the canvas measured last frame
+            let (sizes, pins) = h.measured();
+            let nodes = if nodes.len() >= 2 { nodes } else { Vec::new() };
+            if h.run(id, &json!({"nodes": nodes, "sizes": sizes, "pins": pins})).is_ok() {
+                h.fit();
+            }
+        }
+        "node.remove" | "node.duplicate" => {
+            if nodes.is_empty() {
+                h.say("select nodes first".into());
+            } else if let Ok(r) = h.run(id, &json!({"nodes": nodes}))
+                && id == "node.duplicate"
+            {
+                // the copies become the selection
+                select_made(h, &r);
+            }
+        }
+        // an application's command gets what is selected, and may answer with a word for the
+        // status line
+        added if plumcraft_session::commands::is_added(added) => {
+            let group = h.group_to_ungroup();
+            if let Some(said) =
+                h.run(added, &json!({"nodes": nodes, "group": group})).ok().and_then(|r| r.get("notice").and_then(Value::as_str).map(str::to_owned))
+            {
+                h.say(said);
+            }
+        }
+        _ => {
+            let _ = h.run(id, params);
+        }
+    }
+}
+
+/// A form's ask params: `{command, title, intro, fields, submit, values, error?}`.
+/// The forms Engine › Attach… and Install Engine… ask with in a shell that has no window of its
+/// own for them (egui has: [`Host::open_window`]).
+pub fn engine_form(command: &str) -> Option<plumcraft_session::commands::CommandForm> {
+    use plumcraft_session::commands::{CommandForm, FieldKind, FormField};
+    let line = |key, label, hint, required| FormField { key, label, hint, kind: FieldKind::Line, required };
+    match command {
+        "engine.attach" => Some(CommandForm {
+            command: "engine.attach",
+            title: "Attach to an Engine",
+            intro: "Connect to an HTTP engine already running (started with --listen) as a remote UI.",
+            fields: vec![
+                line("url", "Address", "http://host:port", true),
+                FormField { kind: FieldKind::Secret, ..line("token", "Token", "if the engine asks for one", false) },
+            ],
+            submit: "Attach",
+            prefill: None,
+        }),
+        "engine.install" => Some(CommandForm {
+            command: "engine.install",
+            title: "Install Engine",
+            intro: "Download a Python engine from GitHub and install it. It runs the package's code: install only what you trust.",
+            fields: vec![FormField {
+                kind: FieldKind::Pick { choices: crate::install::KNOWN_ENGINES, other: true },
+                ..line("repo", "Repository", "owner/repo or https://github.com/owner/repo", true)
+            }],
+            submit: "Install",
+            prefill: None,
+        }),
+        _ => None,
+    }
+}
+
+pub fn form_params(form: &plumcraft_session::commands::CommandForm, values: &[String], error: Option<&str>) -> Value {
+    use plumcraft_session::commands::FieldKind;
+    let fields: Vec<Value> = form
+        .fields
+        .iter()
+        .map(|f| {
+            let kind = match f.kind {
+                FieldKind::Line => "line",
+                FieldKind::Secret => "secret",
+                FieldKind::Text => "text",
+                FieldKind::Pick { .. } => "pick",
+            };
+            let mut field = json!({"key": f.key, "label": f.label, "hint": f.hint, "kind": kind, "required": f.required});
+            // a pick list (decision 5): its choices in order, and whether other text is taken
+            if let FieldKind::Pick { choices, other } = f.kind {
+                field["choices"] = choices.iter().map(|c| json!({"value": c.value, "label": c.label, "hint": c.hint})).collect();
+                field["other"] = json!(other);
+            }
+            field
+        })
+        .collect();
+    let values: Map<String, Value> = form.fields.iter().zip(values).map(|(f, v)| (f.key.to_owned(), json!(v))).collect();
+    let mut p = json!({"command": form.command, "title": form.title, "intro": form.intro, "fields": fields, "submit": form.submit, "values": values});
+    if let Some(e) = error {
+        p["error"] = json!(e);
+    }
+    p
+}
+
+/// Raise `prompt`; it withdraws the prompt open before it, as the window's one prompt did.
+pub fn raise_prompt(h: &mut impl Host, prompt: Prompt, by: By) -> AskId {
+    let params = prompt.params();
+    raise(h, Kind::Prompt, params, by, Cont::new(Then::Prompt(prompt)))
+}
+
+/// The open prompt, if any, with its id.
+pub fn open_prompt(asks: &Asks<Cont>) -> Option<(AskId, &Prompt)> {
+    asks.entries().find_map(|(a, c)| match &c.then {
+        Then::Prompt(p) if a.kind == Kind::Prompt => Some((a.id, p)),
+        _ => None,
+    })
+}
+
+/// Quit: close the window, asking first over unsaved changes.
+pub fn quit(h: &mut impl Host, by: By) {
+    if h.session().is_dirty() && !h.closing() {
+        raise_prompt(h, Prompt::Discard { then: AfterDiscard::Quit }, by);
+    } else {
+        h.close();
+    }
+}
+
+/// Close this document's window (its close button; N5 slice 3), asking first over unsaved
+/// changes in words that say the window closes, not the application.
+pub fn close_window(h: &mut impl Host, by: By) {
+    if h.session().is_dirty() && !h.closing() {
+        raise_prompt(h, Prompt::Discard { then: AfterDiscard::Close }, by);
+    } else {
+        h.close();
+    }
+}
+
+/// Nothing in this document yet: no file, nothing unsaved, no nodes. File › Open puts a graph
+/// in such a document rather than a window of its own, as a platform's document controller does.
+pub fn untouched(h: &impl Host) -> bool {
+    let s = h.session();
+    s.path().is_none() && !s.is_dirty() && s.graph().nodes.is_empty()
+}
+
+/// New, or Open through a file ask, once unsaved changes may go.
+fn go_on(h: &mut impl Host, then: AfterDiscard, discard: bool, by: By) {
+    match then {
+        AfterDiscard::New => {
+            let _ = h.run("graph.new", &json!({"discard": discard}));
+        }
+        AfterDiscard::Open => {
+            ask_workflow(h, by, Then::OpenWorkflow { discard });
+        }
+        AfterDiscard::OpenRecent(path) => {
+            let _ = h.run("graph.open", &json!({"path": path, "discard": discard}));
+        }
+        AfterDiscard::Quit | AfterDiscard::Close => h.close(),
+    }
+}
+
+/// Answer the open prompt (`ui.prompt`, and the prompt window's buttons): false when no
+/// prompt is open or it doesn't take that answer.
+pub fn answer_prompt(h: &mut impl Host, choice: PromptAnswer) -> bool {
+    let Some((id, _)) = open_prompt(h.asks()) else { return false };
+    answer(h, id, &json!({"answer": choice.name()})).is_ok()
+}
+
+/// Answer ask `id` and carry its chain on. An error (an unknown or ended ask, a wrong shape) is
+/// the caller's to report; nothing ran.
+pub fn answer(h: &mut impl Host, id: AskId, value: &Value) -> Result<(), String> {
+    let (ask, cont, answer) = h.asks().answer(id, value).map_err(|r| r.to_string())?;
+    if let (Some(key), Some(first)) = (
+        cont.remember,
+        match &answer {
+            Answer::Paths(p) => p.first(),
+            Answer::Path(p) => Some(p),
+            _ => None,
+        },
+    ) && let Some(prefs) = h.prefs()
+    {
+        prefs.remember(key, first);
+    }
+    go(h, ask, cont, answer);
+    Ok(())
+}
+
+/// Cancel ask `id`: nothing follows (a cancelled prompt is its Cancel button).
+pub fn cancel(h: &mut impl Host, id: AskId) -> Result<(), String> {
+    let (ask, cont) = h.asks().cancel(id).map_err(|r| r.to_string())?;
+    if let Then::Prompt(p) = cont.then {
+        prompt_cancelled(h, &p);
+    }
+    let _ = ask;
+    Ok(())
+}
+
+fn prompt_cancelled(h: &mut impl Host, p: &Prompt) {
+    match p {
+        Prompt::Discard { .. } => {}
+        Prompt::Review(_) => h.session_mut().run.decline_review(),
+        Prompt::Uploads(_) => {
+            if h.take_held_run().is_some() {
+                h.session_mut().run.cancel();
+            }
+        }
+        Prompt::SaveShape { .. } => h.say("not saved".into()),
+        Prompt::PruneMasks { .. } => h.say("nothing removed".into()),
+    }
+}
+
+/// Withdraw what lost its reason: a path ask whose node went; time out what waited too long.
+pub fn tidy(h: &mut impl Host) {
+    raise_launches(h);
+    let now = std::time::Instant::now();
+    h.asks().expire(now);
+    let gone: Vec<AskId> = {
+        let g = h.session().graph();
+        let mut ids = Vec::new();
+        // (borrowing the asks needs &mut: collect the nodes first)
+        let nodes: std::collections::HashSet<String> = g.nodes.keys().map(|n| n.0.clone()).collect();
+        let asks = h.asks();
+        for (a, c) in asks.entries() {
+            if let Then::Path { node, .. } | Then::Files { node, .. } = &c.then
+                && !nodes.contains(node)
+            {
+                ids.push(a.id);
+            }
+        }
+        ids
+    };
+    if !gone.is_empty() {
+        h.asks().withdraw(|a| gone.contains(&a.id));
+    }
+}
+
+/// Carry a chain on with an answer.
+fn go(h: &mut impl Host, ask: Ask, cont: Cont, answer: Answer) {
+    let by = ask.by;
+    let path = |a: &Answer| match a {
+        Answer::Path(p) => Some(p.clone()),
+        Answer::Paths(p) => p.first().cloned(),
+        _ => None,
+    };
+    match (cont.then, answer) {
+        (Then::Prompt(p), Answer::Choice(c)) => match (p, PromptAnswer::from_name(&c)) {
+            (Prompt::Discard { then }, Some(PromptAnswer::Discard)) => go_on(h, then, true, by),
+            (Prompt::Discard { then }, Some(PromptAnswer::Save)) => {
+                if h.session().path().is_some() {
+                    let _ = h.run("graph.save", &json!({}));
+                    if !h.session().is_dirty() {
+                        go_on(h, then, false, by);
+                    }
+                } else {
+                    ask_save_workflow(h, by, Some(then));
+                }
+            }
+            (Prompt::Review(_), Some(PromptAnswer::Trust)) => {
+                let _ = h.run("graph.trust", &json!({}));
+            }
+            (Prompt::Uploads(pending), Some(PromptAnswer::Trust)) => {
+                let files: Vec<String> = pending.into_iter().map(|(_, f)| f).collect();
+                h.allow_uploads(&files);
+                if let Some(req) = h.take_held_run() {
+                    h.session_mut().run.resend(req);
+                }
+            }
+            (Prompt::SaveShape { params, npy, .. }, Some(answer @ (PromptAnswer::Png | PromptAnswer::Npy))) => {
+                // the person answered: saved without asking again, as the picture or as NumPy
+                let mut params: Value = serde_json::from_str(&params).unwrap_or(Value::Null);
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("question");
+                    if answer == PromptAnswer::Npy {
+                        o.insert("path".into(), Value::from(npy));
+                        o.remove("options");
+                    }
+                }
+                if let Err(e) = h.run("run.save", &params) {
+                    h.say(format!("can't save: {e}"));
+                }
+            }
+            (Prompt::PruneMasks { age_s, .. }, Some(PromptAnswer::Remove)) => {
+                let mut p = json!({"dry_run": false});
+                if let Some(a) = age_s {
+                    p["age_s"] = json!(a);
+                }
+                match h.run("mask.prune", &p) {
+                    Ok(r) => {
+                        let n = r["removed"].as_array().map_or(0, Vec::len);
+                        h.say(format!("{n} file{} removed", if n == 1 { "" } else { "s" }));
+                    }
+                    Err(e) => h.say(e),
+                }
+            }
+            (p, _) => prompt_cancelled(h, &p),
+        },
+        (Then::OpenWorkflow { discard }, a) => {
+            if let Some(p) = path(&a) {
+                if h.document_windows() && !untouched(h) {
+                    h.open_document(Some(p), by);
+                } else {
+                    let _ = h.run("graph.open", &json!({"path": p, "discard": discard}));
+                }
+            }
+        }
+        (Then::SaveWorkflow { after }, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.saveAs", &json!({"path": p}));
+                if let Some(then) = after
+                    && !h.session().is_dirty()
+                {
+                    go_on(h, then, false, by);
+                }
+            }
+        }
+        (Then::Bundle, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.bundle", &json!({"path": p}));
+            }
+        }
+        (Then::Insert { command, pos }, a) => {
+            if let Some(p) = path(&a) {
+                let mut params = json!({"path": p});
+                if let Some(pos) = pos {
+                    params["pos"] = json!(pos);
+                }
+                if let Ok(r) = h.run(&command, &params) {
+                    select_made(h, &r);
+                    if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
+                        h.say(format!("inserted; {} wire(s) no longer fit and were left out", dropped.len()));
+                    }
+                }
+            }
+        }
+        (Then::Path { node, port, save, base }, a) => {
+            if let Some(p) = path(&a) {
+                let value = paths::chosen_path(&p, base.as_deref(), save);
+                let _ = h.run("node.set", &json!({"node": node, "port": port, "value": value}));
+            }
+        }
+        (Then::MaskFolder { stroke }, a) => {
+            if let Some(p) = path(&a) {
+                let r = h.run("mask.folder", &json!({"folder": p.to_string_lossy()})).and_then(|_| h.run("mask.stroke", &stroke));
+                if let Err(e) = r {
+                    h.say(e);
+                }
+            }
+        }
+        (Then::Files { node, port, base }, Answer::Paths(chosen)) => {
+            let value: Vec<String> = chosen.iter().map(|p| paths::chosen_path(p, base.as_deref(), false)).collect();
+            let _ = h.run("node.set", &json!({"node": node, "port": port, "value": value.join("\n")}));
+        }
+        (Then::App { mut params }, a) => {
+            if let Some(app) = path(&a) {
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("choose");
+                    o.insert("app".into(), Value::from(app.display().to_string()));
+                }
+                let _ = h.run("value.open", &params);
+            }
+        }
+        (Then::SaveResult { mut params }, a) => {
+            if let Some(p) = path(&a) {
+                // where the person chose, as chosen (B98): not relative to the workflow's folder or with
+                // `/` between folders, as a workflow stores a path input; only macOS's `:` is repaired
+                let p = save_choice(&p);
+                if let Some(o) = params.as_object_mut() {
+                    o.remove("ask");
+                    o.insert("path".into(), Value::from(p));
+                }
+                // the format the name chose: its options asked for in a form, then the save
+                // the chain's save: the engine may ask about it (`question`, decision 2A)
+                params["question"] = Value::from(by.name());
+                match save_format_of(h.session(), &params).filter(|f| !f.options.is_empty()) {
+                    Some(format) => {
+                        let form = save_options_form(&format, &Map::new(), None);
+                        raise(h, Kind::Form, form, by, Cont::new(Then::SaveOptions { params, format }));
+                    }
+                    None => {
+                        if let Err(e) = h.run("run.save", &params) {
+                            h.say(format!("can't save: {e}"));
+                        }
+                    }
+                }
+            }
+        }
+        (Then::SaveOptions { mut params, format }, Answer::Values(given)) => {
+            let refused = match save_options_read(&format.options, &given) {
+                Err(why) => Some(why),
+                Ok(values) => {
+                    params["options"] = Value::Object(values);
+                    h.run("run.save", &params).err()
+                }
+            };
+            // refused: the form stays open, saying why, with what was given
+            if let Some(why) = refused {
+                let ask = Ask { params: save_options_form(&format, &given, Some(&why)), ..ask };
+                h.asks().reopen(ask, Cont::new(Then::SaveOptions { params, format }));
+            }
+        }
+        (Then::ThemeImport, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("theme.import", &json!({"path": p.display().to_string()}));
+            }
+        }
+        (Then::ThemeExport, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("theme.export", &json!({"path": p.display().to_string()}));
+            }
+        }
+        (Then::SaveCopy, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.saveCopy", &json!({"path": p.display().to_string()}));
+            }
+        }
+        (Then::Move, a) => {
+            if let Some(p) = path(&a) {
+                let _ = h.run("graph.move", &json!({"folder": p.display().to_string()}));
+            }
+        }
+        (Then::Form { command }, Answer::Values(given)) => {
+            let Some(form) = plumcraft_session::commands::form(&command).or_else(|| engine_form(&command)) else { return };
+            let values: Vec<String> = form.fields.iter().map(|f| given.get(f.key).and_then(Value::as_str).unwrap_or_default().to_owned()).collect();
+            let refused = match form.params(&values) {
+                Err(why) => Some(why),
+                Ok(params) => h.run(form.command, &params).err(),
+            };
+            // refused: the form stays open, saying why, with what was typed
+            if let Some(why) = refused {
+                let ask = Ask { params: form_params(&form, &values, Some(&why)), ..ask };
+                h.asks().reopen(ask, Cont::new(Then::Form { command }));
+            }
+        }
+        (Then::Paste, Answer::Text(text)) => paste(h, &text),
+        (_, Answer::Failed(why)) => h.say(why),
+        _ => {}
+    }
+}
+
+/// Select what a command made (`selection.set`): the nodes it returned, or the collapsed group.
+pub fn select_made(h: &mut impl Host, result: &Value) {
+    if let Some(p) = crate::selection::made(result, h.session().graph()) {
+        let _ = h.run("selection.set", &p);
+    }
+}
+
+/// Paste workflow JSON where the shell says (the pointer), selecting the result.
+pub fn paste(h: &mut impl Host, text: &str) {
+    let mut params = json!({"text": text});
+    if let Some(p) = h.paste_pos() {
+        params["pos"] = json!(p);
+    }
+    if let Ok(r) = h.run("edit.paste", &params) {
+        select_made(h, &r);
+        if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
+            h.say(format!("pasted; {} wire(s) no longer fit and were left out", dropped.len()));
+        }
+    }
+}
+
+/// Edit › Paste: ask the shell for the clipboard's text, then paste it.
+pub fn ask_paste(h: &mut impl Host, by: By) -> AskId {
+    h.asks().raise_with(Kind::ClipboardGet, json!({"kinds": ["workflow", "text"]}), by, Some(PASTE_WAIT), Cont::new(Then::Paste)).0
+}
+
+/// Put `text` on the clipboard (`kind`: `workflow` for copied nodes, `text` otherwise).
+pub fn copy(h: &mut impl Host, text: &str, kind: &str, by: By) -> AskId {
+    raise(h, Kind::ClipboardSet, json!({"text": text, "kind": kind}), by, Cont::new(Then::Notice))
+}
+
+/// `row.browse`'s input (B133): the node and port named, the port's path hints, and what it
+/// holds now (its value, else its default). Refused for a node that isn't there or an input that
+/// isn't a path.
+fn path_input(s: &Session, params: &Value) -> Result<(String, String, PathHint, String), String> {
+    let node = params.get("node").and_then(Value::as_str).ok_or("Browse needs the node (node)")?;
+    let port = params.get("port").and_then(Value::as_str).ok_or("Browse needs the path input (port)")?;
+    let n = s.graph().node(&plumcraft_graph::NodeId::from(node)).ok_or_else(|| format!("there is no node {node:?}"))?;
+    let def = s.catalog().node(&n.kind).ok_or_else(|| format!("{node} is of a kind no engine here knows ({})", n.kind))?;
+    let input = def.inputs.iter().find(|p| p.name == port).ok_or_else(|| format!("{node} has no input {port:?}"))?;
+    let hint = input.path.clone().ok_or_else(|| format!("{port} isn't a path input: there is nothing to browse for"))?;
+    let current = n.values.get(port).unwrap_or(&input.default).as_str().unwrap_or_default().to_owned();
+    Ok((node.to_owned(), port.to_owned(), hint, current))
+}
+
+/// A path input's "…": a file (or folder) for it, starting near what it holds. Relative paths
+/// are relative to the workflow's folder (or, unsaved, the editor's), so the ask starts there
+/// and a choice inside it is stored relative.
+pub fn browse(h: &mut impl Host, node: &str, port: &str, hint: &PathHint, current: &str, by: By) -> AskId {
+    let base = paths::base_folder(h.session().path());
+    let key = prefs::dir_key(hint);
+    let kinds: Vec<Value> = hint.filters.iter().map(|f| json!({"label": f.name, "extensions": f.extensions})).collect();
+    if hint.is_many() {
+        let start = paths::each_line(current, |l| match &base {
+            Some(b) if !paths::is_anchored(l) => b.join(l).to_string_lossy().into_owned(),
+            _ => paths::expand_user(l).to_string_lossy().into_owned(),
+        });
+        let params =
+            json!({"purpose": "files", "title": "Select Files", "kinds": kinds, "multiple": true, "hint": hint, "current": start, "startIn": start_in(h, key)});
+        let then = Then::Files { node: node.to_owned(), port: port.to_owned(), base };
+        return raise(h, Kind::FileOpen, params, by, Cont { then, remember: Some(key) });
+    }
+    let start = match &base {
+        Some(b) if !current.trim().is_empty() && !paths::is_anchored(current.trim()) => b.join(current.trim()).to_string_lossy().into_owned(),
+        _ => paths::expand_user(current.trim()).to_string_lossy().into_owned(),
+    };
+    let save = hint.mode == "save";
+    let (kind, title) = match hint.mode.as_str() {
+        "dir" | "folder" => (Kind::FolderPick, "Choose a Folder"),
+        "save" => (Kind::FileSave, "Save As"),
+        _ => (Kind::FileOpen, "Choose a File"),
+    };
+    let name = Path::new(start.trim()).file_name().and_then(|n| n.to_str()).map(str::to_owned);
+    let params = json!({"purpose": "path", "title": title, "kinds": kinds, "multiple": false, "name": name, "hint": hint, "current": start, "startIn": start_in(h, key)});
+    let then = Then::Path { node: node.to_owned(), port: port.to_owned(), save, base };
+    raise(h, kind, params, by, Cont { then, remember: Some(key) })
+}
+
+/// Open With › Choose an App…: an app to open a value with, then `value.open` with it.
+pub fn choose_app(h: &mut impl Host, params: Value, by: By) -> AskId {
+    let p = json!({"purpose": "app", "title": "Open With", "kinds": [{"label": "Application", "extensions": ["app"]}], "multiple": false, "startIn": "/Applications"});
+    raise(h, Kind::FileOpen, p, by, Cont::new(Then::App { params }))
+}
+
+/// A save button: say why not, or ask where (offering the node's title as the name, where the
+/// last save went or else in the workflow's folder), then `run.save`.
+pub fn save_result(h: &mut impl Host, params: Value, by: By) -> Option<AskId> {
+    if let Some(c) = plumcraft_session::find("run.save")
+        && let Err(why) = (c.enabled)(h.session())
+    {
+        h.say(format!("can't save: {why}"));
+        return None;
+    }
+    let node = plumcraft_graph::NodeId(params.get("node").and_then(Value::as_str).unwrap_or_default().to_owned());
+    let index = params.get("index").and_then(Value::as_i64);
+    let sheet = params.get("sheet").and_then(Value::as_bool).unwrap_or(false);
+    let s = h.session();
+    let port =
+        params.get("port").and_then(Value::as_str).map(str::to_owned).or_else(|| plumcraft_session::run_cmds::default_output(s, &node)).unwrap_or_default();
+    // what this output saves as (spec 7.3): the node's own list, or every format taking its media
+    let formats: Vec<SaveFormat> = plumcraft_session::save_cmds::formats_for(s, &node, &port).into_iter().cloned().collect();
+    if formats.is_empty() {
+        h.say(format!("can't save: {node}.{port} has no save format"));
+        return None;
+    }
+    let s = h.session();
+    let title = plumcraft_session::node_title(s.graph(), s.catalog(), &node);
+    let stem = if sheet { format!("{title} sheet") } else { title };
+    let first = plumcraft_session::save_cmds::first_extension(&formats.iter().collect::<Vec<_>>()).map(str::to_owned);
+    let name = plumcraft_session::save_cmds::suggested_name_as(s.catalog(), &stem, index, first.as_deref());
+    let base = paths::base_folder(s.path());
+    let last = s.save.last.as_ref().filter(|(_, r)| r.ok).and_then(|(ask, _)| Path::new(&ask.path).parent().map(Path::to_path_buf));
+    // the last save's folder, then the one a save last used in an earlier run
+    let remembered = h.prefs().and_then(|p| p.dir(prefs::keys::RESULT_WRITE));
+    let folder = last.or(remembered).or_else(|| base.clone()).unwrap_or_default();
+    let kinds: Vec<Value> =
+        formats.iter().map(|f| json!({"label": f.label, "extensions": f.extensions.iter().map(|e| e.trim_start_matches('.')).collect::<Vec<_>>()})).collect();
+    let p = json!({"purpose": "result", "title": "Save Result", "kinds": kinds, "formats": formats, "name": name, "suggested": folder.join(&name),
+                   "startIn": start_in(h, prefs::keys::RESULT_WRITE)});
+    Some(raise(h, Kind::FileSave, p, by, Cont { then: Then::SaveResult { params }, remember: Some(prefs::keys::RESULT_WRITE) }))
+}
+
+/// The format `run.save`'s `params` (with their `path`) would write: the one of the node's that
+/// takes the path's extension.
+fn save_format_of(s: &Session, params: &Value) -> Option<SaveFormat> {
+    let node = plumcraft_graph::NodeId(params.get("node").and_then(Value::as_str)?.to_owned());
+    let port = params.get("port").and_then(Value::as_str).map(str::to_owned).or_else(|| plumcraft_session::run_cmds::default_output(s, &node))?;
+    let path = PathBuf::from(params.get("path").and_then(Value::as_str)?);
+    let formats = plumcraft_session::save_cmds::formats_for(s, &node, &port);
+    plumcraft_session::save_cmds::format_in(&formats, &path).cloned()
+}
+
+/// An option's value as a form's field shows it.
+fn option_text(v: &Value) -> String {
+    match v {
+        Value::Null => String::new(),
+        Value::String(s) => s.clone(),
+        other => other.to_string(),
+    }
+}
+
+/// The form Save Result… asks a format's options with (`form`'s params, as [`form_params`]): a
+/// pick list for a choice or a switch, a line for a number or text, each filled in with
+/// `given` or else its default, and `error` when the last answer was refused.
+pub fn save_options_form(format: &SaveFormat, given: &Map<String, Value>, error: Option<&str>) -> Value {
+    use plumcraft_proto::catalogue::scalars;
+    let mut values = Map::new();
+    let fields: Vec<Value> = format
+        .options
+        .iter()
+        .map(|o| {
+            let label = o.label.clone().unwrap_or_else(|| o.name.clone());
+            let choices: Option<Vec<Value>> = match o.choices.as_ref().filter(|c| !c.is_empty()) {
+                Some(c) => Some(c.iter().map(|v| json!({"value": option_text(v), "label": option_text(v), "hint": ""})).collect()),
+                None if o.ty == scalars::BOOL => {
+                    Some(vec![json!({"value": "true", "label": "Yes", "hint": ""}), json!({"value": "false", "label": "No", "hint": ""})])
+                }
+                None => None,
+            };
+            let range = match (o.min, o.max) {
+                (Some(lo), Some(hi)) => format!("from {lo} to {hi}"),
+                (Some(lo), None) => format!("at least {lo}"),
+                (None, Some(hi)) => format!("at most {hi}"),
+                (None, None) => String::new(),
+            };
+            let hint = match o.ty.as_str() {
+                scalars::INT => format!("a whole number {range}"),
+                scalars::FLOAT => format!("a number {range}"),
+                _ => o.tooltip.clone().unwrap_or_default(),
+            };
+            let shown = given.get(&o.name).map_or_else(|| option_text(&o.default), option_text);
+            values.insert(o.name.clone(), Value::from(shown));
+            let mut f = json!({"key": o.name, "label": label, "hint": hint.trim(), "kind": if choices.is_some() { "pick" } else { "line" }, "required": false});
+            if let Some(c) = choices {
+                f["choices"] = Value::Array(c);
+                f["other"] = json!(false);
+            }
+            f
+        })
+        .collect();
+    let mut p = json!({"command": "run.save", "title": format!("Save as {}", format.label), "intro": format!("{} options for this file.", format.label),
+                       "fields": fields, "submit": "Save", "values": values});
+    if let Some(e) = error {
+        p["error"] = json!(e);
+    }
+    p
+}
+
+/// A form's answers read by the options they answer: each as its type, a blank one left to its
+/// default; `Err` says which isn't one.
+pub fn save_options_read(options: &[plumcraft_proto::catalogue::Port], given: &Map<String, Value>) -> Result<Map<String, Value>, String> {
+    use plumcraft_proto::catalogue::scalars;
+    let mut out = Map::new();
+    for o in options {
+        let Some(text) = given.get(&o.name).and_then(Value::as_str).map(str::trim).filter(|t| !t.is_empty()) else { continue };
+        let label = o.label.clone().unwrap_or_else(|| o.name.clone());
+        let v = if let Some(c) = o.choices.as_ref().filter(|c| !c.is_empty()) {
+            c.iter().find(|v| option_text(v) == text).cloned().ok_or_else(|| format!("{label} must be one of the choices offered"))?
+        } else {
+            match o.ty.as_str() {
+                scalars::INT => text.parse::<i64>().map(Value::from).map_err(|_| format!("{label} must be a whole number"))?,
+                scalars::FLOAT => text.parse::<f64>().ok().filter(|n| n.is_finite()).map(Value::from).ok_or_else(|| format!("{label} must be a number"))?,
+                scalars::BOOL => match text {
+                    "true" => Value::Bool(true),
+                    "false" => Value::Bool(false),
+                    _ => return Err(format!("{label} must be yes or no")),
+                },
+                _ => Value::from(text),
+            }
+        };
+        out.insert(o.name.clone(), v);
+    }
+    Ok(out)
+}
+
+/// Settings › Appearance › Import… (`import`) or Export…: a theme file.
+pub fn theme_file(h: &mut impl Host, import: bool, by: By) -> AskId {
+    let kinds = json!([{"label": "PlumCraft theme", "extensions": ["json"]}]);
+    if import {
+        raise(h, Kind::FileOpen, json!({"purpose": "theme", "title": "Import Theme", "kinds": kinds, "multiple": false}), by, Cont::new(Then::ThemeImport))
+    } else {
+        let name = format!("{}.plumtheme.json", h.theme_name());
+        raise(h, Kind::FileSave, json!({"purpose": "theme", "title": "Export Theme", "kinds": kinds, "name": name}), by, Cont::new(Then::ThemeExport))
+    }
+}
+
+/// A Save Result's path as the person chose it (B98). A `/` typed into macOS's save panel comes
+/// back as `:` in the name and means folders, so it is turned back into them; nothing else
+/// changes (a Windows path keeps its drive and its `\`).
+fn save_choice(chosen: &Path) -> String {
+    let text = chosen.to_string_lossy();
+    let drive = text.as_bytes().get(1) == Some(&b':');
+    match (chosen.parent(), chosen.file_name().and_then(|n| n.to_str())) {
+        (Some(dir), Some(name)) if !drive && name.contains(':') => {
+            name.split(':').filter(|part| !part.is_empty()).fold(dir.to_path_buf(), |p, part| p.join(part)).display().to_string()
+        }
+        _ => text.into_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// B98: a Save Result's path is kept as chosen, inside the workflow's folder or not, with its
+    /// Windows separators; only macOS's `:` becomes folders.
+    #[test]
+    fn a_save_result_path_stays_as_chosen() {
+        // inside a workflow's folder (C:\work\flows) and outside it, Windows-style: unchanged
+        assert_eq!(save_choice(Path::new(r"C:\work\flows\out\plain.txt")), r"C:\work\flows\out\plain.txt");
+        assert_eq!(save_choice(Path::new(r"D:\elsewhere\plain.txt")), r"D:\elsewhere\plain.txt");
+        assert_eq!(save_choice(Path::new("/work/flows/out/x.txt")), "/work/flows/out/x.txt");
+        assert_eq!(save_choice(Path::new("/work/flows/prints:a.wav")), Path::new("/work/flows").join("prints").join("a.wav").display().to_string());
+        #[cfg(windows)]
+        {
+            // what the store's rule would have made of it inside the folder: relative, with `/`
+            let chosen = Path::new(r"C:\work\flows\out\plain.txt");
+            assert_eq!(paths::chosen_path(chosen, Some(Path::new(r"C:\work\flows")), true), "out/plain.txt");
+            assert_eq!(save_choice(chosen), r"C:\work\flows\out\plain.txt");
+        }
+    }
+
+    /// The save's question reads as a sentence, whatever case the engine's reason starts in.
+    #[test]
+    fn the_save_questions_text_is_a_sentence() {
+        let p = |why: &str| Prompt::SaveShape { params: "{}".into(), why: why.into(), shape: vec![4, 1000], npy: "x.npy".into() }.text();
+        assert!(p("this 4 by 1000 array is 4 pixels on its shorter side").starts_with("This 4 by 1000 array is 4 pixels on its shorter side. Save it"));
+        assert!(p("").starts_with(". Save it"));
+        assert!(p("élan").starts_with("Élan."));
+    }
+
+    use super::*;
+    use plumcraft_proto::catalogue::SchemaReply;
+
+    /// A host with no canvas: a session, its asks, what it said, whether it closed.
+    struct Bare {
+        session: Session,
+        asks: Asks<Cont>,
+        said: Vec<String>,
+        closed: bool,
+        prefs: prefs::Store,
+    }
+
+    impl Host for Bare {
+        fn session(&self) -> &Session {
+            &self.session
+        }
+        fn session_mut(&mut self) -> &mut Session {
+            &mut self.session
+        }
+        fn asks(&mut self) -> &mut Asks<Cont> {
+            &mut self.asks
+        }
+        fn run(&mut self, id: &str, params: &Value) -> Result<Value, String> {
+            self.session.execute(id, params).map_err(|e| e.to_string())
+        }
+        fn say(&mut self, text: String) {
+            self.said.push(text);
+        }
+        fn prefs(&mut self) -> Option<&mut prefs::Store> {
+            Some(&mut self.prefs)
+        }
+        fn close(&mut self) {
+            self.closed = true;
+        }
+    }
+
+    fn bare() -> Bare {
+        let catalog: SchemaReply = serde_json::from_str(r#"{"v": 2, "engine": {"schema_digest": "d"}, "nodes": [{"id": "t.x"}]}"#).unwrap();
+        Bare { session: Session::new(catalog), asks: Asks::default(), said: Vec::new(), closed: false, prefs: prefs::Store::default() }
+    }
+
+    fn dir(name: &str) -> PathBuf {
+        let d = plumcraft_scratch::root().join(format!("invoke-{name}"));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn dirty(h: &mut Bare) {
+        let g = plumcraft_graph::Graph::from_json(r#"{"version": 1, "nodes": {"a": {"kind": "t.x"}}, "wires": []}"#).unwrap();
+        h.session
+            .edit("Dirty", move |into, _| {
+                *into = g;
+                Ok(())
+            })
+            .unwrap();
+        assert!(h.session.is_dirty());
+    }
+
+    fn only(h: &mut Bare) -> (AskId, Kind, Value) {
+        let a: Vec<&Ask> = h.asks.open().collect();
+        assert_eq!(a.len(), 1, "{:?}", h.asks.inspect());
+        (a[0].id, a[0].kind, a[0].params.clone())
+    }
+
+    #[test]
+    fn new_over_unsaved_changes_prompts_then_saves_through_a_file_ask_then_starts_over() {
+        let d = dir("new-save");
+        let mut h = bare();
+        dirty(&mut h);
+        invoke(&mut h, "graph.new", By::Script);
+        let (id, kind, params) = only(&mut h);
+        assert_eq!((kind, params["kind"].as_str(), params["then"].as_str()), (Kind::Prompt, Some("unsavedChanges"), Some("new")));
+        assert_eq!(params["answers"], json!(["save", "discard", "cancel"]));
+        answer(&mut h, id, &json!({"answer": "save"})).unwrap();
+        let (save, kind, params) = only(&mut h);
+        assert_eq!((kind, params["purpose"].as_str(), params["name"].as_str()), (Kind::FileSave, Some("workflow"), Some("untitled.plum")));
+        assert!(h.asks.get(save).is_some_and(|a| a.by == By::Script), "the chain stays the script's");
+        let path = d.join("kept.plum");
+        answer(&mut h, save, &json!({"path": path})).unwrap();
+        assert!(path.is_file(), "saved first");
+        assert!(h.asks.is_empty());
+        assert!(!h.session.is_dirty() && h.session.path().is_none(), "then a new graph");
+        assert_eq!(h.prefs.dir(prefs::keys::WORKFLOW_WRITE), Some(d.clone()), "the folder is remembered");
+    }
+
+    /// FR2: a new graph and Save As are offered `.plum` (`.json` still offered), an opened `.json`
+    /// graph saves back to its own `.json`, and both extensions open, read by content.
+    #[test]
+    fn a_new_graph_saves_as_plum_and_an_opened_json_graph_stays_json() {
+        let d = dir("fr2-plum");
+        let mut h = bare();
+        dirty(&mut h);
+        invoke(&mut h, "graph.save", By::Person);
+        let (save, kind, params) = only(&mut h);
+        assert_eq!((kind, params["name"].as_str()), (Kind::FileSave, Some("untitled.plum")));
+        assert_eq!(params["kinds"][0]["extensions"], json!(["plum"]), "plum first");
+        assert_eq!(params["kinds"][1]["extensions"], json!(["json"]), "json still choosable");
+        let made = d.join(params["name"].as_str().unwrap());
+        answer(&mut h, save, &json!({"path": made})).unwrap();
+        assert!(made.is_file() && made.extension().is_some_and(|e| e == "plum"), "the new graph's file ends .plum");
+
+        // an existing .json graph keeps its name when saved: no ask, written to the .json
+        let old = d.join("old.json");
+        std::fs::write(&old, std::fs::read(&made).unwrap()).unwrap();
+        h.session.execute("graph.open", &json!({"path": old})).unwrap();
+        dirty(&mut h);
+        invoke(&mut h, "graph.save", By::Person);
+        assert!(h.asks.is_empty(), "Save of an opened .json graph asks nothing");
+        assert_eq!(h.session.path(), Some(old.as_path()));
+        assert!(!h.session.is_dirty(), "saved to its own .json");
+        assert!(!d.join("old.plum").exists(), "no .plum written beside it");
+
+        // Save As of that graph offers its stem with .plum
+        invoke(&mut h, "graph.saveAs", By::Person);
+        let (ask, _, params) = only(&mut h);
+        assert_eq!(params["name"].as_str(), Some("old.plum"));
+        cancel(&mut h, ask).unwrap();
+
+        // Open offers both, and both open (the same JSON either way)
+        invoke(&mut h, "graph.open", By::Person);
+        let (open, _, params) = only(&mut h);
+        let exts = params["kinds"][0]["extensions"].clone();
+        assert!(exts.as_array().unwrap().iter().any(|e| e == "plum") && exts.as_array().unwrap().iter().any(|e| e == "json"), "{exts}");
+        cancel(&mut h, open).unwrap();
+        for f in [&made, &old] {
+            h.session.execute("graph.open", &json!({"path": f})).unwrap();
+            assert_eq!(h.session.path(), Some(f.as_path()));
+        }
+        // a file of another name a person opens is still read by its content
+        let other = d.join("graph.txt");
+        std::fs::write(&other, std::fs::read(&made).unwrap()).unwrap();
+        h.session.execute("graph.open", &json!({"path": other})).unwrap();
+        assert_eq!(h.session.path(), Some(other.as_path()));
+    }
+
+    #[test]
+    fn a_cancelled_step_ends_the_chain_and_open_asks_for_a_workflow() {
+        let d = dir("open");
+        let mut h = bare();
+        h.session.execute("graph.saveAs", &json!({"path": d.join("a.json")})).unwrap();
+        dirty(&mut h);
+        invoke(&mut h, "graph.open", By::Person);
+        let (id, ..) = only(&mut h);
+        assert!(answer_prompt(&mut h, PromptAnswer::Discard));
+        assert!(h.asks.get(id).is_none());
+        let (open, kind, params) = only(&mut h);
+        assert_eq!((kind, params["purpose"].as_str()), (Kind::FileOpen, Some("workflow")));
+        cancel(&mut h, open).unwrap();
+        assert!(h.asks.is_empty() && h.session.is_dirty(), "nothing opened");
+        assert!(!answer_prompt(&mut h, PromptAnswer::Cancel), "no prompt open");
+        // quit over changes: discard closes
+        quit(&mut h, By::Person);
+        assert!(!answer_prompt(&mut h, PromptAnswer::Trust), "not an answer to this prompt");
+        assert!(answer_prompt(&mut h, PromptAnswer::Discard));
+        assert!(h.closed);
+    }
+
+    #[test]
+    fn hostile_answers_run_nothing() {
+        let mut h = bare();
+        invoke(&mut h, "graph.saveAs", By::Script);
+        let (id, ..) = only(&mut h);
+        for bad in [json!(null), json!({"path": 1}), json!({"paths": ["/a"]}), json!({"path": "/a", "x": 1})] {
+            assert!(answer(&mut h, id, &bad).is_err(), "{bad}");
+        }
+        assert!(h.session.path().is_none());
+        assert!(answer(&mut h, id + 100, &json!({"path": "/a"})).unwrap_err().contains("no ask"));
+        cancel(&mut h, id).unwrap();
+        assert!(answer(&mut h, id, &json!({"path": "/a"})).unwrap_err().contains("cancelled"));
+        assert!(cancel(&mut h, id).is_err());
+    }
+
+    #[test]
+    fn starting_an_app_is_an_open_external_ask_unless_a_launcher_was_given() {
+        let mut s = bare().session;
+        let q = route_launches(&mut s).expect("routed");
+        assert!(route_launches(&mut s).is_none(), "once");
+        assert!(!s.docs.launches_by_default());
+        // (what the hook records when the session starts an app)
+        q.lock().unwrap().push(("/usr/bin/open".into(), vec!["-a".into(), "/Applications/Preview.app".into()], "/tmp/x.pdf".into()));
+        let mut h = bare();
+        h.session = s;
+        // (the bare host has no queue of its own: raise what the hook recorded)
+        for (program, args, file) in drain_launches(Some(&q)) {
+            let params = json!({"path": file, "app": args.get(1), "program": program, "args": args});
+            raise(&mut h, Kind::OpenExternal, params, By::Person, Cont::new(Then::Notice));
+        }
+        let (id, kind, params) = only(&mut h);
+        assert_eq!((kind, params["app"].as_str(), params["path"].as_str()), (Kind::OpenExternal, Some("/Applications/Preview.app"), Some("/tmp/x.pdf")));
+        answer(&mut h, id, &json!({"error": "no such app"})).unwrap();
+        assert_eq!(h.said, ["no such app"], "a failure goes to the status bar");
+        let mut given = bare().session;
+        given.docs.set_launcher(std::sync::Arc::new(|_: &Path, _: &[String], _: &Path| Ok(())));
+        assert!(route_launches(&mut given).is_none(), "a launcher given is kept");
+    }
+
+    #[test]
+    fn a_path_ask_is_withdrawn_when_its_node_goes() {
+        let mut h = bare();
+        let hint = PathHint { mode: "open".into(), ..Default::default() };
+        let id = browse(&mut h, "gone", "path", &hint, "", By::Person);
+        tidy(&mut h);
+        assert!(h.asks.get(id).is_none());
+        assert!(answer(&mut h, id, &json!({"paths": ["/a"]})).unwrap_err().contains("withdrawn"));
+    }
+
+    /// Save Result…'s options form: each option a field as its type asks, filled in with its
+    /// default; what comes back read as that type, a blank left to the default.
+    #[test]
+    fn a_formats_options_are_asked_and_read_by_their_types() {
+        let f: SaveFormat = serde_json::from_value(json!({"id": "x", "label": "X", "extensions": ["x"], "options": [
+            {"name": "q", "type": "INT", "label": "Quality", "default": 90, "min": 1, "max": 100},
+            {"name": "mode", "type": "ENUM", "default": "a", "choices": ["a", "b"]},
+            {"name": "alpha", "type": "BOOL", "default": true},
+            {"name": "gamma", "type": "FLOAT", "default": 2.2},
+            {"name": "note", "type": "STRING", "default": ""}]}))
+        .unwrap();
+        let p = save_options_form(&f, &Map::new(), None);
+        assert_eq!((p["command"].as_str(), p["title"].as_str(), p["submit"].as_str()), (Some("run.save"), Some("Save as X"), Some("Save")));
+        let kinds: Vec<&str> = p["fields"].as_array().unwrap().iter().filter_map(|f| f["kind"].as_str()).collect();
+        assert_eq!(kinds, ["line", "pick", "pick", "line", "line"]);
+        assert_eq!(p["fields"][0]["hint"], "a whole number from 1 to 100");
+        assert_eq!(p["values"], json!({"q": "90", "mode": "a", "alpha": "true", "gamma": "2.2", "note": ""}));
+        let given = |v: Value| v.as_object().cloned().unwrap();
+        let read = save_options_read(&f.options, &given(json!({"q": " 7 ", "mode": "b", "alpha": "false", "gamma": "1.5", "note": "hi"}))).unwrap();
+        assert_eq!(Value::Object(read), json!({"q": 7, "mode": "b", "alpha": false, "gamma": 1.5, "note": "hi"}));
+        assert!(save_options_read(&f.options, &given(json!({"q": ""}))).unwrap().is_empty(), "a blank is the default");
+        for bad in [json!({"q": "seven"}), json!({"q": "1.5"}), json!({"mode": "c"}), json!({"alpha": "maybe"}), json!({"gamma": "inf"})] {
+            assert!(save_options_read(&f.options, &given(bad.clone())).is_err(), "{bad}");
+        }
+        assert_eq!(save_options_form(&f, &Map::new(), Some("no"))["error"], "no");
+    }
+}

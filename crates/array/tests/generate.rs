@@ -1,5 +1,5 @@
-//! Generate, Regions, Draw and Frequency: each kernel against references from yapocis's numba
-//! backend and yapocis_external's numba kernels (`claude-debug/generate_fixtures_gen.py` writes
+//! Generate, Regions, Draw and Frequency: each kernel against references from the kernel library's numba
+//! backend and the external kernel library's numba kernels (`claude-debug/generate_fixtures_gen.py` writes
 //! `tests/fixtures/generate/`), every node through the executor, and hostile inputs as errors,
 //! never panics.
 
@@ -70,7 +70,7 @@ fn simplex_matches_numba() {
 fn mandelbrot_matches_numba() {
     // the numba backend is numpy's complex64 steps: exact, with the fused multiply-adds numpy's
     // SIMD loop uses on arm64 and on x86-64 with FMA3 and AVX2. One golden serves both: recorded
-    // again on yellowfin (x86-64), it matched the M4 Max's in every pixel (docs/BUGS.md B5)
+    // again on the Linux test host (x86-64), it matched the M4 Max's in every pixel (docs/BUGS.md B5)
     for case in fixture("mandelbrot").as_array().unwrap() {
         let (w, h) = (case["width"].as_u64().unwrap() as usize, case["height"].as_u64().unwrap() as usize);
         let out = noise::mandelbrot_view(
@@ -197,7 +197,7 @@ fn numpy_draws_are_numpys() {
 }
 
 #[test]
-fn external_kernels_match_yapocis_external() {
+fn external_kernels_match_the_external_kernel_library() {
     let x = fixture("external");
     // connected components and outlines: exact
     let (shape, edges) = arr(&x["components"]["edges"]);

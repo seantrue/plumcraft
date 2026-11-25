@@ -1,7 +1,7 @@
 //! `plumcraft`: run a workflow on the text engine and watch what crosses the interface.
 //!
 //! ```text
-//! plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
+//! plumcraft run [WORKFLOW.plum] [ENGINE] [--set NAME=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]
 //! plumcraft nodes [ENGINE]
 //! plumcraft conform --engine-manifest FILE [--modes process,http]
 //! plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT
@@ -55,7 +55,7 @@ fn main() -> ExitCode {
         Some("scan-store") => scan_store::main(&args[1..]),
         _ => {
             eprintln!(
-                "usage: plumcraft run [WORKFLOW.json] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n       plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
+                "usage: plumcraft run [WORKFLOW.plum] [ENGINE] [--set NAME=VALUE | --set NODE.PORT=VALUE]... [--params] [--watch NODE.PORT]... [--cancel-after SECONDS] [--raw]\n       plumcraft nodes [ENGINE]\n       plumcraft conform --engine-manifest FILE [--modes process,http]\n       plumcraft scan-store ROOT | plumcraft scan-store --craft CRAFT_ROOT\n  ENGINE: --process | --python | --http [--python] | --attach http://HOST:PORT | --engine-manifest FILE [--http]"
             );
             ExitCode::from(2)
         }
@@ -130,7 +130,7 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
         }
         Mode::Socket { python } => {
             let host = ProcessHost::start(manifest(*python)?).map_err(|e| e.to_string())?;
-            match host.wait_ready(Duration::from_secs(10)) {
+            match host.wait_started(Duration::from_secs(10))? {
                 EngineState::Connected { .. } => {
                     eprintln!("({} engine process {} on a Unix socket)", lang(*python), host.pid().unwrap_or(0));
                     Ok(Box::new(host))
@@ -150,31 +150,43 @@ fn start(mode: &Mode) -> Result<Box<dyn Connection>, String> {
             eprintln!("(attached to {url}, {how})");
             Ok(Box::new(host))
         }
-        Mode::File { path, http } => match plumcraft_host::manifest::load(path)?.start {
-            Start::Command(m) if *http => {
-                let name = m.name.clone();
-                let host = HttpHost::spawn(&m, HttpOptions { remote: true, ..Default::default() })?;
-                eprintln!("({name} over HTTP at {}, remote: sources upload, values download)", host.base());
-                Ok(Box::new(host))
+        Mode::File { path, http } => {
+            let resolved = plumcraft_host::manifest::load(path)?;
+            for w in &resolved.warnings {
+                eprintln!("{}: {w}", path.display());
             }
-            Start::Command(m) => {
-                let name = m.name.clone();
-                let host = ProcessHost::start(m).map_err(|e| e.to_string())?;
-                // uv may have an environment to build first
-                match host.wait_ready(Duration::from_secs(60)) {
-                    EngineState::Connected { .. } => {
-                        eprintln!("({name}, process {} on a Unix socket)", host.pid().unwrap_or(0));
-                        Ok(Box::new(host))
-                    }
-                    other => Err(format!("engine not ready: {other:?}")),
+            let failed = |why: String| resolved.failed(why);
+            start_file(resolved.start.clone(), *http).map_err(failed)
+        }
+    }
+}
+
+/// Start the engine a manifest names (`--engine-manifest`).
+fn start_file(start: Start, http: bool) -> Result<Box<dyn Connection>, String> {
+    match start {
+        Start::Command(m) if http => {
+            let name = m.name.clone();
+            let host = HttpHost::spawn(&m, HttpOptions { remote: true, ..Default::default() })?;
+            eprintln!("({name} over HTTP at {}, remote: sources upload, values download)", host.base());
+            Ok(Box::new(host))
+        }
+        Start::Command(m) => {
+            let name = m.name.clone();
+            let host = ProcessHost::start(m).map_err(|e| e.to_string())?;
+            // uv may have an environment to build first
+            match host.wait_started(Duration::from_secs(60))? {
+                EngineState::Connected { .. } => {
+                    eprintln!("({name}, process {} on a Unix socket)", host.pid().unwrap_or(0));
+                    Ok(Box::new(host))
                 }
+                other => Err(format!("engine not ready: {other:?}")),
             }
-            Start::Attach { url, token } => {
-                let host = HttpHost::attach(&url, &token, HttpOptions::default())?;
-                eprintln!("(attached to {url})");
-                Ok(Box::new(host))
-            }
-        },
+        }
+        Start::Attach { url, token } => {
+            let host = HttpHost::attach(&url, &token, HttpOptions::default())?;
+            eprintln!("(attached to {url})");
+            Ok(Box::new(host))
+        }
     }
 }
 

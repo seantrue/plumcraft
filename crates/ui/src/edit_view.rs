@@ -1,128 +1,140 @@
-//! Editing on the canvas: the selection, cut, copy and paste, select all, delete, align and
-//! distribute, the Edit menu's canvas items, and Esc to cancel a run.
+//! Editing on the canvas: the selection gestures, cut, copy and paste, select all, delete, align
+//! and distribute, the Edit menu's canvas items, and Esc to cancel a run.
 //!
-//! **The selection is PlumCraft's own** ([`Picked`]). egui-snarl 0.12 keeps its selection in
-//! private state that can't be set from outside, and by snarl node index, which the canvas
-//! rebuilds on every edit (so an index can come to mean another node). So the canvas keeps the
-//! selection by graph id:
+//! **The selection is the document's** (`plumcraft_editor_core::selection`, N2 slice 1), and
+//! changes only through the canvas's commands (`selection.set`, `selection.clear`,
+//! `selection.all`, `edit.delete`, `net.select`). This canvas holds a handle to the same
+//! selection ([`Picked`]) to draw it. **Since N2 slice 4 its clicks and marquees are gestures
+//! the core decides** (`ui.gesture`, `plumcraft_editor_core::gesture`), hit-tested against the
+//! faces this canvas measured:
 //!
-//! - a click on a node selects it alone, Shift+click adds it, Cmd+click removes it, and a click
-//!   on empty canvas clears the selection;
-//! - Shift+drag on empty canvas is snarl's marquee: the nodes it adds join the selection;
-//! - Select All, Paste and Duplicate set it;
+//! - a click is a tap: on a node `selection.set` (Shift adds, Cmd takes away), on a pin or a
+//!   wire `run.watch` of its value, on empty canvas `selection.clear`;
+//! - a Shift-drag begun on empty canvas is a marquee, sent when let go (egui-snarl draws its
+//!   rect; snarl's own selection is no longer read: the bridge that copied what it gained is
+//!   gone);
 //! - dragging a selected node (or collapsed group) moves everything selected, collapsed groups
-//!   with their members;
+//!   with their members (still worked out here from snarl's drag, [`Canvas::drag_moves`]: snarl
+//!   owns node drags);
 //! - the canvas draws the selection outline itself (snarl's own is hidden, see
 //!   [`crate::canvas::snarl_style`]).
 //!
+//! **egui-snarl's own selection** (0.12) is private state that can't be set from outside. It
+//! still grows as snarl sees clicks, and snarl still moves what it thinks is selected while a
+//! node is dragged; what is moved in the graph is the document's selection
+//! ([`Canvas::drag_moves`]), and the canvas is rebuilt from the graph after.
+//!
 //! **The clipboard** holds workflow JSON (`edit.copy`), so nodes paste into another workflow, or
 //! another PlumCraft. Cmd+C/X/V arrive as egui's Copy/Cut/Paste events (egui-winit reads the
-//! system clipboard for Paste); the Edit menu asks the window for the same events.
+//! system clipboard for Paste); Cut and Copy are then `edit.cut` and `edit.copy` invoked as their
+//! menu items are (the core fills in the selection and asks for the clipboard).
 //!
 //! Every edit is a session command, so it is undoable.
-//!
-//! A collapsed group's node is selected as its group ([`Picked::groups`]); Cut, Copy and
-//! Delete act on its members too.
 //!
 //! Lifted from the research software's `crates/ui-egui/src/edit_view.rs`. Its Cut (copy, then remove) is
 //! `edit.cut`, one undo step. Align, Distribute and Frame Selection take selected collapsed groups as the one
 //! node they are on the canvas.
 
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use egui::{Pos2, Rect};
 use egui_snarl::{NodeId as SnarlId, Snarl};
+use plumcraft_editor_core::selection::{Mode, Selection, SelectionCell};
 use plumcraft_graph::{Graph, GroupId, NodeId, PortRef};
 use plumcraft_proto::catalogue::SchemaReply;
 use serde_json::{Value, json};
 
 use crate::EditorApp;
-use crate::canvas::{Action, CANVAS_ID, Canvas, CanvasNode};
+use crate::canvas::{Action, Canvas, CanvasNode};
 use crate::theme::Tokens;
 
-/// What the canvas has selected, by graph id.
-#[derive(Debug, Clone, Default, PartialEq)]
+/// The canvas's handle to the document's selection.
+///
+/// Its setters (`set`, `clear`, `set_group`) change the document's selection without a command:
+/// they are for tests written before the selection moved into the core; the canvas's gestures
+/// go through the core (`ui.gesture`).
+#[derive(Debug, Clone, Default)]
 pub struct Picked {
-    nodes: Vec<NodeId>,
-    groups: Vec<GroupId>,
-    /// snarl's own selection when last looked at, to see what its marquee added.
-    raw: Vec<SnarlId>,
+    cell: SelectionCell,
 }
 
 impl Picked {
-    pub fn nodes(&self) -> &[NodeId] {
-        &self.nodes
+    /// A handle to `cell`, the document's selection.
+    pub fn on(cell: SelectionCell) -> Picked {
+        Picked { cell }
+    }
+
+    /// The selection this canvas draws.
+    pub fn cell(&self) -> &SelectionCell {
+        &self.cell
+    }
+
+    pub fn nodes(&self) -> Vec<NodeId> {
+        self.cell.with(|s| s.nodes.clone())
     }
 
     /// Selected collapsed groups (their proxy nodes).
-    pub fn groups(&self) -> &[GroupId] {
-        &self.groups
+    pub fn groups(&self) -> Vec<GroupId> {
+        self.cell.with(|s| s.groups.clone())
     }
 
     pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty() && self.groups.is_empty()
+        self.cell.with(Selection::is_empty)
     }
 
-    /// Select exactly `nodes`.
+    /// Select exactly `nodes` (tests).
     pub fn set(&mut self, nodes: Vec<NodeId>) {
-        self.nodes = nodes;
-        self.nodes.dedup();
-        self.groups.clear();
+        self.cell.update(|s| s.set(nodes));
     }
 
+    /// Select nothing (tests).
     pub fn clear(&mut self) {
-        self.nodes.clear();
-        self.groups.clear();
+        self.cell.update(Selection::clear);
     }
 
-    /// Select exactly collapsed group `group` (its node).
+    /// Select exactly collapsed group `group` (tests).
     pub fn set_group(&mut self, group: GroupId) {
-        self.nodes.clear();
-        self.groups = vec![group];
+        self.cell.update(|s| s.set_group(group));
     }
 
     pub fn contains(&self, node: &CanvasNode) -> bool {
-        match &node.proxy {
-            Some(p) => self.groups.contains(&p.group),
-            None => self.nodes.contains(&node.id),
-        }
+        self.cell.with(|s| match &node.proxy {
+            Some(p) => s.groups.contains(&p.group),
+            None => s.nodes.contains(&node.id),
+        })
     }
 
-    fn add(&mut self, node: &CanvasNode) {
-        match &node.proxy {
-            Some(p) if !self.groups.contains(&p.group) => self.groups.push(p.group.clone()),
-            None if !self.nodes.contains(&node.id) => self.nodes.push(node.id.clone()),
-            _ => {}
-        }
-    }
-
-    fn remove(&mut self, node: &CanvasNode) {
-        match &node.proxy {
-            Some(p) => self.groups.retain(|g| g != &p.group),
-            None => self.nodes.retain(|n| n != &node.id),
-        }
-    }
-
-    /// Take what snarl's selection gained since last time (its marquee, a Shift+click). Only
-    /// additions: an index snarl still holds may mean another node since the last rebuild.
-    pub fn absorb(&mut self, snarl: &Snarl<CanvasNode>, raw: Vec<SnarlId>) {
-        if raw == self.raw {
-            return;
-        }
-        let added: Vec<SnarlId> = raw.iter().filter(|s| !self.raw.contains(s)).copied().collect();
-        for sid in added {
-            if let Some(n) = snarl.get_node(sid) {
-                self.add(n);
-            }
-        }
-        self.raw = raw;
-    }
-
-    /// Forget nodes and groups the graph no longer has.
+    /// Forget nodes and groups the graph no longer has (the document does this after every
+    /// command).
     pub fn retain_existing(&mut self, graph: &Graph) {
-        self.nodes.retain(|n| graph.nodes.contains_key(n));
-        self.groups.retain(|g| graph.group(g).is_some());
+        self.cell.update(|s| s.retain_existing(graph));
     }
+}
+
+/// egui's modifiers as `ui.gesture` takes them (⌘ on the Mac, Ctrl elsewhere, is `primary`).
+fn gesture_mods(mods: egui::Modifiers) -> Value {
+    let mut v = Vec::new();
+    if mods.shift {
+        v.push("shift");
+    }
+    if mods.command {
+        v.push("primary");
+    }
+    json!(v)
+}
+
+/// A click on the canvas at graph point `p`, as the gesture it is: what it means (select, watch
+/// a pin's or a wire's value, clear) is the core's (`plumcraft_editor_core::gesture`), hit-tested
+/// against the faces this canvas measured. `scale` is the view's zoom: the hit distance is the
+/// canvas's wire hit in screen points.
+fn tap_action(p: Pos2, mods: egui::Modifiers, scale: f32) -> Action {
+    ("ui.gesture", json!({"kind": "tap", "at": [p.x, p.y], "mods": gesture_mods(mods), "slop": crate::canvas::WIRE_HIT / scale.max(0.05)}))
+}
+
+/// A double click on the canvas at graph point `p`: `ui.gesture {kind: "doubleTap"}`, which the
+/// core decides ("open what it is on", `plumcraft_editor_core::gesture`).
+fn double_tap_action(p: Pos2, mods: egui::Modifiers, scale: f32) -> Action {
+    ("ui.gesture", json!({"kind": "doubleTap", "at": [p.x, p.y], "mods": gesture_mods(mods), "slop": crate::canvas::WIRE_HIT / scale.max(0.05)}))
 }
 
 /// The snarl's wires as graph ports.
@@ -136,37 +148,77 @@ fn node_at(canvas: &Canvas, rects: &[(SnarlId, Rect)], p: Pos2) -> Option<Canvas
 }
 
 impl Canvas {
-    /// Selection gestures, after snarl has drawn: take its marquee, then this frame's click.
-    pub(crate) fn update_selection(&mut self, ctx: &egui::Context, graph: &Graph) {
-        self.picked.retain_existing(graph);
-        let raw = egui_snarl::ui::get_selected_nodes(egui::Id::new(CANVAS_ID), ctx);
-        self.picked.absorb(&self.snarl, raw);
+    /// Selection gestures, after snarl has drawn: a Shift-drag's marquee, then this frame's
+    /// click, as `ui.gesture`s the core decides (N2 slice 4: snarl's private selection is no
+    /// longer read, and the canvas no longer hit-tests a click itself).
+    pub(crate) fn selection_gestures(&mut self, ctx: &egui::Context) -> Vec<Action> {
+        let mut out = Vec::new();
+        out.extend(self.marquee_gesture(ctx));
         if self.palette.is_some() || self.wire_menu.is_some() {
-            return;
+            return out;
         }
         let Some((p, mods)) = ctx.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos().map(|p| (p, i.modifiers)) } else { None }) else {
-            return;
+            return out;
         };
         // Only clicks on the canvas itself, not on menus or popups over it.
         if !self.rect.contains(p) || ctx.layer_id_at(p).is_some_and(|l| l.order != egui::Order::Background && l.order != egui::Order::Middle) {
-            return;
+            return out;
         }
-        let graph_p = self.to_global.inverse() * p;
-        let rects = self.snarl_rects();
-        // (a frame's tab sits over the canvas: a click there isn't a click on what is under it)
-        if self.over_frame_tab(p) {
-            return;
+        // (a frame's tab and a net's tag sit over the canvas and take their own clicks: a click
+        // there isn't a click on what is under it)
+        if self.over_frame_tab(p) || self.over_net_tag(p) {
+            return out;
         }
-        match node_at(self, &rects, graph_p) {
-            Some(n) if mods.command => self.picked.remove(&n),
-            Some(n) if mods.shift => self.picked.add(&n),
-            Some(n) => {
-                self.picked.clear();
-                self.picked.add(&n);
+        let at = self.to_global.inverse() * p;
+        // A double click is a double tap: what it opens is the core's to decide (N3's card 3,
+        // "the same in every shell": empty canvas the palette, a face its parameters, a
+        // collapsed group the group, a pin, a wire or a preview its value in a pop-out, a bend
+        // point goes). egui counts a click within 0.6 s of the one before last as a triple, and
+        // then no double: that is a double tap too. A double click in a face's field is the
+        // field's (a word selected, a value typed).
+        let double =
+            ctx.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary) || i.pointer.button_triple_clicked(egui::PointerButton::Primary));
+        if double {
+            if !ctx.text_edit_focused() && !self.field_rects.iter().any(|r| r.contains(at)) {
+                out.push(double_tap_action(at, mods, self.to_global.scaling));
             }
-            None if mods.shift || mods.command => {}
-            None => self.picked.clear(),
+        } else {
+            out.push(tap_action(at, mods, self.to_global.scaling));
         }
+        // the outline follows once the gesture has run
+        ctx.request_repaint();
+        out
+    }
+
+    /// A Shift-drag that began on empty canvas, once let go: `ui.gesture {kind: "marquee"}` from
+    /// where it began to where it ended (⌘ too takes away). egui-snarl draws the rect while it
+    /// is dragged; what it selects is the core's, from the faces this canvas measured.
+    fn marquee_gesture(&mut self, ctx: &egui::Context) -> Option<Action> {
+        let (pressed, released, origin, at, mods) =
+            ctx.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_released(), i.pointer.press_origin(), i.pointer.interact_pos(), i.modifiers));
+        if pressed {
+            self.marquee_from = origin
+                .filter(|o| {
+                    mods.shift
+                        && self.palette.is_none()
+                        && self.rect.contains(*o)
+                        && !self.over_node(*o)
+                        && ctx.layer_id_at(*o).is_none_or(|l| l.order == egui::Order::Background)
+                })
+                .map(|o| (self.to_global.inverse() * o, mods));
+        }
+        if !released {
+            return None;
+        }
+        let (from, began) = self.marquee_from.take()?;
+        let to = self.to_global.inverse() * at?;
+        // a press and release in place is a click, not a marquee
+        if from.distance(to) * self.to_global.scaling < 3.0 {
+            return None;
+        }
+        let mut m = began;
+        m.command |= mods.command;
+        Some(("ui.gesture", json!({"kind": "marquee", "at": [from.x, from.y], "to": [to.x, to.y], "mods": gesture_mods(m)})))
     }
 
     /// Wire re-routing. egui-snarl 0.12 lets a ⌘-drag on a pin pick up its wires, but it takes
@@ -244,6 +296,11 @@ impl Canvas {
     /// The node dragged is the one under the pointer when the button went down
     /// ([`Canvas::drag_anchor`]), not the one under the press point now: after the first frame
     /// of a drag it has left that point.
+    ///
+    /// A face is moved from where it is shown, which a push may have moved from its node's
+    /// position (N4 slice 4, [`crate::shown`]): a node moved is one snarl has away from where the
+    /// canvas put it, and the move names the shown place plus the drag, as the core's own
+    /// gestures do.
     pub(crate) fn drag_moves(&mut self, ctx: &egui::Context, graph: &Graph) -> Vec<Action> {
         if ctx.input(|i| i.pointer.primary_pressed()) {
             let origin = ctx.input(|i| i.pointer.press_origin()).map(|p| self.to_global.inverse() * p);
@@ -255,11 +312,12 @@ impl Canvas {
         let moved: Vec<Moved> = self
             .snarl
             .nodes_pos_ids()
-            .filter_map(|(_, pos, n)| {
-                let was = match &n.proxy {
+            .filter_map(|(sid, pos, n)| {
+                let own = match &n.proxy {
                     Some(p) => graph.group(&p.group)?.pos,
                     None => graph.node(&n.id)?.pos,
                 };
+                let was = self.placed_at(sid).map_or(own, |p| [p.x, p.y]);
                 let now = [pos.x, pos.y];
                 (now != was).then(|| (n.id.clone(), n.proxy.as_ref().map(|p| p.group.clone()), now, was))
             })
@@ -267,41 +325,59 @@ impl Canvas {
         if moved.is_empty() {
             return Vec::new();
         }
-        let to = |id: &NodeId, group: &Option<GroupId>, pos: [f32; 2]| match group {
-            Some(g) => ("group.move", json!({"group": g, "pos": pos})),
-            None => ("node.move", json!({"id": id, "pos": pos})),
+        // One `edit.move` a frame, named by the press, so the whole drag is one undo step
+        // ("Move 3 Nodes"; N3 slice 1) however many frames it takes.
+        let drag = format!("egui:{}", self.press);
+        let one = |nodes: serde_json::Map<String, Value>, groups: serde_json::Map<String, Value>| -> Vec<Action> {
+            vec![("edit.move", json!({"nodes": nodes, "groups": groups, "drag": drag}))]
+        };
+        let split = |list: Vec<(NodeId, Option<GroupId>, [f32; 2])>| {
+            let (mut nodes, mut groups) = (serde_json::Map::new(), serde_json::Map::new());
+            for (id, g, pos) in list {
+                match g {
+                    Some(g) => groups.insert(g.0, json!(pos)),
+                    None => nodes.insert(id.0, json!(pos)),
+                };
+            }
+            (nodes, groups)
         };
         let dragged = self.drag_anchor.as_ref().and_then(|a| moved.iter().find(|m| &m.0 == a));
         let Some((id, group, now, was)) = dragged else {
             // Not a drag we can attribute: take snarl's positions as they are.
-            return moved.iter().map(|(id, g, now, _)| to(id, g, *now)).collect();
+            let (nodes, groups) = split(moved.iter().map(|(id, g, now, _)| (id.clone(), g.clone(), *now)).collect());
+            return one(nodes, groups);
         };
         let in_selection = match group {
             Some(g) => self.picked.groups().contains(g),
             None => self.picked.nodes().contains(id),
         };
         if !in_selection {
-            return vec![to(id, group, *now)];
+            let (nodes, groups) = split(vec![(id.clone(), group.clone(), *now)]);
+            return one(nodes, groups);
         }
         let delta = [now[0] - was[0], now[1] - was[1]];
+        // each from where it is shown: a face's place on the canvas, else the graph's
+        let placed: HashMap<&str, [f32; 2]> =
+            self.snarl.nodes_ids_data().filter_map(|(sid, n)| self.placed_at(sid).map(|p| (n.value.id.0.as_str(), [p.x, p.y]))).collect();
+        let shown = |face: &str, own: [f32; 2]| placed.get(face).copied().unwrap_or(own);
         let by = |p: [f32; 2]| [p[0] + delta[0], p[1] + delta[1]];
         // The selected groups' members move with their group, not again on their own.
         let carried: std::collections::BTreeSet<NodeId> = self.picked.groups().iter().flat_map(|g| graph.group_members(g)).collect();
-        let mut out: Vec<Action> = self
+        let groups: serde_json::Map<String, Value> = self
             .picked
             .groups()
             .iter()
             .filter(|g| !self.picked.groups().iter().any(|outer| outer != *g && graph.group_subtree(outer).contains(*g)))
-            .filter_map(|g| graph.group(g).map(|grp| ("group.move", json!({"group": g, "pos": by(grp.pos)}))))
+            .filter_map(|g| graph.group(g).map(|grp| (g.0.clone(), json!(by(shown(&crate::groups_view::proxy_node_id(g).0, grp.pos))))))
             .collect();
-        out.extend(
-            self.picked
-                .nodes()
-                .iter()
-                .filter(|n| !carried.contains(*n))
-                .filter_map(|n| graph.node(n).map(|g| ("node.move", json!({"id": n, "pos": by(g.pos)})))),
-        );
-        out
+        let nodes: serde_json::Map<String, Value> = self
+            .picked
+            .nodes()
+            .iter()
+            .filter(|n| !carried.contains(*n))
+            .filter_map(|n| graph.node(n).map(|g| (n.0.clone(), json!(by(shown(&n.0, g.pos))))))
+            .collect();
+        one(nodes, groups)
     }
 
     /// Outline the selected nodes (snarl's own outline is hidden: its selection may be stale).
@@ -324,37 +400,32 @@ impl Canvas {
         }
     }
 
-    /// The selection's sizes (graph units), by node id and a collapsed group's id: what Align,
-    /// Distribute and Frame Selection measure.
-    pub fn selection_sizes(&self) -> BTreeMap<String, [f32; 2]> {
-        let size_of = |(sid, r): (SnarlId, Rect)| {
-            let n = self.snarl.get_node(sid).filter(|n| self.picked.contains(n))?;
-            Some((n.proxy.as_ref().map_or_else(|| n.id.0.clone(), |p| p.group.0.clone()), [r.width(), r.height()]))
-        };
-        self.snarl_rects().into_iter().filter_map(size_of).collect()
-    }
-
     /// Every node the canvas shows (members of an entered group only; a collapsed group counts
-    /// as its proxy).
+    /// as its proxy), at once (tests; the Edit menu's Select All is `selection.all`).
     pub fn select_all(&mut self) {
-        let mut p = Picked { raw: std::mem::take(&mut self.picked.raw), ..Picked::default() };
+        let mut nodes = Vec::new();
+        let mut groups = Vec::new();
         for (_, n) in self.snarl.nodes_ids_data() {
-            p.add(&n.value);
+            match &n.value.proxy {
+                Some(p) => groups.push(p.group.clone()),
+                None => nodes.push(n.value.id.clone()),
+            }
         }
-        self.picked = p;
+        self.picked.cell().update(|s| s.apply(Mode::Replace, nodes, groups));
     }
 
-    /// Select the nodes a command made (`{nodes: [ids]}`, as duplicate returns), or the
-    /// collapsed group it made (`{group}`, as Insert as Group returns).
+    /// Select what a command made, at once (tests; the core selects it with `selection.set`:
+    /// `plumcraft_editor_core::invoke::select_made`).
     pub fn select_result(&mut self, result: &Value, graph: &Graph) {
-        if let Some(g) = result.get("group").and_then(Value::as_str).map(GroupId::from).filter(|g| graph.group(g).is_some_and(|grp| grp.collapsed)) {
-            self.picked.set_group(g);
-            return;
-        }
-        let ids: Vec<NodeId> =
-            result.get("nodes").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(NodeId::from).collect()).unwrap_or_default();
-        if !ids.is_empty() {
-            self.picked.set(ids);
+        let Some(p) = plumcraft_editor_core::selection::made(result, graph) else { return };
+        if let Ok((nodes, groups, mode)) = plumcraft_editor_core::selection::parse_set(graph, &p) {
+            self.picked.cell().update(|s| s.apply(mode, nodes, groups));
+        } else {
+            // ids the graph doesn't have (yet): taken as they are
+            let ids: Vec<NodeId> = p["nodes"].as_array().into_iter().flatten().filter_map(Value::as_str).map(NodeId::from).collect();
+            if !ids.is_empty() {
+                self.picked.set(ids);
+            }
         }
     }
 }
@@ -375,180 +446,127 @@ pub enum EditOp {
     Frame,
 }
 
-/// Align menu items: (label, edge).
-pub const ALIGN_EDGES: [(&str, &str); 6] = [
-    ("Left Edges", "left"),
-    ("Right Edges", "right"),
-    ("Top Edges", "top"),
-    ("Bottom Edges", "bottom"),
-    ("Centres Horizontally", "centerX"),
-    ("Centres Vertically", "centerY"),
-];
+/// Align menu items: (label, edge), as the core's menu model has them.
+pub use plumcraft_editor_core::menu::ALIGN_EDGES;
 
-/// The Edit menu's canvas items, for `many` things selected. Returns the one clicked.
-pub fn edit_menu(ui: &mut egui::Ui, many: usize) -> Option<EditOp> {
-    let has_selection = many > 0;
-    let mut op = None;
-    ui.separator();
-    let item = |ui: &mut egui::Ui, label: &str, shortcut: &str, enabled: bool| -> bool {
-        let r = ui.add_enabled(enabled, egui::Button::new(label).shortcut_text(shortcut));
-        let clicked = r.clicked();
-        if clicked {
-            ui.close();
-        }
-        clicked
-    };
-    let cmd = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
-    if item(ui, "Cut", &format!("{cmd}X"), has_selection) {
-        op = Some(EditOp::Cut);
-    }
-    if item(ui, "Copy", &format!("{cmd}C"), has_selection) {
-        op = Some(EditOp::Copy);
-    }
-    if item(ui, "Paste", &format!("{cmd}V"), true) {
-        op = Some(EditOp::Paste);
-    }
-    if item(ui, "Delete", "⌫", has_selection) {
-        op = Some(EditOp::Delete);
-    }
-    if item(ui, "Select All", &format!("{cmd}A"), true) {
-        op = Some(EditOp::SelectAll);
-    }
-    if item(ui, "Frame Selection", "", has_selection) {
-        op = Some(EditOp::Frame);
-    }
-    ui.separator();
-    ui.add_enabled_ui(many >= 2, |ui| {
-        ui.menu_button("Align", |ui| {
-            for (label, edge) in ALIGN_EDGES {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Align(edge));
-                    ui.close();
-                }
-            }
+impl EditOp {
+    /// The Edit menu's canvas item `item` (the core's menu model names it; the shell does it
+    /// until N2 gives it a command).
+    pub fn from_item(item: &plumcraft_editor_core::menu::Item) -> Option<EditOp> {
+        let param = |key: &str, from: &[(&'static str, &'static str)]| {
+            let want = item.params.as_ref()?.get(key)?.as_str()?;
+            from.iter().find(|(_, v)| *v == want).map(|(_, v)| *v)
+        };
+        Some(match item.id.as_str() {
+            "edit.cut" => EditOp::Cut,
+            "edit.copy" => EditOp::Copy,
+            "edit.paste" => EditOp::Paste,
+            "edit.delete" => EditOp::Delete,
+            "selection.all" => EditOp::SelectAll,
+            "frame.add" => EditOp::Frame,
+            "edit.align" => EditOp::Align(param("edge", &ALIGN_EDGES)?),
+            "edit.distribute" => EditOp::Distribute(param("axis", &[("Horizontally", "horizontal"), ("Vertically", "vertical")])?),
+            _ => return None,
         })
-    });
-    ui.add_enabled_ui(many >= 3, |ui| {
-        ui.menu_button("Distribute", |ui| {
-            for (label, axis) in [("Horizontally", "horizontal"), ("Vertically", "vertical")] {
-                if ui.button(label).clicked() {
-                    op = Some(EditOp::Distribute(axis));
-                    ui.close();
-                }
-            }
-        })
-    });
-    op
+    }
 }
 
 impl EditorApp {
-    /// The selected nodes that are still in the graph, with the members of selected collapsed
-    /// groups.
-    fn selected_ids(&self) -> Vec<NodeId> {
-        let g = self.session.graph();
-        let mut ids: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
-        for gid in self.canvas.picked.groups() {
-            for m in g.group_members(gid) {
-                if !ids.contains(&m) {
-                    ids.push(m);
-                }
-            }
-        }
-        ids
-    }
-
-    /// Copy (or cut) the selection to the clipboard; true when something was copied.
-    fn copy_selection(&mut self, ctx: &egui::Context, id: &str) -> bool {
-        let nodes = self.selected_ids();
-        if nodes.is_empty() {
-            self.last_error = Some(format!("select nodes to {} first", if id == "edit.cut" { "cut" } else { "copy" }));
-            return false;
-        }
-        let Some(r) = self.run(id, &json!({"nodes": nodes})) else { return false };
-        let Some(text) = r.get("text").and_then(Value::as_str) else { return false };
-        ctx.copy_text(text.to_owned());
-        self.copied = Some(text.to_owned());
-        true
-    }
-
-    /// Paste workflow JSON at the pointer (or beside where it was copied), selecting the result.
+    /// Paste workflow JSON at the pointer (or beside where it was copied), selecting the result:
+    /// the answer to Edit › Paste's `clipboard.get` ask when one waits, else the window offering
+    /// the clipboard to the core (⌘V).
     pub fn paste_text(&mut self, ctx: &egui::Context, text: &str) {
         let pointer = ctx.input(|i| i.pointer.hover_pos()).filter(|p| self.canvas.rect.contains(*p));
-        let mut params = json!({"text": text});
-        if let Some(p) = pointer {
+        self.paste_pos = pointer.map(|p| {
             let g = self.canvas.to_global.inverse() * p;
-            params["pos"] = json!([g.x, g.y]);
-        }
-        if let Some(r) = self.run("edit.paste", &params) {
-            self.canvas.select_result(&r, self.session.graph());
-            if let Some(dropped) = r.get("dropped").and_then(Value::as_array).filter(|d| !d.is_empty()) {
-                self.last_error = Some(format!("pasted; {} wire(s) no longer fit and were left out", dropped.len()));
-            }
-        }
+            [g.x, g.y]
+        });
+        self.pasted(text);
+        self.paste_pos = None;
     }
 
-    /// Apply an Edit menu (or keyboard) action.
-    pub fn edit_op(&mut self, ctx: &egui::Context, op: EditOp) {
-        let nodes = self.selected_ids();
+    /// Apply an Edit menu (or keyboard) action: its command invoked as its menu item is, or, for
+    /// Align and Distribute, run with the selection and the sizes this canvas measured.
+    pub fn edit_op(&mut self, _ctx: &egui::Context, op: EditOp) {
         match op {
-            EditOp::Copy => {
-                self.copy_selection(ctx, "edit.copy");
-            }
-            EditOp::Cut => {
-                if self.copy_selection(ctx, "edit.cut") {
-                    self.canvas.picked.clear();
-                }
-            }
-            // The window reads the system clipboard and sends a Paste event (handled next frame).
-            EditOp::Paste => ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaste),
-            EditOp::SelectAll => self.canvas.select_all(),
-            EditOp::Delete => {
-                if nodes.is_empty() {
-                    self.last_error = Some("select nodes to delete first".into());
-                } else if self.run("node.remove", &json!({"nodes": nodes})).is_some() {
-                    self.canvas.picked.clear();
-                }
-            }
+            EditOp::Copy => self.invoke("edit.copy"),
+            EditOp::Cut => self.invoke("edit.cut"),
+            // The core asks for the clipboard: the window reads it and sends a Paste event (handled
+            // next frame), which answers.
+            EditOp::Paste => self.invoke("edit.paste"),
+            EditOp::SelectAll => self.invoke("selection.all"),
+            EditOp::Delete => self.invoke("edit.delete"),
+            // the core's (N2 slice 3): the selection, at the sizes this canvas reported
             EditOp::Align(edge) => {
-                let p = json!({"edge": edge});
-                self.arrange("edit.align", p);
+                self.run("selection.align", &json!({"edge": edge}));
             }
             EditOp::Distribute(axis) => {
-                let p = json!({"axis": axis});
-                self.arrange("edit.distribute", p);
+                self.run("selection.distribute", &json!({"axis": axis}));
             }
-            EditOp::Frame => self.frame_selection(),
+            EditOp::Frame => self.invoke("frame.add"),
         }
     }
 
-    /// The selection as what arranging takes: its nodes, its collapsed groups (as the one node
-    /// each is on the canvas, not their members) and the sizes they were drawn at.
-    fn selection_params(&self, mut p: Value) -> Value {
-        let g = self.session.graph();
-        let nodes: Vec<NodeId> = self.canvas.picked.nodes().iter().filter(|n| g.nodes.contains_key(*n)).cloned().collect();
-        p["nodes"] = json!(nodes);
-        p["groups"] = json!(self.canvas.picked.groups());
-        p["sizes"] = json!(self.canvas.selection_sizes());
-        p
-    }
-
-    fn arrange(&mut self, id: &str, params: Value) {
-        let p = self.selection_params(params);
-        self.run(id, &p);
-    }
-
-    /// Edit › Frame Selection.
-    pub(crate) fn frame_selection(&mut self) {
-        if self.canvas.picked.is_empty() {
-            self.last_error = Some("select nodes to frame first".into());
-        } else {
-            self.arrange("frame.add", json!({}));
+    /// What only this window does of a canvas command, once the core has checked it and kept its
+    /// part (`plumcraft_editor_core::canvas_cmds`): fit, the palette, reveal.
+    pub(crate) fn canvas_command(&mut self, id: &str, v: &Value) {
+        match id {
+            // the core worked the rect out from what this canvas measured (N2 slice 3)
+            "canvas.fit" => match v["rect"].as_array().map(|a| a.iter().filter_map(Value::as_f64).map(|f| f as f32).collect::<Vec<f32>>()) {
+                Some(r) if r.len() == 4 => self.canvas.fit_to([r[0], r[1], r[2], r[3]]),
+                _ => self.canvas.request_fit(),
+            },
+            // a node picked: the core added it (with the dropped wire connected) and closed its
+            // palette (N3 slice 1)
+            "palette.choose" => self.canvas.palette = None,
+            "canvas.palette" => {
+                if v["open"] == false {
+                    self.canvas.palette = None;
+                    return;
+                }
+                let at = v["at"].as_array().and_then(|a| Some(egui::pos2(a.first()?.as_f64()? as f32, a.get(1)?.as_f64()? as f32)));
+                let center = if self.canvas.rect.is_finite() { self.canvas.rect.center() } else { Pos2::ZERO };
+                let screen = at.map_or(center, |g| self.canvas.to_global * g);
+                match v["query"].as_str() {
+                    Some(q) => {
+                        if self.canvas.palette.is_none() {
+                            self.canvas.open_palette(screen);
+                        }
+                        if let Some(state) = &mut self.canvas.palette {
+                            state.query = q.to_owned();
+                            state.selected = 0;
+                        }
+                    }
+                    None => self.canvas.open_palette(screen),
+                }
+                // the kinds of engines not started, listed after the catalogue's own (N4 slice 1,
+                // D3: the core's `palette.items` lists the same; choosing one starts its engine)
+                let starts: Vec<plumcraft_proto::catalogue::NodeDef> =
+                    plumcraft_session::engine_cmds::startable_defs(&self.doc.session).into_iter().cloned().collect();
+                // opened for a dropped wire (question 8, N3 slice 1): only what takes it is offered
+                let fits = self.doc.palette.as_ref().and_then(|p| p.wire.as_ref()).and_then(|w| w.end()).map(|(end, output)| {
+                    let refs: Vec<&plumcraft_proto::catalogue::NodeDef> = starts.iter().collect();
+                    let catalog = plumcraft_editor_core::palette::with_starts(self.doc.session.catalog(), &refs);
+                    plumcraft_editor_core::palette::fitting(self.doc.session.graph(), &catalog, &end, output).into_iter().map(|(i, _)| i).collect()
+                });
+                self.canvas.palette_starts = starts;
+                if let Some(state) = &mut self.canvas.palette {
+                    state.fits = fits;
+                }
+            }
+            "canvas.reveal" => {
+                if let Some(n) = v["node"].as_str() {
+                    self.canvas.reveal(&NodeId::from(n));
+                }
+            }
+            _ => {}
         }
     }
 
     /// Keyboard and clipboard editing, each frame before the canvas draws: Cmd+C/X/V (egui's
-    /// Copy/Cut/Paste events), Delete/Backspace, Cmd+A, and Esc to cancel a run in flight.
-    /// Nothing happens while a text field has the keyboard or a popup or prompt is open.
+    /// Copy/Cut/Paste events), Delete/Backspace, Cmd+A, and Esc to cancel a run in flight, each
+    /// the command it stands for. Nothing happens while a text field has the keyboard or a popup
+    /// or prompt is open.
     pub fn edit_input(&mut self, ctx: &egui::Context) {
         if ctx.text_edit_focused() {
             return;
@@ -574,9 +592,37 @@ impl EditorApp {
             (
                 i.consume_key(egui::Modifiers::NONE, egui::Key::Delete) || i.consume_key(egui::Modifiers::NONE, egui::Key::Backspace),
                 i.consume_key(egui::Modifiers::COMMAND, egui::Key::A),
-                self.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
+                self.doc.session.run.running && i.consume_key(egui::Modifiers::NONE, egui::Key::Escape),
             )
         });
+        // the arrows nudge the selection, 1 graph unit, 10 with Shift (N3 slice 1:
+        // `selection.nudge`; a held key's nudges are one undo step, each new press another); only
+        // with something selected, so the keys are left alone otherwise
+        let mut nudge = [0.0f32; 2];
+        if !self.doc.selection.with(|s| s.nodes.is_empty() && s.groups.is_empty()) {
+            // a press that isn't a key's repeat starts a new nudge step; its repeats join it
+            let arrows = [egui::Key::ArrowLeft, egui::Key::ArrowRight, egui::Key::ArrowUp, egui::Key::ArrowDown];
+            let fresh = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key, pressed: true, repeat: false, .. } if arrows.contains(key))));
+            if fresh {
+                self.canvas.nudge_press = self.canvas.nudge_press.wrapping_add(1);
+            }
+            ctx.input_mut(|i| {
+                for (key, d) in [
+                    (egui::Key::ArrowLeft, [-1.0, 0.0]),
+                    (egui::Key::ArrowRight, [1.0, 0.0]),
+                    (egui::Key::ArrowUp, [0.0, -1.0]),
+                    (egui::Key::ArrowDown, [0.0, 1.0]),
+                ] {
+                    // Shift first: a plain key's match ignores Shift
+                    for (mods, step) in [(egui::Modifiers::SHIFT, 10.0), (egui::Modifiers::NONE, 1.0)] {
+                        while i.consume_key(mods, key) {
+                            nudge[0] += d[0] * step;
+                            nudge[1] += d[1] * step;
+                        }
+                    }
+                }
+            });
+        }
         if delete {
             ops.push(EditOp::Delete);
         }
@@ -592,6 +638,10 @@ impl EditorApp {
         if escape {
             self.run("run.cancel", &Value::Null);
         }
+        if nudge != [0.0, 0.0] {
+            // named by the press, so a held key is one undo step however long it is held
+            self.run("selection.nudge", &json!({"by": nudge, "drag": format!("key:{}", self.canvas.nudge_press)}));
+        }
     }
 }
 
@@ -599,24 +649,11 @@ impl EditorApp {
 mod tests {
     use super::*;
 
-    fn node(id: &str) -> CanvasNode {
-        CanvasNode { tucked: 0, all_fields: false, id: NodeId::from(id), kind: "k".into(), inputs: Vec::new(), outputs: 0, proxy: None }
-    }
-
     #[test]
-    fn picked_takes_only_what_snarl_adds() {
-        let mut snarl = Snarl::new();
-        let a = snarl.insert_node(Pos2::ZERO, node("n1"));
-        let b = snarl.insert_node(Pos2::ZERO, node("n2"));
+    fn picked_is_the_documents_selection() {
         let mut p = Picked::default();
         p.set(vec![NodeId::from("n9")]);
-        p.absorb(&snarl, vec![a]);
-        assert_eq!(p.nodes(), [NodeId::from("n9"), NodeId::from("n1")]);
-        // snarl dropping an index (it may mean another node by now) removes nothing
-        p.absorb(&snarl, vec![b]);
-        assert_eq!(p.nodes(), [NodeId::from("n9"), NodeId::from("n1"), NodeId::from("n2")]);
-        p.absorb(&snarl, vec![b]);
-        assert_eq!(p.nodes().len(), 3, "no change, no growth");
+        assert_eq!(p.nodes(), [NodeId::from("n9")]);
         p.clear();
         assert!(p.is_empty());
         let mut g = Graph::new();
@@ -628,6 +665,7 @@ mod tests {
                 values: Default::default(),
                 inherited: Default::default(),
                 all_fields: false,
+                face: Default::default(),
                 title: None,
                 serial: None,
                 view: Default::default(),
@@ -711,6 +749,44 @@ mod tests {
         out.textures_delta.clear();
         assert!(actions.is_empty(), "the wire is still being dragged");
         assert_eq!(canvas.built_wires.len(), 1);
+    }
+
+    #[test]
+    fn the_canvas_draws_the_documents_selection_and_follows_its_focus() {
+        let c = plumcraft_text::engine().schema();
+        let mut app = EditorApp::new(plumcraft_session::Session::new(c));
+        assert!(app.canvas.picked.cell().same(&app.doc.selection), "one selection");
+        let a = app.try_run("node.add", &json!({"kind": "text.literal", "pos": [0, 0]})).unwrap()["id"].as_str().unwrap().to_owned();
+        app.try_run("selection.set", &json!({"nodes": [a]})).unwrap();
+        assert_eq!(app.canvas.selection(), [NodeId::from(a.as_str())]);
+        let g = app.try_run("group.create", &json!({"nodes": [a]})).unwrap()["id"].as_str().unwrap().to_owned();
+        // ui.set {focus} is canvas.focus: the document's, shown by the canvas at once
+        let ctx = egui::Context::default();
+        let r = app.control_now(&ctx, "ui.set", &json!({"focus": g}));
+        assert_eq!(r["ok"], true, "{r}");
+        assert_eq!((app.doc.focus.clone(), app.canvas.focus.clone()), (Some(GroupId::from(g.as_str())), Some(GroupId::from(g.as_str()))));
+        let r = app.control_now(&ctx, "ui.set", &json!({"focus": "g999"}));
+        assert_eq!(r["error"], "no group g999");
+        app.try_run("canvas.focus", &json!({"group": null})).unwrap();
+        assert_eq!(app.canvas.focus, None);
+        // what only the window does: done here
+        app.try_run("canvas.palette", &json!({"query": "upp"})).unwrap();
+        assert_eq!(app.canvas.palette.as_ref().map(|p| p.query.as_str()), Some("upp"));
+        app.try_run("canvas.palette", &json!({"open": false})).unwrap();
+        assert!(app.canvas.palette.is_none());
+    }
+
+    /// A click is a gesture the core decides: where it was (graph units), the modifiers, and the
+    /// wire hit in screen points at the view's zoom (what it selects is
+    /// `plumcraft_editor_core::gesture`'s, checked by the conformance suite).
+    #[test]
+    fn a_click_is_a_tap_gesture() {
+        let (id, p) = tap_action(Pos2::new(10.0, 20.0), egui::Modifiers::NONE, 2.0);
+        assert_eq!((id, &p["kind"], &p["at"], &p["mods"]), ("ui.gesture", &json!("tap"), &json!([10.0, 20.0]), &json!([])));
+        assert_eq!(p["slop"], json!(crate::canvas::WIRE_HIT / 2.0));
+        assert_eq!(tap_action(Pos2::ZERO, egui::Modifiers::SHIFT, 1.0).1["mods"], json!(["shift"]));
+        assert_eq!(tap_action(Pos2::ZERO, egui::Modifiers::COMMAND, 1.0).1["mods"], json!(["primary"]));
+        assert!(plumcraft_editor_core::gesture::parse(&tap_action(Pos2::ZERO, egui::Modifiers::COMMAND, 0.0).1).is_ok());
     }
 
     #[test]

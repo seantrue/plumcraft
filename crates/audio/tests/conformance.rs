@@ -221,6 +221,44 @@ fn save_then_load_round_trips(mk: fn() -> Conn) {
     assert_eq!(blob(&loaded, "l", "audio").handle, blob(&saved, "t", "audio").handle, "the same samples, the same handle");
 }
 
+/// Save Result (`output.save`, F19) in every mode: the tone saved as WAV (16-bit) and as FLAC
+/// through SoundCraft's encoder, by the formats the engine declares through the SDK. The engine
+/// writes the path when it can (`data.path`); a remote engine returns the files, which the
+/// client fetches by their refs. Either way the bytes decode to the tone's frames.
+fn save_result_as_wav_and_flac(mk: fn() -> Conn) {
+    let h = mk();
+    let schema = call(&h, "schema", json!({}));
+    let formats: Vec<&str> = schema["save_formats"].as_array().unwrap().iter().filter_map(|f| f["id"].as_str()).collect();
+    for id in ["wav", "flac", "aiff", "npy"] {
+        assert!(formats.contains(&id), "{formats:?}");
+    }
+    let wav = schema["save_formats"].as_array().unwrap().iter().find(|f| f["id"] == "wav").unwrap().clone();
+    assert_eq!(wav["options"][0]["choices"], json!(["float32", "int24", "int16", "int32"]), "SoundCraft's sample formats, not the SDK's two");
+    let dir = scratch("save-result");
+    let g = json!({"kind": "inline", "graph": chain(&[("t", "audio.tone", json!({"seconds": 0.25, "sample_rate": 16000, "channels": 2}))])});
+    for (name, format, options, magic) in [("tone.wav", "wav", json!({"bits": "int16"}), &b"RIFF"[..]), ("tone.flac", "flac", json!({}), &b"fLaC"[..])] {
+        let path = dir.join(name);
+        let r: plumcraft_proto::run::SaveReply = serde_json::from_value(call(
+            &h,
+            "output.save",
+            json!({"graph": g, "node": "t", "port": "audio", "path": path.display().to_string(), "format": format, "options": options}),
+        ))
+        .unwrap();
+        assert!(r.ok, "{name}: {r:?}");
+        let bytes = match r.paths.as_slice() {
+            [p] => std::fs::read(p).unwrap(),
+            _ => h.resolve(r.files[0].data.as_ref().unwrap()).unwrap().bytes.to_vec(),
+        };
+        assert!(bytes.starts_with(magic), "{name}");
+        let (info, buf) = soundcraft_audio_io::decode(&bytes, Some(format)).unwrap();
+        assert_eq!((info.sample_rate, buf.channels.len(), buf.channels[0].len()), (16000, 2, 4000), "{name}");
+    }
+    let bad: plumcraft_proto::run::SaveReply =
+        serde_json::from_value(call(&h, "output.save", json!({"graph": g, "node": "t", "port": "audio", "format": "flac", "options": {"bits": "float32"}})))
+            .unwrap();
+    assert_eq!(bad.error.map(|e| e.kind).as_deref(), Some("config"), "FLAC stores whole numbers only");
+}
+
 macro_rules! every_mode {
     ($($case:ident),* $(,)?) => {
         mod mode1_inproc {
@@ -244,6 +282,7 @@ every_mode!(
     bad_parameters_are_config_errors,
     cancel_mid_stretch,
     save_then_load_round_trips,
+    save_result_as_wav_and_flac,
 );
 
 /// Spec 13.2, remote: the file `audio.load` reads uploads once (a rerun finds the engine has it),

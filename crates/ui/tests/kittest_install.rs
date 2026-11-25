@@ -1,7 +1,8 @@
 //! Engine › Install Engine… (`engine.install`): the window offers the public engines, the
 //! install runs off the UI thread with the status bar saying so, and when it ends the engine
-//! list is read again and the person is told. The installer is a stand-in; the app's own runs
-//! `uv tool install` and `register` (apps/plumcraft-editor).
+//! list is read again and the person is told. The installer is a stand-in; the editor core's own
+//! runs `uv tool install` and `register` (`plumcraft_editor_core::install`, tested there with a
+//! stand-in uv), and the app offers it through `EditorApp::with_launcher` (B71).
 
 mod common;
 
@@ -22,8 +23,9 @@ fn app(result: Result<String, String>) -> (EditorApp, Arc<AtomicUsize>, Arc<Mute
             r.fetch_add(1, Ordering::SeqCst);
             (Vec::new(), Vec::new())
         }))
-        .with_installer(Arc::new(move |url: &str| {
+        .with_installer(Arc::new(move |url: &str, p: &plumcraft_ui::engine_view::Progress| {
             a.lock().unwrap().push(url.to_owned());
+            p.say("Installing: uv is downloading and building it");
             std::thread::sleep(Duration::from_millis(150));
             result.clone()
         }));
@@ -47,7 +49,10 @@ fn the_window_installs_a_public_engine_in_the_background_then_reloads() {
     h.state_mut().invoke("engine.install");
     h.run_steps(3);
     h.get_by_label("Install an Engine");
-    h.get_by_label("DuckDB: data files into tables, reshaped with SQL").click();
+    // the core's pick list (decision 5): the combo box, then the public engine
+    h.get_by_role(egui::accesskit::Role::ComboBox).click();
+    h.run_steps(2);
+    h.get_by_label("DuckDB").click();
     h.run_steps(2);
     h.get_by_label("Install").click();
     h.run_steps(2);
@@ -58,7 +63,7 @@ fn the_window_installs_a_public_engine_in_the_background_then_reloads() {
     until_done(&mut h);
     assert_eq!(*asked.lock().unwrap(), ["https://github.com/seantrue/plumcraft-duckdb-engine"]);
     assert_eq!(reloads.load(Ordering::SeqCst), 1, "the engine list is read again");
-    let said = h.state().last_error.clone().unwrap_or_default();
+    let said = h.state().last_error.text().unwrap_or_default();
     assert!(said.contains("installed and registered duckdb-engine") && said.contains("Engine menu offers it now"), "{said}");
     assert!(h.state().enabled("engine.install") && h.query_by_label("Install an Engine").is_none());
 }
@@ -72,7 +77,7 @@ fn a_failed_install_says_why_and_reloads_nothing() {
     assert_eq!(r["result"]["installing"], "https://github.com/someone/nothing", "{r}");
     until_done(&mut h);
     assert_eq!(reloads.load(Ordering::SeqCst), 0);
-    let said = h.state().last_error.clone().unwrap_or_default();
+    let said = h.state().last_error.text().unwrap_or_default();
     assert!(said.contains("someone/nothing") && said.contains("no such repository"), "{said}");
     // not a GitHub repository: refused at once
     let r = h.state_mut().control_now(&ctx, "command.run", &json!({"command": "engine.install", "params": {"repo": "not a repo"}}));

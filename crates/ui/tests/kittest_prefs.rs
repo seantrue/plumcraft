@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use common::{add, click, harness, session};
 use egui_kittest::Harness;
-use egui_kittest::kittest::Queryable;
+use egui_kittest::kittest::{NodeT, Queryable};
 use plumcraft_proto::catalogue::PathHint;
 use plumcraft_ui::{EditorApp, FileDialogs, prefs, theme};
 use serde_json::{Value, json};
@@ -129,9 +129,10 @@ fn an_unknown_theme_in_the_file_is_ignored_and_a_command_for_one_is_said() {
     std::fs::write(&file, r#"{"theme": "neon"}"#).unwrap();
     let (mut h, _) = editor(&file);
     assert_eq!(h.state().tokens.name, theme::DEFAULT.name);
-    h.state_mut().run("view.theme", &json!({"name": "neon"})).unwrap();
+    // the command for one is refused with the reason (N4 slice 4: as the core's look refuses it)
+    let e = h.state_mut().try_run("view.theme", &json!({"name": "neon"})).unwrap_err();
+    assert!(e.contains("no theme"), "{e}");
     h.run_steps(3);
-    assert!(h.state().last_error.as_deref().unwrap_or_default().contains("no theme"), "{:?}", h.state().last_error);
     assert_eq!(h.state().tokens.name, theme::DEFAULT.name);
 }
 
@@ -262,4 +263,56 @@ fn a_cancelled_dialog_remembers_nothing() {
     h.state_mut().invoke("graph.insert");
     assert!(h.state().prefs.prefs().dirs.is_empty());
     assert!(!file.exists(), "and writes nothing");
+}
+
+/// The system's appearance as egui reads it (`RawInput::system_theme`).
+fn system(h: &mut Harness<'static, EditorApp>, dark: bool) {
+    h.input_mut().system_theme = Some(if dark { egui::Theme::Dark } else { egui::Theme::Light });
+    h.run_steps(4);
+}
+
+/// Match the System (N4 slice 4; D6 of the egui audit): a new editor, with no theme chosen,
+/// follows the system's light or dark appearance, as the core's look does by default, and
+/// writes nothing for it; the Settings window's box says so, and unticking it keeps the theme
+/// shown as the choice.
+#[test]
+fn a_new_editor_matches_the_system_and_settings_can_turn_it_off_and_on() {
+    let dir = folder("match-system");
+    let file = dir.join("prefs.json");
+    let (mut h, _) = editor(&file);
+    system(&mut h, true);
+    assert_eq!(h.state().tokens.name, "dusk", "dark: Dusk");
+    system(&mut h, false);
+    assert_eq!(h.state().tokens.name, "paper", "light: Paper");
+    assert_eq!(prefs::Prefs::load_from(&file).theme, None, "following by default stores nothing");
+    open_settings(&mut h);
+    common::shot(&mut h, "match-the-system-on");
+    assert_eq!(h.get_by_label(plumcraft_ui::settings_view::MATCH_SYSTEM).accesskit_node().toggled(), Some(egui::accesskit::Toggled::True));
+    // off: the theme shown is kept as the choice, and the system no longer moves it
+    click(&mut h, plumcraft_ui::settings_view::MATCH_SYSTEM);
+    h.run_steps(4);
+    assert_eq!(prefs::Prefs::load_from(&file).theme.as_deref(), Some("paper"));
+    system(&mut h, true);
+    assert_eq!(h.state().tokens.name, "paper");
+    // on again: kept as the choice, and it follows
+    click(&mut h, plumcraft_ui::settings_view::MATCH_SYSTEM);
+    h.run_steps(4);
+    assert_eq!(prefs::Prefs::load_from(&file).theme.as_deref(), Some("system"));
+    assert_eq!(h.state().tokens.name, "dusk");
+    common::shot(&mut h, "match-the-system-dark");
+}
+
+/// A theme an existing user chose stays chosen: nothing moves it to the system's.
+#[test]
+fn a_stored_theme_is_kept() {
+    let dir = folder("kept-theme");
+    let file = dir.join("prefs.json");
+    let mut p = prefs::Store::at(file.clone());
+    p.set_theme("pewter");
+    let (mut h, _) = editor(&file);
+    system(&mut h, true);
+    assert_eq!(h.state().tokens.name, "pewter");
+    open_settings(&mut h);
+    assert_eq!(h.get_by_label(plumcraft_ui::settings_view::MATCH_SYSTEM).accesskit_node().toggled(), Some(egui::accesskit::Toggled::False));
+    assert_eq!(prefs::Prefs::load_from(&file).theme.as_deref(), Some("pewter"));
 }

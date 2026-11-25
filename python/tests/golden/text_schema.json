@@ -26,6 +26,14 @@
    "media": "scalar"
   },
   {
+   "id": "BOOL",
+   "media": "scalar"
+  },
+  {
+   "id": "ENUM",
+   "media": "scalar"
+  },
+  {
    "id": "TABLE",
    "color": "#4f86c6",
    "media": "table"
@@ -82,14 +90,6 @@
    "id": "ANY",
    "color": "#9ca3af",
    "media": "bytes"
-  },
-  {
-   "id": "BOOL",
-   "media": "scalar"
-  },
-  {
-   "id": "ENUM",
-   "media": "scalar"
   }
  ],
  "nodes": [
@@ -249,6 +249,35 @@
    },
    "memo": {
     "scope": "none"
+   }
+  },
+  {
+   "id": "seq.flatten",
+   "display": "Flatten",
+   "category": [
+    "Building blocks",
+    "Sequences"
+   ],
+   "description": "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.",
+   "inputs": [
+    {
+     "name": "list",
+     "type": "ANY",
+     "socket": "socket",
+     "tooltip": "A list of lists"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "list",
+     "type": "ANY",
+     "list": true,
+     "socket": "socket"
+    }
+   ],
+   "flags": {
+    "input_list": true,
+    "nested_input": true
    }
   },
   {
@@ -623,6 +652,40 @@
     "output": "text",
     "lossless": true
    }
+  },
+  {
+   "id": "text.gate",
+   "display": "Gate",
+   "category": [
+    "Text",
+    "Testing"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "open",
+     "type": "STRING",
+     "default": ""
+    },
+    {
+     "name": "timeout",
+     "type": "FLOAT",
+     "default": 60.0,
+     "min": 0.0,
+     "max": 600.0
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
   },
   {
    "id": "text.join",
@@ -1197,6 +1260,82 @@
    "family": "text"
   },
   {
+   "id": "text.widgets",
+   "display": "Every widget",
+   "category": [
+    "Text",
+    "Testing"
+   ],
+   "inputs": [
+    {
+     "name": "text",
+     "type": "TEXT",
+     "socket": "socket"
+    },
+    {
+     "name": "label",
+     "type": "STRING",
+     "default": "hello"
+    },
+    {
+     "name": "count",
+     "type": "INT",
+     "default": 3,
+     "min": 0.0,
+     "max": 10.0,
+     "step": 1.0
+    },
+    {
+     "name": "amount",
+     "type": "FLOAT",
+     "default": 0.5,
+     "min": 0.0,
+     "max": 1.0,
+     "decimals": 2
+    },
+    {
+     "name": "flag",
+     "type": "BOOL",
+     "default": true
+    },
+    {
+     "name": "mode",
+     "type": "ENUM",
+     "default": "upper",
+     "choices": [
+      "upper",
+      "lower",
+      "title"
+     ]
+    },
+    {
+     "name": "tags",
+     "type": "STRING",
+     "default": "",
+     "widget": "multichoice"
+    },
+    {
+     "name": "note",
+     "type": "STRING",
+     "default": "",
+     "widget": "multiline"
+    },
+    {
+     "name": "tint",
+     "type": "STRING",
+     "default": "#3366cc",
+     "widget": "hexcolor"
+    }
+   ],
+   "outputs": [
+    {
+     "name": "text",
+     "type": "TEXT"
+    }
+   ],
+   "family": "text"
+  },
+  {
    "id": "text.words",
    "display": "Word count",
    "category": [
@@ -1586,6 +1725,88 @@
    ]
   }
  ],
+ "save_formats": [
+  {
+   "id": "txt",
+   "label": "Text",
+   "extensions": [
+    "txt"
+   ],
+   "options": [],
+   "media": [
+    "text"
+   ]
+  },
+  {
+   "id": "csv",
+   "label": "CSV",
+   "extensions": [
+    "csv"
+   ],
+   "options": [],
+   "media": [
+    "table"
+   ]
+  },
+  {
+   "id": "json",
+   "label": "JSON",
+   "extensions": [
+    "json"
+   ],
+   "options": [],
+   "media": [
+    "tree",
+    "table"
+   ]
+  },
+  {
+   "id": "png",
+   "label": "PNG",
+   "extensions": [
+    "png"
+   ],
+   "options": [],
+   "media": [
+    "image",
+    "ndarray"
+   ]
+  },
+  {
+   "id": "jpeg",
+   "label": "JPEG",
+   "extensions": [
+    "jpg",
+    "jpeg"
+   ],
+   "options": [
+    {
+     "name": "quality",
+     "type": "INT",
+     "label": "Quality",
+     "default": 90,
+     "min": 1.0,
+     "max": 100.0
+    }
+   ],
+   "media": [
+    "image",
+    "ndarray"
+   ]
+  },
+  {
+   "id": "npy",
+   "label": "NumPy array",
+   "extensions": [
+    "npy"
+   ],
+   "options": [],
+   "media": [
+    "ndarray",
+    "audio"
+   ]
+  }
+ ],
  "compat": [
   {
    "from": "INT",
@@ -1630,6 +1851,22 @@
   {
    "from": "ANY",
    "to": "FLOAT"
+  },
+  {
+   "from": "BOOL",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "BOOL"
+  },
+  {
+   "from": "ENUM",
+   "to": "ANY"
+  },
+  {
+   "from": "ANY",
+   "to": "ENUM"
   },
   {
    "from": "TABLE",
@@ -1686,22 +1923,6 @@
   {
    "from": "ANY",
    "to": "CSV"
-  },
-  {
-   "from": "BOOL",
-   "to": "ANY"
-  },
-  {
-   "from": "ANY",
-   "to": "BOOL"
-  },
-  {
-   "from": "ENUM",
-   "to": "ANY"
-  },
-  {
-   "from": "ANY",
-   "to": "ENUM"
   }
  ]
 }

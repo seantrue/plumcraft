@@ -27,6 +27,8 @@ pub mod known {
     pub const DATA_CAS: &str = "data.cas";
     pub const DATA_MEM: &str = "data.mem";
     pub const BLOB_DERIVE: &str = "blob.derive";
+    /// `view.derive`: derived views of a value the engine can read (FR6, spec 10.5).
+    pub const VIEW_DERIVE: &str = "view.derive";
     pub const BLOB_RANGE: &str = "blob.range";
     pub const MEMO_LOOKUP: &str = "memo.lookup";
     pub const MEMO_PERSIST: &str = "memo.persist";
@@ -35,10 +37,16 @@ pub mod known {
     pub const ADMIN: &str = "admin";
     pub const HASH_B3: &str = "hash.b3";
     pub const OUTPUT_SAVE: &str = "output.save";
+    /// A save may ask the person instead of writing (`SaveRequest.ask`, `SaveReply.question`, spec 15).
+    pub const OUTPUT_SAVE_QUESTION: &str = "output.save.question";
     pub const EDITOR_CURVES: &str = "editor.curves";
     pub const EDITOR_MASK: &str = "editor.mask";
     pub const CODEC_JSON: &str = "codec.json";
     pub const CODEC_MSGPACK: &str = "codec.msgpack";
+    /// A step run once per item keeps each run's list as one item (spec 7.6 rule 2).
+    pub const LISTS_NESTED: &str = "lists.nested";
+    /// The engine answers `acknowledgements` with the licences of what it is built from (FR4).
+    pub const ACKNOWLEDGEMENTS: &str = "acknowledgements";
 
     /// Listed by the engine alone: on when the engine lists it (spec 5.3, "Who lists it").
     pub const ENGINE_ONLY: &[&str] = &[
@@ -49,14 +57,18 @@ pub mod known {
         GRAPH_PUT,
         DATA_CAS,
         BLOB_DERIVE,
+        VIEW_DERIVE,
         BLOB_RANGE,
         MEMO_LOOKUP,
         MEMO_PERSIST,
         MEMO_AUDIT,
         ADMIN,
         OUTPUT_SAVE,
+        OUTPUT_SAVE_QUESTION,
         EDITOR_CURVES,
         EDITOR_MASK,
+        LISTS_NESTED,
+        ACKNOWLEDGEMENTS,
     ];
 
     /// Is this a pack operation's capability (`x.<pack>.<op>`)? Those are engine-only too.
@@ -115,6 +127,10 @@ impl Caps {
 
     pub fn insert(&mut self, cap: impl Into<String>) {
         self.0.insert(cap.into());
+    }
+
+    pub fn remove(&mut self, cap: &str) {
+        self.0.remove(cap);
     }
 
     pub fn iter(&self) -> impl Iterator<Item = &str> {

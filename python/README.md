@@ -77,6 +77,22 @@ Outputs come from the return annotation:
 
 Engine class attributes: `id`, `name`, `version`, `salt` (default `py:<id>+<version>`), `dependencies` (the packages results depend on, such as `("opencv-python-headless",)`: their versions join the memo salt, so an upgrade never reuses an old result), `category`, `family`, `icon`, and `wires`: the wire types in catalogue order. Without `wires`, the catalogue lists the types in the order the nodes first use them; with it, a node using a type not listed is a `DeclarationError`. Subclasses inherit nodes and may override them.
 
+## Save Result
+
+An engine gets Save Result with no code: a node that outputs a core type offers the SDK's formats for it, and the editor's Save Result… (a result node's menu and footer, the Watched panel) writes the file through the engine. TEXT saves as `.txt`; TABLE as `.csv` or `.json`; JSON as `.json`; IMAGE as `.png` or `.jpg` (with a quality); ARRAY as `.png` (its pixels when 8-bit, else the viewer's `auto` view), `.jpg` or `.npy`; SVG as `.svg`; AUDIO as `.wav` (32-bit float or 16-bit) or `.npy`. The first format a node offers is what a bare file name gets. A format of your own is a `Format`, its options ports the editor asks for with a form:
+
+```python
+from plumcraft_engine import Engine, Text, node, save
+
+fmt = save.Format("shout", "Shouted Text", ("shout",), ("text",), "text/plain", lambda v, cx: (v.upper() + cx.options["mark"]).encode())
+class Loud(Engine):
+    id, save_formats = "loud", (fmt.with_option(save.option("mark", "Mark", "ENUM", "!", choices=["!", "?"])),)
+    @node("Shout", save_formats=["shout", "txt"])
+    def shout(self, text: str = "plum") -> Text: return text
+```
+
+`save_formats` on the class adds formats (one with a default's id replaces it); `@node(save_formats=[...])` gives a node its own list, in order (`[]` offers none); `engine.without_save_format("jpeg")` and `engine.without_default_save_formats()` take formats away. A save runs the graph for the node (a memo hit after a run), writes to the path the editor names (or returns the file, which the editor writes, when the engine is remote), saves a list as numbered files or, for Contact Sheet…, as one picture of every item (PNG and JPEG), writes the workflow's name and graph hash into PNG, WAV and SVG files (informational; no recipe is ever embedded), and reports a failure as data (`docs/interface.md` section 15).
+
 ## Values and errors
 
 Before the method runs, every input is checked against its port:
@@ -98,6 +114,8 @@ An engine is a Python package, so it ships as one: `uv build`, then `uv publish`
 - `register --print` shows the manifest without writing it, and `--folder DIR` writes it elsewhere.
 - The demo is the package's `examples/demo.json`. A generated project's wheel includes `examples/`.
 - A checkout's own link (`scripts/install`) is left alone unless `--force`, and `unregister` removes only a manifest `register` wrote.
+- Every path in the manifest is absolute, so it works from any folder. `register` refuses, writing nothing, when the program it would start isn't one this user can run (an engine run as `python engine.py register`).
+- Run from uv's cache (`uvx my-engine register`, `uv tool run`), `register` warns and still writes the manifest: `uv cache clean` or `uv cache prune` removes that environment, and the engine with it. Run from a temporary one (`uv run --with my-engine my-engine register`, which uv removes when the command ends), it refuses. `register.uv_cache(program)` says which; `uv tool install` is the install that lasts.
 
 **Pictures on nodes:** a picture file's value shows a thumbnail when it carries one. Make it with `image(data, pixels=array)`, or override `Engine.picture_thumb(blob)` to give Load Files' values one, returning (h, w, 4) uint8; the SDK itself decodes no pictures.
 
@@ -139,3 +157,5 @@ This writes a standalone uv project that depends on this SDK, which `scripts/edi
 ## The low-level layer
 
 The decorators compile to the layer underneath, which stays and is the escape hatch: a `Node` subclass with a `definition` dict (a NodeDef in protocol 2's JSON) and `run(inputs, cx) -> dict`, or `simple(definition, fn)`, added with `engine.with_node(...)` to a declared engine or to `Engine(info)`. Use it for what a signature can't say yet: variadic ports, `options`, `list` ports, `active_when`, `disabled_choices`, or ports whose shape depends on configuration.
+
+**The clock a node's work is measured on:** whether a result is worth persisting (spec 14.5) is weighed against the node's own work, measured on `engine.clock`, the machine's monotonic clock (`RealClock`) unless `engine.with_clock(clock)` gives another. A test gives a `VirtualClock`, which moves only when something sleeps on it (`clock.sleep(seconds)`) or `clock.advance(seconds)` moves it, so a node that sleeps 60 ms on it did exactly 60 ms of work however busy the machine is. `Clock` is the protocol both meet: `now()` in seconds and `sleep(seconds)`. The Rust crate has the same (`plumcraft_engine::clock`, `Engine::with_clock`).

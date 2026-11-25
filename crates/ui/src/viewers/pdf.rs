@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 
 use super::{ViewInput, Viewer};
 use crate::canvas::Action;
-use crate::media::{Job, Rgba, ZoomPan, draw_picture, key_of};
+use crate::media::{Job, Rgba, RgbaImage, ZoomPan, draw_picture, key_of};
 use crate::theme::Tokens;
 
 /// Points to pixels: 2 renders at 144 dpi.

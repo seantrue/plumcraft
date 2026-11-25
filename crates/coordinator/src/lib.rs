@@ -176,6 +176,26 @@ impl Coordinator {
                     None => Err(ProtoError::new(ErrorCode::UnknownOp, format!("no engine offers {:?}", m.chars().take(64).collect::<String>()))),
                 }
             }
+            // a derived view (FR6, spec 10.5): asked of each engine that lists the capability until
+            // one can read the value (an engine refuses one it doesn't hold); the last refusal
+            // otherwise, and the editor derives it itself
+            "view.derive" => {
+                let states = self.states();
+                let mut last = ProtoError::new(ErrorCode::UnknownOp, "no engine offers view.derive");
+                for e in self.engines() {
+                    let offers = states.iter().any(|(id, st)| {
+                        id == &e.id && matches!(st, EngineState::Connected { caps, .. } if caps.has(plumcraft_proto::caps::known::VIEW_DERIVE))
+                    });
+                    if !offers {
+                        continue;
+                    }
+                    match e.conn.call(method, params.clone()) {
+                        Ok(v) => return Ok(v),
+                        Err(err) => last = ProtoError::new(err.code, format!("engine {}: {}", e.id, err.message)),
+                    }
+                }
+                Err(last)
+            }
             // every engine may hold something of this graph; one without the capability refuses
             "graph.release" => {
                 for e in self.engines() {
@@ -193,7 +213,7 @@ impl Coordinator {
             "run" => {
                 let req: RunRequest = serde_json::from_value(params).map_err(|e| ProtoError::new(ErrorCode::BadParams, e.to_string()))?;
                 let (merged, parts) = self.catalogue(false)?;
-                let plan = plan::build(&req, &merged, &parts);
+                let plan = plan::build(&req, &merged, &parts).and_then(|p| lists_agree(&p, &self.states()).map(|()| p));
                 let engines = self.engines().into_iter().map(|e| (e.id, e.conn)).collect();
                 to_json(serde_json::to_value(runner::start(&self.runs, req, plan, engines)?))
             }
@@ -224,7 +244,7 @@ impl Coordinator {
         let id = SAVES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let run =
             RunRequest { run_id: format!("save-{}-{id}", std::process::id()), graph: req.graph.clone(), targets: vec![req.node.clone()], ..Default::default() };
-        let plan = match plan::build(&run, &merged, &parts) {
+        let plan = match plan::build(&run, &merged, &parts).and_then(|p| lists_agree(&p, &self.states()).map(|()| p)) {
             Ok(p) => p,
             Err(e) => return Ok(SaveReply::failed(e)),
         };
@@ -272,6 +292,30 @@ impl Coordinator {
     fn write(&self) -> RwLockWriteGuard<'_, Vec<SubEngine>> {
         self.engines.write().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
+}
+
+/// Refuse a plan with a wire between an engine that keeps each run's list apart (`lists.nested`,
+/// spec 7.6 rule 2) and one that joins them: the two would read the same list differently, so a
+/// slice or a whole-list port across that wire would take something else on each side (research
+/// note 27). The message names the wire and both engines.
+pub fn lists_agree(plan: &plan::Plan, states: &[(String, EngineState)]) -> Result<(), NodeError> {
+    use plumcraft_proto::caps::known::LISTS_NESTED;
+    let nested = |engine: &str| states.iter().any(|(id, st)| id == engine && matches!(st, EngineState::Connected { caps, .. } if caps.has(LISTS_NESTED)));
+    for c in &plan.crossings {
+        let (Some(a), Some(b)) = (plan.fragments.get(c.from_fragment), plan.fragments.get(c.to_fragment)) else { continue };
+        let (na, nb) = (nested(&a.engine), nested(&b.engine));
+        if na != nb {
+            let (keeps, joins) = if na { (&a.engine, &b.engine) } else { (&b.engine, &a.engine) };
+            return Err(NodeError::new(
+                NodeError::GRAPH,
+                format!(
+                    "This graph can't run: the wire from {}.{} to {}.{} goes from engine {} to engine {}, and engine {keeps} keeps a list per run when a step runs once per item while engine {joins} joins them into one list, so the two would read the same list differently. Update engine {joins}, or keep these steps on one engine.",
+                    c.from.0, c.from.1, c.to.0, c.to.1, a.engine, b.engine
+                ),
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// `graph` as a recipe holds it: naming the engines it needs in its `engines` (spec 8.2), its own
@@ -335,5 +379,41 @@ impl Connection for Coordinator {
     /// The first sub-engine that has the blob.
     fn resolve(&self, r: &DataRef) -> Option<Blob> {
         self.engines().iter().find_map(|e| e.conn.resolve(r))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plumcraft_proto::caps::{Caps, known};
+
+    use super::*;
+
+    fn state(nested: bool) -> EngineState {
+        let caps = if nested { Caps::new([known::LISTS_NESTED]) } else { Caps::default() };
+        EngineState::Connected { version: String::new(), nodes: 0, caps }
+    }
+
+    /// Nested lists (spec 7.6 rule 2): a wire between an engine that keeps each run's list and
+    /// one that joins them is refused, naming the wire and both engines; engines that agree run.
+    #[test]
+    fn a_border_between_engines_that_read_lists_differently_is_refused() {
+        let frag = |e: &str| plan::Fragment { engine: e.into(), ..Default::default() };
+        let plan = plan::Plan {
+            fragments: vec![frag("text"), frag("array")],
+            crossings: vec![plan::Crossing { from: ("a".into(), "out".into()), to: ("b".into(), "in".into()), slice: None, from_fragment: 0, to_fragment: 1 }],
+            order: Vec::new(),
+        };
+        let err = lists_agree(&plan, &[("text".into(), state(true)), ("array".into(), state(false))]).unwrap_err();
+        assert_eq!(err.kind, NodeError::GRAPH);
+        assert!(
+            err.message.contains("a.out to b.in") && err.message.contains("engine text keeps a list per run") && err.message.contains("engine array joins"),
+            "{}",
+            err.message
+        );
+        assert!(lists_agree(&plan, &[("text".into(), state(true)), ("array".into(), state(true))]).is_ok());
+        assert!(lists_agree(&plan, &[("text".into(), state(false)), ("array".into(), state(false))]).is_ok());
+        // no border: nothing to refuse
+        let one = plan::Plan { fragments: vec![frag("text")], ..Default::default() };
+        assert!(lists_agree(&one, &[("text".into(), state(false))]).is_ok());
     }
 }

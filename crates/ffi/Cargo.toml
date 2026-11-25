@@ -1,0 +1,60 @@
+[package]
+name = "plumcraft-ffi"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+description = "PlumCraft's C ABI for the native shells (docs/research/24-native-shells.md section 7): a core thread owning a session, asynchronous JSON requests, a payload-free wake, a poll, and borrowed bytes. Stage N0(b) spike."
+
+[lib]
+# staticlib: the Apple xcframework; cdylib: Android's jniLibs and the host-JVM test; rlib: the
+# Rust tests that call the ABI as a C caller would.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+# Not `workspace = true`: the workspace forbids `unsafe_code`, and this crate is golden rule 2's
+# named exception (the C ABI). Everything else the workspace sets is repeated here, plus a SAFETY
+# comment required on every unsafe block.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+undocumented_unsafe_blocks = "deny"
+
+[features]
+# The JNI shims (src/jni.rs): JSON as byte arrays, the bytes as a direct ByteBuffer.
+jni = ["dep:jni-sys"]
+
+[dependencies]
+# which build this is, for About (B151)
+plumcraft-build-stamp = { workspace = true }
+# The audio engine, compiled in (mode 1; the maintainer, 2026-11-21: "Compile array,audio,text
+# in"): registered with the editor core at open, since the core, which is published, can't depend
+# on its SoundCraft git crates. This library is never published.
+plumcraft-audio = { workspace = true }
+plumcraft-automation = { workspace = true }
+# Engines added beside the first (engine.add) go behind one.
+plumcraft-coordinator = { workspace = true }
+# The engine event pump (Link) and its Waker; starting the engine the config names (Launcher);
+# switching engines (Switchboard) and the engine worker.
+plumcraft-editor-core = { workspace = true }
+plumcraft-graph = { workspace = true }
+plumcraft-host = { workspace = true }
+# Values read through the engine and decoded on workers: what plum_blob and media.get lend.
+plumcraft-media = { workspace = true }
+plumcraft-proto = { workspace = true }
+plumcraft-session = { workspace = true }
+plumcraft-store = { workspace = true }
+serde_json = { workspace = true }
+# the version already in the lock (cpal's)
+jni-sys = { version = "0.4.1", optional = true }
+
+[dev-dependencies]
+plumcraft-scratch = { path = "../scratch" }
+# The test engine for the port and graph rows, served over HTTP from the conformance test (never
+# in the library)
+plumcraft-engine = { path = "../engine" }
+plumcraft-ports = { path = "../ports" }

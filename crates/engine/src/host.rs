@@ -471,6 +471,18 @@ impl Host {
                 Ok(serde_json::json!({}))
             }
             "events.poll" => json(&self.poll(n("since"), n("wait_ms"), s("run_id").as_deref())),
+            "acknowledgements" => {
+                let engine = self.shared.lock().engine.clone().ok_or_else(|| ProtoError::new(ErrorCode::Unavailable, "the engine isn't ready"))?;
+                match engine.acknowledgements() {
+                    Some(a) => json(a),
+                    None => Err(ProtoError::new(ErrorCode::UnknownOp, "this engine gives no acknowledgements")),
+                }
+            }
+            // a derived view of a value this engine can read (FR6, spec 10.5): the SDK's, not a node's
+            "view.derive" => {
+                let engine = self.shared.lock().engine.clone().ok_or_else(|| ProtoError::new(ErrorCode::Unavailable, "the engine isn't ready"))?;
+                crate::views::derive(engine.store(), &params)
+            }
             other if crate::is_pack_op(other) => self.pack_op(other, params),
             other => Err(ProtoError::new(ErrorCode::UnknownOp, format!("unknown op {:?}", other.chars().take(64).collect::<String>()))),
         }
@@ -518,7 +530,7 @@ fn set_state(shared: &Shared, state: EngineState) {
 /// either fails.
 fn build(shared: &Shared, factory: &mut Factory) -> Option<Option<Box<dyn EngineCore>>> {
     let built = factory().and_then(|engine| {
-        let state = EngineState::Connected { version: engine.info().version.clone(), nodes: engine.schema().nodes.len() as u64, caps: engine.caps().clone() };
+        let state = EngineState::Connected { version: engine.info().version.clone(), nodes: engine.schema().nodes.len() as u64, caps: engine.caps() };
         let core = engine.core().map(|make| make()).transpose()?;
         {
             let mut t = shared.lock();
@@ -602,7 +614,8 @@ fn worker_loop(shared: &Shared, mut factory: Factory, jobs: &Receiver<Work>) {
                 let plane = plane_of(shared, &engine);
                 let result = catch_unwind(AssertUnwindSafe(|| match core.as_mut() {
                     Some(c) => c.save(*req, &plane, &CancelToken::default()),
-                    None => SaveReply::unsupported(),
+                    // this crate's executor saves with the engine's formats (crate::save)
+                    None => crate::save::save(&engine, *req, &mut memo, &plane, &CancelToken::default(), &publisher),
                 }));
                 let failure = match result {
                     Ok(answer) => {
@@ -721,6 +734,62 @@ mod core_tests {
         assert_eq!(schema["nodes"][0]["id"], "c.one");
     }
 
+    /// FR4: an engine given acknowledgements lists the capability and answers them; one without
+    /// refuses the operation.
+    #[test]
+    fn acknowledgements_are_answered_under_their_capability() {
+        use plumcraft_proto::acknowledgements::{Acknowledgements, LicenceGroup, Package};
+        let list = Acknowledgements {
+            groups: vec![LicenceGroup {
+                licence: "MIT".into(),
+                text: "M".into(),
+                packages: vec![Package { name: "p".into(), ..Default::default() }],
+                ..Default::default()
+            }],
+            note: String::new(),
+        };
+        let given = list.clone();
+        let h = Host::start(
+            Box::new(move || Ok(Engine::new(EngineInfo { id: "a".into(), ..Default::default() }).with_store(None).with_acknowledgements(given.clone()))),
+            None,
+        );
+        let EngineState::Connected { caps, .. } = h.wait_ready(Duration::from_secs(5)) else { panic!("not connected") };
+        assert!(caps.has(plumcraft_proto::caps::known::ACKNOWLEDGEMENTS));
+        let got = Acknowledgements::from_value(h.dispatch("acknowledgements", serde_json::json!({})).unwrap());
+        assert_eq!(got, list);
+        let h = host();
+        h.wait_ready(Duration::from_secs(5));
+        assert!(h.dispatch("acknowledgements", serde_json::json!({})).is_err());
+    }
+
+    /// FR6: `view.derive` is the SDK's, under its capability: a 3-D array's histogram over all its
+    /// values (the maintainer's instance), refused with a reason for junk, never a panic.
+    #[test]
+    fn a_derived_view_is_answered_by_the_sdk() {
+        let h = Host::start(Box::new(move || Ok(Engine::new(EngineInfo { id: "a".into(), ..Default::default() }).with_store(None))), None);
+        let EngineState::Connected { caps, .. } = h.wait_ready(Duration::from_secs(5)) else { panic!("not connected") };
+        assert!(caps.has(plumcraft_proto::caps::known::VIEW_DERIVE));
+        let bytes: Vec<u8> = (0..24).flat_map(|i| (i as f32).to_le_bytes()).collect();
+        let a = crate::Array::new("<f4", vec![2, 3, 4], bytes);
+        let plane = crate::data::Plane { store: None, shm: true, urls: false, max_inline: 1 << 20 };
+        let r = plane.array_ref(&a).unwrap();
+        let got = h.dispatch("view.derive", serde_json::json!({"ref": r, "view": {"kind": "histogram", "params": {"bins": 4}}})).unwrap();
+        let counts: Vec<u64> = got["table"]["columns"][1]["values"].as_array().unwrap().iter().map(|v| v.as_u64().unwrap()).collect();
+        assert_eq!(counts, [6, 6, 6, 6], "{got}");
+        assert_eq!(got["meta"]["nan"], 0);
+        for junk in [
+            serde_json::json!(null),
+            serde_json::json!({"ref": r, "view": {"kind": "nope"}}),
+            serde_json::json!({"ref": 7, "view": {"kind": "stats"}}),
+            serde_json::json!({"ref": r, "view": {"kind": "stats"}, "extra": 1}),
+            serde_json::json!({"ref": {"meta": {"media": "x"}}, "view": {"kind": "stats"}}),
+        ] {
+            assert!(h.dispatch("view.derive", junk).is_err());
+        }
+        let tight = h.dispatch("view.derive", serde_json::json!({"ref": r, "view": {"kind": "histogram"}, "max_bytes": 10}));
+        assert!(tight.is_err(), "the answer is held to max_bytes");
+    }
+
     #[test]
     fn a_hostile_release_is_harmless() {
         let h = host();
@@ -779,12 +848,12 @@ mod core_tests {
     }
 
     #[test]
-    fn an_engine_with_no_core_of_its_own_says_it_cannot_save() {
+    fn an_engine_on_the_executor_refuses_what_it_cannot_save_as_config() {
         let info = EngineInfo { id: "plain".into(), name: "Plain".into(), ..Default::default() };
         let h = Host::start(Box::new(move || Ok(Engine::new(info.clone()).with_store(None))), None);
         h.wait_ready(Duration::from_secs(5));
         let r = saved(&h, "n");
-        assert!(!r.ok && r.error.unwrap().message.contains("not supported"));
+        assert!(!r.ok && r.error.as_ref().is_some_and(|e| e.kind == NodeError::CONFIG), "{r:?}");
     }
 
     #[test]

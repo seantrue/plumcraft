@@ -1,0 +1,66 @@
+# N0(a) canvas spike (docs/research/24-native-shells.md, sections 5.4 and 10).
+# Generate with `xcodegen generate`; build and bench with ./bench.sh.
+name: CanvasSpike
+options:
+  bundleIdPrefix: com.plumcraft.spike
+  deploymentTarget:
+    iOS: "18.0"
+    macOS: "15.0"
+  createIntermediateGroups: true
+packages:
+  CanvasKit:
+    path: CanvasKit
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+targets:
+  CanvasSpikeMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App/Mac
+    dependencies:
+      - package: CanvasKit
+    settings:
+      base:
+        PRODUCT_NAME: CanvasSpikeMac
+        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.spike.canvas.mac
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        ARCHS: arm64
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        ENABLE_HARDENED_RUNTIME: NO
+  CanvasSpikePad:
+    type: application
+    platform: iOS
+    sources:
+      - path: App/Pad
+    info:
+      path: App/Pad/Info.plist
+      properties:
+        CFBundleDisplayName: Canvas Spike
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        CADisableMinimumFrameDurationOnPhone: true
+        UIFileSharingEnabled: true
+        LSSupportsOpeningDocumentsInPlace: true
+    dependencies:
+      - package: CanvasKit
+    settings:
+      base:
+        PRODUCT_NAME: CanvasSpikePad
+        PRODUCT_BUNDLE_IDENTIFIER: com.plumcraft.spike.canvas
+        TARGETED_DEVICE_FAMILY: "2"
+        "ARCHS[sdk=iphonesimulator*]": arm64
+        # the signing team from the environment, as the apps' Config/*.xcconfig take it
+        # (PLUMCRAFT_TEAM_ID=<team id> ./bench.sh device); never written here
+        DEVELOPMENT_TEAM: $(PLUMCRAFT_TEAM_ID)
+        CODE_SIGN_STYLE: Automatic

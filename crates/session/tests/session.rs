@@ -111,6 +111,33 @@ fn a_slice_is_a_stale_reason() {
     assert_eq!(why[&plumcraft_graph::NodeId::from("b")], ["input text slice changed: none → [1:]"]);
 }
 
+/// Wiring, unwiring and rewiring each name the input, and everything downstream names the edited
+/// nodes that reach it (the wire indexes in `stale_reasons` must agree with a scan of every wire).
+#[test]
+fn stale_reasons_name_wire_changes_and_what_is_downstream() {
+    let graph = |wires: Value| {
+        let nodes = json!({"a": {"kind": "x"}, "b": {"kind": "x"}, "c": {"kind": "x"}, "d": {"kind": "x"}, "e": {"kind": "x"}});
+        plumcraft_graph::Graph::from_json(&json!({"version": 1, "nodes": nodes, "wires": wires}).to_string()).unwrap()
+    };
+    let w = |f: &str, fp: &str, t: &str, tp: &str| json!({"from": {"node": f, "port": fp}, "to": {"node": t, "port": tp}});
+    let before = graph(json!([w("a", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i"), w("a", "o", "e", "j")]));
+    // b's input moves from a to e; e loses its input; c and d are downstream of b
+    let after = graph(json!([w("e", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i")]));
+    let why = plumcraft_session::run::stale_reasons(&before, &after);
+    let id = plumcraft_graph::NodeId::from;
+    assert_eq!(why[&id("b")], ["input i now from e.o (was a.o)", "upstream e (x) changed"]);
+    assert_eq!(why[&id("e")], ["input j disconnected (was a.o)"]);
+    assert_eq!(why[&id("c")], ["upstream b (x), e (x) changed"]);
+    assert_eq!(why[&id("d")], ["upstream b (x), e (x) changed"]);
+    assert!(!why.contains_key(&id("a")));
+    // wiring a fresh input is named too
+    let why = plumcraft_session::run::stale_reasons(
+        &after,
+        &graph(json!([w("e", "o", "b", "i"), w("b", "o", "c", "i"), w("c", "o", "d", "i"), w("a", "o", "d", "k")])),
+    );
+    assert_eq!(why[&id("d")], ["input k wired from a.o"]);
+}
+
 #[test]
 fn edit_and_run_end_to_end() {
     let mut s = session();
@@ -554,4 +581,37 @@ fn a_removed_node_takes_its_watches_with_it() {
     let out = s.run.take_outbox();
     let Some(Outgoing::Run(req)) = out.iter().find(|o| matches!(o, Outgoing::Run(_))) else { panic!("{out:?}") };
     assert_eq!(req.watch.iter().map(|w| w.node.as_str()).collect::<Vec<_>>(), [keep.as_str()]);
+}
+
+/// Nested lists (spec 7.6 rule 2): `run.item` takes the item within the run as a path, keeps it
+/// while the run steps, and refuses a path that isn't whole numbers or goes too deep.
+#[test]
+fn run_item_takes_a_path_inside_a_run_and_keeps_it() {
+    use plumcraft_proto::display::Display;
+    use plumcraft_session::run::WatchRole;
+    let mut s = session();
+    let u = add(&mut s, "text.upper");
+    s.execute("run.watch", &json!({"node": u})).unwrap();
+    // the display a run brings (each step asks for another, and the next run brings it)
+    let shown = |s: &mut Session| {
+        let mut d = Display::default();
+        (d.items, d.levels, d.path) = (3, vec![3, 2], vec![0]);
+        s.run.watched[0] = Some(d);
+    };
+    shown(&mut s);
+    let r = s.execute("run.item", &json!({"index": 1, "path": [1]})).unwrap();
+    assert_eq!((r["index"].clone(), r["path"].clone()), (json!(1), json!([1])));
+    // stepping the run keeps the place within it
+    shown(&mut s);
+    let r = s.execute("run.item", &json!({"index": 2})).unwrap();
+    assert_eq!(r["path"], json!([1]));
+    let entry = s.run.entry(WatchRole::Panel).unwrap().0;
+    assert_eq!((entry.index, entry.path.clone()), (2, vec![1]));
+    // an empty path goes back to the run's first item
+    shown(&mut s);
+    assert_eq!(s.execute("run.item", &json!({"index": 2, "path": []})).unwrap()["path"], json!([]));
+    shown(&mut s);
+    assert!(s.execute("run.item", &json!({"index": 0, "path": ["a"]})).is_err());
+    assert!(s.execute("run.item", &json!({"index": 0, "path": [0, 0, 0, 0, 0, 0, 0, 0, 0]})).is_err());
+    assert!(s.execute("run.item", &json!({"index": 0, "path": 1})).is_err());
 }

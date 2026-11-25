@@ -59,8 +59,7 @@ impl EngineCore for Writing {
         self.last_cancelled = cancel.is_cancelled();
         let GraphRef::Inline { graph } = &req.graph else { panic!("inline") };
         let mut reply = RunReply { run_id: req.run_id.clone(), generation: req.generation, ok: true, ..Default::default() };
-        let thumb =
-            Rendition::Rgba8 { data: Default::default(), w: 4, h: 4, role: "view".into(), caption: String::new(), summary: String::new(), items: ITEMS };
+        let thumb = Rendition::rgba8(Default::default(), 4, 4).with_role("view").with_items(ITEMS, Vec::new());
         for id in graph["nodes"].as_object().unwrap().keys() {
             reply.nodes.insert(id.clone(), NodeReport { state: NodeState::Done, thumb: Some(thumb.clone()), ..Default::default() });
         }
@@ -69,7 +68,14 @@ impl EngineCore for Writing {
             .iter()
             .map(|w| {
                 let media = if w.port == "grid" { Media::Table } else { Media::Ndarray };
-                Display { node: w.node.clone(), port: w.port.clone(), media, items: ITEMS, index: w.index, summary: "a value".into(), ..Default::default() }
+                {
+                    let mut x = Display::new(w.node.clone(), w.port.clone());
+                    x.media = media;
+                    x.items = ITEMS;
+                    x.index = w.index;
+                    x.summary = "a value".into();
+                    x
+                }
             })
             .collect();
         reply
@@ -165,8 +171,21 @@ fn pump(h: &mut Harness<'static, EditorApp>, done: impl Fn(&Harness<'static, Edi
 }
 
 fn saved(h: &mut Harness<'static, EditorApp>) {
+    options_asked(h);
     pump(h, |h| h.state().session.save.pending.is_none() && h.state().session.save.last.is_some());
     h.run_steps(3);
+}
+
+/// The format's options, asked after the file (the core's form ask, Save Result as a basic
+/// feature): the form is the format's, and its Save sends what it shows. False when none was asked.
+fn options_asked(h: &mut Harness<'static, EditorApp>) -> bool {
+    h.run_steps(2);
+    let Some(form) = h.state().command_form.clone() else { return false };
+    assert_eq!(form.command, "run.save", "the save's own form");
+    assert_eq!((form.title.as_str(), form.fields.len(), form.fields[0].key.as_str()), ("Save as Note", 1, "quality"), "the format's options");
+    h.get_by_label(&form.submit).click();
+    h.run_steps(3);
+    true
 }
 
 /// Where the Watched panel starts, in a 1400 wide window. (A result node's own buttons have the
@@ -186,6 +205,7 @@ fn wrote(path: &Path) -> Value {
 fn a_result_nodes_button_asks_where_and_the_engine_writes_the_file() {
     let mut r = rig("result", Some("prints:pencil.note"));
     click_in_node(&mut r.h, "Save Result…");
+    assert!(options_asked(&mut r.h), "Note has an option: the core asks for it after the file");
     saved(&mut r.h);
     let offered = r.offered.lock().unwrap().clone();
     assert_eq!(offered.len(), 1, "{:?}", r.h.state().last_error);
@@ -239,7 +259,7 @@ fn a_list_offers_a_contact_sheet() {
     let got = wrote(&r.dir.join("sheet.note"));
     assert_eq!((&got["sheet"], &got["index"]), (&json!(true), &Value::Null));
     assert!(r.h.query_by_label_contains("saved a sheet of 3 as").is_some());
-    assert!(r.h.query_by_label_contains("without its recipe").is_some(), "the reply said it has none");
+    assert!(r.h.query_by_label_contains("recipe").is_none(), "no word of a recipe the file has none of (3C)");
 }
 
 #[test]
@@ -282,6 +302,7 @@ fn a_cancelled_dialog_saves_nothing() {
 fn the_window_stays_live_during_a_slow_save_and_one_goes_at_a_time() {
     let mut r = rig("slow", Some("slow.note"));
     click_in_node(&mut r.h, "Save Result…");
+    assert!(options_asked(&mut r.h));
     assert!(r.h.state().session.save.pending.is_some(), "still going: the frame didn't wait for it");
     r.h.run_steps(2);
     assert!(r.h.query_by_label_contains("saving ").is_some());
@@ -320,6 +341,28 @@ fn an_option_the_format_lists_reaches_the_engine_and_others_dont() {
     saved(h);
     let got = wrote(&r.dir.join("a.note"));
     assert_eq!(got["options"]["quality"], 7, "and a bare name takes the first format's extension");
+}
+
+/// The options form, as a person fills it in: a value out of range is refused in the window,
+/// which stays and says why; a good one reaches the engine.
+#[test]
+fn the_options_form_takes_what_is_typed_and_refuses_what_the_format_doesnt() {
+    let mut r = rig("form", Some("typed.note"));
+    click_in_node(&mut r.h, "Save Result…");
+    r.h.run_steps(2);
+    let submit = r.h.state().command_form.as_ref().map(|f| f.submit.clone()).expect("the options form");
+    r.h.state_mut().command_form.as_mut().unwrap().values[0] = "12".into();
+    r.h.get_by_label(&submit).click();
+    r.h.run_steps(3);
+    let said = r.h.state().command_form.as_ref().and_then(|f| f.error.clone()).unwrap_or_default();
+    assert!(said.contains("from 1 to 9"), "refused in the window, which stays: {said:?}");
+    assert_eq!(*r.saves.lock().unwrap(), 0, "nothing reached the engine");
+    r.h.state_mut().command_form.as_mut().unwrap().values[0] = "7".into();
+    r.h.get_by_label(&submit).click();
+    r.h.run_steps(3);
+    assert!(r.h.state().command_form.is_none(), "sent: the window closed");
+    pump(&mut r.h, |h| h.state().session.save.pending.is_none() && h.state().session.save.last.is_some());
+    assert_eq!(wrote(&r.dir.join("typed.note"))["options"]["quality"], 7);
 }
 
 #[test]

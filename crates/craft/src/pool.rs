@@ -282,6 +282,6 @@ pub fn default_root(id: &str) -> PathBuf {
         return PathBuf::from(r).join(id);
     }
     let home = plumcraft_proto::programs::home().unwrap_or_else(std::env::temp_dir);
-    let base = if cfg!(target_os = "macos") { home.join("Library/Caches") } else { home.join(".cache") };
+    let base = if cfg!(any(target_os = "macos", target_os = "ios")) { home.join("Library/Caches") } else { home.join(".cache") };
     base.join("plumcraft/craft").join(id)
 }

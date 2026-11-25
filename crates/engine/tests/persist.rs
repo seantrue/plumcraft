@@ -2,12 +2,17 @@
 //! the same store) as `cached`; a fast one, a `cache: never` one, one too big to be worth
 //! writing, and one whose time was setup are not persisted; `cache: always` is; a reaped value or
 //! a hostile record is a miss that recomputes, never an error.
+//!
+//! What isn't persisted is decided on a virtual clock (B37): there a node's work is exactly the
+//! time it sleeps, so a stall in allocating its outputs (memory compaction on a busy host made a
+//! 60 ms node measure over 320 ms) can't make a result look worth persisting.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use plumcraft_engine::clock::{Clock, RealClock, VirtualClock};
 use plumcraft_engine::data::Plane;
 use plumcraft_engine::exec::{self, Memo};
 use plumcraft_engine::{Array, Audio, Blob, BlobSource, CancelToken, Cx, Data, Emit, Engine, Inputs, List, Node, Outputs};
@@ -21,12 +26,13 @@ use plumcraft_proto::session::EngineInfo;
 use plumcraft_store::Store;
 use serde_json::{Value, json};
 
-/// Sleeps `ms` (of which `setup` counts as setup), then makes one of every kind of value from
-/// `n`, `big` bytes of array; counts its runs.
+/// Sleeps `ms` on `clock` (of which `setup` counts as setup), then makes one of every kind of
+/// value from `n`, `big` bytes of array; counts its runs.
 struct Slow {
     id: &'static str,
     scope: MemoScope,
     runs: Arc<AtomicUsize>,
+    clock: Arc<dyn Clock>,
 }
 
 impl Node for Slow {
@@ -47,7 +53,7 @@ impl Node for Slow {
     fn run(&self, i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
         self.runs.fetch_add(1, Ordering::SeqCst);
         let get = |k: &str| i.get(k).and_then(Data::json).and_then(Value::as_u64).unwrap_or(0);
-        std::thread::sleep(Duration::from_millis(get("ms")));
+        self.clock.sleep(Duration::from_millis(get("ms")));
         cx.setup_took(Duration::from_millis(get("setup")));
         let n = get("n");
         let text = format!("{{\"n\": {n}}} ").repeat(20_000);
@@ -87,16 +93,23 @@ fn root(name: &str) -> PathBuf {
     d
 }
 
-/// A fresh engine (as after a restart) over the store at `store`, persisting at 40 ms.
+/// A fresh engine (as after a restart) over the store at `store`, persisting at 40 ms, on the
+/// real clock.
 fn engine(store: &std::path::Path, salt: &str) -> (Engine, Arc<AtomicUsize>) {
+    engine_on(store, salt, Arc::new(RealClock::default()))
+}
+
+/// [`engine`], its nodes sleeping and their work measured on `clock`.
+fn engine_on(store: &std::path::Path, salt: &str, clock: Arc<dyn Clock>) -> (Engine, Arc<AtomicUsize>) {
     let runs = Arc::new(AtomicUsize::new(0));
     let info = EngineInfo { id: "t".into(), salt: salt.into(), ..Default::default() };
     let e = Engine::new(info)
         .with_store(Some(store.to_path_buf()))
         .with_persist_ms(Some(40.0))
+        .with_clock(Arc::clone(&clock))
         .with_wire_type(WireType { id: "ANYTHING".into(), media: Media::Tree, ..Default::default() })
-        .with_node(Box::new(Slow { id: "t.slow", scope: MemoScope::Machine, runs: runs.clone() }))
-        .with_node(Box::new(Slow { id: "t.session", scope: MemoScope::Session, runs: runs.clone() }));
+        .with_node(Box::new(Slow { id: "t.slow", scope: MemoScope::Machine, runs: runs.clone(), clock: Arc::clone(&clock) }))
+        .with_node(Box::new(Slow { id: "t.session", scope: MemoScope::Session, runs: runs.clone(), clock }));
     (e, runs)
 }
 
@@ -111,12 +124,13 @@ fn run(e: &Engine, node: Value, memo: &str) -> RunReply {
     exec::run(e, &req, &mut Log, &CancelToken::default(), "test", &mut Memo::default(), &plane)
 }
 
-/// Run `node` in one engine, then in a fresh one over the same store: (its state there, how many
-/// times it ran in all).
+/// Run `node` in one engine, then in a fresh one over the same store, both on a virtual clock:
+/// (its state there, how many times it ran in all).
 fn twice(store: &std::path::Path, node: Value) -> (NodeState, usize) {
-    let (a, runs_a) = engine(store, "s");
+    let clock: Arc<dyn Clock> = VirtualClock::new();
+    let (a, runs_a) = engine_on(store, "s", Arc::clone(&clock));
     assert_eq!(run(&a, node.clone(), "use").nodes["n"].state, NodeState::Done);
-    let (b, runs_b) = engine(store, "s");
+    let (b, runs_b) = engine_on(store, "s", clock);
     let r = run(&b, node, "use");
     (r.nodes["n"].state, runs_a.load(Ordering::SeqCst) + runs_b.load(Ordering::SeqCst))
 }
@@ -160,15 +174,32 @@ fn fast_never_session_too_big_and_setup_bound_results_are_not_persisted() {
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 1, "ms": 0}})), (NodeState::Done, 2), "fast");
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 2, "ms": 60}, "cache": "never"})), (NodeState::Done, 2), "never");
     assert_eq!(twice(&store, json!({"kind": "t.session", "values": {"n": 3, "ms": 60}})), (NodeState::Done, 2), "session scope");
-    // 32 MB made in 60 ms: writing and reading it back (~320 ms) isn't worth it. (8 MB, ~80 ms,
-    // left too little margin: on a Windows VM the 60 ms node measured over 80 ms in debug builds,
-    // from sleep overshoot and the allocation, and was persisted two runs in three.)
+    // 32 MB made in 60 ms: writing and reading it back (~320 ms) isn't worth it. On the real
+    // clock this failed on busy hosts (B37): allocating the 32 MB stalled for over 260 ms.
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 4, "ms": 60, "big": 32_000_000}})), (NodeState::Done, 2), "too big");
     // 60 ms, all of it setup (a process start): the work itself was trivial.
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 5, "ms": 60, "setup": 60}})), (NodeState::Done, 2), "setup");
     // `always` persists a fast one, and a junk `cache` value is `auto`.
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 6, "ms": 0}, "cache": "always"})), (NodeState::Cached, 1), "always");
     assert_eq!(twice(&store, json!({"kind": "t.slow", "values": {"n": 8, "ms": 0}, "cache": ["junk"]})), (NodeState::Done, 2), "junk is auto");
+}
+
+/// B37: the rule itself, pinned either side of its limit. About 32.18 MB of outputs costs
+/// 321.8 ms to write and read back (twice their size at 200 MB/s): after 300 ms of work they
+/// aren't worth persisting, after 345 ms (what the 60 ms node measured on a stalled host) they
+/// are. The rule stays as it is (the maintainer, 2026-11-21: "Leave the rule").
+#[test]
+fn too_big_is_weighed_against_the_work_measured() {
+    let store = root("limit");
+    let big = |n: u64, ms: u64| json!({"kind": "t.slow", "values": {"n": n, "ms": ms, "big": 32_000_000}});
+    assert_eq!(twice(&store, big(10, 300)), (NodeState::Done, 2), "under the limit: not worth it");
+    assert_eq!(twice(&store, big(11, 345)), (NodeState::Cached, 1), "over it: persisted");
+    // and the work is the clock's, not the machine's: a node that sleeps no time on it did none
+    let clock = VirtualClock::new();
+    let (e, _) = engine_on(&store, "s", clock.clone());
+    let r = run(&e, json!({"kind": "t.slow", "values": {"n": 12, "ms": 0, "big": 32_000_000}}), "use");
+    assert_eq!(r.nodes["n"].memo.as_ref().and_then(|m| m.computed_ms), Some(0.0), "{:?}", r.nodes["n"].memo);
+    assert_eq!(clock.now(), Duration::ZERO);
 }
 
 #[test]

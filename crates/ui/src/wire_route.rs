@@ -7,13 +7,13 @@
 //!
 //! **The curve:** a Catmull-Rom spline through the output pin, the bend points and the input
 //! pin, drawn as cubic Béziers. It leaves the output and enters the input horizontally, as
-//! snarl's wires do.
+//! snarl's wires do. Its geometry is the core's ([`plumcraft_editor_core::wire_path`], stage N1).
 //!
 //! **Editing:**
 //! - right-click a wire › Add Bend Point (at the click);
 //! - drag a bend point to move it;
 //! - double-click one to remove it;
-//! - right-click › Straighten removes them all.
+//! - right-click › Route Automatically removes them all; Make Right-Angled squares them (B155).
 //!
 //! Each edit is one `wire.route`: one undo step, and nothing goes stale.
 
@@ -23,11 +23,11 @@ use plumcraft_graph::{Graph, PortRef};
 use plumcraft_proto::catalogue::SchemaReply;
 use serde_json::json;
 
-use crate::canvas::{Action, Canvas};
-use crate::run_view::PinKey;
+use plumcraft_editor_core::wire_path;
 
-/// Samples per curve segment.
-const STEPS: usize = 24;
+use crate::canvas::{Action, Canvas};
+use crate::plain::{ToCore, ToEgui};
+use crate::run_view::PinKey;
 /// A bend point's handle radius, in screen points.
 pub const HANDLE: f32 = 5.0;
 
@@ -62,66 +62,27 @@ pub fn wire_color(graph: &Graph, catalog: &SchemaReply, from: &PortRef, fallback
         .unwrap_or(fallback)
 }
 
-/// The smooth curve through `points` (pin, bend points, pin), sampled: Catmull-Rom tangents
-/// inside, horizontal ones at the two pins.
+/// The smooth curve through `points` (pin, bend points, pin), sampled
+/// ([`plumcraft_editor_core::wire_path::smooth_path`], in egui's points).
 pub fn smooth_path(points: &[Pos2]) -> Vec<Pos2> {
-    let n = points.len();
-    if n < 2 {
-        return points.to_vec();
-    }
-    let at = |i: usize| points.get(i).copied().unwrap_or(Pos2::ZERO);
-    let tangent = |i: usize| -> Vec2 {
-        if i == 0 {
-            Vec2::new((at(1) - at(0)).length(), 0.0)
-        } else if i == n - 1 {
-            Vec2::new((at(n - 1) - at(n - 2)).length(), 0.0)
-        } else {
-            (at(i + 1) - at(i - 1)) * 0.5
-        }
-    };
-    let mut out = Vec::with_capacity((n - 1) * STEPS + 1);
-    out.push(at(0));
-    for i in 0..n - 1 {
-        let (p0, p3) = (at(i), at(i + 1));
-        let (p1, p2) = (p0 + tangent(i) / 3.0, p3 - tangent(i + 1) / 3.0);
-        for k in 1..=STEPS {
-            let t = k as f32 / STEPS as f32;
-            let u = 1.0 - t;
-            let p = p0.to_vec2() * (u * u * u) + p1.to_vec2() * (3.0 * u * u * t) + p2.to_vec2() * (3.0 * u * t * t) + p3.to_vec2() * (t * t * t);
-            out.push(p.to_pos2());
-        }
-    }
-    out
+    let core: Vec<_> = points.iter().map(|p| p.to_core()).collect();
+    wire_path::smooth_path(&core).into_iter().map(ToEgui::to_egui).collect()
 }
 
 /// The distance from `p` to a sampled path.
 pub fn path_distance(path: &[Pos2], p: Pos2) -> f32 {
-    path.windows(2)
-        .filter_map(|w| match w {
-            [a, b] => {
-                let ab = *b - *a;
-                let t = if ab.length_sq() > 0.0 { ((p - *a).dot(ab) / ab.length_sq()).clamp(0.0, 1.0) } else { 0.0 };
-                Some((*a + ab * t).distance(p))
-            }
-            _ => None,
-        })
-        .fold(f32::INFINITY, f32::min)
+    let core: Vec<_> = path.iter().map(|p| p.to_core()).collect();
+    wire_path::path_distance(&core, p.to_core())
 }
 
 /// Where a new bend point at `q` goes among `via` (wire from `a` to `b`): before the first
 /// control point after the closest stretch of the curve.
 pub fn insert_index(a: Pos2, via: &[[i32; 2]], b: Pos2, q: Pos2) -> usize {
-    let mut points = vec![a];
-    points.extend(via.iter().map(as_pos));
-    points.push(b);
-    let path = smooth_path(&points);
-    // the closest sample, then which segment (STEPS samples each) it lies on
-    let (best, _) = path.iter().enumerate().map(|(i, s)| (i, s.distance(q))).fold((0, f32::INFINITY), |acc, x| if x.1 < acc.1 { x } else { acc });
-    (best.saturating_sub(1) / STEPS).min(via.len())
+    wire_path::insert_index(a.to_core(), via, b.to_core(), q.to_core())
 }
 
 fn as_pos(v: &[i32; 2]) -> Pos2 {
-    Pos2::new(v[0] as f32, v[1] as f32)
+    wire_path::as_point(v).to_egui()
 }
 
 impl Canvas {
@@ -141,41 +102,52 @@ impl Canvas {
             .enumerate()
             .filter_map(|(i, r)| {
                 let (a, b) = (*pins.get(&PinKey::Out(r.out))?, *pins.get(&PinKey::In(r.inp))?);
+                let via = self.shown_via(r);
+                // bend points that line up are a right-angled route (B155): its straight legs, as
+                // the core draws it for the native shells (here with square corners)
+                if let Some(c) = wire_path::orthogonal_corners(a.to_core(), b.to_core(), via) {
+                    return Some((i, c.into_iter().map(ToEgui::to_egui).collect(), r.color));
+                }
                 let mut points = vec![a];
-                points.extend(self.shown_via(r).iter().map(as_pos));
+                points.extend(via.iter().map(as_pos));
                 points.push(b);
                 Some((i, smooth_path(&points), r.color))
             })
             .collect()
     }
 
-    /// The routed wire under a screen position (within a few screen points), if any.
+    /// Every wire the canvas draws itself rather than snarl, with its ports, its curve (graph
+    /// coordinates) and its colour: those with bend points, and those the core routes backward
+    /// round the faces ([`crate::shown`], N4 slice 4).
+    pub(crate) fn drawn_paths(&self) -> Vec<(PortRef, PortRef, Vec<Pos2>, Color32)> {
+        let mut out: Vec<_> =
+            self.routed_paths().into_iter().filter_map(|(i, path, color)| self.routed.get(i).map(|r| (r.from.clone(), r.to.clone(), path, color))).collect();
+        out.extend(self.backward.iter().map(|b| (b.from.clone(), b.to.clone(), b.path.clone(), b.color)));
+        out
+    }
+
+    /// The wire the canvas draws itself under a screen position (within a few screen points),
+    /// if any: one with bend points, or one routed backward.
     pub fn routed_at(&self, screen: Pos2) -> Option<(PortRef, PortRef)> {
         let scale = self.to_global.scaling.max(0.05);
         let p = self.to_global.inverse() * screen;
-        self.routed_paths()
+        self.drawn_paths()
             .into_iter()
-            .map(|(i, path, _)| (i, path_distance(&path, p) * scale))
-            .filter(|(_, d)| *d <= crate::canvas::WIRE_HIT)
-            .min_by(|a, b| a.1.total_cmp(&b.1))
-            .and_then(|(i, _)| self.routed.get(i).map(|r| (r.from.clone(), r.to.clone())))
+            .map(|(from, to, path, _)| (from, to, path_distance(&path, p) * scale))
+            .filter(|(.., d)| *d <= crate::canvas::WIRE_HIT)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(from, to, _)| (from, to))
     }
 
-    /// Routed wires' midpoints on screen, with their ports.
+    /// The midpoints on screen of the wires the canvas draws itself, with their ports.
     pub(crate) fn routed_midpoints(&self) -> Vec<(Pos2, PortRef, PortRef)> {
-        self.routed_paths()
-            .into_iter()
-            .filter_map(|(i, path, _)| {
-                let r = self.routed.get(i)?;
-                Some((self.to_global * *path.get(path.len() / 2)?, r.from.clone(), r.to.clone()))
-            })
-            .collect()
+        self.drawn_paths().into_iter().filter_map(|(from, to, path, _)| Some((self.to_global * *path.get(path.len() / 2)?, from, to))).collect()
     }
 
-    /// The point `t` (0 to 1) of the way along the bent wire into `to`, on screen (tests and
-    /// the control channel click it).
+    /// The point `t` (0 to 1) of the way along the wire into `to` the canvas draws itself (bent,
+    /// or routed backward), on screen (tests and the control channel click it).
     pub fn routed_point(&self, to: &PortRef, t: f32) -> Option<Pos2> {
-        let (_, path, _) = self.routed_paths().into_iter().find(|(i, ..)| self.routed.get(*i).is_some_and(|r| &r.to == to))?;
+        let (.., path, _) = self.drawn_paths().into_iter().find(|(_, x, ..)| x == to)?;
         let k = ((path.len().saturating_sub(1)) as f32 * t.clamp(0.0, 1.0)).round() as usize;
         Some(self.to_global * *path.get(k)?)
     }
@@ -252,15 +224,8 @@ impl Canvas {
                 {
                     actions.push(("wire.route", json!({"to": drag.to, "via": drag.via})));
                 }
-                // egui counts a click within 0.6 s of the one before last as a triple click and
-                // then reports no double click: either removes the point.
-                if resp.double_clicked() || resp.triple_clicked() {
-                    let mut fewer = r.via.clone();
-                    if k < fewer.len() {
-                        fewer.remove(k);
-                        actions.push(("wire.route", json!({"to": r.to, "via": fewer})));
-                    }
-                }
+                // (a double click removes the point: the core's double tap on a bend, sent with the
+                // canvas's clicks, crate::edit_view)
             }
         }
         // a right-click on a routed wire: the wire menu (snarl doesn't know these wires)
@@ -275,40 +240,5 @@ impl Canvas {
             self.wire_menu = Some(crate::canvas::WireMenu { screen_pos: p, from, to, fresh: true });
         }
         actions
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_curve_passes_through_its_points_and_leaves_pins_level() {
-        let pts = [Pos2::new(0.0, 0.0), Pos2::new(100.0, 80.0), Pos2::new(200.0, 0.0)];
-        let path = smooth_path(&pts);
-        assert_eq!(path.len(), 2 * STEPS + 1);
-        assert_eq!(path[0], pts[0]);
-        assert!((path[STEPS] - pts[1]).length() < 1e-3, "through the bend point");
-        assert!((path[2 * STEPS] - pts[2]).length() < 1e-3);
-        // leaving the output: heading right, level at first
-        let first = path[1] - path[0];
-        assert!(first.x > 0.0 && first.y.abs() < first.x * 0.6, "{first:?}");
-        // entering the input from the left
-        let last = path[2 * STEPS] - path[2 * STEPS - 1];
-        assert!(last.x > 0.0 && last.y.abs() < last.x * 0.6, "{last:?}");
-        assert!(path_distance(&path, Pos2::new(100.0, 80.0)) < 1e-3);
-        assert!(path_distance(&path, Pos2::new(100.0, 300.0)) > 100.0);
-        assert_eq!(smooth_path(&pts[..1]).len(), 1);
-        assert_eq!(path_distance(&[], Pos2::ZERO), f32::INFINITY);
-    }
-
-    #[test]
-    fn a_new_bend_point_goes_where_it_was_clicked() {
-        let (a, b) = (Pos2::new(0.0, 0.0), Pos2::new(400.0, 0.0));
-        let via = [[100, 100], [300, 100]];
-        assert_eq!(insert_index(a, &via, b, Pos2::new(40.0, 50.0)), 0, "before the first");
-        assert_eq!(insert_index(a, &via, b, Pos2::new(200.0, 110.0)), 1, "between them");
-        assert_eq!(insert_index(a, &via, b, Pos2::new(370.0, 40.0)), 2, "after the last");
-        assert_eq!(insert_index(a, &[], b, Pos2::new(200.0, 0.0)), 0);
     }
 }

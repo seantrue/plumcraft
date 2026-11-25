@@ -1,0 +1,83 @@
+{
+ "name": "a step with an item input and a whole-list input",
+ "about": "A list of 3 strings feeds both the item input of Item and List and, through Items (which makes a list of words a run, so 3 lists of 2), its whole-list input. Nested: both arrive on the same outer axis, so the step runs 3 times, each with one string and that run's 2 words. Today: the words are joined into one list of 6, and every run gets all 6.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "v": {
+    "kind": "vary.string",
+    "engine": "text",
+    "values": {
+     "values": "a b, c d, e f"
+    }
+   },
+   "w": {
+    "kind": "ports.items",
+    "engine": "ports"
+   },
+   "m": {
+    "kind": "ports.mixed",
+    "engine": "ports"
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "v",
+     "port": "values"
+    },
+    "to": {
+     "node": "w",
+     "port": "words"
+    }
+   },
+   {
+    "from": {
+     "node": "v",
+     "port": "values"
+    },
+    "to": {
+     "node": "m",
+     "port": "item"
+    }
+   },
+   {
+    "from": {
+     "node": "w",
+     "port": "items"
+    },
+    "to": {
+     "node": "m",
+     "port": "items"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "m.text": {
+   "shape": [
+    3
+   ],
+   "values": [
+    "a b: a,b",
+    "c d: c,d",
+    "e f: e,f"
+   ]
+  }
+ },
+ "today": {
+  "m.text": {
+   "shape": [
+    3
+   ],
+   "values": [
+    "a b: a,b,c,d,e,f",
+    "c d: a,b,c,d,e,f",
+    "e f: a,b,c,d,e,f"
+   ]
+  }
+ }
+}

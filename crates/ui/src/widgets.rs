@@ -19,6 +19,9 @@ use serde_json::Value;
 /// Where an edit is kept: a node and the value key (`port` or `port.sub`).
 pub type EditKey = (NodeId, String);
 
+// What a widget shows of a value, and which ports get one: the core's (N2 slice 2).
+pub use plumcraft_editor_core::widget_text::{BLANK, choice_text, decimals_of, disabled_reason, float_decimals, has_editor, inactive_note, value_text};
+
 /// Values being edited and not yet committed.
 #[derive(Debug, Default, Clone)]
 pub struct EditBuffers {
@@ -44,58 +47,11 @@ impl EditBuffers {
     }
 }
 
-/// The number of decimals in a JSON number as written (`0.375` → 3, `2.0` → 1, `7` → 0).
-pub fn decimals_of(v: &Value) -> usize {
-    match v {
-        Value::Number(n) if n.is_f64() => {
-            let s = n.to_string();
-            if s.contains(['e', 'E']) {
-                return 6;
-            }
-            s.split_once('.').map_or(0, |(_, frac)| frac.len())
-        }
-        _ => 0,
-    }
-}
-
-/// Decimals to show for a FLOAT port: the port's `decimals`, but never fewer than its default
-/// (or its current value) has, so a value is never rounded away (the research software's mosaic `tilesize`
-/// 0.375).
-pub fn float_decimals(port: &Port, current: &Value) -> usize {
-    let declared = port.decimals.map_or(0, |d| d.min(12) as usize);
-    let floor = decimals_of(&port.default).max(decimals_of(current));
-    let d = declared.max(floor);
-    if port.decimals.is_none() && d == 0 { 1 } else { d.min(12) }
-}
-
 pub(crate) fn range_f64(port: &Port) -> std::ops::RangeInclusive<f64> {
     let lo = port.min.filter(|v| v.is_finite()).unwrap_or(f64::NEG_INFINITY);
     let hi = port.max.filter(|v| v.is_finite()).unwrap_or(f64::INFINITY);
     if lo <= hi { lo..=hi } else { hi..=lo }
 }
-
-/// Text for a value as shown read-only.
-pub fn value_text(v: &Value) -> String {
-    match v {
-        Value::Null => "—".into(),
-        Value::String(s) if s.is_empty() => "(blank)".into(),
-        Value::String(s) => s.clone(),
-        other => other.to_string(),
-    }
-}
-
-/// A choice as shown in a combo box (`""` is "(blank)").
-pub fn choice_text(v: &Value) -> String {
-    match v {
-        Value::String(s) if s.is_empty() => "(blank)".into(),
-        Value::String(s) => s.clone(),
-        Value::Null => "(none)".into(),
-        other => other.to_string(),
-    }
-}
-
-/// How a blank number (JSON null: the engine's own fallback applies) is shown.
-pub const BLANK: &str = "blank";
 
 /// For a number whose default is blank: a small button that makes it blank again. Its hover
 /// text is the engine's (`texts.blank_value`) when it gives one.
@@ -105,11 +61,6 @@ fn clear_button(ui: &mut egui::Ui, port: &Port, current: &Value, blank_hint: Opt
     }
     let r = ui.small_button("×").on_hover_text(blank_hint.unwrap_or("Blank: use the engine's fallback"));
     r.clicked().then_some(Value::Null)
-}
-
-/// Does this port show an editable widget kind PlumCraft knows (a scalar or a choice)?
-pub fn has_editor(port: &Port) -> bool {
-    scalars::is_scalar(&port.ty) || port.choices.is_some() || matches!(port.widget.as_deref(), Some(hints::COLOR | hints::HEX_COLOR))
 }
 
 /// Draw the widget for `port` with value `current`; returns a value to commit with `node.set`.
@@ -455,13 +406,6 @@ fn enum_widget(
     picked
 }
 
-/// Why choice `c` of `port` can't be picked on this machine (`Port::disabled_choices`), or
-/// None.
-pub fn disabled_reason<'a>(port: &'a Port, c: &Value) -> Option<&'a str> {
-    let key = c.as_str().map_or_else(|| c.to_string(), str::to_owned);
-    port.disabled_choices.as_ref()?.get(&key).map(String::as_str)
-}
-
 /// A choice as a selectable label, greyed out (with its reason on hover) when it can't run
 /// here. A disabled choice that is the current value still shows as selected.
 pub fn choice_button(ui: &mut egui::Ui, port: &Port, c: &Value, selected: bool) -> egui::Response {
@@ -471,24 +415,6 @@ pub fn choice_button(ui: &mut egui::Ui, port: &Port, c: &Value, selected: bool) 
             ui.add_enabled(false, egui::Button::selectable(selected, choice_text(c))).on_disabled_hover_text(format!("Not available here: {reason}"))
         }
     }
-}
-
-/// When `port` (a setting its node reads only on some branches, `Port::active_when`) is not
-/// read with the node's current values: the text saying when it is. `value_of` gives a
-/// setting's current value by its port key (`section.name`); settings the node has no port
-/// for count as matching.
-pub fn inactive_note(port: &Port, value_of: impl Fn(&str) -> Option<Value>) -> Option<String> {
-    let when = port.active_when.as_ref()?;
-    let mut unmet = Vec::new();
-    for (setting, values) in when {
-        if let Some(v) = value_of(setting)
-            && !values.contains(&v)
-        {
-            let shown: Vec<String> = values.iter().map(choice_text).collect();
-            unmet.push(format!("{setting} is {}", shown.join(" or ")));
-        }
-    }
-    (!unmet.is_empty()).then(|| format!("Not used now: read only when {}.", unmet.join(" and ")))
 }
 
 #[cfg(test)]

@@ -1,0 +1,224 @@
+// What every Apple app on the kit does to start (N3 slice 5, moved out of the Mac app so the iPad
+// app shares it): the core's config (contract 4.1) built from what the app knows of its platform,
+// the one core opened, and the core's own first, untitled document closed, since these apps open
+// one core document per window or scene (decision 8).
+
+import Foundation
+import PlumCraft
+import PlumCraftModels
+
+/// The core's config, as an app on the kit fills it in (contract 4.1).
+public struct ShellConfig: Sendable {
+    public var appID: String
+    public var appName: String
+    public var version: String
+    /// The store's root (also `dirs.store`).
+    public var storeRoot: String
+    /// This program's own build stamp (`app.built`, B151): the main bundle's by default.
+    public var built: JSONValue? = BuildStamp.json(from: Bundle.main.infoDictionary ?? [:])
+    /// `dirs.*` besides the store (`documents`, `caches`, `scratch`, `prefs`, `logs`).
+    public var dirs: [String: String] = [:]
+    /// `platform` (contract 4.2), as the app declares it.
+    public var platform: [String: JSONValue] = [:]
+    public var displayScale: Double = 2
+    public var frameMs: Double = 8.3
+    /// `engines.default` and `engines.also`.
+    public var engine = "text"
+    public var also: [String] = []
+    /// `engines.auto`: each document starts only the engines its graph uses, and starts another
+    /// when the graph comes to use it (decision 8C at N3's exit). False: `engine` and `also` in
+    /// every document.
+    public var pickEngines = true
+    /// The control port's token file: the port opens (loopback, port 0) only when set.
+    public var controlTokenFile: String?
+    /// `log.level`, when the app wants other than the core's default.
+    public var logLevel: String?
+    /// `dirs.prefs` is in `dirs`; the system's appearance at start (`display.dark`, …).
+    public var dark = false
+    public var moreContrast = false
+    public var reduceMotion = false
+    public var reduceTransparency = false
+    #if DEBUG
+    /// A debug build only (N4 slice 4, decision 10): the control port on the local network
+    /// (`lan` or an address), with a pre-shared token from the launch arguments. A release build
+    /// has neither field, so it can never ask the core for more than loopback.
+    public var controlBind: String?
+    public var controlToken: String?
+    /// The port it listens on there (0 picks one; a device's scripts want a known one).
+    public var controlPort: UInt16 = 0
+    #endif
+
+    /// The app's marketing version, from its Info.plist (the build's MARKETING_VERSION, which the
+    /// release script takes from the workspace version); "0.0.0" where there is none (a test).
+    public static var bundleVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
+    public init(appID: String, appName: String, version: String, storeRoot: String) {
+        self.appID = appID; self.appName = appName; self.version = version; self.storeRoot = storeRoot
+    }
+
+    /// The JSON the core takes.
+    public var json: JSONValue {
+        var d: [String: JSONValue] = ["store": .string(storeRoot)]
+        for (k, v) in dirs { d[k] = .string(v) }
+        var app: [String: JSONValue] = ["id": .string(appID), "name": .string(appName), "version": .string(version)]
+        if let built { app["built"] = built }
+        var c: [String: JSONValue] = [
+            "shell": 1,
+            "app": .object(app),
+            "store_root": .string(storeRoot),
+            "dirs": .object(d),
+            "platform": .object(platform),
+            "display": ["scale": .double(displayScale), "frame_ms": .double(frameMs), "dark": .bool(dark),
+                        "contrast": moreContrast ? "more" : "normal", "reduce_motion": .bool(reduceMotion),
+                        "reduce_transparency": .bool(reduceTransparency)],
+            "engines": ["default": .string(engine), "mode": "inproc", "also": .array(also.filter { $0 != engine }.map { .string($0) }),
+                        "auto": .bool(pickEngines)],
+        ]
+        if let tf = controlTokenFile { c["control"] = ["port": 0, "token_file": .string(tf)] }
+        #if DEBUG
+        if let bind = controlBind, bind != "loopback", let token = controlToken {
+            // no token file: the token is the one the launch gave, never printed
+            c["control"] = ["port": .uint(UInt64(controlPort)), "bind": .string(bind), "token": .string(token), "network_debug": true]
+        }
+        #endif
+        if let l = logLevel { c["log"] = ["level": .string(l)] }
+        return .object(c)
+    }
+}
+
+/// An application built around a library of its own, with engines of its own compiled in beside
+/// PlumCraft's (docs/shell-interface.md 4.5), registers them before the core opens: its app has a
+/// class named `PlumAppLibrary` (`@objc(PlumAppLibrary)`, an NSObject) conforming to this, whose
+/// `register()` calls its library's own entry, which calls `plumcraft_ffi::app::register`.
+/// PlumCraft's own apps have none, and nothing is registered.
+public protocol AppLibrary: AnyObject {
+    /// Register the application's engines and file openers; throws with why it couldn't.
+    static func register() throws
+}
+
+/// The process's one core, opened at launch.
+public enum ShellCore {
+    /// The application's own library's registration (`AppLibrary`), when it has one.
+    public static var appLibrary: (any AppLibrary.Type)? { NSClassFromString("PlumAppLibrary") as? any AppLibrary.Type }
+
+    /// Open the core on `config`, after registering the application's own engines (`AppLibrary`).
+    /// The returned task finishes once the core's own first document is closed (windows open
+    /// theirs after it), with the control port when one is open.
+    public static func open(_ config: ShellConfig) throws -> (PlumCore, Task<UInt64?, Never>) {
+        // B149: one store for the core and the engines (`COMMONKIT_STORE_ROOT` wins over
+        // `store_root`, contract 4.1), set before any engine is registered or started
+        var config = config
+        let (root, export) = store(config.storeRoot, ProcessInfo.processInfo.environment)
+        config.storeRoot = root
+        if export { setenv("COMMONKIT_STORE_ROOT", root, 1) }
+        try appLibrary?.register()
+        let c = try PlumCore(config: config.json)
+        let ready = Task { () -> UInt64? in
+            // a graph's file name (FR2), the core's rule, read while its first document is open
+            await GraphFiles.load(from: c)
+            if let list = try? await c.request("document.list"), let docs = list["docs"].array {
+                for d in docs {
+                    if let id = d["doc"].uint64 {
+                        _ = try? await c.request("document.close", ["discard": true], doc: id)
+                    }
+                }
+            }
+            return try? await c.request("core.control")["port"].uint64
+        }
+        return (c, ready)
+    }
+
+    /// The store the core and every engine in the process use (B149), and whether
+    /// `COMMONKIT_STORE_ROOT` must be set to it. An engine that stores through commonkit writes
+    /// under that variable's folder, else commonkit's default, while the core reads `store_root`:
+    /// an app the Finder starts has no variable, so its values were written where the core never
+    /// looked ("the picture is missing"). A variable already set (a script's, a person's own) is
+    /// kept and the core uses it too (a leading `~` expanded, as commonkit does); unset or empty,
+    /// it is set to the app's store.
+    public static func store(_ appStore: String, _ env: [String: String]) -> (root: String, export: Bool) {
+        if let v = env["COMMONKIT_STORE_ROOT"], !v.isEmpty {
+            return ((v as NSString).expandingTildeInPath, false)
+        }
+        return (appStore, true)
+    }
+}
+
+/// What an app writes to `--status-file` for the scripts that drive it: they wait on it with a
+/// time limit, never on a process name. Written atomically on every change.
+@MainActor
+public final class StatusFile {
+    public static let shared = StatusFile()
+    /// Where it is written; nil: nowhere.
+    public var path: String?
+    /// Also handed, whole, to this (the iPad's debug status element, which a UI test on a device
+    /// reads through accessibility: its runner can't see the app's files there).
+    public var mirror: ((String) -> Void)?
+    /// Whether anything reads it.
+    public var active: Bool { path != nil || mirror != nil }
+    private var state: [String: JSONValue] = ["pid": .int(Int64(ProcessInfo.processInfo.processIdentifier))]
+    private var windows: [UInt64: JSONValue] = [:]
+
+    public init(path: String? = nil) { self.path = path }
+
+    public func set(_ key: String, _ v: JSONValue) {
+        state[key] = v
+        write()
+    }
+
+    public func window(_ doc: UInt64, _ v: JSONValue) {
+        windows[doc] = v
+        write()
+    }
+
+    public func removeWindow(_ doc: UInt64) {
+        windows[doc] = nil
+        write()
+    }
+
+    private func write() {
+        guard active else { return }
+        var s = state
+        s["windows"] = .array(windows.keys.sorted().compactMap { windows[$0] })
+        let data = JSONValue.object(s).serialized()
+        if let path { try? data.write(to: URL(fileURLWithPath: path), options: .atomic) }
+        if let mirror { mirror(String(decoding: data, as: UTF8.self)) }
+    }
+
+    /// Append this process's pid to `<path>.pids` (a tracer may start more than one copy), so a
+    /// script can quit each by its PID.
+    public func notePid() {
+        guard let path else { return }
+        let f = path + ".pids"
+        if !FileManager.default.fileExists(atPath: f) { FileManager.default.createFile(atPath: f, contents: nil) }
+        guard let h = FileHandle(forWritingAtPath: f) else { return }
+        h.seekToEndOfFile()
+        h.write(Data("\(ProcessInfo.processInfo.processIdentifier)\n".utf8))
+        try? h.close()
+    }
+}
+
+/// This program's build stamp (B151): what the `Stamp build` script phase wrote into the built
+/// Info.plist (`native/apple/stamp-build.sh`), for the core's `app.built`; and the line About
+/// shows, which the core makes (`app.about`'s `build.line`).
+public enum BuildStamp {
+    /// `{commit, dirty, date}` from an Info.plist's `PlumBuildCommit`, `PlumBuildDirty` ("yes",
+    /// "no") and `PlumBuildDate`; nil when it has none (a test, an unstamped build).
+    public static func json(from info: [String: Any]) -> JSONValue? {
+        guard let commit = info["PlumBuildCommit"] as? String, let date = info["PlumBuildDate"] as? String else { return nil }
+        var o: [String: JSONValue] = ["commit": .string(commit), "date": .string(date)]
+        switch info["PlumBuildDirty"] as? String {
+        case "yes"?: o["dirty"] = .bool(true)
+        case "no"?: o["dirty"] = .bool(false)
+        default: o["dirty"] = .null
+        }
+        return .object(o)
+    }
+
+    /// The line About shows, from `app.about`'s reply; nil when the core says none.
+    public static func line(about a: JSONValue) -> String? {
+        guard let l = a["build"]["line"].string, !l.isEmpty else { return nil }
+        return l
+    }
+}

@@ -178,7 +178,9 @@ fn right_click_opens_the_palette_and_escape_closes_it() {
     h.event(egui::Event::PointerButton { pos: at, button: egui::PointerButton::Secondary, pressed: false, modifiers: egui::Modifiers::NONE });
     h.run_steps(3);
     assert!(h.state().canvas.palette.is_some());
-    h.get_by_label("Knobs");
+    h.get_by_label("Upper case");
+    // a Testing kind is not offered (the maintainer, 2026-11-21, card 31 B), though node.add adds it
+    assert!(h.query_by_label("Knobs").is_none(), "the palette offers a Testing kind");
     h.key_press(egui::Key::Escape);
     h.run_steps(2);
     assert!(h.state().canvas.palette.is_none());

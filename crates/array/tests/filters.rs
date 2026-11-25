@@ -3,9 +3,9 @@
 //! Crossings, Segment Edges, Trace Contours, Rotate and Resize.
 //!
 //! `fixtures/filters/*.npy` are written by `claude-debug/filters_fixtures_gen.py` with
-//! impressionist's venv (yapocis3 editable, numba backend, Pillow 12.3.0): yapocis's numba
+//! impressionist's venv (the kernel library installed editable, numba backend, Pillow 12.3.0): the kernel library's numba
 //! kernels where the research software calls one, its truetrace CPU path, virtual_impressionist's `flow` and
-//! `core.resize`, and float32 numpy replicas of the two yapocis_external GPU kernels (Sobel,
+//! `core.resize`, and float32 numpy replicas of the external kernel library's two GPU kernels (Sobel,
 //! Rotate). Each kernel is compared with its reference with a stated tolerance; then each node
 //! runs through the executor, and hostile inputs come back as errors, never panics.
 
@@ -107,7 +107,7 @@ fn median_matches_numba() {
 /// `_conv1d_njit` was compiled with fastmath (its float64 sum may be reassociated): 1e-6 on
 /// values up to ~1 (savgol and deriv sums cancel).
 #[test]
-fn convolve_matches_numba_and_its_weights_are_yapocis_s() {
+fn convolve_matches_numba_and_its_weights_are_the_kernel_librarys() {
     let weights: Value = serde_json::from_str(&std::fs::read_to_string(fixture_path("convolve_weights.json")).unwrap()).unwrap();
     let names: Vec<String> = weights["names"].as_array().unwrap().iter().map(|v| v.as_str().unwrap().to_owned()).collect();
     assert_eq!(conv_kernels::names(), names, "the research software's kernel names, in its order");
@@ -161,7 +161,7 @@ fn sobel_matches_the_replica() {
     check("sobel", &kernels::sobel(&a, h, w), &npy("sobel").1, 0.0);
 }
 
-/// yapocis's numba zcs is numpy (float32 deltas, threshold cast to float32): exact.
+/// The kernel library's numba zcs is numpy (float32 deltas, threshold cast to float32): exact.
 #[test]
 fn zero_crossings_match_numba() {
     let (h, w, _) = input();

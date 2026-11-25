@@ -13,7 +13,7 @@ use serde_json::{Value, json};
 /// A list output's items: plain values, or blob handles.
 fn items(r: &RunReply, node: &str, port: &str) -> Vec<Value> {
     match r.nodes.get(node).and_then(|n| n.outputs.get(port)) {
-        Some(PortValue::List { items }) => items
+        Some(PortValue::List { items, .. }) => items
             .iter()
             .map(|i| match i {
                 PortValue::Json { value } => value.clone(),

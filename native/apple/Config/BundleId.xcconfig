@@ -1,0 +1,7 @@
+// The native Apple apps' bundle ids, each in one place. The maintainer, 2026-11-21: "I own
+// swapwizard.com, so how about com.swapwizard.plummer.pad and .mac?" The ids derived from each (the
+// UI tests, the scenes' activity types, menu identifiers, log subsystems) go under it. The egui
+// editor's id, com.swapwizard.plumcraft, is another app's and unchanged.
+// Read by the projects (PRODUCT_BUNDLE_IDENTIFIER) and by the scripts under native/apple.
+PLUMMER_MAC_BUNDLE_ID = com.swapwizard.plummer.mac
+PLUMMER_PAD_BUNDLE_ID = com.swapwizard.plummer.pad

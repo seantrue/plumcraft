@@ -176,9 +176,17 @@ pub enum PortValue {
         #[serde(rename = "ref")]
         data: DataRef,
     },
+    /// Built outside this crate with [`PortValue::list`] or [`PortValue::list_with_axes`]: fields
+    /// may be added (a pattern outside the crate ends with `..`).
+    #[non_exhaustive]
     List {
         #[serde(default, deserialize_with = "lenient_vec")]
         items: Vec<PortValue>,
+        /// The list's axes, outermost first: `[[name, length], …]` (capability `lists.nested`,
+        /// spec 4.5 and 7.6 rule 2). Absent or empty: one anonymous axis. Malformed entries are
+        /// dropped; axes whose lengths don't multiply to the item count are to be read as absent.
+        #[serde(default, deserialize_with = "lenient_vec", skip_serializing_if = "Vec::is_empty")]
+        axes: Vec<(String, u64)>,
     },
     /// Numbers, bools, strings, settings, curves.
     Json {
@@ -198,6 +206,18 @@ pub enum PortValue {
     },
 }
 
+impl PortValue {
+    /// A list of `items` with one anonymous axis.
+    pub fn list(items: Vec<PortValue>) -> PortValue {
+        PortValue::List { items, axes: Vec::new() }
+    }
+
+    /// A list of `items` over `axes` (`[(name, length)]`, outermost first; nested lists).
+    pub fn list_with_axes(items: Vec<PortValue>, axes: Vec<(String, u64)>) -> PortValue {
+        PortValue::List { items, axes }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -206,7 +226,7 @@ mod tests {
      "meta": {"media": "application/x-npy", "size": 7873536,
               "form": {"kind": "array", "dtype": "<f4", "shape": [812, 808, 3],
                        "space": "Lab", "names": ["L", "a", "b"], "table": false}},
-     "at": [{"kind": "commonkit", "key": "impc:v1:impcarr:9e107d9d372bb6826bd81d3542a419d6:c"},
+     "at": [{"kind": "commonkit", "key": "impc:v1:plumarr:9e107d9d372bb6826bd81d3542a419d6:c"},
             {"kind": "path", "path": "/Users/me/Library/Caches/commonkit/store/plumarr/9e/9e107d9d372bb6826bd81d3542a419d6.c.npy"},
             {"kind": "url", "url": "https://engine.example:7311/v1/blobs/md5/nd1/9e107d9d372bb6826bd81d3542a419d6"}]}"#;
 
@@ -239,8 +259,16 @@ mod tests {
             r#"{"kind": "list", "items": [{"kind": "json", "value": 3}, {"kind": "??"}, {"kind": "opaque", "type": "STYLE", "summary": "style 'pencil'"}]}"#,
         )
         .unwrap();
-        let PortValue::List { items } = v else { panic!("not a list") };
+        let PortValue::List { items, .. } = v else { panic!("not a list") };
         assert_eq!(items.len(), 2);
+        // axes (spec 4.5): kept when well formed, malformed entries dropped, never sent when empty
+        let v: PortValue = serde_json::from_str(r#"{"kind": "list", "items": [], "axes": [["r.values", 3], ["bad"], [1, 2], ["s", -1], ["t", 2]]}"#).unwrap();
+        let PortValue::List { axes, .. } = &v else { panic!("not a list") };
+        assert_eq!(axes, &[("r.values".to_owned(), 3), ("t".to_owned(), 2)]);
+        let plain = serde_json::to_value(PortValue::List { items: Vec::new(), axes: Vec::new() }).unwrap();
+        assert!(plain.get("axes").is_none(), "{plain}");
+        let junk: PortValue = serde_json::from_str(r#"{"kind": "list", "items": [], "axes": "nope"}"#).unwrap();
+        assert!(matches!(junk, PortValue::List { ref axes, .. } if axes.is_empty()));
         assert!(serde_json::from_str::<PortValue>(r#"{"kind": "blob"}"#).is_err());
     }
 }

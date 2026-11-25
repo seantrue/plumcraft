@@ -32,8 +32,9 @@ use crate::canvas::{Action, Canvas};
 use crate::run_view::PinKey;
 use crate::theme::Tokens;
 
-/// How far a tag sits from its pin when it hasn't been moved (graph units).
-pub const STUB: i32 = 14;
+/// How far a tag sits from its pin when it hasn't been moved (graph units): the core's, so the
+/// egui editor and the native shells agree (B146).
+pub const STUB: i32 = plumcraft_editor_core::scene::NET_STUB;
 /// How near a pin (screen points) a dragged tag's pointer drops on it.
 pub const DROP_RADIUS: f32 = 12.0;
 
@@ -124,7 +125,8 @@ impl NameEdit {
 pub struct NetState {
     pub(crate) labelled: Vec<Labelled>,
     pub(crate) drivers: Vec<Driver>,
-    /// The selected net.
+    /// The selected net, as the document has it (`net.select`; followed after every command
+    /// and every frame, `EditorApp::follow_core`).
     pub selected: Option<NetKey>,
     /// The net whose tag the pointer was over last frame.
     pub(crate) hovered: Option<NetKey>,
@@ -191,6 +193,14 @@ pub fn suggested_name(graph: &Graph, from: &PortRef) -> String {
 }
 
 /// A net in a command's params: `{name, group}`, with `extra` merged in.
+/// `net.select` of `net` (none: no net).
+fn select_net(net: Option<&NetKey>) -> Action {
+    match net {
+        Some(n) => ("net.select", key_params(n, json!({}))),
+        None => ("net.select", json!({})),
+    }
+}
+
 fn key_params(net: &NetKey, extra: Value) -> Value {
     let mut p = json!({"name": net.name, "group": net.group});
     if let (Some(m), Value::Object(e)) = (p.as_object_mut(), extra) {
@@ -321,23 +331,22 @@ impl Canvas {
     }
 
     /// Go to the next node a double-click on `tag` names.
-    fn jump(&mut self, graph: &Graph, tag: &Tag) {
-        match tag {
-            Tag::Use(to) => {
-                if let Some(w) = graph.wire_into(to) {
-                    self.reveal(&w.from.node);
-                }
-            }
+    /// Go to a use tag's driver, or a driver tag's next use: `canvas.reveal` of that node.
+    fn jump(&mut self, graph: &Graph, tag: &Tag) -> Option<Action> {
+        let node = match tag {
+            Tag::Use(to) => graph.wire_into(to).map(|w| w.from.node.clone()),
             Tag::Driver(net) => {
                 let uses: Vec<&PortRef> = graph.net_wires(net).map(|w| &w.to).collect();
-                if !uses.is_empty() {
+                if uses.is_empty() {
+                    None
+                } else {
                     let k = self.nets.cycle % uses.len();
                     self.nets.cycle = self.nets.cycle.wrapping_add(1);
-                    let node = uses[k].node.clone();
-                    self.reveal(&node);
+                    uses.get(k).map(|u| u.node.clone())
                 }
             }
-        }
+        }?;
+        Some(("canvas.reveal", json!({"node": node})))
     }
 
     /// Net tags, their menu and the name editor. Returns the commands.
@@ -392,10 +401,12 @@ impl Canvas {
                 hovered = Some(net.clone());
             }
             if resp.clicked() {
-                self.nets.selected = if self.nets.selected.as_ref() == Some(&net) { None } else { Some(net.clone()) };
+                let to = if self.nets.selected.as_ref() == Some(&net) { None } else { Some(&net) };
+                actions.push(select_net(to));
+                ctx.request_repaint();
             }
             if resp.double_clicked() {
-                self.jump(graph, &tag);
+                actions.extend(self.jump(graph, &tag));
             }
             if resp.dragged() {
                 let d = resp.drag_delta() / t.scaling;
@@ -444,74 +455,49 @@ impl Canvas {
 
         // Esc, or a click on empty canvas, clears the selection.
         let click = ctx.input(|i| if i.pointer.primary_clicked() { i.pointer.interact_pos() } else { None });
-        if ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.nets.menu.is_none() && self.nets.edit.is_none() {
-            self.nets.selected = None;
-        }
-        if let Some(p) = click
-            && self.rect.contains(p)
-            && !self.over_node(p)
-            && !self.over_net_tag(p)
-            && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background)
-        {
-            self.nets.selected = None;
+        let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape)) && self.nets.menu.is_none() && self.nets.edit.is_none();
+        let empty = click.is_some_and(|p| {
+            self.rect.contains(p) && !self.over_node(p) && !self.over_net_tag(p) && ctx.layer_id_at(p).is_none_or(|l| l.order == egui::Order::Background)
+        });
+        if (escape || empty) && self.nets.selected.is_some() {
+            actions.push(select_net(None));
+            ctx.request_repaint();
         }
 
-        actions.extend(self.net_menu(ctx, graph));
+        actions.extend(self.net_menu(ctx, graph, tokens));
         actions.extend(self.name_editor(ctx, tokens));
         actions
     }
 
-    fn net_menu(&mut self, ctx: &egui::Context, graph: &Graph) -> Vec<Action> {
+    fn net_menu(&mut self, ctx: &egui::Context, graph: &Graph, tokens: &Tokens) -> Vec<Action> {
         let mut actions = Vec::new();
         let Some(menu) = self.nets.menu.clone() else { return actions };
         let mut close = false;
         let mut jump = false;
         let area = egui::Area::new(egui::Id::new("plumcraft-net-menu")).order(egui::Order::Foreground).fixed_pos(menu.screen_pos).show(ctx, |ui| {
             egui::Frame::menu(ui.style()).show(ui, |ui| {
-                let from = graph.net(&menu.net).map(|n| n.from.to_string()).unwrap_or_default();
-                ui.weak(format!("Net {}, from {from}", describe(graph, &menu.net)));
-                let go = if matches!(menu.tag, Tag::Use(_)) { "Go to Driver" } else { "Go to Next Use" };
-                if ui.button(go).clicked() {
-                    jump = true;
-                    close = true;
-                }
-                if let Some(net) = graph.net(&menu.net) {
-                    if ui.button("Watch").on_hover_text("Show this net's value in the Watched panel").clicked() {
-                        actions.push(("run.watch", json!({"node": net.from.node, "port": net.from.port})));
-                        close = true;
-                    }
-                    if ui.button("Pop Out").on_hover_text("Show this net's value in a window of its own, updated by every run").clicked() {
-                        actions.push(("view.popout", json!({"node": net.from.node, "port": net.from.port})));
-                        close = true;
-                    }
-                }
-                if ui.button("Select Net").on_hover_text("Highlight every label of this net").clicked() {
-                    self.nets.selected = Some(menu.net.clone());
-                    close = true;
-                }
-                if ui.button("Rename Net…").clicked() {
-                    self.nets.edit = Some(NameEdit::new(NameFor::Rename(menu.net.clone()), menu.net.name.clone(), menu.screen_pos));
-                    close = true;
-                }
-                if let Tag::Use(to) = &menu.tag
-                    && ui.button("Draw as Wire").on_hover_text("Draw this connection as a wire again").clicked()
-                {
-                    actions.push(("wire.unlabel", json!({"to": to})));
-                    close = true;
-                }
-                if !matches!(menu.tag, Tag::Use(_)) || graph.net_wires(&menu.net).count() > 1 {
-                    let net = menu.net.clone();
-                    if ui.button("Draw All as Wires").on_hover_text("Draw every connection of this net as a wire again").clicked() {
-                        for w in graph.net_wires(&net) {
+                // the core's menu model
+                let to = match &menu.tag {
+                    Tag::Use(to) => Some(to),
+                    Tag::Driver(_) => None,
+                };
+                let items = plumcraft_editor_core::menu::net_menu(graph, &menu.net, to);
+                let Some(item) = crate::menu_view::draw(ui, &items, crate::menu_view::Style { tokens, bar: false, close: false }) else { return };
+                close = true;
+                match (crate::menu_view::action(&item), item.id.as_str()) {
+                    (Some(a), _) => actions.push(a),
+                    (None, "canvas.reveal") => jump = true,
+                    (None, "wire.unlabelAll") => {
+                        for w in graph.net_wires(&menu.net) {
                             actions.push(("wire.unlabel", json!({"to": w.to})));
                         }
-                        close = true;
                     }
+                    (None, _) => {}
                 }
             });
         });
         if jump {
-            self.jump(graph, &menu.tag);
+            actions.extend(self.jump(graph, &menu.tag));
         }
         let outside = ctx.input(|i| i.pointer.any_click()) && !area.response.hovered() && !menu.fresh;
         let escape = ctx.input(|i| i.key_pressed(egui::Key::Escape));

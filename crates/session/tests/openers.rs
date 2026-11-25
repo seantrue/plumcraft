@@ -129,7 +129,8 @@ fn a_graph_needing_an_engine_says_which_and_a_session_with_it_says_nothing() {
     assert_eq!(s.graph().nodes.len(), 3, "it opens all the same, so an engine can be added");
 
     // offered by the Engine menu, it says that instead
-    s.engines.choices = vec![EngineChoice { engine: "vectorcraft".into(), mode: "process".into(), engine_label: "VectorCraft".into(), mode_label: "".into() }];
+    s.engines.choices =
+        vec![EngineChoice { engine: "vectorcraft".into(), mode: "process".into(), engine_label: "VectorCraft".into(), mode_label: "".into(), warning: None }];
     let text = s.missing_engines().unwrap().text;
     assert!(text.contains("The Engine menu offers") && !text.contains("can't start"), "{text}");
 

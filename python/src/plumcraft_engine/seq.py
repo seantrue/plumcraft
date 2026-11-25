@@ -175,6 +175,41 @@ class Unzip(Node):
         return out
 
 
+class Flatten(Node):
+    """Flatten: a list of lists joined one level into one list (nested lists, assumed: one level)."""
+
+    definition = {
+        "id": "seq.flatten",
+        "display": "Flatten",
+        "category": _category(),
+        "description": "A list of lists joined one level into one list: a step run once per item that makes a list each run gives a list for each run; "
+        "Flatten makes them one list, each item labelled with its run and its own label. A list whose items aren't lists passes as it is.",
+        "inputs": [_any_in("list", False, "A list of lists")],
+        "outputs": [_any_out("list")],
+        "flags": {"input_list": True, "nested_input": True},
+    }
+
+    def run(self, inputs: dict[str, Any], cx: Cx) -> dict[str, Any]:
+        from .exec import MAX_RUNS
+
+        lst = inputs.get("list")
+        if not isinstance(lst, List):
+            raise _config("list: wire a list of lists")
+        items: list[Any] = []
+        labels: list[str] = []
+        for i, item in enumerate(lst.items):
+            if isinstance(item, List):
+                for j, x in enumerate(item.items):
+                    if len(items) >= MAX_RUNS:
+                        raise _config(f"more than {MAX_RUNS} items")
+                    items.append(x)
+                    labels.append(" · ".join(s for s in (lst.label(i), item.label(j)) if s))
+            else:
+                items.append(item)
+                labels.append(lst.label(i))
+        return {"list": List(items, [], labels)}
+
+
 MAX_ROWS = 100_000
 
 
@@ -305,4 +340,4 @@ class RowsTable(Node):
 
 def nodes() -> list[Node]:
     """Zip, Outer Join, Unzip, Table to Rows and Rows to Table."""
-    return [Combine(False), Combine(True), Unzip(), TableRows(), RowsTable()]
+    return [Combine(False), Combine(True), Unzip(), Flatten(), TableRows(), RowsTable()]

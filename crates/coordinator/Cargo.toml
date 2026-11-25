@@ -19,10 +19,13 @@ serde_json = { workspace = true }
 
 [dev-dependencies]
 plumcraft-scratch = { path = "../scratch" }
+base64 = { workspace = true }
+serde = { workspace = true }
 plumcraft-array = { path = "../array" }
 plumcraft-engine = { path = "../engine" }
 plumcraft-audio = { path = "../audio" }
 plumcraft-craft = { path = "../craft" }
 plumcraft-text = { path = "../text" }
+plumcraft-ports = { path = "../ports" }
 plumcraft-store = { path = "../store" }
 commonkit = { workspace = true, features = ["testing"] }

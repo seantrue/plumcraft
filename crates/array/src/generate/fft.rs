@@ -1,4 +1,4 @@
-//! FFT and Inverse FFT. yapocis's numba `fft1d` is numpy's `np.fft.fft` / `ifft` on each line,
+//! FFT and Inverse FFT. The kernel library's numba `fft1d` is numpy's `np.fft.fft` / `ifft` on each line,
 //! for any length; here each line is transformed in float64 (radix 2 for powers of two,
 //! Bluestein's chirp-z through radix 2 otherwise), rounded to float32 between the row and column
 //! passes as the complex64 lines are there.

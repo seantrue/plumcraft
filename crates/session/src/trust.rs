@@ -45,6 +45,62 @@ pub fn graph_hash(graph: &Graph) -> String {
     commonkit::digest::fixed::raw(commonkit::digest::fixed::Fixed::Sha256, text.as_bytes())
 }
 
+/// What makes a graph's result, in the form [`result_hash`] hashes (spec 15, `graph_info.hash`;
+/// the maintainer, 2026-11-22, decision 1B): `{"format": "plumcraft.result", "v": 1, "nodes":
+/// {id: {kind, values, engine?, convert?}}, "wires": [{from: {node, port}, to: {node, port},
+/// slice?}]}`, the wires sorted by `to` then `from` (node, then port, each by its UTF-8 bytes).
+/// `values` is every widget value as written (sub-ports `port.sub`), `engine` a pinned engine
+/// (another engine may compute another result), `convert` a Convert node's kept path. Left out:
+/// positions, titles, serials, views, shown fields, the persist choice (`cache`), frames, groups,
+/// nets and labels (they only draw wires), bends, and the graph's `meta`. Node ids are in: they
+/// are what the wires name, and an editor keeps them.
+pub fn result_form(graph: &Graph) -> Value {
+    let nodes: serde_json::Map<String, Value> = graph
+        .nodes
+        .iter()
+        .map(|(id, n)| {
+            let mut o = json!({"kind": n.kind, "values": n.values});
+            if let Some(e) = &n.engine {
+                o["engine"] = json!(e);
+            }
+            if let Some(c) = n.extra.get("convert") {
+                o["convert"] = c.clone();
+            }
+            (id.0.clone(), o)
+        })
+        .collect();
+    let mut wires: Vec<&plumcraft_graph::Wire> = graph.wires.iter().collect();
+    wires.sort_by(|a, b| {
+        (a.to.node.0.as_bytes(), a.to.port.as_bytes(), a.from.node.0.as_bytes(), a.from.port.as_bytes()).cmp(&(
+            b.to.node.0.as_bytes(),
+            b.to.port.as_bytes(),
+            b.from.node.0.as_bytes(),
+            b.from.port.as_bytes(),
+        ))
+    });
+    let wires: Vec<Value> = wires
+        .into_iter()
+        .map(|w| {
+            let mut o = json!({"from": {"node": w.from.node.0, "port": w.from.port}, "to": {"node": w.to.node.0, "port": w.to.port}});
+            if let Some(s) = w.slice.as_ref().filter(|s| !s.is_empty()) {
+                o["slice"] = json!(s);
+            }
+            o
+        })
+        .collect();
+    json!({"format": "plumcraft.result", "v": 1, "nodes": nodes, "wires": wires})
+}
+
+/// `sha256:` and the SHA-256, lower-case hex, of [`result_form`] in the typed canonical form
+/// (spec 14.1, `plumcraft_proto::memo::canon`): what a saved file says made it (informational).
+/// Moving, renaming, reframing or regrouping leaves it; a kind, a value, a pin or a wire
+/// changes it. Not [`graph_hash`], which covers the whole document a person trusted.
+pub fn result_hash(graph: &Graph) -> String {
+    let text = plumcraft_proto::memo::canon(&result_form(graph));
+    // Fixed SHA-256, not the switch (D9; hash-allowlist.txt): one hash a file carries everywhere.
+    format!("sha256:{}", commonkit::digest::fixed::raw(commonkit::digest::fixed::Fixed::Sha256, text.as_bytes()))
+}
+
 /// The hashes in a trust file. Anything unreadable is nothing.
 pub fn parse(text: &str) -> BTreeSet<String> {
     let Ok(v) = serde_json::from_str::<Value>(text) else { return BTreeSet::new() };
@@ -253,5 +309,42 @@ mod tests {
     fn what_a_review_shows_cannot_hide_anything() {
         assert_eq!(shown("a\nb\u{202e}c"), "a\u{fffd}b\u{fffd}c");
         assert!(shown(&"x".repeat(MAX_TEXT + 5)).ends_with('…'));
+    }
+
+    /// Decision 1B: the hash a saved file carries covers only what makes the result, checked
+    /// against the shared vectors (`crates/proto/fixtures/result_hash.json`, which the Python
+    /// test reads too).
+    #[test]
+    fn the_result_hash_covers_what_makes_the_result_and_matches_the_vectors() {
+        let fx: Value = serde_json::from_str(include_str!("../../proto/fixtures/result_hash.json")).unwrap();
+        let hash = |name: &str| {
+            let g = Graph::from_json(&fx["graphs"][name].to_string()).unwrap();
+            (plumcraft_proto::memo::canon(&result_form(&g)), result_hash(&g))
+        };
+        let (canon, base) = hash("base");
+        if std::env::var_os("PLUMCRAFT_PRINT_VECTORS").is_some() {
+            for n in ["base", "moved", "param", "wire"] {
+                eprintln!("{n}: {:?}", hash(n));
+            }
+        }
+        assert_eq!(fx["expect"]["base"]["canon"], canon);
+        assert_eq!(fx["expect"]["base"]["hash"], base);
+        assert_eq!(hash("moved").1, base, "positions, titles, views, cache, bends and meta don't make the result");
+        assert_eq!(fx["expect"]["moved"]["hash"], base);
+        for n in ["param", "wire"] {
+            assert_ne!(hash(n).1, base, "{n} changes what is computed");
+            assert_eq!(fx["expect"][n]["hash"], hash(n).1, "{n}");
+        }
+        assert!(base.starts_with("sha256:") && base.len() == 7 + 64);
+        // frames, groups and nets through the graph's own edits leave it too
+        let mut g = Graph::from_json(&fx["graphs"]["base"].to_string()).unwrap();
+        let ids: Vec<NodeId> = g.nodes.keys().cloned().collect();
+        g.create_group("words", &ids[..2], &[]).unwrap();
+        if let Some(n) = g.nodes.get_mut(&ids[0]) {
+            n.title = Some("Renamed".into());
+            n.pos = [999.0, 999.0];
+        }
+        assert_eq!(result_hash(&g), base, "grouped, renamed and moved");
+        assert_ne!(graph_hash(&g), graph_hash(&Graph::from_json(&fx["graphs"]["base"].to_string()).unwrap()), "the trust hash covers the whole document");
     }
 }

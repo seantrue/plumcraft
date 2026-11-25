@@ -92,6 +92,29 @@ pub fn register(kinds: Vec<EditorKind>) -> Result<(), String> {
     Ok(())
 }
 
+/// Every kind as the core's menu model takes them: `(editor.kind, label, help)`.
+pub fn facts() -> Vec<(String, String, String)> {
+    scene_editors().into_iter().map(|e| (e.kind, e.label, e.help)).collect()
+}
+
+/// Every kind as the core's scene takes them (N2 slice 2): its words and its summary.
+///
+/// Then the core's own editors (B173: `mask`, `curves`; `scene::core_editors`) for a kind the
+/// application registered none of, as every shell lists them: the row's words and the node menu's
+/// item, the editor itself the core's value window here, where this editor draws none of its own.
+pub fn scene_editors() -> Vec<plumcraft_editor_core::scene::Editor> {
+    let mut out: Vec<plumcraft_editor_core::scene::Editor> = registry()
+        .iter()
+        .map(|k| plumcraft_editor_core::scene::Editor { kind: k.kind.to_owned(), label: k.label.to_owned(), help: k.help.to_owned(), summary: Some(k.summary) })
+        .collect();
+    for e in plumcraft_editor_core::scene::core_editors() {
+        if !out.iter().any(|x| x.kind == e.kind) {
+            out.push(e);
+        }
+    }
+    out
+}
+
 /// Every kind this application has. PlumCraft itself has none.
 pub fn registry() -> &'static [EditorKind] {
     KINDS.get_or_init(|| {
@@ -99,7 +122,7 @@ pub fn registry() -> &'static [EditorKind] {
         let mut kinds: Vec<EditorKind> = Vec::with_capacity(added.len());
         for k in added {
             if kinds.iter().any(|x| x.kind == k.kind) {
-                eprintln!("value editor {}: the kind is taken", k.kind);
+                plumcraft_editor_core::log::say(plumcraft_editor_core::log::Level::Warn, "editor", &format!("value editor {}: the kind is taken", k.kind));
             } else {
                 kinds.push(k);
             }
@@ -133,11 +156,15 @@ struct Open {
 #[derive(Default)]
 pub struct ValueEditors {
     open: Vec<Open>,
+    /// Editors of the core's own kinds (B173: `mask` and `curves`, which the native shells draw)
+    /// this application draws none of: the core's value window, the value as JSON to edit
+    /// and apply, by node, with the text being edited.
+    fallback: Vec<(NodeId, String)>,
 }
 
 impl ValueEditors {
     pub fn is_empty(&self) -> bool {
-        self.open.is_empty()
+        self.open.is_empty() && self.fallback.is_empty()
     }
 
     /// Follow `views.editors`, and draw each window. Returns the commands to run, and anything
@@ -153,11 +180,22 @@ impl ValueEditors {
         let mut note = None;
         let wanted = &session.views.editors;
         self.open.retain(|o| wanted.contains(&o.node));
+        self.fallback.retain(|(n, _)| wanted.contains(n));
         for (i, node) in wanted.iter().enumerate() {
             let def = session.graph().node(node).and_then(|n| session.catalog().node(&n.kind));
             let Some(kind) = def.and_then(offered) else {
-                // the node went, an engine with other nodes came, or this application has no such
-                // editor (`node.editor` knows only what the catalogue says)
+                // one of the core's own editors (B173: mask, curves) this application draws none
+                // of: the core's value window, as the native shells draw a kind they have no
+                // editor of their own for. Another kind nobody registered stays closed, said once.
+                let core_kind =
+                    def.and_then(|d| d.editor.as_ref()).is_some_and(|e| plumcraft_editor_core::scene::core_editors().iter().any(|c| c.kind == e.kind));
+                if core_kind && let Ok(model) = plumcraft_editor_core::reports::value_editor(session, &node.0) {
+                    if !fallback_window(ctx, &mut self.fallback, node, &model, i, &mut actions) {
+                        actions.push(("node.editor", json!({"node": node, "open": false})));
+                    }
+                    continue;
+                }
+                // the node went, or an engine with other nodes came
                 if let Some(named) = def.and_then(|d| d.editor.as_ref()) {
                     note = Some(format!("this application has no {} editor", named.kind));
                 }
@@ -183,8 +221,55 @@ impl ValueEditors {
 
     /// For `ui.inspect`.
     pub fn inspect(&self) -> Value {
-        self.open.iter().map(|o| json!({"node": o.node, "kind": o.kind.kind, "state": o.editor.inspect()})).collect()
+        self.open
+            .iter()
+            .map(|o| json!({"node": o.node, "kind": o.kind.kind, "state": o.editor.inspect()}))
+            .chain(self.fallback.iter().map(|(n, _)| json!({"node": n, "kind": "value", "state": null})))
+            .collect()
     }
+}
+
+/// The core's value window for `node` (`reports::value_editor`'s model): its words, the value as
+/// JSON in a field, Apply (`node.set`, the text read as JSON) and Close. Returns whether it stays
+/// open.
+fn fallback_window(ctx: &egui::Context, texts: &mut Vec<(NodeId, String)>, node: &NodeId, model: &Value, i: usize, actions: &mut Vec<Action>) -> bool {
+    let edit = &model["sections"][0]["rows"][0]["edits"][0];
+    let current = edit["value"].as_str().unwrap_or_default().to_owned();
+    let k = match texts.iter().position(|(n, _)| n == node) {
+        Some(k) => k,
+        None => {
+            texts.push((node.clone(), current.clone()));
+            texts.len() - 1
+        }
+    };
+    let mut open = true;
+    let title = model["title"].as_str().unwrap_or("Value").to_owned();
+    egui::Window::new(&title)
+        .id(egui::Id::new(("plumcraft-value-window", &node.0)))
+        .open(&mut open)
+        .default_pos(egui::pos2(80.0 + 24.0 * i as f32, 120.0))
+        .show(ctx, |ui| {
+            ui.label(RichText::new(model["intro"].as_str().unwrap_or_default()).small());
+            if model["wired"] == true {
+                ui.label("A wire feeds this value: Apply sets the value the wire overrides.");
+            }
+            let Some((_, text)) = texts.get_mut(k) else { return };
+            ui.add(egui::TextEdit::multiline(text).code_editor().desired_rows(8).desired_width(f32::INFINITY));
+            ui.horizontal(|ui| {
+                let parsed = serde_json::from_str::<Value>(text);
+                if ui.add_enabled(parsed.is_ok() && *text != current, egui::Button::new("Apply")).clicked()
+                    && let Ok(v) = parsed
+                {
+                    let mut p = edit["params"].clone();
+                    p["value"] = v;
+                    actions.push(("node.set", p));
+                }
+                if ui.button("Revert").clicked() {
+                    *text = current.clone();
+                }
+            });
+        });
+    open
 }
 
 /// One editor's window. Returns whether it stays open.

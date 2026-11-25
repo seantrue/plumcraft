@@ -1,0 +1,526 @@
+# cargo-about's configuration for PlumCraft's acknowledgements (FR4, research note 29): the
+# licences accepted are exactly those found when the list was made (a new one fails until it is
+# added here, after a look); `bash scripts/acknowledgements.sh` makes the list. The build, the
+# tests and CI never run it: the list it writes is checked in, and a test fails when Cargo.lock
+# changed since.
+# in the order of preference: where a crate offers a choice the first of these it offers is
+# taken (decision 5A: the permissive option; `self_cell` as Apache-2.0, never the GPL)
+accepted = [
+    "MIT",
+    "Apache-2.0",
+    "BSD-3-Clause",
+    "BSD-2-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+    "BSL-1.0",
+    "MPL-2.0",
+    "OFL-1.1",
+    "Ubuntu-font-1.0",
+]
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+targets = ["aarch64-apple-darwin", "aarch64-apple-ios", "x86_64-pc-windows-msvc", "x86_64-unknown-linux-gnu"]
+
+# Crates published without their licence file (research note 29). Each clarification names the
+# file and its SHA-256, so a different file fails. `git` files are fetched from the crate's own
+# repository at the commit it was published from (`.cargo_vcs_info.json`), online, when the list
+# is made; `files` are in the package (or, for a git dependency, its checkout). Still shown with
+# the licence's standard text, as nothing better was found: dispatch 0.2.0 and egui-scale 0.6.1
+# (no file in their repositories), dasp_sample 0.11.0 (its repository address ends in `.git`,
+# which cargo about can't fetch from), zune-core 0.4.12 (no repository address), and the older
+# versions of block2, objc2, objc2-app-kit, objc2-foundation and objc2-ui-kit (another file name
+# than the newer version's).
+
+# windows: the package has license-mit, which the scan misses
+[windows.clarify]
+license = "MIT"
+[[windows.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-collections: the package has license-mit, which the scan misses
+[windows-collections.clarify]
+license = "MIT"
+[[windows-collections.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-core: the package has license-mit, which the scan misses
+[windows-core.clarify]
+license = "MIT"
+[[windows-core.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-future: the package has license-mit, which the scan misses
+[windows-future.clarify]
+license = "MIT"
+[[windows-future.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-implement: the package has license-mit, which the scan misses
+[windows-implement.clarify]
+license = "MIT"
+[[windows-implement.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-interface: the package has license-mit, which the scan misses
+[windows-interface.clarify]
+license = "MIT"
+[[windows-interface.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-link: the package has license-mit, which the scan misses
+[windows-link.clarify]
+license = "MIT"
+[[windows-link.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-numerics: the package has license-mit, which the scan misses
+[windows-numerics.clarify]
+license = "MIT"
+[[windows-numerics.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-result: the package has license-mit, which the scan misses
+[windows-result.clarify]
+license = "MIT"
+[[windows-result.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-strings: the package has license-mit, which the scan misses
+[windows-strings.clarify]
+license = "MIT"
+[[windows-strings.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-sys: the package has license-mit, which the scan misses
+[windows-sys.clarify]
+license = "MIT"
+[[windows-sys.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-targets: the package has license-mit, which the scan misses
+[windows-targets.clarify]
+license = "MIT"
+[[windows-targets.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows-threading: the package has license-mit, which the scan misses
+[windows-threading.clarify]
+license = "MIT"
+[[windows-threading.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows_x86_64_gnu: the package has license-mit, which the scan misses
+[windows_x86_64_gnu.clarify]
+license = "MIT"
+[[windows_x86_64_gnu.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# windows_x86_64_msvc: the package has license-mit, which the scan misses
+[windows_x86_64_msvc.clarify]
+license = "MIT"
+[[windows_x86_64_msvc.clarify.files]]
+path = "license-mit"
+license = "MIT"
+checksum = "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383"
+
+# dpi: both its files, in the package
+[dpi.clarify]
+license = "Apache-2.0 AND MIT"
+[[dpi.clarify.files]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "6dc0e068dcf3a5bc8e054205b85b7720e1d49265bbc64bf515d2cf79197df69a"
+[[dpi.clarify.files]]
+path = "LICENSE-LIBM-MIT"
+license = "MIT"
+checksum = "9eff396a99bafd208e7126602420d6864f6066c08b84485a5b032320a9c01997"
+
+# soundcraft-audio-io: the licence is at its repository's root (a git dependency)
+[soundcraft-audio-io.clarify]
+license = "MIT"
+[[soundcraft-audio-io.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "6aff3a3f0d8eb4c2d4fca151a00cdf26d8ff3020889402a453381a12dba3381e"
+
+# soundcraft-dsp: the licence is at its repository's root (a git dependency)
+[soundcraft-dsp.clarify]
+license = "MIT"
+[[soundcraft-dsp.clarify.files]]
+path = "../../LICENSE-MIT"
+license = "MIT"
+checksum = "6aff3a3f0d8eb4c2d4fca151a00cdf26d8ff3020889402a453381a12dba3381e"
+
+# accesskit (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit.clarify]
+license = "MIT"
+[[accesskit.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_atspi_common (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit_atspi_common.clarify]
+license = "MIT"
+[[accesskit_atspi_common.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_consumer (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit_consumer.clarify]
+license = "MIT"
+[[accesskit_consumer.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_macos (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit_macos.clarify]
+license = "MIT"
+[[accesskit_macos.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_unix (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit_unix.clarify]
+license = "MIT"
+[[accesskit_unix.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_windows (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[accesskit_windows.clarify]
+license = "MIT"
+[[accesskit_windows.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# accesskit_winit (Apache-2.0): LICENSE-APACHE from its repository at the published commit, online
+[accesskit_winit.clarify]
+license = "Apache-2.0"
+[[accesskit_winit.clarify.git]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+
+# alloc-stdlib (BSD-3-Clause): LICENSE from its repository at the published commit, online
+[alloc-stdlib.clarify]
+license = "BSD-3-Clause"
+[[alloc-stdlib.clarify.git]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+
+# blake3 (CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception): LICENSE_A2 from its repository at the published commit, online
+[blake3.clarify]
+license = "Apache-2.0"
+[[blake3.clarify.git]]
+path = "LICENSE_A2"
+license = "Apache-2.0"
+checksum = "00fcc7a934ddbc9ece2a7cc063ac788e284b703b1d705ccbba72d462aa97921e"
+
+# block2 (MIT): LICENSE.md from its repository at the published commit, online; the newest version only (the older one has another file, so it keeps the standard text)
+[block2.clarify]
+license = "MIT"
+[[block2.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# brotli-decompressor (BSD-3-Clause/MIT): LICENSE from its repository at the published commit, online
+[brotli-decompressor.clarify]
+license = "BSD-3-Clause"
+[[brotli-decompressor.clarify.git]]
+path = "LICENSE"
+license = "BSD-3-Clause"
+checksum = "c0c56f26d9c051cac4d200c34c84e7ae9aaa853e01a982a1df08b09931e518ae"
+
+# clipboard-win (BSL-1.0): LICENSE from its repository at the published commit, online
+[clipboard-win.clarify]
+license = "BSL-1.0"
+[[clipboard-win.clarify.git]]
+path = "LICENSE"
+license = "BSL-1.0"
+checksum = "c9bff75738922193e67fa726fa225535870d2aa1059f91452c411736284ad566"
+
+# constant_time_eq (CC0-1.0 OR MIT-0 OR Apache-2.0): LICENSE-APACHE from its repository at the published commit, online
+[constant_time_eq.clarify]
+license = "Apache-2.0"
+[[constant_time_eq.clarify.git]]
+path = "LICENSE-APACHE"
+license = "Apache-2.0"
+checksum = "62c7a1e35f56406896d7aa7ca52d0cc0d272ac022b5d2796e7d6905db8a3636a"
+
+# dispatch2 (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[dispatch2.clarify]
+license = "MIT"
+[[dispatch2.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# ecolor (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[ecolor.clarify]
+license = "MIT"
+[[ecolor.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# eframe (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[eframe.clarify]
+license = "MIT"
+[[eframe.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui.clarify]
+license = "MIT"
+[[egui.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui-wgpu (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui-wgpu.clarify]
+license = "MIT"
+[[egui-wgpu.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui-winit (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui-winit.clarify]
+license = "MIT"
+[[egui-winit.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui_extras (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui_extras.clarify]
+license = "MIT"
+[[egui_extras.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui_kittest (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui_kittest.clarify]
+license = "MIT"
+[[egui_kittest.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# egui_plot (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[egui_plot.clarify]
+license = "MIT"
+[[egui_plot.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "23f18e03dc49df91622fe2a76176497404e46ced8a715d9d2b67a7446571cca3"
+
+# emath (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[emath.clarify]
+license = "MIT"
+[[emath.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# epaint (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[epaint.clarify]
+license = "MIT"
+[[epaint.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "95ca92f5f8ea5231f1580b3a2a799e8260af3114b900e1def5355a7f44bcf60c"
+
+# libm (MIT): libm/LICENSE.txt from its repository at the published commit, online
+[libm.clarify]
+license = "MIT"
+[[libm.clarify.git]]
+path = "libm/LICENSE.txt"
+license = "MIT"
+checksum = "3823dda7cf046602f4b4e77ec8e227863dc4736037cc85bb33d9f19febe16bb7"
+
+# objc-sys (MIT): LICENSE.txt from its repository at the published commit, online
+[objc-sys.clarify]
+license = "MIT"
+[[objc-sys.clarify.git]]
+path = "LICENSE.txt"
+license = "MIT"
+checksum = "e353f37b12aefbb9f9b29490e837cfee05d9bda70804b3562839a3285c1df1e5"
+
+# objc2 (MIT): LICENSE.md from its repository at the published commit, online; the newest version only (the older one has another file, so it keeps the standard text)
+[objc2.clarify]
+license = "MIT"
+[[objc2.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-app-kit (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online; the newest version only (the older one has another file, so it keeps the standard text)
+[objc2-app-kit.clarify]
+license = "MIT"
+[[objc2-app-kit.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-audio-toolbox (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-audio-toolbox.clarify]
+license = "MIT"
+[[objc2-audio-toolbox.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-avf-audio (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-avf-audio.clarify]
+license = "MIT"
+[[objc2-avf-audio.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-core-audio (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-core-audio.clarify]
+license = "MIT"
+[[objc2-core-audio.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-core-audio-types (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-core-audio-types.clarify]
+license = "MIT"
+[[objc2-core-audio-types.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-core-foundation (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-core-foundation.clarify]
+license = "MIT"
+[[objc2-core-foundation.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-core-graphics (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-core-graphics.clarify]
+license = "MIT"
+[[objc2-core-graphics.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-encode (MIT): LICENSE.md from its repository at the published commit, online
+[objc2-encode.clarify]
+license = "MIT"
+[[objc2-encode.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-foundation (MIT): LICENSE.md from its repository at the published commit, online; the newest version only (the older one has another file, so it keeps the standard text)
+[objc2-foundation.clarify]
+license = "MIT"
+[[objc2-foundation.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-metal (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-metal.clarify]
+license = "MIT"
+[[objc2-metal.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-quartz-core (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online
+[objc2-quartz-core.clarify]
+license = "MIT"
+[[objc2-quartz-core.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# objc2-ui-kit (Zlib OR Apache-2.0 OR MIT): LICENSE.md from its repository at the published commit, online; the newest version only (the older one has another file, so it keeps the standard text)
+[objc2-ui-kit.clarify]
+license = "MIT"
+[[objc2-ui-kit.clarify.git]]
+path = "LICENSE.md"
+license = "MIT"
+checksum = "7f976f7e9cb2d87df7230606feb932c3f21ac0e664045a775b600046ff850c54"
+
+# profiling (MIT OR Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[profiling.clarify]
+license = "MIT"
+[[profiling.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "c8167fdeeed46d3f244d3f85c5bf998ce889343691c32be2c61a8bc4b5c08333"
+
+# spirv (Apache-2.0): LICENSE from its repository at the published commit, online
+[spirv.clarify]
+license = "Apache-2.0"
+[[spirv.clarify.git]]
+path = "LICENSE"
+license = "Apache-2.0"
+checksum = "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30"
+
+# type-map (MIT/Apache-2.0): LICENSE-MIT from its repository at the published commit, online
+[type-map.clarify]
+license = "MIT"
+[[type-map.clarify.git]]
+path = "LICENSE-MIT"
+license = "MIT"
+checksum = "b47fb719a40d9ef9c8e3be525c41ce129c46d613cfc96a91bddd7c19dcebf7a1"
+
+# zune-jpeg (MIT OR Apache-2.0 OR Zlib): only the Zlib text is in its repository, online
+[zune-jpeg.clarify]
+license = "Zlib"
+[[zune-jpeg.clarify.git]]
+path = "LICENSE-ZLIB"
+license = "Zlib"
+checksum = "7fa429541e55b1509909e058f2d21a37467e4958ec713b357f6e0cf9dc4ee352"
+

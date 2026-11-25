@@ -30,7 +30,26 @@ pub(crate) fn text_of(v: &ViewInput<'_>) -> Option<String> {
 
 /// The value as JSON: its inline value, else its full bytes parsed.
 fn json_of(v: &ViewInput<'_>) -> Option<Value> {
-    v.display.value.clone().or_else(|| v.full.and_then(|b| serde_json::from_slice(&b.bytes).ok()))
+    // a numeric array (FR6): read as the core reads it, then as columns
+    if v.display.value.is_none()
+        && let (Some(b), Some(f)) = (v.full, v.display.full.as_ref())
+        && matches!(f.meta.form, plumcraft_proto::data::Form::Array { .. })
+    {
+        let t = plumcraft_media::table::Table::of(&f.meta.form, &f.meta.media, &b.bytes).ok()?;
+        let columns: Vec<Value> = t.columns.iter().map(|c| json!({"name": c.name, "values": c.cells.iter().map(|x| x.json()).collect::<Vec<_>>()})).collect();
+        return Some(json!({"columns": columns}));
+    }
+    let csv = plumcraft_editor_core::viewers::is_csv(v.display);
+    v.display.value.clone().or_else(|| {
+        v.full.and_then(|b| {
+            if csv {
+                // a value typed text/csv: read by the CSV reader the text engine and the core use
+                plumcraft_proto::csv::read_csv(&String::from_utf8_lossy(&b.bytes)).ok()
+            } else {
+                serde_json::from_slice(&b.bytes).ok()
+            }
+        })
+    })
 }
 
 /// Whether a value is rows: a non-empty list of lists (Table to Rows', a spreadsheet's Read
@@ -541,18 +560,47 @@ mod tests {
     #[test]
     fn json_shows_as_yaml_first_with_the_tree_beside_it() {
         use plumcraft_proto::catalogue::Media;
-        let d = plumcraft_proto::display::Display { media: Media::Tree, value: Some(json!({"name": "corgi", "toys": ["ball"]})), ..Default::default() };
+        let d = {
+            let mut x = plumcraft_proto::display::Display::default();
+            x.media = Media::Tree;
+            x.value = Some(json!({"name": "corgi", "toys": ["ball"]}));
+            x
+        };
         let kinds: Vec<&str> = super::super::kinds_for(&d).iter().map(|k| k.id).collect();
         assert_eq!(kinds[..2], ["yaml", "tree"], "{kinds:?}");
-        let rows = plumcraft_proto::display::Display { media: Media::Tree, value: Some(json!([["a", "b"], [1, 2]])), ..Default::default() };
+        let rows = {
+            let mut x = plumcraft_proto::display::Display::default();
+            x.media = Media::Tree;
+            x.value = Some(json!([["a", "b"], [1, 2]]));
+            x
+        };
         assert_eq!(super::super::kinds_for(&rows)[0].id, "table.grid", "rows are a table");
         fn input(display: &plumcraft_proto::display::Display) -> ViewInput<'_> {
-            ViewInput { display, full: None, missing: false, rendition: None, pictures: &[], sheet: &[], offered_views: &[], tools: Default::default() }
+            ViewInput {
+                display,
+                full: None,
+                missing: false,
+                rendition: None,
+                pictures: &[],
+                sheet: &[],
+                offered_views: &[],
+                tools: Default::default(),
+                channel: None,
+                grid_col: None,
+                chart: None,
+                chart_range: Default::default(),
+                selection: None,
+                histogram: None,
+            }
         }
         let mut view = Yaml::default();
         view.sync(&egui::Context::default(), &input(&d));
         assert_eq!(view.lines, ["name: corgi", "toys:", "  - ball"]);
-        let changed = plumcraft_proto::display::Display { value: Some(json!({"name": "heron"})), ..d.clone() };
+        let changed = {
+            let mut x = d.clone();
+            x.value = Some(json!({"name": "heron"}));
+            x
+        };
         view.sync(&egui::Context::default(), &input(&changed));
         assert_eq!(view.lines, ["name: heron"], "a new value with the same summary still redraws");
     }

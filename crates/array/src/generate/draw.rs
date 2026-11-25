@@ -1,5 +1,5 @@
-//! Draw Shapes and Composite (yapocis numba `graphics4.py`: shapes antialiased with smoothstep
-//! and blended "over" an RGBA canvas), and Draw Lines (yapocis_external `draw` and `graphicsx`,
+//! Draw Shapes and Composite (the kernel library's numba `graphics4.py`: shapes antialiased with smoothstep
+//! and blended "over" an RGBA canvas), and Draw Lines (the external kernel library's `draw` and `graphicsx`,
 //! written plainly: Bresenham lines of one value, or 1-pixel antialiased lines).
 //!
 //! The arithmetic follows numba's types: coordinates, widths and smoothstep in float64; colours
@@ -49,7 +49,7 @@ impl Rgba {
         self.data.iter().skip(ch).step_by(4).copied().collect()
     }
 
-    /// Porter-Duff "over" at column `x`, row `y` (yapocis `_blend_rgba`); outside, nothing.
+    /// Porter-Duff "over" at column `x`, row `y` (the kernel library's `_blend_rgba`); outside, nothing.
     pub fn blend(&mut self, x: i64, y: i64, c: [f32; 4]) {
         if x < 0 || y < 0 || x >= self.w as i64 || y >= self.h as i64 {
             return;
@@ -72,7 +72,7 @@ fn faded(c: [f32; 4], t: f64) -> [f32; 4] {
     [c[0], c[1], c[2], (f64::from(c[3]) * t) as f32]
 }
 
-/// yapocis `_smoothstep`, with Python's `max`/`min`.
+/// The kernel library's `_smoothstep`, with Python's `max`/`min`.
 fn smoothstep(e0: f64, e1: f64, x: f64) -> f64 {
     let t = pymax(0.0, pymin(1.0, (x - e0) / (e1 - e0)));
     t * t * (3.0 - 2.0 * t)
@@ -83,7 +83,7 @@ fn int(v: f64) -> i64 {
     v as i64
 }
 
-/// One line `width` wide with flat ends (yapocis `_draw_line_rgba`).
+/// One line `width` wide with flat ends (the kernel library's `_draw_line_rgba`).
 #[allow(clippy::too_many_arguments)]
 pub fn line(img: &mut Rgba, x0: f64, y0: f64, x1: f64, y1: f64, width: f64, aa: f64, c: [f32; 4]) {
     let (wl, hl) = (img.w as f64 - 1.0, img.h as f64 - 1.0);
@@ -117,7 +117,7 @@ pub fn line(img: &mut Rgba, x0: f64, y0: f64, x1: f64, y1: f64, width: f64, aa: 
     }
 }
 
-/// A rectangle between float corners, antialiased inward (yapocis `_draw_rect_rgba`).
+/// A rectangle between float corners, antialiased inward (the kernel library's `_draw_rect_rgba`).
 #[allow(clippy::too_many_arguments)]
 pub fn rect(img: &mut Rgba, x0: f64, y0: f64, x1: f64, y1: f64, aa: f64, c: [f32; 4]) {
     let (xmin, xmax) = (pymin(x0, x1), pymax(x0, x1));
@@ -138,7 +138,7 @@ pub fn rect(img: &mut Rgba, x0: f64, y0: f64, x1: f64, y1: f64, aa: f64, c: [f32
     }
 }
 
-/// A disc (yapocis `_draw_circle_rgba`).
+/// A disc (the kernel library's `_draw_circle_rgba`).
 pub fn circle(img: &mut Rgba, cx: f64, cy: f64, r: f64, aa: f64, c: [f32; 4]) {
     let xmin = int(pymax(0.0, cx - r - aa - 1.0));
     let xmax = int(pymin(img.w as f64 - 1.0, cx + r + aa + 1.0));
@@ -161,7 +161,7 @@ pub fn circle(img: &mut Rgba, cx: f64, cy: f64, r: f64, aa: f64, c: [f32; 4]) {
     }
 }
 
-/// An axis-aligned ellipse (yapocis `_draw_ellipse_rgba`).
+/// An axis-aligned ellipse (the kernel library's `_draw_ellipse_rgba`).
 #[allow(clippy::too_many_arguments)]
 pub fn ellipse(img: &mut Rgba, cx: f64, cy: f64, rx: f64, ry: f64, aa: f64, c: [f32; 4]) {
     let aa_pad = if aa > 0.0 { aa } else { 0.0 };
@@ -192,7 +192,7 @@ fn edge(ax: f64, ay: f64, bx: f64, by: f64, px: f64, py: f64) -> f64 {
     (px - ax) * (by - ay) - (py - ay) * (bx - ax)
 }
 
-/// yapocis `_tri_edge`: exactly antisymmetric in (a, b).
+/// The kernel library's `_tri_edge`: exactly antisymmetric in (a, b).
 fn tri_edge(ax: f64, ay: f64, bx: f64, by: f64, px: f64, py: f64) -> f64 {
     let swap = bx < ax || (bx == ax && by < ay);
     let (ax, ay, bx, by) = if swap { (bx, by, ax, ay) } else { (ax, ay, bx, by) };
@@ -204,7 +204,7 @@ fn tri_owns(dx: f64, dy: f64) -> bool {
     dy > 0.0 || (dy == 0.0 && dx > 0.0)
 }
 
-/// yapocis `_tri_inside`: the top-left fill rule.
+/// The kernel library's `_tri_inside`: the top-left fill rule.
 #[allow(clippy::too_many_arguments)]
 fn tri_inside(px: f64, py: f64, x1: f64, y1: f64, x2: f64, y2: f64, x3: f64, y3: f64) -> bool {
     let area = tri_edge(x1, y1, x2, y2, x3, y3);
@@ -231,7 +231,7 @@ fn dist_to_segment(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64) -> f64 
     (dx * dx + dy * dy).sqrt()
 }
 
-/// A triangle with inclusive edges, or a mesh triangle with the top-left rule (yapocis
+/// A triangle with inclusive edges, or a mesh triangle with the top-left rule (the kernel library
 /// `_draw_triangle_rgba`).
 pub fn triangle(img: &mut Rgba, p: [f64; 6], aa: f64, c: [f32; 4], mesh: bool) {
     let [x0, y0, x1, y1, x2, y2] = p;
@@ -296,7 +296,7 @@ pub fn draw_shape(img: &mut Rgba, shape: &str, row: &[f64], width: f64, aa: f64,
     }
 }
 
-/// Paste an RGBA `block` (`bh` × `bw`) with its top-left at column `x`, row `y` (yapocis
+/// Paste an RGBA `block` (`bh` × `bw`) with its top-left at column `x`, row `y` (the kernel library
 /// `composite`); what falls outside is dropped.
 pub fn composite_block(img: &mut Rgba, block: &Rgba, x: i64, y: i64) {
     let (bh, bw) = (block.h as i64, block.w as i64);
@@ -426,7 +426,7 @@ pub(super) fn composite(i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
 // ---------- Draw Lines ----------
 
 /// A Bresenham line from (x0, y0) to (x1, y1) in the kernel's coordinates (x = row, y =
-/// column) set to `value` (yapocis_external `_draw_single_line`). Only the steps inside the
+/// column) set to `value` (the external kernel library's `_draw_single_line`). Only the steps inside the
 /// array are visited: the minor coordinate at step k follows from the error term in closed form.
 #[allow(clippy::too_many_arguments)]
 pub fn bresenham(a: &mut [f32], rows: usize, cols: usize, x0: i64, y0: i64, x1: i64, y1: i64, value: f32) {
@@ -458,7 +458,7 @@ pub fn bresenham(a: &mut [f32], rows: usize, cols: usize, x0: i64, y0: i64, x1: 
     }
 }
 
-/// 1-pixel antialiased lines (yapocis_external `graphicsx`), in float32: a pixel within 0.5 of
+/// 1-pixel antialiased lines (the external kernel library's `graphicsx`), in float32: a pixel within 0.5 of
 /// a segment (and alongside it) becomes 1 - distance, the last such line winning. `lines` are
 /// (row0, col0, row1, col1).
 pub fn antialiased_lines(a: &mut [f32], rows: usize, cols: usize, lines: &[[f32; 4]]) {

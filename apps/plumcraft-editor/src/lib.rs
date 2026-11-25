@@ -1,6 +1,6 @@
 //! PlumCraft's node editor, as a library: [`run`] with an [`AppConfig`] is the application, so
 //! another can be built on it with its own name, compiled-in engines, commands and viewers
-//! (PlumImpress is one). Engine manifests and crafts work there as here. `plumcraft-editor` is the
+//! (the research software's app is one). Engine manifests and crafts work there as here. `plumcraft-editor` is the
 //! default configuration.
 //!
 //! It opens a workflow on a node canvas, connects
@@ -11,7 +11,7 @@
 //! Every action is a session command (plan 10.3, E1.3).
 //!
 //! ```text
-//! plumcraft-editor [WORKFLOW.json] [--engine text|audio|array|vectorcraft|ID] [--engine-manifest FILE]... [--inproc | --process | --python | --http [--python]]
+//! plumcraft-editor [WORKFLOW.plum] [--engine text|audio|array|vectorcraft|ID] [--engine-manifest FILE]... [--inproc | --process | --python | --http [--python]]
 //!                  [--screenshot OUT.png [--shot-runs N]] [--control PORT [--control-token-file PATH]]
 //! ```
 //!
@@ -52,41 +52,33 @@
 
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
-mod headless;
-
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Arc;
-use std::time::Duration;
 
 use plumcraft_automation::server;
-use plumcraft_engine::host::Host;
+use plumcraft_editor_core::document::Opening;
+#[cfg(test)]
+use plumcraft_editor_core::engines::engine_binary;
+#[cfg(test)]
+use plumcraft_editor_core::engines::load_manifests;
+use plumcraft_editor_core::engines::{
+    EMPTY_WORKFLOW, EngineKind, Launcher, Mode, WORKER_FLAG, choices, choose, flag_value, manifest_args, serve_worker, set_packs, with_engine_arg,
+    with_file_engines,
+};
+use plumcraft_editor_core::headless;
+#[cfg(test)]
+use plumcraft_editor_core::install::{Progress, Setup, install_engine, installed_executables};
+use plumcraft_editor_core::log::Level;
 use plumcraft_graph::Graph;
-use plumcraft_host::http::{HttpHost, HttpOptions};
-use plumcraft_host::manifest::{Resolved, Start};
-use plumcraft_host::process::{Manifest, ProcessHost};
-use plumcraft_host::{Connection, InProc};
 use plumcraft_proto::catalogue::SchemaReply;
-use plumcraft_session::{EngineChoice, Session};
-use plumcraft_ui::link::Link;
+use plumcraft_session::{EngineTarget, Session};
+use plumcraft_ui::link::{Link, repaint_waker};
 use plumcraft_ui::{EditorApp, Shot};
 
-/// An engine compiled into the application.
-#[derive(Debug, Clone, Copy)]
-pub struct PackEngine {
-    /// `--engine`'s name, and what the node kinds' prefix should be.
-    pub id: &'static str,
-    /// Its Engine menu item.
-    pub label: &'static str,
-    /// Build it, on the engine's own thread.
-    pub engine: fn() -> Result<plumcraft_engine::Engine, String>,
-    /// Its demo workflow.
-    pub demo: Option<&'static str>,
-    /// Host it in a child of this same executable (mode 2), so that its crash isn't the editor's;
-    /// otherwise in-process (mode 1).
-    pub worker: bool,
-}
+/// An engine compiled into the application: the editor core's ([`plumcraft_editor_core::engines`]
+/// starts engines for every shell), named here as before.
+pub use plumcraft_editor_core::engines::PackEngine;
 
 /// What makes an application of this editor.
 pub struct AppConfig {
@@ -143,323 +135,12 @@ impl Default for AppConfig {
     }
 }
 
-impl PackEngine {
-    fn mode(&self) -> Mode {
-        if self.worker { Mode::Rust } else { Mode::InProc }
-    }
-}
-
-/// The flag that makes this executable the engine process for a [`PackEngine::worker`] pack.
-const WORKER_FLAG: &str = "--engine-worker";
-
-/// Serve pack `id` to the editor that started this process, until it goes away.
-fn serve_worker(id: &str, args: &[String]) -> Result<(), String> {
-    let (socket, token) = plumcraft_engine::serve::endpoint_from_env(args)?;
-    let i = u16::try_from(PACKS.get().map_or(0, Vec::len)).unwrap_or(u16::MAX);
-    let engine = (0..i).filter_map(pack).find(|p| p.id == id).map(|p| p.engine).ok_or_else(|| format!("no engine {id:?}"))?;
-    plumcraft_engine::serve::serve_unix(Box::new(engine), &socket, &token).map_err(|e| format!("the editor's socket: {e}"))
-}
-
-/// The compiled-in engines, set once by [`run`]: engines start on threads of their own.
-static PACKS: std::sync::OnceLock<Vec<PackEngine>> = std::sync::OnceLock::new();
-
-fn pack(i: u16) -> Option<&'static PackEngine> {
-    PACKS.get().and_then(|p| p.get(usize::from(i)))
-}
-
-/// Which engine, hosted how.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Mode {
-    /// Mode 1: the Rust engine compiled in.
-    InProc,
-    /// Mode 2: the Rust engine binary as a separate process.
-    Rust,
-    /// Mode 2: the same engine written in Python, as a separate process.
-    Python,
-    /// Mode 3: the Rust engine over HTTP, talked to as a UI on another machine would.
-    HttpRust,
-    /// Mode 3: the Python engine over HTTP, likewise.
-    HttpPython,
-}
-
-impl Mode {
-    const ALL: [Mode; 5] = [Mode::InProc, Mode::Rust, Mode::Python, Mode::HttpRust, Mode::HttpPython];
-
-    /// `engine.switch`'s `mode` (after the flags that pick it).
-    fn id(self) -> &'static str {
-        match self {
-            Mode::InProc => "inproc",
-            Mode::Rust => "process",
-            Mode::Python => "python",
-            Mode::HttpRust => "http",
-            Mode::HttpPython => "http-python",
-        }
-    }
-
-    fn from_id(id: &str) -> Option<Mode> {
-        Mode::ALL.into_iter().find(|m| m.id() == id)
-    }
-
-    /// Its Engine menu item.
-    fn menu_label(self) -> &'static str {
-        match self {
-            Mode::InProc => "Rust · in-process (mode 1)",
-            Mode::Rust => "Rust · process (mode 2)",
-            Mode::Python => "Python · process (mode 2)",
-            Mode::HttpRust => "Rust · HTTP (mode 3)",
-            Mode::HttpPython => "Python · HTTP (mode 3)",
-        }
-    }
-
-    fn python(self) -> bool {
-        matches!(self, Mode::Python | Mode::HttpPython)
-    }
-
-    /// The status bar's hosting.
-    fn label(self) -> &'static str {
-        match self {
-            Mode::InProc => "Rust · mode 1 · in-process",
-            Mode::Rust => "Rust · mode 2 · process",
-            Mode::Python => "Python · mode 2 · process",
-            Mode::HttpRust => "Rust · mode 3 · HTTP, remote",
-            Mode::HttpPython => "Python · mode 3 · HTTP, remote",
-        }
-    }
-}
-
-/// Which engine.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum EngineKind {
-    Text,
-    Audio,
-    /// The research software's general array nodes on the CPU (`plumcraft-array`).
-    Array,
-    /// The craft adapter on an artcraft app's MCP server (`plumcraft-craft`, plan 10.6 M3): a
-    /// built-in pack's id (`vectorcraft`, `lightcraft`, …), from `crates/craft/packs/`.
-    Craft(&'static str),
-    /// An engine an engine manifest names (spec 16.6): an index into [`EXTERNALS`].
-    External(u16),
-    /// An engine compiled into the application: an index into [`PACKS`].
-    Pack(u16),
-}
-
-/// An engine an engine manifest names.
-#[derive(Debug, Clone)]
-struct External {
-    id: String,
-    title: String,
-    resolved: Resolved,
-}
-
-thread_local! {
-    /// The engines manifests name. On the UI thread, where engines are chosen and started:
-    /// built at startup, read again by `engine.manifests.reload`.
-    static EXTERNALS: RefCell<Vec<External>> = const { RefCell::new(Vec::new()) };
-}
-
-fn external(i: u16) -> Option<External> {
-    EXTERNALS.with_borrow(|e| e.get(usize::from(i)).cloned())
-}
-
-/// The folder engines install their manifests in.
-fn manifest_folder() -> Option<PathBuf> {
-    // home(), not $HOME: Windows sets no HOME for an app started from the desktop, so the folder
-    // `register` had just written to was never read there
-    plumcraft_proto::programs::home().map(|h| h.join(".config").join("plumcraft").join("engines"))
-}
-
-/// Fill [`EXTERNALS`] from `files`, then every `*.toml` in `folder`. What can't be used (it won't
-/// parse, or its id is taken, by a built-in engine or an earlier manifest) is reported, and the
-/// rest still load.
-fn load_manifests(files: &[PathBuf], folder: Option<&Path>) -> Vec<String> {
-    let mut listed: Vec<PathBuf> = files.to_vec();
-    if let Some(Ok(dir)) = folder.map(std::fs::read_dir) {
-        let mut found: Vec<PathBuf> = dir.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|x| x == "toml")).collect();
-        found.sort();
-        listed.extend(found);
-    }
-    let builtin: Vec<String> = [EngineKind::Text, EngineKind::Audio, EngineKind::Array]
-        .into_iter()
-        .map(EngineKind::id)
-        .chain(plumcraft_craft::manifest::BUILTIN.iter().map(|b| (*b).to_owned()))
-        .collect();
-    let (mut loaded, mut problems): (Vec<External>, Vec<String>) = (Vec::new(), Vec::new());
-    for path in listed {
-        match plumcraft_host::manifest::load(&path) {
-            Err(e) => problems.push(e),
-            Ok(r) if builtin.contains(&r.manifest.id) => problems.push(format!("{}: id {:?} is a built-in engine", path.display(), r.manifest.id)),
-            Ok(r) => match loaded.iter().find(|x| x.id == r.manifest.id) {
-                // the same file twice (given and installed) is one engine
-                Some(x) if x.resolved.path == r.path => {}
-                Some(x) => problems.push(format!("{}: id {:?} is already {}", path.display(), r.manifest.id, x.resolved.path.display())),
-                None => loaded.push(External { id: r.manifest.id.clone(), title: r.manifest.title().to_owned(), resolved: r }),
-            },
-        }
-    }
-    EXTERNALS.with_borrow_mut(|e| *e = loaded);
-    problems
-}
-
-/// How to get the audio engine, which is built apart from the editor: its SoundCraft crates
-/// aren't on crates.io, and the interface makes it one more process (docs/guide.md).
-const AUDIO_HINT: &str = "the audio engine is optional: in a PlumCraft checkout, cargo build -p plumcraft-audio, beside the editor";
-
-/// A workflow with no nodes, for a craft whose pack has no demo.
-const EMPTY_WORKFLOW: &str = r#"{"version": 1, "nodes": {}, "wires": []}"#;
-
-impl EngineKind {
-    /// Every engine: text, audio, each built-in craft pack, then those manifests name.
-    fn all() -> Vec<EngineKind> {
-        let externals = EXTERNALS.with_borrow(Vec::len);
-        let packs = PACKS.get().map_or(0, Vec::len);
-        (0..packs)
-            .filter_map(|i| u16::try_from(i).ok())
-            .map(EngineKind::Pack)
-            .chain([EngineKind::Text, EngineKind::Audio, EngineKind::Array])
-            .chain(plumcraft_craft::manifest::BUILTIN.iter().map(|id| EngineKind::Craft(id)))
-            .chain((0..externals).filter_map(|i| u16::try_from(i).ok()).map(EngineKind::External))
-            .collect()
-    }
-
-    /// `--engine`'s name and `engine.switch`'s `engine`.
-    fn id(self) -> String {
-        match self {
-            EngineKind::Text => "text".into(),
-            EngineKind::Audio => "audio".into(),
-            EngineKind::Array => "array".into(),
-            EngineKind::Craft(id) => id.into(),
-            EngineKind::External(i) => external(i).map_or_else(String::new, |e| e.id),
-            EngineKind::Pack(i) => pack(i).map_or_else(String::new, |p| p.id.to_owned()),
-        }
-    }
-
-    fn from_id(id: &str) -> Option<EngineKind> {
-        EngineKind::all().into_iter().find(|k| k.id() == id)
-    }
-
-    fn label(self) -> String {
-        match self {
-            EngineKind::Text => "Text".into(),
-            EngineKind::Audio => "Audio".into(),
-            EngineKind::Array => "Array".into(),
-            EngineKind::Craft(id) => plumcraft_craft::manifest::builtin(id).and_then(Result::ok).map_or_else(|| id.to_owned(), |m| m.name),
-            EngineKind::External(i) => external(i).map_or_else(String::new, |e| e.title),
-            EngineKind::Pack(i) => pack(i).map_or_else(String::new, |p| p.label.to_owned()),
-        }
-    }
-
-    /// Does a manifest start this engine, or is it already running?
-    fn attaches(self) -> bool {
-        matches!(self, EngineKind::External(i) if external(i).is_some_and(|e| matches!(e.resolved.start, Start::Attach { .. })))
-    }
-
-    fn is_craft(self) -> bool {
-        matches!(self, EngineKind::Craft(_))
-    }
-
-    /// Is there an engine `self` hosted as `mode`? Only the text engine has a Python twin; the
-    /// audio engine and one a manifest names are a process or HTTP, and one already running is
-    /// only HTTP.
-    fn hosts(self, mode: Mode) -> bool {
-        match self {
-            EngineKind::External(_) if self.attaches() => mode == Mode::HttpRust,
-            EngineKind::External(_) | EngineKind::Audio => matches!(mode, Mode::Rust | Mode::HttpRust),
-            EngineKind::Pack(i) => mode == pack(i).map_or(Mode::InProc, PackEngine::mode),
-            _ => self == EngineKind::Text || !mode.python(),
-        }
-    }
-
-    /// Its Engine menu item for `mode`: "Rust" doesn't describe an engine a manifest names.
-    fn mode_label(self, mode: Mode) -> String {
-        match (self, mode) {
-            (EngineKind::External(_), Mode::HttpRust) if self.attaches() => "Running · HTTP (mode 3)".into(),
-            (EngineKind::External(_), Mode::HttpRust) => "HTTP (mode 3)".into(),
-            (EngineKind::External(_), _) => "Process (mode 2)".into(),
-            _ => mode.menu_label().into(),
-        }
-    }
-
-    /// How it is hosted without a flag: the craft adapter and the audio engine as their own
-    /// processes, the others compiled in.
-    fn default_mode(self) -> Mode {
-        match self {
-            EngineKind::External(_) if self.attaches() => Mode::HttpRust,
-            EngineKind::External(_) | EngineKind::Audio => Mode::Rust,
-            // An application on this library may be one file, with no adapter binary beside it.
-            EngineKind::Craft(_) if PACKS.get().is_none_or(Vec::is_empty) => Mode::Rust,
-            EngineKind::Pack(i) => pack(i).map_or(Mode::InProc, PackEngine::mode),
-            _ => Mode::InProc,
-        }
-    }
-
-    /// `--engine NAME` (text when absent); with several, `--engine a,b`, the first.
-    fn from_args(args: &[String]) -> Result<Self, String> {
-        Ok(Self::all_from_args(args)?.first().copied().unwrap_or(EngineKind::Text))
-    }
-
-    /// Every engine `--engine a,b,…` names, in order (text when absent); none twice.
-    fn all_from_args(args: &[String]) -> Result<Vec<Self>, String> {
-        if !args.iter().any(|a| a == "--engine") {
-            return Ok(vec![EngineKind::Text]);
-        }
-        let names = || EngineKind::all().into_iter().map(EngineKind::id).collect::<Vec<_>>().join(", ");
-        let Some(list) = flag_value(args, "--engine") else { return Err(format!("--engine needs a name: {}", names())) };
-        let mut kinds = Vec::new();
-        for name in list.split(',').map(str::trim) {
-            let k = EngineKind::from_id(name).ok_or_else(|| format!("--engine {name:?}: the engines are {}", names()))?;
-            if kinds.contains(&k) {
-                return Err(format!("--engine names {name} twice"));
-            }
-            kinds.push(k);
-        }
-        Ok(kinds)
-    }
-
-    /// The engine compiled in (mode 1). The craft adapter starts the craft's MCP server and
-    /// reads its catalogue first, which can fail (the craft not built).
-    fn engine(self) -> Result<plumcraft_engine::Engine, String> {
-        match self {
-            EngineKind::Text => Ok(plumcraft_text::engine()),
-            EngineKind::Audio => Err("the audio engine runs as its own process, plumcraft-audio-engine".into()),
-            EngineKind::Array => Ok(plumcraft_array::engine()),
-            EngineKind::Craft(id) => plumcraft_craft::manifest::Manifest::named(id).and_then(|m| plumcraft_craft::engine(&m)),
-            EngineKind::External(_) => Err("an engine a manifest names runs as its own process".into()),
-            EngineKind::Pack(i) => pack(i).ok_or_else(|| "that engine is not compiled in".to_owned()).and_then(|p| (p.engine)()),
-        }
-    }
-
-    /// Its demo workflow (an empty one for a craft without a demo).
-    fn demo(self) -> Result<String, String> {
-        Ok(match self {
-            EngineKind::Text => plumcraft_text::DEMO_WORKFLOW.into(),
-            EngineKind::Audio => include_str!("../demos/audio.json").into(),
-            EngineKind::Array => plumcraft_array::DEMO_WORKFLOW.into(),
-            EngineKind::Craft(id) => plumcraft_craft::manifest::demo(id).unwrap_or(EMPTY_WORKFLOW).into(),
-            EngineKind::External(i) => match external(i).and_then(|e| e.resolved.demo) {
-                Some(p) => std::fs::read_to_string(&p).map_err(|e| format!("{}: {e}", p.display()))?,
-                None => EMPTY_WORKFLOW.into(),
-            },
-            EngineKind::Pack(i) => pack(i).and_then(|p| p.demo).unwrap_or(EMPTY_WORKFLOW).into(),
-        })
-    }
-
-    /// The engine binary's name, the command that builds it, and its arguments: `None` for one
-    /// a manifest names.
-    fn binary(self) -> Option<(&'static str, &'static str, &'static str, Vec<String>)> {
-        match self {
-            EngineKind::Text => Some(("text", "plumcraft-text-engine", "cargo build -p plumcraft-text", Vec::new())),
-            EngineKind::Audio => Some(("audio", "plumcraft-audio-engine", AUDIO_HINT, Vec::new())),
-            EngineKind::Array => Some(("array", "plumcraft-array-engine", "cargo build -p plumcraft-array", Vec::new())),
-            EngineKind::Craft(id) => Some((id, "plumcraft-craft-engine", "cargo build -p plumcraft-craft", vec!["--craft".into(), id.into()])),
-            EngineKind::External(_) | EngineKind::Pack(_) => None,
-        }
-    }
-
-    /// How long its engine may take to be ready: the craft adapter starts the craft's process
-    /// and reads its commands and catalogues first (VectorCraft: 800 commands, three catalogues).
-    fn ready_wait(self) -> Duration {
-        // uv may have an environment to build before an external engine starts
-        if self.is_craft() || matches!(self, EngineKind::External(_) | EngineKind::Pack(_)) { Duration::from_secs(60) } else { Duration::from_secs(10) }
+/// Engine `kind`'s demo workflow (an empty one for a craft without a demo). The audio engine's
+/// is the editor's own, as the engine is built apart.
+fn demo(kind: EngineKind) -> Result<String, String> {
+    match kind {
+        EngineKind::Audio => Ok(include_str!("../demos/audio.json").into()),
+        k => Ok(k.own_demo()?.unwrap_or_else(|| EMPTY_WORKFLOW.into())),
     }
 }
 
@@ -488,11 +169,13 @@ fn doc_apps() -> Vec<plumcraft_session::DocApp> {
 /// craft's documents (PdfCraft's PDFs: pages). Without one, a pop-out opens the app.
 fn has_own_view(wire: &str, media: &str, app: &str) -> bool {
     use plumcraft_proto::data::{BlobMeta, DataRef, Form};
-    let d = plumcraft_proto::display::Display {
-        media: plumcraft_proto::catalogue::Media::Doc,
-        ty: wire.to_owned(),
-        full: Some(DataRef { meta: BlobMeta { media: media.to_owned(), form: Form::Doc { app: app.to_owned() }, ..Default::default() }, ..Default::default() }),
-        ..Default::default()
+    let d = {
+        let mut x = plumcraft_proto::display::Display::default();
+        x.media = plumcraft_proto::catalogue::Media::Doc;
+        x.ty = wire.to_owned();
+        x.full =
+            Some(DataRef { meta: BlobMeta { media: media.to_owned(), form: Form::Doc { app: app.to_owned() }, ..Default::default() }, ..Default::default() });
+        x
     };
     plumcraft_ui::viewers::kinds_for(&d).iter().any(|k| !matches!(k.id, "doc" | "hex"))
 }
@@ -502,11 +185,6 @@ const APP_ICON: &[u8] = include_bytes!("../assets/plumcraft.png");
 
 /// Flags followed by a value.
 const VALUE_FLAGS: &[&str] = &["--screenshot", "--shot-runs", "--control", "--control-token-file", "--engine", "--engine-manifest"];
-
-/// The value after flag `name`.
-fn flag_value<'a>(args: &'a [String], name: &str) -> Option<&'a String> {
-    args.iter().position(|a| a == name).and_then(|i| args.get(i + 1))
-}
 
 /// The workflow path: the first argument that is neither a flag nor a flag's value.
 fn workflow_arg(args: &[String]) -> Option<PathBuf> {
@@ -538,160 +216,56 @@ fn no_default_menu(builder: &mut eframe::EventLoopBuilder<eframe::UserEvent>) {
 #[cfg(not(target_os = "macos"))]
 fn no_default_menu(_: &mut eframe::EventLoopBuilder<eframe::UserEvent>) {}
 
+/// A line the editor printed on stderr: printed as before, and kept in the core's log
+/// ([`plumcraft_editor_core::log`]) under `editor`.
+fn say(level: Level, line: &str) {
+    plumcraft_editor_core::log::say(level, "editor", line);
+}
+
 /// Start the control server and hand its requests to `app` (errors are printed, not fatal).
 fn start_control(program: &str, app: &mut EditorApp, ctx: &egui::Context, port: u16, token: String, token_file: Option<&Path>) {
     let wake_ctx = ctx.clone();
     let wake: Arc<dyn Fn() + Send + Sync> = Arc::new(move || wake_ctx.request_repaint());
     match server::start(port, token.clone(), wake) {
         Ok((rx, bound)) => {
-            eprintln!("{program}: control channel on 127.0.0.1:{bound}");
+            // printed for the user as before; the log keeps the line without the token
+            plumcraft_editor_core::log::redact(&token);
+            say(Level::Info, &format!("{program}: control channel on 127.0.0.1:{bound}"));
             match token_file {
-                Some(p) => eprintln!("{program}: control token in {}", p.display()),
-                None => eprintln!("{program}: control token: {token}"),
+                Some(p) => say(Level::Info, &format!("{program}: control token in {}", p.display())),
+                None => say(Level::Info, &format!("{program}: control token: {token}")),
             }
             app.control_rx = Some(rx);
         }
-        Err(e) => eprintln!("{program}: {e}"),
+        Err(e) => say(Level::Error, &format!("{program}: {e}")),
     }
 }
 
-/// The engine and mode, checked: there is no Python audio engine.
-fn choose(args: &[String]) -> Result<(EngineKind, Mode), String> {
-    let kind = EngineKind::from_args(args)?;
-    let (python, http) = (args.iter().any(|a| a == "--python"), args.iter().any(|a| a == "--http"));
-    let mode = match (python, http, args.iter().any(|a| a == "--process"), args.iter().any(|a| a == "--inproc")) {
-        (true, true, ..) => Mode::HttpPython,
-        (false, true, ..) => Mode::HttpRust,
-        (true, false, ..) => Mode::Python,
-        (false, false, true, _) => Mode::Rust,
-        (false, false, false, true) => Mode::InProc,
-        _ => kind.default_mode(),
-    };
-    if !kind.hosts(mode) {
-        if mode == Mode::InProc {
-            return Err(format!("--inproc: the {} engine isn't compiled in (use --process or --http)", kind.id()));
-        }
-        return Err(format!("--python: there is no Python {} engine (use --process or --http for the Rust one)", kind.id()));
-    }
-    Ok((kind, mode))
+/// The [`Launcher`] as the egui editor uses it: links that repaint a context.
+trait LauncherExt {
+    /// The Engine menu's connector: `engine.switch`'s ids, checked, then the launcher's connect.
+    fn connector(self) -> plumcraft_ui::engine_view::Connector;
+    /// Start engine `kind` in `mode` and link to it, repainting `ctx` when events arrive.
+    #[cfg(test)]
+    fn connect(&self, kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>) -> Result<Link, String>;
 }
 
-/// Every engine and hosting the Engine menu offers.
-fn choices() -> Vec<EngineChoice> {
-    EngineKind::all()
-        .into_iter()
-        .flat_map(|k| Mode::ALL.into_iter().filter(move |m| k.hosts(*m)).map(move |m| (k, m)))
-        .map(|(k, m)| EngineChoice { engine: k.id(), mode: m.id().into(), engine_label: k.label(), mode_label: k.mode_label(m) })
-        .collect()
-}
-
-/// Where engine binary `name` is: beside the editor, or (the editor's tests run from
-/// `target/<profile>/deps`) one folder up.
-fn engine_binary(name: &str) -> Result<PathBuf, String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    // `plumcraft-text-engine.exe` on Windows
-    let name = format!("{name}{}", std::env::consts::EXE_SUFFIX);
-    let name = name.as_str();
-    let beside = exe.with_file_name(name);
-    if beside.exists() {
-        return Ok(beside);
-    }
-    let up = exe.parent().filter(|d| d.file_name().is_some_and(|n| n == "deps")).and_then(Path::parent).map(|d| d.join(name));
-    Ok(up.filter(|p| p.exists()).unwrap_or(beside))
-}
-
-/// Starts the engines (`connect`); tests point it at other binaries.
-#[derive(Debug, Clone, Default)]
-struct Launcher {
-    /// Engine binaries to use instead of the ones beside the editor.
-    binaries: Vec<(EngineKind, PathBuf)>,
-    /// `--engine-manifest`'s files, read again by `engine.manifests.reload`.
-    manifests: Vec<PathBuf>,
-}
-
-impl Launcher {
-    /// The Engine menu's connector: `engine.switch`'s ids, checked, then [`Launcher::connect`].
+impl LauncherExt for Launcher {
     fn connector(self) -> plumcraft_ui::engine_view::Connector {
-        Box::new(move |engine, mode, ctx| {
-            let kind = EngineKind::from_id(engine).ok_or_else(|| format!("no engine {engine:?}"))?;
-            let mode = Mode::from_id(mode).ok_or_else(|| format!("no hosting {mode:?}"))?;
-            self.connect(kind, mode, ctx)
-        })
+        Box::new(move |engine, mode, ctx| self.connect_ids(engine, mode, ctx.cloned().map(repaint_waker)).map(Link::from))
     }
 
-    /// Start engine `kind` in `mode` and link to it.
+    #[cfg(test)]
     fn connect(&self, kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>) -> Result<Link, String> {
-        let bin = self.binaries.iter().find(|(k, _)| *k == kind).map(|(_, p)| p.clone());
-        connect_with(kind, mode, ctx, bin)
+        self.connect_core(kind, mode, ctx.cloned().map(repaint_waker)).map(Link::from)
     }
 }
 
-/// Start engine `kind` in `mode` (as `plumcraft-view` does) and link to it, with the engine
-/// binary `bin` (mode 2 and 3, Rust) when given.
+/// Start engine `kind` in `mode` (as `plumcraft-view` does) and link to it, repainting `ctx`, with
+/// the engine binary `bin` (mode 2 and 3, Rust) when given.
+#[cfg(test)]
 fn connect_with(kind: EngineKind, mode: Mode, ctx: Option<&egui::Context>, bin: Option<PathBuf>) -> Result<Link, String> {
-    if let EngineKind::External(i) = kind {
-        let e = external(i).ok_or("that engine's manifest is gone (Engine › Reload Engine List)")?;
-        return connect_external(&e, mode, kind.ready_wait(), ctx);
-    }
-    let manifest = match mode {
-        Mode::InProc => None,
-        Mode::Rust if matches!(kind, EngineKind::Pack(_)) => {
-            let exe = std::env::current_exe().map_err(|e| format!("this program's path: {e}"))?;
-            let command = vec![exe.display().to_string(), WORKER_FLAG.to_owned(), kind.id()];
-            Some(Manifest { name: kind.id(), command, env: Vec::new(), hint: "the engine's process stopped".into(), store: None, cwd: None })
-        }
-        Mode::Rust | Mode::HttpRust => {
-            let (name, binary, hint, args) = kind.binary().ok_or("this engine has no binary")?;
-            let exe = match bin {
-                Some(b) => b,
-                None => engine_binary(binary)?,
-            };
-            if !exe.is_file() {
-                return Err(format!("no engine binary at {}. Fix: {hint}", exe.display()));
-            }
-            let command = std::iter::once(exe.display().to_string()).chain(args).collect();
-            Some(Manifest { name: name.into(), command, env: Vec::new(), hint: hint.into(), store: None, cwd: None })
-        }
-        Mode::Python | Mode::HttpPython if kind != EngineKind::Text => return Err(format!("there is no Python {} engine", kind.id())),
-        Mode::Python | Mode::HttpPython => {
-            let (command, env) = plumcraft_text::python_command();
-            Some(Manifest {
-                name: "text (Python)".into(),
-                command,
-                env,
-                hint: "needs uv (cd python && uv sync), or set PLUMCRAFT_UV".into(),
-                store: None,
-                cwd: None,
-            })
-        }
-    };
-    let conn: Arc<dyn Connection> = if let (Some(m), true) = (&manifest, matches!(mode, Mode::HttpRust | Mode::HttpPython)) {
-        Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?)
-    } else if let Some(m) = manifest {
-        let h = ProcessHost::start(m).map_err(|e| e.to_string())?;
-        h.wait_ready(kind.ready_wait());
-        Arc::new(h)
-    } else {
-        let h = Host::start(Box::new(move || kind.engine()), None);
-        h.wait_ready(kind.ready_wait());
-        Arc::new(InProc(h))
-    };
-    Link::start(conn, mode.label(), ctx.cloned())
-}
-
-/// Start the engine a manifest names and link to it: a process on a socket, or HTTP, spawned or
-/// already running.
-fn connect_external(e: &External, mode: Mode, wait: Duration, ctx: Option<&egui::Context>) -> Result<Link, String> {
-    let (conn, label): (Arc<dyn Connection>, &str) = match (&e.resolved.start, mode) {
-        (Start::Attach { url, token }, _) => (Arc::new(HttpHost::attach(url, token, HttpOptions::default())?), "mode 3 · HTTP, running"),
-        (Start::Command(m), Mode::HttpRust) => (Arc::new(HttpHost::spawn(m, HttpOptions { remote: true, ..Default::default() })?), "mode 3 · HTTP"),
-        (Start::Command(m), _) => {
-            let h = ProcessHost::start(m.clone()).map_err(|e| e.to_string())?;
-            h.wait_ready(wait);
-            (Arc::new(h), "mode 2 · process")
-        }
-    };
-    Link::start(conn, label, ctx.cloned())
+    Launcher { binaries: bin.map(|b| vec![(kind, b)]).unwrap_or_default(), ..Default::default() }.connect(kind, mode, ctx)
 }
 
 /// The demos for several engines (`demos/`, docs/research/15-multi-engine.md): the engines each
@@ -718,7 +292,7 @@ fn read_workflow(path: Option<&Path>, kind: EngineKind) -> Result<(Graph, String
             let graph = plumcraft_session::file_cmds::read_any(p).map_err(|e| e.to_string())?;
             Ok((graph, p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned())))
         }
-        None => Ok((plumcraft_session::file_cmds::parse_workflow(&kind.demo()?).map_err(|e| format!("the demo: {e}"))?, "Demo".to_owned())),
+        None => Ok((plumcraft_session::file_cmds::parse_workflow(&demo(kind)?).map_err(|e| format!("the demo: {e}"))?, "Demo".to_owned())),
     }
 }
 
@@ -729,7 +303,10 @@ fn editor(ctx: &egui::Context, graph: Graph, path: Option<&Path>, name: String, 
     editor_with(ctx, graph, path, name, kind, mode, shot, Launcher::default())
 }
 
-/// [`editor`], starting engines with `launcher` (tests point it at other binaries).
+/// [`editor`], starting engines with `launcher` (tests point it at other binaries). It waits for
+/// the engine and its catalogue, so a test reads them at once; the application's own startup
+/// doesn't ([`editor_starting`]).
+#[cfg(test)]
 #[allow(clippy::too_many_arguments)]
 fn editor_with(
     ctx: &egui::Context,
@@ -764,115 +341,63 @@ fn editor_with(
     app.shot = shot;
     app.setup_context(ctx);
     // The Engine menu: every engine and hosting, this one checked.
-    let manifests = launcher.manifests.clone();
-    let app = app.with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector()).with_reloader(Box::new(move || {
-        let problems = load_manifests(&manifests, manifest_folder().as_deref());
-        (choices(), problems)
-    }));
-    let mut app = app.with_installer(std::sync::Arc::new(|url: &str| install_engine(url, &[])));
+    // Reload Engine List and Install Engine…: the editor core's, as in every shell (B71)
+    let mut app = app.with_launcher(&launcher).with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector());
     match link {
         Ok(link) => app.with_link(link),
         Err(e) => {
-            app.last_error = Some(format!("engine: {e}"));
+            app.last_error.set(format!("engine: {e}"));
             app
         }
     }
 }
 
-/// The commands `uv tool install` says it installed ("Installed 2 executables: a, b").
-fn installed_executables(said: &str) -> Vec<String> {
-    said.lines()
-        .filter_map(|l| l.trim().strip_prefix("Installed ")?.split_once(": ").map(|(_, names)| names.to_owned()))
-        .flat_map(|names| names.split(", ").map(|n| n.trim().to_owned()).collect::<Vec<_>>())
-        .filter(|n| !n.is_empty() && n.chars().all(|c| c.is_ascii_alphanumeric() || "-_.".contains(c)))
-        .collect()
-}
-
-/// The last lines of a command's output, for an error.
-fn tail(out: &std::process::Output) -> String {
-    let text = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let lines: Vec<&str> = text.lines().filter(|l| !l.trim().is_empty()).collect();
-    lines[lines.len().saturating_sub(4)..].join("\n")
-}
-
-/// Engine › Install Engine…: `uv tool install --reinstall git+URL`, then `register` on each
-/// command it installed, so the engine's manifest is in `~/.config/plumcraft/engines/`. `env` is
-/// set on both (a test's own tool and config folders).
-fn install_engine(url: &str, env: &[(&str, &std::path::Path)]) -> Result<String, String> {
-    use std::process::Command;
-    let uv = plumcraft_host::manifest::program("uv").ok_or("needs uv (https://docs.astral.sh/uv), or set PLUMCRAFT_UV")?;
-    let run = |cmd: &mut Command| -> Result<std::process::Output, String> {
-        for (k, v) in env {
-            cmd.env(k, v);
-        }
-        cmd.output().map_err(|e| e.to_string())
+/// The editor on `graph` (read from `path`, which it opens with `graph.open`, or the demo), with
+/// its window up before its engine: `kind` hosted as `mode` connects on the engine worker from the
+/// first frame (the title and status bar say "connecting"), `extras` are added after it, and the
+/// graph opens once the catalogue is there ([`EditorApp::start_engines`]). The application's own
+/// startup; [`editor_with`] is the one that waits, for tests.
+#[allow(clippy::too_many_arguments)]
+fn editor_starting(
+    program: &str,
+    ctx: &egui::Context,
+    graph: Graph,
+    path: Option<&Path>,
+    name: String,
+    kind: EngineKind,
+    mode: Mode,
+    extras: &[EngineKind],
+    shot: Option<Shot>,
+    launcher: Launcher,
+) -> EditorApp {
+    let mut app = EditorApp::new(Session::new(SchemaReply::default()));
+    // "Open in VectorCraft" on document values (session doc.open)
+    app.session.docs.apps = doc_apps();
+    app.document = name;
+    app.shot = shot;
+    app.setup_context(ctx);
+    // The Engine menu: every engine and hosting, this one checked.
+    // Reload Engine List and Install Engine…: the editor core's, as in every shell (B71)
+    let app = app.with_launcher(&launcher).with_engines(choices(), Some((kind.id(), mode.id().into())), launcher.connector());
+    // `--engine a,b`: the others beside the first (Engine › Add Engine), hosted as the first where
+    // they can be, else as they are by default. A pack's hosting is its own: its application may
+    // be one executable, with no engine binaries beside it.
+    let extras: Vec<EngineTarget> = extras
+        .iter()
+        .filter_map(|extra| {
+            let m = if extra.hosts(mode) && !matches!(kind, EngineKind::Pack(_)) { mode } else { extra.default_mode() };
+            if app.session.engines.find(&extra.id(), m.id()).is_none() {
+                say(Level::Error, &format!("{program}: --engine {}: no engine {:?} hosted {:?}", extra.id(), extra.id(), m.id()));
+                return None;
+            }
+            Some(EngineTarget::Choice { engine: extra.id(), mode: m.id().to_owned() })
+        })
+        .collect();
+    let opening = match path {
+        Some(p) => Opening::Path(p.to_path_buf()),
+        None => Opening::Graph(graph),
     };
-    let out = run(Command::new(&uv).args(["tool", "install", "--reinstall"]).arg(format!("git+{url}")))?;
-    if !out.status.success() {
-        return Err(format!("uv tool install failed: {}", tail(&out)));
-    }
-    let said = format!("{}{}", String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
-    let exes = installed_executables(&said);
-    if exes.is_empty() {
-        return Err(format!("uv installed it but named no command: {}", tail(&out)));
-    }
-    let bin = run(Command::new(&uv).args(["tool", "dir", "--bin"]))?;
-    let bin = std::path::PathBuf::from(String::from_utf8_lossy(&bin.stdout).trim());
-    let mut registered = Vec::new();
-    for exe in &exes {
-        let out = run(Command::new(bin.join(exe)).arg("register"))?;
-        if !out.status.success() {
-            return Err(format!("installed {exe}, but `{exe} register` failed: {}", tail(&out)));
-        }
-        registered.push(exe.as_str());
-    }
-    Ok(format!("installed and registered {} from {url}", registered.join(", ")))
-}
-
-/// The engines a workflow file names (`"engines": [...]`), for a headless command given no
-/// `--engine`: the first argument that isn't a flag (or a flag's value) is the file.
-fn file_engines(args: &[String]) -> Option<Vec<String>> {
-    let mut it = args.iter();
-    let mut file = None;
-    while let Some(a) = it.next() {
-        if ["--out", "--node", "--format", "--engine-manifest"].contains(&a.as_str()) {
-            it.next();
-        } else if !a.starts_with('-') {
-            file = Some(a);
-            break;
-        }
-    }
-    let text = std::fs::read_to_string(file?).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
-    let ids: Vec<String> = v.get("engines")?.as_array()?.iter().filter_map(|e| e.as_str().map(str::to_owned)).collect();
-    if ids.is_empty() { None } else { Some(ids) }
-}
-
-/// `--engine-manifest`'s files, in order.
-fn manifest_args(args: &[String]) -> Vec<PathBuf> {
-    args.windows(2).filter(|w| w[0] == "--engine-manifest").map(|w| PathBuf::from(&w[1])).collect()
-}
-
-/// `args`, with `--engine` naming the engines the workflow names, for `run`, `check` and `tidy`
-/// given no `--engine`. A manifest given (`--engine-manifest`) only says how to start one of them.
-fn with_file_engines(mut args: Vec<String>) -> Vec<String> {
-    if matches!(args.first().map(String::as_str), Some("run" | "check" | "tidy"))
-        && !args.iter().any(|a| a == "--engine")
-        && let Some(ids) = file_engines(&args[1..])
-    {
-        args.extend(["--engine".to_owned(), ids.join(",")]);
-    }
-    args
-}
-
-/// `args`, with `--engine <id>` of the first manifest given when `--engine` names none.
-fn with_engine_arg(mut args: Vec<String>) -> Vec<String> {
-    if !args.iter().any(|a| a == "--engine")
-        && let Some(id) = manifest_args(&args).first().and_then(|f| plumcraft_host::manifest::load(f).ok()).map(|r| r.manifest.id)
-    {
-        args.extend(["--engine".to_owned(), id]);
-    }
-    args
+    app.start_engines(EngineTarget::Choice { engine: kind.id(), mode: mode.id().to_owned() }, extras, opening)
 }
 
 /// Run the application `config` describes.
@@ -884,9 +409,15 @@ pub fn run(config: AppConfig) -> ExitCode {
         .and_then(|()| plumcraft_ui::viewers::register(viewers))
         .and_then(|()| plumcraft_ui::value_editors::register(editors))
         .and_then(|()| plumcraft_session::file_cmds::register_openers(openers));
-    if let Err(e) = added.and_then(|()| PACKS.set(packs).map_err(|_| "the application started twice".to_owned())) {
-        eprintln!("{program}: {e}");
+    if let Err(e) = added.and_then(|()| set_packs(packs)) {
+        say(Level::Error, &format!("{program}: {e}"));
         return ExitCode::FAILURE;
+    }
+    // the log's level: the preferences' `log_level`, else info; PLUMCRAFT_LOG wins
+    if let Some(level) =
+        plumcraft_editor_core::prefs::Store::for_app(program).prefs().extra.get("log_level").and_then(serde_json::Value::as_str).and_then(Level::parse)
+    {
+        plumcraft_editor_core::log::set_level(level);
     }
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == WORKER_FLAG) {
@@ -894,7 +425,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         return match serve_worker(&id, &args) {
             Ok(()) => ExitCode::SUCCESS,
             Err(e) => {
-                eprintln!("{program}: {e}");
+                say(Level::Error, &format!("{program}: {e}"));
                 ExitCode::FAILURE
             }
         };
@@ -912,23 +443,24 @@ pub fn run(config: AppConfig) -> ExitCode {
         args.extend(["--engine".to_owned(), engine.to_owned()]);
     }
     let manifests = manifest_args(&args);
-    for problem in load_manifests(&manifests, manifest_folder().as_deref()) {
-        eprintln!("{program}: {problem}");
+    for problem in (Launcher { manifests: manifests.clone(), ..Default::default() }).load_manifests() {
+        say(Level::Error, &format!("{program}: {problem}"));
     }
     let args = with_engine_arg(args);
     let (kind, mode) = match choose(&args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
     let extras: Vec<EngineKind> = EngineKind::all_from_args(&args).map(|k| k.into_iter().skip(1).collect()).unwrap_or_default();
+    // without a window: the editor core's own commands
     match args.first().map(String::as_str) {
-        Some("run") => return headless::run(program, &args[1..], kind, mode, &extras, manifests),
+        Some("run") => return headless::run(program, &usage(program), &args[1..], kind, mode, &extras, manifests),
         Some("nodes") => return headless::nodes(program, kind, mode, &extras, manifests),
-        Some("check") => return headless::check(program, &args[1..], kind, mode, &extras, manifests),
-        Some("tidy") => return headless::tidy(program, &args[1..], kind, mode, &extras, manifests),
+        Some("check") => return headless::check(program, &usage(program), &args[1..], kind, mode, &extras, manifests),
+        Some("tidy") => return headless::tidy(program, &usage(program), &args[1..], kind, mode, &extras, manifests),
         _ => {}
     }
     let shot_runs = flag_value(&args, "--shot-runs").and_then(|n| n.parse().ok()).unwrap_or(1);
@@ -938,7 +470,7 @@ pub fn run(config: AppConfig) -> ExitCode {
         Some(p) if plumcraft_session::archive::is_zip(&p) => match plumcraft_session::archive::extract_bundle(&p) {
             Ok(workflow) => Some(workflow),
             Err(e) => {
-                eprintln!("{program}: {e}");
+                say(Level::Error, &format!("{program}: {e}"));
                 return ExitCode::from(2);
             }
         },
@@ -947,7 +479,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     let control = match control_args(&args) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
@@ -959,7 +491,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     let (graph, name) = match read {
         Ok(g) => g,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             return ExitCode::from(2);
         }
     };
@@ -967,7 +499,7 @@ pub fn run(config: AppConfig) -> ExitCode {
     // A bad icon costs the icon, not the editor.
     match eframe::icon_data::from_png_bytes(icon) {
         Ok(icon) => viewport = viewport.with_icon(icon),
-        Err(e) => eprintln!("{program}: app icon: {e}"),
+        Err(e) => say(Level::Error, &format!("{program}: app icon: {e}")),
     }
     let options =
         eframe::NativeOptions { viewport, renderer: eframe::Renderer::Wgpu, event_loop_builder: Some(Box::new(no_default_menu)), ..Default::default() };
@@ -976,7 +508,9 @@ pub fn run(config: AppConfig) -> ExitCode {
         // `--screenshot FILE` is an unattended run of a file named here: nobody to ask, and naming
         // it is the approval, as with the `run` command
         let unattended = shot.is_some();
-        let mut app = editor_with(&cc.egui_ctx, graph, path.as_deref(), name, kind, mode, shot, launcher);
+        // the window first: the engine connects on the worker, and the graph opens once its
+        // catalogue is there
+        let mut app = editor_starting(program, &cc.egui_ctx, graph, path.as_deref(), name, kind, mode, &extras, shot, launcher);
         app.app_title = title;
         if !unattended && let Some(file) = plumcraft_ui::prefs::trust_path_for(program) {
             app.session.set_trust_file(file);
@@ -984,31 +518,50 @@ pub fn run(config: AppConfig) -> ExitCode {
         app.session.about = about(title, version, &versions());
         // this application's own preferences, by its name
         app.use_prefs(plumcraft_ui::prefs::Store::for_app(program), &cc.egui_ctx);
-        // `--engine a,b`: the others beside the first (Engine › Add Engine), hosted as the
-        // first where they can be, else as they are by default. A pack's hosting is its own: its
-        // application may be one executable, with no engine binaries beside it.
-        for extra in extras {
-            let m = if extra.hosts(mode) && !matches!(kind, EngineKind::Pack(_)) { mode } else { extra.default_mode() };
-            if let Err(e) = app.try_run("engine.add", &serde_json::json!({"engine": extra.id(), "mode": m.id()})) {
-                eprintln!("{program}: --engine {}: {e}", extra.id());
-            }
-        }
+        // The control channel opens once the engine has connected and the graph is open, so a
+        // client sees what it saw when the window waited for the engine (it connects a little
+        // later than the window shows).
         if let Some((port, token, token_file)) = control {
-            start_control(program, &mut app, &cc.egui_ctx, port, token, token_file.as_deref());
+            let ctx = cc.egui_ctx.clone();
+            app.on_ready = Some(Box::new(move |app: &mut EditorApp| start_control(program, app, &ctx, port, token, token_file.as_deref())));
+        }
+        // Begin the engine now, before the first frame: one that must be started (a process, an
+        // HTTP engine) starts on the worker while the window opens; one compiled in connects here
+        // in a few milliseconds (as engines compiled in always do in this shell), so the editor
+        // is ready, and its control channel open, before its first frame, as before.
+        app.wake_with(&cc.egui_ctx);
+        if let Some(Err(e)) = app.pump_engine() {
+            app.last_error.set(e);
         }
         Ok(Box::new(app))
     };
-    match eframe::run_native(title, options, Box::new(creator)) {
+    let code = match eframe::run_native(title, options, Box::new(creator)) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
-            eprintln!("{program}: {e}");
+            say(Level::Error, &format!("{program}: {e}"));
             ExitCode::FAILURE
         }
+    };
+    // The window has gone; its document handed its engines to its worker to stop (never on the
+    // window's thread). Let a process engine's shutdown finish before the program ends.
+    if plumcraft_ui::trace_startup() {
+        say(Level::Info, &format!("{program}: window closed"));
     }
+    let stopped = plumcraft_editor_core::document::wait_closed(std::time::Duration::from_secs(3));
+    if plumcraft_ui::trace_startup() {
+        say(Level::Info, &format!("{program}: engines stopped: {stopped}"));
+    }
+    code
 }
 
 fn about(title: &str, version: &str, parts: &[(String, String)]) -> plumcraft_session::About {
-    plumcraft_session::About { title: title.to_owned(), version: version.to_owned(), parts: parts.to_vec() }
+    let shell = plumcraft_build_stamp::shell();
+    plumcraft_session::About {
+        title: title.to_owned(),
+        version: version.to_owned(),
+        parts: parts.to_vec(),
+        build: Some(plumcraft_build_stamp::about(&shell, None, None)),
+    }
 }
 
 /// `--version`: the application, then what it was built from.
@@ -1249,10 +802,11 @@ mod tests {
                 if ["plumcraft-text-engine", "plumcraft-audio-engine", "plumcraft-craft-engine"].iter().all(|b| engine_binary(b).is_ok_and(|p| p.is_file())) {
                     return;
                 }
-                // <target>/<profile>/deps/<this test>
+                // <target>/<profile>, wherever this cargo put this test
                 let exe = std::env::current_exe().unwrap();
-                let target = exe.parent().and_then(Path::parent).and_then(Path::parent).unwrap();
-                let release = exe.parent().and_then(Path::parent).is_some_and(|p| p.ends_with("release"));
+                let profile = plumcraft_editor_core::engines::profile_dir(&exe).unwrap();
+                let target = profile.parent().unwrap();
+                let release = profile.ends_with("release");
                 let mut cmd = std::process::Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".into()));
                 cmd.args(["build", "-p", "plumcraft-text", "-p", "plumcraft-audio", "-p", "plumcraft-craft", "--bins", "--target-dir"]).arg(target);
                 if release {
@@ -1383,6 +937,43 @@ mod tests {
                 "hosted in-process"
             );
             assert!(h.state().session.missing_engines().is_none());
+        }
+
+        /// The palette lists the kinds of an engine not started (N4 slice 1, contract 12.7; D3 of
+        /// the egui audit), saying which engine choosing one starts; choosing one starts it and
+        /// adds the node once it has connected, where the palette was opened, as one undo step.
+        #[test]
+        fn the_palette_offers_a_kind_whose_engine_isnt_started_and_choosing_it_starts_that_engine() {
+            let mut h = text_editor(Launcher::default());
+            assert_eq!(command(&mut h, "engine.auto", json!({"on": true})).unwrap()["on"], true);
+            assert!(h.state().session.catalog().node("array.mandelbrot").is_none(), "the array engine isn't started");
+            let ctx = h.ctx.clone();
+            let items = h.state_mut().control_now(&ctx, "palette.items", &json!({"query": "mandel"}))["result"].clone();
+            assert_eq!(
+                items["items"],
+                json!([{"kind": "array.mandelbrot", "label": "Mandelbrot", "category": items["items"][0]["category"], "starts": "array"}]),
+                "{items}"
+            );
+            // egui draws the same list, the engine named
+            command(&mut h, "canvas.palette", json!({"open": true, "at": [600.0, 500.0], "query": "mandel"})).unwrap();
+            h.run_steps(4);
+            let nodes = h.state().session.graph().nodes.len();
+            // a person's click on it
+            h.get_by_label("Mandelbrot  · starts the array engine").click();
+            h.run_steps(2);
+            assert_eq!(h.state().doc.held_add.as_ref().map(|a| a.kind.as_str()), Some("array.mandelbrot"), "held while the engine starts");
+            assert!(h.state().canvas.palette.is_none() && h.state().doc.palette.is_none(), "the palette closed");
+            until(&mut h, "the node added once the array engine connected", |a| a.session.graph().nodes.len() == nodes + 1);
+            let (_, node) = h.state().session.graph().nodes.iter().find(|(_, n)| n.kind == "array.mandelbrot").expect("added");
+            assert_eq!(node.pos, [600.0, 500.0], "where the palette was opened");
+            assert!(h.state().session.catalog().node("array.mandelbrot").is_some());
+            assert_eq!(h.state().session.undo_label(), Some("Add Node"));
+            assert!(h.state().last_error.is_none(), "{:?}", h.state().last_error);
+            assert!(h.state().doc.held_add.is_none());
+            // its engine connected, its kinds are the catalogue's own: listed without `starts`
+            let items = h.state_mut().control_now(&ctx, "palette.items", &json!({"query": "life"}))["result"].clone();
+            assert_eq!(items["items"].as_array().map(Vec::len), Some(1), "Game of Life is the array engine's, connected now: {items}");
+            assert!(items["items"][0].get("starts").is_none(), "{items}");
         }
 
         /// Engine › Add Engine (docs/research/15-multi-engine.md): the array engine beside the
@@ -1599,7 +1190,7 @@ mod tests {
             std::fs::write(&m, "id = \"Not An Id\"").unwrap();
             let r = command(&mut h, "engine.manifests.reload", json!({})).unwrap();
             assert!(r["problems"][0].as_str().unwrap().contains("lower-case"), "{r}");
-            assert!(h.state().last_error.as_ref().unwrap().contains("engine manifests"));
+            assert!(h.state().last_error.as_deref().unwrap().contains("engine manifests"));
             assert_eq!(offered(&mut h, "late"), []);
             assert_eq!(offered(&mut h, "text").len(), 5, "the built-in engines are still there");
         }
@@ -1648,14 +1239,14 @@ mod tests {
             let problems = r["problems"].as_array().unwrap();
             assert!(problems.len() >= before.nodes.len(), "{r}");
             assert!(problems.iter().any(|p| p.as_str().unwrap().contains("unknown kind \"text.")), "{r}");
-            let e = h.state().last_error.clone().unwrap();
+            let e = h.state().last_error.text().unwrap();
             assert!(e.contains("Audio · Rust · process (mode 2)") && e.contains("problem(s)"), "{e}");
             assert!(h.state().engine_label().contains("engine: Audio"), "{}", h.state().engine_label());
             h.get_by_label_contains("problem(s) with this engine");
             // back to text: no problems, and it runs
             let r = switch(&mut h, "text", "inproc").unwrap();
             assert_eq!(r["problems"], json!([]));
-            assert_eq!(h.state().last_error, None);
+            assert_eq!(h.state().last_error.as_deref(), None);
             run_all_done(&mut h, "back on text");
         }
 
@@ -1746,14 +1337,17 @@ mod tests {
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: "wrong".into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            // (attaching is a network call, made on the engine worker: settled once it is done)
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             // a wrong token: refused, said, the window stays for another try
             assert!(!h.state().session.connected);
             assert!(h.state().last_error.as_deref().unwrap_or_default().contains("HTTP · attached"), "{:?}", h.state().last_error);
             h.state_mut().attach_form = Some(plumcraft_ui::engine_view::AttachForm { url: url.clone(), token: token.into() });
             h.run_steps(2);
             h.get_by_label("Attach").click();
-            h.run_steps(3);
+            h.run_steps(1);
+            until(&mut h, "the attach", |a| !a.engine_busy());
             assert!(h.state().session.connected, "{:?}", h.state().last_error);
             assert!(h.state().engine_label().contains(&format!("HTTP · attached · {url}")), "{}", h.state().engine_label());
             let v = inspect(&mut h);
@@ -2207,10 +1801,13 @@ mod install_tests {
         let (tools, bin, home) = (root.join("tools"), root.join("bin"), root.join("home"));
         // the person's uv cache, so it needn't download everything again
         let cache = std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".cache/uv")).unwrap();
-        let env: [(&str, &std::path::Path); 4] = [("UV_TOOL_DIR", &tools), ("UV_TOOL_BIN_DIR", &bin), ("HOME", &home), ("UV_CACHE_DIR", &cache)];
-        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &env).unwrap();
+        let env =
+            vec![("UV_TOOL_DIR".to_owned(), tools), ("UV_TOOL_BIN_DIR".to_owned(), bin), ("HOME".to_owned(), home.clone()), ("UV_CACHE_DIR".to_owned(), cache)];
+        let engines = home.join(".config/plumcraft/engines");
+        let setup = Setup { folder: Some(engines.clone()), env, ..Setup::default() };
+        let said = install_engine("https://github.com/seantrue/plumcraft-duckdb-engine", &setup, &Progress::default()).unwrap();
         assert!(said.contains("duckdb-engine"), "{said}");
-        let manifest = home.join(".config/plumcraft/engines/duckdb.toml");
+        let manifest = engines.join("duckdb.toml");
         let resolved = plumcraft_host::manifest::load(&manifest).unwrap();
         assert_eq!(resolved.manifest.id, "duckdb");
         assert!(resolved.demo.as_ref().is_some_and(|d| d.is_file()), "the wheel's demo: {:?}", resolved.demo);

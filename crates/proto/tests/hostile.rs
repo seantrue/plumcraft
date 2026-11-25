@@ -9,6 +9,13 @@ use plumcraft_proto::session::{EngineState, Hello, HelloReply};
 use plumcraft_proto::{Caps, DataRef, Handle, PortValue, ProtoError};
 
 const SEEDS: &[&str] = &[
+    // an engine's acknowledgements (FR4): licences, each with its text and packages
+    r#"{"groups": [{"licence": "MIT", "name": "MIT License", "text": "Permission is hereby granted", "packages": [{"name": "serde", "version": "1.0.0", "url": "https://crates.io/crates/serde"}]}], "note": ""}"#,
+    // a nested list with its axes (spec 4.5, capability `lists.nested`)
+    r#"{"kind": "list", "items": [{"kind": "list", "items": [{"kind": "json", "value": 0.1}, {"kind": "json", "value": 0.2}], "axes": [["s.values", 2]]}, {"kind": "list", "items": [], "axes": [["s.values", 0]]}], "axes": [["r.values", 2], ["x", 1]]}"#,
+    // a watch and a display of a nested list: the item within the run, each level's count
+    r#"{"node": "s", "port": "values", "index": -1, "path": [1, -2], "sheet": true, "px": 64}"#,
+    r#"{"media": "image", "type": "IMAGE", "node": "s", "port": "p", "items": 3, "index": 1, "path": [1], "levels": [3, 2], "summary": "run 2 of 3 · item 2 of 2", "renditions": [{"kind": "rgba8", "ref": {"handle": "b3:aa"}, "w": 1, "h": 1, "items": 3, "levels": [3, 2]}]}"#,
     r#"{"v": 2, "seq": 1043, "ts": 1.5, "kind": "node.status", "run_id": "r", "generation": 17, "body": {"node_id": "n7", "state": "preview", "thumb": {"kind": "rgba8", "ref": {"handle": "md5:nd1:9e107d9d372bb6826bd81d3542a419d6", "at": [{"kind": "path", "path": "/x"}]}, "w": 4, "h": 3}, "display": [{"media": "ndarray"}]}}"#,
     r#"{"v": 2, "run_id": "0b5e", "generation": 17, "ok": true, "order": ["n1"], "nodes": {"n1": {"state": "done", "ms": 1.0, "outputs": {"value": {"kind": "list", "items": [{"kind": "json", "value": 1}]}}}}, "watch": [{"media": "text", "renditions": [{"kind": "excerpt", "text": "hi"}]}]}"#,
     r#"{"v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}], "wire_types": [{"id": "ARRAY", "view_params": {"angle": [{"name": "turn"}]}}]}"#,
@@ -18,6 +25,9 @@ const SEEDS: &[&str] = &[
     r#"{"stream": "append", "node_id": "n", "port": "p", "offset": 5, "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e"}}"#,
     r#"{"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}, "title": "t"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "a", "port": "q"}, "slice": ":-1"}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["a", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "l", "min": 0}], "checkpoints": ["a"], "outputs": [{"from": {"node": "a", "port": "p"}, "name": "n"}]}}"#,
     r#"{"labels": {"x": "Ex", "a": {"y": "Why", "x": 3}}, "v": 2, "nodes": [{"id": "a", "inputs": [{"name": "x", "type": "FLOAT", "options": {"k": [{"name": "y"}]}}]}]}"#,
+    r#"{"v": 2, "save_formats": [{"id": "txt", "label": "Text", "extensions": ["txt"], "media": ["text"], "options": [{"name": "upper", "type": "BOOL", "default": false}]}, {"id": "png", "extensions": [".png"], "media": ["image", "ndarray"]}], "wire_types": [{"id": "TEXT", "media": "text"}], "nodes": [{"id": "r", "outputs": [{"name": "text", "type": "TEXT"}, {"name": "x", "type": "ARRAY"}], "save_formats": ["png", "txt", "txt", "nope"]}]}"#,
+    r#"{"ok": true, "paths": [], "files": [{"name": "a-00.txt", "ref": {"handle": "md5:raw:d41d8cd98f00b204e9800998ecf8427e", "at": [{"kind": "inline", "b64": ""}]}}, {"name": "../x", "ref": null}], "recipe": false, "stamped": true, "items": 2, "error": null, "question": {"text": "not a picture", "shape": [4, 1000], "offer": "npy"}}"#,
+    r#"{"v": 2, "op": "output.save", "graph": {"kind": "inline", "graph": {}}, "node": "n", "port": "p", "path": "/x.png", "format": "png", "options": {}, "ask": true, "graph_info": {"name": "Flow", "hash": "sha256:00"}}"#,
     r#"{"format": "plumcraft.expansion", "version": 1, "display": "My group", "description": "d", "expansion": {"command": "t.cmd", "nodes": {"a": {"kind": "t.a", "pos": [1, 2], "values": {"x": 1}}, "b": {"kind": "t.b"}}, "wires": [{"from": {"node": "a", "port": "p"}, "to": {"node": "b", "port": "q"}}], "inputs": {"i": [["a", "q"]]}, "settings": {"s": [["a", "x"]]}, "outputs": {"o": ["b", "p"]}, "group": {"promoted": [{"port": {"node": "a", "port": "x"}, "label": "s"}], "checkpoints": ["a"]}}}"#,
 ];
 
@@ -58,6 +68,12 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<SaveRequest>(text);
     let _ = serde_json::from_str::<SaveReply>(text);
     if let Ok(mut c) = serde_json::from_str::<SchemaReply>(text) {
+        // a node's save formats are looked up in a hostile catalogue without panicking
+        for n in &c.nodes {
+            for p in &n.outputs {
+                let _ = c.save_formats_for(n, &p.name);
+            }
+        }
         // a catalogue's conversion marks are hostile too: searching them never panics
         let _ = c.convert_paths("D", "AUDIO");
         let _ = c.convert_path_of("D", &["b".to_owned(), "w".to_owned()]);
@@ -73,6 +89,10 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<EngineState>(text);
     let _ = serde_json::from_str::<Display>(text);
     let _ = serde_json::from_str::<WatchRequest>(text);
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+        let _ = plumcraft_proto::acknowledgements::Acknowledgements::from_value(v);
+    }
+    let _ = plumcraft_proto::acknowledgements::Acknowledgements::from_cargo_about(text);
     let _ = serde_json::from_str::<DataRef>(text);
     let _ = serde_json::from_str::<PortValue>(text);
     let _ = serde_json::from_str::<Handle>(text);
@@ -82,8 +102,26 @@ fn all_parsers(text: &str) {
     let _ = plumcraft_proto::slice::parse(text);
     if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
         let _ = plumcraft_proto::expansion::Expansion::parse(&v);
+        // a curves value, and a mask stroke's params, painted on a small canvas when they parse
+        let _ = plumcraft_proto::curves::parse_value(&v);
+        if let Ok(stroke) = plumcraft_proto::masks::parse_stroke(&v)
+            && stroke.points.len() <= 16
+        {
+            let mut c = plumcraft_proto::masks::MaskCanvas::new(16, 12, &[]);
+            c.paint(&stroke);
+            let _ = c.pixel_hash();
+        }
     }
+    let _ = plumcraft_proto::curves::parse(text);
     let _ = plumcraft_proto::expansion::StoredExpansion::parse(text.as_bytes());
+    // a CSV a viewer reads as a table (note 26 slice 4)
+    let _ = plumcraft_proto::csv::read_csv(text);
+    // note 26 slice 8: dates and times on a chart's axis
+    let _ = plumcraft_proto::time::parse_iso(text);
+    if let Some(t) = plumcraft_proto::time::parse_iso(text) {
+        let _ = plumcraft_proto::time::ticks(t, t + 1e9, 600.0, 80.0);
+        let _ = plumcraft_proto::time::text(t);
+    }
 }
 
 #[test]
@@ -93,6 +131,24 @@ fn junk_never_panics() {
     }
     all_parsers(&deep(10_000));
     all_parsers(&format!("{{\"v\": 2, \"nodes\": [{}]}}", deep(200)));
+}
+
+/// A node's own list of save formats picks from the catalogue's, in its order, once each, by
+/// what its output shows; without one it offers every format that takes its media.
+#[test]
+fn a_nodes_save_formats_come_from_the_catalogue() {
+    let seed = SEEDS.iter().find(|s| s.contains("\"save_formats\"")).unwrap();
+    let c: SchemaReply = serde_json::from_str(seed).unwrap();
+    let r = &c.nodes[0];
+    let ids = |port: &str| c.save_formats_for(r, port).iter().map(|f| f.id.clone()).collect::<Vec<_>>();
+    assert_eq!(ids("text"), ["txt"], "png doesn't take text; a repeat and an unknown id are skipped");
+    assert_eq!(ids("x"), ["png"], "ARRAY is ndarray, a core type even undeclared");
+    assert!(ids("nope").is_empty());
+    let mut open = r.clone();
+    open.save_formats = None;
+    assert_eq!(c.save_formats_for(&open, "text").iter().map(|f| f.id.as_str()).collect::<Vec<_>>(), ["txt"]);
+    open.save_formats = Some(Vec::new());
+    assert!(c.save_formats_for(&open, "text").is_empty(), "an empty list offers none");
 }
 
 #[test]
@@ -244,4 +300,144 @@ fn stl_files_never_panic() {
     }
     let _ = read_stl(b"solid\nfacet vertex vertex vertex vertex 1 2 3 endfacet endfacet");
     let _ = read_stl("solid ☃\nfacet\u{0}vertex 1e40 -0 nan endfacet".as_bytes());
+}
+
+/// Note 26 slice 4: CSV text is hostile input. Every truncation and every flipped byte of a CSV
+/// with quotes, separators and line ends reads or is refused, never a panic; a table read has
+/// columns of one length; the row and field limits hold without reading past them.
+#[test]
+fn csv_text_never_panics() {
+    use plumcraft_proto::csv::{MAX_COLUMNS, MAX_ROWS, read_csv};
+    let seed = "name,n,x,ok,note\r\nada,1,1.5,true,\"a, b\"\nbob,-2,2e3,false,\"say \"\"hi\"\"\"\n\n,3,,TRUE,\"two\nlines\"\n";
+    assert!(read_csv(seed).is_ok(), "the seed is valid");
+    let check = |t: &str| {
+        if let Ok(v) = read_csv(t) {
+            let cols = v["columns"].as_array().cloned().unwrap_or_default();
+            let n = cols.first().and_then(|c| c["values"].as_array()).map_or(0, Vec::len);
+            assert!(cols.iter().all(|c| c["values"].as_array().is_some_and(|x| x.len() == n)), "{t:?}");
+        }
+    };
+    let chars: Vec<char> = seed.chars().collect();
+    for at in 0..chars.len() {
+        check(&chars[..at].iter().collect::<String>());
+        for c in ['"', ',', ';', '\t', '\r', '\n', 'x', '\u{0}', '\u{feff}'] {
+            let mut bad = chars.clone();
+            bad[at] = c;
+            check(&bad.iter().collect::<String>());
+        }
+    }
+    for junk in ["", "\"", "\"\"\"", ",,,,", "\n\n\n", "a\n\"", "a;b\tc\n1;2\t3"] {
+        check(junk);
+    }
+    // too many fields in a row, and too many rows: refused, not read on
+    assert!(read_csv(&format!("{}\n", "a,".repeat(MAX_COLUMNS + 1))).is_err());
+    assert!(read_csv(&"a\n".repeat(MAX_ROWS + 2)).is_err());
+}
+
+/// FR6: a derived view (`view.derive`'s `{kind, params}`, `plumcraft-views`) is hostile input.
+/// Every seed view, every truncation of its text and every scalar swapped for every other JSON
+/// type is parsed or refused, and what parses is made over arrays of every dtype, including ones
+/// whose bytes don't fill their shape, an overflowing shape and a rank past the limit: never a
+/// panic.
+#[test]
+fn derived_views_never_panic() {
+    use plumcraft_views::{Array, derive, parse};
+    let seeds = [
+        r#"{"kind": "histogram", "params": {"bins": 4, "lo": 0, "hi": 1, "per": {"axis": 1}}}"#,
+        r#"{"kind": "stats", "params": {"per": "all", "percentiles": [0, 50, 99.5, 100]}}"#,
+        r#"{"kind": "slice", "params": {"axes": [0, 2], "at": [1, 2, 3]}}"#,
+    ];
+    let arrays: Vec<(&str, Vec<u64>, Vec<u8>)> = vec![
+        ("<f4", vec![2, 3, 4], (0..96).map(|i| i as u8).collect()),
+        ("|u1", vec![2, 3, 4], (0..24).collect()),
+        ("<f8", vec![3], vec![0xff; 24]),
+        ("<f2", vec![2, 2], vec![0x00, 0x7c, 0x01, 0x7c, 0x00, 0xfc, 0x00, 0x00]),
+        ("<i8", vec![1], vec![0x80; 8]),
+        ("<f4", vec![5], vec![0; 7]),
+        ("<f4", vec![u64::MAX, 2], vec![]),
+        ("<f4", vec![0, 3], vec![]),
+        ("<f4", vec![1; 40], vec![0; 4]),
+        ("bogus", vec![1], vec![0]),
+    ];
+    let try_all = |text: &str| {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text)
+            && let Ok(view) = parse(&v)
+        {
+            for (dtype, shape, bytes) in &arrays {
+                let _ = derive(&view, &Array { dtype, shape, bytes });
+            }
+        }
+    };
+    let swaps = ["null", "-1", "1.5e308", "\"x\"", "[]", "{}", "true", "18446744073709551615", "65537"];
+    for seed in seeds {
+        let chars: Vec<char> = seed.chars().collect();
+        for cut in 0..chars.len() {
+            try_all(&chars[..cut].iter().collect::<String>());
+        }
+        let v: serde_json::Value = serde_json::from_str(seed).unwrap();
+        let mut paths = Vec::new();
+        collect(&v, &mut Vec::new(), &mut paths);
+        for path in &paths {
+            for s in swaps {
+                let mut w = v.clone();
+                if let Some(slot) = pointer_mut(&mut w, path) {
+                    *slot = serde_json::from_str(s).unwrap();
+                }
+                try_all(&w.to_string());
+            }
+        }
+    }
+    for j in JUNK {
+        try_all(j);
+    }
+}
+
+/// FR6 slice 3: `view.derive`'s request, as the SDK host parses it (the reference, the view, the
+/// cap on the answer), and a derived view's key as the media service parses it, never panic.
+#[test]
+fn view_derive_requests_never_panic() {
+    use base64::Engine as _;
+    let bytes: Vec<u8> = (0..24u32).flat_map(|i| (i as f32).to_le_bytes()).collect();
+    let handle = plumcraft_proto::handle::Handle::nd1("<f4", &[2, 3, 4], &bytes).unwrap().to_string();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let seed = serde_json::json!({
+        "ref": {"handle": handle, "meta": {"media": "application/x-npy", "size": 96, "form": {"kind": "array", "dtype": "<f4", "shape": [2, 3, 4]}}, "at": [{"kind": "inline", "b64": b64}]},
+        "view": {"kind": "histogram", "params": {"bins": 4, "per": {"axis": 2}}},
+        "max_bytes": 100000
+    });
+    assert!(plumcraft_engine::views::derive(None, &seed).is_ok(), "the seed is answered");
+    let try_one = |text: &str| {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+            let _ = plumcraft_engine::views::derive(None, &v);
+        }
+    };
+    let text = seed.to_string();
+    let chars: Vec<char> = text.chars().collect();
+    for cut in (0..chars.len()).step_by(3) {
+        try_one(&chars[..cut].iter().collect::<String>());
+    }
+    let swaps = ["null", "-1", "1.5e308", "\"x\"", "[]", "{}", "true", "18446744073709551615", "[4294967296, 2]"];
+    let mut paths = Vec::new();
+    collect(&seed, &mut Vec::new(), &mut paths);
+    for path in &paths {
+        for s in swaps {
+            let mut w = seed.clone();
+            if let Some(slot) = pointer_mut(&mut w, path) {
+                *slot = serde_json::from_str(s).unwrap();
+            }
+            try_one(&w.to_string());
+        }
+    }
+    for j in JUNK {
+        try_one(j);
+    }
+    let key = format!("derive:view:{handle}@00000000deadbeef");
+    assert!(plumcraft_media::parse_derived(&key).is_some());
+    let kc: Vec<char> = key.chars().collect();
+    for cut in 0..kc.len() {
+        let _ = plumcraft_media::parse_derived(&kc[..cut].iter().collect::<String>());
+    }
+    for k in ["derive:view:", "derive:view:@", "derive:view:x@zz", "derive:view:x@ffffffffffffffffff", "derive:view:x@-0000000000000001", "derive:view:@@@"] {
+        let _ = plumcraft_media::parse_derived(k);
+    }
 }

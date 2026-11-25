@@ -105,11 +105,11 @@ fn bend_points_are_added_dragged_removed_and_straightened() {
     }
     h.run_steps(3);
     assert_eq!(via(&h, &to), moved, "a double-click removes the point it was on");
-    // the wire menu on the routed wire: Straighten
+    // the wire menu on the routed wire: Route Automatically
     let on_wire = mid(&h);
     press(&mut h, on_wire, egui::PointerButton::Secondary);
     assert!(h.state().canvas.wire_menu.is_some(), "the menu opens on a routed wire");
-    h.get_by_label("Straighten").click();
+    h.get_by_label("Route Automatically").click();
     h.run_steps(4);
     assert!(via(&h, &to).is_empty());
     assert_eq!(h.state().session.undo_label(), Some("Straighten Wire"));

@@ -1,0 +1,169 @@
+# Plummer, PlumCraft's native editor for the iPad and iPhone (N3 slice 5; named Plummer 2026-11-21; docs/research/24-native-shells.md section 18): a
+# document-based UIKit app on the Swift kit (../PlumCraftFFI) and its layer canvas, sharing the
+# kit's shell pieces (PlumCraftShell) with the Mac app. Generate with `xcodegen generate`; build,
+# check and measure with ./conformance.sh and ./bench.sh.
+# The generated PlumCraftPad.xcodeproj, App/Info.plist and build/ are not committed (.gitignore).
+#
+# Signing: the simulator build is signed to run locally. A device build is signed by the
+# command line that builds it (bench.sh device), with the team's development identity and an
+# existing profile; nothing here asks Apple for one.
+name: PlumCraftPad
+options:
+  bundleIdPrefix: com.plumcraft
+  deploymentTarget:
+    iOS: "18.0"
+  createIntermediateGroups: true
+packages:
+  PlumCraftFFI:
+    path: ../PlumCraftFFI
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+targets:
+  PlumCraftPad:
+    type: application
+    platform: iOS
+    sources:
+      - path: App
+        excludes:
+          - Info.plist
+      - path: Samples
+        type: folder
+        buildPhase: resources
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleName: Plummer
+        CFBundleDisplayName: Plummer
+        # both from the build settings (../Config/Version.xcconfig; the release script passes them)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.developer-tools
+        # export compliance (the maintainer, 2026-11-21, card 1A: "Answer No: exempt (reading a
+        # document only)"): no TLS, only the OS's random numbers, hashing, and hayro's PDF
+        # decryption, which only reads a document (claude-debug/native-n4-apple-prep.md section 4;
+        # not legal advice)
+        ITSAppUsesNonExemptEncryption: false
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: true
+          UISceneConfigurations:
+            UIWindowSceneSessionRoleApplication:
+              - UISceneConfigurationName: Default
+                UISceneDelegateClassName: $(PRODUCT_MODULE_NAME).SceneDelegate
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~iphone:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UIRequiresFullScreen: false
+        # a mouse's or trackpad's clicks arrive as indirect pointer touches, so the canvas tells
+        # them from a finger (N4 slice 1: a pointer drag on empty canvas is a marquee, as on the Mac)
+        UIApplicationSupportsIndirectInputEvents: true
+        # the scene's restoration activity (the graph shown and its view)
+        NSUserActivityTypes:
+          - $(PLUMMER_PAD_BUNDLE_ID).graph
+          # a pop-out's own window (N4 slice 3)
+          - $(PLUMMER_PAD_BUNDLE_ID).popout
+        # the system's document browser, Files, open in place
+        UISupportsDocumentBrowser: true
+        LSSupportsOpeningDocumentsInPlace: true
+        UIFileSharingEnabled: true
+        # a graph's file (FR2, docs/shell-interface.md 12.23): `.plum`, its own type, which the app
+        # owns; `.json` still opens and saves, as an alternate, so Plummer never claims every JSON
+        # file. The browser lists both. An application built on this shell declares the same type
+        # in its own Info.plist.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.swapwizard.plummer.graph
+            UTTypeDescription: Plummer Graph
+            UTTypeConformsTo:
+              - public.json
+            UTTypeTagSpecification:
+              public.filename-extension:
+                - plum
+              public.mime-type:
+                - application/x-plumcraft-graph
+        CFBundleDocumentTypes:
+          - CFBundleTypeName: Plummer Graph
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Owner
+            LSItemContentTypes:
+              - com.swapwizard.plummer.graph
+          - CFBundleTypeName: Plummer Graph (JSON)
+            CFBundleTypeRole: Editor
+            LSHandlerRank: Alternate
+            LSItemContentTypes:
+              - public.json
+    scheme:
+      testTargets:
+        - PlumCraftPadUITests
+    # versions and the local signing settings (Config/Pad.xcconfig; a local, untracked
+    # Config/Signing.local.xcconfig or the environment names the team)
+    configFiles:
+      Debug: ../Config/Pad.xcconfig
+      Release: ../Config/Pad.xcconfig
+    postBuildScripts:
+      # which build this is (B151): the source's commit, whether it had changes, and when, into
+      # the built Info.plist before it is signed (About shows them through the core)
+      - name: Stamp build
+        basedOnDependencyAnalysis: false
+        # after the Info.plist is made (a script with no inputs may run before it)
+        inputFiles:
+          - $(TARGET_BUILD_DIR)/$(INFOPLIST_PATH)
+        script: |
+          "$SRCROOT/../stamp-build.sh"
+    dependencies:
+      - package: PlumCraftFFI
+        product: PlumCraftKit
+      - package: PlumCraftFFI
+        product: PlumCraftCanvas
+      - package: PlumCraftFFI
+        product: PlumCraftShell
+    settings:
+      base:
+        PRODUCT_NAME: Plummer
+        PRODUCT_MODULE_NAME: PlumCraftPad
+        PRODUCT_BUNDLE_IDENTIFIER: $(PLUMMER_PAD_BUNDLE_ID)
+        # the iPad and, since N4 slice 6, the iPhone: one app, a compact layout in compact width
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ARCHS: arm64
+        DEAD_CODE_STRIPPING: YES
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # Stamp build reads git, outside the project
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+      # debug builds only (N4 slice 4, decision 10): the control port may listen on the local
+      # network so the conformance suite runs on the device, and iOS asks the person first with
+      # this text (merged into the Info.plist). A release build has no such key and never binds
+      # beyond loopback.
+      configs:
+        Debug:
+          GENERATE_INFOPLIST_FILE: YES
+          INFOPLIST_KEY_NSLocalNetworkUsageDescription: A debug build of Plummer lets its test suite drive it from a Mac on this network.
+  # the platform's recognisers driven by XCUITest in the simulator (real taps, long presses, pinches
+  # and drags through UIKit, which the conformance suite over the port doesn't reach)
+  PlumCraftPadUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: UITests
+    dependencies:
+      - target: PlumCraftPad
+    # the app's bundle id, for its own (../Config/BundleId.xcconfig)
+    configFiles:
+      Debug: ../Config/BundleId.xcconfig
+      Release: ../Config/BundleId.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(PLUMMER_PAD_BUNDLE_ID).uitests
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PlumCraftPad
+        "CODE_SIGN_IDENTITY[sdk=iphonesimulator*]": "-"
+        CODE_SIGN_STYLE: Manual

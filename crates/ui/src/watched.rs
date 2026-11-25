@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
 
+use plumcraft_media::{Fetch, Source, Want};
 use plumcraft_proto::catalogue::Media;
 use plumcraft_proto::data::{DataRef, Locator};
 use plumcraft_proto::display::{Display, Rendition, WatchRequest};
@@ -38,6 +39,10 @@ pub const MAX_ROWS: usize = 1000;
 /// Full values already in memory, by handle: the panel, its tabs, the pins and the pop-outs that
 /// show one value share its bytes, which can be hundreds of megabytes, rather than each read
 /// them. Held weakly: a value goes when the last viewer lets it go.
+///
+/// The editor reads through the media service now ([`plumcraft_media::MediaService`], which
+/// shares bytes the same way and reads them off the UI thread); this stays for code that reads
+/// in place.
 #[derive(Clone, Default)]
 pub struct Fulls(Arc<Mutex<HashMap<String, Weak<Blob>>>>);
 
@@ -67,6 +72,8 @@ pub struct Watched {
     pub missing: bool,
     /// A rerun was asked for because of it (once per value, F58).
     reran_for_missing: bool,
+    /// Its bytes are on their way (the media service is reading them): not missing, not here.
+    pub pending: bool,
 }
 
 impl Watched {
@@ -76,15 +83,27 @@ impl Watched {
     }
 
     /// Take the session's watched display, reading its full value with `resolve` when it is
-    /// new. True when the value's bytes are gone and a rerun should publish them again (once).
+    /// new, in place. True when the value's bytes are gone and a rerun should publish them again
+    /// (once).
     pub fn update(&mut self, d: Option<&Display>, resolve: &dyn Fn(&DataRef) -> Option<Arc<Blob>>) -> bool {
-        if self.seen.as_ref() == d {
+        self.update_fetch(d, &|r: &DataRef| resolve(r).map_or(Fetch::Missing, Fetch::Ready))
+    }
+
+    /// [`Watched::update`], asking `source` (the media service) for the bytes: until they arrive
+    /// the value is [`Watched::pending`], not missing, and is asked for again each frame.
+    pub fn update_from(&mut self, d: Option<&Display>, source: &dyn Source) -> bool {
+        self.update_fetch(d, &|r: &DataRef| source.fetch(r, Want::Bytes).bytes())
+    }
+
+    fn update_fetch(&mut self, d: Option<&Display>, fetch: &dyn Fn(&DataRef) -> Fetch<Arc<Blob>>) -> bool {
+        if self.seen.as_ref() == d && !self.pending {
             return false;
         }
         let Some(d) = d else {
             self.seen = None;
             self.full = None;
             self.missing = false;
+            self.pending = false;
             return false;
         };
         // A document is never read: the UI doesn't decode it (spec 10.1), and it may be huge.
@@ -93,15 +112,21 @@ impl Watched {
         let id = |f: &DataRef| f.handle.as_ref().map_or_else(|| format!("{:?}", f.at), ToString::to_string);
         let same = self.seen.as_ref().and_then(|w| w.full.as_ref()).map(id) == d.full.as_ref().map(id);
         if !same || self.full.is_none() {
-            self.full = d.full.as_ref().filter(|_| readable).and_then(resolve);
+            let (full, pending) = match d.full.as_ref().filter(|_| readable).map(fetch) {
+                Some(Fetch::Ready(b)) => (Some(b), false),
+                Some(Fetch::Pending) => (None, true),
+                _ => (None, false),
+            };
+            self.full = full;
+            self.pending = pending;
         }
-        self.missing = readable && d.full.is_some() && self.full.is_none();
+        self.missing = readable && d.full.is_some() && self.full.is_none() && !self.pending;
         self.seen = Some(d.clone());
         if self.missing && !self.reran_for_missing {
             self.reran_for_missing = true;
             return true;
         }
-        if !self.missing {
+        if !self.missing && !self.pending {
             self.reran_for_missing = false;
         }
         false
@@ -206,6 +231,7 @@ impl Watched {
                 (Some(_), _) => format!("{} bytes from the store", f.meta.size),
                 (None, _) if d.media == Media::Doc && f.at.is_empty() => format!("{} bytes, on the engine's machine", f.meta.size),
                 (None, _) if d.media == Media::Doc => format!("{} bytes, in the engine's CAS", f.meta.size),
+                (None, _) if self.pending => format!("{} bytes, reading…", f.meta.size),
                 (None, _) => "gone (reaped); rerun to publish it again".to_owned(),
             };
             let handle = f.handle.as_ref().map(|h| h.to_string()).unwrap_or_default();
@@ -281,13 +307,28 @@ pub struct Opens<'a> {
 fn list_bar(ui: &mut egui::Ui, w: &WatchRequest, d: &Display, running: bool, tokens: &Tokens, asks: &mut Vec<(&'static str, Value)>) {
     let n = d.items as i64;
     let at = d.index.clamp(0, n - 1);
+    // a list of lists (interface 7.6 rule 2, decision 6A): the outer stepper steps the runs, and
+    // one stepper a level steps the item within the run ([`level_steps`])
+    let nested = d.levels.len() > 1;
+    let word = if nested { "run" } else { "item" };
     ui.horizontal(|ui| {
-        if ui.add_enabled(!running && at > 0, egui::Button::new("◀")).on_hover_text("The previous item").clicked() {
+        if ui.add_enabled(!running && at > 0, egui::Button::new("◀")).on_hover_text(format!("The previous {word}")).clicked() {
             asks.push(("run.item", serde_json::json!({"index": at - 1})));
         }
-        ui.label(egui::RichText::new(format!("item {} of {n}", at + 1)).color(tokens.text));
-        if ui.add_enabled(!running && at + 1 < n, egui::Button::new("▶")).on_hover_text("The next item").clicked() {
+        ui.label(egui::RichText::new(format!("{word} {} of {n}", at + 1)).color(tokens.text));
+        if ui.add_enabled(!running && at + 1 < n, egui::Button::new("▶")).on_hover_text(format!("The next {word}")).clicked() {
             asks.push(("run.item", serde_json::json!({"index": at + 1})));
+        }
+        for step in level_steps(d) {
+            ui.separator();
+            if ui.add_enabled(!running && step.at > 0, egui::Button::new("◀")).on_hover_text(format!("The previous {} in this run", step.word)).clicked() {
+                asks.push(("run.item", serde_json::json!({"index": at, "path": step.path(step.at - 1)})));
+            }
+            ui.label(egui::RichText::new(format!("{} {} of {}", step.word, step.at + 1, step.of)).color(tokens.text));
+            if ui.add_enabled(!running && step.at + 1 < step.of, egui::Button::new("▶")).on_hover_text(format!("The next {} in this run", step.word)).clicked()
+            {
+                asks.push(("run.item", serde_json::json!({"index": at, "path": step.path(step.at + 1)})));
+            }
         }
         ui.separator();
         let hover = "Every item side by side, each labelled with what made it; click one to show it (viewer.sheet)";
@@ -295,7 +336,7 @@ fn list_bar(ui: &mut egui::Ui, w: &WatchRequest, d: &Display, running: bool, tok
             asks.push(("viewer.sheet", serde_json::json!({"on": !w.sheet})));
         }
     });
-    egui::CollapsingHeader::new(format!("All {n} items")).id_salt("plumcraft-watched-items").default_open(n <= 12).show(ui, |ui| {
+    egui::CollapsingHeader::new(format!("All {n} {word}s")).id_salt("plumcraft-watched-items").default_open(n <= 12).show(ui, |ui| {
         egui::ScrollArea::vertical().id_salt("plumcraft-watched-items-scroll").max_height(160.0).show(ui, |ui| {
             for (j, cell) in d.sheet.iter().enumerate() {
                 let text = match (cell.label.is_empty(), cell.summary.is_empty()) {
@@ -314,6 +355,41 @@ fn list_bar(ui: &mut egui::Ui, w: &WatchRequest, d: &Display, running: bool, tok
             }
         });
     });
+}
+
+/// One inner level's stepper in a list of lists: where it is (`at` of `of`), what it steps ("item"
+/// for the innermost, "run" between), and the display's path to change.
+pub struct LevelStep {
+    pub word: &'static str,
+    pub at: i64,
+    pub of: i64,
+    level: usize,
+    shown: Vec<i64>,
+}
+
+impl LevelStep {
+    /// The path that shows item `j` of this level, the levels above it kept and those below it
+    /// back at their first.
+    pub fn path(&self, j: i64) -> Vec<i64> {
+        let mut p: Vec<i64> = self.shown.iter().take(self.level).copied().collect();
+        p.push(j);
+        p
+    }
+}
+
+/// The steppers inside a run of a list of lists, outermost first: one a level below the runs
+/// (the display's `levels[1..]`, at its `path`); none for a list that isn't nested.
+pub fn level_steps(d: &Display) -> Vec<LevelStep> {
+    let deep = d.levels.len().saturating_sub(1);
+    (0..deep)
+        .map(|k| LevelStep {
+            word: if k + 1 == deep { "item" } else { "run" },
+            at: d.path.get(k).copied().unwrap_or(0),
+            of: d.levels.get(k + 1).copied().unwrap_or(0) as i64,
+            level: k,
+            shown: d.path.clone(),
+        })
+        .collect()
 }
 
 /// Save this value (the item shown, when it is a list), and every item on one contact sheet.
@@ -403,21 +479,8 @@ pub fn table_view(ui: &mut egui::Ui, t: &Value, tokens: &Tokens) {
     }
 }
 
-/// A 1-d array's values as numbers, for the dtypes the text engine makes and a few more.
-pub fn numbers(b: &Blob) -> Option<Vec<f64>> {
-    if b.shape.len() != 1 {
-        return None;
-    }
-    let v: Vec<f64> = match b.dtype.as_str() {
-        "|u1" => b.bytes.iter().map(|x| f64::from(*x)).collect(),
-        "<u4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(u32::from_le_bytes(*c))).collect(),
-        "<i4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(i32::from_le_bytes(*c))).collect(),
-        "<f4" => b.bytes.as_chunks::<4>().0.iter().map(|c| f64::from(f32::from_le_bytes(*c))).collect(),
-        "<f8" => b.bytes.as_chunks::<8>().0.iter().map(|c| f64::from_le_bytes(*c)).collect(),
-        _ => return None,
-    };
-    Some(v)
-}
+/// A 1-d array's values as numbers ([`plumcraft_media::decode::numbers`]).
+pub use plumcraft_media::decode::numbers;
 
 /// A 1-d plot: a bar per value when they fit, otherwise each pixel column spans the min and max
 /// of its values; the range is labelled.
@@ -474,7 +537,11 @@ mod tests {
     /// An array published by path has no handle: two of them are two values, not one.
     #[test]
     fn values_without_handles_are_told_apart_by_where_they_are() {
-        let at = |path: &str| Display { full: Some(serde_json::from_value(json!({"at": [{"kind": "path", "path": path}]})).unwrap()), ..Default::default() };
+        let at = |path: &str| {
+            let mut d = Display::default();
+            d.full = Some(serde_json::from_value(json!({"at": [{"kind": "path", "path": path}]})).unwrap());
+            d
+        };
         let read = |n: u8| Arc::new(Blob { dtype: "|u1".into(), shape: vec![1], bytes: vec![n].into() });
         let mut w = Watched::default();
         w.update(Some(&at("/a.npy")), &|_| Some(read(1)));
@@ -484,9 +551,10 @@ mod tests {
 
     #[test]
     fn a_gone_value_reruns_once() {
-        let d = Display {
-            full: Some(serde_json::from_value(json!({"handle": "md5:raw:9e107d9d372bb6826bd81d3542a419d6", "at": []})).unwrap()),
-            ..Default::default()
+        let d = {
+            let mut x = Display::default();
+            x.full = Some(serde_json::from_value(json!({"handle": "md5:raw:9e107d9d372bb6826bd81d3542a419d6", "at": []})).unwrap());
+            x
         };
         let mut w = Watched::default();
         assert!(w.update(Some(&d), &|_| None), "gone: rerun");

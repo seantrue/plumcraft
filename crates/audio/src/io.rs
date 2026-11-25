@@ -319,6 +319,50 @@ fn encode_as(i: &Inputs, cx: &mut Cx, format: FileFormat, bit_depth: BitDepth, p
     Ok(one(port, Data::Blob(Box::new(blob))))
 }
 
+/// Save Result's formats for audio (the SDK's `save`): WAV, FLAC and AIFF through SoundCraft's
+/// encoder, each with its sample format, in place of the SDK's own WAV (which writes 32-bit float
+/// or 16-bit only).
+pub(crate) fn save_formats() -> Vec<plumcraft_engine::save::Format> {
+    use plumcraft_engine::save::{Format, option};
+    use plumcraft_proto::catalogue::Media;
+    let bits = |choices: &[&str], default: &str| Port {
+        choices: Some(choices.iter().map(|c| json!(c)).collect()),
+        ..option("bits", "Sample format", crate::ENUM, json!(default))
+    };
+    let encoder = |format: FileFormat, choices: &'static [&'static str], what: &'static str| {
+        move |v: &Data, cx: &plumcraft_engine::save::SaveCx<'_>| -> Result<Vec<u8>, NodeError> {
+            let Data::Audio(a) = v else { return Err(config(format!("{what} saves audio"))) };
+            util::check(a).map_err(|e| config(format!("{what}: {e}")))?;
+            let chosen = cx.options.get("bits").and_then(serde_json::Value::as_str).unwrap_or_default();
+            let bit_depth = match chosen {
+                "int24" => BitDepth::Int24,
+                "int16" => BitDepth::Int16,
+                "int32" => BitDepth::Int32,
+                "float32" => BitDepth::Float32,
+                other => return Err(config(format!("{what}: no sample format {other:?}: one of {}", choices.join(", ")))),
+            };
+            let buf = AudioBuffer { sample_rate: a.sample_rate, channels: a.to_channels() };
+            let bytes = soundcraft_audio_io::encode(&buf, &EncodeOptions { format, bit_depth, dither: false, bwf: None })
+                .map_err(|e| op_error(format!("{what}: {e}")))?;
+            // WAV has room for the workflow's name and graph hash (informational); FLAC and AIFF
+            // get none here
+            Ok(match (format, cx.info) {
+                (FileFormat::Wav, Some(i)) => plumcraft_engine::save::wav_with_info(&bytes, i),
+                _ => bytes,
+            })
+        }
+    };
+    vec![
+        Format::new("wav", "WAV", &["wav", "wave"], &[Media::Audio], "audio/wav", encoder(FileFormat::Wav, DEPTHS, "WAV"))
+            .with_option(bits(DEPTHS, "float32"))
+            .stamping(),
+        Format::new("flac", "FLAC", &["flac"], &[Media::Audio], "audio/flac", encoder(FileFormat::Flac, FLAC_DEPTHS, "FLAC"))
+            .with_option(bits(FLAC_DEPTHS, "int24")),
+        Format::new("aiff", "AIFF", &["aiff", "aif"], &[Media::Audio], "audio/aiff", encoder(FileFormat::Aiff, DEPTHS, "AIFF"))
+            .with_option(bits(DEPTHS, "float32")),
+    ]
+}
+
 fn load(i: &Inputs, cx: &mut Cx) -> Result<Outputs, NodeError> {
     let path = util::path(i, "path")?;
     let meta = std::fs::metadata(&path).map_err(|e| config(format!("{path}: {e}")))?;

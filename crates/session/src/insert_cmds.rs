@@ -7,10 +7,17 @@
 //!   already on the canvas, so nothing lands on top of it.
 //! - **Paths:** a relative path input meant the inserted file's folder; it is rebased onto the
 //!   open graph's folder, or made absolute when the open graph has no file yet.
+//! - **Engines not started yet (B165):** with engines picked as the graph uses them (decision 8C),
+//!   a node type an engine the host can start offers is checked against that engine's own
+//!   definition ([`crate::engine_cmds::startable_defs`]), so the file comes in whole (its wires
+//!   type-checked, its groups' promoted ports kept), and the engine is asked for as the insert
+//!   lands, as opening the same file would. A type no engine offers is still refused, named.
 //!
 //! Lifted from the research software's `crates/engine/src/insert_cmds.rs` (2026-10-27, the research software `8d96021`;
 //! plan 10.3, E3). A bundle (`.zip`) unpacks beside itself first, as `graph.open` does.
 
+use std::borrow::Cow;
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use plumcraft_graph::{Graph, GroupId, NodeId};
@@ -31,6 +38,23 @@ fn rebase(graph: &Graph, catalog: &SchemaReply, from: &Path, to: Option<&Path>) 
         Some(to) => crate::paths::rebase_paths(graph, catalog, from, to),
         None => crate::paths::with_absolute_paths(graph, catalog, Some(from)),
     }
+}
+
+/// What `file` is checked and inserted against: the catalogue, and, for node types it lacks, the
+/// definitions of the engines the host would start for them (B165). The catalogue alone when it
+/// knows every type, or engines aren't picked automatically.
+fn catalog_for<'a>(s: &'a Session, file: &Graph) -> Cow<'a, SchemaReply> {
+    let missing: BTreeSet<&str> = file.nodes.values().map(|n| n.kind.as_str()).filter(|k| s.catalog().node(k).is_none()).collect();
+    if missing.is_empty() {
+        return Cow::Borrowed(s.catalog());
+    }
+    let defs: Vec<_> = crate::engine_cmds::startable_defs(s).into_iter().filter(|d| missing.contains(d.id.as_str())).cloned().collect();
+    if defs.is_empty() {
+        return Cow::Borrowed(s.catalog());
+    }
+    let mut c = s.catalog().clone();
+    c.nodes.extend(defs);
+    Cow::Owned(c)
 }
 
 /// The offset that puts `other` at `pos`, or below the open graph's content.
@@ -71,10 +95,11 @@ fn insert(s: &mut Session, p: &Value, as_group: bool) -> Result<Value> {
         Some(o) => (crate::file_cmds::read_opened(&path, &o)?, path, None),
         None => crate::archive::read_workflow_or_bundle(path)?,
     };
+    let catalog = catalog_for(s, &file).into_owned();
     let refused = if file.nodes.is_empty() {
         Some(SessionError::Params(format!("{} has no nodes to insert", path.display())))
     } else {
-        file.check(s.catalog()).err().map(|e| SessionError::File(format!("can't insert {}: {e}", path.display())))
+        file.check(&catalog).err().map(|e| SessionError::File(format!("can't insert {}: {e}", path.display())))
     };
     if let Some(e) = refused {
         // what a refused bundle unpacked isn't left behind
@@ -90,11 +115,15 @@ fn insert(s: &mut Session, p: &Value, as_group: bool) -> Result<Value> {
     };
     let from = path.parent().map(Path::to_path_buf).unwrap_or_default();
     let to = s.path().and_then(Path::parent).map(Path::to_path_buf);
-    let other = rebase(&file, s.catalog(), &from, to.as_deref());
+    let other = rebase(&file, &catalog, &from, to.as_deref());
     let offset = shift(s.graph(), &other, pos_param(p, "pos")?);
     let label = if as_group { "Insert as Group" } else { "Insert Graph" };
-    let (ins, group) = s.edit(label, |g, catalog| {
+    let (ins, group) = s.edit_against(label, &catalog, |g, catalog| {
         let ins = g.insert_graph(catalog, &other, offset)?;
+        // the engines the file names, where the open graph names none yet (as node.add does)
+        if g.engines.is_empty() && !other.engines.is_empty() {
+            g.engines = other.engines.clone();
+        }
         let group = if as_group {
             let (nodes, groups) = ins.top_level(&other);
             // it arrives as one collapsed node, where the inserted graph's top-left lands

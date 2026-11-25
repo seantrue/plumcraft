@@ -88,7 +88,9 @@ fn every_graph_command_undoes_and_redoes() {
 }
 
 #[test]
-fn moves_and_views_are_saved_but_not_undo_steps() {
+fn moves_are_saved_and_undo_steps_and_views_are_saved_but_not() {
+    // since N3 slice 1 a move is an undo step (the maintainer's N2 exit decision 3); a view
+    // change still isn't
     let mut s = session();
     let a = add(&mut s, "text.literal");
     let dir = TempDir::new("moves");
@@ -96,11 +98,13 @@ fn moves_and_views_are_saved_but_not_undo_steps() {
     assert!(!s.is_dirty());
     s.execute("node.move", &json!({"id": a, "pos": [55, 66]})).unwrap();
     assert!(s.is_dirty(), "positions are saved, so a move makes the file dirty");
-    assert_eq!(s.undo_label(), Some("Add Node"));
+    assert_eq!(s.undo_label(), Some("Move Node"));
     s.execute("graph.save", &json!({})).unwrap();
+    s.execute("node.move", &json!({"id": a, "pos": [55, 66]})).unwrap();
+    assert!(!s.is_dirty(), "a move to where it is changes nothing");
     s.execute("node.view", &json!({"nodes": [a], "view": "compact"})).unwrap();
     assert!(s.is_dirty());
-    assert_eq!(s.undo_label(), Some("Add Node"));
+    assert_eq!(s.undo_label(), Some("Move Node"));
 }
 
 #[test]

@@ -11,12 +11,14 @@
 //!   side padded by a pixel), ProRes 422 HQ, and a GIF with its own palette. None is lossless.
 //! - ffmpeg and ffprobe are found on `PATH`, or `$PLUMCRAFT_FFMPEG` and `$PLUMCRAFT_FFPROBE`;
 //!   without them a node is a `config` error that says to install ffmpeg. A run is cancelled
-//!   between polls of the child, which is then killed.
+//!   between polls of the child, which is then killed. Every option used is in ffmpeg 4.4;
+//!   frames pass through with `-fps_mode` from 5.1 and `-vsync` before it, chosen by asking
+//!   `ffmpeg -version` once.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use plumcraft_engine::{Array, Blob, BlobSource, Cx, Data, Inputs, Node, Outputs};
@@ -218,6 +220,51 @@ fn rate(s: &str) -> Option<f64> {
     (n > 0.0 && d > 0.0).then(|| n / d)
 }
 
+/// The option that keeps every decoded frame as it is, neither dropped nor duplicated: ffmpeg
+/// has `-fps_mode` from 5.1, and the same setting is `-vsync` before it (B30).
+const FPS_MODE: &str = "-fps_mode";
+const VSYNC: &str = "-vsync";
+
+/// The major and minor version in `ffmpeg -version`'s answer (`ffmpeg version 4.4.2-0ubuntu…`,
+/// `n5.1.2`, `7.1`), or `None` when it names none (a git snapshot, `N-112345-g…`, or anything
+/// else).
+fn ffmpeg_version(answer: &str) -> Option<(u32, u32)> {
+    let rest = answer.lines().find_map(|l| l.trim_start().strip_prefix("ffmpeg version "))?;
+    let word = rest.split_whitespace().next()?;
+    let word = word.strip_prefix('n').unwrap_or(word);
+    let mut parts = word.split(|c: char| !c.is_ascii_digit());
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next().and_then(|m| m.parse().ok()).unwrap_or(0);
+    Some((major, minor))
+}
+
+/// `-vsync` for an ffmpeg older than 5.1, else `-fps_mode`; an answer with no version in it is
+/// taken as a new ffmpeg (git snapshots print none).
+fn passthrough_for(answer: &str) -> &'static str {
+    match ffmpeg_version(answer) {
+        Some(v) if v < (5, 1) => VSYNC,
+        _ => FPS_MODE,
+    }
+}
+
+/// [`passthrough_for`] this ffmpeg, asked once a program and remembered.
+fn passthrough_option(ffmpeg: &Path) -> &'static str {
+    static KNOWN: Mutex<Vec<(PathBuf, &'static str)>> = Mutex::new(Vec::new());
+    let known = KNOWN.lock().ok().and_then(|k| k.iter().find(|(p, _)| p == ffmpeg).map(|(_, o)| *o));
+    if let Some(option) = known {
+        return option;
+    }
+    // a program that can't be started isn't remembered: the run says it isn't installed
+    let Ok(out) = Command::new(ffmpeg).arg("-version").stdin(Stdio::null()).stderr(Stdio::null()).output() else {
+        return FPS_MODE;
+    };
+    let option = passthrough_for(&String::from_utf8_lossy(&out.stdout));
+    if let Ok(mut k) = KNOWN.lock() {
+        k.push((ffmpeg.to_path_buf(), option));
+    }
+    option
+}
+
 /// The first video stream's width, height and frame rate.
 fn probe(path: &Path, cx: &Cx) -> Result<(u64, u64, f64), NodeError> {
     let mut cmd = Command::new(tool("ffprobe", "PLUMCRAFT_FFPROBE"));
@@ -242,10 +289,12 @@ fn decode_video(i: &Inputs, cx: &mut Cx, ty: &str) -> Result<Outputs, NodeError>
     let frame = w * h * channels * size;
     let raw = work.join("frames.raw");
     cx.progress(0.1, Some("decoding"));
-    let mut cmd = Command::new(tool("ffmpeg", "PLUMCRAFT_FFMPEG"));
+    let ffmpeg = tool("ffmpeg", "PLUMCRAFT_FFMPEG");
+    let passthrough = passthrough_option(&ffmpeg);
+    let mut cmd = Command::new(&ffmpeg);
     cmd.args(["-nostdin", "-v", "error", "-y", "-noautorotate", "-i"])
         .arg(&input)
-        .args(["-map", "0:v:0", "-an", "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", pix_fmt, "-fs"])
+        .args(["-map", "0:v:0", "-an", passthrough, "passthrough", "-f", "rawvideo", "-pix_fmt", pix_fmt, "-fs"])
         .arg((MAX_FRAMES + 1).to_string())
         .arg(&raw);
     run(&mut cmd, cx, "video")?;
@@ -337,6 +386,35 @@ mod tests {
         assert_eq!(rate("0/0"), None);
         assert_eq!(rate("12"), Some(12.0));
         assert_eq!(rate("x/1"), None);
+    }
+
+    /// B30: ffmpeg before 5.1 has no `-fps_mode`; the same setting is `-vsync` there.
+    #[test]
+    fn frames_pass_through_with_the_option_this_ffmpeg_has() {
+        let ubuntu = "ffmpeg version 4.4.2-0ubuntu0.22.04.1 Copyright (c) 2000-2021 the FFmpeg developers\nbuilt with gcc 11 (Ubuntu 11.2.0-19ubuntu1)\n";
+        assert_eq!(ffmpeg_version(ubuntu), Some((4, 4)));
+        assert_eq!(passthrough_for(ubuntu), VSYNC);
+        assert_eq!(passthrough_for("ffmpeg version 5.0.1 Copyright"), VSYNC);
+        assert_eq!(passthrough_for("ffmpeg version 3 Copyright"), VSYNC);
+        assert_eq!(passthrough_for("ffmpeg version n5.1.2 Copyright"), FPS_MODE);
+        assert_eq!(ffmpeg_version("ffmpeg version 7.1 Copyright (c) 2000-2024"), Some((7, 1)));
+        assert_eq!(passthrough_for("ffmpeg version 7.1 Copyright (c) 2000-2024"), FPS_MODE);
+        assert_eq!(passthrough_for("ffmpeg version 6.1.1-3ubuntu5 Copyright"), FPS_MODE);
+        // no version in it: a new ffmpeg
+        for answer in [
+            "",
+            "ffmpeg version N-112345-gabcdef0 Copyright",
+            "ffmpeg version ",
+            "ffmpeg version n",
+            "ffmpeg version 99999999999.1",
+            "ffmpeg version .4",
+            "avconv version 4.4",
+            "ffmpeg version \u{0}\u{fffd}",
+            "\u{fffd}\u{fffd}\n\n",
+        ] {
+            assert_eq!(passthrough_for(answer), FPS_MODE, "{answer:?}");
+        }
+        assert_eq!(ffmpeg_version("ffmpeg version 4.\u{fffd}"), Some((4, 0)));
     }
 
     #[test]

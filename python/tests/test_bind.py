@@ -133,6 +133,18 @@ def test_rust_audio_arrives_as_its_samples():
     assert np.array_equal(b.echo.got.samples, samples)
 
 
+def test_a_port_or_a_node_with_a_dot_in_its_name_is_bound():
+    """B162, as the Rust SDK: a key splits at the dot that leaves a node the graph has (the
+    longest when more than one does), so `n3.edges.threshold` binds port `edges.threshold`."""
+    v = {"kind": "json", "value": 0.5}
+    assert bind.by_node({"n3.edges.threshold": v}, lambda n: n == "n3") == {"n3": {"edges.threshold": v}}
+    assert bind.by_node({"g.e.x": v}, lambda n: n == "g.e") == {"g.e": {"x": v}}
+    has = lambda n: n in ("a", "a.b")  # noqa: E731
+    assert bind.split_key("a.b.c", has) == ("a.b", "c")
+    assert bind.split_key("a.x.y", has) == ("a", "x.y")
+    assert bind.split_key("z.x", has) is None and bind.split_key(".x", has) is None and bind.split_key("a.", has) is None
+
+
 def test_keys_naming_nothing_are_ignored():
     a = Rig(root())
     v = {"kind": "json", "value": 1}
@@ -167,8 +179,8 @@ def located(a, where):
 def test_a_blob_another_engine_keyed_its_own_way_is_read_by_its_path():
     root = pathlib.Path(scratch.mkdtemp("bind-"))
     a = np.arange(12, dtype="<f4").reshape(2, 2, 3)
-    # under a form of its own: its handle finds nothing here, as with PlumImpress's `impcarr`
-    ref = located(a, root / "impcarr" / "ab" / "x.npy")
+    # under a form of its own: its handle finds nothing here, as with the research software's own array handle form
+    ref = located(a, root / "otherarr" / "ab" / "x.npy")
     assert data.read_blob(str(root), ref["ref"]["handle"]) is None
     got = bind.to_value(str(root), "array", ref)
     assert np.array_equal(got, a)

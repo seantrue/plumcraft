@@ -1,0 +1,38 @@
+[package]
+name = "plumcraft-media"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "PlumCraft L4: values as plain pictures, off the shell's thread (pictures, renditions, SVG, waveform peaks, spectrograms, a file's own numbers) and the media service that resolves and decodes them on workers with a byte-budgeted cache; under every shell, with no GUI toolkit (docs/research/24-native-shells.md section 4.4)"
+
+[lints]
+workspace = true
+
+# A feature per decoder, so a platform that uses its own (PDFKit, a system image decoder) leaves
+# one out. PNG and engines' rgba8 renditions are always read.
+[features]
+default = ["images", "svg", "spectrogram"]
+# JPEG, TIFF, WebP and GIF, a picture file's size from its header, and a file's own numbers.
+images = ["dep:image"]
+# SVG parsed and rasterised (plumcraft-svg: usvg, resvg, tiny-skia).
+svg = ["dep:plumcraft-svg"]
+# The audio view's spectrogram (rustfft).
+spectrogram = ["dep:rustfft"]
+
+# No GUI toolkit, directly or transitively (scripts/check-core-toolkit-free.sh checks it).
+[dependencies]
+plumcraft-proto = { workspace = true }
+plumcraft-store = { workspace = true }
+plumcraft-views = { workspace = true }
+base64 = { workspace = true }
+png = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+image = { workspace = true, optional = true }
+plumcraft-svg = { workspace = true, optional = true }
+rustfft = { workspace = true, optional = true }
+
+[dev-dependencies]
+plumcraft-scratch = { path = "../scratch" }

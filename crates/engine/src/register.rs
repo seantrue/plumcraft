@@ -84,11 +84,72 @@ fn ours(path: &Path) -> bool {
     !path.is_symlink() && std::fs::read_to_string(path).is_ok_and(|t| t.lines().next().is_some_and(|l| l.starts_with(MARK) && l.contains(" register`")))
 }
 
+/// What a cache folder's `CACHEDIR.TAG` starts with (the Cache Directory Tagging spec, which uv
+/// follows: it writes one at the root of its cache).
+pub const CACHEDIR_SIGNATURE: &str = "Signature: 8a477f597d28d172789f06886806bc55";
+
+/// A uv cache bucket's name (`archive-v0`, `builds-v0`, `environments-v2`), or one of its
+/// temporary folders (`.tmpXXXX`).
+fn bucket(name: &str) -> bool {
+    name.starts_with(".tmp")
+        || name.rsplit_once("-v").is_some_and(|(stem, v)| {
+            !stem.is_empty() && stem.bytes().all(|b| b.is_ascii_lowercase() || b == b'-') && !v.is_empty() && v.bytes().all(|b| b.is_ascii_digit())
+        })
+}
+
+/// Where `exe` is when it is inside uv's cache (a binary a Python package carries, run with
+/// `uvx`): the cache's root, and whether it is in a temporary environment there (a `.tmp…`
+/// folder or `builds-v0`, which `uv run --with` removes when it ends). `None` otherwise. Found by
+/// what the cache is, as the Python SDK's `register.uv_cache` does: a folder holding a
+/// `CACHEDIR.TAG` whose child on the way down from it is a uv bucket, the folder holding `exe`
+/// taken as a real path.
+pub fn uv_cache(exe: &Path) -> Option<(PathBuf, bool)> {
+    let here = std::fs::canonicalize(exe.parent()?).ok()?;
+    let mut below: Vec<String> = Vec::new();
+    for d in here.ancestors() {
+        let tagged = std::fs::read_to_string(d.join("CACHEDIR.TAG")).is_ok_and(|t| t.starts_with(CACHEDIR_SIGNATURE));
+        if tagged && below.last().is_some_and(|b| bucket(b)) {
+            let temporary = below.last().is_some_and(|b| b == "builds-v0") || below.iter().any(|p| p.starts_with(".tmp"));
+            return Some((d.to_path_buf(), temporary));
+        }
+        below.push(d.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+    }
+    None
+}
+
 fn register(own: &Own, args: &[String], program: &str) -> Result<String, String> {
     let exe = std::env::current_exe().and_then(std::fs::canonicalize).map_err(|e| format!("where am I? {e}"))?;
-    let text = manifest(own, program, &exe);
-    if args.iter().any(|a| a == "--print") {
-        return Ok(text);
+    let (text, warning) = register_as(own, args, program, &exe)?;
+    if let Some(w) = warning {
+        eprintln!("{program}: warning: {w}");
+    }
+    Ok(text)
+}
+
+/// [`register`] for the executable `exe`: what to print, and a warning for stderr.
+fn register_as(own: &Own, args: &[String], program: &str, exe: &Path) -> Result<(String, Option<String>), String> {
+    let text = manifest(own, program, exe);
+    let print = args.iter().any(|a| a == "--print");
+    let warning = match uv_cache(exe) {
+        // --print writes nothing, so there is nothing to refuse; it says the same (decision 18)
+        Some((root, true)) if print => Some(format!(
+            "this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so this manifest could never start it; register refuses to write it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
+            plumcraft_proto::programs::shown(&root)
+        )),
+        Some((root, true)) => {
+            return Err(format!(
+                "not registered: this executable is in a temporary environment in uv's cache ({}), as `uv run --with` makes, which uv removes when that command ends, so the manifest could never start it. Install the engine (`uv tool install`, `cargo install`) and run register from the installed command",
+                plumcraft_proto::programs::shown(&root)
+            ));
+        }
+        Some((root, false)) => Some(format!(
+            "this executable is in uv's cache ({}), as `uvx` and `uv tool run` make: a cache clean (`uv cache clean`, `uv cache prune`) removes it, and the engine stops starting. For an install that lasts, `uv tool install` (or `cargo install`) and run register from the installed command",
+            plumcraft_proto::programs::shown(&root)
+        )),
+        None => None,
+    };
+    if print {
+        return Ok((text, warning));
     }
     let dir = folder(args).ok_or("no HOME: give --folder")?;
     let target = dir.join(format!("{}.toml", own.id));
@@ -109,7 +170,7 @@ fn register(own: &Own, args: &[String], program: &str) -> Result<String, String>
     }
     let tmp = dir.join(format!("{}.toml.tmp", own.id));
     std::fs::write(&tmp, &text).and_then(|()| std::fs::rename(&tmp, &target)).map_err(|e| format!("{}: {e}", target.display()))?;
-    Ok(format!("registered {}: {}\nA running editor offers it after Engine › Reload Engine List.\n", own.id, target.display()))
+    Ok((format!("registered {}: {}\nA running editor offers it after Engine › Reload Engine List.\n", own.id, target.display()), warning))
 }
 
 fn unregister(own: &Own, args: &[String], program: &str) -> Result<String, String> {
@@ -203,6 +264,69 @@ mod tests {
         // a hand-written manifest is not register's either
         std::fs::write(dir.join("river.toml"), "id = \"river\"\n").unwrap();
         assert_eq!(handle(&reg, "river-engine", &args(&["unregister"], &dir)), Some(ExitCode::FAILURE));
+    }
+
+    /// A folder laid out as uv's cache, and an executable stand-in at `rel/bin/engine` in it.
+    fn in_uv_cache(root: &Path, rel: &str) -> PathBuf {
+        let bin = root.join(rel).join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        std::fs::write(root.join("CACHEDIR.TAG"), format!("{CACHEDIR_SIGNATURE}\n# created by uv\n")).unwrap();
+        std::fs::write(bin.join("engine"), "").unwrap();
+        bin.join("engine")
+    }
+
+    #[test]
+    fn uvs_cache_is_found_by_its_tag_and_bucket() {
+        let root = std::fs::canonicalize(plumcraft_scratch::dir("register-uv-cache")).unwrap();
+        let cache = root.join("uv");
+        assert_eq!(uv_cache(&in_uv_cache(&cache, "archive-v0/AbC")), Some((cache.clone(), false)), "uvx");
+        assert_eq!(uv_cache(&in_uv_cache(&cache, "environments-v2/w-1")), Some((cache.clone(), false)));
+        assert_eq!(uv_cache(&in_uv_cache(&cache, "builds-v0/.tmpQx")), Some((cache.clone(), true)), "uv run --with");
+        assert_eq!(uv_cache(&in_uv_cache(&cache, ".tmpZz")), Some((cache.clone(), true)));
+        assert_eq!(uv_cache(&in_uv_cache(&cache, "mine/x")), None, "not a bucket");
+        let tools = root.join("tools/w/bin");
+        std::fs::create_dir_all(&tools).unwrap();
+        assert_eq!(uv_cache(&tools.join("engine")), None, "a tool install");
+        std::fs::create_dir_all(root.join("other/archive-v0/x")).unwrap();
+        std::fs::write(root.join("other/CACHEDIR.TAG"), "no signature").unwrap();
+        assert_eq!(uv_cache(&root.join("other/archive-v0/x/engine")), None);
+        assert_eq!(uv_cache(Path::new("")), None);
+        assert_eq!(uv_cache(Path::new("/")), None);
+        #[cfg(unix)]
+        {
+            std::os::unix::fs::symlink(&cache, root.join("linked")).unwrap();
+            assert_eq!(uv_cache(&root.join("linked/archive-v0/AbC/bin/engine")), Some((cache.clone(), false)), "through a link");
+        }
+    }
+
+    #[test]
+    fn register_from_uvs_cache_warns_and_from_a_temporary_one_refuses() {
+        let root = std::fs::canonicalize(plumcraft_scratch::dir("register-from-cache")).unwrap();
+        let dir = root.join("engines");
+        let a = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).chain(["--folder".to_owned(), dir.to_string_lossy().into_owned()]).collect::<Vec<_>>();
+        let lasting = in_uv_cache(&root.join("uv"), "archive-v0/AbC");
+        let (said, warning) = register_as(&own(), &a(&[]), "river-engine", &lasting).unwrap();
+        assert!(said.starts_with("registered river"), "{said}");
+        assert!(warning.as_deref().is_some_and(|w| w.contains("uv's cache") && w.contains("uv cache clean")), "{warning:?}");
+        // the manifest names it (read as TOML: on Windows its `\` are escaped in the file; B97)
+        let written = plumcraft_proto::manifest::EngineManifest::parse(&std::fs::read_to_string(dir.join("river.toml")).unwrap()).unwrap();
+        assert_eq!(written.command.first().map(String::as_str), Some(lasting.display().to_string().as_str()), "still written");
+        std::fs::remove_file(dir.join("river.toml")).unwrap();
+        let temporary = in_uv_cache(&root.join("uv"), "builds-v0/.tmpQx");
+        let e = register_as(&own(), &a(&[]), "river-engine", &temporary).unwrap_err();
+        assert!(e.starts_with("not registered") && e.contains("temporary environment"), "{e}");
+        assert!(!dir.join("river.toml").exists(), "nothing written");
+        // --print writes nothing, but says the same about where it is (decision 18): the
+        // manifest on stdout, the warning beside it
+        let (text, w) = register_as(&own(), &a(&["--print"]), "river-engine", &temporary).unwrap();
+        assert!(text.contains("river") && w.as_deref().is_some_and(|w| w.contains("temporary environment") && w.contains("could never start")), "{w:?}");
+        let (_, w) = register_as(&own(), &a(&["--print"]), "river-engine", &lasting).unwrap();
+        assert!(w.as_deref().is_some_and(|w| w.contains("uv cache clean")), "{w:?}");
+        assert!(!dir.join("river.toml").exists(), "--print wrote nothing");
+        assert_eq!(register_as(&own(), &a(&["--print"]), "river-engine", &root.join("bin/engine")).unwrap().1, None, "elsewhere: nothing to say");
+        // elsewhere: no warning
+        let plain = root.join("bin/engine");
+        assert_eq!(register_as(&own(), &a(&[]), "river-engine", &plain).unwrap().1, None);
     }
 
     #[test]
