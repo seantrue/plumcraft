@@ -427,6 +427,8 @@ pub struct Engine {
     wire_types: Vec<WireType>,
     nodes: BTreeMap<String, Box<dyn Node>>,
     caps: Caps,
+    /// A core ([`Engine::with_core`]) said it keeps each run's list (`lists.nested`).
+    core_nested: bool,
     limits: Limits,
     work_root: Option<std::path::PathBuf>,
     persist_ms: Option<f64>,
@@ -476,6 +478,7 @@ impl Engine {
             wire_types: Vec::new(),
             nodes: BTreeMap::new(),
             caps: Caps::new(["run.stats", "events.push", "events.poll", "events.resume", "status.progress", "display.stream", "codec.json", "lists.nested"]),
+            core_nested: false,
             limits: Limits::default(),
             work_root: None,
             persist_ms: persist_ms_from_env(),
@@ -555,6 +558,9 @@ impl Engine {
 
     /// Run graphs with `core` instead of this crate's executor; `catalogue` is what it offers,
     /// answered as this engine's schema. Nodes given with [`Engine::with_node`] aren't offered.
+    /// Nested lists are this crate's executor's: a core lists `lists.nested` only when it says it
+    /// keeps each run's list too ([`Engine::with_cap`]), so a coordinator never joins it to an
+    /// engine that does across a border it would read otherwise.
     pub fn with_core(mut self, catalogue: SchemaReply, core: CoreFactory) -> Self {
         self.catalogue = Some(catalogue);
         self.core = Some(core);
@@ -564,6 +570,9 @@ impl Engine {
     /// Declare a capability this engine has.
     pub fn with_cap(mut self, cap: &str) -> Self {
         self.caps.insert(cap);
+        if cap == plumcraft_proto::caps::known::LISTS_NESTED {
+            self.core_nested = true;
+        }
         self
     }
 
@@ -687,6 +696,10 @@ impl Engine {
     /// Its capabilities: those declared, and `output.save` when it lists a save format.
     pub fn caps(&self) -> Caps {
         let mut caps = self.caps.clone();
+        // nested lists are this crate's executor's: a core lists them only when it says so
+        if self.core.is_some() && !self.core_nested {
+            caps.remove(plumcraft_proto::caps::known::LISTS_NESTED);
+        }
         if self.saves() {
             caps.insert(plumcraft_proto::caps::known::OUTPUT_SAVE);
         }

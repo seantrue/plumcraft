@@ -308,4 +308,17 @@ let testEnvironment: Void = {
         {"id": 1, "node": "n", "port": "p", "items": 3, "index": 0, "sheet": [{"index": 0, "label": ""}]}
         """.utf8))
     #expect(ViewerBar.itemNames(unnamed).isEmpty, "no names: the plain stepper")
+    #expect(LevelSteppers.outerWord(unnamed) == "item" && LevelSteppers.steps(unnamed).isEmpty, "a flat list: one stepper of items")
+}
+
+/// A list of lists has a stepper over the runs and one a level inside the run (decision 6A).
+@Test func aListOfListsStepsItsRunsAndTheItemsInARun() throws {
+    let v = try JSONValueDecoder().decode(PopoutValue.self, from: Data("""
+        {"id": 1, "node": "n", "port": "p", "items": 3, "index": 1, "path": [1, 2], "levels": [3, 2, 4]}
+        """.utf8))
+    #expect(LevelSteppers.outerWord(v) == "run")
+    let steps = LevelSteppers.steps(v)
+    #expect(steps.map { "\($0.word) \($0.at + 1) of \($0.of)" } == ["run 2 of 2", "item 3 of 4"])
+    #expect(steps[0].path(0) == [0], "a middle level's step goes back to the first item below it")
+    #expect(steps[1].path(3) == [1, 3])
 }

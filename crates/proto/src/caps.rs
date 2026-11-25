@@ -123,6 +123,10 @@ impl Caps {
         self.0.insert(cap.into());
     }
 
+    pub fn remove(&mut self, cap: &str) {
+        self.0.remove(cap);
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = &str> {
         self.0.iter().map(String::as_str)
     }

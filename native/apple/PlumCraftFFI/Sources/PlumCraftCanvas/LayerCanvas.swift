@@ -777,7 +777,9 @@ public final class LayerCanvas {
     public nonisolated static func listTagText(_ p: PlumCraftModels.Preview.Picture) -> String? {
         guard p.items > 1 else { return nil }
         let name = (p.caption ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        return name.isEmpty ? "\(p.items) items" : "\(name) · \(p.items) pictures"
+        // a list of lists: each level's count, outermost first ("3 × 2 items"; contract 8.7)
+        let count = (p.levels ?? []).count > 1 ? (p.levels ?? []).map(String.init).joined(separator: " × ") : "\(p.items)"
+        return name.isEmpty ? "\(count) items" : "\(name) · \(count) pictures"
     }
 
     private func listTag(_ pv: CALayer, _ p: PlumCraftModels.Preview.Picture) {

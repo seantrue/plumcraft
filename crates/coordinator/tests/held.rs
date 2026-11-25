@@ -87,6 +87,11 @@ fn port(name: &str, ty: &str) -> Port {
 }
 
 fn holder(id: &'static str, can_hold: bool, log: Arc<Mutex<Log>>) -> Arc<dyn Connection> {
+    holder_with(id, can_hold, log, true)
+}
+
+/// `nested`: the core says it keeps each run's list (`lists.nested`), as the text engine does.
+fn holder_with(id: &'static str, can_hold: bool, log: Arc<Mutex<Log>>, nested: bool) -> Arc<dyn Connection> {
     let h = Host::start(
         Box::new(move || {
             let make = NodeDef { id: format!("{id}.make"), outputs: vec![port("thing", "X"), port("word", "TEXT")], ..Default::default() };
@@ -100,7 +105,8 @@ fn holder(id: &'static str, can_hold: bool, log: Arc<Mutex<Log>>) -> Arc<dyn Con
             let catalogue = SchemaReply { nodes: vec![make, take], save_formats, ..Default::default() };
             let info = EngineInfo { id: id.into(), name: id.into(), ..Default::default() };
             let log = Arc::clone(&log);
-            Ok(Engine::new(info).with_store(None).with_core(catalogue, Box::new(move || Ok(Box::new(Holder { log: Arc::clone(&log), can_hold })))))
+            let e = Engine::new(info).with_store(None).with_core(catalogue, Box::new(move || Ok(Box::new(Holder { log: Arc::clone(&log), can_hold }))));
+            Ok(if nested { e.with_cap(plumcraft_proto::caps::known::LISTS_NESTED) } else { e })
         }),
         None,
     );
@@ -237,4 +243,17 @@ fn a_save_after_another_engine_gets_its_values_and_the_whole_graph_then_releases
     assert_eq!(req.recipe_graph.as_ref(), Some(&whole), "and the graph that remakes the file, naming the engines it needs");
     assert_eq!(log.released, ["thing-1"], "released after the save, not before");
     assert!(log.kept.is_empty());
+}
+
+/// An engine with its own core doesn't list nested lists unless it says so; a border between it
+/// and an engine that does is refused before anything runs, naming the wire and both engines.
+#[test]
+fn a_core_that_doesnt_keep_each_runs_list_is_not_joined_to_one_that_does() {
+    let log = Arc::new(Mutex::new(Log::default()));
+    let c = Coordinator::new().with_engine("h", holder_with("h", true, Arc::clone(&log), false)).with_engine("text", text());
+    let r = run(&c, "mixed", graph("h", "h")).unwrap();
+    assert!(!r.ok);
+    let why = r.error.map_or(String::new(), |e| e.message);
+    assert!(why.contains("engine text keeps a list per run") && why.contains("engine h joins"), "{why}");
+    assert!(log.lock().unwrap().kept.is_empty(), "nothing ran");
 }
