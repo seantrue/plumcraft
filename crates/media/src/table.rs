@@ -161,9 +161,11 @@ impl Table {
         t.finish()
     }
 
-    /// An array an engine marks as a table (`Form::Array`'s `table`): numbers, a row to a line, its
-    /// last axis the columns (`(rows, columns)`; a 1-d array is one column), named by `names` when
-    /// there is one a column. Integers stay integers. Every size is checked before a byte is read.
+    /// A numeric array as a table (`Form::Array`, flagged a table or not: FR6, note 30): a row to
+    /// a line, its last axis the columns, every axis before it flattened into rows (`(rows,
+    /// columns)`; a 1-d array is one column; an (H, W, C) picture is H×W rows of C), named by
+    /// `names` when there is one a column. Integers stay integers. Every size is checked before a
+    /// byte is read.
     pub fn from_array(dtype: &str, shape: &[u64], names: &[String], bytes: &[u8]) -> Result<Table, String> {
         let (size, float, signed) = match dtype {
             "|u1" | "|b1" => (1, false, false),
@@ -226,6 +228,40 @@ impl Table {
             }
         }
         Table { columns: out, rows: 0 }.finish()
+    }
+
+    /// The table a value reads as, by its form and media type (the one rule the core's viewers,
+    /// its exports and the egui editor share): a numeric array (any rank, FR6), a value typed
+    /// `text/csv`, or a TABLE's JSON (columnar, or rows).
+    pub fn of(form: &plumcraft_proto::data::Form, media: &str, bytes: &[u8]) -> Result<Table, String> {
+        match form {
+            plumcraft_proto::data::Form::Array { dtype, shape, names, .. } => Table::from_array(dtype, shape, names, bytes),
+            _ if crate::service::is_csv(media) => Table::from_csv(bytes),
+            _ => Table::from_bytes(bytes),
+        }
+    }
+
+    /// Whether a numeric array of this dtype and shape reads as a table within the reader's limits
+    /// (its columns, rows and bytes), without reading it: what makes Table and Chart computable for
+    /// it (FR6).
+    pub fn fits_array(dtype: &str, shape: &[u64]) -> bool {
+        let size: u64 = match dtype {
+            "|u1" | "|b1" | "|i1" => 1,
+            "<u2" | "<i2" => 2,
+            "<u4" | "<i4" | "<f4" => 4,
+            "<u8" | "<i8" | "<f8" => 8,
+            _ => return false,
+        };
+        let (lead, columns) = match shape {
+            [] => return false,
+            [n] => (std::slice::from_ref(n), 1u64),
+            [lead @ .., k] => (lead, *k),
+        };
+        let Some(rows) = lead.iter().try_fold(1u64, |a, n| a.checked_mul(*n)) else { return false };
+        columns > 0
+            && columns <= MAX_COLUMNS as u64
+            && rows <= MAX_ROWS as u64
+            && rows.checked_mul(columns).and_then(|n| n.checked_mul(size)).is_some_and(|b| b <= MAX_TABLE_BYTES as u64)
     }
 
     /// A value already parsed: columnar, or rows (the first row its names when it is all text and

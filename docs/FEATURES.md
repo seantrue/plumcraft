@@ -6,6 +6,18 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Open
 
+### FR6. Every port offers the full range of visualizations directly, with no change to the graph
+
+- Reported: 2026-11-25
+- Report: "Exploratory data visualization should not require altering the graph. For each port, I should have the full range of visualizations available directly."
+- Context: an application built on the Mac shell, dev branch at `63e9aad`. Looking at the array output of one of the application's nodes, the maintainer found "an array with only picture/value/bytes. No charts or table options." The AI's answer was that a chart needs tabular data, so a histogram node would have to be added after the port; the maintainer: "No." Today `viewers::offered` (`crates/editor-core/src/viewers.rs`) gives an ordinary array Pictures and Values; Plot and Table only to an array flagged as a table; Chart only to a table.
+- Direction (the maintainer, 2026-11-25), asked what the full range is, where derived views are worked out and how far "each port" goes: "Review the original brief for visualization. There was a lot agreed on.Let's take an instance. We have nodes that create labeled maps (each pixel has an assignment to a region). I expect that creating a treemap from the labeled map should be natural. Taking a histogram of 3d data should be as natural as 1/2d." and "My inclination would be to provide all of this functionality in engine base classes, so that it is only implemented a few times (maybe just twice: once for rust, once for python)."
+- Open question: what is the full range for an array: a histogram, a row or column profile, statistics, the values as a real table with sorting and selection, a chart of chosen planes or axes? Are the derived views (a histogram, a profile) worked out by the editor from the value's bytes, or asked of the engine? Is it every port, inputs too, and every type (a picture's histogram, a text's length, an audio's spectrum)?
+- Principle (the maintainer, 2026-11-25), when the AI was unsure about offering Treemap on any integer array because one that is not a labelled map "may look odd": "In general, it's the user's job to deal with odd, and your job to make seeing odd things easy."
+- Decisions (the maintainer, 2026-11-25), on the 14 points of research note 30 (`docs/research/30-views-from-every-port.md`, which has each option's text): "All A".
+- Slice 1 (2026-11-25, branch `pr/fr6-s1`): the offer rule. Any numeric array offers Pictures, Values, Table and Chart, and Plot where it plots; a table flag or a 1-D shape only picks which comes first. An array reads as a table with its last axis as the columns. Launched on a scripted Mac copy and an iPad simulator, the viewer changed by its command, not by a click on the control. Not yet: the maintainer's two instances (a histogram over all of a 3-D array's values, a labelled map's treemap), which need the later slices; Chart on an array charts one column of that table.
+- Issue: none
+
 ## Done
 
 ### FR4. A list of the licences that need display, in the Help/About dialog

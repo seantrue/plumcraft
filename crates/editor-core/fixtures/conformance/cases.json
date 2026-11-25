@@ -3274,6 +3274,330 @@
           }
         }
       ]
+    },
+    {
+      "name": "an array of any rank is a table and a chart, and a plotted one has a chart too, with no node added",
+      "about": "FR6 slice 1 (note 30, \"All A\"; \"In general, it's the user's job to deal with odd, and your job to make seeing odd things easy\"): a picture (a Mandelbrot plane, 24×32) offers Pictures, Values, Table and Chart; its table is 24 rows of 32 columns and its chart is drawn, a histogram of a column by viewer.chart. The Histogram node's table-flagged output plots first and has Table and Chart beside it (one chart a value withdrawn). Looking adds no node",
+      "half": "edit",
+      "needs": [
+        "engine:array"
+      ],
+      "steps": [
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.mandelbrot",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "m": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m",
+              "port": "width",
+              "value": 32
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.set",
+            "params": {
+              "node": "$m",
+              "port": "height",
+              "value": 24
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "array.histogram",
+              "pos": [
+                500,
+                0
+              ]
+            }
+          },
+          "save": {
+            "h": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "wire.connect",
+            "params": {
+              "from": {
+                "node": "$m",
+                "port": "escape"
+              },
+              "to": {
+                "node": "$h",
+                "port": "array"
+              }
+            }
+          }
+        },
+        {
+          "call": "graph.get",
+          "save": {
+            "before": "/result/nodes"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.popout",
+            "params": {
+              "node": "$m",
+              "port": "escape"
+            }
+          },
+          "save": {
+            "p": "/result/id"
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 120
+          }
+        },
+        {
+          "call": "popout.get",
+          "params": {
+            "id": "$p"
+          },
+          "until": {
+            "/result/viewer": "array.pictures"
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/viewers/0/id": "array.pictures",
+            "/result/viewers/1/id": "array.grid",
+            "/result/viewers/2/id": "table.grid",
+            "/result/viewers/3/id": "table.chart",
+            "/result/viewers/3/native": true
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.viewer",
+            "params": {
+              "popout": "$p",
+              "viewer": "table.grid"
+            }
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$p",
+            "part": "table"
+          },
+          "until": {
+            "/result/status": {
+              "$not": "pending"
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/rows": 24,
+            "/result/columns": {
+              "$len": 32
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.viewer",
+            "params": {
+              "popout": "$p",
+              "viewer": "table.chart"
+            }
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$p",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/marks": {
+              "$exists": true
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "viewer.chart",
+            "params": {
+              "popout": "$p",
+              "mark": "histogram",
+              "x": "c1"
+            }
+          },
+          "expect": {
+            "/result/spec/mark": "histogram"
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$p",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/kind": "histogram"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.popout",
+            "params": {
+              "node": "$h",
+              "port": "histogram"
+            }
+          },
+          "save": {
+            "q": "/result/id"
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 120
+          }
+        },
+        {
+          "call": "popout.get",
+          "params": {
+            "id": "$q"
+          },
+          "until": {
+            "/result/viewer": "array.plot"
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/viewers/0/id": "array.plot",
+            "/result/viewers/1/id": "table.grid",
+            "/result/viewers/2/id": "table.chart",
+            "/result/viewers/3/id": "array.pictures"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.viewer",
+            "params": {
+              "popout": "$q",
+              "viewer": "table.chart"
+            }
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$q",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/spec": {
+              "$exists": true
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.viewer",
+            "params": {
+              "popout": "$q",
+              "viewer": "array.plot"
+            }
+          }
+        },
+        {
+          "call": "viewer.data",
+          "params": {
+            "popout": "$q",
+            "part": "chart"
+          },
+          "until": {
+            "/result/status": {
+              "$one": [
+                "ready",
+                "failed",
+                "missing"
+              ]
+            }
+          },
+          "timeout": 120,
+          "expect": {
+            "/result/status": "ready",
+            "/result/kind": "columns"
+          }
+        },
+        {
+          "call": "graph.get",
+          "expect": {
+            "/result/nodes": "$before"
+          }
+        }
+      ]
     }
   ]
 }

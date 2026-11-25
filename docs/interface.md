@@ -696,7 +696,7 @@ The UI feeds all three into the same reducer. The host switches to polling when 
 | Kind | Holds | Native viewer (plan section 7) |
 |---|---|---|
 | `image` | (H, W[, C]) for display | Image (today's viewer) |
-| `ndarray` | Any dtype and shape; `space`, `names`, `table` | Dispatch: 2-D/3-D → Image; (N, k) table → Table/plot; 1-D → Plot; N-D → slice picker |
+| `ndarray` | Any dtype and shape; `space`, `names`, `table` | Dispatch: 2-D/3-D → Image; (N, k) table → Table/plot; 1-D → Plot; N-D → slice picker. Since FR6 (note 30) every view computable for the dtype and rank is offered (any numeric array is also a Table and a Chart, its last axis the columns); `table` only picks the default |
 | `table` | Named typed columns | Table grid and plot |
 | `scalar` | Number, bool, enum, short string | Scalar |
 | `text` | UTF-8 text, optional spans | Text |

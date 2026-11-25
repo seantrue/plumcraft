@@ -189,10 +189,8 @@ fn builtin() -> Vec<ViewerKind> {
             label: "Table",
             // a table, or rows (a list of lists: Table to Rows', a spreadsheet's Read range)
             // a value typed text/csv too (note 26 slice 4: a table first, its text next)
-            accepts: |d| {
-                let csv = plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table;
-                (media_is(d, &[Media::Table]) || csv || d.value.as_ref().is_some_and(basic::is_rows)) && !(d.media == Media::Ndarray && plot::table_array(d))
-            },
+            // and any numeric array that reads as a table (FR6): what the core offers
+            accepts: |d| plumcraft_editor_core::viewers::offered(d).iter().any(|(id, _)| *id == "table.grid"),
             make: || Box::new(basic::Table::default()),
             panel_builtin: false,
         },
@@ -222,9 +220,17 @@ fn builtin() -> Vec<ViewerKind> {
     ]
 }
 
-/// The kinds that show `d`, its default first.
+/// The kinds that show `d`, its default first. An array's are in the core's order (FR6: its flag
+/// picks the default, the core decides), after any an application registered.
 pub fn kinds_for(d: &Display) -> Vec<&'static ViewerKind> {
-    registry().iter().filter(|k| (k.accepts)(d)).collect()
+    let mut out: Vec<&'static ViewerKind> = registry().iter().filter(|k| (k.accepts)(d)).collect();
+    if d.media == Media::Ndarray {
+        let core: Vec<&str> = plumcraft_editor_core::viewers::offered(d).into_iter().map(|(id, _)| id).collect();
+        let rank = |k: &ViewerKind| core.iter().position(|id| *id == k.id);
+        // stable: the application's own (not in the core's list) first, then the core's order
+        out.sort_by_key(|k| rank(k).map_or(0, |r| r + 1));
+    }
+    out
 }
 
 /// Whether something other than the hex dump shows `d`. Every value of every engine must be

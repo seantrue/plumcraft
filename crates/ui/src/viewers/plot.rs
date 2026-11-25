@@ -20,7 +20,8 @@ use crate::theme::Tokens;
 /// What a display plots as, and its columns' names.
 fn plotted(d: &Display) -> Option<(Kind, Vec<String>)> {
     let f = &d.full.as_ref()?.meta.form;
-    let kind = chart::plotted(f)?;
+    // any array that plots, flagged a table or not (FR6, note 30)
+    let kind = chart::plottable(f)?;
     let names = match f {
         Form::Array { names, .. } => names.clone(),
         _ => Vec::new(),
@@ -28,9 +29,9 @@ fn plotted(d: &Display) -> Option<(Kind, Vec<String>)> {
     Some((kind, names))
 }
 
-/// Whether this viewer shows `d`.
+/// Whether this viewer shows `d`: what the core offers (FR6: its registry decides).
 pub fn accepts(d: &Display) -> bool {
-    plotted(d).is_some()
+    plumcraft_editor_core::viewers::offered(d).iter().any(|(id, _)| *id == "array.plot")
 }
 
 /// The plot viewer: the core's display list for the value, at the size last drawn.
@@ -150,11 +151,10 @@ pub fn table_array(d: &Display) -> bool {
     d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }))
 }
 
-/// Whether the table chart shows `d`: a TABLE, a CSV or rows the core doesn't plot as an array.
+/// Whether the table chart shows `d`: what the core offers (a TABLE, a CSV, rows, or any numeric
+/// array that reads as a table: FR6).
 pub fn accepts_table(d: &Display) -> bool {
-    use plumcraft_proto::catalogue::Media;
-    let csv = plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table;
-    (d.media == Media::Table || csv || d.value.as_ref().is_some_and(super::basic::is_rows)) && !table_array(d) && plotted(d).is_none()
+    plumcraft_editor_core::viewers::offered(d).iter().any(|(id, _)| *id == "table.chart")
 }
 
 /// A table's chart (note 26 slices 5 to 7): the spec the core keeps for the port (`viewer.chart`),
@@ -201,11 +201,12 @@ impl Viewer for TableChart {
             return;
         }
         use plumcraft_media::table::Table;
-        let t = match (&v.display.value, v.full) {
-            (Some(val), _) => Table::from_value(val),
-            (None, Some(b)) if v.display.full.as_ref().is_some_and(|f| plumcraft_media::service::is_csv(&f.meta.media)) => Table::from_csv(&b.bytes),
-            (None, Some(b)) => Table::from_bytes(&b.bytes),
-            (None, None) => return,
+        let t = match (&v.display.value, v.full, v.display.full.as_ref()) {
+            (Some(val), _, _) => Table::from_value(val),
+            // the core's one rule: a numeric array of any rank, a CSV, or a TABLE's JSON
+            (None, Some(b), Some(f)) => Table::of(&f.meta.form, &f.meta.media, &b.bytes),
+            (None, Some(b), None) => Table::from_bytes(&b.bytes),
+            (None, None, _) => return,
         };
         self.key = Some(key);
         self.list = None;

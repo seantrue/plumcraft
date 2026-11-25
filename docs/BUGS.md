@@ -49,6 +49,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Not known: the reply it got. The gate's log keeps the failing line, not the assertion's message; the gate script on the host should keep it so the next sighting says more.
 - Cause: not known. A timing fault under load is the controller's guess, not a finding: the test reads the reply until the engine closes the connection, right after starting the engine.
 - Watch: record each sighting here with the reply.
+- Seen again: 2026-11-25, once in a full run on the Linux test host (the gate of the Acknowledgements branch): the test's server answered 503 where 201 was expected (`crates/text/tests/uploads.rs:136`). It passed four times alone under the gate's settings and in the next full run.
 - Issue: none
 - Seen again: 2026-11-24, in the Linux gate on B151's branch (`ed7e6e3`, which changes no upload code). The second failure in a full run; still no cause.
 - Seen a third time: 2026-11-24, in the Linux gate on B164's branch (`dadb1e0`, which changes no upload code). Two of the day's last four full runs.
