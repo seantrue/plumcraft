@@ -56,3 +56,14 @@ B159 put `zoomAsk` in `popout.get` but left `zoom_seq` out of the pop-out's `sta
 
 - iPad and iPhone table grid: a drag on a column's header edge sets its width (shell state, 13.2.1); adjustable by VoiceOver in 24-point steps. UI test `testATableColumnIsWidenedByADrag` passed on my iPad simulator (`claude-debug/views/s3-pad/views-s3-ui-column-widened.png`, looked at: the centre column widened, the count column kept).
 - Windows: a table cell's text selects and copies (`IsTextSelectionEnabled`). Built on the Windows VM from a copy of `native/windows` in a folder of my own (`C:\work\views-s3`; the existing checkout untouched): `dotnet build` of PlumCraft.App, ARM64, 0 warnings, 0 errors. Built, not launched (no connected desktop overnight). Windows column widths by drag: not done.
+- Slice 3 committed as `8cad79c` on `feat/views-s3`.
+
+## Slice 5 (branch `feat/views-s5`): the plot on the chart engine
+
+- Core `chart.rs`: what a table array plots as (points, segments, a histogram's columns, any (N, 2)), nice ticks, linear scales, one scale y down for positions whose spans agree, bars from zero, an even sample past 50,000 rows, the core's number text; the display list (plot rect, marks in the chart's points, axes, ticks, titles, grid, accessibility outline). `array.plot` offered first for such a table and in `NATIVE`; `viewer.data {part: "chart", width, height}`.
+- Apple `ChartView.swift`: the Plot viewer asks for the list at its size and paints it with Canvas; accessibility label, value and an `AXChartDescriptor`.
+- egui (decision 4A): the Plot viewer paints the same list (`viewers::plot::paint`); its egui_plot plot retired; its two kittests (`a_table_plots_its_points_and_segments`, `a_plots_marks_are_on_screen`) pass unchanged. The registry test no longer excludes `array.plot`.
+- Tests: chart unit tests (kinds, ticks, a histogram's columns from zero, positions one scale y down, hostile tables); conformance "a table of positions or a histogram is a chart the core lays out" (C ABI, egui, Mac 81 of 81 with none skipped, iPad 42 of 42 with 1 skipped); Swift `ChartListTests` (kit 125 passed); iPad UI test `testAHistogramIsTheCoresChart`; crates editor-core, ui, ffi, media, proto in the gate environment: 832 passed, 0 failed; workspace clippy clean.
+- Launched: Mac scripted copy (`claude-debug/views/s5-mac/histogram-plot.png`, `points-plot.png`), iPad simulator (`s5-pad/views-s5-ui-histogram.png`); looked at each: the histogram's bars from zero with nice ticks, the points to one scale y down.
+- Changed expectation: B152's histogram (a TABLE that is a table-flagged array) is now Plot first, then Table, as egui offers it.
+- Not done: Windows painter for the display list; 1-D series and hover previews (slice 6).

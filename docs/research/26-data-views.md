@@ -294,7 +294,7 @@ The maintainer, 2026-11-24: "one agent to pursue track 3, including view of tabl
 | Array, several pictures | One shared zoom, pan and probe | R | T (slice 2: zoom asked through the core, both pictures at 200%) | T (slice 2, `testSliceTwoViews`) | no |
 | Array | View modes (auto … angle) | T | T (B154) | T (B154) | R (B154 on Windows, built) |
 | Array | Channel histograms, log scale, NaN counts | R | T (B154) | T (B154) | R |
-| Array | 1-D series plot, table-of-positions plot | T | no | no | no |
+| Array | 1-D series plot, table-of-positions plot | T | positions and histograms: T (slice 5, the core's display list); 1-D: no | positions and histograms: T (slice 5); 1-D: no | no |
 | Array grid | Paged, column window, plane | T | T | T | T |
 | Array grid | Number format; colour by value | R | T (slice 2, conformance and launch) | T (slice 2, conformance) | no |
 | **Table** (TABLE, rows, a table-flagged array) | Sort by a header | T (egui sorts in the UI) | T (the core sorts) | T | T |
@@ -349,7 +349,7 @@ Regressions first (decision 2A); a table or interchange view egui has counts as 
 | 2 and 2b (built) | **Pictures and grids**: the several-picture view gets one shared zoom and pan (`PictureZoom`, B159) and the probe; colour by value and number format in the array grid and colour by value in the table (`viewer.grid {colored, format}`, `viewer.table {colored}`, the page carrying each cell's 0-to-1 position); Compare's exact difference as the core's `derive:compare` picture; B161 (the iPhone's viewer bar overflowing) | Conformance cases per command; Swift unit tests | Mac scripted copy and the simulators, each view pictured |
 | 3 | **Tables as tables**: cell text selectable and copied (Windows), column widths a person drags (iPad, Windows), the row and column count in the bar | UI test | iPad |
 | 4 (built) | **Interchange formats**: `text/csv` offered Table then Text, SVG text offered Picture then Source; the CSV reader shared (`plumcraft_proto::csv`), in the hostile sweep, with size limits | Conformance "a CSV value is a table a viewer away from its text"; hostile sweep | Mac, iPad |
-| 5 | **The plot again, on the chart engine** (was 3): display list, scales, ticks; table of positions, B152's histogram as columns | Display-list fixtures in Rust, Swift, C# | Mac, iPad |
+| 5 (built) | **The plot again, on the chart engine** (was 3): display list, scales, ticks; table of positions, B152's histogram as columns | Display-list fixtures in Rust, Swift, C# | Mac, iPad |
 | 6 | 1-D series and hover previews (was 4) | Fixtures | Mac, iPad |
 | 7 to 13 | Columns and histograms with column choice, line and stacked area, treemap, zoom and hover, selection and linked views, optional kinds (were 5 to 10) | As before | As before |
 

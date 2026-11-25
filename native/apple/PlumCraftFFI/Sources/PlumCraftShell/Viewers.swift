@@ -42,7 +42,7 @@ public final class ViewerBox {
     }
 
     /// The viewers the apps draw in SwiftUI (picture, SVG, text and scalar are each app's own).
-    public static let kinds: Set<String> = ["array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
+    public static let kinds: Set<String> = ["array.plot", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
 
     /// Shown here: one of [`kinds`], or a viewer offered that no Apple viewer draws (the engine's
     /// picture stands in, contract 13.3), or a value whose kind has no viewer at all.
@@ -77,6 +77,7 @@ public struct ViewerView: SwiftUI.View {
     @ViewBuilder
     private func body(for v: PopoutValue) -> some SwiftUI.View {
         switch v.viewer ?? "" {
+        case "array.plot": ChartViewer(box: box)
         case "table.grid": TableViewer(box: box)
         case "array.grid": GridViewer(box: box)
         case "tree": OutlineViewer(box: box)

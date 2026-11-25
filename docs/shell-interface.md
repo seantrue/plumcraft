@@ -1265,6 +1265,14 @@ Conformance: "an array's view is chosen through the core and its pictures change
 - **A TEXT that is an SVG document** (it starts, after an XML declaration, comments, a doctype and white space, with an `<svg` element: only the start is looked at; text that merely looks like CSV is not sniffed) is offered **SVG** first and **Source** second. `popout.get` gives it a `handle` of its own content and `svgSource: true`: the text carried inline, typed `image/svg+xml`, its picture started on the media service at 2048 a side, so a shell draws it as it draws any SVG value (`media.get {handle, want: "svg", px: 2048}`). A text past 8 MiB, or one whose display holds only part of it, keeps Source.
 - The egui editor's registry does not offer these (the core's additions, as SVG's Source is).
 
+### 13.2.5 Charts: the core's display list (note 26 slice 5, 2026-11-24)
+
+The maintainer's decision 1A (note 26): the core lays charts out, every shell paints them.
+
+- **Offered:** a table array the core plots (`chart::plotted`: columns `x` and `y`, `x0 y0 x1 y1` or `x1 y1 x2 y2`, `centre` and `count`, or any (N, 2) table) is offered `array.plot` ("Plot") first, then Table. In `NATIVE`.
+- **`viewer.data {popout, part: "chart", width?, height?}`** (points, 120 to 8192, 640 by 400 when absent) lays the chart out at that size: `{size, kind: points | segments | columns, sameScale, plot: [x, y, w, h], marks: [{kind: points, r, xy} | {kind: segments, width, xy} | {kind: rects, rects} | {kind: line, width, xy}], axes: [{side: bottom | left, title, ticks: [{at, text}]}], grid: {x, y}, font, drawn, rows, a11y: {title, summary, x: {label, min, max}, y: {label, min, max}}}`. Every coordinate is in the chart's own points from its top-left; `xy` is a flat list of x, y pairs, `rects` of x, y, w, h. Tick text is the core's number text. Positions whose spans agree within 20 times are drawn to one scale, y down; quantities y up; a histogram's bars from zero. Past 50,000 rows the marks are an even sample (`drawn` of `rows`).
+- **A shell** asks for the list at its view's size (again when the size changes), draws grid, marks (in its accent colour), axes, tick text (bottom ticks below the plot, left ticks right-aligned before it) and titles, and gives the chart its accessibility from `a11y` (the Apple shells: label, value and an `AXChartDescriptor`). It computes no scale, tick or number. The egui editor paints the same list (`plumcraft_ui::viewers::plot::paint`, egui_plot retired for it).
+
 ### 13.3 Fallback
 
 A shell that lacks a viewer shows the engine's rendition as a picture (every value has one, `docs/interface.md` section 10) with the summary, and lists the viewer as offered but unavailable. `viewers::viewable` stays the rule that no value is shown only as hex.

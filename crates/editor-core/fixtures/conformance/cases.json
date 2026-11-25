@@ -1755,6 +1755,33 @@
       ]
     },
     {
+      "name": "a table of positions or a histogram is a chart the core lays out",
+      "about": "note 26 slice 5 (the maintainer's decision 1A: the core lays charts out, each shell paints them): a table array the core plots (a histogram's centre and count, x and y positions, segments) is offered Plot first and its Table next; viewer.data {part: chart, width?, height?} lays it out at that size into a display list: the plot rectangle, marks in the chart's points (a histogram's bars from zero, points to one scale y down when their spans agree), the axes' nice ticks with the core's number text, titles from the column names, and an accessibility summary; a size that isn't a positive number is refused",
+      "half": "read",
+      "needs": ["engine:array"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.mandelbrot", "pos": [0, 0]}}, "save": {"m": "/result/id"}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "width", "value": 40}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$m", "port": "height", "value": 30}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.histogram", "pos": [400, 0]}}, "save": {"h": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$h", "port": "array"}}}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$h", "port": "histogram"}}, "save": {"p": "/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$p"}, "until": {"/result/viewer": "array.plot"}, "timeout": 120, "expect": {"/result/viewers/0/id": "array.plot", "/result/viewers/0/native": true, "/result/viewers/1/id": "table.grid"}},
+        {"call": "viewer.data", "params": {"popout": "$p", "part": "chart", "width": 400, "height": 300}, "until": {"/result/status": {"$one": ["ready", "failed", "missing"]}}, "timeout": 120, "expect": {"/result/status": "ready", "/result/kind": "columns", "/result/size": [400, 300], "/result/marks/0/kind": "rects", "/result/marks/0/rects": {"$len": 1024}, "/result/axes": {"$len": 2}, "/result/axes/0/title": "centre", "/result/axes/1/title": "count", "/result/axes/1/ticks/0/text": "0", "/result/axes/0/ticks/0/text": "0", "/result/a11y/summary": {"$includes": "256 columns of 256 rows"}}},
+        {"call": "viewer.data", "params": {"popout": "$p", "part": "chart", "width": -5}, "ok": false},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$p"}}},
+        {"call": "command.run", "params": {"command": "node.add", "params": {"kind": "array.random_points", "pos": [0, 400]}}, "save": {"r": "/result/id"}},
+        {"call": "command.run", "params": {"command": "wire.connect", "params": {"from": {"node": "$m", "port": "escape"}, "to": {"node": "$r", "port": "like"}}}},
+        {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$r", "port": "count", "value": 500}}},
+        {"call": "command.run", "params": {"command": "view.popout", "params": {"node": "$r", "port": "points"}}, "save": {"q": "/result/id"}},
+        {"call": "ui.waitRun", "params": {"timeout": 120}},
+        {"call": "popout.get", "params": {"id": "$q"}, "until": {"/result/viewer": "array.plot"}, "timeout": 120},
+        {"call": "viewer.data", "params": {"popout": "$q", "part": "chart"}, "until": {"/result/status": {"$one": ["ready", "failed", "missing"]}}, "timeout": 120, "expect": {"/result/status": "ready", "/result/kind": "points", "/result/sameScale": true, "/result/drawn": 500, "/result/marks/0/xy": {"$len": 1000}, "/result/axes/0/title": "x", "/result/axes/1/title": "y"}},
+        {"call": "command.run", "params": {"command": "view.close", "params": {"id": "$q"}}}
+      ]
+    },
+    {
       "name": "a wide array's numbers are shown 64 columns at a time, in the core's window",
       "about": "Decision 26 (N4 person gate, the maintainer: 'Move it into the core'): which columns of a wide array the numbers grid shows is the core's viewer state, not each shell's. viewer.grid {cols: next | prev | first | last} steps the window by 64 columns and {col} shows the window holding a column; it never starts past the last window; viewer.data's grid page reads the window (firstCol, endCol, colsShown, prevCols, nextCols) and takes no column of its own; popout.get's state has it; junk is refused and changes nothing",
       "half": "read",

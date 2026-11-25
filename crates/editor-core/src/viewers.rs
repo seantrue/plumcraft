@@ -127,6 +127,9 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     // a table-flagged array (a histogram's centre and count, a node's points) is a table first: it
     // has no picture (note 26 slice 2; B152 read it as a table for a TABLE value only)
     let table_array = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }));
+    // a table of positions, or a histogram, plots first (the egui editor's Plot; note 26 slice 5,
+    // laid out by the core as a chart's display list); its numbers stay a viewer away
+    add(d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some()), "array.plot", "Plot");
     add(m == Media::Ndarray && table_array, "table.grid", "Table");
     add(m == Media::Ndarray, "array.pictures", "Pictures");
     add(m == Media::Ndarray, "array.grid", "Values");
@@ -147,7 +150,8 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
 
 /// The viewers the Apple shells draw (N4 slice 5); any other offered falls back to the engine's
 /// rendition with the summary (contract 13.3).
-pub const NATIVE: &[&str] = &["picture", "svg", "array.pictures", "array.grid", "audio", "table.grid", "text.plain", "scalar", "yaml", "tree", "items", "hex"];
+pub const NATIVE: &[&str] =
+    &["picture", "svg", "array.plot", "array.pictures", "array.grid", "audio", "table.grid", "text.plain", "scalar", "yaml", "tree", "items", "hex"];
 
 /// A number as the viewers show it: an integer whole; a float at the decimals it needs, at most
 /// six; past 1e9 or under 1e-4, four significant decimals in scientific notation; NaN and the
@@ -347,7 +351,7 @@ fn whole(p: &Value, k: &str) -> Result<Option<u64>, String> {
 /// state's plane, page and window of columns), `hex` (the state's page), `probe` (`row`, `col`:
 /// the exact values there), `yaml`.
 pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<Value, String> {
-    crate::control::check_fields(params, &["popout", "part", "row", "col"])?;
+    crate::control::check_fields(params, &["popout", "part", "row", "col", "width", "height"])?;
     let id = params.get("popout").and_then(Value::as_u64).ok_or("popout must be a pop-out's id")?;
     let o = session.views.popout(id).ok_or_else(|| format!("no pop-out {id}"))?;
     let (_, d) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
@@ -357,6 +361,13 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
         "table" => table(d, media, &o.state),
         "tree" => tree(d, media, &o.state),
         "yaml" => yaml(d, media),
+        "chart" => {
+            let side = |k: &str, dflt: f64| match params.get(k) {
+                None | Some(Value::Null) => Ok(dflt),
+                Some(v) => v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or(format!("{k} must be a positive number of points")),
+            };
+            chart(d, media, (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?))
+        }
         "grid" => grid(d, media, &o.state),
         "hex" => hex(d, media, o.state.hex_page),
         "probe" => {
@@ -364,7 +375,7 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
             let col = whole(params, "col")?.ok_or("probe needs row and col")?;
             probe(d, media, row, col)
         }
-        other => return Err(format!("part {:?}: table, tree, grid, hex, probe or yaml", other.chars().take(32).collect::<String>())),
+        other => return Err(format!("part {:?}: table, tree, grid, hex, probe, yaml or chart", other.chars().take(32).collect::<String>())),
     };
     if let Some(m) = out.as_object_mut() {
         m.entry("status").or_insert(json!("ready"));
@@ -589,6 +600,24 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
            "range": rg.filter(|(lo, hi)| lo.is_finite() && hi.is_finite()).map(|(lo, hi)| [text(lo), text(hi)])})
 }
 
+/// A chart's display list for a table array the core plots ([`crate::chart`]), laid out at `size`.
+fn chart(d: &Display, media: &MediaService, size: (f64, f64)) -> Value {
+    let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no numbers to plot"}) };
+    let Some(kind) = crate::chart::plotted(&full.meta.form) else { return json!({"status": "failed", "error": "this value isn't a table a chart plots"}) };
+    let names = match &full.meta.form {
+        Form::Array { names, .. } => names.clone(),
+        _ => Vec::new(),
+    };
+    let b = match media.get(full, Want::Bytes).bytes() {
+        Fetch::Ready(b) => b,
+        f => return not_ready(&f, full, Want::Bytes),
+    };
+    match crate::chart::layout(&kind, &names, &b.dtype, &b.shape, &b.bytes, size) {
+        Ok(v) => v,
+        Err(e) => json!({"status": "failed", "error": e}),
+    }
+}
+
 fn hex(d: &Display, media: &MediaService, page: u64) -> Value {
     let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no bytes to show"}) };
     let b = match media.get(full, Want::Bytes).bytes() {
@@ -718,7 +747,7 @@ mod tests {
         let mut d = display(Media::Table, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["table.grid", "hex"], "no outline of an array");
+        assert_eq!(ids, ["array.plot", "table.grid", "hex"], "a plot first (note 26 slice 5), no outline of an array");
         let mut st = ViewerState::default();
         let page = until(|| table(&d, &m, &st));
         assert_eq!(page["status"], Value::Null, "{page}");
@@ -841,7 +870,7 @@ mod tests {
         let mut d = display(Media::Ndarray, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["table.grid", "array.pictures", "array.grid", "hex"]);
+        assert_eq!(ids, ["array.plot", "table.grid", "array.pictures", "array.grid", "hex"], "a histogram plots first, its table next");
         let mut p = DataRef::default();
         p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
         d.full = Some(p);
