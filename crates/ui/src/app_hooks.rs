@@ -71,7 +71,7 @@ impl AppShown {
 pub fn display_of(v: &PortValue, w: &WatchRequest, ty: String, media: Option<Media>) -> Display {
     let mut d = Display { ty, node: w.node.clone(), port: w.port.clone(), items: 1, ..Default::default() };
     let item = match v {
-        PortValue::List { items } => {
+        PortValue::List { items, .. } => {
             d.items = items.len() as u64;
             let i = if w.index < 0 { items.len() as i64 + w.index } else { w.index };
             d.index = i.clamp(0, (items.len() as i64 - 1).max(0));
@@ -115,7 +115,7 @@ pub fn display_of(v: &PortValue, w: &WatchRequest, ty: String, media: Option<Med
             d.media = media.unwrap_or(Media::Bytes);
             d.summary = format!("{summary} (from the application{of})");
         }
-        PortValue::List { items } => {
+        PortValue::List { items, .. } => {
             d.media = media.unwrap_or(Media::Bytes);
             d.summary = format!("a list of {}, from the application{of}", items.len());
         }
@@ -207,12 +207,12 @@ mod tests {
         assert_eq!((d.media, d.value.clone(), d.items), (Media::Scalar, Some(json!(42)), 1));
         let d = display_of(&PortValue::Json { value: json!("hello") }, &watch(0), "TEXT".into(), Some(Media::Text));
         assert!(matches!(&d.renditions[..], [Rendition::Excerpt { text, .. }] if text == "hello"));
-        let list = PortValue::List { items: vec![PortValue::Json { value: json!(1) }, PortValue::Json { value: json!(2) }] };
+        let list = PortValue::List { items: vec![PortValue::Json { value: json!(1) }, PortValue::Json { value: json!(2) }], axes: Vec::new() };
         let d = display_of(&list, &watch(-1), String::new(), None);
         assert_eq!((d.items, d.index, d.value), (2, 1, Some(json!(2))));
         assert!(d.summary.contains("item 2 of 2"));
         // hostile: an empty list, an index far out
-        let d = display_of(&PortValue::List { items: vec![] }, &watch(99), String::new(), None);
+        let d = display_of(&PortValue::List { items: vec![], axes: Vec::new() }, &watch(99), String::new(), None);
         assert_eq!(d.items, 0);
         let d = display_of(&list, &watch(i64::MIN + 1), String::new(), None);
         assert_eq!(d.index, 0);

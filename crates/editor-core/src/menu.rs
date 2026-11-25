@@ -1374,6 +1374,10 @@ fn wire_menu(parts: &Parts<'_>, to: &PortRef, bend: Option<&Value>) -> Vec<Item>
         Item::run("run.watch", "Watch", watch.clone()).hover("Show this wire's value in the Watched panel"),
         Item::run("view.popout", "Pop Out", watch).hover("Show this wire's value in a window of its own, updated by every run"),
     ];
+    // B164: what the wire takes from a list joined from several runs
+    if let Some(n) = crate::joined::note(graph, parts.catalog, parts.run, to) {
+        out.insert(1, Item::line(Look::Note, n));
+    }
     let label = if w.slice.is_some() { "Edit Slice…" } else { "Slice…" };
     out.push(
         Item::run("name.edit", label, json!({"slice": to})).hover("Take part of the list this wire carries: start:stop:step (1:-1:2, :-1) or an index (-1)"),

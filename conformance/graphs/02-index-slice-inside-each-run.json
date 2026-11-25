@@ -1,0 +1,92 @@
+{
+ "name": "an index slice takes one item of each run's list",
+ "about": "Vector 1, then the slice 1 into a range of 1: nested, the slice takes item 1 of each run's list (0, 1, 2), and the next step runs 3 times. Today it takes item 1 of the flat list (0), once.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "t": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "stop": 100.0,
+     "num": 1,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "t",
+     "port": "start"
+    },
+    "slice": "1"
+   }
+  ]
+ },
+ "expect": {
+  "t.values": {
+   "shape": [
+    3,
+    1
+   ],
+   "values": [
+    [
+     0.0
+    ],
+    [
+     1.0
+    ],
+    [
+     2.0
+    ]
+   ]
+  }
+ },
+ "today": {
+  "t.values": {
+   "shape": [
+    1
+   ],
+   "values": [
+    0.0
+   ]
+  }
+ }
+}

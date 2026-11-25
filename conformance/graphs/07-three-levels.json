@@ -1,0 +1,78 @@
+{
+ "name": "a range downstream of a nested list adds a level",
+ "about": "Vector 1's lists into the start of another range of 2: nested, it runs once per inner item (3 \u00d7 2) and keeps its own lists: 3 \u00d7 2 \u00d7 2. Today: 6 runs joined, 12.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "w": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "stop": 50.0,
+     "num": 2,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "w",
+     "port": "start"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "w.values": {
+   "shape": [
+    3,
+    2,
+    2
+   ]
+  }
+ },
+ "today": {
+  "w.values": {
+   "shape": [
+    12
+   ]
+  }
+ }
+}

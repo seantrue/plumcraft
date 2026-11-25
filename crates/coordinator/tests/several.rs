@@ -278,6 +278,6 @@ fn a_vary_in_one_engine_drives_a_setting_in_another() {
     for n in ["range", "times"] {
         assert_eq!(reply.nodes[n].state, NodeState::Done, "{n}");
     }
-    let PortValue::List { items } = &reply.nodes["times"].outputs["result"] else { panic!("one result a value: {:?}", reply.nodes["times"].outputs) };
+    let PortValue::List { items, .. } = &reply.nodes["times"].outputs["result"] else { panic!("one result a value: {:?}", reply.nodes["times"].outputs) };
     assert_eq!(items.len(), 3, "once per value of the range");
 }

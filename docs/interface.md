@@ -148,12 +148,14 @@ A port value in a reply, snapshot or event is one of:
 
 ```json
 {"kind": "blob", "ref": <DataRef>}
-{"kind": "list", "items": [<Value>, …]}
+{"kind": "list", "items": [<Value>, …], "axes": [[<name>, <length>], …]}
 {"kind": "json", "value": <any JSON: number, bool, string, settings, curves>}
 {"kind": "opaque", "type": "STYLE", "summary": "style 'pencil', 14 settings"}
 ```
 
 Protocol 1's `{array: ArrayRef, meta}`, `{list: […]}` and `{type}` map to `blob`, `list` and `opaque`.
+
+A list's `axes` (optional; capability `lists.nested`, section 7.6 rule 2) names how its items vary, outermost first: each `[name, length]`, the lengths multiplying to the item count. An axis is named where a list is made (`<node>.<port>`, or the names a node gives its outputs so they zip), so two lists that share an axis zip and two that don't form a product, across an engine border as inside one engine. Absent or empty, the list is one anonymous axis; malformed entries are dropped, and axes whose lengths don't multiply to the item count are read as absent. **Status:** specified, not built; no engine writes or reads `axes` yet, and a list crossing a border arrives as one anonymous axis.
 
 ### 4.6 A missing blob is a state
 
@@ -254,6 +256,7 @@ Engine → UI:
 | `output.save.question` | engine | A person's save (`ask`) may be answered with a `question` instead of a file (section 15) | Every save writes |
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
+| `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2) | Today's rule: a step run once per item joins its runs' lists into one flat list |
 | `x.<pack>.<op>` | engine | A pack operation exists (`x.vi.export`, `x.vi.deliver`) | The pack's UI is hidden with a reason |
 | `codec.msgpack` | both | Reserved | JSON |
 
@@ -436,11 +439,21 @@ The file is hostile input, in the sweep (`crates/proto/tests/hostile.rs`). Beyon
 
 ### 7.6 Graph semantics every engine MUST match
 
-The UI types graphs exactly as engines run them. These rules are normative for every executor (Python, `research_graph`, the Rust SDK); a shared corpus in `conformance/graphs/` (graph, expected `order`, states, provenance) checks them.
+The UI types graphs exactly as engines run them. These rules are normative for every executor (Python, `research_graph`, the Rust SDK); a shared corpus in `conformance/graphs/` checks them: today graphs of the public building blocks with the item structure expected at named outputs (`conformance/graphs/README.md`); expected `order`, states and provenance are still to come.
 
 1. Topological order; cycles are a graph error (`kind: graph`).
 2. **Lists** (F20, F61): a `list: true` port takes or makes whole lists. A list into a single-item port maps the node over the list. Lists zip along a shared axis and form a product over different axes; a length mismatch on one axis is a node error.
+   - **Nested lists** (capability `lists.nested`; research note 27, decided 2026-11-24). **Status: specified, not built.** No engine lists `lists.nested` yet: every executor still joins the lists a step makes run by run into one flat list (today's rule, kept until each engine changes). The rules below are the contract for that change; the corpus's vectors marked `needs: ["lists.nested"]` check them once an engine lists the capability.
+   - *When a list is nested.* A step that runs once per item and makes a list each run keeps each run's list as one item: its output is a list over the runs (the runs' axes) of lists (its own axis, `<node>.<port>`). A step that makes one item a run gives a list over the runs, as today.
+   - *Mapping.* A list into a port that takes one item maps the step over it, as today; a nested level maps too when it carries an axis, so a step fed a list of lists runs once per inner item and keeps both levels in its output. An item that is a list with no axis (a tuple, such as Vary Range 2D's points) is a value, not a level, and is passed whole.
+   - *Several list inputs* combine per level as today: they zip along an axis they share and form a product over axes they don't; the runs of a product are one level with several axes, not a level per axis.
+   - *Whole-list ports.* A port that takes a whole list (`list: true`, or the node's `input_list`) fed a list of lists runs the step once per outer item, with that item's list whole.
+   - *Flatten.* A building block, Flatten, joins a nested list back into one flat list, for a graph that wants today's result. Not yet specified further.
+   - *Memo.* An engine that lists `lists.nested` changes its salt, so no result made under the flat rule is read as a nested one.
+   - *Across engines.* A coordinator doesn't join an engine that lists `lists.nested` with one that doesn't across a border: the run is refused as a graph error naming both engines (which runs exactly: below). A list crosses with its `axes` (section 4.5).
+   - *Not yet decided* (to settle before the first engine builds it): how a whole-list port is fed three or more levels; whether the coordinator refuses every border between disagreeing engines or only wires that can carry a list; whether Flatten joins one level or all, and its kind; a limit on how deep lists may nest.
 3. **Wire slices** (F21): Python slice or index syntax (`2`, `-1`, `1:4`, `::2`), parsed identically on both sides (`crates/proto/fixtures/slices.json`); part of the memo key and of stale reasons. A range keeps a list a list, an index takes one item; slicing a single value, an empty result or an index out of range is the node's `config` error. A wire between engines is sliced by the coordinator, since a binding replaces the wire.
+   - *With nested lists* (`lists.nested`, rule 2; **specified, not built**): a slice applies to the level the wire's source made. A step that ran once per item and made a list each run is sliced inside each run (an index takes one item of each run's list, a range keeps each run's list, cut); a list made in one run (a Vary node's, a step's own) is sliced as today. The coordinator slices a wire between engines the same way.
 4. **Variadic inputs** (F14) arrive as `{slot: value | absent}`: each wired slot (`c1`, `c2`, … from the template `c{n}`, or one of `names`) is an input under its own name; a variadic port with `min` ≥ 1 and no slot wired is a `config` error. (Rust executor; the Python one has no variadic nodes yet.)
 5. **Parameter precedence** (F43): a wire into the port, then the incoming bundle on `bundle_port`, then the node's widget, then blank. Memo keys use resolved values, never provenance.
 6. **Absent values** (F34): an absent input (an `ExecutionBlocker`, a missing channel) skips downstream nodes without an error.

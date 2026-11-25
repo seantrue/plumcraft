@@ -132,7 +132,7 @@ fn out(r: &RunReply, node: &str, port: &str) -> Value {
     fn plain(v: &PortValue) -> Value {
         match v {
             PortValue::Json { value } => value.clone(),
-            PortValue::List { items } => Value::Array(items.iter().map(plain).collect()),
+            PortValue::List { items, .. } => Value::Array(items.iter().map(plain).collect()),
             other => json!(format!("{other:?}")),
         }
     }
