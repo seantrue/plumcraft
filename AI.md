@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Compare's difference, CSV and SVG text as views, and the core's chart (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** As the entry below: track 3 overnight, "including view of tables (not just plots), and view of interchange formats (text/csv, text/svg)", on reasonable assumptions.
+
+**What the AI did.** Four stacked slices. Compare's difference computed in the core from both values' own numbers and served as pictures. The text engine's CSV reader moved into the protocol crate, with limits, and a `text/csv` value offered as a table; SVG text offered as a picture. Column widths by dragging on the iPad; selectable cells on Windows. A chart crate-within-the-core that lays a table's plot out as a display list at the size asked, with ticks and an accessibility outline, painted by a Swift view and by egui in place of egui_plot.
+
+**Verification.** The agent's runs: Mac conformance 81 of 81 with none skipped; the iPad's read half 42 of 42; iPad UI tests for the difference, the column drag and the histogram; the Swift kit's 125; the whole workspace 1,714 of 1,717 (the known baseline failure, and two tests that need an environment variable and pass with it); the Windows change built on the test VM with no warnings and not launched. It looked at pictures of each view; the controller looked at one, the histogram plot on the Mac, which shows bars from zero, ticks and axis titles. The full suite ran on the Linux test host.
+
+**Defects.** At launch the Mac drew "no picture" for SVG text, since an inline text has no full value; fixed by giving it a handle. A launch script reused a variable and left a scripted copy running, which the agent stopped by its PID. Three test cases were first written wrong (an expected mean, a matcher, a pop-out already closed). The iPhone run of the difference test never completed. A changed expectation the maintainer has not seen: a histogram's output now opens as a plot before a table.
+
 ### 2026-11-24 — Array views slice 2, a review of what each shell can show, and the iPhone's viewer bar (B154, B161) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Overnight: … one agent to pursue track 3, including view of tables (not just plots), and view of interchange formats (text/csv, text/svg). Review the plumcraft capabilities." and "Make reasonable assumptions about what I choose if I am not available for a decision".
