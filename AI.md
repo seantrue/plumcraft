@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Nested lists, slices 2 to 4: both SDKs, the coordinator and the core (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Overnight: one agent to pursue track 2, through to slice 6" and "Make reasonable assumptions about what I choose if I am not available for a decision". The eight points left open by slice 1 were not answered; the controller told the agent to take the recommendation for each and mark it assumed.
+
+**What the AI did.** The agent changed the Rust executor and then the Python one to keep each run's list, added Flatten and a test-engine step the fifth vector needed, made the coordinator refuse mixed engines, and gave watches, displays and `run.item` an item path with counts per level (about 1,030 LOC added and 130 removed across 42 files, the three interface documents among them). It narrowed the day's interim note to engines without the capability. It added four assumptions of its own and marked all twelve in the note and the spec.
+
+**Verification.** The agent's runs on the Mac: the whole workspace after slice 2 (1,720 of 1,721) and after slice 4 (1,722 of 1,725: the known baseline failure and two stale generated files, which it regenerated and then re-ran only the editor core, 222 passed); Python 253; the vectors on both SDKs. The full suite ran on the Linux test host. Nothing was launched: no shell shows a nested list yet.
+
+**Defects.** The agent left the whole-workspace run unrepeated after regenerating the two files. A consequence the controller noticed only when publishing: with these slices merged and slice 6 not, an application whose engine lacks the capability is refused every run that crosses to the public engines, so the pull request says to hold it.
+
 ### 2026-11-24 — Insert Graph starts the engine it needs; Open Recent becomes the core's (B165, B166) (two Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "insert graph (components/condition) inserts nothong", "inserted condition.plum", "Fix b165". "open recent never has a list of recent graphs", "empty list. Never showed anything", "fix b166." And on packaging: "Can we fix multiple bugs per pass?", then "Yes, multiple per pass, please."
