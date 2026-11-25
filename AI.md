@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Promoted labels carry their node's name and can be renamed (FR5) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming". The controller asked which name, how a rename is kept and what several parameters of one node show, and offered a default; the maintainer: "Go with your lean", then "build FR4.5".
+
+**What the AI did.** The agent ordered a group's promoted rows by source node and put the node's title in the scene as a header on the first row of each, so no shell composes it; gave a promoted row its own menu with rename and reset; kept the label in the graph file; and drew the headers on the Mac, iPad, iPhone, Windows and egui. About 355 lines over 23 files.
+
+**Verification.** The agent's runs: graph, session and scene tests, two conformance cases, Swift tests, an egui test; the Mac's workspace tests with the one known failure; Mac conformance 81 of 81 run; launches on a scripted Mac copy and iPad and iPhone simulators. The controller looked at the Mac picture after a rename: headers "Swap" and "Echo" with a rule each, "look for" and "with" under the first, "times" under the second. The full suite ran on the Linux test host. Windows was built and not launched.
+
+**Defects.** The agent's first Mac launch showed the header's rule running into the output labels on the right; found by looking at the picture, fixed to stop at the input column. The controller read "FR4.5" as FR4 and FR5 without asking; the maintainer has not said otherwise.
+
 ### 2026-11-25 — B172: a queued node showed the last run's error (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Graph status not correct", with a labelled picture; "I did a run. The run finished properly. I captured this in the moddle of the run."; "Fix B172".

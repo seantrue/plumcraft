@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn help_holds_the_doc_the_facts_and_when_it_is_read() {
         let port = Port { ty: "FLOAT".into(), tooltip: Some("How wide".into()), default: json!(1.0), ..Default::default() };
-        let row = InputRow { key: "strokes.width".into(), label: "width".into(), port, kind: crate::canvas::RowKind::Plain };
+        let row = InputRow { key: "strokes.width".into(), label: "width".into(), port, section: None, kind: crate::canvas::RowKind::Plain };
         let help = help_text(&row, Some("Not used now."), &SchemaReply::default());
         assert_eq!(help, "How wide\n\nFLOAT · default 1.0\n\nNot used now.\n\nKey: strokes.width");
     }

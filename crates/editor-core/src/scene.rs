@@ -463,6 +463,11 @@ pub struct InRow {
     /// member's; FR1), as the node's own footer does. Absent for every other row.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub editor: Option<RowEditor>,
+    /// FR5: on a collapsed group's face, a header before this row: the title of the node the
+    /// promoted rows from here on come from, as that node's face shows it. Absent for every other
+    /// row; a shell draws it as a section header above the row.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
 }
 
 /// What a row whose value has an editor says of it (section 8.4): the application's editor's
@@ -1486,6 +1491,7 @@ fn in_row(cx: &Ctx<'_>, node_id: &NodeId, row: &InputRow) -> InRow {
         widget: None,
         inactive: None,
         editor: None,
+        section: row.section.clone(),
     };
     // the value the node names an editor for, while no wire feeds it (FR1: on a collapsed
     // group's face too, the member's)
@@ -2507,6 +2513,57 @@ mod tests {
     /// group's face its row opens the editor on the member (the application's where it has one,
     /// else the command's own words), with the inner row's short form; a wire takes it away;
     /// undo, save and reopen, and a group inside another keep it.
+    #[test]
+    fn promoted_rows_sit_under_their_nodes_title_which_follows_a_rename() {
+        // FR5: one header per source node, its title as its face shows it, before that node's
+        // first promoted row; the rows of one node together, in the order the nodes were promoted
+        let mut s = Session::new(plumcraft_text::engine().schema());
+        let a = add(&mut s, "text.replace", [0.0, 0.0]);
+        let b = add(&mut s, "text.repeat", [300.0, 0.0]);
+        s.execute("node.title", &json!({"node": a, "title": "Swap"})).unwrap();
+        let g = GroupId(s.execute("group.create", &json!({"nodes": [a, b], "name": "words", "collapsed": true})).unwrap()["id"].as_str().unwrap().to_owned());
+        for (n, port) in [(&a, "find"), (&b, "times"), (&a, "with")] {
+            s.execute("group.promote", &json!({"group": g, "port": {"node": n, "port": port}})).unwrap();
+        }
+        s.execute("group.editPromoted", &json!({"group": g, "label": "find", "newLabel": "look for"})).unwrap();
+        let t = HashMap::new();
+        let rows = |s: &Session| -> Vec<(String, String, Option<String>)> {
+            let sc = build(&inputs(s, Selection::default(), None, &t));
+            let id = rows::proxy_node_id(&g).0;
+            sc.nodes.iter().find(|f| f.id == id).unwrap().inputs.iter().map(|r| (r.key.clone(), r.label.clone(), r.section.clone())).collect()
+        };
+        let got = rows(&s);
+        let promoted: Vec<_> = got.iter().filter(|(k, ..)| ["find", "with", "times"].contains(&k.as_str())).cloned().collect();
+        let echo = plumcraft_session::node_title(s.graph(), s.catalog(), &b);
+        assert_eq!(
+            promoted,
+            [
+                ("find".to_owned(), "look for".to_owned(), Some("Swap".to_owned())),
+                ("with".to_owned(), "with".to_owned(), None),
+                ("times".to_owned(), "times".to_owned(), Some(echo)),
+            ],
+            "{got:?}"
+        );
+        assert!(
+            got.iter().filter(|(k, ..)| !["find", "with", "times"].contains(&k.as_str())).all(|(.., sec)| sec.is_none()),
+            "only promoted rows have headers"
+        );
+        // the header follows a rename of the node
+        s.execute("node.title", &json!({"node": a, "title": "Swap words"})).unwrap();
+        assert_eq!(rows(&s).iter().find(|(k, ..)| k == "find").unwrap().2.as_deref(), Some("Swap words"));
+        // the row's menu renames it and goes back to the port's own name
+        let menu = crate::menu::context(
+            &crate::menu::Parts::of(&s),
+            &crate::menu::Facts::default(),
+            &crate::menu::Context::Input { port: PortRef::new(a.clone(), "find") },
+        );
+        assert_eq!(menu.iter().map(|i| (i.label.as_str(), i.enabled)).collect::<Vec<_>>(), [("Rename Parameter…", true), ("Use the Port's Own Name", true)]);
+        // a node's own row, inside the open group, has no header
+        s.execute("group.collapse", &json!({"group": g, "collapsed": false})).unwrap();
+        let sc = build(&inputs(&s, Selection::default(), None, &t));
+        assert!(sc.nodes.iter().flat_map(|f| &f.inputs).all(|r| r.section.is_none()));
+    }
+
     #[test]
     fn a_promoted_editor_value_is_a_row_that_opens_it_on_the_groups_face() {
         let mut s = Session::new(catalog());

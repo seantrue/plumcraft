@@ -421,7 +421,7 @@ An expansion (`plumcraft_proto::expansion`, read by the UI, so hostile like any 
 | `settings` | `{command input: [[local id, port]]}` | The command's value goes on each widget; a wire into it goes to each. A value from its bundle is copied in |
 | `outputs` | `{command output: [local id, port]}` | The command's consumers read this. A wire from an output not listed is dropped and reported |
 | `note` | string, optional | What it unrolls into, for people |
-| `group` | `{promoted?: [{port, label, doc?, min?, max?}], outputs?: [{from, name}], checkpoints?: [local id]}`, optional | The group it came from, restored when expanded into a group (F67). Without it, a group gets the `settings` as parameters and the `outputs` as results. `checkpoints` are kept on the group as a file keeps them |
+| `group` | `{promoted?: [{port, label, doc?, min?, max?}], outputs?: [{from, name}], checkpoints?: [local id]}`, optional | The group it came from, restored when expanded into a group (F67). Without it, a group gets the `settings` as parameters and the `outputs` as results. `checkpoints` are kept on the group as a file keeps them. FR5: `label` is the group's own name for the parameter, kept as given; the inner port keeps its own name (`port`), and the default label is that port's name (its last part); a file without renamed labels reads as before |
 
 An expansion that doesn't fit the catalogue is refused whole; the graph doesn't change.
 

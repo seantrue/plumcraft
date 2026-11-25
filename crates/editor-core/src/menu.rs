@@ -1334,6 +1334,29 @@ fn group_items(gid: &GroupId, name: &str) -> Vec<Item> {
     ]
 }
 
+/// FR5: an input promoted to a group (a row on the group's face stands for it): rename the
+/// parameter, the group's own name for it, and go back to the port's own name. Empty when the
+/// input is promoted nowhere.
+fn promoted_items(graph: &plumcraft_graph::Graph, at: &PortRef) -> Vec<Item> {
+    let mut out = Vec::new();
+    for (gid, g) in &graph.groups {
+        let Some(pr) = g.promoted.iter().find(|p| &p.port == at) else { continue };
+        let default = plumcraft_graph::default_promoted_label(&pr.port);
+        out.push(
+            Item::run("name.edit", "Rename Parameter…", json!({"promoted": {"group": gid, "label": pr.label}}))
+                .hover(format!("The name {} shows for this parameter (now \"{}\"); the node's own port keeps its name", g.name, pr.label)),
+        );
+        let mut reset = Item::run("group.editPromoted", "Use the Port's Own Name", json!({"group": gid, "label": pr.label, "newLabel": ""}))
+            .hover(format!("Go back to \"{default}\""));
+        if pr.label == default {
+            reset.enabled = false;
+            reset.reason = Some(format!("it is already called \"{default}\""));
+        }
+        out.push(reset);
+    }
+    out
+}
+
 /// A collapsed group's menu.
 fn proxy_menu(parts: &Parts<'_>, gid: &GroupId) -> Vec<Item> {
     let graph = parts.graph;
@@ -1435,6 +1458,10 @@ fn wire_menu(parts: &Parts<'_>, to: &PortRef, bend: Option<&Value>) -> Vec<Item>
 /// An input's menu: name it, or rename or unname its name.
 fn input_menu(parts: &Parts<'_>, at: &PortRef) -> Vec<Item> {
     let graph = parts.graph;
+    let promoted = promoted_items(graph, at);
+    if !promoted.is_empty() {
+        return promoted;
+    }
     if let Some(name) = graph.name_of_port(at) {
         return vec![
             Item::run("name.edit", "Rename Port…", json!({"port": at})),

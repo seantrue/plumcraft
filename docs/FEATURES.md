@@ -6,14 +6,6 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Open
 
-### FR5. Promoted labels carry the name of the node they came from, and can be renamed
-
-- Reported: 2026-11-25
-- Report: "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming"
-- Context: said while testing an application built on the Mac shell. Promoted here is taken to mean a parameter of a node inside a group shown on the group's own face (see FR1, promoting an in-place editor to a group input).
-- Design (the maintainer, 2026-11-25): asked which name, how renaming is kept, and what several parameters from one node show, and offered "the node's face title as a section header, one header per source node, with the renamed label saved in the graph and the inner name left alone", they answered: "Go with your lean".
-- Issue: none
-
 ### FR4. A list of the licences that need display, in the Help/About dialog
 
 - Reported: 2026-11-25
@@ -23,6 +15,16 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 - Issue: none
 
 ## Done
+
+### FR5. Promoted labels carry the name of the node they came from, and can be renamed
+
+- Reported: 2026-11-25
+- Report: "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming"
+- Context: said while testing an application built on the Mac shell. Promoted here is taken to mean a parameter of a node inside a group shown on the group's own face (see FR1, promoting an in-place editor to a group input).
+- Design (the maintainer, 2026-11-25): asked which name, how renaming is kept, and what several parameters from one node show, and offered "the node's face title as a section header, one header per source node, with the renamed label saved in the graph and the inner name left alone", they answered: "Go with your lean".
+- Issue: none
+- Assumed, for the maintainer to confirm: in a group inside a group the header is the innermost node's title; a label reset to a name already taken in the group gets a number ("seconds 2"); egui shows the header as a small "Title ›" line before the row.
+- Done: 2026-11-25, branch `pr/fr5-promoted-labels`: a collapsed group's face lists its promoted rows under a header per source node, with the node's title; a promoted row's own menu has Rename Parameter… and Use the Port's Own Name. Mac, iPad and iPhone launched (a scripted copy and simulators); Windows built, not launched; egui by its test.
 
 ### FR3. An optional status line in the native shells, with what egui's status bar shows
 

@@ -189,6 +189,18 @@ public enum FaceRenderer {
     }
 
     static func rows(_ face: Face, _ L: FaceLayout, _ C: CanvasColors, _ F: FaceFonts, _ ctx: CGContext) {
+        // FR5: a promoted row's source node, as a section header: its title and a rule
+        for s in L.sections {
+            text(s.text, F.small, C.textDim, x: 10, baseline: s.rect.maxY - 5, max: s.rect.width - 20, in: ctx)
+            let tw = min(TextLine.width(s.text, F.small), s.rect.width - 20)
+            if s.rect.width - tw - 26 > 8 {
+                ctx.setStrokeColor(C.textDim.copy(alpha: 0.35) ?? C.textDim)
+                ctx.setLineWidth(0.5)
+                ctx.move(to: CGPoint(x: 10 + tw + 6, y: s.rect.maxY - 8))
+                ctx.addLine(to: CGPoint(x: s.rect.width - 10, y: s.rect.maxY - 8))
+                ctx.strokePath()
+            }
+        }
         for (k, r) in face.inputs.enumerated() where k < L.inputRows.count {
             let row = L.inputRows[k]
             let base = row.minY + min(row.height, FaceMetrics.row) / 2 + 4.5
