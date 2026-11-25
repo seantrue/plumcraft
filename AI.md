@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — A status line for the native shells, from an analysis of egui's; the Mac's About (FR3, B169) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Where is the status information that used to be at the bottom of the window?", then: "The information in the original egui status line was timely, centralized, and includes more than I can easily see now. Analyze the original egui status and provide it as an option status line for the editor." And: "bug: about entry continues to be greyed out.", "There is none under help, greyed out under app.", "fix b169". Asked first about open bugs, they said "check b148, fix b119,120, then procede."
+
+**What the AI did.** The agent wrote research note 28 (egui's 14 status items, their sources, and what each native shell showed), then built the line as a model in the core that every shell draws, a View menu option kept in preferences, and bars on the Mac, iPad, iPhone and Windows. It fixed About by tying it to the core's About item. The controller read the About cause from the code before handing it over, and tidied the bug list.
+
+**Verification.** The agent's runs: Mac conformance 88 of 88 with the About step, the C ABI suite, the Swift kit's 131, Windows built on the test VM. Launches on a scripted Mac copy and iPad and iPhone simulators. The controller looked at two pictures: the Mac's bar after an error (engine, file and size, hash, last run with engine time and cache, Auto-run, the message in red at the right, the banner above the bar), and the iPhone's (engine, a cut-off run segment, the message). The full suite ran on the Linux test host.
+
+**Defects.** The controller's list of open bugs was wrong: nine entries it listed as open carried a Fixed line, B119 and B120 among them, which the maintainer then asked to have fixed; found on reading the entries. The agent's first Mac picture showed no banner, since the canvas sat above it in the window; fixed. The iPhone cuts the run segment to "last ru…", which tells a person nothing; not fixed. One iPad conformance case fails on this branch and was not checked against the commit before it.
+
 ### 2026-11-25 — B168, B167 and B163 in one pass; B164 closed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Fix B163,164,167,168".

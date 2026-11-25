@@ -8,6 +8,16 @@ Entries are numbered `FR<n>`, not `F<n>`: in this project `F1` to `F85` already 
 
 ## Done
 
+### FR3. An optional status line in the native shells, with what egui's status bar shows
+
+- Reported: 2026-11-25
+- Report: "The information in the original egui status line was timely, centralized, and includes more than I can easily see now. Analyze the original egui status and provide it as an option status line for the editor."
+- Context: asked "Where is the status information that used to be at the bottom of the window?"; the Mac and iPad shells had none.
+- Design: research note 28 (`docs/research/28-status-line.md`). The core gives the line as segments (`statusLine` in `ui.inspect` and the feed); View › Status Line (`view.statusLine`) shows or hides it, kept in preferences.
+- Assumed, for the maintainer to confirm: on by default; an iPhone-width window keeps the first-priority segments only; the zoom stays where each shell has it; a selection count is new to the line; the running time moves with each core event, not a clock; Windows uses fixed width bands.
+- Done: 2026-11-25, branch `pr/status-line`. Mac, iPad and iPhone launched (a scripted copy and simulators); Windows built, not launched; egui keeps its own bar, which the option hides.
+- Issue: none
+
 ### FR2. The default graph file extension becomes `.plum`; `.json` stays accepted
 
 - Requested: 2026-11-24
