@@ -11,7 +11,9 @@
 //   text, form               NSAlert as a sheet with text fields
 //   clipboard.set, .get      NSPasteboard
 //   open.external            NSWorkspace (an app named, or the system's default; Finder reveals)
-//   screenshot               the canvas drawn offscreen, as a PNG at the path asked
+//   screenshot               the canvas drawn offscreen, as a PNG at the path asked; `window:
+//                            "document"` the whole content of its window (the status line too),
+//                            the canvas drawn into its place
 //   share                    NSSharingServicePicker with the file, under the toolbar (File ›
 //                            Share…, the core's `graph.share`, N4 slice 3); answered when a
 //                            service is picked, cancelled when the picker closes without one
@@ -417,6 +419,36 @@ final class AskPresenter {
 
     /// `ui.screenshot`: the canvas as it draws itself (not the window server's picture).
     private func screenshot(_ a: Ask) {
+        // the document window's content: its views as they draw, the canvas's own picture in its
+        // place (its layers don't draw into a cached display)
+        if a.params["window"].string == "document", let path = a.params["path"].string {
+            guard let v = canvas, let content = v.window?.contentView, let rep = content.bitmapImageRepForCachingDisplay(in: content.bounds),
+                  let png = v.snapshotPNG(), let canvasImg = NSImage(data: png)
+            else { return answer(a, ["error": "no document window to draw"]) }
+            content.cacheDisplay(in: content.bounds, to: rep)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            let r = v.convert(v.bounds, to: content)
+            canvasImg.draw(in: r, from: .zero, operation: .sourceOver, fraction: 1)
+            // what floats over the canvas (the banner, the crumbs), drawn again on top
+            if let host = v.superview, let k = host.subviews.firstIndex(of: v) {
+                for o in host.subviews[(k + 1)...] where !o.isHidden && o.frame.intersects(v.frame) {
+                    guard let orep = o.bitmapImageRepForCachingDisplay(in: o.bounds) else { continue }
+                    o.cacheDisplay(in: o.bounds, to: orep)
+                    let img = NSImage(size: o.bounds.size)
+                    img.addRepresentation(orep)
+                    img.draw(in: o.convert(o.bounds, to: content), from: .zero, operation: .sourceOver, fraction: 1)
+                }
+            }
+            NSGraphicsContext.restoreGraphicsState()
+            guard let out = rep.representation(using: .png, properties: [:]) else { return answer(a, ["error": "the window didn't draw"]) }
+            do {
+                try out.write(to: URL(fileURLWithPath: path), options: .atomic)
+                return answer(a, ["path": .string(path), "width": .int(Int64(rep.pixelsWide)), "height": .int(Int64(rep.pixelsHigh)), "source": "window"])
+            } catch {
+                return answer(a, ["error": .string("\(error)")])
+            }
+        }
         // a window the core keeps (a value editor, Parameters, the Cache Report): its content
         if let key = a.params["window"].string, let path = a.params["path"].string {
             guard let w = NSApp.windows.first(where: { $0.identifier?.rawValue == "core-\(key)" }), let view = w.contentView,

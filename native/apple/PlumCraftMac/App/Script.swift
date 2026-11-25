@@ -22,6 +22,7 @@
 //   choose:MENU:ITEM          choose the bar's MENU › ITEM as a person would: the menu is validated
 //                             first and a disabled item isn't run; `chosen` in the status lists
 //                             each choice and whether it was enabled (B169)
+//   size:W:H                  the window's content size, in points (a narrow window's pictures)
 //   theme:dark|light          the app's appearance
 //   quit                      quit
 //   inbox:DIR                 run the steps a script writes as DIR/<k>.step, one at a time
@@ -135,6 +136,8 @@ struct Script {
         case "about":
             // the About panel, ordered as a scripted launch orders windows (N4 slice 4)
             AboutPanel.show(model: window.canvasView?.model, over: window.window)
+        case "size" where parts.count >= 3:
+            if let w = Double(parts[1]), let h = Double(parts[2]) { window.window?.setContentSize(NSSize(width: w, height: h)) }
         case "theme" where parts.count >= 2:
             NSApp.appearance = NSAppearance(named: parts[1] == "dark" ? .darkAqua : .aqua)
         case "quit":

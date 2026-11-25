@@ -437,6 +437,8 @@ public struct Changed: Codable, Hashable, Sendable {
     public var autosave: AutosaveState?
     /// An engine install under way (B71): `{repo, status}`; absent or null when none is.
     public var installing: InstallState?
+    /// The status line, the core's model (research note 28).
+    public var statusLine: StatusLine?
     /// The `window` domain (`platform.document_windows`, contract 4.3): a document New or Open
     /// made (`open: true`; `doc` is the new document), in document `from`, for the `person` or a
     /// `script` (`by`), with its file (`path`) when Open made it.
@@ -486,6 +488,8 @@ public struct DocumentState: Hashable, Sendable {
     public var autosave = AutosaveState()
     /// An engine install under way, while one is (B71).
     public var installing: InstallState?
+    /// The status line (research note 28): what the shell's bottom bar draws.
+    public var statusLine = StatusLine()
 
     public init() {}
 
@@ -503,6 +507,96 @@ public struct DocumentState: Hashable, Sendable {
         errorSeq = c.errorSeq ?? 0
         autosave = c.autosave ?? AutosaveState()
         installing = c.installing
+        statusLine = c.statusLine ?? StatusLine()
+    }
+}
+
+/// The status line (research note 28; contract 7.2's `document` domain): the core's model of
+/// what the editor is doing, which a shell draws and never composes. `on` is View › Status Line.
+/// Hostile input: a segment that doesn't parse is left out, and a line that doesn't is empty.
+public struct StatusLine: Codable, Hashable, Sendable {
+    public var on: Bool
+    public var segments: [StatusSegment]
+
+    public init(on: Bool = true, segments: [StatusSegment] = []) {
+        self.on = on; self.segments = segments
+    }
+
+    enum CodingKeys: String, CodingKey { case on, segments }
+
+    public init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        on = (try? c?.decodeIfPresent(Bool.self, forKey: .on)) ?? true
+        let raw = (try? c?.decodeIfPresent([Lenient<StatusSegment>].self, forKey: .segments)) ?? []
+        segments = raw.compactMap(\.value)
+    }
+
+    /// The segments a bar of this many priorities keeps (1: the engine, the run, the newest
+    /// message; 3: all), in order.
+    public func shown(upTo priority: Int) -> [StatusSegment] {
+        segments.filter { $0.priority <= priority }
+    }
+}
+
+/// A value that may not parse: `nil` then, never an error.
+public struct Lenient<T: Decodable & Sendable>: Decodable, Sendable {
+    public var value: T?
+    public init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
+/// A command a segment runs on a click: `{id, params, label?}`.
+public struct StatusCommand: Codable, Hashable, Sendable {
+    public var id: String
+    public var params: JSONValue?
+    public var label: String?
+    public init(id: String, params: JSONValue? = nil, label: String? = nil) {
+        self.id = id; self.params = params; self.label = label
+    }
+}
+
+public enum StatusTone: String, Sendable, CaseIterable { case info, warn, error }
+public enum StatusDot: String, Sendable, CaseIterable { case ok, busy, down }
+
+/// One segment of the status line. `role`: engine, progress, document, selection, hash, run,
+/// warning, toggle, action, message; `side`: left or right; `priority` 1 to 3.
+public struct StatusSegment: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var role: String
+    public var side: String?
+    public var priority: Int
+    public var text: String
+    public var detail: String?
+    public var detailTone: Open<StatusTone>?
+    public var tone: Open<StatusTone>?
+    public var dot: Open<StatusDot>?
+    public var busy: Bool?
+    public var on: Bool?
+    public var command: StatusCommand?
+    public var tooltip: String?
+
+    public init(id: String, role: String, priority: Int = 1, text: String) {
+        self.id = id; self.role = role; self.priority = priority; self.text = text
+    }
+
+    enum CodingKeys: String, CodingKey { case id, role, side, priority, text, detail, detailTone, tone, dot, busy, on, command, tooltip }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        role = (try? c.decodeIfPresent(String.self, forKey: .role)) ?? ""
+        side = try? c.decodeIfPresent(String.self, forKey: .side)
+        priority = (try? c.decodeIfPresent(Int.self, forKey: .priority)) ?? 3
+        text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+        detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        detailTone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .detailTone)
+        tone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .tone)
+        dot = try? c.decodeIfPresent(Open<StatusDot>.self, forKey: .dot)
+        busy = try? c.decodeIfPresent(Bool.self, forKey: .busy)
+        on = try? c.decodeIfPresent(Bool.self, forKey: .on)
+        command = try? c.decodeIfPresent(StatusCommand.self, forKey: .command)
+        tooltip = try? c.decodeIfPresent(String.self, forKey: .tooltip)
     }
 }
 

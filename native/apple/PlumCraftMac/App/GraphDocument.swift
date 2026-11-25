@@ -184,6 +184,9 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
     var toolItems: [String: MenuItem] = [:]
     let placeholder = NSTextField(labelWithString: "Opening…")
     let bannerLabel = NSTextField(wrappingLabelWithString: "")
+    /// The status line (research note 28), the core's model; View › Status Line hides it.
+    let statusBar = StatusBar(frame: .zero)
+    var statusBarHeight: NSLayoutConstraint?
     var bannerTask: Task<Void, Never>?
     var shownZoom = -1
     var appliedStart = false
@@ -223,7 +226,7 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
         crumbs.target = self
         crumbs.action = #selector(crumbClicked(_:))
         crumbs.setAccessibilityLabel("Groups entered")
-        for x in [placeholder, bannerLabel, crumbsBox] {
+        for x in [placeholder, bannerLabel, crumbsBox, statusBar] as [NSView] {
             x.translatesAutoresizingMaskIntoConstraints = false
             container.addSubview(x)
         }
@@ -237,7 +240,11 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             placeholder.centerXAnchor.constraint(equalTo: container.centerXAnchor),
             placeholder.centerYAnchor.constraint(equalTo: container.centerYAnchor),
             bannerLabel.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            bannerLabel.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            // above the status line, never over it
+            bannerLabel.bottomAnchor.constraint(equalTo: statusBar.topAnchor, constant: -12),
+            statusBar.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            statusBar.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             bannerLabel.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -40),
             crumbs.topAnchor.constraint(equalTo: crumbsBox.topAnchor, constant: 3),
             crumbs.bottomAnchor.constraint(equalTo: crumbsBox.bottomAnchor, constant: -3),
@@ -247,6 +254,12 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             crumbsBox.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 12),
             crumbsBox.widthAnchor.constraint(lessThanOrEqualTo: container.widthAnchor, constant: -24),
         ])
+        let h = statusBar.heightAnchor.constraint(equalToConstant: 0)
+        h.isActive = true
+        statusBarHeight = h
+        statusBar.isHidden = true
+        statusBar.onCommand = { [weak self] c in self?.statusCommand(c) }
+        statusBar.onFit = { [weak self] in if let self { Status.shared.set("statusBar", self.statusBar.report) } }
         let tb = NSToolbar(identifier: "graph")
         tb.delegate = self
         tb.displayMode = .iconOnly
@@ -294,10 +307,18 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
 
     func attach(_ model: DocumentModel, doc: UInt64, opened: ContinuousClock.Instant) {
         let v = CanvasView(model: model, frame: container.bounds)
-        v.autoresizingMask = [.width, .height]
+        // the canvas fills the window above the status line
+        v.translatesAutoresizingMaskIntoConstraints = false
         v.onError = { NSLog("Plummer: %@", $0) }
         placeholder.removeFromSuperview()
-        container.addSubview(v, positioned: .below, relativeTo: crumbsBox)
+        // under everything that floats over it: the banner, the crumbs, the status line
+        container.addSubview(v, positioned: .below, relativeTo: bannerLabel)
+        NSLayoutConstraint.activate([
+            v.topAnchor.constraint(equalTo: container.topAnchor),
+            v.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            v.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            v.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+        ])
         canvasView = v
         window?.makeFirstResponder(v)
         v.canvas.onViewport = { [weak self] vp in
@@ -370,7 +391,31 @@ final class GraphWindowController: NSWindowController, NSWindowDelegate, NSToolb
             banner(e)
         }
         showEngine(canvasView?.model.engine ?? EngineState())
+        showStatusLine(st.statusLine)
         reportNow()
+    }
+
+    /// The status line as the core has it now: shown or hidden by View › Status Line.
+    func showStatusLine(_ l: StatusLine) {
+        let on = l.on && canvasView != nil
+        statusBar.show(l)
+        if statusBar.isHidden == on {
+            statusBar.isHidden = !on
+            statusBarHeight?.constant = on ? StatusBar.height : 0
+        }
+        Status.shared.set("statusBar", statusBar.report)
+    }
+
+    /// A status-line segment clicked: its command, as the person's.
+    func statusCommand(_ c: StatusCommand) {
+        guard let m = canvasView?.model else { return }
+        Task {
+            do {
+                _ = try await m.invoke(c.id, params: c.params, person: true)
+            } catch {
+                banner("\(error)")
+            }
+        }
     }
 
     var lastErrorShown: UInt64 = 0

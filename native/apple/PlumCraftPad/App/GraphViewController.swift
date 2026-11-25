@@ -42,6 +42,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     let crumbsBox = UIVisualEffectView(effect: UIBlurEffect(style: .systemMaterial))
     let placeholder = UILabel()
     let banner = UILabel()
+    /// The status line (research note 28), the core's model; View › Status Line hides it.
+    let statusBar = StatusBar()
     var bannerTask: Task<Void, Never>?
     let engineDot = UIView()
     let engineLabel = UILabel()
@@ -141,11 +143,31 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             crumbsBox.leadingAnchor.constraint(equalTo: canvasHost.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             crumbsBox.trailingAnchor.constraint(lessThanOrEqualTo: canvasHost.trailingAnchor, constant: -12),
         ])
+        // the status line: its row on the keyboard guide (above the home indicator, up with a
+        // keyboard), its material down to the edge
+        statusBar.translatesAutoresizingMaskIntoConstraints = false
+        statusBar.isHidden = true
+        statusBar.onCommand = { [weak self] c in self?.statusCommand(c) }
+        canvasHost.addSubview(statusBar)
+        NSLayoutConstraint.activate([
+            statusBar.leadingAnchor.constraint(equalTo: canvasHost.leadingAnchor),
+            statusBar.trailingAnchor.constraint(equalTo: canvasHost.trailingAnchor),
+            statusBar.topAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -StatusBar.rowHeight),
+            statusBar.bottomAnchor.constraint(equalTo: canvasHost.bottomAnchor),
+        ])
+        // the banner above the status line when it shows, above the safe area when it doesn't
+        let overBar = banner.bottomAnchor.constraint(lessThanOrEqualTo: statusBar.topAnchor, constant: -12)
+        overBar.priority = .defaultHigh
+        // as low as those allow
+        let low = banner.bottomAnchor.constraint(equalTo: view.keyboardLayoutGuide.topAnchor, constant: -16)
+        low.priority = .defaultLow
+        low.isActive = true
         NSLayoutConstraint.activate([
             placeholder.centerXAnchor.constraint(equalTo: canvasHost.centerXAnchor),
             placeholder.centerYAnchor.constraint(equalTo: canvasHost.centerYAnchor),
             banner.centerXAnchor.constraint(equalTo: canvasHost.centerXAnchor),
-            banner.bottomAnchor.constraint(equalTo: canvasHost.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            overBar,
+            banner.bottomAnchor.constraint(lessThanOrEqualTo: view.keyboardLayoutGuide.topAnchor, constant: -16),
             banner.widthAnchor.constraint(lessThanOrEqualTo: canvasHost.widthAnchor, constant: -40),
         ])
         makeBar()
@@ -153,6 +175,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         registerForTraitChanges([UITraitHorizontalSizeClass.self]) { (self: Self, _: UITraitCollection) in
             self.layoutBar()
             if let e = self.model?.engine { self.showEngine(e) }
+            if let st = self.model?.state { self.showStatusLine(st.statusLine) }
         }
         // a short, wide window (an iPhone turned) puts the parameters in a side column, and back
         // (B135, ReadableColumn)
@@ -676,6 +699,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
             lastErrorShown = st.errorSeq
             say(e)
         }
+        showStatusLine(st.statusLine)
         showTitle()
         showEngine(model?.engine ?? EngineState())
         reportNow()
@@ -852,6 +876,26 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         }
         a.addUserInfoEntries(from: info)
         return a
+    }
+
+    // MARK: The status line
+
+    /// The status line as the core has it now: shown or hidden by View › Status Line; a compact
+    /// width keeps its first priority only.
+    func showStatusLine(_ l: StatusLine) {
+        statusBar.maxLevel = compact ? 1 : 3
+        statusBar.show(l)
+        statusBar.isHidden = !(l.on && canvasView != nil)
+        statusBar.layoutIfNeeded()
+        StatusFile.shared.set("statusBar", statusBar.report)
+    }
+
+    /// A status-line segment tapped: its command, as the person's.
+    func statusCommand(_ c: StatusCommand) {
+        guard let m = model else { return }
+        Task {
+            do { _ = try await m.invoke(c.id, params: c.params, person: true) } catch { say("\(error)") }
+        }
     }
 
     // MARK: Banner: what the app says without a dialog

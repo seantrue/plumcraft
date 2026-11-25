@@ -623,6 +623,7 @@ impl EditorApp {
             self.run("engine.auto", &json!({"on": true}));
         }
         self.doc.session.views.run_colors_off = self.prefs.prefs().run_colors == Some(false);
+        self.doc.session.views.status_line_off = self.prefs.prefs().status_line == Some(false);
         self.doc.session.views.anim_ms = self.prefs.prefs().anim_ms.filter(|ms| plumcraft_session::view_cmds::is_anim_ms(u64::from(*ms)));
     }
 
@@ -632,6 +633,14 @@ impl EditorApp {
         let on = self.doc.session.engines.auto;
         if self.prefs.prefs().auto_engines.unwrap_or(false) != on {
             self.prefs.set_auto_engines(on);
+        }
+    }
+
+    /// Keep View › Status Line in the preferences, however it was set (research note 28).
+    fn save_status_line(&mut self) {
+        let on = !self.doc.session.views.status_line_off;
+        if self.prefs.prefs().status_line.unwrap_or(true) != on {
+            self.prefs.set_status_line(on);
         }
     }
 
@@ -1546,6 +1555,7 @@ impl EditorApp {
         }
         self.save_auto_engines();
         self.save_run_anim();
+        self.save_status_line();
         // what the core asked of the window: the clipboard, dialogs, prompts (crate::asks_view)
         self.pump_asks();
         self.read_app_hooks(&ctx);
@@ -1555,7 +1565,10 @@ impl EditorApp {
         self.pump_runs(&ctx);
         egui::Panel::top("plumcraft-menu").show(ui, |ui| self.menu_bar(ui));
         self.banner(ui);
-        egui::Panel::bottom("plumcraft-status").show(ui, |ui| self.status_bar(ui));
+        // View › Status Line (research note 28): an option, on by default
+        if !self.doc.session.views.status_line_off {
+            egui::Panel::bottom("plumcraft-status").show(ui, |ui| self.status_bar(ui));
+        }
         self.watched_panel(ui);
         self.follow_core();
         self.canvas.sync(self.doc.session.generation(), self.doc.session.graph(), self.doc.session.catalog());

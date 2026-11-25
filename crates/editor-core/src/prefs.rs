@@ -71,6 +71,9 @@ pub struct Prefs {
     /// View › Colour Nodes While Running (`view.runColors`); on when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub run_colors: Option<bool>,
+    /// View › Status Line (`view.statusLine`, research note 28); on when unset.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_line: Option<bool>,
     /// View › Animation Speed (`view.animationSpeed`), in milliseconds per node, 0 for real
     /// time; 500 when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +214,14 @@ impl Store {
         self.prefs.run_colors = Some(colors);
         self.prefs.anim_ms = anim_ms;
         self.save();
+    }
+
+    /// View › Status Line, kept.
+    pub fn set_status_line(&mut self, on: bool) {
+        if self.prefs.status_line != Some(on) {
+            self.prefs.status_line = Some(on);
+            self.save();
+        }
     }
 
     /// View › Colour Nodes While Running, kept.

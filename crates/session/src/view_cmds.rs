@@ -102,6 +102,8 @@ pub struct Views {
     /// Run colours are off (`view.runColors`): node bodies keep their family colour while a
     /// run computes them.
     pub run_colors_off: bool,
+    /// The status line is hidden (`view.statusLine`, research note 28): on by default.
+    pub status_line_off: bool,
     /// The animation speed (`view.animationSpeed`): the least time, in milliseconds, each node
     /// is shown running when the last run is animated; 0 is real time, with no least time.
     /// `None`: [`DEFAULT_ANIM_MS`].
@@ -361,6 +363,17 @@ fn run_colors(s: &mut Session, p: &Value) -> Result<Value> {
     Ok(json!({"on": on}))
 }
 
+/// `view.statusLine {on?}`: show the status line, the core's model of what the editor is doing
+/// (research note 28); a toggle when `on` is absent.
+fn status_line(s: &mut Session, p: &Value) -> Result<Value> {
+    let on = match p.get("on") {
+        None | Some(Value::Null) => s.views.status_line_off,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"on\" must be true or false".into()))?,
+    };
+    s.views.status_line_off = !on;
+    Ok(json!({"on": on}))
+}
+
 /// `view.animationSpeed {ms}`: the least time each node is shown running when the last run is
 /// animated.
 fn animation_speed(s: &mut Session, p: &Value) -> Result<Value> {
@@ -405,6 +418,16 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             params: "{on?: bool (default: toggle)} -> {on}: while a run computes the graph, each node's body shows its state (waiting, running, done, cached, failed, skipped); the colours fade once the run is over. On by default, kept between runs",
             enabled: always,
             run: run_colors,
+            journal: false,
+        },
+        CommandSpec {
+            id: "view.statusLine",
+            label: "Status Line",
+            menu: &["View"],
+            shortcut: None,
+            params: "{on?: bool (default: toggle)} -> {on}: show the status line at the bottom of the window: the engine, the document, the hash, the run (its progress, its time, the cache), Auto-run, a save, the selection and the newest messages, as the core's model (`ui.inspect`'s and the feed's statusLine). On by default, kept in the preferences",
+            enabled: always,
+            run: status_line,
             journal: false,
         },
         CommandSpec {

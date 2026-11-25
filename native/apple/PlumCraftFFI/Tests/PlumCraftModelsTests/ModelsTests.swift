@@ -355,4 +355,21 @@ struct Sampler {
         let engine = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "engine", "gen": 1, "connected": true}"#))
         #expect(DocumentState(engine) == nil)
     }
+
+    /// The status line (research note 28): the core's segments, which a shell draws; a narrow
+    /// bar keeps priority 1; junk is left out, never fatal.
+    @Test func theStatusLineComesWithTheDocument() throws {
+        let v = try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 4, "statusLine": {"on": true, "segments": [{"id": "engine", "role": "engine", "side": "left", "priority": 1, "text": "Text 0.7", "tone": "info", "dot": "ok", "tooltip": "long"}, {"id": "hash", "role": "hash", "priority": 3, "text": "hash b3 · default", "tone": "info"}, {"id": "run", "role": "run", "priority": 1, "text": "running: 1 of 3 nodes", "busy": true, "detail": "0.4 s", "command": {"id": "run.cancel", "params": {}, "label": "Cancel"}}, {"id": "message.0", "role": "message", "side": "right", "priority": 1, "text": "boom", "tone": "error", "dot": "sideways"}, {"role": "no id"}, 7]}}"#)
+        let st = try #require(DocumentState(try JSONValueDecoder().decode(Changed.self, from: v)))
+        let line = st.statusLine
+        #expect(line.on && line.segments.map(\.id) == ["engine", "hash", "run", "message.0"])
+        #expect(line.shown(upTo: 1).map(\.id) == ["engine", "run", "message.0"])
+        #expect(line.segments[2].command?.id == "run.cancel" && line.segments[2].busy == true && line.segments[2].detail == "0.4 s")
+        #expect(line.segments[3].tone?.word == .error && line.segments[3].dot?.word == nil, "an unknown dot is kept unknown")
+        // off, and a line that isn't one
+        let off = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 5, "statusLine": {"on": false, "segments": []}}"#))
+        #expect(DocumentState(off)?.statusLine.on == false)
+        let junk = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 6, "statusLine": "nope"}"#))
+        #expect(DocumentState(junk)?.statusLine.segments.isEmpty == true)
+    }
 }
