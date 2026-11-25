@@ -112,7 +112,7 @@ fn shown(s: &Session, p: &Value) -> Result<(String, String, Columns)> {
 
 /// `viewer.chart {popout, mark?, x?, y?, color?, size?, path?, agg?, stack?, bins?, clear?}`.
 fn chart(s: &mut Session, p: &Value) -> Result<Value> {
-    const FIELDS: &[&str] = &["popout", "mark", "x", "y", "color", "size", "path", "agg", "stack", "bins", "clear"];
+    const FIELDS: &[&str] = &["popout", "mark", "x", "y", "color", "size", "path", "agg", "stack", "normalize", "bins", "clear"];
     if let Some(o) = p.as_object()
         && let Some(k) = o.keys().find(|k| !FIELDS.contains(&k.as_str()))
     {
@@ -168,6 +168,10 @@ fn chart(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(b) = p.get("stack") {
         spec.insert("stack".into(), json!(b.as_bool().ok_or_else(|| bad("stack is true or false"))?));
     }
+    // a stacked chart's shares of each stack's total (note 26 slice 8)
+    if let Some(b) = p.get("normalize") {
+        spec.insert("normalize".into(), json!(b.as_bool().ok_or_else(|| bad("normalize is true or false"))?));
+    }
     if let Some(b) = p.get("bins") {
         let n = b.as_u64().filter(|n| (1..=MAX_BINS).contains(n)).ok_or_else(|| bad(format!("bins is a whole number from 1 to {MAX_BINS}")))?;
         spec.insert("bins".into(), json!(n));
@@ -204,7 +208,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         label: "Chart",
         menu: &[],
         shortcut: None,
-        params: "{popout, mark?: histogram | line | column | treemap, x?, y?: [column], color?, size?, path?: [column], agg?: sum | mean | count | min | max, stack?, bins?, clear?} -> {popout, spec}: the chart of the value a pop-out shows, its columns checked against the value's; kept in the graph's meta.charts[\"node.port\"], one undo step, saved with the file",
+        params: "{popout, mark?: histogram | line | column | treemap, x?, y?: [column], color?, size?, path?: [column], agg?: sum | mean | count | min | max, stack?, normalize?, bins?, clear?} -> {popout, spec}: the chart of the value a pop-out shows, its columns checked against the value's; kept in the graph's meta.charts[\"node.port\"], one undo step, saved with the file",
         enabled: has_popouts,
         run: chart,
         journal: true,

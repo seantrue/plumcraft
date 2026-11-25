@@ -108,6 +108,8 @@ pub struct Views {
     pub anim_ms: Option<u32>,
     /// View › Animate Last Run was asked for, until the window starts it.
     pub animate_asked: bool,
+    /// The rows selected of each value, by `node.port` (note 26 slice 8, decision 7A).
+    pub selections: crate::chart_view::Selections,
     next: u64,
 }
 
@@ -173,9 +175,15 @@ fn popout(s: &mut Session, p: &Value) -> Result<Value> {
         return Ok(out);
     }
     let viewer = viewer_param(p)?;
-    // The same port and item already open: bring that one forward.
-    if let Some(open) =
-        s.views.popouts.iter().find(|o| s.run.entry(WatchRole::Popout(o.id)).is_some_and(|(x, _)| x.node == w.node && x.port == w.port && x.index == w.index))
+    // The same port and item already open: bring that one forward, unless another window of it
+    // is asked for (`another: true`, note 26 slice 8: its table beside its chart)
+    let another = p.get("another").and_then(Value::as_bool) == Some(true);
+    if !another
+        && let Some(open) = s
+            .views
+            .popouts
+            .iter()
+            .find(|o| s.run.entry(WatchRole::Popout(o.id)).is_some_and(|(x, _)| x.node == w.node && x.port == w.port && x.index == w.index))
     {
         let id = open.id;
         if let Some(o) = s.views.popouts.iter_mut().find(|o| o.id == id) {
@@ -428,7 +436,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
             label: "Pop Out",
             menu: &[],
             shortcut: None,
-            params: "{node, port?, index?, viewer?, window?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor. viewer picks one of the value's viewers (array.grid, table.grid, …). A craft document PlumCraft has no view of its own for opens in its app instead, as doc.open does ({in_app, path, …}, or {pending, in_app, run_id}), and a save there feeds the nodes downstream; window: true asks for PlumCraft's window anyway",
+            params: "{node, port?, index?, viewer?, window?, another?} -> {id, node, port, index, run_id?} (or {id, existing: true}): open a window that follows the port's value, updated by every run; it doesn't block the editor; a port already open is brought forward unless another: true asks for a second window of it (its table beside its chart, which share the value's selection). viewer picks one of the value's viewers (array.grid, table.grid, …). A craft document PlumCraft has no view of its own for opens in its app instead, as doc.open does ({in_app, path, …}, or {pending, in_app, run_id}), and a save there feeds the nodes downstream; window: true asks for PlumCraft's window anyway",
             enabled: always,
             run: popout,
             journal: false,

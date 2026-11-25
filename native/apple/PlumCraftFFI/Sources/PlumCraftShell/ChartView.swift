@@ -45,6 +45,12 @@ struct ChartViewer: SwiftUI.View {
     let box: ViewerBox
     @State private var loader = PageLoader()
     @State private var size: CGSize = .zero
+    /// A brush being dragged, its two x in the chart's points (drawn until it ends).
+    @State private var brushing: (Double, Double)?
+    /// What is under the pointer, as the core reads it.
+    @State private var readout: String?
+    @State private var asked: CGSize = .zero
+    @State private var hitSeq = 0
 
     var body: some SwiftUI.View {
         GeometryReader { g in
@@ -58,7 +64,25 @@ struct ChartViewer: SwiftUI.View {
                 } else if let list = loader.page {
                     VStack(spacing: 4) {
                         if list["columns"].array != nil { ChartChoices(box: box, list: list) }
-                        ChartCanvas(list: list)
+                        ChartTools(box: box, list: list, readout: readout)
+                        ChartCanvas(list: list, brushing: brushing)
+                        .contentShape(Rectangle())
+                        // a drag across the plot brushes its x: the value's rows there are selected
+                        // (`viewer.select`, decision 7A); a pinch zooms the x about where it began
+                        // (`viewer.range`); a pointer over a mark, or a tap, reads it (`hit`)
+                        .gesture(DragGesture(minimumDistance: 6)
+                            .onChanged { v in brushing = (v.startLocation.x, v.location.x) }
+                            .onEnded { v in
+                                brushing = nil
+                                brush(list, v.startLocation.x, v.location.x)
+                            })
+                        .simultaneousGesture(MagnifyGesture().onEnded { v in zoom(list, v.magnification, v.startLocation.x) })
+                        .onTapGesture { at in hit(at) }
+                        #if os(macOS)
+                        .onContinuousHover { phase in
+                            if case .active(let at) = phase { hit(at) } else { readout = nil }
+                        }
+                        #endif
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(list["a11y"]["title"].string ?? "Chart")
                         .accessibilityValue(list["a11y"]["summary"].string ?? "")
@@ -78,16 +102,57 @@ struct ChartViewer: SwiftUI.View {
     private func load(_ key: JSONValue, _ want: CGSize) {
         guard want.width > 1, want.height > 1 else { return }
         // a table's choices take a row above the chart
-        let h = box.value?.viewer == "table.chart" ? max(want.height - 34, 120) : want.height
+        // a table's choices take a row above the chart; the zoom and selection tools another
+        let h = max(want.height - (box.value?.viewer == "table.chart" ? 34 : 0) - 28, 120)
+        asked = CGSize(width: want.width, height: h)
         loader.load(box, "chart", key: key, extra: ["width": .double(want.width), "height": .double(h)])
         box.describe["chartSize"] = [.double(want.width), .double(h)]
+    }
+
+    /// A point's data on the x axis, by the chart's own scale.
+    static func dataX(_ list: JSONValue, _ x: Double) -> Double? {
+        let s = ChartList.numbers(list["scale"]["x"])
+        guard s.count == 4, s[3] != s[2] else { return nil }
+        return s[0] + (x - s[2]) / (s[3] - s[2]) * (s[1] - s[0])
+    }
+
+    private func brush(_ list: JSONValue, _ a: Double, _ b: Double) {
+        guard let x0 = Self.dataX(list, min(a, b)), let x1 = Self.dataX(list, max(a, b)), x1 > x0 else { return }
+        let p = box.popout
+        Task { _ = await p.command("viewer.select", ["brush": ["x": [.double(x0), .double(x1)]]]) }
+    }
+
+    private func zoom(_ list: JSONValue, _ by: Double, _ at: Double) {
+        let s = ChartList.numbers(list["scale"]["x"])
+        guard s.count == 4, by > 0.05, let c = Self.dataX(list, at) else { return }
+        let half = (s[1] - s[0]) / 2 / by
+        let p = box.popout
+        Task { _ = await p.command("viewer.range", ["x": [.double(c - half), .double(c + half)]]) }
+    }
+
+    private func hit(_ at: CGPoint) {
+        hitSeq += 1
+        let seq = hitSeq
+        let p = box.popout
+        let size = asked
+        Task { @MainActor in
+            let r = await p.data("hit", ["width": .double(size.width), "height": .double(size.height), "x": .double(at.x), "y": .double(at.y)])
+            guard seq == hitSeq else { return }
+            readout = r["hit"]["text"].string
+            box.describe["hit"] = r["hit"]["text"]
+        }
     }
 }
 
 /// The display list drawn: grid, marks, axes and their text, in the list's own points.
 public struct ChartCanvas: SwiftUI.View {
     let list: JSONValue
-    public init(list: JSONValue) { self.list = list }
+    /// A brush being dragged: its two x, drawn as a band.
+    var brushing: (Double, Double)?
+    public init(list: JSONValue, brushing: (Double, Double)? = nil) {
+        self.list = list
+        self.brushing = brushing
+    }
 
     public var body: some SwiftUI.View {
         Canvas { cx, _ in
@@ -104,8 +169,18 @@ public struct ChartCanvas: SwiftUI.View {
                 grid.addLine(to: CGPoint(x: plot.maxX, y: y))
             }
             cx.stroke(grid, with: .color(.secondary.opacity(0.18)), lineWidth: 0.5)
-            // marks
+            // the marks inside the plot (`clip`: a zoomed chart's marks run past it)
+            var marks = cx
+            if list["clip"].bool == true { marks.clip(to: Path(plot)) }
+            // a brush: the core's (`selection.x`), or one being dragged
+            let band = ChartList.numbers(list["selection"]["x"])
+            if let b = brushing {
+                marks.fill(Path(CGRect(x: min(b.0, b.1), y: plot.minY, width: abs(b.1 - b.0), height: plot.height)), with: .color(.accentColor.opacity(0.15)))
+            } else if band.count == 2 {
+                marks.fill(Path(CGRect(x: band[0], y: plot.minY, width: band[1] - band[0], height: plot.height)), with: .color(.orange.opacity(0.12)))
+            }
             for m in list["marks"].array ?? [] {
+                let cx = marks
                 switch m["kind"].string {
                 case "points":
                     let r = m["r"].double ?? 2
@@ -274,5 +349,48 @@ struct ChartChoices: SwiftUI.View {
             _ = await p.command("viewer.chart", all)
             b.reload += 1
         }
+    }
+}
+
+/// A chart's zoom and selection, each the core's: Reset Zoom (`viewer.range {reset}`) while a
+/// range is shown, Clear Selection (`viewer.select {clear}`) while rows are selected, the count
+/// selected, and what is under the pointer.
+struct ChartTools: SwiftUI.View {
+    let box: ViewerBox
+    let list: JSONValue
+    let readout: String?
+
+    var body: some SwiftUI.View {
+        let range = box.value?.state?["chart"]["range"] ?? .null
+        let zoomed = range["x"] != .null || range["y"] != .null
+        HStack(spacing: 10) {
+            if zoomed {
+                Button("Reset Zoom") { run("viewer.range", ["reset": true]) }.accessibilityIdentifier("chart-reset")
+            }
+            if let n = list["selected"].uint64 {
+                Text("\(n) selected").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+                Button("Clear Selection") { run("viewer.select", ["clear": true]) }.accessibilityIdentifier("chart-clear-selection")
+            }
+            if box.value?.viewer == "table.chart", let v = box.value {
+                // the table beside the chart: a second window of the value, sharing its selection
+                Button("Open Table") {
+                    let m = box.popout.model
+                    Task { _ = try? await m.run("view.popout", ["node": .string(v.node), "port": .string(v.port), "viewer": "table.grid", "another": true]) }
+                }
+                .accessibilityIdentifier("chart-open-table")
+            }
+            Text(readout ?? "Drag across to select · pinch to zoom").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                .lineLimit(1).truncationMode(.middle).accessibilityIdentifier("chart-readout")
+            Spacer()
+        }
+        .buttonStyle(.borderless)
+        .font(.caption)
+        .padding(.horizontal, 4)
+        .frame(height: 22)
+    }
+
+    private func run(_ c: String, _ p: [String: JSONValue]) {
+        let pop = box.popout
+        Task { _ = await pop.command(c, p) }
     }
 }

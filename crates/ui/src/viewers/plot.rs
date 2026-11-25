@@ -38,19 +38,44 @@ pub fn accepts(d: &Display) -> bool {
 pub struct TablePlot {
     key: Option<String>,
     plot: Option<(Kind, Vec<String>)>,
-    /// The laid-out list and the size it was laid out for.
+    /// The laid-out list, the size it was laid out for, and the range and selection drawn.
     list: Option<(Value, (u32, u32))>,
+    seen: String,
     error: Option<String>,
+}
+
+/// The core's view of a chart from a viewer's input (its range and its value's selection).
+fn seen_of(v: &ViewInput<'_>) -> String {
+    format!("{:?}{:?}", v.chart_range, v.selection)
 }
 
 impl TablePlot {
     /// The display list at `size`, laid out again when the size changed.
     fn list_at(&mut self, v: &ViewInput<'_>, size: egui::Vec2) -> Option<&Value> {
         let want = (size.x.round().max(1.0) as u32, size.y.round().max(1.0) as u32);
-        if self.list.as_ref().is_none_or(|(_, s)| *s != want) {
+        let seen = seen_of(v);
+        if self.list.as_ref().is_none_or(|(_, s)| *s != want) || self.seen != seen {
+            self.seen = seen;
             let (kind, names) = self.plot.as_ref()?;
             let b = v.full?;
-            match chart::layout(kind, names, &b.dtype, &b.shape, &b.bytes, (f64::from(want.0), f64::from(want.1))) {
+            use plumcraft_session::chart_view::Selection;
+            let selected = v.selection.map(|s| match s {
+                Selection::Rows { rows } => {
+                    let n = b.shape.first().copied().unwrap_or(0) as usize;
+                    let mut m = vec![false; n.min(50_000_000)];
+                    for r in rows {
+                        if let Some(x) = m.get_mut(*r as usize) {
+                            *x = true;
+                        }
+                    }
+                    m
+                }
+                Selection::Brush { column, span } => chart::column_values(kind, names, &b.dtype, &b.shape, &b.bytes, column.as_deref())
+                    .map(|vals| vals.iter().map(|x| span.contains(*x)).collect())
+                    .unwrap_or_default(),
+            });
+            let view = chart::View { range: v.chart_range, selected };
+            match chart::layout_in(kind, names, &b.dtype, &b.shape, &b.bytes, (f64::from(want.0), f64::from(want.1)), &view) {
                 Ok(l) => {
                     self.list = Some((l, want));
                     self.error = None;
@@ -139,6 +164,7 @@ pub struct TableChart {
     key: Option<String>,
     table: Option<plumcraft_media::table::Table>,
     list: Option<(Value, (u32, u32), Value)>,
+    seen: String,
     error: Option<String>,
 }
 
@@ -147,8 +173,13 @@ impl TableChart {
         let want = (size.x.round().max(1.0) as u32, size.y.round().max(1.0) as u32);
         let t = self.table.as_ref()?;
         let spec = v.chart.cloned().unwrap_or_else(|| plumcraft_editor_core::chart_kinds::auto_spec(t));
-        if self.list.as_ref().is_none_or(|(_, s, sp)| *s != want || *sp != spec) {
-            match plumcraft_editor_core::chart_kinds::layout(&spec, t, (f64::from(want.0), f64::from(want.1))) {
+        let seen = seen_of(v);
+        if self.list.as_ref().is_none_or(|(_, s, sp)| *s != want || *sp != spec) || self.seen != seen {
+            self.seen = seen;
+            let x = spec.get("x").and_then(Value::as_str);
+            let selected = v.selection.map(|s| plumcraft_editor_core::viewers::mask_of(s, t, x));
+            let view = chart::View { range: v.chart_range, selected };
+            match plumcraft_editor_core::chart_kinds::layout_in(&spec, t, (f64::from(want.0), f64::from(want.1)), &view) {
                 Ok(l) => {
                     self.list = Some((l, want, spec));
                     self.error = None;
@@ -251,6 +282,13 @@ pub fn paint(ui: &egui::Ui, rect: egui::Rect, list: &Value, tokens: &Tokens) {
     for y in nums(&list["grid"]["y"]) {
         p.line_segment([at(px, y), at(px + pw, y)], grid);
     }
+    // the marks inside the plot when the list says so (a zoomed chart's run past it), over the
+    // value's brushed span (note 26 slice 8)
+    let outer = p.clone();
+    let p = if list["clip"].as_bool() == Some(true) { p.with_clip_rect(egui::Rect::from_min_size(at(px, py), egui::vec2(pw, ph))) } else { p };
+    if let [a, b] = nums(&list["selection"]["x"])[..] {
+        p.rect_filled(egui::Rect::from_min_max(at(a, py), at(b, py + ph)), 0.0, egui::Color32::from_rgba_unmultiplied(255, 127, 14, 30));
+    }
     for m in list["marks"].as_array().into_iter().flatten() {
         let colour = colour_of(m, tokens);
         match m["kind"].as_str() {
@@ -301,6 +339,7 @@ pub fn paint(ui: &egui::Ui, rect: egui::Rect, list: &Value, tokens: &Tokens) {
             _ => {}
         }
     }
+    let p = outer;
     for l in list["legend"].as_array().into_iter().flatten() {
         let (Some(x), Some(y)) = (l["x"].as_f64(), l["y"].as_f64()) else { continue };
         let pos = at(x as f32, y as f32);

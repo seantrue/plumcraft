@@ -135,11 +135,66 @@ pub(crate) fn round2(v: f64) -> f64 {
 
 /// The rows of a table array, as numbers by column (each row's finite values only), sampled to
 /// at most [`MAX_MARKS`] rows: `(rows read, rows in all)`.
-fn rows(dtype: Dtype, bytes: &[u8], rows: usize, columns: usize, cols: &[usize]) -> (Vec<Vec<f64>>, usize) {
+fn rows(dtype: Dtype, bytes: &[u8], rows: usize, columns: usize, cols: &[usize]) -> (Vec<(usize, Vec<f64>)>, usize) {
     let get = |r: usize, c: usize| dtype.read(bytes, r.checked_mul(columns)?.checked_add(c)?).filter(|v| v.is_finite());
     let step = rows.div_ceil(MAX_MARKS).max(1);
-    let out = (0..rows).step_by(step).filter_map(|r| cols.iter().map(|c| get(r, *c)).collect::<Option<Vec<f64>>>()).collect();
+    let out = (0..rows).step_by(step).filter_map(|r| Some((r, cols.iter().map(|c| get(r, *c)).collect::<Option<Vec<f64>>>()?))).collect();
     (out, rows)
+}
+
+/// What a chart is drawn with besides its value (note 26 slice 8): the part shown
+/// (`viewer.range`) and the value's selected rows (`viewer.select`), a flag a row.
+#[derive(Debug, Clone, Default)]
+pub struct View {
+    pub range: plumcraft_session::chart_view::ChartRange,
+    pub selected: Option<Vec<bool>>,
+}
+
+impl View {
+    pub fn is_selected(&self, row: usize) -> bool {
+        self.selected.as_ref().and_then(|s| s.get(row)).copied().unwrap_or(false)
+    }
+    pub fn count(&self) -> Option<usize> {
+        self.selected.as_ref().map(|s| s.iter().filter(|b| **b).count())
+    }
+}
+
+/// The colour of selected rows' marks, drawn over the others.
+pub const SELECTED_COLOUR: &str = "#ff7f0e";
+
+/// The scales of a chart, for a shell's gestures and the core's hit test: data `[d0, d1]` to
+/// points `[p0, p1]`, x then y.
+pub(crate) fn scale_json(sx: &Scale, sy: &Scale) -> Value {
+    json!({"x": [sx.d0, sx.d1, round2(sx.p0), round2(sx.p1)], "y": [sy.d0, sy.d1, round2(sy.p0), round2(sy.p1)]})
+}
+
+/// A row's number in a table array's `column` (by name; none: the chart's own x: a series' index,
+/// points' x, segments' first x, a histogram's centre), for a brush (note 26 slice 8). `None` when
+/// the column isn't there.
+pub fn column_values(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: &[u8], column: Option<&str>) -> Option<Vec<f64>> {
+    let dt = Dtype::parse(dtype)?;
+    if *kind == Kind::Series {
+        let [n] = *shape else { return None };
+        let n = usize::try_from(n).ok()?;
+        return match column {
+            None | Some("index") => Some((0..n).map(|i| i as f64).collect()),
+            Some("value") => Some((0..n).map(|i| dt.read(bytes, i).unwrap_or(f64::NAN)).collect()),
+            Some(_) => None,
+        };
+    }
+    let [n, k] = *shape else { return None };
+    let (n, k) = (usize::try_from(n).ok()?, usize::try_from(k).ok()?);
+    let c = match column {
+        None => match kind {
+            Kind::Points(x, _) | Kind::Columns(x, _) => *x,
+            Kind::Segments(c) => c[0],
+            Kind::Series => 0,
+        },
+        Some(name) => {
+            names.iter().position(|m| m == name).or_else(|| name.strip_prefix('c').and_then(|d| d.parse::<usize>().ok()).and_then(|d| d.checked_sub(1)))?
+        }
+    };
+    (c < k).then(|| (0..n).map(|r| r.checked_mul(k).and_then(|i| i.checked_add(c)).and_then(|i| dt.read(bytes, i)).unwrap_or(f64::NAN)).collect())
 }
 
 /// A chart's display list for a table array's bytes, laid out at `size` points (module docs).
@@ -181,15 +236,24 @@ pub fn m4(values: &[f64], columns: usize) -> Vec<(usize, f64)> {
 }
 
 /// A 1-D array's line: its values against their index, reduced to the plot's width (module docs).
-fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64)) -> Result<Value, String> {
+fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64), view: &View) -> Result<Value, String> {
     if n.checked_mul(dt.size()).is_none_or(|need| need > bytes.len()) {
         return Err(format!("{} bytes is too few for {n} values", bytes.len()));
     }
     let (w, h) = (size.0.clamp(MIN_SIDE, MAX_SIDE), size.1.clamp(MIN_SIDE, MAX_SIDE));
     let values: Vec<f64> = (0..n).map(|i| dt.read(bytes, i).unwrap_or(f64::NAN)).collect();
-    let (y0, y1) = values.iter().filter(|v| v.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
+    // the indices shown (`viewer.range`'s x): the values there reduced again, at this resolution
+    let (first, last) = match view.range.x {
+        Some(r) => ((r.lo().max(0.0).ceil() as usize).min(n), ((r.hi().floor().max(0.0) as usize).saturating_add(1)).min(n)),
+        None => (0, n),
+    };
+    let shown = values.get(first..last.max(first)).unwrap_or_default();
+    let (y0, y1) = shown.iter().filter(|v| v.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
     let finite = y0.is_finite();
-    let (y0p, y1p) = padded(y0, y1, 0.05);
+    let (y0p, y1p) = match view.range.y {
+        Some(r) => (r.lo(), r.hi()),
+        None => padded(y0, y1, 0.05),
+    };
     let int = dt.integer();
     let text = |v: f64| crate::viewers::number(v, int);
     let idx = |v: f64| crate::viewers::number(v, true);
@@ -198,13 +262,31 @@ fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64)) -> Result<
     let left = (ywide + 14.0 + FONT + 6.0).ceil();
     let (top, right, bottom) = (12.0, 16.0, (FONT * 2.0 + 22.0).ceil());
     let plot = (left, top, (w - left - right).max(20.0), (h - top - bottom).max(20.0));
-    let (x0, x1) = (0.0, (n.max(2) - 1) as f64);
+    let (x0, x1) = match view.range.x {
+        Some(r) => (r.lo(), r.hi()),
+        None => (0.0, (n.max(2) - 1) as f64),
+    };
     let sx = Scale { d0: x0, d1: x1, p0: plot.0, p1: plot.0 + plot.2 };
     let sy = Scale { d0: y0p, d1: y1p, p0: plot.1 + plot.3, p1: plot.1 };
-    let reduced = m4(&values, plot.2.max(1.0) as usize);
+    let reduced: Vec<(usize, f64)> = m4(shown, plot.2.max(1.0) as usize).into_iter().map(|(i, v)| (i + first, v)).collect();
     let mut xy = Vec::with_capacity(reduced.len() * 2);
+    let mut tips = Vec::with_capacity(reduced.len());
     for (i, v) in &reduced {
         xy.extend([round2(sx.at(*i as f64)), round2(sy.at(*v))]);
+        tips.push(format!("index {i}: {}", text(*v)));
+    }
+    let mut marks = vec![json!({"kind": "line", "width": 1.5, "xy": xy, "tips": tips})];
+    // the selected values, as dots over the line (at most MAX_MARKS)
+    if view.selected.is_some() {
+        let mut sel = Vec::new();
+        let mut tips = Vec::new();
+        for i in (first..last).filter(|i| view.is_selected(*i)).take(MAX_MARKS) {
+            if let Some(v) = values.get(i).filter(|v| v.is_finite()) {
+                sel.extend([round2(sx.at(i as f64)), round2(sy.at(*v))]);
+                tips.push(format!("index {i}: {}", text(*v)));
+            }
+        }
+        marks.push(json!({"kind": "points", "r": 2.5, "color": SELECTED_COLOUR, "xy": sel, "tips": tips, "selected": true}));
     }
     let xt: Vec<f64> = ticks(x0, x1, plot.2, 80.0).into_iter().filter(|t| t.fract() == 0.0).collect();
     let yt = ticks(y0p, y1p, plot.3, 48.0);
@@ -215,7 +297,10 @@ fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64)) -> Result<
         "kind": "line",
         "sameScale": false,
         "plot": [round2(plot.0), round2(plot.1), round2(plot.2), round2(plot.3)],
-        "marks": [{"kind": "line", "width": 1.5, "xy": xy}],
+    "marks": marks,
+        "scale": scale_json(&sx, &sy),
+        "clip": true,
+        "selected": view.count(),
         "axes": [
             {"side": "bottom", "title": "index", "ticks": xt.iter().map(|v| json!({"at": round2(sx.at(*v)), "text": idx(*v)})).collect::<Vec<_>>()},
             {"side": "left", "title": "value", "ticks": yt.iter().map(|v| json!({"at": round2(sy.at(*v)), "text": text(*v)})).collect::<Vec<_>>()},
@@ -231,10 +316,15 @@ fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64)) -> Result<
 }
 
 pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: &[u8], size: (f64, f64)) -> Result<Value, String> {
+    layout_in(kind, names, dtype, shape, bytes, size, &View::default())
+}
+
+/// [`layout`] with the part shown and the selected rows (note 26 slice 8).
+pub fn layout_in(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: &[u8], size: (f64, f64), view: &View) -> Result<Value, String> {
     let dt = Dtype::parse(dtype).ok_or_else(|| format!("a chart can't read dtype {dtype}"))?;
     if *kind == Kind::Series {
         let [n] = *shape else { return Err("a series is a 1-D array".into()) };
-        return layout_series(dt, usize::try_from(n).map_err(|_| "too many values")?, bytes, size);
+        return layout_series(dt, usize::try_from(n).map_err(|_| "too many values")?, bytes, size, view);
     }
     let [n, k] = *shape else { return Err("a chart needs a table of two dimensions".into()) };
     let (n, k) = (usize::try_from(n).map_err(|_| "too many rows")?, usize::try_from(k).map_err(|_| "too many columns")?);
@@ -254,7 +344,7 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     let name = |c: usize| names.get(c).cloned().unwrap_or_else(|| format!("c{}", c + 1));
     // the spans: x from the even columns, y from the odd (a histogram's counts from zero)
     let span = |idx: &[usize]| {
-        data.iter().flat_map(|r| idx.iter().filter_map(|i| r.get(*i).copied())).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)))
+        data.iter().flat_map(|(_, r)| idx.iter().filter_map(|i| r.get(*i).copied())).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(v), b.max(v)))
     };
     let (xi, yi): (Vec<usize>, Vec<usize>) = match kind {
         Kind::Segments(_) => (vec![0, 2], vec![1, 3]),
@@ -276,6 +366,14 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     };
     (x0, x1) = if columns { (x0, x1) } else { padded(x0, x1, 0.04) };
     (y0, y1) = if columns { (y0, padded(y0, y1, 0.04).1) } else { padded(y0, y1, 0.04) };
+    // the part shown (`viewer.range`): one scale no more once zoomed
+    let same = same && view.range.x.is_none() && view.range.y.is_none();
+    if let Some(r) = view.range.x {
+        (x0, x1) = (r.lo(), r.hi());
+    }
+    if let Some(r) = view.range.y {
+        (y0, y1) = (r.lo(), r.hi());
+    }
     // margins: the y ticks' widest text, an x tick row and the axis titles
     let int = dt.integer();
     let text = |v: f64| crate::viewers::number(v, int);
@@ -296,36 +394,55 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     let xt = ticks(x0, x1, plot.2, 80.0);
     let yt = ticks(y0, y1, plot.3, 48.0);
     let mut xy: Vec<f64> = Vec::new();
+    let mut tips: Vec<String> = Vec::new();
+    let mut sel: Vec<f64> = Vec::new();
+    let mut sel_tips: Vec<String> = Vec::new();
     let mark = match kind {
         // laid out by layout_series, never here
         Kind::Series => json!({"kind": "none"}),
         Kind::Points(..) => {
-            for r in &data {
+            for (row, r) in &data {
                 if let [x, y] = r[..] {
-                    xy.extend([round2(sx.at(x)), round2(sy.at(y))]);
+                    let p = [round2(sx.at(x)), round2(sy.at(y))];
+                    let tip = format!("row {row}: {}, {}", text(x), text(y));
+                    if view.is_selected(*row) {
+                        sel.extend(p);
+                        sel_tips.push(tip.clone());
+                    }
+                    xy.extend(p);
+                    tips.push(tip);
                 }
             }
-            json!({"kind": "points", "r": if data.len() > 5000 { 1.0 } else { 2.0 }, "xy": xy})
+            json!({"kind": "points", "r": if data.len() > 5000 { 1.0 } else { 2.0 }, "xy": xy, "tips": tips})
         }
         Kind::Segments(_) => {
-            for r in &data {
+            for (row, r) in &data {
                 if let [a, b, c, d] = r[..] {
                     xy.extend([round2(sx.at(a)), round2(sy.at(b)), round2(sx.at(c)), round2(sy.at(d))]);
+                    tips.push(format!("row {row}: ({}, {}) to ({}, {})", text(a), text(b), text(c), text(d)));
+                    if view.is_selected(*row) {
+                        sel.extend([round2(sx.at(a)), round2(sy.at(b)), round2(sx.at(c)), round2(sy.at(d))]);
+                    }
                 }
             }
-            json!({"kind": "segments", "width": 1.0, "xy": xy})
+            json!({"kind": "segments", "width": 1.0, "xy": xy, "tips": tips})
         }
         Kind::Columns(..) => {
             // rects x, y, w, h: a bar a bin wide, from zero to the count
             let bw = (sx.at(x0 + bin) - sx.at(x0)).abs().max(0.5);
             let base = sy.at(0f64.max(y0));
-            for r in &data {
+            for (row, r) in &data {
                 if let [c, v] = r[..] {
                     let (top, x) = (sy.at(v), sx.at(c) - bw / 2.0);
-                    xy.extend([round2(x), round2(top.min(base)), round2(bw * 0.9), round2((base - top).abs())]);
+                    let rect = [round2(x), round2(top.min(base)), round2(bw * 0.9), round2((base - top).abs())];
+                    xy.extend(rect);
+                    tips.push(format!("{}: {}", text(c), text(v)));
+                    if view.is_selected(*row) {
+                        sel.extend(rect);
+                    }
                 }
             }
-            json!({"kind": "rects", "rects": xy})
+            json!({"kind": "rects", "rects": xy, "tips": tips})
         }
     };
     let tick = |s: &Scale, v: f64| json!({"at": round2(s.at(v)), "text": text(v)});
@@ -340,6 +457,14 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
         Kind::Columns(..) => "columns",
         Kind::Series => "line",
     };
+    let mut marks = vec![mark];
+    if view.selected.is_some() {
+        marks.push(match kind {
+            Kind::Segments(_) => json!({"kind": "segments", "width": 2.0, "color": SELECTED_COLOUR, "xy": sel, "selected": true}),
+            Kind::Columns(..) => json!({"kind": "rects", "color": SELECTED_COLOUR, "rects": sel, "selected": true}),
+            _ => json!({"kind": "points", "r": 3.0, "color": SELECTED_COLOUR, "xy": sel, "tips": sel_tips, "selected": true}),
+        });
+    }
     let drawn = data.len();
     let summary = format!(
         "{drawn} {what} of {total} rows; {xname} from {} to {}, {yname} from {} to {}",
@@ -353,7 +478,10 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
         "kind": what,
         "sameScale": same,
         "plot": [round2(plot.0), round2(plot.1), round2(plot.2), round2(plot.3)],
-        "marks": [mark],
+        "marks": marks,
+        "scale": scale_json(&sx, &sy),
+        "clip": true,
+        "selected": view.count(),
         "axes": [
             {"side": "bottom", "title": xname, "ticks": xt.iter().map(|v| tick(&sx, *v)).collect::<Vec<_>>()},
             {"side": "left", "title": yname, "ticks": yt.iter().map(|v| tick(&sy, *v)).collect::<Vec<_>>()},

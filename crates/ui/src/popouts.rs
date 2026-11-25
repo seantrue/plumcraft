@@ -63,6 +63,8 @@ impl EditorApp {
             w.pane.channel = Some(channel);
             w.pane.grid_col = Some(col);
             w.pane.chart = chart;
+            w.pane.chart_range = self.doc.session.views.popout(id).map(|o| o.state.chart_range).unwrap_or_default();
+            w.pane.selection = plumcraft_session::chart_view::port_of(&self.doc.session, id).and_then(|k| self.doc.session.views.selections.get(&k).cloned());
             if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
                 self.doc.rerun_pending = true;
             }

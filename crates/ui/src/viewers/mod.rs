@@ -63,6 +63,10 @@ pub struct ViewInput<'a> {
     /// A pop-out's chart spec, the core's (`viewer.chart`, kept in the graph's meta); `None`: the
     /// chart the core picks from the table's columns.
     pub chart: Option<&'a Value>,
+    /// A pop-out's chart range and its value's selection, the core's (`viewer.range`,
+    /// `viewer.select`, note 26 slice 8).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<&'a plumcraft_session::chart_view::Selection>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -270,6 +274,9 @@ pub struct Pane {
     pub grid_col: Option<u64>,
     /// A pop-out's chart spec, the core's ([`ViewInput::chart`]).
     pub chart: Option<Value>,
+    /// Its chart range and its value's selection ([`ViewInput::chart_range`]).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<plumcraft_session::chart_view::Selection>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -337,6 +344,8 @@ impl Pane {
             channel: self.channel,
             grid_col: self.grid_col,
             chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -405,6 +414,8 @@ impl Pane {
             channel: self.channel,
             grid_col: self.grid_col,
             chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -425,6 +436,8 @@ impl Pane {
             channel: self.channel,
             grid_col: self.grid_col,
             chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);

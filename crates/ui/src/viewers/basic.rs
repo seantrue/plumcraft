@@ -569,6 +569,8 @@ mod tests {
                 channel: None,
                 grid_col: None,
                 chart: None,
+                chart_range: Default::default(),
+                selection: None,
             }
         }
         let mut view = Yaml::default();

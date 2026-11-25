@@ -125,6 +125,8 @@ pub fn of(session: &Session) -> Windows {
             // its chart's choices (`viewer.chart`, kept in the graph's meta): a change made anywhere, an
             // undo included, is drawn again
             serde_json::to_string(&plumcraft_session::chart_cmds::spec_of(graph, &w.node, &w.port)).unwrap_or_default().hash(&mut h);
+            // and its value's selection (note 26 slice 8: every window of the value shows it)
+            session.views.selections.get(&format!("{}.{}", w.node, w.port)).hash(&mut h);
             Some(PopoutWindow {
                 id: o.id,
                 node: w.node.clone(),
@@ -258,7 +260,9 @@ pub fn compare_json(session: &Session, params: &Value) -> Result<Value, String> 
         plumcraft_session::viewer_cmds::CompareHow::Split => "split",
         plumcraft_session::viewer_cmds::CompareHow::Difference => "difference",
     };
-    Ok(json!({"on": c.on, "how": how, "split": c.split, "channel": c.channel, "a": side(WatchRole::PinA), "b": side(WatchRole::PinB)}))
+    Ok(
+        json!({"on": c.on, "how": how, "split": c.split, "channel": c.channel, "probe": c.probe.map(|(r, c)| [r, c]), "a": side(WatchRole::PinA), "b": side(WatchRole::PinB)}),
+    )
 }
 
 /// Which section of the inspector a row is in, egui's parameters panel's order.

@@ -52,5 +52,17 @@ extension GestureTests {
         XCTAssertTrue(app.descendants(matching: .any)["compare-difference-text"].waitForExistence(timeout: 10))
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
         shot("views-s2b-ui-difference")
+        // the probe (note 26 slice 8): a tap on the difference reads A, B and |A − B| there
+        let picture = app.descendants(matching: .any)["compare-difference-picture"].firstMatch
+        XCTAssertTrue(picture.waitForExistence(timeout: 10), "the difference picture")
+        picture.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        wait("the probe read by the core", timeout: 30) { _ in
+            ((self.compareFacts()["difference"] as? [String: Any])?["probe"] as? String)?.contains(" − ") == true
+        }
+        let probe = (compareFacts()["difference"] as? [String: Any])?["probe"] as? String ?? ""
+        // the middle of a 256 × 384 array, within a pixel or two (the picture's points round)
+        let at = probe.dropFirst().prefix { $0 != ")" }.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+        XCTAssertTrue(at.count == 2 && abs(at[0] - 128) <= 2 && abs(at[1] - 192) <= 2, "the middle of a 256 × 384 array: \(probe)")
+        shot("views-s8-ui-difference-probe")
     }
 }

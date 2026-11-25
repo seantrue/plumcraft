@@ -373,14 +373,18 @@ struct PageRow: Identifiable, Hashable {
     let cells: [String]
     /// Each cell's place from its range's low to high end, 0 to 1 (colour by value), or nil.
     var tints: [Double?] = []
+    /// The row is in its value's selection (note 26 slice 8).
+    var selected = false
 
     /// A page's rows, with their tints when the page has them (`viewer.data`'s `tints`).
     static func of(_ page: JSONValue) -> [PageRow] {
         let start = page["start"].uint64 ?? 0
         let tints = page["tints"].array ?? []
+        let selected = page["selected"].array ?? []
         return (page["cells"].array ?? []).enumerated().map { k, row in
             PageRow(id: Int(start) + k, cells: (row.array ?? []).map { $0.string ?? "" },
-                    tints: k < tints.count ? (tints[k].array ?? []).map { $0.double.map { min(max($0, 0), 1) } } : [])
+                    tints: k < tints.count ? (tints[k].array ?? []).map { $0.double.map { min(max($0, 0), 1) } } : [],
+                    selected: k < selected.count && selected[k].bool == true)
         }
     }
 
@@ -487,7 +491,7 @@ final class PageLoader {
             if r["status"].string == "ready" {
                 // what a script reads back: the rows and the first of them, the members open
                 var d: [String: JSONValue] = ["status": "ready"]
-                for k in ["rows", "cols", "page", "pages", "sort", "desc", "plane", "bytes", "totalChars", "kind"] where r[k] != .null { d[k] = r[k] }
+                for k in ["rows", "cols", "page", "pages", "sort", "desc", "plane", "bytes", "totalChars", "kind", "selected", "selectedRows"] where r[k] != .null && r[k].array == nil { d[k] = r[k] }
                 if let first = r["cells"][0].array { d["first"] = .array(Array(first.prefix(6))) }
                 if let n = r["nodes"].object { d["open"] = .uint(UInt64(n.count)) }
                 box.describe[part] = .object(d)
@@ -502,7 +506,7 @@ struct TableViewer: SwiftUI.View {
 
     var body: some SwiftUI.View {
         let st = box.state("table")
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": st, "r": .int(Int64(box.reload))]
+        let key: JSONValue = ["stamp": .uint(box.stamp), "st": st, "r": .int(Int64(box.reload))]
         VStack(spacing: 0) {
             if let e = loader.error {
                 ViewerMessage(text: "This table can't be shown: \(e)")
@@ -511,6 +515,24 @@ struct TableViewer: SwiftUI.View {
                 let start = page["start"].uint64 ?? 0
                 let rows = PageRow.of(page)
                 CellOptions(box: box, command: "viewer.table", state: st)
+                if let n = page["selectedRows"].uint64 {
+                    // the value's selection (note 26 slice 8, decision 7A): its rows marked, or only they
+                    HStack(spacing: 10) {
+                        Text("\(n) of \(page["allRows"].uint64 ?? 0) rows selected").font(.caption.monospacedDigit()).foregroundStyle(.orange)
+                        Toggle("Selected Only", isOn: Binding(get: { st["selectedOnly"].bool == true }, set: { v in
+                            let p = box.popout
+                            Task { await p.command("viewer.table", ["selectedOnly": .bool(v)]) }
+                        }))
+                        .toggleStyle(.button).controlSize(.small).font(.caption).accessibilityIdentifier("table-selected-only")
+                        Button("Clear Selection") {
+                            let p = box.popout
+                            Task { await p.command("viewer.select", ["clear": true]) }
+                        }
+                        .buttonStyle(.borderless).font(.caption)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 2)
+                }
                 let sort = Binding<[CoreSort]>(
                     get: { st["sort"].uint64.map { [CoreSort(column: Int($0), order: st["desc"].bool == true ? .reverse : .forward)] } ?? [] },
                     set: { new in
@@ -529,6 +551,7 @@ struct TableViewer: SwiftUI.View {
                                 .font(c.numeric ? .body.monospacedDigit() : .body)
                                 .frame(maxWidth: .infinity, alignment: c.numeric ? .trailing : .leading)
                                 .modifier(CellTint(t: r.tint(c.id)))
+                                .background(r.selected ? Color.orange.opacity(0.2) : .clear)
                                 .textSelection(.enabled)
                         }
                     }
@@ -634,7 +657,7 @@ struct PageGrid: SwiftUI.View {
                                     .lineLimit(1)
                                     .frame(width: w[i] - 16, alignment: c.numeric ? .trailing : .leading)
                                     .padding(.horizontal, 8)
-                                    .modifier(CellTint(t: r.tint(c.id)))
+                                    .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear)
                                     .textSelection(.enabled)
                             }
                         }
@@ -694,7 +717,7 @@ struct PageGrid: SwiftUI.View {
                             Text(c.name).font(.callout).foregroundStyle(.secondary)
                             Spacer(minLength: 12)
                             Text(cell(r, c)).font(c.numeric ? .body.monospacedDigit() : .body).multilineTextAlignment(.trailing)
-                                .modifier(CellTint(t: r.tint(c.id))).textSelection(.enabled)
+                                .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear).textSelection(.enabled)
                         }
                     }
                 }
@@ -713,7 +736,7 @@ struct GridViewer: SwiftUI.View {
 
     var body: some SwiftUI.View {
         let st = box.state("grid")
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": st]
+        let key: JSONValue = ["stamp": .uint(box.stamp), "st": st]
         VStack(spacing: 0) {
             if let e = loader.error {
                 ViewerMessage(text: "These numbers can't be shown: \(e)")
@@ -767,7 +790,7 @@ struct GridViewer: SwiftUI.View {
                     TableColumnForEach(cols) { c in
                         TableColumn(c.name) { (r: PageRow) in
                             Text(c.id < r.cells.count ? r.cells[c.id] : "").font(.body.monospacedDigit()).frame(maxWidth: .infinity, alignment: .trailing)
-                                .modifier(CellTint(t: r.tint(c.id)))
+                                .modifier(CellTint(t: r.tint(c.id))).background(r.selected ? Color.orange.opacity(0.2) : .clear)
                         }
                         .width(min: 56, ideal: 84)
                     }
@@ -798,7 +821,7 @@ struct OutlineViewer: SwiftUI.View {
 
     var body: some SwiftUI.View {
         let st = box.state("tree")
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": st]
+        let key: JSONValue = ["stamp": .uint(box.stamp), "st": st]
         VStack(spacing: 0) {
             if let e = loader.error {
                 ViewerMessage(text: "This value can't be outlined: \(e)")
@@ -907,7 +930,7 @@ struct HexViewer: SwiftUI.View {
     @State private var loader = PageLoader()
 
     var body: some SwiftUI.View {
-        let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "st": box.state("hex")]
+        let key: JSONValue = ["stamp": .uint(box.stamp), "st": box.state("hex")]
         VStack(spacing: 0) {
             if let e = loader.error {
                 ViewerMessage(text: "These bytes can't be read: \(e)")
