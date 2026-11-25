@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Nested lists, slice 7: the SDKs agree with the research software's executors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Track 2 overnight "through to slice 6". Slice 7 is the controller's addition, without the maintainer: slice 6 had left the research software's executors with a rule the public SDKs lacked, so one graph could give different results in them.
+
+**What the AI did.** The agent put the regrouping rule into both SDKs and the spec as an assumption, built a vector of the report's wiring from public blocks, corrected note 27's walk-through, and ran the 13 vectors in all four executors. It found the SDKs already map lists in variadic slots, and listed the seven public types that gained fields across the slices.
+
+**Verification.** The agent's runs: the whole workspace on the Mac (1,727 of 1,728, the known failure), Python 254, the vectors in each executor (13, 11, 11 and 11, agreeing). The full suite ran on the Linux test host. Nothing was launched in this slice.
+
+**Defects.** The first gate run failed six Python store tests with the disk at 9 GB; they passed with more room, which the agent took as a disk effect without proving it. Note 27's walk-through, written by the same agent, had the mask step wrong; only running the real graph showed it.
+
 ### 2026-11-25 — Nested lists, slices 5 and 6: the shells step runs and items; the report's graph gives five results (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** As the entry below: track 2 overnight "through to slice 6", on reasonable assumptions.
