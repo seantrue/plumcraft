@@ -60,6 +60,13 @@ pub struct ViewInput<'a> {
     /// A pop-out's first grid column shown, the core's (`viewer.grid {col, cols}`, decision 26);
     /// `None` where there is no pop-out (every column scrolls).
     pub grid_col: Option<u64>,
+    /// A pop-out's chart spec, the core's (`viewer.chart`, kept in the graph's meta); `None`: the
+    /// chart the core picks from the table's columns.
+    pub chart: Option<&'a Value>,
+    /// A pop-out's chart range and its value's selection, the core's (`viewer.range`,
+    /// `viewer.select`, note 26 slice 8).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<&'a plumcraft_session::chart_view::Selection>,
 }
 
 /// A viewer of one value (see the module docs).
@@ -148,7 +155,14 @@ fn builtin() -> Vec<ViewerKind> {
             make: || Box::new(wrap::Picture::default()),
             panel_builtin: true,
         },
-        ViewerKind { id: "svg", label: "SVG", accepts: |d| media_is(d, &[Media::Vector]), make: || Box::new(wrap::Svg::default()), panel_builtin: true },
+        // SVG, or a TEXT that is an SVG document (note 26 slice 4: a picture first, its source next)
+        ViewerKind {
+            id: "svg",
+            label: "SVG",
+            accepts: |d| media_is(d, &[Media::Vector]) || (d.media == Media::Text && plumcraft_editor_core::viewers::is_svg_text(d)),
+            make: || Box::new(wrap::Svg::default()),
+            panel_builtin: true,
+        },
         ViewerKind { id: "pdf.pages", label: "Pages", accepts: is_pdf, make: || Box::new(pdf::Pages::default()), panel_builtin: false },
         // an STL file is a mesh to turn and zoom; its bytes stay a tab away (#38)
         ViewerKind { id: "mesh", label: "Mesh", accepts: mesh::accepts, make: || Box::new(mesh::MeshView::default()), panel_builtin: false },
@@ -174,16 +188,22 @@ fn builtin() -> Vec<ViewerKind> {
             id: "table.grid",
             label: "Table",
             // a table, or rows (a list of lists: Table to Rows', a spreadsheet's Read range)
-            accepts: |d| media_is(d, &[Media::Table]) || d.value.as_ref().is_some_and(basic::is_rows),
+            // a value typed text/csv too (note 26 slice 4: a table first, its text next)
+            accepts: |d| {
+                let csv = plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table;
+                (media_is(d, &[Media::Table]) || csv || d.value.as_ref().is_some_and(basic::is_rows)) && !(d.media == Media::Ndarray && plot::table_array(d))
+            },
             make: || Box::new(basic::Table::default()),
             panel_builtin: false,
         },
+        // a table's chart, its kind and columns the core's (`viewer.chart`)
+        ViewerKind { id: "table.chart", label: "Chart", accepts: plot::accepts_table, make: || Box::new(plot::TableChart::default()), panel_builtin: false },
         // XML text reads as an outline first; its text stays a tab away (B4)
         ViewerKind { id: "xml", label: "XML", accepts: xml::accepts, make: || Box::new(xml::Xml::default()), panel_builtin: false },
         ViewerKind {
             id: "text.plain",
             label: "Text",
-            accepts: |d| media_is(d, &[Media::Text]),
+            accepts: |d| media_is(d, &[Media::Text]) || (plumcraft_editor_core::viewers::is_csv(d) && d.media != Media::Table),
             make: || Box::new(basic::Text::default()),
             panel_builtin: true,
         },
@@ -252,6 +272,11 @@ pub struct Pane {
     pub channel: Option<plumcraft_session::viewer_state::Channel>,
     /// A pop-out's first grid column, the core's ([`ViewInput::grid_col`]).
     pub grid_col: Option<u64>,
+    /// A pop-out's chart spec, the core's ([`ViewInput::chart`]).
+    pub chart: Option<Value>,
+    /// Its chart range and its value's selection ([`ViewInput::chart_range`]).
+    pub chart_range: plumcraft_session::chart_view::ChartRange,
+    pub selection: Option<plumcraft_session::chart_view::Selection>,
     /// What the session last gave its viewers.
     tools: Tools,
 }
@@ -318,6 +343,9 @@ impl Pane {
             tools: self.tools,
             channel: self.channel,
             grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.sync(ctx, &input);
@@ -385,6 +413,9 @@ impl Pane {
             tools: self.tools,
             channel: self.channel,
             grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         self.viewers.get_mut(i).map(|(_, v)| v.full(ui, &input, tokens)).unwrap_or_default()
     }
@@ -404,6 +435,9 @@ impl Pane {
             tools: self.tools,
             channel: self.channel,
             grid_col: self.grid_col,
+            chart: self.chart.as_ref(),
+            chart_range: self.chart_range,
+            selection: self.selection.as_ref(),
         };
         if let Some((_, v)) = self.viewers.get_mut(i) {
             v.preview(ui, &input, max, tokens);
@@ -477,7 +511,7 @@ mod tests {
                     if full {
                         d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
                     }
-                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| !matches!(*id, "mesh" | "array.plot")).collect();
+                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| *id != "mesh").collect();
                     let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d)
                         .into_iter()
                         .map(|(id, _)| id)
@@ -486,6 +520,19 @@ mod tests {
                     assert_eq!(ours, core, "{media:?} full {full} {:?}", d.value);
                 }
             }
+        }
+        // the interchange formats (note 26 slice 4): a value typed text/csv, a TEXT that is SVG
+        let mut csv = Display::default();
+        csv.media = Media::Bytes;
+        let mut r = DataRef::default();
+        r.meta.media = "text/csv".into();
+        csv.full = Some(r);
+        let mut svg = Display::default();
+        (svg.media, svg.value) = (Media::Text, Some(serde_json::json!("<svg xmlns=\"http://www.w3.org/2000/svg\"/>")));
+        for d in [csv, svg] {
+            let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).collect();
+            let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d).into_iter().map(|(id, _)| id).collect();
+            assert_eq!(ours, core, "{:?}", d.full.as_ref().map(|f| &f.meta.media));
         }
     }
 }

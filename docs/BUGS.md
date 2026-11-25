@@ -40,12 +40,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: opening a style graph of the research software in an application built on the Mac shell shows "the graph has 13 problem(s)… unknown kind …" for nodes of the array engine. The array engine is then added automatically and those nodes run, but the banner stays, out of date.
 - Issue: none
 
-### B161. iPhone: the pop-out's bar overflows since the View menu was added
-
-- Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
-- Report: the View menu added by B154 slice 1 makes the iPhone's compact viewer bar too wide: the Pictures picker is cut at the left and the icons at the right. Seen in an iPhone simulator picture taken while checking B159.
-- Issue: none
-
 ### B157. `bytes_held_elsewhere_are_shared_not_read_again` failed once on the Linux test host
 
 - Reported: 2026-11-24 (found by the controller in a gate run, not by the maintainer)
@@ -62,6 +56,11 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Direction (the maintainer, 2026-11-24): asked whether to survey first and how columns should be chosen, they answered: "B154: Start this as a parallel research task. Survey first. Look at seaborn. Histograms. Line charts, stacked line charts, column charts, stacked column charts,  treemaps. Interactive is good (selecting columns, rows, etc; for interrogating data, zooming into ranges)". The research is a note in `docs/research/`; nothing is built until it is read.
 - Research: `docs/research/26-data-views.md` (2026-11-24): 11 of egui's 17 array and table views are missing on every native shell; the gap is in the core.
 - Decisions (the maintainer, 2026-11-24): given the note's seven decisions with a recommendation for each, they answered: "Yes to all". So: (1) the core lays each chart out and each shell paints it; (2) the regressions first, then the named chart kinds, then interaction; (3) a chart's choices are saved with the graph, undoable; (4) egui paints the same chart list and its own plot is retired; (5) Win2D on Windows; (6) the note's ranking of the optional kinds; (7) a selection belongs to the value, shared by its table and chart windows.
+- Slice 2 of note 26 (2026-11-24, branch `pr/views-s2`; Mac, iPad, iPhone, egui's numbers through the core; not Windows): an array's several pictures share one zoom and view; Colour by Value and a number format on the grid, and colour on a table (`viewer.grid {colored, format}`, `viewer.table {colored}`). Compare's difference is not in it yet. Note 26 gains a capability table (section 11) and revised slices with tables as tables and the interchange formats (section 12), on eight assumptions made while the maintainer was away.
+- Slices 2b, 4, 3 and 5 of note 26 (2026-11-24, overnight, branch `pr/views-s2b-5`): Compare's exact difference, made by the core and drawn by the Apple shells; a value typed `text/csv` shown as a table (one shared CSV reader, in the hostile-input sweep) and SVG text shown as a picture; column widths by dragging on the iPad, cell copy on Windows (built there, not launched); the plot laid out by the core as a display list (`chart.rs`) and painted by the Apple shells and by egui, whose own plot is retired. Launched on a scripted Mac copy and iPad simulators. Not done: Windows painters, egui's CSV and SVG-text views, SVG text longer than the excerpt.
+- Slices 6 and 7 of note 26 (2026-11-25, overnight, branch `pr/views-s6`): a 1-D array shows as a line by index, reduced to the plot's width without losing a spike; a table's chart in the six kinds the maintainer named (histogram, line, stacked line, column, stacked column, treemap), chosen by `viewer.chart`, kept in the graph's `meta.charts` and undoable, laid out by the core and painted by the Apple shells, egui and Windows (Windows built, not launched). egui offers the CSV and SVG-text views; SVG text longer than its excerpt is drawn (both SDKs send the whole text). Hover and face previews are deferred.
+- Slice 8 of note 26 (2026-11-25, overnight, branch `pr/views-s8`): time axes, shares of a stack (`normalize`), a chart's zoom and pan (`viewer.range`), a selection that belongs to the value so a table window and a chart window share it (`viewer.select`, `view.popout {another: true}`, the table's Selected Only), a readout of what is under a point, and a probe on Compare's difference. Apple shells and egui; Windows built, not launched. Open: hover and face previews wait on a decision (where the picture is made); the table follows a selection that arrives and marks whole rows (follow-up, same branch); on the Mac, after that scroll, the row above shows through the column header; egui's table shows no selection.
+- Decided (2026-11-25): The maintainer, 2026-11-25, on the checklist page of 29 points (cards 1 to 15 are N1 to N15 here, 16 and 17 the release and merge points R1 and R2, 18 to 29 are V1 to V12 of note 26): "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15A; 16A; 17A; 18A; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29B". The views points (18 to 28) stand as built; 29B: a long TEXT is not sent whole by the engine, the editor asks the engine for the rest (to build). Then, the same day: "Stop. Take the long text". So item 12 stands as built too (29A): the engine sends the whole of a long TEXT. Nothing to build.
 - Issue: none
 
 ### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
@@ -344,6 +343,13 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B161. iPhone: the pop-out's bar overflows since the View menu was added
+
+- Reported: 2026-11-24 (found by an agent in its own earlier work, not by the maintainer)
+- Report: the View menu added by B154 slice 1 makes the iPhone's compact viewer bar too wide: the Pictures picker is cut at the left and the icons at the right. Seen in an iPhone simulator picture taken while checking B159.
+- Issue: none
+- Fixed: 2026-11-24, branch `pr/views-s2`: the viewer bar takes the widest of three arrangements that fits (one row, two, or three); on the iPhone it is two rows, all inside the window. UI test `testTheViewerBarFitsANarrowWindow`, passed on an iPhone simulator. Not on a device.
 
 ### B166. Mac: Open Recent never lists recent graphs
 

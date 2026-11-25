@@ -43,7 +43,7 @@ impl Cell {
         }
     }
 
-    fn num(&self) -> Option<f64> {
+    pub fn num(&self) -> Option<f64> {
         match self {
             Cell::Int(i) => Some(*i as f64),
             Cell::Num(f) => Some(*f),
@@ -135,6 +135,17 @@ impl Table {
     }
 
     /// The core type's columnar JSON, or rows (a list of lists), from bytes.
+    /// A CSV's bytes (UTF-8, at most [`MAX_TABLE_BYTES`]) as a table, read by the reader the
+    /// text engine uses (`plumcraft_proto::csv`, note 26 slice 4).
+    pub fn from_csv(bytes: &[u8]) -> Result<Table, String> {
+        if bytes.len() > MAX_TABLE_BYTES {
+            return Err(format!("{} MiB is more than a table viewer reads ({} MiB)", bytes.len() >> 20, MAX_TABLE_BYTES >> 20));
+        }
+        let text = std::str::from_utf8(bytes).map_err(|e| format!("not a CSV: not UTF-8 text ({e})"))?;
+        let v = plumcraft_proto::csv::read_csv(text)?;
+        Table::from_value(&v)
+    }
+
     pub fn from_bytes(bytes: &[u8]) -> Result<Table, String> {
         if bytes.len() > MAX_TABLE_BYTES {
             return Err(format!("{} MiB is more than a table viewer reads ({} MiB)", bytes.len() >> 20, MAX_TABLE_BYTES >> 20));

@@ -15,6 +15,8 @@
 
 pub mod archive;
 pub mod bundle_cmds;
+pub mod chart_cmds;
+pub mod chart_view;
 pub mod commands;
 pub mod convert;
 pub mod curve_cmds;

@@ -18,6 +18,7 @@
 pub mod caps;
 pub mod catalogue;
 pub mod convert;
+pub mod csv;
 pub mod curves;
 pub mod data;
 pub mod de;
@@ -40,6 +41,7 @@ pub mod run;
 pub mod schema;
 pub mod session;
 pub mod slice;
+pub mod time;
 
 pub use caps::Caps;
 pub use data::{BlobMeta, DataRef, Form, Locator, PortValue};

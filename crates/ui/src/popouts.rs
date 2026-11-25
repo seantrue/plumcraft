@@ -46,6 +46,10 @@ impl EditorApp {
                 None => continue,
             };
             let offered = plumcraft_session::run_cmds::offered_views_for(&self.doc.session, role);
+            let chart = match self.doc.session.run.entry(role) {
+                Some((w, _)) => plumcraft_session::chart_cmds::spec_of(self.doc.session.graph(), &w.node, &w.port),
+                None => None,
+            };
             let w = match self.popouts.iter_mut().position(|w| w.id == id) {
                 Some(i) => &mut self.popouts[i],
                 None => {
@@ -58,6 +62,9 @@ impl EditorApp {
             w.pane.chosen = viewer;
             w.pane.channel = Some(channel);
             w.pane.grid_col = Some(col);
+            w.pane.chart = chart;
+            w.pane.chart_range = self.doc.session.views.popout(id).map(|o| o.state.chart_range).unwrap_or_default();
+            w.pane.selection = plumcraft_session::chart_view::port_of(&self.doc.session, id).and_then(|k| self.doc.session.views.selections.get(&k).cloned());
             if w.pane.sync(ctx, display.as_ref(), offered, &mut self.thumbs, &source, tools) {
                 self.doc.rerun_pending = true;
             }

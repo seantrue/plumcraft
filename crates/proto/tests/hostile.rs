@@ -108,6 +108,14 @@ fn all_parsers(text: &str) {
     }
     let _ = plumcraft_proto::curves::parse(text);
     let _ = plumcraft_proto::expansion::StoredExpansion::parse(text.as_bytes());
+    // a CSV a viewer reads as a table (note 26 slice 4)
+    let _ = plumcraft_proto::csv::read_csv(text);
+    // note 26 slice 8: dates and times on a chart's axis
+    let _ = plumcraft_proto::time::parse_iso(text);
+    if let Some(t) = plumcraft_proto::time::parse_iso(text) {
+        let _ = plumcraft_proto::time::ticks(t, t + 1e9, 600.0, 80.0);
+        let _ = plumcraft_proto::time::text(t);
+    }
 }
 
 #[test]
@@ -286,4 +294,36 @@ fn stl_files_never_panic() {
     }
     let _ = read_stl(b"solid\nfacet vertex vertex vertex vertex 1 2 3 endfacet endfacet");
     let _ = read_stl("solid ☃\nfacet\u{0}vertex 1e40 -0 nan endfacet".as_bytes());
+}
+
+/// Note 26 slice 4: CSV text is hostile input. Every truncation and every flipped byte of a CSV
+/// with quotes, separators and line ends reads or is refused, never a panic; a table read has
+/// columns of one length; the row and field limits hold without reading past them.
+#[test]
+fn csv_text_never_panics() {
+    use plumcraft_proto::csv::{MAX_COLUMNS, MAX_ROWS, read_csv};
+    let seed = "name,n,x,ok,note\r\nada,1,1.5,true,\"a, b\"\nbob,-2,2e3,false,\"say \"\"hi\"\"\"\n\n,3,,TRUE,\"two\nlines\"\n";
+    assert!(read_csv(seed).is_ok(), "the seed is valid");
+    let check = |t: &str| {
+        if let Ok(v) = read_csv(t) {
+            let cols = v["columns"].as_array().cloned().unwrap_or_default();
+            let n = cols.first().and_then(|c| c["values"].as_array()).map_or(0, Vec::len);
+            assert!(cols.iter().all(|c| c["values"].as_array().is_some_and(|x| x.len() == n)), "{t:?}");
+        }
+    };
+    let chars: Vec<char> = seed.chars().collect();
+    for at in 0..chars.len() {
+        check(&chars[..at].iter().collect::<String>());
+        for c in ['"', ',', ';', '\t', '\r', '\n', 'x', '\u{0}', '\u{feff}'] {
+            let mut bad = chars.clone();
+            bad[at] = c;
+            check(&bad.iter().collect::<String>());
+        }
+    }
+    for junk in ["", "\"", "\"\"\"", ",,,,", "\n\n\n", "a\n\"", "a;b\tc\n1;2\t3"] {
+        check(junk);
+    }
+    // too many fields in a row, and too many rows: refused, not read on
+    assert!(read_csv(&format!("{}\n", "a,".repeat(MAX_COLUMNS + 1))).is_err());
+    assert!(read_csv(&"a\n".repeat(MAX_ROWS + 2)).is_err());
 }

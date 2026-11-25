@@ -3051,6 +3051,7 @@ dependencies = [
 name = "plumcraft-editor-core"
 version = "0.7.0"
 dependencies = [
+ "base64 0.22.1",
  "commonkit",
  "plumcraft-array",
  "plumcraft-coordinator",

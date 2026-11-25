@@ -714,6 +714,7 @@ Lists are orthogonal: any kind can arrive as a list; the viewer host gives every
 ```
 
 - `full` is the value's DataRef: the probe, |A−B|, tables, playback and 1:1 zoom read it lazily (F52–F54, F74).
+- A TEXT whose `excerpt` doesn't hold all of it (past 4096 characters) SHOULD carry `full` as well, inline when it is small enough to send so: an editor draws a TEXT that is an SVG document as a picture, and needs the whole of it (note 26 slice 6; the Rust SDK since 2026-11-24). Without it the editor shows the text only.
 - A viewer reads numbers from `full`, never from a rendition. When `full` can't be read where the UI is, it says so; it doesn't guess from 8-bit pixels. A reader MAY map a same-host array too large to read rather than copy it; it then checks the file's shape and size against the DataRef, since checking the handle would read the whole of it.
 - `renditions` (≤ 4 views for arrays, as `MAX_PREVIEWS`) are drawn directly. Every engine MAY fall back to one `rgba8` rendition for any kind, which gets zoom, sheet and pixel compare for free.
 - `stats` carries histograms inline, as today (F50). `value` carries a scalar.

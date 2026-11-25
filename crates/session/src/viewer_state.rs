@@ -17,6 +17,10 @@
 //!   multiple of it: `col` names a column to show, `cols` steps `next`, `prev`, `first` or `last`;
 //!   decision 26, N4 person gate: which columns are shown is the core's, not each shell's).
 //! - `viewer.hex {popout, page?}`: the page of a value's bytes shown.
+//! - `viewer.grid {…, colored?, format?}` and `viewer.table {…, colored?}` (note 26 slice 2): each
+//!   cell tinted by its value from the plane's (a column's) minimum to its maximum, and an array
+//!   grid's numbers in a printf format (`%.4g`, `%.3f`, `%.6f`, `%.3e`, `%d`; `%.Nf`, `%.Ne`,
+//!   `%.Ng` up to 17 decimals), as the egui editor's grid and table have them.
 //! - `viewer.array {popout, log?}`: an array's channel histograms on a log scale or not (B154
 //!   slice 1; `popout.get`'s `stats[].histogram.heights` follow it).
 //!
@@ -37,6 +41,19 @@ use crate::{Result, Session, SessionError};
 pub const TABLE_PAGE: u64 = 500;
 /// Columns of an array's grid shown at once: the window `viewer.grid {col, cols}` moves.
 pub const GRID_COLUMNS: u64 = 64;
+/// The number formats a grid offers (any `%.Nf`, `%.Ne`, `%.Ng` up to 17, or `%d`, is taken).
+pub const GRID_FORMATS: &[&str] = &["%.4g", "%.3f", "%.6f", "%.3e", "%d"];
+
+/// A printf number format a grid takes: `%d`, or `%.N` and `f`, `e` or `g` with N at most 17.
+pub fn grid_format(f: &str) -> bool {
+    if f == "%d" {
+        return true;
+    }
+    let Some(rest) = f.strip_prefix("%.") else { return false };
+    let (n, kind) = rest.split_at(rest.len().saturating_sub(1));
+    matches!(kind, "f" | "e" | "g") && !n.is_empty() && n.len() <= 2 && n.parse::<u8>().is_ok_and(|n| n <= 17)
+}
+
 /// Bytes of a hex view on one page.
 pub const HEX_PAGE: u64 = 4096;
 /// The most outline members kept open.
@@ -103,6 +120,16 @@ pub struct ViewerState {
     pub seq: u64,
     /// An array's channel histograms on a log scale (`viewer.array {log}`).
     pub log: bool,
+    /// An array grid's cells tinted by value (`viewer.grid {colored}`).
+    pub grid_colored: bool,
+    /// An array grid's number format (`viewer.grid {format}`); none: the core's number text.
+    pub grid_format: Option<String>,
+    /// A table's numeric cells tinted by value (`viewer.table {colored}`).
+    pub table_colored: bool,
+    /// A table shows only its value's selected rows (`viewer.table {selectedOnly}`, note 26 slice 8).
+    pub table_selected_only: bool,
+    /// The part of a chart shown (`viewer.range`, note 26 slice 8).
+    pub chart_range: crate::chart_view::ChartRange,
 }
 
 impl Default for ViewerState {
@@ -124,6 +151,11 @@ impl Default for ViewerState {
             hex_page: 0,
             seq: 0,
             log: false,
+            grid_colored: false,
+            grid_format: None,
+            table_colored: false,
+            table_selected_only: false,
+            chart_range: crate::chart_view::ChartRange::default(),
         }
     }
 }
@@ -132,11 +164,13 @@ impl ViewerState {
     /// As `popout.get` reports it.
     pub fn json(&self) -> Value {
         json!({
-            "table": {"sort": self.sort, "desc": self.desc, "page": self.page, "pageRows": TABLE_PAGE},
+            "table": {"sort": self.sort, "desc": self.desc, "page": self.page, "pageRows": TABLE_PAGE, "colored": self.table_colored, "selectedOnly": self.table_selected_only},
+            "chart": {"range": self.chart_range},
             "tree": {"expanded": self.expanded},
             "audio": {"playing": self.playing, "at": self.at_ms as f64 / 1000.0, "loop": self.looped, "level": f64::from(self.level) / 100.0, "seq": self.seq},
             "picture": {"channel": self.channel},
-            "grid": {"plane": self.plane, "page": self.page, "pageRows": TABLE_PAGE, "col": self.col, "colsShown": GRID_COLUMNS},
+            "grid": {"plane": self.plane, "page": self.page, "pageRows": TABLE_PAGE, "col": self.col, "colsShown": GRID_COLUMNS,
+                     "colored": self.grid_colored, "format": self.grid_format, "formats": GRID_FORMATS},
             "hex": {"page": self.hex_page, "pageBytes": HEX_PAGE},
             "array": {"log": self.log},
         })
@@ -181,7 +215,9 @@ fn pointer(p: &Value, k: &str) -> Result<Option<String>> {
 }
 
 fn table(s: &mut Session, p: &Value) -> Result<Value> {
-    only(p, "viewer.table", &["sort", "desc", "page"])?;
+    only(p, "viewer.table", &["sort", "desc", "page", "colored", "selectedOnly"])?;
+    let colored = flag(p, "colored")?;
+    let selected_only = flag(p, "selectedOnly")?;
     let sort = match p.get("sort") {
         None => None,
         Some(Value::Null) => Some(None),
@@ -207,7 +243,16 @@ fn table(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(n) = page {
         st.page = n;
     }
-    Ok(json!({"popout": id, "sort": st.sort, "desc": st.desc, "page": st.page}))
+    if let Some(c) = colored {
+        st.table_colored = c;
+    }
+    if let Some(o) = selected_only {
+        if o != st.table_selected_only {
+            st.page = 0;
+        }
+        st.table_selected_only = o;
+    }
+    Ok(json!({"popout": id, "sort": st.sort, "desc": st.desc, "page": st.page, "colored": st.table_colored, "selectedOnly": st.table_selected_only}))
 }
 
 fn tree(s: &mut Session, p: &Value) -> Result<Value> {
@@ -284,7 +329,14 @@ fn picture(s: &mut Session, p: &Value) -> Result<Value> {
 }
 
 fn grid(s: &mut Session, p: &Value) -> Result<Value> {
-    only(p, "viewer.grid", &["plane", "page", "col", "cols"])?;
+    only(p, "viewer.grid", &["plane", "page", "col", "cols", "colored", "format"])?;
+    let colored = flag(p, "colored")?;
+    let format = match p.get("format") {
+        None => None,
+        Some(Value::Null) => Some(None),
+        Some(Value::String(f)) if grid_format(f.trim()) => Some(Some(f.trim().to_owned())),
+        Some(_) => return Err(SessionError::Params("\"format\" is %d, or %.N with f, e or g (N at most 17), or null for the core's numbers".into())),
+    };
     let plane = whole(p, "plane", u64::from(u32::MAX))?;
     let page = whole(p, "page", u64::from(u32::MAX))?;
     let col = whole(p, "col", u64::from(u32::MAX))?;
@@ -317,7 +369,13 @@ fn grid(s: &mut Session, p: &Value) -> Result<Value> {
         _ => {}
     }
     st.col = last.map_or(c, |l| c.min(l));
-    Ok(json!({"popout": id, "plane": st.plane, "page": st.page, "col": st.col}))
+    if let Some(c) = colored {
+        st.grid_colored = c;
+    }
+    if let Some(f) = format {
+        st.grid_format = f;
+    }
+    Ok(json!({"popout": id, "plane": st.plane, "page": st.page, "col": st.col, "colored": st.grid_colored, "format": st.grid_format}))
 }
 
 /// The first column of the last window of an array `cols` wide.
@@ -365,7 +423,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         spec(
             "viewer.table",
             "Sort Table",
-            "{popout, sort?: column index | null, desc?: bool, page?} -> {popout, sort, desc, page}: a pop-out's table sorted by a column (null: as it came), largest first or not, and the page of 500 rows shown (a new sort shows the first page); viewer.data {part: \"table\"} reads the rows",
+            "{popout, sort?: column index | null, desc?: bool, page?} -> {popout, sort, desc, page}: a pop-out's table sorted by a column (null: as it came), largest first or not, and the page of 500 rows shown (a new sort shows the first page); colored: numeric cells tinted by value (viewer.data's tints); viewer.data {part: \"table\"} reads the rows",
             table as fn(&mut Session, &Value) -> Result<Value>,
         ),
         spec(
@@ -389,7 +447,7 @@ pub(crate) fn specs() -> Vec<CommandSpec> {
         spec(
             "viewer.grid",
             "Grid Plane",
-            "{popout, plane?, page?, col?, cols?: \"next\" | \"prev\" | \"first\" | \"last\"} -> {popout, plane, page, col}: the plane of a 3-D or deeper array a pop-out's grid shows, its page of 500 rows, and its window of 64 columns (col: a column to show, from the multiple of 64 at or below it; cols: a step; never past the last window); viewer.data {part: \"grid\"} reads them",
+            "{popout, plane?, page?, col?, cols?: \"next\" | \"prev\" | \"first\" | \"last\"} -> {popout, plane, page, col}: the plane of a 3-D or deeper array a pop-out's grid shows, its page of 500 rows, and its window of 64 columns (col: a column to show, from the multiple of 64 at or below it; cols: a step; never past the last window); colored: cells tinted by value; format: a printf number format (%.4g, %.3f, %.6f, %.3e, %d, or null for the core's); viewer.data {part: \"grid\"} reads them",
             grid,
         ),
         spec(
@@ -494,6 +552,35 @@ mod tests {
             assert!(array(&mut s, &bad).is_err(), "{bad}");
         }
         assert_eq!(s.views.popouts[0].state.json()["array"]["log"], true, "a refusal changes nothing");
+    }
+
+    /// Note 26 slice 2: colour by value and the number format are the core's state, refused when
+    /// they aren't a flag or a printf format the grid takes.
+    #[test]
+    fn colour_and_format_are_commands() {
+        let mut s = Session::new(plumcraft_proto::catalogue::SchemaReply::default());
+        s.views.popouts.push(crate::view_cmds::Popout {
+            id: 5,
+            viewer: Some("array.grid".into()),
+            tools: Default::default(),
+            raised: 0,
+            text: Default::default(),
+            fit: None,
+            state: ViewerState::default(),
+            zoom_seq: 0,
+            zoom_asked: None,
+        });
+        assert_eq!(grid(&mut s, &json!({"popout": 5, "colored": true, "format": "%.3f"})).unwrap()["format"], "%.3f");
+        assert_eq!(table(&mut s, &json!({"popout": 5, "colored": true})).unwrap()["colored"], true);
+        let st = s.views.popouts[0].state.json();
+        assert_eq!((st["grid"]["colored"].as_bool(), st["grid"]["format"].as_str(), st["table"]["colored"].as_bool()), (Some(true), Some("%.3f"), Some(true)));
+        assert_eq!(grid(&mut s, &json!({"popout": 5, "format": null})).unwrap()["format"], Value::Null, "null: the core's numbers");
+        for bad in ["%s", "%.99f", "%.3x", "%", "%.f", "3f", "%.-1f", "%.3f;rm"] {
+            assert!(grid(&mut s, &json!({"popout": 5, "format": bad})).is_err(), "{bad}");
+        }
+        assert!(grid(&mut s, &json!({"popout": 5, "colored": "yes"})).is_err());
+        assert!(table(&mut s, &json!({"popout": 5, "colored": 1})).is_err());
+        assert!(grid_format("%d") && grid_format("%.17g") && !grid_format("%.18g"));
     }
 
     #[test]

@@ -30,7 +30,17 @@ pub(crate) fn text_of(v: &ViewInput<'_>) -> Option<String> {
 
 /// The value as JSON: its inline value, else its full bytes parsed.
 fn json_of(v: &ViewInput<'_>) -> Option<Value> {
-    v.display.value.clone().or_else(|| v.full.and_then(|b| serde_json::from_slice(&b.bytes).ok()))
+    let csv = plumcraft_editor_core::viewers::is_csv(v.display);
+    v.display.value.clone().or_else(|| {
+        v.full.and_then(|b| {
+            if csv {
+                // a value typed text/csv: read by the CSV reader the text engine and the core use
+                plumcraft_proto::csv::read_csv(&String::from_utf8_lossy(&b.bytes)).ok()
+            } else {
+                serde_json::from_slice(&b.bytes).ok()
+            }
+        })
+    })
 }
 
 /// Whether a value is rows: a non-empty list of lists (Table to Rows', a spreadsheet's Read
@@ -568,6 +578,9 @@ mod tests {
                 tools: Default::default(),
                 channel: None,
                 grid_col: None,
+                chart: None,
+                chart_range: Default::default(),
+                selection: None,
             }
         }
         let mut view = Yaml::default();

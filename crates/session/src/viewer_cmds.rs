@@ -59,11 +59,14 @@ pub struct Compare {
     pub split: f32,
     /// Which of the views A and B show, when they have several.
     pub channel: usize,
+    /// The difference's probe, `(row, col)` of the arrays (note 26 slice 8): A's, B's and
+    /// |A − B|'s numbers there, in `compare.get`'s `difference.probe`.
+    pub probe: Option<(u64, u64)>,
 }
 
 impl Default for Compare {
     fn default() -> Self {
-        Compare { on: false, how: CompareHow::default(), diff: DiffMode::default(), split: 0.5, channel: 0 }
+        Compare { on: false, how: CompareHow::default(), diff: DiffMode::default(), split: 0.5, channel: 0, probe: None }
     }
 }
 
@@ -203,8 +206,12 @@ fn compare(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(v) = p.get("channel").filter(|v| !v.is_null()) {
         next.channel = v.as_u64().and_then(|n| usize::try_from(n).ok()).ok_or_else(|| bad("\"channel\" must be a whole number"))?;
     }
+    // `probe: [row, col]` reads the difference there; `probe: null` takes it away
+    if p.get("probe").is_some() {
+        next.probe = pixel_param(p, "probe")?;
+    }
     *c = next;
-    Ok(json!({"on": c.on, "how": c.how, "diff": c.diff, "split": c.split, "channel": c.channel}))
+    Ok(json!({"on": c.on, "how": c.how, "diff": c.diff, "split": c.split, "channel": c.channel, "probe": c.probe.map(|(r, c)| [r, c])}))
 }
 
 /// The tools of the panel, or of pop-out `role`.

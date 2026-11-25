@@ -21,38 +21,8 @@ pub const FORMATS: &[&str] = &["%.4g", "%.3f", "%.6f", "%.3e", "%d"];
 /// How to read one element (moved to the core, stage N1).
 pub use plumcraft_editor_core::dtype::Dtype;
 
-/// `v` in `format` (`%.Nf`, `%.Ne`, `%.Ng`, `%d`; anything else reads as `%.4g`).
-pub fn format_value(v: f64, format: &str) -> String {
-    if v.is_nan() {
-        return "nan".into();
-    }
-    if v.is_infinite() {
-        return if v > 0.0 { "inf".into() } else { "-inf".into() };
-    }
-    let f = format.trim();
-    let prec =
-        |default: usize| f.strip_prefix("%.").and_then(|r| r.get(..r.len().saturating_sub(1))).and_then(|n| n.parse::<usize>().ok()).unwrap_or(default).min(17);
-    match f.chars().last() {
-        Some('d') => format!("{}", v.round() as i64),
-        Some('f') => format!("{v:.*}", prec(3)),
-        Some('e') => format!("{v:.*e}", prec(3)),
-        _ => {
-            // %g: fixed for moderate magnitudes, else scientific, trailing zeros dropped.
-            let p = prec(4).max(1);
-            if v == 0.0 {
-                return "0".into();
-            }
-            let exp = v.abs().log10().floor() as i32;
-            if exp < -4 || exp >= p as i32 {
-                format!("{v:.*e}", p.saturating_sub(1))
-            } else {
-                let decimals = (p as i32 - 1 - exp).max(0) as usize;
-                let s = format!("{v:.decimals$}");
-                if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_owned() } else { s }
-            }
-        }
-    }
-}
+/// `v` in `format`: the core's (moved there by note 26 slice 2), which a native grid shows too.
+pub use plumcraft_editor_core::viewers::format_value;
 
 /// An array's shape as rows and columns, and the strides (in elements) to find a cell.
 #[derive(Debug, Clone, PartialEq)]

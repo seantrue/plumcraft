@@ -1405,7 +1405,9 @@ fn fill(v: &Data, media: Media, plane: &Plane<'_>, px: u32, d: &mut Display) {
     match v {
         Data::Json(Value::String(s)) => {
             d.renditions.push(excerpt(s));
-            if s.len() > plane.max_inline {
+            // the whole text reaches the editor when its excerpt doesn't hold it: inline up to
+            // max_inline, by the store past it (SVG text drawn as a picture, note 26 slice 4)
+            if s.len() > plane.max_inline || s.chars().nth(EXCERPT_CHARS).is_some() {
                 full(plane.text_ref(s), d);
             }
         }

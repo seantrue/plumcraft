@@ -73,6 +73,7 @@ final class PopoutWindows {
             var o = c.content.describe
             o.merge(c.content.box.describe) { a, _ in a }
             o["id"] = .uint(c.popout.id)
+            o["stamp"] = .uint(c.popout.window.stamp)
             o["window"] = .int(Int64(c.window?.windowNumber ?? 0))
             o["title"] = .string(c.window?.title ?? "")
             o["visible"] = .bool(c.window?.isVisible ?? false)
@@ -232,6 +233,9 @@ final class PopoutViewController: NSViewController {
     func show(_ v: PopoutValue) {
         guard isViewLoaded else { return }
         box.value = v
+        // the core's stamp for it: a change that leaves the value as it was (a chart chosen, an undo)
+        // still draws again (the value set again unchanged drew nothing on the slice 7 Mac launch)
+        box.stamp = popout.window.stamp
         // a zoom asked of the pop-out (`viewer.zoom`), taken once (B159)
         if let a = v.zoomAsk, let seq = a["seq"].uint64, seq > askSeen {
             askSeen = seq
