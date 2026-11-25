@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Views from every port: a review of the brief, a design, and the offer rule (FR6, slice 1) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** On an array's views: "I get an array with only picture/value/bytes. No charts or table options." To the controller's answer that a chart needs a table, so add a histogram node: "No." and "Exploratory data visualization should not require altering the graph. For each port, I should have the full range of visualizations available directly." Then: "Review the original brief for visualization. There was a lot agreed on.Let's take an instance. We have nodes that create labeled maps (each pixel has an assignment to a region). I expect that creating a treemap from the labeled map should be natural. Taking a histogram of 3d data should be as natural as 1/2d." and "My inclination would be to provide all of this functionality in engine base classes, so that it is only implemented a few times (maybe just twice: once for rust, once for python)." On whether to offer a view that may look odd for some values: "In general, it's the user's job to deal with odd, and your job to make seeing odd things easy." On the note's 14 points: "All A".
+
+**What the AI did.** The agent that built the views reviewed its own work against the brief (research note 30) and listed what was agreed and not built; designed the reductions into both SDK bases as the maintainer inclined, with the Rust one as the editor's fallback; and built slice 1, the offer rule, with one reader for arrays as tables.
+
+**Verification.** The agent's runs: a core test over ranks 1 to 4, a conformance case on the C ABI, egui, the Mac and an iPad simulator, Swift tests, the whole workspace on the Linux test host. Launches on a scripted Mac copy and an iPad simulator. The controller looked at the Mac's Chart of a 64 by 96 array: a histogram of column c1, one bar. The full suite ran on the Linux test host again for the published branch.
+
+**Defects.** The views as built gated Plot, Table and Chart on a flag only a node sets, and the agent's own assumption "one chart a value" made a default into a gate: the maintainer found an array with no chart or table in hand use. The controller then told the maintainer to add a node to see a histogram, against what the brief intended. Derived data on request had been in the interface since the start and neither SDK implemented it; no review had noticed. In this slice the Chart of an array is a histogram of one column of its table, which for a picture says little (the controller's picture shows a single bar); the histogram over all values waits for a later slice. View As was driven by its command, not clicked.
+
 ### 2026-11-25 — An Acknowledgements window with every licence (FR4) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Feat: Add list of licenses that need display on Help/About dialog"; "All licences, in a separate Acknowledgements window"; "build FR4.5"; on the research's six points, "Decisions: 1A; 2A; 3A; 4A; 5A; 6B"; "Get licenses from online if needed."; "coalesce license variations"; "npexact -a".
