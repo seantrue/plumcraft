@@ -30,6 +30,8 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 **Defects.** The controller's list of open bugs was wrong: nine entries it listed as open carried a Fixed line, B119 and B120 among them, which the maintainer then asked to have fixed; found on reading the entries. The agent's first Mac picture showed no banner, since the canvas sat above it in the window; fixed. The iPhone cuts the run segment to "last ru…", which tells a person nothing; not fixed. One iPad conformance case fails on this branch and was not checked against the commit before it.
 
+**Follow-up, the same day.** The controller sent both back. The agent gave segments short forms and one fitting rule shared by the shells, which never cuts a segment (the controller looked at the iPhone picture: "Text 0.7.0 · connected", "3.85 ms", and the message, each whole). The failing iPad case turned out to predate the status line and to be a fault in the app a person would meet: a second pop-out of a value closed the first (B171), there since an early iPad slice and never run on the iPad until the case existed. Fixed; iPad conformance 74 of 74 on a simulator.
+
 ### 2026-11-25 — B168, B167 and B163 in one pass; B164 closed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Fix B163,164,167,168".

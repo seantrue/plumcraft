@@ -252,6 +252,14 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 
 ## Fixed
 
+### B171. iPad: opening a second pop-out of a value closed the first
+
+- Reported: 2026-11-25, found by an agent when a conformance case first ran on the iPad; not reported by the maintainer.
+- Report: on the iPad, a table's chart popped out and then its table opened as another window (`view.popout {another: true}`): the chart's pop-out was closed, so a brush in the chart could not be seen in the table, and the chart's zoom was lost. The conformance case failed with "no pop-out 26".
+- Cause (confirmed): the iPad shows one pop-out in its sheet, and showing a newer one closed the replaced one in the core, since N4 slice 3. It fails the same way on the commit before the status line.
+- Fixed: 2026-11-25, branch `pr/status-line`: the replaced pop-out stays open behind the sheet and shows again when the one over it closes or it is raised. iPad conformance 74 of 74 on a simulator.
+- Issue: none
+
 ### B169. The About entry continues to be greyed out
 
 - Reported: 2026-11-25
