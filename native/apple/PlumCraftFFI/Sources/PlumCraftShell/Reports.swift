@@ -351,7 +351,80 @@ public final class CompareModel {
     }
 
     public var describe: JSONValue {
-        ["how": reply?["how"] ?? .null, "a": reply?["a"]["title"] ?? .null, "b": reply?["b"]["title"] ?? .null]
+        let d = reply?["difference"] ?? .null
+        return ["how": reply?["how"] ?? .null, "a": reply?["a"]["title"] ?? .null, "b": reply?["b"]["title"] ?? .null,
+                "difference": d == .null ? .null : ["status": d["status"], "differing": d["differing"], "identical": d["identical"],
+                                                     "pictures": .uint(UInt64(d["pictures"].array?.count ?? 0)), "text": d["text"]]]
+    }
+}
+
+/// The exact difference |A − B| (note 26 slice 2b): the core computes it from the values' own
+/// numbers on a thread of its own and lends its pictures by handle (`compare.get`'s
+/// `difference`); here its words, the mean or each channel (`viewer.compare {diff}`), and the
+/// pictures. Asked again while it is being computed.
+struct CompareDifference: SwiftUI.View {
+    @Bindable var compare: CompareModel
+
+    var body: some SwiftUI.View {
+        let d = compare.reply?["difference"] ?? .null
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Picker("Difference", selection: Binding(get: { compare.reply?["diff"].string ?? "mean" }, set: { m in
+                    Task { await compare.run("viewer.compare", ["diff": .string(m)]) }
+                })) {
+                    Text("Mean of the Channels").tag("mean")
+                    Text("Each Channel").tag("channels")
+                }
+                .fixedSize()
+                .accessibilityIdentifier("compare-diff")
+                Spacer()
+            }
+            switch d["status"].string {
+            case "ready":
+                Text(d["text"].string ?? "").font(.callout.monospacedDigit()).textSelection(.enabled).accessibilityIdentifier("compare-difference-text")
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10)], spacing: 10) {
+                        ForEach(Array((d["pictures"].array ?? []).enumerated()), id: \.offset) { _, p in
+                            VStack(spacing: 3) {
+                                if let h = p["handle"].string { DifferencePicture(pictures: compare.pictures, handle: h).frame(minHeight: 200) }
+                                Text("\(p["caption"].string ?? "") · largest \(p["top"].string ?? "")").font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+                .accessibilityIdentifier("compare-difference")
+            case "failed":
+                Text(d["error"].string ?? "The difference couldn't be computed.").font(.callout).foregroundStyle(.secondary)
+            default:
+                ProgressView("Computing |A − B|…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        // being computed (or A and B being read): asked again while this shows
+                        while !Task.isCancelled {
+                            try? await Task.sleep(for: .milliseconds(300))
+                            compare.reload()
+                        }
+                    }
+            }
+        }
+    }
+}
+
+/// One picture of the difference, as the core lends it.
+struct DifferencePicture: SwiftUI.View {
+    let pictures: Pictures
+    let handle: String
+    @State private var image: CGImage?
+
+    var body: some SwiftUI.View {
+        Group {
+            if let image {
+                Image(decorative: image, scale: 1).resizable().interpolation(.none).aspectRatio(contentMode: .fit)
+            } else {
+                ProgressView()
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .task(id: handle) { image = await pictures.load(handle, want: "rgba", px: nil)?.image }
     }
 }
 
@@ -377,11 +450,13 @@ public struct CompareView: SwiftUI.View {
                 #endif
                 .toolbar {
                     ToolbarItem(placement: .principal) {
-                        Picker("Show", selection: Binding(get: { compare.reply?["how"].string == "split" ? "split" : "side" }, set: { how in
+                        Picker("Show", selection: Binding(get: { compare.reply?["how"].string ?? "side" }, set: { how in
                             Task { await compare.run("viewer.compare", ["how": .string(how)]) }
                         })) {
                             Text("Side by Side").tag("side")
                             Text("Split").tag("split")
+                            // |A − B|, the core's (note 26 slice 2b)
+                            Text("Difference").tag("difference")
                         }
                         .pickerStyle(.segmented)
                         .fixedSize()
@@ -399,7 +474,9 @@ public struct CompareView: SwiftUI.View {
         let r = compare.reply
         VStack(spacing: 8) {
             if let e = compare.error { Text(e).font(.footnote).foregroundStyle(.red) }
-            if r?["how"].string == "split" {
+            if r?["how"].string == "difference" {
+                CompareDifference(compare: compare)
+            } else if r?["how"].string == "split" {
                 ZStack {
                     CompareSide(compare: compare, side: r?["b"] ?? .null, slot: "b")
                     CompareSide(compare: compare, side: r?["a"] ?? .null, slot: "a")
@@ -422,7 +499,6 @@ public struct CompareView: SwiftUI.View {
                     }
                 }
             }
-            Text("The exact difference of A and B is the egui editor's for now.").font(.caption).foregroundStyle(.secondary)
         }
         .padding(8)
     }

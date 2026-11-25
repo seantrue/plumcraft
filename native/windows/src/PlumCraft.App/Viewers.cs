@@ -914,7 +914,8 @@ public sealed class TableViewer : IViewer
             foreach (var w in widths) cellGrid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(w) });
             for (int i = 0; i < need; i++)
             {
-                var t = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0), IsTextSelectionEnabled = false };
+                // a cell's text selects and copies (note 26 slice 3: tables as tables, as egui's and the Apple shells' do)
+                var t = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Padding = new Thickness(8, 0, 8, 0), IsTextSelectionEnabled = true };
                 cellGrid.Children.Add(t.At(i));
             }
         }

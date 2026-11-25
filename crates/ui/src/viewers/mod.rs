@@ -468,7 +468,7 @@ mod tests {
                     if full {
                         d.full = Some(DataRef { handle: None, meta: Default::default(), at: vec![] });
                     }
-                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| !matches!(*id, "mesh" | "array.plot")).collect();
+                    let ours: Vec<&str> = kinds_for(&d).iter().map(|k| k.id).filter(|id| *id != "mesh").collect();
                     let core: Vec<&str> = plumcraft_editor_core::viewers::offered(&d)
                         .into_iter()
                         .map(|(id, _)| id)

@@ -42,6 +42,69 @@ fn is_xml(d: &Display) -> bool {
     })
 }
 
+/// Whether a value's text is an SVG document (note 26 slice 4): it starts, after an optional XML
+/// declaration, comments and white space, with an `<svg` element. Only the start is looked at
+/// (a TEXT's inline value or its excerpt), so this never reads a large value.
+pub fn is_svg_text(d: &Display) -> bool {
+    let start = d.value.as_ref().and_then(Value::as_str).map(|t| t.chars().take(2048).collect::<String>()).or_else(|| {
+        d.renditions.iter().find_map(|r| match r {
+            Rendition::Excerpt { text, .. } => Some(text.chars().take(2048).collect()),
+            _ => None,
+        })
+    });
+    let Some(mut t) = start.as_deref().map(str::trim_start) else { return false };
+    for _ in 0..16 {
+        if let Some(rest) = t.strip_prefix("<?xml") {
+            t = rest.split_once("?>").map_or("", |x| x.1).trim_start();
+        } else if let Some(rest) = t.strip_prefix("<!--") {
+            t = rest.split_once("-->").map_or("", |x| x.1).trim_start();
+        } else if let Some(rest) = t.strip_prefix("<!DOCTYPE") {
+            t = rest.split_once('>').map_or("", |x| x.1).trim_start();
+        } else {
+            break;
+        }
+    }
+    t.strip_prefix("<svg").is_some_and(|r| r.starts_with(|c: char| c.is_whitespace() || c == '>' || c == '/'))
+}
+
+/// The most text drawn as an SVG picture from a TEXT value (a larger one is shown as text).
+pub const MAX_SVG_TEXT: usize = 8 << 20;
+/// The size, on its long side, a shell first asks an SVG picture at (the Apple shells' `svgPx`).
+pub const SVG_TEXT_PX: u32 = 2048;
+
+/// A TEXT that is an SVG document, as a reference a shell draws like any SVG value: the text
+/// carried inline, typed `image/svg+xml`, under a handle of its own content (note 26 slice 4).
+/// `None` for anything else, or a text past [`MAX_SVG_TEXT`].
+pub fn svg_text_ref(d: &Display) -> Option<DataRef> {
+    use base64::Engine as _;
+    if d.media != Media::Text || !is_svg_text(d) {
+        return None;
+    }
+    // the whole text: the inline value, or an excerpt that holds all of it
+    let whole = d.value.as_ref().and_then(Value::as_str).map(str::to_owned).or_else(|| {
+        d.renditions.iter().find_map(|r| match r {
+            Rendition::Excerpt { text, offset: 0, total_chars, .. } if text.chars().count() as u64 == *total_chars => Some(text.clone()),
+            _ => None,
+        })
+    })?;
+    let text = whole.as_str();
+    if text.len() > MAX_SVG_TEXT {
+        return None;
+    }
+    let meta =
+        plumcraft_proto::data::BlobMeta { media: plumcraft_proto::catalogue::core_types::SVG_MEDIA.into(), size: text.len() as u64, ..Default::default() };
+    Some(DataRef {
+        handle: Some(plumcraft_proto::Handle::raw(text.as_bytes())),
+        meta,
+        at: vec![plumcraft_proto::data::Locator::Inline { b64: base64::engine::general_purpose::STANDARD.encode(text.as_bytes()) }],
+    })
+}
+
+/// Whether a value is typed `text/csv` (bytes a CSV file type or a pack's type carries).
+pub fn is_csv(d: &Display) -> bool {
+    d.full.as_ref().is_some_and(|f| plumcraft_media::service::is_csv(&f.meta.media))
+}
+
 /// The viewers a value is offered in, its default first: egui's registry
 /// (`plumcraft_ui::viewers::kinds_for`, which a test there holds this to), and SVG's source as text
 /// beside its picture. `(id, label)`.
@@ -55,19 +118,26 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
         }
     };
     add(m == Media::Image, "picture", "Picture");
-    add(m == Media::Vector, "svg", "SVG");
+    // an interchange format (note 26 slice 4): SVG text is a picture first, its text a viewer away
+    let svg_text = m == Media::Text && is_svg_text(d);
+    let csv = is_csv(d) && m != Media::Table;
+    add(m == Media::Vector || svg_text, "svg", "SVG");
     add(is_pdf(d), "pdf.pages", "Pages");
     add(m == Media::Doc, "doc", "Document");
     // a table-flagged array (a histogram's centre and count, a node's points) is a table first: it
     // has no picture (note 26 slice 2; B152 read it as a table for a TABLE value only)
     let table_array = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }));
+    // a table of positions, or a histogram, plots first (the egui editor's Plot; note 26 slice 5,
+    // laid out by the core as a chart's display list); its numbers stay a viewer away
+    add(d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some()), "array.plot", "Plot");
     add(m == Media::Ndarray && table_array, "table.grid", "Table");
     add(m == Media::Ndarray, "array.pictures", "Pictures");
     add(m == Media::Ndarray, "array.grid", "Values");
     add(m == Media::Audio, "audio", "Audio");
-    add((m == Media::Table || d.value.as_ref().is_some_and(is_rows)) && !(m == Media::Ndarray && table_array), "table.grid", "Table");
+    // a CSV is a table first, its text a viewer away
+    add((m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows)) && !(m == Media::Ndarray && table_array), "table.grid", "Table");
     add(is_xml(d), "xml", "XML");
-    add(m == Media::Text || m == Media::Vector, "text.plain", if m == Media::Vector { "Source" } else { "Text" });
+    add(m == Media::Text || m == Media::Vector || csv, "text.plain", if m == Media::Vector || svg_text { "Source" } else { "Text" });
     add(m == Media::Scalar, "scalar", "Value");
     add(m == Media::Tree, "yaml", "YAML");
     // a table that is an array (B152) has no JSON to outline
@@ -80,7 +150,8 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
 
 /// The viewers the Apple shells draw (N4 slice 5); any other offered falls back to the engine's
 /// rendition with the summary (contract 13.3).
-pub const NATIVE: &[&str] = &["picture", "svg", "array.pictures", "array.grid", "audio", "table.grid", "text.plain", "scalar", "yaml", "tree", "items", "hex"];
+pub const NATIVE: &[&str] =
+    &["picture", "svg", "array.plot", "array.pictures", "array.grid", "audio", "table.grid", "text.plain", "scalar", "yaml", "tree", "items", "hex"];
 
 /// A number as the viewers show it: an integer whole; a float at the decimals it needs, at most
 /// six; past 1e9 or under 1e-4, four significant decimals in scientific notation; NaN and the
@@ -280,7 +351,7 @@ fn whole(p: &Value, k: &str) -> Result<Option<u64>, String> {
 /// state's plane, page and window of columns), `hex` (the state's page), `probe` (`row`, `col`:
 /// the exact values there), `yaml`.
 pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<Value, String> {
-    crate::control::check_fields(params, &["popout", "part", "row", "col"])?;
+    crate::control::check_fields(params, &["popout", "part", "row", "col", "width", "height"])?;
     let id = params.get("popout").and_then(Value::as_u64).ok_or("popout must be a pop-out's id")?;
     let o = session.views.popout(id).ok_or_else(|| format!("no pop-out {id}"))?;
     let (_, d) = session.run.entry(WatchRole::Popout(id)).ok_or_else(|| format!("no pop-out {id}"))?;
@@ -290,6 +361,13 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
         "table" => table(d, media, &o.state),
         "tree" => tree(d, media, &o.state),
         "yaml" => yaml(d, media),
+        "chart" => {
+            let side = |k: &str, dflt: f64| match params.get(k) {
+                None | Some(Value::Null) => Ok(dflt),
+                Some(v) => v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or(format!("{k} must be a positive number of points")),
+            };
+            chart(d, media, (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?))
+        }
         "grid" => grid(d, media, &o.state),
         "hex" => hex(d, media, o.state.hex_page),
         "probe" => {
@@ -297,7 +375,7 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
             let col = whole(params, "col")?.ok_or("probe needs row and col")?;
             probe(d, media, row, col)
         }
-        other => return Err(format!("part {:?}: table, tree, grid, hex, probe or yaml", other.chars().take(32).collect::<String>())),
+        other => return Err(format!("part {:?}: table, tree, grid, hex, probe, yaml or chart", other.chars().take(32).collect::<String>())),
     };
     if let Some(m) = out.as_object_mut() {
         m.entry("status").or_insert(json!("ready"));
@@ -522,6 +600,24 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
            "range": rg.filter(|(lo, hi)| lo.is_finite() && hi.is_finite()).map(|(lo, hi)| [text(lo), text(hi)])})
 }
 
+/// A chart's display list for a table array the core plots ([`crate::chart`]), laid out at `size`.
+fn chart(d: &Display, media: &MediaService, size: (f64, f64)) -> Value {
+    let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no numbers to plot"}) };
+    let Some(kind) = crate::chart::plotted(&full.meta.form) else { return json!({"status": "failed", "error": "this value isn't a table a chart plots"}) };
+    let names = match &full.meta.form {
+        Form::Array { names, .. } => names.clone(),
+        _ => Vec::new(),
+    };
+    let b = match media.get(full, Want::Bytes).bytes() {
+        Fetch::Ready(b) => b,
+        f => return not_ready(&f, full, Want::Bytes),
+    };
+    match crate::chart::layout(&kind, &names, &b.dtype, &b.shape, &b.bytes, size) {
+        Ok(v) => v,
+        Err(e) => json!({"status": "failed", "error": e}),
+    }
+}
+
 fn hex(d: &Display, media: &MediaService, page: u64) -> Value {
     let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no bytes to show"}) };
     let b = match media.get(full, Want::Bytes).bytes() {
@@ -651,7 +747,7 @@ mod tests {
         let mut d = display(Media::Table, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["table.grid", "hex"], "no outline of an array");
+        assert_eq!(ids, ["array.plot", "table.grid", "hex"], "a plot first (note 26 slice 5), no outline of an array");
         let mut st = ViewerState::default();
         let page = until(|| table(&d, &m, &st));
         assert_eq!(page["status"], Value::Null, "{page}");
@@ -738,6 +834,34 @@ mod tests {
         assert_eq!(format_value(1234.5678, "%.4g"), "1235");
     }
 
+    /// Note 26 slice 4: a value typed `text/csv` is a table first and its text second; a TEXT
+    /// that is an SVG document is a picture first and its source second; text that only mentions
+    /// svg, or merely looks like CSV, stays text.
+    #[test]
+    fn interchange_formats_are_offered_as_what_they_are() {
+        let mut r = DataRef::default();
+        r.meta.media = "text/csv; charset=utf-8".into();
+        let mut d = display(Media::Bytes, None);
+        d.full = Some(r);
+        let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
+        assert_eq!(ids, ["table.grid", "text.plain", "hex"]);
+        for (text, svg) in [
+            ("<svg xmlns='http://www.w3.org/2000/svg'/>", true),
+            ("<?xml version='1.0'?>\n<!-- made -->\n<!DOCTYPE svg>\n  <svg width='4'>", true),
+            ("<svgx>", false),
+            ("see <svg> below", false),
+            ("a,b\n1,2\n", false),
+            ("<?xml version='1.0'", false),
+        ] {
+            let t = display(Media::Text, Some(json!(text)));
+            let first = offered(&t).first().map(|x| x.0);
+            assert_eq!(first == Some("svg"), svg, "{text}");
+            if svg {
+                assert_eq!(offered(&t).iter().map(|x| (x.0, x.1)).collect::<Vec<_>>()[1], ("text.plain", "Source"));
+            }
+        }
+    }
+
     /// A table-flagged array of numbers (the Histogram node's) is offered as a table first.
     #[test]
     fn a_table_flagged_array_is_a_table_first() {
@@ -746,11 +870,29 @@ mod tests {
         let mut d = display(Media::Ndarray, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["table.grid", "array.pictures", "array.grid", "hex"]);
+        assert_eq!(ids, ["array.plot", "table.grid", "array.pictures", "array.grid", "hex"], "a histogram plots first, its table next");
         let mut p = DataRef::default();
         p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
         d.full = Some(p);
         assert_eq!(offered(&d).first().map(|x| x.0), Some("array.pictures"), "a picture stays pictures first");
+    }
+
+    /// A `text/csv` value's page: read as CSV on the media workers, typed columns, sorted by the core.
+    #[test]
+    fn a_csv_value_pages_as_a_table() {
+        let (m, mut r) = media_with(b"name,n\nb,2\na,10\nc,1\n".to_vec(), "|u1", vec![]);
+        r.meta.media = "text/csv".into();
+        let mut d = display(Media::Bytes, None);
+        d.full = Some(r);
+        let mut st = ViewerState { sort: Some(1), ..Default::default() };
+        let page = until(|| table(&d, &m, &st));
+        assert_eq!((page["rows"].as_u64(), page["columns"][1]["numeric"].as_bool()), (Some(3), Some(true)), "{page}");
+        assert_eq!(page["cells"][0], json!(["c", "1"]), "sorted by n");
+        st.sort = None;
+        let (m2, mut bad) = media_with(b"a,b\n\"open\n".to_vec(), "|u1", vec![]);
+        bad.meta.media = "text/csv".into();
+        d.full = Some(bad);
+        assert_eq!(until(|| table(&d, &m2, &st))["status"], "failed");
     }
 
     #[test]

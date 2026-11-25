@@ -42,7 +42,7 @@ public final class ViewerBox {
     }
 
     /// The viewers the apps draw in SwiftUI (picture, SVG, text and scalar are each app's own).
-    public static let kinds: Set<String> = ["array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
+    public static let kinds: Set<String> = ["array.plot", "array.pictures", "array.grid", "audio", "table.grid", "yaml", "tree", "items", "hex"]
 
     /// Shown here: one of [`kinds`], or a viewer offered that no Apple viewer draws (the engine's
     /// picture stands in, contract 13.3), or a value whose kind has no viewer at all.
@@ -77,6 +77,7 @@ public struct ViewerView: SwiftUI.View {
     @ViewBuilder
     private func body(for v: PopoutValue) -> some SwiftUI.View {
         switch v.viewer ?? "" {
+        case "array.plot": ChartViewer(box: box)
         case "table.grid": TableViewer(box: box)
         case "array.grid": GridViewer(box: box)
         case "tree": OutlineViewer(box: box)
@@ -562,6 +563,11 @@ struct PageGrid: SwiftUI.View {
     let id: String
     var rowNumbers = false
     @Environment(\.horizontalSizeClass) private var size
+    /// Widths a person dragged, by column (note 26 slice 3): a column's width is the shell's
+    /// (docs/shell-interface.md 13.2.1), kept while the viewer shows this table.
+    @State private var dragged: [Int: CGFloat] = [:]
+    /// A drag on a column's edge in progress: the column and how far.
+    @GestureState private var dragging: (column: Int, by: CGFloat)? = nil
 
     var body: some SwiftUI.View {
         if size == .compact { list } else { grid }
@@ -569,13 +575,36 @@ struct PageGrid: SwiftUI.View {
 
     private func cell(_ r: PageRow, _ c: PageColumn) -> String { c.id < r.cells.count ? r.cells[c.id] : "" }
 
-    /// Each column as wide as its header and the page's cells need, within reason.
+    /// Each column as wide as its header and the page's cells need, within reason, or as wide
+    /// as a person dragged it (at least 48 points).
     private var widths: [CGFloat] {
         cols.map { c in
             // the header's sort chevron has room too
             let longest = rows.prefix(200).reduce(c.name.count + 3) { max($0, cell($1, c).count) }
-            return min(max(CGFloat(longest) * 10 + 28, 64), 360)
+            var w = dragged[c.id] ?? min(max(CGFloat(longest) * 10 + 28, 64), 360)
+            if let d = dragging, d.column == c.id { w += d.by }
+            return max(w, 48)
         }
+    }
+
+    /// The handle at a header's trailing edge: a drag sets the column's width.
+    private func edge(_ c: PageColumn, _ width: CGFloat) -> some SwiftUI.View {
+        Rectangle()
+            .fill(Color.secondary.opacity(0.25))
+            .frame(width: 2, height: 18)
+            .padding(.horizontal, 5)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 2)
+                    .updating($dragging) { g, st, _ in st = (c.id, g.translation.width) }
+                    .onEnded { g in dragged[c.id] = max(width + g.translation.width, 48) }
+            )
+            .accessibilityLabel("Width of \(c.name)")
+            .accessibilityValue("\(Int(width)) points")
+            .accessibilityAdjustableAction { dir in
+                dragged[c.id] = max(width + (dir == .increment ? 24 : -24), 48)
+            }
+            .accessibilityIdentifier("\(id)-edge-\(c.id)")
     }
 
     private func tapped(_ c: PageColumn) {
@@ -626,6 +655,7 @@ struct PageGrid: SwiftUI.View {
                             .buttonStyle(.borderless)
                             .disabled(onSort == nil)
                             .accessibilityIdentifier("\(id)-header-\(c.id)")
+                            .overlay(alignment: .trailing) { edge(c, w[i]) }
                         }
                     }
                     .padding(.vertical, 8)
