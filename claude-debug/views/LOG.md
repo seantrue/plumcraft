@@ -50,3 +50,9 @@ B159 put `zoomAsk` in `popout.get` but left `zoom_seq` out of the pop-out's `sta
 - Mac launch (`claude-debug/views/s4-mac-2/`): the CSV as a table and as text, the SVG text as a picture and as source; looked at each. My first launch script reused a name for a pop-out id, so its cleanup could not quit the app: I stopped that scripted copy by its PID, cleaned it, and the Library compare said unchanged.
 - Assumption 3 refined: CSV is never sniffed; SVG text is recognised by its `<svg` root, since a TEXT can't be typed.
 - Not checked: SVG text past the excerpt (the shell's Source still shows it; no picture); the egui editor doesn't offer these views (core additions).
+- Slice 4 committed as `1de5fd5` on `feat/views-s4`.
+
+## Slice 3 (branch `feat/views-s3`)
+
+- iPad and iPhone table grid: a drag on a column's header edge sets its width (shell state, 13.2.1); adjustable by VoiceOver in 24-point steps. UI test `testATableColumnIsWidenedByADrag` passed on my iPad simulator (`claude-debug/views/s3-pad/views-s3-ui-column-widened.png`, looked at: the centre column widened, the count column kept).
+- Windows: a table cell's text selects and copies (`IsTextSelectionEnabled`). Built on the Windows VM from a copy of `native/windows` in a folder of my own (`C:\work\views-s3`; the existing checkout untouched): `dotnet build` of PlumCraft.App, ARM64, 0 warnings, 0 errors. Built, not launched (no connected desktop overnight). Windows column widths by drag: not done.
