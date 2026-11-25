@@ -19,6 +19,9 @@
 //                             in the status (`savePanel`, FR2); a later `end-sheet` cancels it
 //   close                     File › Close: NSDocument's unsaved-changes sheet when edited
 //   end-sheet                 close the window's sheet (Cancel)
+//   choose:MENU:ITEM          choose the bar's MENU › ITEM as a person would: the menu is validated
+//                             first and a disabled item isn't run; `chosen` in the status lists
+//                             each choice and whether it was enabled (B169)
 //   theme:dark|light          the app's appearance
 //   quit                      quit
 //   inbox:DIR                 run the steps a script writes as DIR/<k>.step, one at a time
@@ -39,6 +42,25 @@ struct Script {
     /// The menu a step holds open, so a TERM can close it before quitting.
     static var tracking: NSMenu?
 
+    static var chosen: [JSONValue] = []
+
+    /// A menu item chosen as a person chooses it (B169): the menu validates its items, as it
+    /// does when it opens, and an item it leaves disabled isn't run.
+    static func choose(menu title: String, item: String) {
+        guard let bar = NSApp.mainMenu, let menu = bar.items.first(where: { $0.title == title })?.submenu else {
+            chosen.append(["menu": .string(title), "item": .string(item), "found": false])
+            Status.shared.set("chosen", .array(chosen))
+            return
+        }
+        menu.update()
+        let k = menu.indexOfItem(withTitle: item)
+        let enabled = k >= 0 && menu.items[k].isEnabled
+        chosen.append(["menu": .string(title), "item": .string(item), "found": .bool(k >= 0), "enabled": .bool(enabled),
+                       "documents": .int(Int64(NSDocumentController.shared.documents.count))])
+        Status.shared.set("chosen", .array(chosen))
+        if enabled { menu.performActionForItem(at: k) }
+    }
+
     /// Only the first window runs the steps.
     static func claim() -> Bool {
         if claimed { return false }
@@ -57,6 +79,10 @@ struct Script {
 
     func one(_ step: String) async {
         let parts = step.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        if parts.first == "choose", parts.count >= 3 {
+            Self.choose(menu: parts[1], item: parts[2...].joined(separator: ":"))
+            return
+        }
         guard let head = parts.first, let v = window.canvasView else { return }
         let m = v.model
         switch head {

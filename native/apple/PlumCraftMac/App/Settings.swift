@@ -104,12 +104,23 @@ final class SettingsWindow: NSObject, NSWindowDelegate {
 
 @MainActor
 enum AboutPanel {
+    /// The panel's credits as words, for a script's check (the build line is the first).
+    static func credits(_ o: [NSApplication.AboutPanelOptionKey: Any]) -> String {
+        (o[.credits] as? NSAttributedString)?.string ?? ""
+    }
+
     /// The standard About panel, with the core's words for the application and what it was
     /// built from (`app.about`: title, version, parts, the engine and its components).
+    /// What the core last said for About: shown when no document is open to ask (B169).
+    static var lastAbout: JSONValue?
+
     static func show(model: DocumentModel?, over doc: NSWindow?) {
         Task {
             var options: [NSApplication.AboutPanelOptionKey: Any] = [:]
-            if let m = model, let a = try? await m.run("app.about") {
+            var said: JSONValue?
+            if let m = model { said = try? await m.run("app.about") }
+            if let a = said { lastAbout = a }
+            if let a = said ?? lastAbout {
                 options[.applicationName] = a["title"].string ?? "Plummer"
                 options[.applicationVersion] = a["version"].string ?? ""
                 let parts = (a["parts"].array ?? []).compactMap { p -> String? in
@@ -133,9 +144,9 @@ enum AboutPanel {
             if CoreHost.options.scratchState || !NSApp.isActive,
                let panel = NSApp.windows.first(where: { !before.contains($0.windowNumber) && $0.isVisible }) {
                 if let doc, doc.isVisible { panel.order(.above, relativeTo: doc.windowNumber) }
-                Status.shared.set("about", ["window": .int(Int64(panel.windowNumber))])
+                Status.shared.set("about", ["window": .int(Int64(panel.windowNumber)), "credits": .string(credits(options))])
             } else if let panel = NSApp.windows.first(where: { !before.contains($0.windowNumber) }) {
-                Status.shared.set("about", ["window": .int(Int64(panel.windowNumber))])
+                Status.shared.set("about", ["window": .int(Int64(panel.windowNumber)), "credits": .string(credits(options))])
             }
         }
     }

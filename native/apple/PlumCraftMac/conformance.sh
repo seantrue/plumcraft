@@ -136,6 +136,37 @@ return $code
 }
 
 echo '{"version": 1, "nodes": {}, "wires": []}' > "$scratch/empty.json"
+# B169: About in the application menu, chosen as a person chooses it (the menu validates it
+# first), with a document window and after it closed: enabled both times, and the panel shows the
+# core's words (its credits; the build line first when the build is stamped)
+about_check() {
+  status="$scratch/status-about.json"; rm -f "$status"
+  "$app" --status-file "$status" --store-root "$scratch/store" --control-token-file "$scratch/token" \
+    --no-open-panel --scratch-state --hide-watched --engine text \
+    --then "choose:Plummer:About Plummer;wait:2;close;wait:2;choose:Plummer:About Plummer;wait:2" \
+    "$scratch/empty.json" >"$scratch/app-about.log" 2>&1 &
+  pid=$!
+  local ok=1
+  for _ in $(seq 600); do
+    kill -0 "$pid" 2>/dev/null || { echo "the app exited"; ok=0; break; }
+    python3 -c "import json,sys; sys.exit(0 if json.load(open('$status')).get('script') == 'done' else 1)" 2>/dev/null && break
+    sleep 0.1
+  done
+  python3 - "$status" <<'PY' || ok=0
+import json, sys
+s = json.load(open(sys.argv[1]))
+chosen, about = s.get("chosen", []), s.get("about") or {}
+print("B169 About:", json.dumps(chosen), "credits:", json.dumps((about.get("credits") or "")[:160]))
+good = len(chosen) == 2 and all(c.get("found") and c.get("enabled") for c in chosen) and chosen[1].get("documents") == 0 and about.get("credits")
+print("CASE", "pass" if good else "FAIL", "About is enabled, with a document and without, and shows the core's words")
+sys.exit(0 if good else 1)
+PY
+  kill -TERM "$pid" 2>/dev/null
+  for _ in $(seq 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+  kill -0 "$pid" 2>/dev/null && kill -9 "$pid"
+  pid=""
+  [ $ok = 1 ]
+}
 failed=0
 # B50: the person's Library (defaults domain, saved state, recent documents, caches, logs) is
 # snapshotted before the app starts and compared after it quits; any change fails the run
@@ -146,6 +177,7 @@ person_ids="$person_id com.swapwizard.plumcraft"
 # the picture case's first array node starts the array engine (decision 8C: engines start as the
 # graph comes to use them), so no case is skipped for want of an engine
 run_on text array || failed=1
+about_check || failed=1
 # cfprefsd and the shared file list's daemon write their files a few seconds after the process
 # asked (a recent document noted by the app landed 3 to 8 s after it quit, B50)
 sleep "${SETTLE:-10}"

@@ -79,8 +79,16 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     private func make(_ menus: [MenuItem]) -> NSMenu {
         let bar = NSMenu()
         let app = submenu(bar, appName)
-        // the standard panel with the core's versions (app.about, N4 slice 4)
-        let about = app.addItem(withTitle: "About \(appName)", action: #selector(about(_:)), keyEquivalent: "")
+        // the standard panel with the core's versions (app.about, N4 slice 4), from the model's
+        // About item (its label and enabled state, B169), with or without a document
+        let about: NSMenuItem
+        if let (key, it) = find(role: .about) {
+            about = item(it, key: key)
+            app.addItem(about)
+        } else {
+            about = app.addItem(withTitle: "About \(appName)", action: nil, keyEquivalent: "")
+        }
+        about.action = #selector(about(_:))
         about.target = self
         app.addItem(.separator())
         // Settings… from the model's preferences item, at its shortcut (⌘,)
@@ -338,6 +346,8 @@ final class MenuBar: NSObject, NSMenuItemValidation {
             if it.role?.word == .undo { title = st.undo.map { "Undo \($0)" } ?? "Undo" }
             if it.role?.word == .redo { title = st.redo.map { "Redo \($0)" } ?? "Redo" }
         }
+        // the application menu's About names the application, as every Mac app's does
+        if it.role?.word == .about { title = "\(it.label) \(appName)" }
         if mi.title != title { mi.title = title }
         let state: NSControl.StateValue = it.checked == true ? .on : .off
         if mi.state != state { mi.state = state }
@@ -371,6 +381,13 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     func validateMenuItem(_ mi: NSMenuItem) -> Bool {
         if mi.action == #selector(openRecentFile(_:)) {
             return (mi.representedObject as? String).map { FileManager.default.fileExists(atPath: $0) } ?? false
+        }
+        // About needs no document (B169): the model's item says whether it is enabled, and
+        // without one the panel shows what the core last said, or the bundle's own version
+        if mi.action == #selector(about(_:)) {
+            guard let it = modelItem(mi) else { return true }
+            apply(it, to: mi)
+            return it.enabled
         }
         guard let it = modelItem(mi) else { return false }
         apply(it, to: mi)
@@ -445,7 +462,7 @@ final class MenuBar: NSObject, NSMenuItemValidation {
                 // in the background has no key window, so standard actions find no responder)
                 let it = modelItem(mi)
                 if let it { apply(it, to: mi) }
-                let enabled = it.map { $0.enabled && source != nil } ?? mi.isEnabled
+                let enabled = mi.target === self ? validateMenuItem(mi) : it.map { $0.enabled && source != nil } ?? mi.isEnabled
                 var line = String(repeating: "  ", count: depth) + mi.title
                 if !mi.keyEquivalent.isEmpty { line += " [" + Self.describe(mi.keyEquivalentModifierMask, mi.keyEquivalent) + "]" }
                 if !enabled && mi.submenu == nil { line += " (disabled)" }
