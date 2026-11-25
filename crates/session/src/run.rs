@@ -481,6 +481,10 @@ impl RunState {
             n.generation = self.generation;
             n.fraction = None;
             n.stage = None;
+            // what went wrong last time is not this run's (B172: a node not reached yet said
+            // "skipped: upstream … did not finish" from an earlier run while its upstream was
+            // cached and done in this one); this run says its own when it reaches the node
+            n.error = None;
         }
         if self.review_due {
             self.held = Some(Box::new(req.clone()));
@@ -1239,6 +1243,36 @@ mod queued_tests {
 
     fn state(run: &RunState, id: &str) -> Option<NodeState> {
         run.node(id).and_then(|n| n.state)
+    }
+
+    /// B172: a node queued for a new run carries no error from the last one: in the middle of
+    /// the run, before it is reached, it is queued and nothing else.
+    #[test]
+    fn a_queued_node_carries_no_error_from_the_last_run() {
+        let g = graph();
+        let mut run = RunState::default();
+        let req = run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        let skipped = NodeError::new(NodeError::SKIPPED, "upstream a did not finish");
+        let reply = RunReply {
+            run_id: req.run_id.clone(),
+            generation: req.generation,
+            nodes: [
+                ("a".to_owned(), NodeReport { state: NodeState::Error, error: Some(NodeError::new(NodeError::OP, "boom")), ..Default::default() }),
+                ("b".to_owned(), NodeReport { state: NodeState::Skipped, error: Some(skipped), ..Default::default() }),
+            ]
+            .into(),
+            ..Default::default()
+        };
+        assert!(run.apply_reply(&reply, Instant::now()));
+        assert_eq!(run.node("b").and_then(|n| n.error.as_ref()).map(|e| e.kind.as_str()), Some(NodeError::SKIPPED));
+        let req = run.request(&g, Vec::new(), Vec::new(), Instant::now());
+        for id in ["a", "b"] {
+            assert_eq!(state(&run, id), Some(NodeState::Queued), "{id}");
+            assert!(run.node(id).and_then(|n| n.error.as_ref()).is_none(), "{id} still says the last run's error while queued");
+        }
+        // reached in this run: it says this run's state
+        done(&mut run, &req, &["a", "b", "c", "d"]);
+        assert!(run.node("b").and_then(|n| n.error.as_ref()).is_none());
     }
 
     #[test]
