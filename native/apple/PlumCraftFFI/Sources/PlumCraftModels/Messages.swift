@@ -437,6 +437,8 @@ public struct Changed: Codable, Hashable, Sendable {
     public var autosave: AutosaveState?
     /// An engine install under way (B71): `{repo, status}`; absent or null when none is.
     public var installing: InstallState?
+    /// The status line, the core's model (research note 28).
+    public var statusLine: StatusLine?
     /// The `window` domain (`platform.document_windows`, contract 4.3): a document New or Open
     /// made (`open: true`; `doc` is the new document), in document `from`, for the `person` or a
     /// `script` (`by`), with its file (`path`) when Open made it.
@@ -486,6 +488,8 @@ public struct DocumentState: Hashable, Sendable {
     public var autosave = AutosaveState()
     /// An engine install under way, while one is (B71).
     public var installing: InstallState?
+    /// The status line (research note 28): what the shell's bottom bar draws.
+    public var statusLine = StatusLine()
 
     public init() {}
 
@@ -503,6 +507,160 @@ public struct DocumentState: Hashable, Sendable {
         errorSeq = c.errorSeq ?? 0
         autosave = c.autosave ?? AutosaveState()
         installing = c.installing
+        statusLine = c.statusLine ?? StatusLine()
+    }
+}
+
+/// The status line (research note 28; contract 7.2's `document` domain): the core's model of
+/// what the editor is doing, which a shell draws and never composes. `on` is View › Status Line.
+/// Hostile input: a segment that doesn't parse is left out, and a line that doesn't is empty.
+public struct StatusLine: Codable, Hashable, Sendable {
+    public var on: Bool
+    public var segments: [StatusSegment]
+
+    public init(on: Bool = true, segments: [StatusSegment] = []) {
+        self.on = on; self.segments = segments
+    }
+
+    enum CodingKeys: String, CodingKey { case on, segments }
+
+    public init(from decoder: Decoder) throws {
+        let c = try? decoder.container(keyedBy: CodingKeys.self)
+        on = (try? c?.decodeIfPresent(Bool.self, forKey: .on)) ?? true
+        let raw = (try? c?.decodeIfPresent([Lenient<StatusSegment>].self, forKey: .segments)) ?? []
+        segments = raw.compactMap(\.value)
+    }
+
+    /// The segments a bar of this many priorities keeps (1: the engine, the run, the newest
+    /// message; 3: all), in order.
+    public func shown(upTo priority: Int) -> [StatusSegment] {
+        segments.filter { $0.priority <= priority }
+    }
+
+    /// What fits a line `room` wide (contract 7.2's document domain, the status line): each
+    /// segment shown whole or not at all, never cut. In turn, until the line fits: the detail
+    /// lines go; the segments of priority 3, then 2, go (the last first); the short forms are
+    /// taken (the lowest priority first); priority 1 goes from the end. The newest message
+    /// (`message.0`) keeps its place throughout and is the one cut, only when it alone is wider
+    /// than the line. `measure` is a segment's width in a form; `spacing` is between segments.
+    public func fit(room: Double, spacing: Double, upTo maxPriority: Int = 3,
+                    measure: (StatusSegment, StatusForm) -> Double) -> [StatusPlaced] {
+        var plan: [StatusPlaced] = segments.filter { $0.priority <= maxPriority }.map {
+            StatusPlaced(segment: $0, form: ($0.detail?.isEmpty == false) ? .full : .text)
+        }
+        func width() -> Double {
+            plan.reduce(0) { $0 + measure($1.segment, $1.form) } + spacing * Double(max(plan.count - 1, 0))
+        }
+        func fits() -> Bool { width() <= room }
+        if fits() { return plan }
+        // the detail lines
+        for k in plan.indices where plan[k].form == .full { plan[k].form = .text }
+        if fits() { return plan }
+        let keep = "message.0"
+        // priority 3, then 2, the last first
+        for p in [3, 2] {
+            while !fits(), let k = plan.lastIndex(where: { $0.segment.priority == p && $0.segment.id != keep }) {
+                plan.remove(at: k)
+            }
+            if fits() { return plan }
+        }
+        // the short forms, the lowest priority first, the last first within one
+        let order = plan.indices.sorted { a, b in
+            plan[a].segment.priority != plan[b].segment.priority ? plan[a].segment.priority > plan[b].segment.priority : a > b
+        }
+        for k in order where plan[k].segment.short?.isEmpty == false && plan[k].segment.id != keep {
+            plan[k].form = .short
+            if fits() { return plan }
+        }
+        // priority 1 from the end
+        while !fits(), let k = plan.lastIndex(where: { $0.segment.id != keep }) {
+            plan.remove(at: k)
+        }
+        // the message alone, wider than the line: cut
+        if let k = plan.firstIndex(where: { $0.segment.id == keep }), !fits() { plan[k].form = .cut }
+        return plan
+    }
+}
+
+/// How a segment is drawn: with its detail line, its text alone, its short form, or (the newest
+/// message alone on a line too narrow for it) cut.
+public enum StatusForm: String, Sendable, Hashable { case full, text, short, cut }
+
+/// A segment as a line too narrow for every one shows it.
+public struct StatusPlaced: Hashable, Sendable {
+    public var segment: StatusSegment
+    public var form: StatusForm
+    public init(segment: StatusSegment, form: StatusForm) {
+        self.segment = segment; self.form = form
+    }
+    /// The words the form shows.
+    public var text: String {
+        form == .short ? (segment.short ?? segment.text) : segment.text
+    }
+}
+
+/// A value that may not parse: `nil` then, never an error.
+public struct Lenient<T: Decodable & Sendable>: Decodable, Sendable {
+    public var value: T?
+    public init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
+/// A command a segment runs on a click: `{id, params, label?}`.
+public struct StatusCommand: Codable, Hashable, Sendable {
+    public var id: String
+    public var params: JSONValue?
+    public var label: String?
+    public init(id: String, params: JSONValue? = nil, label: String? = nil) {
+        self.id = id; self.params = params; self.label = label
+    }
+}
+
+public enum StatusTone: String, Sendable, CaseIterable { case info, warn, error }
+public enum StatusDot: String, Sendable, CaseIterable { case ok, busy, down }
+
+/// One segment of the status line. `role`: engine, progress, document, selection, hash, run,
+/// warning, toggle, action, message; `side`: left or right; `priority` 1 to 3.
+public struct StatusSegment: Codable, Hashable, Sendable, Identifiable {
+    public var id: String
+    public var role: String
+    public var side: String?
+    public var priority: Int
+    public var text: String
+    /// The text for a narrow line, where one makes sense ("0.51 ms" for "last run 0.51 ms").
+    public var short: String?
+    public var detail: String?
+    public var detailTone: Open<StatusTone>?
+    public var tone: Open<StatusTone>?
+    public var dot: Open<StatusDot>?
+    public var busy: Bool?
+    public var on: Bool?
+    public var command: StatusCommand?
+    public var tooltip: String?
+
+    public init(id: String, role: String, priority: Int = 1, text: String) {
+        self.id = id; self.role = role; self.priority = priority; self.text = text
+    }
+
+    enum CodingKeys: String, CodingKey { case id, role, side, priority, text, short, detail, detailTone, tone, dot, busy, on, command, tooltip }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        role = (try? c.decodeIfPresent(String.self, forKey: .role)) ?? ""
+        side = try? c.decodeIfPresent(String.self, forKey: .side)
+        priority = (try? c.decodeIfPresent(Int.self, forKey: .priority)) ?? 3
+        text = (try? c.decodeIfPresent(String.self, forKey: .text)) ?? ""
+        short = try? c.decodeIfPresent(String.self, forKey: .short)
+        detail = try? c.decodeIfPresent(String.self, forKey: .detail)
+        detailTone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .detailTone)
+        tone = try? c.decodeIfPresent(Open<StatusTone>.self, forKey: .tone)
+        dot = try? c.decodeIfPresent(Open<StatusDot>.self, forKey: .dot)
+        busy = try? c.decodeIfPresent(Bool.self, forKey: .busy)
+        on = try? c.decodeIfPresent(Bool.self, forKey: .on)
+        command = try? c.decodeIfPresent(StatusCommand.self, forKey: .command)
+        tooltip = try? c.decodeIfPresent(String.self, forKey: .tooltip)
     }
 }
 

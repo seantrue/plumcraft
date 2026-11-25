@@ -139,6 +139,7 @@ impl core::Shell for EditorApp {
             switching: &self.doc.switching,
             last_error: self.doc.last_error.as_deref(),
             error_seq: self.doc.last_error.seq(),
+            status_line: self.doc.status_line(self.app.status.as_deref().map(|t| (t, self.app.status_tone))),
             asks: &self.doc.asks,
             document: &self.doc.document,
             app_title: self.app_title,

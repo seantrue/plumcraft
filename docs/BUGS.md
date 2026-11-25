@@ -4,6 +4,13 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
+### B170. Mac: the offscreen picture of a window hosting an AppKit view draws the SwiftUI controls as a black band when the screen is locked
+
+- Reported: 2026-11-23, by an agent, as a related note under B148; split out 2026-11-25 when B148 was closed.
+- Report: in a window that hosts an AppKit view (an application's mask editor), `ui.screenshot` draws the SwiftUI controls as a black band while the screen is locked.
+- Cause: not known.
+- Issue: none
+
 ### B163. A graph's banner keeps "the graph has N problem(s)" after the missing engine was added
 
 - Reported: 2026-11-24 (found by an agent while reproducing B162, not by the maintainer)
@@ -33,14 +40,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Slice 8 of note 26 (2026-11-25, overnight, branch `pr/views-s8`): time axes, shares of a stack (`normalize`), a chart's zoom and pan (`viewer.range`), a selection that belongs to the value so a table window and a chart window share it (`viewer.select`, `view.popout {another: true}`, the table's Selected Only), a readout of what is under a point, and a probe on Compare's difference. Apple shells and egui; Windows built, not launched. Open: hover and face previews wait on a decision (where the picture is made); the table follows a selection that arrives and marks whole rows (follow-up, same branch); on the Mac, after that scroll, the row above shows through the column header; egui's table shows no selection.
 - Decided (2026-11-25): The maintainer, 2026-11-25, on the checklist page of 29 points (cards 1 to 15 are N1 to N15 here, 16 and 17 the release and merge points R1 and R2, 18 to 29 are V1 to V12 of note 26): "Decisions: 1A; 2A; 3A; 4A; 5A; 6A; 7A; 8A; 9A; 10A; 11A; 12A; 13A; 14A; 15A; 16A; 17A; 18A; 19A; 20A; 21A; 22A; 23A; 24A; 25A; 26A; 27A; 28A; 29B". The views points (18 to 28) stand as built; 29B: a long TEXT is not sent whole by the engine, the editor asks the engine for the rest (to build). Then, the same day: "Stop. Take the long text". So item 12 stands as built too (29A): the engine sends the whole of a long TEXT. Nothing to build.
 - Face previews (2026-11-25, branch `pr/views-s10`; the maintainer: "Chart: a"): the array chart layout moved to a new crate, `plumcraft-chart`, with a rasteriser, and the Rust engine SDK sends the chart as the face's thumbnail for a 1-D array or a table array the core plots (no protocol change). The Python SDK does not yet. Apple and Windows have no wire or port hover of a value; egui's shows the same layout.
-- Issue: none
-
-### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
-
-- Reported: 2026-11-23, found by an agent while picturing an application built on the Mac shell; not reported by the maintainer.
-- Report: `ui.screenshot` with no window named draws the canvas flipped top to bottom and mirrored. The real window draws correctly. The same is true of the public app's own picture from the curves work, so it predates that.
-- Related, also unfixed: in a window that hosts an AppKit view (the mask editor), the offscreen picture draws the SwiftUI controls as a black band when the screen is locked.
-- Cause: not known.
 - Issue: none
 
 ### B144. `a_shared_remote_refuses_md5_uploads` failed once on the Linux test host, in a full run
@@ -92,32 +91,11 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Open question: is it timing under load (the fixture uses a slow node measured in real seconds), like B39 and B40?
 - Issue: none
 
-### B126. On the iPad, a Save Result the engine asked about said "Couldn't save" and never offered the file the answer wrote
-
-- Reported: 2026-11-22, found by reading while giving the prompts their labels (branch `native/n4-prompts`)
-- Report: the iPad saves into a folder of its own and then offers the file to the export picker (`AskPresenter.exportWhenSaved`, B122's iPad half). When the engine asks the save's question (decisions 2A, 3A), the core's `save.last` turns to `ok: false` at the same moment it raises the `saveShape` prompt. The wait took that reply as the save's end, said "Couldn't save: …" under the prompt, and stopped, so the `.npy` (or PNG) the answer then wrote was never offered for export
-- Fixed: 2026-11-22, branch `native/n4-prompts`: while the core's prompt is `saveShape` the wait keeps going and waits for the save the answer starts (none when cancelled). iPad UI test `testTheSavesQuestionAndARecipe` (the test engine attached over HTTP): Save as NumPy (.npy) brings the picker with `strip.npy`. Not run without the fix
-- Issue: none
-
 ### B131. egui's `scrolling_in_past_the_picture_asks_for_detail_once` failed once: the panel's picture not yet reported
 
 - Reported: 2026-11-22, the Rust gate on the Mac (branch `native/n4-prompts`, whose change to the core is the save question's first capital only)
 - Report: `crates/ui/tests/kittest_viewer_tools.rs:257` unwrapped `watched.view.tools.pictures[0]` while it was still null ("invalid type: null, expected a sequence"): the test read the picture's place before the panel had drawn it. Passed when run again alone (2.3 s). Before this, the gate's runs today passed it
 - Proposed: the test waits until the panel reports its picture, as its `until` does for the value, rather than unwrapping the first read
-- Issue: none
-
-### B128. On the iPad, Recipe drew "No recipe: the engine sent none for this value." over a value that had one
-
-- Reported: 2026-11-22, seen in the iPad UI test's picture (branch `native/n4-prompts`; the test engine's Traced, attached over HTTP)
-- Report: the viewer bar's Recipe (shared SwiftUI, `RecipeButton`) kept the recipe's text and the popover's `isPresented` in two separate states, set one after the other. In compact width the popover is a sheet, and the sheet drew the text it had before the reply: "No recipe". The app's own report (`recipe.text`) had the recipe, so a check that read only the report passed
-- Fixed: 2026-11-22, branch `native/n4-prompts`: the popover is `popover(item:)`, its text travelling with its presentation. The iPad UI test `testTheSavesQuestionAndARecipe` now reads the drawn text ("traced", and no "No recipe"); the Mac person check reads the popover through accessibility as well as the app's report
-- Issue: none
-
-### B127. The save's question started in lower case ("this 4 by 1000 array is…")
-
-- Reported: 2026-11-22, seen in the Mac person check's picture of the prompt (branch `native/n4-prompts`)
-- Report: the core put the engine's reason, a clause starting in lower case, at the head of the prompt's text
-- Fixed: 2026-11-22, branch `native/n4-prompts`: the core makes its first letter a capital (`Prompt::text`); test `invoke::tests::the_save_questions_text_is_a_sentence`. The SDKs' reason is unchanged (it is also the `config` error's text, inside other sentences)
 - Issue: none
 
 ### B124. A default preferences file appeared in the maintainer's real Library, `Application Support/PlumCraft/prefs.json`
@@ -128,23 +106,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Fixed at source, for every process that is a test: `plumcraft_scratch::testing()` (a cargo-built test binary, or `COMMONKIT_TEST_RUN` set, as every scratch script and the Swift and C# test kits set it) puts `prefs::path_for` (and the trust file beside it) and `doc_cmds::default_root` under the process's scratch root. Tests: `prefs::tests::a_test_keeps_its_preferences_under_its_scratch_root`, `doc_cmds::tests::a_tests_copies_and_exports_stay_in_its_scratch_root`; the home probe after the fix finds nothing under the scratch home. Not covered: a C ABI core given `dirs.prefs` explicitly (the shell's choice)
 - The real file was left untouched
 - Found (2026-11-22, branch `native/n4-recipe`): **the writer was an app, not a test: an old trial build of the Mac app from when it was named PlumCraft** (`com.plumcraft.mac`, built 2026-11-21, kept in the main checkout's `claude-debug/native-n3/s6-try/n4s6/PlumCraft.app`). The system log has its process (`PlumCraft`, launched 15:28:26 by LaunchServices on demand and brought to the front, its parent launchd, no script's) doing file coordination and a recent-documents update at 15:29:31.81, the second the file appeared; that build kept its preferences in `Application Support/PlumCraft` (the app was renamed Plummer later; today's folder is `Plummer`). It was still running when found and was not signalled. The suspects on this side were cleared by running them: the Swift kit's tests with `HOME` and `CFFIXED_USER_HOME` at a scratch folder wrote no preferences (they did write `Library/Caches/plumcraft/open/export`, the export leak above, which `feat/sdk-save-2`'s `testing()` rule now keeps in scratch for them too, since their test environment sets `COMMONKIT_TEST_RUN`); the iPad simulator's conformance and UI tests, run again one at a time, left the file's time and inode as they were, and the iPad app keeps its folders in its container. Not a test leak, so no test fix; what would prevent a repeat: old trial builds left where LaunchServices registers them can be launched as a document's app, and run as the person's own app with the person's Library. Proposed: unregister and remove the trial builds under `claude-debug/*/s*-try` (the maintainer's decision; nothing was removed)
-### B122. Save Result… did nothing from a node's menu or its face's footer in the native shells
-
-- Reported: 2026-11-22
-- Report: the Windows agent's reading (relayed by the controller): a menu item whose params carry `ask: true` (the node menu's Save Result…) runs with `command.run`, so `run.save` ran with no path and failed; the footer's Save Result… line is drawn but a tap on it is taken as a watch; no `run.save` anywhere under `native/`. Confirmed on the Mac by reading: `DocumentModel.activate` runs an item with params by `command.run`, and the core's tap on any footer item was `run.watch`
-- Context: before the Save Result branch the core's `run.save` with `ask: true` worked only through `ui.invoke` (egui intercepted it itself). The maintainer's rule: a shell-side user action is a defect; the fix is the core's
-- Fixed: 2026-11-22, branch `native/n4-save`, in the core, so no shell needs code: a tap on a footer item is decided by the item's kind (`geometry::FooterTap`): the `save` line's tap is `run.save {node, port, sheet, ask: true}` (Contact Sheet… on its right half when offered), invoked as the menu item is; `command.run run.save {…, ask: true}` is invoked too (replies `{invoked}`); a shell's own `ui.gesture` and such a `command.run` are its person's (the C ABI), so the shell shows the asks; over the control port they are a script's. `geometry.locate` takes `part: "save"`. Conformance: the save case now runs the menu item's way (`command.run`) and, where the shell measures its footer (`footer`: the Apple apps), taps the line and sees `file.save` asked. Windows can drop its shell-side dispatch (below, in the report)
-- Issue: none
-
-### B123. The person check failed one run in two under load: B87's banner, F36 cancel, F29 latest wins
-
-- Reported: 2026-11-22
-- Report: the controller's gate on the Save Result branch (screen locked, other heavy work on the Mac): three FAILs ("an unreadable manifest is said at launch (B87)" with `manifestProblems` present but no banner; "F36 cancel" "pick False disabled: no run in progress", the 6 s slow node already done; "F29 latest wins" "superseded 0 -> 0"); the next run, same code, passed
-- Context: each step leaned on time. F36 and F29 waited at most 10 s for the slow node to show progress and then acted, so on a busy machine the node had finished (or not started) when Cancel or the second Run came. B87 compared the window's last banner, set only if the window saw the core's status line before a command cleared it, and any later banner replaced it
-- Fixed: 2026-11-22, branch `native/n4-save`: the text engine has `text.gate` (passes its text once a file exists, stops on cancel; Rust and Python; a test each way), and the check's graph waits at it: the check removes the file, starts the run, waits on the face's state (`started`, `progress`) as long as the machine needs, cancels or starts the run over it (waiting on the core's `superseded` count), then puts the file back. F35's engine kill waits at the gate too. B87: the Mac reads the problems from the engine's state (`ui.inspect`'s `engine.manifestProblems`, which the core keeps) as its window comes up and says them in the banner; the status keeps every banner (`banners`), and the check looks for the problem among them
-- Verified: the Mac gate five times in a row (screen unlocked; runs 2 and 4 with a busy loop per core beside them): 54 passed, 0 failed each time, B87, F29, F35 and F36 among them
-- Issue: none
-
 ### B85. Plummer crashed twice in Swift's main-actor check from an AppKit callback while a script step drove a panel from inside a task
 
 - Reported: 2026-11-21
@@ -215,31 +176,6 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Report: found by the gate of N5 slice 3 (`native/n5-editing`); recorded under the standing "record bugs"
 - Context: `native/windows/tests/PlumCraft.Kit.Tests/CoreTests.cs:149`, the Windows kit's test that sends 500 requests at once to a core just opened. In one of four `dotnet test` runs on the Windows 11 ARM64 test machine (40 of 41 passed) the core refused one with "busy: the document's engine is still connecting": the C ABI core holds at most 256 requests for a document whose engine hasn't connected yet (`MAX_HELD`, `crates/ffi/src/core.rs`), and the test doesn't wait for the engine before sending them. The run before and the two after passed 41 of 41. Not changed: the test or the limit, whichever is wrong, is for the maintainer.
 - Decided (the maintainer): "Make the test wait". On `native/n5-gate` the test sends `scene.get` first, which the core holds until the document's engine connects (`ping` is the core's own and isn't held), and only then the 500 requests. On 2026-11-22 it passed in three full `dotnet test` runs on the Windows test VM (TPM off); left open for the maintainer to close.
-- Issue: none
-
-### B119. On an iPad with Windowed Apps, in a small window, the bar lost Run and the More menu to the system's overflow
-
-- Reported: 2026-11-22
-- Report: the controller's two device runs of the iPad UI tests (the maintainer present). Run B, on PR #163: `testCompactWindowsByATap` and `testNoKeyboardWithNothingEdited` failed with no `tool.more` button; the bar's elements were Documents, Add Node, the title menu and the system's own `OverflowBarButtonItem` "More". Every status printed at a time-out in both runs said `"size": (375, 655.5)`. The maintainer: "It's on Windowed apps" (Settings, Multitasking & Gestures)
-- Context: with Windowed Apps a window can be any size and iPadOS keeps the size it last had, across launches and test runs. In a 375-point window the window controls sit beside Documents, and Documents, Add Node, the title, Run and More don't fit: the system folds Run and More into its own overflow menu (More inside "More"), so a person reaches Run and the core's menus two menus deep, and a test finds neither
-- Reproduced (branch `native/n4-window`, the iPad Pro 11-inch (M5) simulator with Windowed Apps chosen in its Settings, a 375 by 655 window): the same bar, picture for picture
-- Fixed: 2026-11-22, branch `native/n4-window`: a narrow window (compact and under 440 points) keeps Documents, the title, Run and More on the bar, and Add Node moves into the More menu (`GraphViewController.narrow`; the bar is laid out again when the width crosses it). `testCompactWindowsByATap` and `testNoKeyboardWithNothingEdited` pass at 375 by 655
-- Issue: none
-
-### B120. On the iPad, in a window that isn't the whole screen, the field being edited stayed under the keyboard
-
-- Reported: 2026-11-22
-- Report: found reproducing B119 on the simulator at 375 by 655 (Windowed Apps): `testInlineEdits` timed out on "the keyboard up, the field above it"
-- Context: the keyboard's frame comes in the screen's coordinates; the row editor converted it as if it were the window's (`FieldEditorHost.keyboard`), right only when the window is the screen. In a window placed elsewhere on the screen the keyboard's top was computed off by the window's offset, so the canvas wasn't lifted enough (or was lifted when it needn't be)
-- Fixed: 2026-11-22, branch `native/n4-window`: the frame is converted from the screen's coordinate space (`canvasView.convert(end, from: win.screen.coordinateSpace)`). `testInlineEdits` passes at 375 by 655
-- Issue: none
-
-### B121. The iPad UI tests assumed a whole-screen window
-
-- Reported: 2026-11-22
-- Report: the device runs above (B112 to B114 at 375 by 655.5) and the same tests on the simulator at 375 by 655
-- Context: test faults, not the app's. The tests never set the window's size, and on a device with Windowed Apps the size is whatever the window last had (run A all at 375 by 655.5; yesterday's run started at 1,067 by 655.5 and was 375 by 655.5 after `testTouchGestures` rotated the device; run B 375 by 655.5 until the same test's rotations, then the whole screen; on the simulator a window zoomed to the whole screen went back to its earlier 375 by 655 when that test turned the device). They tapped points that were off the window or under the bar (the table's pin above the window's top, B112; the group's title, B114), dismissed menus and the palette by tapping the app's own left edge (the palette is a sheet from below in a narrow window), and tapped toolbar buttons (Fit, Select) that a narrow bar keeps in its More menu (B113); the warned-engine test scrolled the Engine menu by swiping an item that had scrolled away (it now swipes the lowest item in reach, and asks for the whole screen whatever `PLUMCRAFT_WINDOW` says: in a 375-point window the menu is short, the system's keyboard covers its foot, and a scroll of it was taken as a press often enough to be no test); `testEveryViewerByATap` opens each viewer's node centred, so it works at any size
-- Fixed: 2026-11-22, branch `native/n4-window`: each launch asks for its window (`--window-size`, the whole screen unless `PLUMCRAFT_WINDOW` names a size): the whole screen through the system's window controls (Zoom) when the window isn't already, a smaller size by the app pinning its scene's size and the test dragging the window's corner to it, which is how iPadOS lets a window shrink; every test says its window once ready (`WINDOW …`: size, size classes, activation state, orientation, the size asked for) and every time-out says it too; points are panned into reach first, as a finger would (`reveal`); toolbar buttons come from the bar or the More menu (`toolbar`); taps outside a menu or the palette go to the canvas's top left below the bar
 - Issue: none
 
 ### B111. On the iPad, after a number typed into a face's field, the app never reports idle (XCTest waited 60 s on every step)
@@ -315,6 +251,96 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B171. iPad: opening a second pop-out of a value closed the first
+
+- Reported: 2026-11-25, found by an agent when a conformance case first ran on the iPad; not reported by the maintainer.
+- Report: on the iPad, a table's chart popped out and then its table opened as another window (`view.popout {another: true}`): the chart's pop-out was closed, so a brush in the chart could not be seen in the table, and the chart's zoom was lost. The conformance case failed with "no pop-out 26".
+- Cause (confirmed): the iPad shows one pop-out in its sheet, and showing a newer one closed the replaced one in the core, since N4 slice 3. It fails the same way on the commit before the status line.
+- Fixed: 2026-11-25, branch `pr/status-line`: the replaced pop-out stays open behind the sheet and shows again when the one over it closes or it is raised. iPad conformance 74 of 74 on a simulator.
+- Issue: none
+
+### B169. The About entry continues to be greyed out
+
+- Reported: 2026-11-25
+- Report: "about entry continues to be greyed out."
+- Context: the maintainer had builds of an application on the Mac shell and on the iPad shell, made from the dev branch at `a34e73e`, open that day. B151 put About in the menus (which build this is). No earlier entry records a greyed-out About, so "continues" refers to something seen before and not written down.
+- Answer (the maintainer, 2026-11-25): "There is none under help, greyed out under app." So: the Mac, the application menu's About item is disabled, and Help has no About.
+- Issue: none
+- Cause (confirmed by launch): the Mac's About item had no item of the core's menu model behind it, and the menu's validation disables any item without one.
+- Fixed: 2026-11-25, branch `pr/status-line`: About takes its label and state from the model's item with the role `about`, and works with no document open. A Mac conformance step chooses it with a document window and after closing it; it fails without the fix. Help has no About on the Mac, by the platform's convention.
+
+### B148. Mac: the canvas picture from `ui.screenshot` comes out upside down and mirrored
+
+- Reported: 2026-11-23, found by an agent while picturing an application built on the Mac shell; not reported by the maintainer.
+- Report: `ui.screenshot` with no window named draws the canvas flipped top to bottom and mirrored. The real window draws correctly. The same is true of the public app's own picture from the curves work, so it predates that.
+- Related, also unfixed: in a window that hosts an AppKit view (the mask editor), the offscreen picture draws the SwiftUI controls as a black band when the screen is locked.
+- Cause: not known.
+- Issue: none
+- Fixed: 2026-11-25, by B168's fix (PR #216): the same fault, the offscreen picture's flip rule. The picture after that fix is upright and not mirrored. The related black band is now B170.
+
+### B119. On an iPad with Windowed Apps, in a small window, the bar lost Run and the More menu to the system's overflow
+
+- Reported: 2026-11-22
+- Report: the controller's two device runs of the iPad UI tests (the maintainer present). Run B, on PR #163: `testCompactWindowsByATap` and `testNoKeyboardWithNothingEdited` failed with no `tool.more` button; the bar's elements were Documents, Add Node, the title menu and the system's own `OverflowBarButtonItem` "More". Every status printed at a time-out in both runs said `"size": (375, 655.5)`. The maintainer: "It's on Windowed apps" (Settings, Multitasking & Gestures)
+- Context: with Windowed Apps a window can be any size and iPadOS keeps the size it last had, across launches and test runs. In a 375-point window the window controls sit beside Documents, and Documents, Add Node, the title, Run and More don't fit: the system folds Run and More into its own overflow menu (More inside "More"), so a person reaches Run and the core's menus two menus deep, and a test finds neither
+- Reproduced (branch `native/n4-window`, the iPad Pro 11-inch (M5) simulator with Windowed Apps chosen in its Settings, a 375 by 655 window): the same bar, picture for picture
+- Fixed: 2026-11-22, branch `native/n4-window`: a narrow window (compact and under 440 points) keeps Documents, the title, Run and More on the bar, and Add Node moves into the More menu (`GraphViewController.narrow`; the bar is laid out again when the width crosses it). `testCompactWindowsByATap` and `testNoKeyboardWithNothingEdited` pass at 375 by 655
+- Issue: none
+
+### B120. On the iPad, in a window that isn't the whole screen, the field being edited stayed under the keyboard
+
+- Reported: 2026-11-22
+- Report: found reproducing B119 on the simulator at 375 by 655 (Windowed Apps): `testInlineEdits` timed out on "the keyboard up, the field above it"
+- Context: the keyboard's frame comes in the screen's coordinates; the row editor converted it as if it were the window's (`FieldEditorHost.keyboard`), right only when the window is the screen. In a window placed elsewhere on the screen the keyboard's top was computed off by the window's offset, so the canvas wasn't lifted enough (or was lifted when it needn't be)
+- Fixed: 2026-11-22, branch `native/n4-window`: the frame is converted from the screen's coordinate space (`canvasView.convert(end, from: win.screen.coordinateSpace)`). `testInlineEdits` passes at 375 by 655
+- Issue: none
+
+### B121. The iPad UI tests assumed a whole-screen window
+
+- Reported: 2026-11-22
+- Report: the device runs above (B112 to B114 at 375 by 655.5) and the same tests on the simulator at 375 by 655
+- Context: test faults, not the app's. The tests never set the window's size, and on a device with Windowed Apps the size is whatever the window last had (run A all at 375 by 655.5; yesterday's run started at 1,067 by 655.5 and was 375 by 655.5 after `testTouchGestures` rotated the device; run B 375 by 655.5 until the same test's rotations, then the whole screen; on the simulator a window zoomed to the whole screen went back to its earlier 375 by 655 when that test turned the device). They tapped points that were off the window or under the bar (the table's pin above the window's top, B112; the group's title, B114), dismissed menus and the palette by tapping the app's own left edge (the palette is a sheet from below in a narrow window), and tapped toolbar buttons (Fit, Select) that a narrow bar keeps in its More menu (B113); the warned-engine test scrolled the Engine menu by swiping an item that had scrolled away (it now swipes the lowest item in reach, and asks for the whole screen whatever `PLUMCRAFT_WINDOW` says: in a 375-point window the menu is short, the system's keyboard covers its foot, and a scroll of it was taken as a press often enough to be no test); `testEveryViewerByATap` opens each viewer's node centred, so it works at any size
+- Fixed: 2026-11-22, branch `native/n4-window`: each launch asks for its window (`--window-size`, the whole screen unless `PLUMCRAFT_WINDOW` names a size): the whole screen through the system's window controls (Zoom) when the window isn't already, a smaller size by the app pinning its scene's size and the test dragging the window's corner to it, which is how iPadOS lets a window shrink; every test says its window once ready (`WINDOW …`: size, size classes, activation state, orientation, the size asked for) and every time-out says it too; points are panned into reach first, as a finger would (`reveal`); toolbar buttons come from the bar or the More menu (`toolbar`); taps outside a menu or the palette go to the canvas's top left below the bar
+- Issue: none
+
+### B122. Save Result… did nothing from a node's menu or its face's footer in the native shells
+
+- Reported: 2026-11-22
+- Report: the Windows agent's reading (relayed by the controller): a menu item whose params carry `ask: true` (the node menu's Save Result…) runs with `command.run`, so `run.save` ran with no path and failed; the footer's Save Result… line is drawn but a tap on it is taken as a watch; no `run.save` anywhere under `native/`. Confirmed on the Mac by reading: `DocumentModel.activate` runs an item with params by `command.run`, and the core's tap on any footer item was `run.watch`
+- Context: before the Save Result branch the core's `run.save` with `ask: true` worked only through `ui.invoke` (egui intercepted it itself). The maintainer's rule: a shell-side user action is a defect; the fix is the core's
+- Fixed: 2026-11-22, branch `native/n4-save`, in the core, so no shell needs code: a tap on a footer item is decided by the item's kind (`geometry::FooterTap`): the `save` line's tap is `run.save {node, port, sheet, ask: true}` (Contact Sheet… on its right half when offered), invoked as the menu item is; `command.run run.save {…, ask: true}` is invoked too (replies `{invoked}`); a shell's own `ui.gesture` and such a `command.run` are its person's (the C ABI), so the shell shows the asks; over the control port they are a script's. `geometry.locate` takes `part: "save"`. Conformance: the save case now runs the menu item's way (`command.run`) and, where the shell measures its footer (`footer`: the Apple apps), taps the line and sees `file.save` asked. Windows can drop its shell-side dispatch (below, in the report)
+- Issue: none
+
+### B123. The person check failed one run in two under load: B87's banner, F36 cancel, F29 latest wins
+
+- Reported: 2026-11-22
+- Report: the controller's gate on the Save Result branch (screen locked, other heavy work on the Mac): three FAILs ("an unreadable manifest is said at launch (B87)" with `manifestProblems` present but no banner; "F36 cancel" "pick False disabled: no run in progress", the 6 s slow node already done; "F29 latest wins" "superseded 0 -> 0"); the next run, same code, passed
+- Context: each step leaned on time. F36 and F29 waited at most 10 s for the slow node to show progress and then acted, so on a busy machine the node had finished (or not started) when Cancel or the second Run came. B87 compared the window's last banner, set only if the window saw the core's status line before a command cleared it, and any later banner replaced it
+- Fixed: 2026-11-22, branch `native/n4-save`: the text engine has `text.gate` (passes its text once a file exists, stops on cancel; Rust and Python; a test each way), and the check's graph waits at it: the check removes the file, starts the run, waits on the face's state (`started`, `progress`) as long as the machine needs, cancels or starts the run over it (waiting on the core's `superseded` count), then puts the file back. F35's engine kill waits at the gate too. B87: the Mac reads the problems from the engine's state (`ui.inspect`'s `engine.manifestProblems`, which the core keeps) as its window comes up and says them in the banner; the status keeps every banner (`banners`), and the check looks for the problem among them
+- Verified: the Mac gate five times in a row (screen unlocked; runs 2 and 4 with a busy loop per core beside them): 54 passed, 0 failed each time, B87, F29, F35 and F36 among them
+- Issue: none
+
+### B126. On the iPad, a Save Result the engine asked about said "Couldn't save" and never offered the file the answer wrote
+
+- Reported: 2026-11-22, found by reading while giving the prompts their labels (branch `native/n4-prompts`)
+- Report: the iPad saves into a folder of its own and then offers the file to the export picker (`AskPresenter.exportWhenSaved`, B122's iPad half). When the engine asks the save's question (decisions 2A, 3A), the core's `save.last` turns to `ok: false` at the same moment it raises the `saveShape` prompt. The wait took that reply as the save's end, said "Couldn't save: …" under the prompt, and stopped, so the `.npy` (or PNG) the answer then wrote was never offered for export
+- Fixed: 2026-11-22, branch `native/n4-prompts`: while the core's prompt is `saveShape` the wait keeps going and waits for the save the answer starts (none when cancelled). iPad UI test `testTheSavesQuestionAndARecipe` (the test engine attached over HTTP): Save as NumPy (.npy) brings the picker with `strip.npy`. Not run without the fix
+- Issue: none
+
+### B127. The save's question started in lower case ("this 4 by 1000 array is…")
+
+- Reported: 2026-11-22, seen in the Mac person check's picture of the prompt (branch `native/n4-prompts`)
+- Report: the core put the engine's reason, a clause starting in lower case, at the head of the prompt's text
+- Fixed: 2026-11-22, branch `native/n4-prompts`: the core makes its first letter a capital (`Prompt::text`); test `invoke::tests::the_save_questions_text_is_a_sentence`. The SDKs' reason is unchanged (it is also the `config` error's text, inside other sentences)
+- Issue: none
+
+### B128. On the iPad, Recipe drew "No recipe: the engine sent none for this value." over a value that had one
+
+- Reported: 2026-11-22, seen in the iPad UI test's picture (branch `native/n4-prompts`; the test engine's Traced, attached over HTTP)
+- Report: the viewer bar's Recipe (shared SwiftUI, `RecipeButton`) kept the recipe's text and the popover's `isPresented` in two separate states, set one after the other. In compact width the popover is a sheet, and the sheet drew the text it had before the reply: "No recipe". The app's own report (`recipe.text`) had the recipe, so a check that read only the report passed
+- Fixed: 2026-11-22, branch `native/n4-prompts`: the popover is `popover(item:)`, its text travelling with its presentation. The iPad UI test `testTheSavesQuestionAndARecipe` now reads the drawn text ("traced", and no "No recipe"); the Mac person check reads the popover through accessibility as well as the app's report
+- Issue: none
 
 ### B168. Mac: the offscreen picture of the document window comes out upside down
 

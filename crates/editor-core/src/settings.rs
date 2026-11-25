@@ -164,11 +164,12 @@ impl Look {
     /// another document changed them), and writing them back would lose that change (B41).
     pub fn keep_run_pref(&mut self, kept: RunPref) {
         let p = self.store.prefs();
-        let (colors, anim, auto) = (p.run_colors, p.anim_ms, p.auto_engines);
+        let (colors, anim, auto, status) = (p.run_colors, p.anim_ms, p.auto_engines, p.status_line);
         match kept {
             RunPref::Colors(c) if colors != Some(c) => self.store.set_run_colors(c),
             RunPref::Anim(ms) if anim != ms => self.store.set_anim_ms(ms),
             RunPref::Auto(a) if auto != Some(a) => self.store.set_auto_engines(a),
+            RunPref::StatusLine(on) if status != Some(on) => self.store.set_status_line(on),
             _ => return,
         }
         self.bump();
@@ -332,6 +333,8 @@ pub enum RunPref {
     Anim(Option<u32>),
     /// Pick Engines Automatically.
     Auto(bool),
+    /// View › Status Line.
+    StatusLine(bool),
 }
 
 /// What a shell tells the model of itself.
@@ -564,6 +567,7 @@ pub fn after_command(d: &mut crate::document::Document, look: &SharedLook, id: &
         "view.runColors" => Some(RunPref::Colors(!d.session.views.run_colors_off)),
         "view.animationSpeed" => Some(RunPref::Anim(d.session.views.anim_ms)),
         "engine.auto" => Some(RunPref::Auto(d.session.engines.auto)),
+        "view.statusLine" => Some(RunPref::StatusLine(!d.session.views.status_line_off)),
         _ => None,
     };
     if let Some(kept) = kept {
@@ -610,9 +614,13 @@ pub fn follow(d: &mut crate::document::Document) -> bool {
     }
     d.look_seen = l.generation();
     let (colors, anim, auto) = l.run_prefs();
+    let status_line = l.store.prefs().status_line;
     let views = &mut d.session.views;
     if let Some(c) = colors {
         views.run_colors_off = !c;
+    }
+    if let Some(on) = status_line {
+        views.status_line_off = !on;
     }
     views.anim_ms = anim;
     if let Some(a) = auto {

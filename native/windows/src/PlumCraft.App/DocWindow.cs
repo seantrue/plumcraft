@@ -54,11 +54,14 @@ public sealed class DocWindow : Window
     // floated over the canvas's top edge (the maintainer: "Float it over the canvas"), so a message
     // never moves the canvas under the pointer
     readonly InfoBar banner = new() { IsOpen = false, IsClosable = true };
-    readonly TextBlock engineText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center };
-    readonly FontIcon engineWarning = new() { Glyph = "\uE7BA", FontSize = 12, Visibility = Visibility.Collapsed, VerticalAlignment = VerticalAlignment.Center, Foreground = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 134, 0)) };
-    readonly TextBlock stateText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75, MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis };
     readonly TextBlock zoomText = new() { FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.75 };
-    readonly Microsoft.UI.Xaml.Shapes.Ellipse engineDot = new() { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center };
+    // the status line (research note 28): the core's segments, drawn here and never composed
+    readonly Grid status = new() { Padding = new Thickness(12, 3, 12, 4), ColumnSpacing = 16 };
+    readonly StackPanel statusLeft = new() { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center };
+    readonly StackPanel statusRight = new() { Orientation = Orientation.Horizontal, Spacing = 14, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+    StatusLine statusLine = StatusLine.Empty;
+    List<StatusPlaced> statusPlan = [];
+    double statusPlanWidth = -1;
     bool closingFromCore, closed, viewSet;
     public double? FirstFrameMs { get; private set; }
     public DateTime? FirstFrameWall { get; private set; }
@@ -187,17 +190,14 @@ public sealed class DocWindow : Window
         canvasBorder.BorderBrush = (Brush)Application.Current.Resources["CardStrokeColorDefaultBrush"];
         Grid.SetRow(canvasBorder, 4);
         root.Children.Add(canvasBorder);
-        var status = new Grid { Padding = new Thickness(12, 3, 12, 4), ColumnSpacing = 16 };
         status.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         status.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         status.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        var engine = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        engine.Children.Add(engineDot);
-        engine.Children.Add(engineText);
-        engine.Children.Add(engineWarning);
-        status.Children.Add(engine);
-        Grid.SetColumn(stateText, 1);
-        status.Children.Add(stateText);
+        status.Children.Add(statusLeft);
+        Grid.SetColumn(statusRight, 1);
+        status.Children.Add(statusRight);
+        status.SizeChanged += (_, _) => DrawStatusLine();
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(status, "Status line");
         Grid.SetColumn(zoomText, 2);
         status.Children.Add(zoomText);
         Grid.SetRow(status, 5);
@@ -293,22 +293,110 @@ public sealed class DocWindow : Window
         var name = s.Name.Length > 0 ? s.Name : s.Path is { } p ? Path.GetFileName(p) : "Untitled";
         Title = $"{(s.Dirty ? "*" : "")}{name} - {CoreHost.AppName}";
         titleText.Text = Title;
-        // one line in the status bar, the whole text on hover (an engine's error can run to several lines)
-        var full = s.LastError ?? (s.Dirty ? "Edited" : s.Path ?? "");
-        stateText.Text = string.Join(" · ", full.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
-        ToolTipService.SetToolTip(stateText, full.Length > 0 ? full : null);
+        // the status line is the core's (research note 28): the last error stays in it after its banner
+        if (s.StatusLine != statusLine)
+        {
+            statusLine = s.StatusLine;
+            DrawStatusLine();
+        }
         NoteStatus();
+    }
+
+
+    static Brush ToneBrush(string? tone, bool dim) => tone switch
+    {
+        "error" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 43, 28)),
+        "warn" => new SolidColorBrush(Windows.UI.Color.FromArgb(255, 196, 134, 0)),
+        _ => (Brush)Application.Current.Resources[dim ? "TextFillColorSecondaryBrush" : "TextFillColorPrimaryBrush"],
+    };
+
+    /// <summary>Draw the core's status line: each segment whole or not at all (StatusLine.Fit, measured
+    /// here), in order, its tone's colour, a spinner while busy, a toggle lit when on; a click runs its
+    /// command. View › Status Line (`on`) hides the bar.</summary>
+    void DrawStatusLine()
+    {
+        status.Visibility = statusLine.On ? Visibility.Visible : Visibility.Collapsed;
+        // the bar's width less its padding, the zoom cell and the gaps between the columns
+        var width = status.ActualWidth > 0 ? status.ActualWidth : 1200;
+        zoomText.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+        var room = width - 24 - zoomText.DesiredSize.Width - 32;
+        var plan = statusLine.Fit(room, statusLeft.Spacing, (seg, form) =>
+        {
+            var r = StatusRow(seg, form);
+            r.Measure(new Windows.Foundation.Size(double.PositiveInfinity, double.PositiveInfinity));
+            return r.DesiredSize.Width;
+        });
+        if (plan.SequenceEqual(statusPlan) && Math.Abs(width - statusPlanWidth) < 0.5 && statusLeft.Children.Count + statusRight.Children.Count == plan.Count) return;
+        statusPlan = plan;
+        statusPlanWidth = width;
+        statusLeft.Children.Clear();
+        statusRight.Children.Clear();
+        foreach (var p in plan) (p.Segment.Side == "right" ? statusRight : statusLeft).Children.Add(StatusRow(p.Segment, p.Form));
+    }
+
+    /// <summary>One segment of the status line in one form.</summary>
+    StackPanel StatusRow(StatusSegment seg, StatusForm form)
+    {
+        var words = new StatusPlaced(seg, form).Words;
+        {
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 5, VerticalAlignment = VerticalAlignment.Center };
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row, $"status.{seg.Id}");
+            if (seg.Dot is { } d)
+            {
+                var col = d == "ok" ? Windows.UI.Color.FromArgb(255, 46, 160, 67) : d == "busy" ? Windows.UI.Color.FromArgb(255, 210, 153, 34) : Windows.UI.Color.FromArgb(255, 196, 43, 28);
+                row.Children.Add(new Microsoft.UI.Xaml.Shapes.Ellipse { Width = 8, Height = 8, VerticalAlignment = VerticalAlignment.Center, Fill = new SolidColorBrush(col) });
+            }
+            if (seg.Busy) row.Children.Add(new ProgressRing { IsActive = true, Width = 12, Height = 12 });
+            var cmd = seg.Command;
+            if (seg.Role == "toggle")
+            {
+                var t = new ToggleButton { Content = words, IsChecked = seg.On == true, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
+                t.Click += async (_, _) => { if (cmd is not null) await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject); };
+                row.Children.Add(t);
+            }
+            else if (seg.Role == "action")
+            {
+                var b = new Button { Content = words, FontSize = 12, Padding = new Thickness(6, 1, 6, 1) };
+                b.Click += async (_, _) => { if (cmd is not null) await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject); };
+                row.Children.Add(b);
+            }
+            else
+            {
+                var dim = seg.Role is "hash" or "selection" or "run" && !seg.Busy;
+                row.Children.Add(new TextBlock
+                {
+                    Text = words.Replace('\n', ' '), FontSize = 12, VerticalAlignment = VerticalAlignment.Center, Foreground = ToneBrush(seg.Tone, dim),
+                    // only the newest message alone on a line too narrow for it is cut
+                    MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = form == StatusForm.Cut ? TextTrimming.CharacterEllipsis : TextTrimming.None,
+                });
+            }
+            if (form == StatusForm.Full && seg.Detail is { Length: > 0 } det)
+                row.Children.Add(new TextBlock
+                {
+                    Text = det, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Foreground = ToneBrush(seg.DetailTone, true),
+                    MaxLines = 1, TextWrapping = TextWrapping.NoWrap, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = seg.Role == "engine" ? 240 : double.PositiveInfinity,
+                });
+            if (cmd is not null && seg.Role is not ("toggle" or "action"))
+            {
+                if (cmd.Id == "run.cancel")
+                {
+                    var b = new Button { Content = cmd.Label ?? "Cancel", FontSize = 11, Padding = new Thickness(6, 0, 6, 0) };
+                    b.Click += async (_, _) => await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject);
+                    row.Children.Add(b);
+                }
+                else
+                {
+                    row.Tapped += async (_, _) => await Run(cmd.Id, cmd.Params ?? Jsonv.EmptyObject);
+                }
+            }
+            if (seg.Tooltip is { Length: > 0 } tip) ToolTipService.SetToolTip(row, tip);
+            return row;
+        }
     }
 
     void ShowEngine(EngineState e)
     {
-        var col = e.Ready ? Windows.UI.Color.FromArgb(255, 46, 160, 67) : e.Connected ? Windows.UI.Color.FromArgb(255, 210, 153, 34) : Windows.UI.Color.FromArgb(255, 150, 150, 150);
-        engineDot.Fill = new SolidColorBrush(col);
-        engineText.Text = e.Label.Length > 0 ? e.Label : e.Connected ? "Engine connected" : "Engine starting";
-        // the engine in use has a warning (a copied manifest): a warning glyph in its cell, the words on hover
-        engineWarning.Visibility = e.Warning is { Length: > 0 } ? Visibility.Visible : Visibility.Collapsed;
-        ToolTipService.SetToolTip(engineWarning, e.Warning);
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(engineWarning, e.Warning ?? "");
+        // the engine's cell is the status line's (the core's engine segment: its dot, name, warning and status)
         NoteStatus();
     }
 
@@ -532,7 +620,8 @@ public sealed class DocWindow : Window
             ["faces"] = c.FaceCount, ["measured"] = c.AllMeasured, ["idle"] = c.Idle, ["hidden"] = c.Hidden,
             ["firstFrameMs"] = FirstFrameMs, ["zoom"] = c.View.Zoom, ["pan"] = new JsonArray(c.View.Pan.X, c.View.Pan.Y),
             ["selected"] = Model.Selection.Nodes.Count, ["gesture"] = LastGesture, ["pointer"] = new JsonArray([.. CanvasView.Seen.Select(x => (JsonNode)x)]), ["engine"] = Model.Engine.Label, ["dirty"] = Model.State.Dirty,
-            ["banner"] = banner.IsOpen ? banner.Message : null, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
+            ["banner"] = banner.IsOpen ? banner.Message : null,
+            ["statusLine"] = new JsonObject { ["visible"] = status.Visibility == Visibility.Visible, ["shown"] = new JsonArray([.. statusPlan.Select(x => (JsonNode)x.Segment.Id)]), ["forms"] = new JsonArray([.. statusPlan.Select(x => (JsonNode)$"{x.Segment.Id}:{x.Form}:{x.Words}")]) }, ["asks"] = asks.Shown, ["showing"] = asks.Showing, ["picking"] = Picking,
             ["contextMenu"] = LastMenu, ["popouts"] = popouts.Describe(), ["inspector"] = Inspector.Describe(), ["coreWindows"] = coreWindows.Describe(), ["menus"] = menus.Model.Count, ["toolbar"] = toolbar.PrimaryCommands.Count,
             ["drag"] = CanvasView.DragState, ["fits"] = CanvasView.TargetFits, ["note"] = CanvasView.LastNote, ["editors"] = Editors.Describe(),
             ["focus"] = (Content?.XamlRoot is { } xr ? FocusManager.GetFocusedElement(xr)?.GetType().Name : null), ["undo"] = Model.State.Undo,

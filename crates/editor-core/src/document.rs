@@ -1457,6 +1457,26 @@ impl Host for Document {
     }
 }
 
+impl Document {
+    /// The status line (research note 28): the core's model every shell draws; `app` is an
+    /// application's own segment where a shell keeps one.
+    pub fn status_line(&self, app: Option<(&str, plumcraft_session::commands::Tone)>) -> Value {
+        let document = control::document_name(&self.session, &self.document);
+        let parts = crate::status_line::Parts {
+            session: &self.session,
+            link: self.link.as_ref(),
+            state: &self.engine,
+            last_error: self.last_error.as_deref(),
+            installing: self.installing.as_ref().map(|i| (i.url.as_str(), self.session.engines.install_status.as_deref())),
+            convert_offer: self.convert_offer.as_ref(),
+            selected: self.selection.with(|s| s.nodes.len() + s.groups.len()),
+            document: &document,
+            app,
+        };
+        crate::status_line::model(&parts, Instant::now())
+    }
+}
+
 impl Shell for Document {
     fn view(&self) -> View<'_> {
         View {
@@ -1466,6 +1486,7 @@ impl Shell for Document {
             switching: &self.switching,
             last_error: self.last_error.as_deref(),
             error_seq: self.last_error.seq(),
+            status_line: self.status_line(None),
             asks: &self.asks,
             document: &self.document,
             app_title: control::APP_TITLE,

@@ -87,6 +87,7 @@ pub mod scene;
 pub mod selection;
 pub mod settings;
 pub mod shell_schema;
+pub mod status_line;
 pub mod switchboard;
 pub mod theme;
 pub mod values;

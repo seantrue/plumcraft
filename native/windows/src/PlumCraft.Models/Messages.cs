@@ -2,6 +2,7 @@
 // palette, hits and wire targets, gestures, geometry, and the feed itself (the Swift kit's
 // Messages.swift).
 
+using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -472,6 +473,8 @@ public sealed record Changed
     public string? Redo { get; init; }
     public string? LastError { get; init; }
     public AutosaveState? Autosave { get; init; }
+    /// <summary>The status line, the core's model (research note 28), read leniently by <see cref="StatusLine.Parse"/>.</summary>
+    public JsonElement? StatusLine { get; init; }
     /// <summary>A `window` change (N5 slice 3, `platform.document_windows`): make a window for `doc`, which
     /// New or Open in document `from` made, for the person or a script (`by`), on the file `path` or untitled.</summary>
     public bool? Open { get; init; }
@@ -508,6 +511,8 @@ public sealed record DocumentState
     public string? Redo { get; init; }
     public string? LastError { get; init; }
     public AutosaveState Autosave { get; init; } = AutosaveState.Off;
+    /// <summary>The status line (research note 28): what the window's status bar draws.</summary>
+    public StatusLine StatusLine { get; init; } = StatusLine.Empty;
 
     /// <summary>From a `document` change carrying the state (one with a `gen`); null for any other.</summary>
     public static DocumentState? From(Changed c)
@@ -517,7 +522,121 @@ public sealed record DocumentState
         {
             Gen = g, Title = c.Title ?? "", Name = c.Document ?? "", Path = c.Path, Dirty = c.Dirty ?? false,
             Undo = c.Undo, Redo = c.Redo, LastError = c.LastError, Autosave = c.Autosave ?? AutosaveState.Off,
+            StatusLine = StatusLine.Parse(c.StatusLine),
         };
+    }
+}
+
+/// <summary>How a segment is drawn: with its detail, its text alone, its short form, or (the newest message
+/// alone on a line too narrow for it) cut.</summary>
+public enum StatusForm { Full, Text, Short, Cut }
+
+/// <summary>A segment as a narrow line shows it.</summary>
+public sealed record StatusPlaced(StatusSegment Segment, StatusForm Form)
+{
+    public string Words => Form == StatusForm.Short ? Segment.Short ?? Segment.Text : Segment.Text;
+}
+
+/// <summary>A command a status-line segment runs on a click: `{id, params, label?}`.</summary>
+public sealed record StatusCommand(string Id, JsonElement? Params, string? Label);
+
+/// <summary>One segment of the status line (research note 28; contract 7.2's `document` domain).</summary>
+public sealed record StatusSegment
+{
+    public required string Id { get; init; }
+    public string Role { get; init; } = "";
+    public string Side { get; init; } = "left";
+    public int Priority { get; init; } = 3;
+    public string Text { get; init; } = "";
+    /// <summary>The text for a narrow line, where one makes sense ("0.51 ms" for "last run 0.51 ms").</summary>
+    public string? Short { get; init; }
+    public string? Detail { get; init; }
+    public string? DetailTone { get; init; }
+    public string Tone { get; init; } = "info";
+    public string? Dot { get; init; }
+    public bool Busy { get; init; }
+    public bool? On { get; init; }
+    public StatusCommand? Command { get; init; }
+    public string? Tooltip { get; init; }
+}
+
+/// <summary>The status line (research note 28): the core's segments, which a shell draws and never
+/// composes; `On` is View › Status Line. Hostile input: what doesn't parse is left out.</summary>
+public sealed record StatusLine
+{
+    public bool On { get; init; } = true;
+    public IReadOnlyList<StatusSegment> Segments { get; init; } = [];
+
+    public static StatusLine Empty => new() { On = false };
+
+    /// <summary>The segments a bar of this many priorities keeps (1: the engine, the run, the newest message).</summary>
+    public IEnumerable<StatusSegment> Shown(int upTo) => Segments.Where(s => s.Priority <= upTo);
+
+    /// <summary>What fits a line <paramref name="room"/> wide, each segment whole or not at all (the Swift
+    /// kit's StatusLine.fit, the same steps): the details go; priority 3, then 2, go (the last first); the
+    /// short forms are taken (the lowest priority first); priority 1 goes from the end. The newest message
+    /// keeps its place and is cut only when it alone is wider than the line.</summary>
+    public List<StatusPlaced> Fit(double room, double spacing, Func<StatusSegment, StatusForm, double> measure, int upTo = 3)
+    {
+        var plan = Segments.Where(s => s.Priority <= upTo).Select(s => new StatusPlaced(s, s.Detail is { Length: > 0 } ? StatusForm.Full : StatusForm.Text)).ToList();
+        bool Fits() => plan.Sum(p => measure(p.Segment, p.Form)) + spacing * Math.Max(plan.Count - 1, 0) <= room;
+        if (Fits()) return plan;
+        for (var k = 0; k < plan.Count; k++) if (plan[k].Form == StatusForm.Full) plan[k] = plan[k] with { Form = StatusForm.Text };
+        if (Fits()) return plan;
+        const string keep = "message.0";
+        foreach (var pri in new[] { 3, 2 })
+        {
+            while (!Fits())
+            {
+                var k = plan.FindLastIndex(p => p.Segment.Priority == pri && p.Segment.Id != keep);
+                if (k < 0) break;
+                plan.RemoveAt(k);
+            }
+            if (Fits()) return plan;
+        }
+        var order = Enumerable.Range(0, plan.Count).OrderByDescending(k => plan[k].Segment.Priority).ThenByDescending(k => k).ToList();
+        foreach (var k in order)
+        {
+            if (plan[k].Segment.Short is not { Length: > 0 } || plan[k].Segment.Id == keep) continue;
+            plan[k] = plan[k] with { Form = StatusForm.Short };
+            if (Fits()) return plan;
+        }
+        while (!Fits())
+        {
+            var k = plan.FindLastIndex(p => p.Segment.Id != keep);
+            if (k < 0) break;
+            plan.RemoveAt(k);
+        }
+        var m = plan.FindIndex(p => p.Segment.Id == keep);
+        if (m >= 0 && !Fits()) plan[m] = plan[m] with { Form = StatusForm.Cut };
+        return plan;
+    }
+
+    static string? Str(JsonElement o, string k) => o.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
+    static bool? Bool(JsonElement o, string k) => o.TryGetProperty(k, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False ? v.GetBoolean() : null;
+
+    public static StatusLine Parse(JsonElement? e)
+    {
+        if (e is not { ValueKind: JsonValueKind.Object } o) return Empty;
+        var segs = new List<StatusSegment>();
+        if (o.TryGetProperty("segments", out var arr) && arr.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var s in arr.EnumerateArray())
+            {
+                if (s.ValueKind != JsonValueKind.Object || Str(s, "id") is not { } id) continue;
+                StatusCommand? cmd = null;
+                if (s.TryGetProperty("command", out var c) && c.ValueKind == JsonValueKind.Object && Str(c, "id") is { } cid)
+                    cmd = new StatusCommand(cid, c.TryGetProperty("params", out var p) ? p.Clone() : null, Str(c, "label"));
+                var pri = s.TryGetProperty("priority", out var pv) && pv.ValueKind == JsonValueKind.Number && pv.TryGetInt32(out var pi) ? pi : 3;
+                segs.Add(new StatusSegment
+                {
+                    Id = id, Role = Str(s, "role") ?? "", Side = Str(s, "side") ?? "left", Priority = pri, Text = Str(s, "text") ?? "", Short = Str(s, "short"),
+                    Detail = Str(s, "detail"), DetailTone = Str(s, "detailTone"), Tone = Str(s, "tone") ?? "info", Dot = Str(s, "dot"),
+                    Busy = Bool(s, "busy") ?? false, On = Bool(s, "on"), Command = cmd, Tooltip = Str(s, "tooltip"),
+                });
+            }
+        }
+        return new StatusLine { On = Bool(o, "on") ?? true, Segments = segs };
     }
 }
 

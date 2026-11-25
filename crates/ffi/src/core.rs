@@ -1438,6 +1438,8 @@ impl Worker {
                          "path": s.path(), "dirty": s.is_dirty(), "undo": s.undo_label(), "redo": s.redo_label(), "lastError": d.doc.last_error,
                          // how many errors were said: the same one twice is news (B167)
                          "errorSeq": d.doc.last_error.seq(),
+                         // the status line, the core's model every shell draws (research note 28)
+                         "statusLine": d.doc.status_line(None),
                          "autosave": d.doc.autosave.status(),
                          // an engine install under way and what it is doing (B71), for a shell's
                          // progress line; null when none is

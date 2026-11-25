@@ -63,14 +63,7 @@ pub fn engine_status_line(ui: &mut egui::Ui, text: &str, tone: Tone, tokens: &To
 /// switch) and where it came from (`source` is `policy file <path>`, `environment
 /// COMMONKIT_HASH` or `default`; the path is the hover text).
 pub fn hash_label(algo: &str, source: &str) -> String {
-    let kind = if source.starts_with("policy file") {
-        "policy file"
-    } else if source.starts_with("environment") {
-        "environment"
-    } else {
-        source
-    };
-    format!("hash {algo} · {kind}")
+    plumcraft_editor_core::status_line::hash_label(algo, source)
 }
 
 #[cfg(test)]

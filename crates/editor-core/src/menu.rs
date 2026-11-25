@@ -549,6 +549,7 @@ pub fn checked(session: &Session, id: &str) -> Option<bool> {
     match id {
         "run.auto" => Some(session.run.auto),
         "view.runColors" => Some(!session.views.run_colors_off),
+        "view.statusLine" => Some(!session.views.status_line_off),
         _ => None,
     }
 }

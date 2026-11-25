@@ -2357,6 +2357,306 @@
         {"call": "command.run", "params": {"command": "graph.recent", "params": {}}, "expect": {"/result/recent": {"$len": 0}}},
         {"call": "menu.get", "params": {}, "until": {"/result/menus/0/items": {"$find": {"where": {"id": "menu:File/Open Recent"}, "want": {"/items": {"$len": 1}, "/items/0/label": "Clear Menu", "/items/0/enabled": false}}}}, "timeout": 10}
       ]
+    },
+    {
+      "name": "the status line: the core's model, after a run, a selection and an error",
+      "about": "Research note 28: ui.inspect's statusLine is the egui bar's cells as segments every shell draws. The run is always said (\"not run yet\" before one); after one, its time; a selection is counted; the last error is the newest message (opening the Messages window) and stays on a later look, after any banner has gone; View › Status Line (view.statusLine) turns it off, with its check mark, and on",
+      "half": "read",
+      "needs": [
+        "engine:text"
+      ],
+      "steps": [
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/on": true,
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "run"
+                },
+                "want": {
+                  "/role": "run",
+                  "/priority": 1
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "engine"
+                },
+                "want": {
+                  "/role": "engine",
+                  "/dot": {
+                    "$one": [
+                      "ok",
+                      "busy",
+                      "down"
+                    ]
+                  },
+                  "/tooltip": {
+                    "$exists": true
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "auto"
+                },
+                "want": {
+                  "/role": "toggle",
+                  "/on": false,
+                  "/command/id": "run.auto"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "text.literal",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "a": "/result/id"
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "selection.set",
+            "params": {
+              "nodes": [
+                "$a"
+              ]
+            }
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "until": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "selection"
+                },
+                "want": {
+                  "/text": "1 selected"
+                }
+              }
+            }
+          },
+          "timeout": 10,
+          "expect": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "document"
+                },
+                "want": {
+                  "/detail": "1 nodes, 0 wires"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "run.start",
+            "params": {}
+          }
+        },
+        {
+          "call": "ui.waitRun",
+          "params": {
+            "timeout": 60
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "until": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "run"
+                },
+                "want": {
+                  "/text": {
+                    "$includes": "last run"
+                  }
+                }
+              }
+            }
+          },
+          "timeout": 20
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "selection.clear",
+            "params": {}
+          }
+        },
+        {
+          "call": "ui.invoke",
+          "params": {
+            "command": "edit.copy"
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "message.0"
+                },
+                "want": {
+                  "/text": "select nodes to copy first",
+                  "/tone": "error",
+                  "/side": "right",
+                  "/priority": 1,
+                  "/command/id": "view.messages"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "scene.get"
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "message.0"
+                },
+                "want": {
+                  "/text": "select nodes to copy first"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.statusLine",
+            "params": {
+              "on": false
+            }
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/on": false
+          }
+        },
+        {
+          "call": "menu.get",
+          "expect": {
+            "/result": {
+              "$deep": {
+                "command": "view.statusLine",
+                "checked": false
+              }
+            }
+          }
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "view.statusLine",
+            "params": {}
+          }
+        },
+        {
+          "call": "ui.inspect",
+          "expect": {
+            "/result/statusLine/on": true
+          }
+        }
+      ]
+    },
+    {
+      "name": "the status line names the engine in use",
+      "about": "Research note 28: after an engine switch the engine segment's long label (its tooltip) names the engine now in use",
+      "half": "edit",
+      "needs": [
+        "engine:ports"
+      ],
+      "steps": [
+        {
+          "only": "ports_installed",
+          "call": "command.run",
+          "params": {
+            "command": "engine.use",
+            "params": {
+              "engine": "ports"
+            }
+          }
+        },
+        {
+          "only": "ports_installed",
+          "call": "ui.inspect",
+          "until": {
+            "/result/engine/engines": {
+              "$deep": {
+                "id": "ports",
+                "state": {
+                  "$deep": {
+                    "state": "connected"
+                  }
+                }
+              }
+            }
+          },
+          "timeout": 60
+        },
+        {
+          "call": "ui.inspect",
+          "until": {
+            "/result/statusLine/segments": {
+              "$find": {
+                "where": {
+                  "id": "engine"
+                },
+                "want": {
+                  "/dot": "ok",
+                  "/tooltip": {
+                    "$includes": "orts"
+                  }
+                }
+              }
+            }
+          },
+          "timeout": 30
+        }
+      ]
     }
   ]
 }

@@ -102,6 +102,8 @@ pub struct View<'a> {
     pub last_error: Option<&'a str>,
     /// How many errors were said (B167): a shell's banner follows this, not the text.
     pub error_seq: u64,
+    /// The status line, the core's model (research note 28).
+    pub status_line: Value,
     pub asks: &'a Asks<Cont>,
     /// The title's name for a graph with no file ([`UNTITLED`], a demo's, what it came from).
     pub document: &'a str,
@@ -849,6 +851,7 @@ pub fn inspect_core<S: Shell>(s: &S) -> Map<String, Value> {
     put("catalog", json!({"nodes": catalog.nodes.len(), "engine": catalog.engine.name, "version": catalog.engine.version}));
     put("lastError", json!(v.last_error));
     put("errorSeq", json!(v.error_seq));
+    put("statusLine", v.status_line.clone());
     put("run", session.run.summary(Instant::now()));
     if let Some(a) = v.run_anim {
         put("runAnim", run_anim_inspect(session, a));
@@ -1287,6 +1290,7 @@ mod tests {
                 switching: &self.switching,
                 last_error: self.last_error.as_deref(),
                 error_seq: self.last_error.seq(),
+                status_line: Value::Null,
                 asks: &self.asks,
                 document: UNTITLED,
                 app_title: APP_TITLE,

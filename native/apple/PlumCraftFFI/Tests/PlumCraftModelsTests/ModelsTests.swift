@@ -355,4 +355,62 @@ struct Sampler {
         let engine = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "engine", "gen": 1, "connected": true}"#))
         #expect(DocumentState(engine) == nil)
     }
+
+    /// The status line's fitting rule: whole or not at all; details, then priority 3 and 2, then
+    /// short forms, then priority 1 from the end; the newest message keeps its place and is cut
+    /// only when alone.
+    @Test func theStatusLineFitsWholeSegmentsOnly() {
+        func seg(_ id: String, _ p: Int, _ text: String, short: String? = nil, detail: String? = nil) -> StatusSegment {
+            var s = StatusSegment(id: id, role: id, priority: p, text: text)
+            s.short = short; s.detail = detail
+            return s
+        }
+        let line = StatusLine(segments: [
+            seg("engine", 1, "Text 0.7.0 · connected", short: "Text"), seg("document", 2, "g.json", detail: "2 nodes, 1 wires"),
+            seg("hash", 3, "hash b3 · environment", short: "b3"), seg("run", 1, "last run 0.51 ms", short: "0.51 ms", detail: "engine 0.2 ms"),
+            seg("auto", 3, "Auto-run", short: "Auto"), seg("message.0", 1, "select nodes to copy first"),
+        ])
+        // one unit a character, the detail beside its text
+        let w: (StatusSegment, StatusForm) -> Double = { s, f in
+            switch f {
+            case .full: Double(s.text.count + 1 + (s.detail?.count ?? 0))
+            case .text, .cut: Double(s.text.count)
+            case .short: Double((s.short ?? s.text).count)
+            }
+        }
+        func ids(_ room: Double) -> [String] {
+            line.fit(room: room, spacing: 1, measure: w).map { "\($0.segment.id):\($0.form.rawValue)" }
+        }
+        #expect(ids(500).contains("run:full"), "all fits: the details too")
+        #expect(ids(110) == ["engine:text", "document:text", "hash:text", "run:text", "auto:text", "message.0:text"])
+        #expect(ids(80) == ["engine:text", "document:text", "run:text", "message.0:text"], "priority 3 goes first")
+        #expect(ids(70) == ["engine:text", "run:text", "message.0:text"], "then 2")
+        #expect(ids(60) == ["engine:text", "run:short", "message.0:text"], "then the short forms, the last first")
+        #expect(ids(40) == ["engine:short", "run:short", "message.0:text"])
+        #expect(ids(32) == ["engine:short", "message.0:text"], "then priority 1 from the end: never cut")
+        #expect(ids(26) == ["message.0:text"], "the message keeps its place")
+        #expect(ids(10) == ["message.0:cut"], "and is cut only alone")
+        // no message: the same, nothing cut
+        let quiet = StatusLine(segments: Array(line.segments.dropLast()))
+        #expect(quiet.fit(room: 12, spacing: 1, measure: w).map(\.text) == ["Text", "0.51 ms"])
+        #expect(quiet.fit(room: 10, spacing: 1, measure: w).map(\.text) == ["Text"])
+        #expect(quiet.fit(room: 2, spacing: 1, measure: w).isEmpty)
+    }
+
+    /// The status line (research note 28): the core's segments, which a shell draws; a narrow
+    /// bar keeps priority 1; junk is left out, never fatal.
+    @Test func theStatusLineComesWithTheDocument() throws {
+        let v = try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 4, "statusLine": {"on": true, "segments": [{"id": "engine", "role": "engine", "side": "left", "priority": 1, "text": "Text 0.7", "tone": "info", "dot": "ok", "tooltip": "long"}, {"id": "hash", "role": "hash", "priority": 3, "text": "hash b3 · default", "tone": "info"}, {"id": "run", "role": "run", "priority": 1, "text": "running: 1 of 3 nodes", "busy": true, "detail": "0.4 s", "command": {"id": "run.cancel", "params": {}, "label": "Cancel"}}, {"id": "message.0", "role": "message", "side": "right", "priority": 1, "text": "boom", "tone": "error", "dot": "sideways"}, {"role": "no id"}, 7]}}"#)
+        let st = try #require(DocumentState(try JSONValueDecoder().decode(Changed.self, from: v)))
+        let line = st.statusLine
+        #expect(line.on && line.segments.map(\.id) == ["engine", "hash", "run", "message.0"])
+        #expect(line.shown(upTo: 1).map(\.id) == ["engine", "run", "message.0"])
+        #expect(line.segments[2].command?.id == "run.cancel" && line.segments[2].busy == true && line.segments[2].detail == "0.4 s")
+        #expect(line.segments[3].tone?.word == .error && line.segments[3].dot?.word == nil, "an unknown dot is kept unknown")
+        // off, and a line that isn't one
+        let off = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 5, "statusLine": {"on": false, "segments": []}}"#))
+        #expect(DocumentState(off)?.statusLine.on == false)
+        let junk = try JSONValueDecoder().decode(Changed.self, from: try JSONValue.parse(#"{"doc": 2, "domain": "document", "gen": 6, "statusLine": "nope"}"#))
+        #expect(DocumentState(junk)?.statusLine.segments.isEmpty == true)
+    }
 }
