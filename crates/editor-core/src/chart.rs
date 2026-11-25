@@ -27,7 +27,7 @@ pub const MIN_SIDE: f64 = 120.0;
 pub const MAX_SIDE: f64 = 8192.0;
 /// The font size the layout assumes for tick text, and the share of it a character takes.
 pub const FONT: f64 = 11.0;
-const CHAR_W: f64 = 0.62;
+pub(crate) const CHAR_W: f64 = 0.62;
 
 /// What a table array is plotted as.
 #[derive(Debug, Clone, PartialEq)]
@@ -38,6 +38,8 @@ pub enum Kind {
     Segments([usize; 4]),
     /// A histogram: (centre, count) as columns.
     Columns(usize, usize),
+    /// A 1-D array: its values against their index, a line (note 26 slice 6).
+    Series,
 }
 
 /// What a table with these column names and this many columns plots as; `None`: no plot.
@@ -68,6 +70,8 @@ pub fn plotted(form: &plumcraft_proto::data::Form) -> Option<Kind> {
             [_, k] => kind_of(names, usize::try_from(*k).ok()?),
             _ => None,
         },
+        // a series: the egui editor's plot of a 1-D array, which has no picture
+        plumcraft_proto::data::Form::Array { shape, table: false, .. } if shape.len() == 1 && shape[0] > 0 => Some(Kind::Series),
         _ => None,
     }
 }
@@ -99,21 +103,21 @@ pub fn ticks(lo: f64, hi: f64, len: f64, px_per: f64) -> Vec<f64> {
 
 /// A linear scale from data to points.
 #[derive(Debug, Clone, Copy)]
-struct Scale {
-    d0: f64,
-    d1: f64,
-    p0: f64,
-    p1: f64,
+pub(crate) struct Scale {
+    pub(crate) d0: f64,
+    pub(crate) d1: f64,
+    pub(crate) p0: f64,
+    pub(crate) p1: f64,
 }
 
 impl Scale {
-    fn at(&self, v: f64) -> f64 {
+    pub(crate) fn at(&self, v: f64) -> f64 {
         if self.d1 == self.d0 { (self.p0 + self.p1) / 2.0 } else { self.p0 + (v - self.d0) / (self.d1 - self.d0) * (self.p1 - self.p0) }
     }
 }
 
 /// A span with room around it, never empty.
-fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
+pub(crate) fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
     if !(lo.is_finite() && hi.is_finite()) {
         return (0.0, 1.0);
     }
@@ -125,7 +129,7 @@ fn padded(lo: f64, hi: f64, pad: f64) -> (f64, f64) {
     (lo - d, hi + d)
 }
 
-fn round2(v: f64) -> f64 {
+pub(crate) fn round2(v: f64) -> f64 {
     (v * 100.0).round() / 100.0
 }
 
@@ -139,8 +143,99 @@ fn rows(dtype: Dtype, bytes: &[u8], rows: usize, columns: usize, cols: &[usize])
 }
 
 /// A chart's display list for a table array's bytes, laid out at `size` points (module docs).
+/// The M4 reduction of a series to at most four points a pixel column (Jugel et al. 2014: the
+/// first, lowest, highest and last value of each column, in their order), so a line drawn
+/// through them rasterises as the whole series would: `(index, value)` pairs, finite values only.
+pub fn m4(values: &[f64], columns: usize) -> Vec<(usize, f64)> {
+    let n = values.len();
+    if n <= columns.saturating_mul(4) || columns == 0 {
+        return values.iter().enumerate().filter(|(_, v)| v.is_finite()).map(|(i, v)| (i, *v)).collect();
+    }
+    let mut out = Vec::with_capacity(columns * 4);
+    for c in 0..columns {
+        let (a, b) = (c * n / columns, ((c + 1) * n / columns).min(n));
+        let mut pick: Vec<(usize, f64)> = Vec::with_capacity(4);
+        let (mut lo, mut hi, mut first, mut last) = (None::<(usize, f64)>, None::<(usize, f64)>, None, None);
+        for (i, v) in values.iter().enumerate().take(b).skip(a) {
+            if !v.is_finite() {
+                continue;
+            }
+            first.get_or_insert((i, *v));
+            last = Some((i, *v));
+            if lo.is_none_or(|(_, l)| *v < l) {
+                lo = Some((i, *v));
+            }
+            if hi.is_none_or(|(_, h)| *v > h) {
+                hi = Some((i, *v));
+            }
+        }
+        for p in [first, lo, hi, last].into_iter().flatten() {
+            if !pick.iter().any(|q| q.0 == p.0) {
+                pick.push(p);
+            }
+        }
+        pick.sort_by_key(|p| p.0);
+        out.extend(pick);
+    }
+    out
+}
+
+/// A 1-D array's line: its values against their index, reduced to the plot's width (module docs).
+fn layout_series(dt: Dtype, n: usize, bytes: &[u8], size: (f64, f64)) -> Result<Value, String> {
+    if n.checked_mul(dt.size()).is_none_or(|need| need > bytes.len()) {
+        return Err(format!("{} bytes is too few for {n} values", bytes.len()));
+    }
+    let (w, h) = (size.0.clamp(MIN_SIDE, MAX_SIDE), size.1.clamp(MIN_SIDE, MAX_SIDE));
+    let values: Vec<f64> = (0..n).map(|i| dt.read(bytes, i).unwrap_or(f64::NAN)).collect();
+    let (y0, y1) = values.iter().filter(|v| v.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), v| (a.min(*v), b.max(*v)));
+    let finite = y0.is_finite();
+    let (y0p, y1p) = padded(y0, y1, 0.05);
+    let int = dt.integer();
+    let text = |v: f64| crate::viewers::number(v, int);
+    let idx = |v: f64| crate::viewers::number(v, true);
+    let yt_probe = ticks(y0p, y1p, h - 60.0, 48.0);
+    let ywide = yt_probe.iter().map(|v| text(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
+    let left = (ywide + 14.0 + FONT + 6.0).ceil();
+    let (top, right, bottom) = (12.0, 16.0, (FONT * 2.0 + 22.0).ceil());
+    let plot = (left, top, (w - left - right).max(20.0), (h - top - bottom).max(20.0));
+    let (x0, x1) = (0.0, (n.max(2) - 1) as f64);
+    let sx = Scale { d0: x0, d1: x1, p0: plot.0, p1: plot.0 + plot.2 };
+    let sy = Scale { d0: y0p, d1: y1p, p0: plot.1 + plot.3, p1: plot.1 };
+    let reduced = m4(&values, plot.2.max(1.0) as usize);
+    let mut xy = Vec::with_capacity(reduced.len() * 2);
+    for (i, v) in &reduced {
+        xy.extend([round2(sx.at(*i as f64)), round2(sy.at(*v))]);
+    }
+    let xt: Vec<f64> = ticks(x0, x1, plot.2, 80.0).into_iter().filter(|t| t.fract() == 0.0).collect();
+    let yt = ticks(y0p, y1p, plot.3, 48.0);
+    let drawn = values.iter().filter(|v| v.is_finite()).count();
+    let summary = if finite { format!("{n} values by index; from {} to {}", text(y0), text(y1)) } else { format!("{n} values, none of them a number") };
+    Ok(json!({
+        "size": [w, h],
+        "kind": "line",
+        "sameScale": false,
+        "plot": [round2(plot.0), round2(plot.1), round2(plot.2), round2(plot.3)],
+        "marks": [{"kind": "line", "width": 1.5, "xy": xy}],
+        "axes": [
+            {"side": "bottom", "title": "index", "ticks": xt.iter().map(|v| json!({"at": round2(sx.at(*v)), "text": idx(*v)})).collect::<Vec<_>>()},
+            {"side": "left", "title": "value", "ticks": yt.iter().map(|v| json!({"at": round2(sy.at(*v)), "text": text(*v)})).collect::<Vec<_>>()},
+        ],
+        "grid": {"x": xt.iter().map(|v| round2(sx.at(*v))).collect::<Vec<_>>(), "y": yt.iter().map(|v| round2(sy.at(*v))).collect::<Vec<_>>()},
+        "font": FONT,
+        "drawn": drawn,
+        "rows": n,
+        "points": reduced.len(),
+        "a11y": {"title": "line of value against index", "summary": summary,
+                 "x": {"label": "index", "min": idx(x0), "max": idx(x1)}, "y": {"label": "value", "min": text(y0p), "max": text(y1p)}},
+    }))
+}
+
 pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: &[u8], size: (f64, f64)) -> Result<Value, String> {
     let dt = Dtype::parse(dtype).ok_or_else(|| format!("a chart can't read dtype {dtype}"))?;
+    if *kind == Kind::Series {
+        let [n] = *shape else { return Err("a series is a 1-D array".into()) };
+        return layout_series(dt, usize::try_from(n).map_err(|_| "too many values")?, bytes, size);
+    }
     let [n, k] = *shape else { return Err("a chart needs a table of two dimensions".into()) };
     let (n, k) = (usize::try_from(n).map_err(|_| "too many rows")?, usize::try_from(k).map_err(|_| "too many columns")?);
     if n.checked_mul(k).and_then(|c| c.checked_mul(dt.size())).is_none_or(|need| need > bytes.len()) {
@@ -150,6 +245,7 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     let cols: Vec<usize> = match kind {
         Kind::Points(x, y) | Kind::Columns(x, y) => vec![*x, *y],
         Kind::Segments(c) => c.to_vec(),
+        Kind::Series => return Err("a series is laid out as a line".into()),
     };
     if cols.iter().any(|c| *c >= k) {
         return Err("a plotted column is past the table's last".into());
@@ -201,6 +297,8 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     let yt = ticks(y0, y1, plot.3, 48.0);
     let mut xy: Vec<f64> = Vec::new();
     let mark = match kind {
+        // laid out by layout_series, never here
+        Kind::Series => json!({"kind": "none"}),
         Kind::Points(..) => {
             for r in &data {
                 if let [x, y] = r[..] {
@@ -234,11 +332,13 @@ pub fn layout(kind: &Kind, names: &[String], dtype: &str, shape: &[u64], bytes: 
     let (xname, yname) = match kind {
         Kind::Points(x, y) | Kind::Columns(x, y) => (name(*x), name(*y)),
         Kind::Segments(c) => (format!("{}, {}", name(c[0]), name(c[2])), format!("{}, {}", name(c[1]), name(c[3]))),
+        Kind::Series => ("index".into(), "value".into()),
     };
     let what = match kind {
         Kind::Points(..) => "points",
         Kind::Segments(_) => "segments",
         Kind::Columns(..) => "columns",
+        Kind::Series => "line",
     };
     let drawn = data.len();
     let summary = format!(
@@ -332,6 +432,40 @@ mod tests {
         assert!(((xy[2] - xy[0]) / (xy[3] - xy[1]) - 100.0 / 80.0).abs() < 0.01, "one scale");
         let q = layout(&Kind::Points(0, 1), &[], "<f4", &[2, 2], &f32s(&[0.0, 0.0, 10000.0, 1.0]), (400.0, 400.0)).unwrap();
         assert_eq!(q["sameScale"], false);
+    }
+
+    /// Note 26 slice 6: a 1-D array is a line by index; past four points a pixel column it is
+    /// reduced (M4) to each column's first, lowest, highest and last value, keeping every extreme.
+    #[test]
+    fn a_series_is_a_line_reduced_without_losing_its_extremes() {
+        let v: Vec<f64> = (0..10_000)
+            .map(|i| {
+                if i == 5003 {
+                    9.0
+                } else if i == 7001 {
+                    -4.0
+                } else {
+                    (i as f64 * 0.01).sin()
+                }
+            })
+            .collect();
+        let r = m4(&v, 100);
+        assert!(r.len() <= 400);
+        assert!(r.iter().any(|p| p.0 == 5003 && p.1 == 9.0) && r.iter().any(|p| p.0 == 7001 && p.1 == -4.0), "the spikes kept");
+        assert!(r.windows(2).all(|w| w[0].0 < w[1].0), "in order");
+        assert_eq!(m4(&[1.0, f64::NAN, 3.0], 100), vec![(0, 1.0), (2, 3.0)], "short: every finite value");
+        let bytes: Vec<u8> = v.iter().flat_map(|x| (*x as f32).to_le_bytes()).collect();
+        let l = layout(&Kind::Series, &[], "<f4", &[10_000], &bytes, (640.0, 400.0)).unwrap();
+        assert_eq!((l["kind"].as_str(), l["marks"][0]["kind"].as_str()), (Some("line"), Some("line")));
+        assert!(l["points"].as_u64().unwrap() < 4 * 640);
+        assert_eq!(l["axes"][0]["title"], "index");
+        assert!(layout(&Kind::Series, &[], "<f4", &[10], &[0; 8], (640.0, 400.0)).is_err(), "too few bytes");
+        let none = layout(&Kind::Series, &[], "<f4", &[2], &f32s(&[f32::NAN, f32::NAN]), (640.0, 400.0)).unwrap();
+        assert!(none["a11y"]["summary"].as_str().unwrap().contains("none of them a number"));
+        let form = |shape: Vec<u64>, table: bool| plumcraft_proto::data::Form::Array { dtype: "<f4".into(), shape, space: None, names: vec![], table };
+        assert_eq!(plotted(&form(vec![5], false)), Some(Kind::Series));
+        assert_eq!(plotted(&form(vec![0], false)), None);
+        assert_eq!(plotted(&form(vec![4, 4], false)), None, "a picture is not a series");
     }
 
     #[test]

@@ -27,6 +27,12 @@ public enum ChartList {
         return stride(from: 0, to: n.count - 3, by: 4).map { CGRect(x: n[$0], y: n[$0 + 1], width: n[$0 + 2], height: n[$0 + 3]) }
     }
 
+    /// A mark's colour (`#rrggbb` from the core's palette), else the accent.
+    public static func colour(_ v: JSONValue) -> Color {
+        guard let s = v.string, s.hasPrefix("#"), s.count == 7, let n = UInt32(s.dropFirst(), radix: 16) else { return .accentColor }
+        return Color(red: Double((n >> 16) & 0xff) / 255, green: Double((n >> 8) & 0xff) / 255, blue: Double(n & 0xff) / 255)
+    }
+
     /// The plot rectangle.
     public static func plot(_ list: JSONValue) -> CGRect {
         let p = numbers(list["plot"])
@@ -43,17 +49,22 @@ struct ChartViewer: SwiftUI.View {
     var body: some SwiftUI.View {
         GeometryReader { g in
             let want = CGSize(width: (g.size.width).rounded(), height: (g.size.height).rounded())
-            let key: JSONValue = ["stamp": .uint(box.popout.window.stamp), "w": .double(want.width), "h": .double(want.height), "r": .int(Int64(box.reload))]
+            // `box.stamp`, observed, moves with the core's stamp: a run, or a chart chosen anywhere (an
+            // undo included) draws again, though the value itself is equal
+            let key: JSONValue = ["stamp": .uint(box.stamp), "viewer": box.value?.viewer.map(JSONValue.string) ?? .null, "w": .double(want.width), "h": .double(want.height), "r": .int(Int64(box.reload))]
             Group {
                 if let e = loader.error {
                     ViewerMessage(text: "This chart can't be drawn: \(e)")
                 } else if let list = loader.page {
-                    ChartCanvas(list: list)
+                    VStack(spacing: 4) {
+                        if list["columns"].array != nil { ChartChoices(box: box, list: list) }
+                        ChartCanvas(list: list)
                         .accessibilityElement(children: .ignore)
                         .accessibilityLabel(list["a11y"]["title"].string ?? "Chart")
                         .accessibilityValue(list["a11y"]["summary"].string ?? "")
                         .accessibilityChartDescriptor(ChartDescription(list: list))
                         .accessibilityIdentifier("viewer-chart")
+                    }
                 } else {
                     ProgressView("Laying out the chart…").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
@@ -66,8 +77,10 @@ struct ChartViewer: SwiftUI.View {
 
     private func load(_ key: JSONValue, _ want: CGSize) {
         guard want.width > 1, want.height > 1 else { return }
-        loader.load(box, "chart", key: key, extra: ["width": .double(want.width), "height": .double(want.height)])
-        box.describe["chartSize"] = [.double(want.width), .double(want.height)]
+        // a table's choices take a row above the chart
+        let h = box.value?.viewer == "table.chart" ? max(want.height - 34, 120) : want.height
+        loader.load(box, "chart", key: key, extra: ["width": .double(want.width), "height": .double(h)])
+        box.describe["chartSize"] = [.double(want.width), .double(h)]
     }
 }
 
@@ -98,7 +111,7 @@ public struct ChartCanvas: SwiftUI.View {
                     let r = m["r"].double ?? 2
                     var p = Path()
                     for c in ChartList.pairs(m["xy"]) { p.addEllipse(in: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)) }
-                    cx.fill(p, with: .color(.accentColor))
+                    cx.fill(p, with: .color(ChartList.colour(m["color"])))
                 case "segments":
                     let pts = ChartList.pairs(m["xy"])
                     var p = Path()
@@ -106,23 +119,47 @@ public struct ChartCanvas: SwiftUI.View {
                         p.move(to: pts[i])
                         p.addLine(to: pts[i + 1])
                     }
-                    cx.stroke(p, with: .color(.accentColor), lineWidth: m["width"].double ?? 1)
+                    cx.stroke(p, with: .color(ChartList.colour(m["color"])), lineWidth: m["width"].double ?? 1)
                 case "rects":
                     var p = Path()
                     for r in ChartList.rects(m["rects"]) { p.addRect(r) }
-                    cx.fill(p, with: .color(.accentColor.opacity(0.85)))
+                    cx.fill(p, with: .color(ChartList.colour(m["color"]).opacity(0.85)))
                 case "line":
                     let pts = ChartList.pairs(m["xy"])
                     guard let first = pts.first else { break }
                     var p = Path()
                     p.move(to: first)
                     for q in pts.dropFirst() { p.addLine(to: q) }
-                    cx.stroke(p, with: .color(.accentColor), lineWidth: m["width"].double ?? 1.5)
+                    cx.stroke(p, with: .color(ChartList.colour(m["color"])), lineWidth: m["width"].double ?? 1.5)
+                case "area":
+                    // a stacked band: its top left to right, then its base back
+                    let pts = ChartList.pairs(m["xy"])
+                    guard let first = pts.first else { break }
+                    var p = Path()
+                    p.move(to: first)
+                    for q in pts.dropFirst() { p.addLine(to: q) }
+                    p.closeSubpath()
+                    cx.fill(p, with: .color(ChartList.colour(m["color"]).opacity(0.8)))
+                case "labels":
+                    for l in m["labels"].array ?? [] {
+                        guard let x = l["x"].double, let y = l["y"].double else { continue }
+                        cx.draw(Text(l["text"].string ?? "").font(.system(size: font).weight(.medium)).foregroundStyle(.white), at: CGPoint(x: x, y: y), anchor: .topLeading)
+                        if let d = l["detail"].string {
+                            cx.draw(Text(d).font(.system(size: font).monospacedDigit()).foregroundStyle(.white.opacity(0.8)), at: CGPoint(x: x, y: y + font + 2), anchor: .topLeading)
+                        }
+                    }
                 default:
                     break
                 }
             }
-            // axes
+            // the legend: a swatch and a name a series
+            for l in list["legend"].array ?? [] {
+                guard let x = l["x"].double, let y = l["y"].double else { continue }
+                cx.fill(Path(roundedRect: CGRect(x: x, y: y, width: 10, height: 10), cornerRadius: 2), with: .color(ChartList.colour(l["color"])))
+                cx.draw(Text(l["text"].string ?? "").font(.system(size: font)).foregroundStyle(.primary), at: CGPoint(x: x + 15, y: y + 5), anchor: .leading)
+            }
+            // axes (a treemap has none)
+            guard !(list["axes"].array ?? []).isEmpty else { return }
             var axes = Path()
             axes.move(to: CGPoint(x: plot.minX, y: plot.minY))
             axes.addLine(to: CGPoint(x: plot.minX, y: plot.maxY))
@@ -163,5 +200,79 @@ struct ChartDescription: AXChartDescriptorRepresentable {
         let x = AXNumericDataAxisDescriptor(title: a["x"]["label"].string ?? "x", range: num(a["x"]["min"])...max(num(a["x"]["max"]), num(a["x"]["min"])), gridlinePositions: []) { "\($0)" }
         let y = AXNumericDataAxisDescriptor(title: a["y"]["label"].string ?? "y", range: num(a["y"]["min"])...max(num(a["y"]["max"]), num(a["y"]["min"])), gridlinePositions: []) { "\($0)" }
         return AXChartDescriptor(title: a["title"].string, summary: a["summary"].string, xAxis: x, yAxis: y, additionalAxes: [], series: [])
+    }
+}
+
+/// A table chart's choices, each a core command (`viewer.chart`, kept in the graph's meta): the
+/// kind, and which columns are x, y, colour, and a treemap's groups and size. The columns and the
+/// spec drawn are the core's, from the chart's reply.
+struct ChartChoices: SwiftUI.View {
+    let box: ViewerBox
+    let list: JSONValue
+
+    private static let kinds: [(String, String, Bool)] = [
+        ("Column", "column", false), ("Stacked Column", "column", true), ("Line", "line", false),
+        ("Stacked Line", "line", true), ("Histogram", "histogram", false), ("Treemap", "treemap", false),
+    ]
+
+    var body: some SwiftUI.View {
+        let spec = list["spec"]
+        let mark = spec["mark"].string ?? "column"
+        let stack = spec["stack"].bool ?? false
+        let cols: [(String, Bool)] = (list["columns"].array ?? []).compactMap { c in
+            guard let n = c["name"].string else { return nil }
+            return (n, c["numeric"].bool ?? false)
+        }
+        let numbers = cols.filter(\.1).map(\.0)
+        let all = cols.map(\.0)
+        HStack(spacing: 10) {
+            Menu {
+                ForEach(Self.kinds, id: \.0) { k in
+                    Button { send(["mark": .string(k.1), "stack": .bool(k.2)]) } label: {
+                        if k.1 == mark && k.2 == stack { Label(k.0, systemImage: "checkmark") } else { Text(k.0) }
+                    }
+                }
+            } label: { Text(Self.kinds.first { $0.1 == mark && $0.2 == stack }?.0 ?? mark.capitalized).font(.caption) }
+                .fixedSize().accessibilityIdentifier("chart-kind").help("The kind of chart (viewer.chart mark, stack)")
+            if mark == "treemap" {
+                pick("Groups", spec["path"].array?.first?.string, all, nil) { send(["path": $0.map { .array([.string($0)]) } ?? .null]) }
+                pick("Size", spec["size"].string, numbers, "Rows") { send(["size": $0.map(JSONValue.string) ?? .null]) }
+            } else {
+                pick("X", spec["x"].string, mark == "histogram" || mark == "line" ? numbers : all, mark == "line" ? "Row" : nil) { send(["x": $0.map(JSONValue.string) ?? .null]) }
+                if mark != "histogram" {
+                    pick("Y", spec["y"].array?.first?.string, numbers, mark == "column" ? "Count" : nil) { send(["y": $0.map { .array([.string($0)]) } ?? .null]) }
+                }
+                pick("Colour", spec["color"].string, all, "None") { send(["color": $0.map(JSONValue.string) ?? .null]) }
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 4)
+        .frame(height: 26)
+    }
+
+    /// A menu of columns for one role; `none`: the choice of no column, named so.
+    private func pick(_ role: String, _ shown: String?, _ names: [String], _ none: String?, _ set: @escaping (String?) -> Void) -> some SwiftUI.View {
+        Menu {
+            if let none { Button { set(nil) } label: { if shown == nil { Label(none, systemImage: "checkmark") } else { Text(none) } } }
+            ForEach(names, id: \.self) { n in
+                Button { set(n) } label: { if shown == n { Label(n, systemImage: "checkmark") } else { Text(n) } }
+            }
+        } label: { Text("\(role): \(shown ?? none ?? "–")").font(.caption) }
+            .fixedSize()
+            .accessibilityIdentifier("chart-\(role.lowercased())")
+            .help("The column for \(role.lowercased()) (viewer.chart)")
+    }
+
+    /// One choice, sent with the rest of the spec drawn (the core's own pick when none was made, so a
+    /// first choice changes only what it names).
+    private func send(_ params: [String: JSONValue]) {
+        let p = box.popout
+        let b = box
+        var all = list["spec"].object ?? [:]
+        for (k, v) in params { all[k] = v }
+        Task { @MainActor in
+            _ = await p.command("viewer.chart", all)
+            b.reload += 1
+        }
     }
 }

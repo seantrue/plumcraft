@@ -210,7 +210,7 @@ public sealed class ValueWindow : Window
         return id switch
         {
             "picture" or "svg" => "picture",
-            "text.plain" or "scalar" or "table.grid" or "array.grid" or "tree" or "yaml" or "hex" or "audio" or "items" or "array.pictures" => id,
+            "text.plain" or "scalar" or "table.grid" or "array.grid" or "tree" or "yaml" or "hex" or "audio" or "items" or "array.pictures" or "array.plot" or "table.chart" => id,
             "" => "none",
             _ => "opaque",
         };
@@ -226,6 +226,8 @@ public sealed class ValueWindow : Window
         "tree" => new TreeViewer(Pop),
         "yaml" => new YamlViewer(Pop),
         "hex" => new HexViewer(Pop),
+        "array.plot" => new ChartViewer(Pop, table: false),
+        "table.chart" => new ChartViewer(Pop, table: true),
         "audio" => new AudioViewer(Pop, pictures),
         "items" => new ItemsViewer(Pop, pictures),
         "array.pictures" => new ArrayPicturesViewer(Pop, pictures),

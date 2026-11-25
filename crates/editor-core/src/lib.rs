@@ -49,6 +49,7 @@ pub mod autosave;
 pub mod bundle;
 pub mod canvas_cmds;
 pub mod chart;
+pub mod chart_kinds;
 pub mod compare;
 pub mod conformance;
 pub mod control;
