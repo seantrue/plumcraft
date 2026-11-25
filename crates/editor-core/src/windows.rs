@@ -125,6 +125,8 @@ pub fn of(session: &Session) -> Windows {
             // its chart's choices (`viewer.chart`, kept in the graph's meta): a change made anywhere, an
             // undo included, is drawn again
             serde_json::to_string(&plumcraft_session::chart_cmds::spec_of(graph, &w.node, &w.port)).unwrap_or_default().hash(&mut h);
+            // and its value's selection (note 26 slice 8: every window of the value shows it)
+            session.views.selections.get(&format!("{}.{}", w.node, w.port)).hash(&mut h);
             Some(PopoutWindow {
                 id: o.id,
                 node: w.node.clone(),

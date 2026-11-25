@@ -109,68 +109,142 @@ struct Out {
     kind: &'static str,
 }
 
+/// A column's numbers for an axis, by row: its numbers, or its times as seconds since 1970 (ISO
+/// text, or a column typed `DATE`, `TIME` or `TIMESTAMP`; note 26 slice 8), and whether they are
+/// times. `None`: neither.
+pub fn axis_values(c: &plumcraft_media::table::Column, rows: usize) -> Option<(Vec<Option<f64>>, bool)> {
+    if c.numeric() {
+        return Some(((0..rows).map(|r| c.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite())).collect(), false));
+    }
+    let vals: Vec<Option<f64>> = (0..rows)
+        .map(|r| match c.cells.get(r) {
+            Some(Cell::Text(t)) => plumcraft_proto::time::parse_iso(t),
+            _ => None,
+        })
+        .collect();
+    let given = (0..rows).filter(|r| !matches!(c.cells.get(*r), None | Some(Cell::Null))).count();
+    let read = vals.iter().filter(|v| v.is_some()).count();
+    (read > 0 && (plumcraft_proto::time::is_time_type(&c.ty) || read == given)).then_some((vals, true))
+}
+
+/// An x axis's ticks, `(at, text)`: times by their calendar, numbers nicely.
+fn x_ticks(x0: f64, x1: f64, len: f64, time: bool) -> Vec<(f64, String)> {
+    if time {
+        plumcraft_proto::time::ticks(x0, x1, len, 90.0)
+    } else {
+        ticks(x0, x1, len, 80.0).into_iter().map(|v| (v, crate::viewers::number(v, false))).collect()
+    }
+}
+
+/// An x value as a readout says it.
+fn x_text(v: f64, time: bool) -> String {
+    if time { plumcraft_proto::time::text(v) } else { crate::viewers::number(v, false) }
+}
+
 /// The display list for `spec` over `t`, at `size` (module docs).
 pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String> {
+    layout_in(spec, t, size, &chart::View::default())
+}
+
+/// [`layout`] with the part shown and the value's selected rows (note 26 slice 8).
+pub fn layout_in(spec: &Value, t: &Table, size: (f64, f64), view: &chart::View) -> Result<Value, String> {
     let (w, h) = (size.0.clamp(MIN_SIDE, MAX_SIDE), size.1.clamp(MIN_SIDE, MAX_SIDE));
     let rows = t.rows.min(MAX_ROWS);
     let mark = spec.get("mark").and_then(Value::as_str).unwrap_or("column");
     let s = |k: &str| spec.get(k).and_then(Value::as_str);
     let ys: Vec<&str> = spec.get("y").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
     let stack = spec.get("stack").and_then(Value::as_bool).unwrap_or(false);
+    // shares of each stack's total (a stacked chart only)
+    let normalize = stack && spec.get("normalize").and_then(Value::as_bool).unwrap_or(false);
     let num = |x: f64| crate::viewers::number(x, false);
+    let ytext = |x: f64| if normalize { format!("{}%", crate::viewers::number((x * 1000.0).round() / 10.0, false)) } else { num(x) };
     if mark == "treemap" {
         return treemap(spec, t, rows, (w, h));
     }
-    // the y axis's range and how its ticks read, decided per kind below
+    let (rx, ry) = (view.range.x, view.range.y);
     let mut xticks: Vec<Value> = Vec::new();
-    let (xtitle, ytitle);
-    let (lo, hi);
+    let (xtitle, mut ytitle);
+    let (mut lo, mut hi);
     let legend_on = s("color").is_some() || ys.len() > 1;
     let out: Out;
     let plot;
     let sy;
+    // the x scale, where x is a number (not a column chart's categories)
+    let mut sx_out: Option<Scale> = None;
+    let mut time_x = false;
     match mark {
         "histogram" => {
-            // x, or the first column of numbers when x isn't one
-            let xc =
-                col(t, s("x")).filter(|c| c.numeric()).or_else(|| t.columns.iter().find(|c| c.numeric())).ok_or("a histogram needs a column of numbers")?;
+            // x, or the first column of numbers (or times) when x isn't one
+            let picked = col(t, s("x"))
+                .and_then(|c| Some((c, axis_values(c, rows)?)))
+                .or_else(|| t.columns.iter().find_map(|c| Some((c, axis_values(c, rows)?))))
+                .ok_or("a histogram needs a column of numbers or times")?;
+            let (xc, (xs, time)) = picked;
+            time_x = time;
             let bins = spec.get("bins").and_then(Value::as_u64).map_or(DEFAULT_BINS, |b| b.clamp(1, 1000) as usize);
-            let vals: Vec<(usize, f64)> = (0..rows).filter_map(|r| xc.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite()).map(|v| (r, v))).collect();
-            let (a, b) = vals.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), (_, v)| (a.min(*v), b.max(*v)));
+            let vals: Vec<(usize, f64)> =
+                xs.iter().enumerate().filter_map(|(r, v)| v.map(|v| (r, v))).filter(|(_, v)| rx.is_none_or(|r| r.contains(*v))).collect();
+            let (a, b) = match rx {
+                Some(r) => (r.lo(), r.hi()),
+                None => vals.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), (_, v)| (a.min(*v), b.max(*v))),
+            };
             let (a, b) = if a.is_finite() && b > a { (a, b) } else { padded(a, b, 0.0) };
             let (cats, of) = categories(col(t, s("color")), rows, MAX_SERIES);
             let mut counts = vec![vec![0u64; bins]; cats.len().max(1)];
+            let mut chosen = vec![0u64; bins];
+            let bin_of = |v: f64| (((v - a) / (b - a) * bins as f64).max(0.0) as usize).min(bins - 1);
             for (r, v) in &vals {
-                let k = (((v - a) / (b - a) * bins as f64) as usize).min(bins - 1);
+                let k = bin_of(*v);
                 if let Some(c) = counts.get_mut(of.get(*r).copied().unwrap_or(0)) {
                     c[k] += 1;
+                }
+                if view.is_selected(*r) {
+                    chosen[k] += 1;
                 }
             }
             let top = (0..bins).map(|k| counts.iter().map(|c| c[k]).sum::<u64>()).max().unwrap_or(0) as f64;
             (lo, hi) = (0.0, padded(0.0, top.max(1.0), 0.04).1);
+            if let Some(r) = ry {
+                (lo, hi) = (r.lo(), r.hi());
+            }
             let yt = ticks(lo, hi, h - 60.0, 48.0);
             let ywide = yt.iter().map(|v| num(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
             plot = frame(w, h, ywide, legend_on);
             let sx = Scale { d0: a, d1: b, p0: plot.0, p1: plot.0 + plot.2 };
             sy = Scale { d0: lo, d1: hi, p0: plot.1 + plot.3, p1: plot.1 };
             let bw = plot.2 / bins as f64;
+            let edge = |k: usize| x_text(a + (b - a) * k as f64 / bins as f64, time);
             let mut marks = Vec::new();
             let mut base = vec![0u64; bins];
             for (ci, c) in counts.iter().enumerate() {
                 let mut rects = Vec::new();
+                let mut tips = Vec::new();
                 for k in 0..bins {
                     if c[k] == 0 {
                         continue;
                     }
                     let (y0, y1) = (sy.at(base[k] as f64), sy.at((base[k] + c[k]) as f64));
                     rects.extend([round2(plot.0 + k as f64 * bw), round2(y1), round2((bw - 1.0).max(0.5)), round2(y0 - y1)]);
+                    let who = if s("color").is_some() { format!(" · {}", cats.get(ci).map_or("", String::as_str)) } else { String::new() };
+                    tips.push(format!("{} – {}{who}: {} rows", edge(k), edge(k + 1), c[k]));
                     base[k] += c[k];
                 }
-                marks.push(json!({"kind": "rects", "color": colour(ci), "rects": rects}));
+                marks.push(json!({"kind": "rects", "color": colour(ci), "rects": rects, "tips": tips}));
             }
-            for v in ticks(a, b, plot.2, 80.0) {
-                xticks.push(json!({"at": round2(sx.at(v)), "text": num(v)}));
+            if view.selected.is_some() {
+                let mut rects = Vec::new();
+                let mut tips = Vec::new();
+                for (k, n) in chosen.iter().enumerate().filter(|(_, n)| **n > 0) {
+                    let (y0, y1) = (sy.at(0.0), sy.at(*n as f64));
+                    rects.extend([round2(plot.0 + k as f64 * bw + bw * 0.2), round2(y1), round2((bw * 0.6 - 1.0).max(0.5)), round2(y0 - y1)]);
+                    tips.push(format!("{} – {}: {n} selected", edge(k), edge(k + 1)));
+                }
+                marks.push(json!({"kind": "rects", "color": chart::SELECTED_COLOUR, "rects": rects, "tips": tips, "selected": true}));
             }
+            for (v, text) in x_ticks(a, b, plot.2, time) {
+                xticks.push(json!({"at": round2(sx.at(v)), "text": text}));
+            }
+            sx_out = Some(sx);
             let legend = if s("color").is_some() { cats.iter().enumerate().map(|(i, c)| json!({"text": c, "color": colour(i)})).collect() } else { Vec::new() };
             out = Out { marks, legend, kind: "histogram" };
             (xtitle, ytitle) = (xc.name.clone(), "count".to_owned());
@@ -181,9 +255,10 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
             let yc = ys.first().and_then(|y| col(t, Some(y))).filter(|c| c.numeric());
             let agg = if yc.is_none() { "count" } else { s("agg").unwrap_or("sum") };
             let (series, sof) = categories(col(t, s("color")), rows, MAX_SERIES);
-            // [series][category]: sum, count, min, max
+            // [series][category]: sum, count, min, max; and the selected rows' over every series
             let n = cats.len().max(1);
             let mut acc = vec![vec![(0.0f64, 0u64, f64::INFINITY, f64::NEG_INFINITY); n]; series.len().max(1)];
+            let mut chosen = vec![(0.0f64, 0u64, f64::INFINITY, f64::NEG_INFINITY); n];
             for r in 0..rows {
                 let v = match yc {
                     Some(c) => match c.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite()) {
@@ -193,8 +268,14 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                     None => 1.0,
                 };
                 let (si, ci) = (sof.get(r).copied().unwrap_or(0), xof.get(r).copied().unwrap_or(0));
+                let add = |a: &mut (f64, u64, f64, f64)| *a = (a.0 + v, a.1 + 1, a.2.min(v), a.3.max(v));
                 if let Some(a) = acc.get_mut(si).and_then(|s| s.get_mut(ci)) {
-                    *a = (a.0 + v, a.1 + 1, a.2.min(v), a.3.max(v));
+                    add(a);
+                }
+                if view.is_selected(r)
+                    && let Some(a) = chosen.get_mut(ci)
+                {
+                    add(a);
                 }
             }
             let value = |a: &(f64, u64, f64, f64)| match agg {
@@ -205,7 +286,17 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                 "max" => a.3,
                 _ => a.0,
             };
-            let vals: Vec<Vec<f64>> = acc.iter().map(|s| s.iter().map(value).collect()).collect();
+            let mut vals: Vec<Vec<f64>> = acc.iter().map(|s| s.iter().map(value).collect()).collect();
+            if normalize {
+                for c in 0..n {
+                    let total: f64 = vals.iter().map(|s| s[c].abs()).sum();
+                    if total > 0.0 {
+                        for s in &mut vals {
+                            s[c] /= total;
+                        }
+                    }
+                }
+            }
             let (mut a, mut b) = (0.0f64, 0.0f64);
             for c in 0..n {
                 if stack {
@@ -217,9 +308,12 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                     }
                 }
             }
-            (lo, hi) = (a, if b > a { padded(a, b, 0.04).1 } else { a + 1.0 });
+            (lo, hi) = if normalize { (a.min(0.0), b.max(1.0)) } else { (a, if b > a { padded(a, b, 0.04).1 } else { a + 1.0 }) };
+            if let Some(r) = ry {
+                (lo, hi) = (r.lo(), r.hi());
+            }
             let yt = ticks(lo, hi, h - 60.0, 48.0);
-            let ywide = yt.iter().map(|v| num(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
+            let ywide = yt.iter().map(|v| ytext(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
             plot = frame(w, h, ywide, legend_on);
             sy = Scale { d0: lo, d1: hi, p0: plot.1 + plot.3, p1: plot.1 };
             let band = plot.2 / n as f64;
@@ -228,9 +322,10 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
             let mut marks = Vec::new();
             let mut up = vec![0.0f64; n];
             let mut down = vec![0.0f64; n];
-            for (si, s) in vals.iter().enumerate() {
+            for (si, sv) in vals.iter().enumerate() {
                 let mut rects = Vec::new();
-                for (c, v) in s.iter().enumerate() {
+                let mut tips = Vec::new();
+                for (c, v) in sv.iter().enumerate() {
                     let x = plot.0 + c as f64 * band + band * 0.1 + if stack { 0.0 } else { si as f64 * bar };
                     let (from, to) = if stack {
                         let base = if *v >= 0.0 { &mut up[c] } else { &mut down[c] };
@@ -242,8 +337,22 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                     };
                     let (ya, yb) = (sy.at(from), sy.at(to));
                     rects.extend([round2(x), round2(ya.min(yb)), round2(bar.max(0.5)), round2((ya - yb).abs())]);
+                    let who = if s("color").is_some() { format!(" · {}", series.get(si).map_or("", String::as_str)) } else { String::new() };
+                    tips.push(format!("{}{who}: {}", cats.get(c).map_or("", String::as_str), ytext(*v)));
                 }
-                marks.push(json!({"kind": "rects", "color": colour(si), "rects": rects}));
+                marks.push(json!({"kind": "rects", "color": colour(si), "rects": rects, "tips": tips}));
+            }
+            // the selected rows' value a category, a narrow bar in the middle of its band
+            if view.selected.is_some() && !normalize {
+                let mut rects = Vec::new();
+                let mut tips = Vec::new();
+                for (c, a) in chosen.iter().enumerate().filter(|(_, a)| a.1 > 0) {
+                    let v = value(a);
+                    let (ya, yb) = (sy.at(0f64.max(lo)), sy.at(v));
+                    rects.extend([round2(plot.0 + (c as f64 + 0.4) * band), round2(ya.min(yb)), round2((band * 0.2).max(1.0)), round2((ya - yb).abs())]);
+                    tips.push(format!("{}: {} selected", cats.get(c).map_or("", String::as_str), num(v)));
+                }
+                marks.push(json!({"kind": "rects", "color": chart::SELECTED_COLOUR, "rects": rects, "tips": tips, "selected": true}));
             }
             // a category's name under its band, every k-th when they crowd
             let every = ((cats.iter().map(|c| c.chars().count().min(14)).max().unwrap_or(1) as f64 * FONT * CHAR_W + 8.0) / band).ceil().max(1.0) as usize;
@@ -258,19 +367,27 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
             ytitle = yc.map_or_else(|| "count".into(), |c| if agg == "sum" { c.name.clone() } else { format!("{agg} of {}", c.name) });
         }
         "line" => {
-            let xc = col(t, s("x")).filter(|c| c.numeric());
-            let x_of = |r: usize| xc.map_or(Some(r as f64), |c| c.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite()));
+            let xc = col(t, s("x")).and_then(|c| Some((c, axis_values(c, rows)?)));
+            time_x = xc.as_ref().is_some_and(|(_, (_, time))| *time);
+            let x_of = |r: usize| match &xc {
+                Some((_, (xs, _))) => xs.get(r).copied().flatten(),
+                None => Some(r as f64),
+            };
+            let in_x = |x: f64| rx.is_none_or(|r| r.contains(x));
             let ycols: Vec<&plumcraft_media::table::Column> = ys.iter().filter_map(|y| col(t, Some(y))).filter(|c| c.numeric()).collect();
             if ycols.is_empty() {
                 return Err("a line needs y, a column of numbers".into());
             }
-            // series: each y column, or the first split by colour
+            let y_of = |c: &plumcraft_media::table::Column, r: usize| c.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite());
+            // series: each y column, or the first split by colour; only the x shown (`viewer.range`)
             let (names, sof) = categories(col(t, s("color")), rows, MAX_SERIES);
             let split = s("color").is_some();
             let series: Vec<(String, Vec<(f64, f64)>)> = if split {
                 let mut v: Vec<Vec<(f64, f64)>> = vec![Vec::new(); names.len()];
                 for r in 0..rows {
-                    if let (Some(x), Some(y)) = (x_of(r), ycols[0].cells.get(r).and_then(Cell::num).filter(|v| v.is_finite())) {
+                    if let (Some(x), Some(y)) = (x_of(r), y_of(ycols[0], r))
+                        && in_x(x)
+                    {
                         v[sof.get(r).copied().unwrap_or(0).min(names.len() - 1)].push((x, y));
                     }
                 }
@@ -279,9 +396,7 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                 ycols
                     .iter()
                     .take(MAX_SERIES)
-                    .map(|c| {
-                        (c.name.clone(), (0..rows).filter_map(|r| Some((x_of(r)?, c.cells.get(r).and_then(Cell::num).filter(|v| v.is_finite())?))).collect())
-                    })
+                    .map(|c| (c.name.clone(), (0..rows).filter_map(|r| Some((x_of(r)?, y_of(c, r)?))).filter(|(x, _)| in_x(*x)).collect()))
                     .collect()
             };
             // sorted by x, the rows of one x made one point by `agg` (sum by default: a line of
@@ -314,6 +429,16 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                     }
                     *p = xs.iter().copied().zip(sums).collect();
                 }
+                if normalize {
+                    for i in 0..xs.len() {
+                        let total: f64 = series.iter().map(|(_, p)| p[i].1.abs()).sum();
+                        if total > 0.0 {
+                            for (_, p) in &mut series {
+                                p[i].1 /= total;
+                            }
+                        }
+                    }
+                }
             }
             let (mut a, mut b) = (f64::INFINITY, f64::NEG_INFINITY);
             let (mut ya, mut yb) = (if stack { 0.0 } else { f64::INFINITY }, if stack { 0.0 } else { f64::NEG_INFINITY });
@@ -329,72 +454,112 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
                     }
                 }
             }
-            if !a.is_finite() {
+            if !a.is_finite() && rx.is_none() {
                 return Err("no rows with numbers to draw".into());
             }
-            (lo, hi) = padded(ya, yb, 0.05);
-            let (lo, hi) = if stack { (lo.max(ya.min(0.0)), hi) } else { (lo, hi) };
+            (lo, hi) = if normalize { (0.0, 1.0) } else { padded(ya, yb, 0.05) };
+            if stack && !normalize {
+                lo = lo.max(ya.min(0.0));
+            }
+            if let Some(r) = ry {
+                (lo, hi) = (r.lo(), r.hi());
+            }
             let yt = ticks(lo, hi, h - 60.0, 48.0);
-            let ywide = yt.iter().map(|v| num(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
+            let ywide = yt.iter().map(|v| ytext(*v).chars().count()).max().unwrap_or(1) as f64 * FONT * CHAR_W;
             plot = frame(w, h, ywide, legend_on);
-            let (x0, x1) = if b > a { (a, b) } else { padded(a, b, 0.0) };
+            let (x0, x1) = match rx {
+                Some(r) => (r.lo(), r.hi()),
+                None if b > a => (a, b),
+                None => padded(a, b, 0.0),
+            };
             let sx = Scale { d0: x0, d1: x1, p0: plot.0, p1: plot.0 + plot.2 };
             sy = Scale { d0: lo, d1: hi, p0: plot.1 + plot.3, p1: plot.1 };
             let mut marks = Vec::new();
             let mut below = vec![0.0; xs.len()];
-            for (si, (_, p)) in series.iter().enumerate() {
+            for (si, (name, p)) in series.iter().enumerate() {
                 if stack {
                     // a filled band from the stack below it to its own top
                     let tops: Vec<f64> = p.iter().enumerate().map(|(i, (_, y))| below[i] + y).collect();
                     let mut xy = Vec::with_capacity(p.len() * 4);
-                    for (i, (x, _)) in p.iter().enumerate() {
+                    let mut tips = Vec::with_capacity(p.len());
+                    for (i, (x, y)) in p.iter().enumerate() {
                         xy.extend([round2(sx.at(*x)), round2(sy.at(tops[i]))]);
+                        tips.push(format!("{} · {name}: {}", x_text(*x, time_x), ytext(*y)));
                     }
                     for (i, (x, _)) in p.iter().enumerate().rev() {
                         xy.extend([round2(sx.at(*x)), round2(sy.at(below[i]))]);
                     }
                     below = tops;
-                    marks.push(json!({"kind": "area", "color": colour(si), "xy": xy}));
+                    marks.push(json!({"kind": "area", "color": colour(si), "xy": xy, "tips": tips}));
                 } else {
-                    let ys: Vec<f64> = p.iter().map(|q| q.1).collect();
-                    let reduced = chart::m4(&ys, plot.2.max(1.0) as usize);
+                    let yv: Vec<f64> = p.iter().map(|q| q.1).collect();
+                    let reduced = chart::m4(&yv, plot.2.max(1.0) as usize);
                     let mut xy = Vec::with_capacity(reduced.len() * 2);
+                    let mut tips = Vec::with_capacity(reduced.len());
                     for (i, y) in reduced {
                         if let Some((x, _)) = p.get(i) {
                             xy.extend([round2(sx.at(*x)), round2(sy.at(y))]);
+                            tips.push(format!("{} · {name}: {}", x_text(*x, time_x), ytext(y)));
                         }
                     }
-                    marks.push(json!({"kind": "line", "color": colour(si), "width": 1.5, "xy": xy}));
+                    marks.push(json!({"kind": "line", "color": colour(si), "width": 1.5, "xy": xy, "tips": tips}));
                 }
             }
-            for v in ticks(x0, x1, plot.2, 80.0) {
-                xticks.push(json!({"at": round2(sx.at(v)), "text": num(v)}));
+            // the selected rows, as dots at their own x and first y (not stacked, not shares)
+            if view.selected.is_some() && !normalize && !stack {
+                let mut xy = Vec::new();
+                let mut tips = Vec::new();
+                for r in (0..rows).filter(|r| view.is_selected(*r)).take(chart::MAX_MARKS) {
+                    if let (Some(x), Some(y)) = (x_of(r), y_of(ycols[0], r))
+                        && in_x(x)
+                    {
+                        xy.extend([round2(sx.at(x)), round2(sy.at(y))]);
+                        tips.push(format!("row {r}: {} · {}", x_text(x, time_x), num(y)));
+                    }
+                }
+                marks.push(json!({"kind": "points", "r": 3.0, "color": chart::SELECTED_COLOUR, "xy": xy, "tips": tips, "selected": true}));
             }
+            for (v, text) in x_ticks(x0, x1, plot.2, time_x) {
+                xticks.push(json!({"at": round2(sx.at(v)), "text": text}));
+            }
+            sx_out = Some(sx);
             let legend = if series.len() > 1 || split {
                 series.iter().enumerate().map(|(i, (n, _))| json!({"text": n, "color": colour(i)})).collect()
             } else {
                 Vec::new()
             };
             out = Out { marks, legend, kind: if stack { "stacked line" } else { "line" } };
-            xtitle = xc.map_or_else(|| "row".into(), |c| c.name.clone());
+            xtitle = xc.as_ref().map_or_else(|| "row".into(), |(c, _)| c.name.clone());
             ytitle = if series.len() == 1 { series[0].0.clone() } else { ycols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>().join(", ") };
         }
         other => return Err(format!("mark {:?}: histogram, line, column or treemap", other.chars().take(32).collect::<String>())),
     }
-    let yticks: Vec<Value> = ticks(lo, hi, plot.3, 48.0).into_iter().map(|v| json!({"at": round2(sy.at(v)), "text": num(v)})).collect();
+    if normalize {
+        ytitle = format!("share of {ytitle}");
+    }
+    let yticks: Vec<Value> = ticks(lo, hi, plot.3, 48.0).into_iter().map(|v| json!({"at": round2(sy.at(v)), "text": ytext(v)})).collect();
     let grid_y: Vec<Value> = yticks.iter().map(|t| t["at"].clone()).collect();
     let mut legend = out.legend;
     for (i, l) in legend.iter_mut().enumerate() {
         l["x"] = json!(round2(plot.0 + plot.2 + 14.0));
         l["y"] = json!(round2(plot.1 + 4.0 + i as f64 * (FONT + 7.0)));
     }
-    let summary = format!("{} of {ytitle} by {xtitle}, {} rows", out.kind, t.rows);
+    let kind = if normalize { format!("{} of shares", out.kind) } else { out.kind.to_owned() };
+    let summary = format!("{kind} of {ytitle} by {xtitle}, {} rows", t.rows);
+    let scale = match &sx_out {
+        Some(sx) => chart::scale_json(sx, &sy),
+        None => json!({"x": null, "y": [sy.d0, sy.d1, round2(sy.p0), round2(sy.p1)]}),
+    };
     Ok(json!({
         "size": [w, h],
-        "kind": out.kind,
+        "kind": kind,
         "sameScale": false,
         "plot": [round2(plot.0), round2(plot.1), round2(plot.2), round2(plot.3)],
         "marks": out.marks,
+        "scale": scale,
+        "timeX": time_x,
+        "clip": true,
+        "selected": view.count(),
         "axes": [
             {"side": "bottom", "title": xtitle, "ticks": xticks},
             {"side": "left", "title": ytitle, "ticks": yticks},
@@ -404,8 +569,8 @@ pub fn layout(spec: &Value, t: &Table, size: (f64, f64)) -> Result<Value, String
         "font": FONT,
         "drawn": t.rows.min(MAX_ROWS),
         "rows": t.rows,
-        "a11y": {"title": format!("{} of {ytitle} by {xtitle}", out.kind), "summary": summary,
-                 "x": {"label": xtitle, "min": "", "max": ""}, "y": {"label": ytitle, "min": num(lo), "max": num(hi)}},
+        "a11y": {"title": format!("{kind} of {ytitle} by {xtitle}"), "summary": summary,
+                 "x": {"label": xtitle, "min": "", "max": ""}, "y": {"label": ytitle, "min": ytext(lo), "max": ytext(hi)}},
     }))
 }
 
@@ -544,6 +709,7 @@ fn treemap(spec: &Value, t: &Table, rows: usize, (w, h): (f64, f64)) -> Result<V
     let top_rects = squarify(&tops, plot);
     struct Placed {
         rects: Vec<Vec<f64>>,
+        tips: Vec<Vec<String>>,
         labels: Vec<Value>,
     }
     // `top`: the first level's name, said under a nested group's own (its colour alone doesn't name it)
@@ -552,6 +718,10 @@ fn treemap(spec: &Value, t: &Table, rows: usize, (w, h): (f64, f64)) -> Result<V
             let inset = (r.0 + 1.0, r.1 + 1.0, (r.2 - 2.0).max(0.0), (r.3 - 2.0).max(0.0));
             if let Some(v) = out.rects.get_mut(c) {
                 v.extend([round2(inset.0), round2(inset.1), round2(inset.2), round2(inset.3)]);
+            }
+            if let Some(v) = out.tips.get_mut(c) {
+                let path = if depth > 1 { format!("{top} / {name}") } else { name.to_owned() };
+                v.push(format!("{path}: {}", crate::viewers::number(n.total, false)));
             }
             if inset.2 >= name.chars().count().min(24) as f64 * FONT * CHAR_W + 6.0 && inset.3 >= FONT * 2.6 {
                 let total = crate::viewers::number(n.total, false);
@@ -566,7 +736,7 @@ fn treemap(spec: &Value, t: &Table, rows: usize, (w, h): (f64, f64)) -> Result<V
             place(child, cr, c, (child_name, top), out, depth + 1);
         }
     }
-    let mut placed = Placed { rects: vec![Vec::new(); PALETTE.len()], labels: Vec::new() };
+    let mut placed = Placed { rects: vec![Vec::new(); PALETTE.len()], tips: vec![Vec::new(); PALETTE.len()], labels: Vec::new() };
     for (k, ((name, n), r)) in root.children.iter().zip(top_rects).enumerate() {
         let c = k % PALETTE.len();
         if k < MAX_SERIES {
@@ -574,8 +744,14 @@ fn treemap(spec: &Value, t: &Table, rows: usize, (w, h): (f64, f64)) -> Result<V
         }
         place(n, r, c, (name, name), &mut placed, 1);
     }
-    let mut marks: Vec<Value> =
-        placed.rects.into_iter().enumerate().filter(|(_, r)| !r.is_empty()).map(|(c, r)| json!({"kind": "rects", "color": colour(c), "rects": r})).collect();
+    let mut marks: Vec<Value> = placed
+        .rects
+        .into_iter()
+        .zip(placed.tips)
+        .enumerate()
+        .filter(|(_, (r, _))| !r.is_empty())
+        .map(|(c, (r, t))| json!({"kind": "rects", "color": colour(c), "rects": r, "tips": t}))
+        .collect();
     marks.push(json!({"kind": "labels", "labels": placed.labels}));
     let path_names: Vec<&str> = path.iter().map(|c| c.name.as_str()).collect();
     let what = size.map_or_else(|| "rows".to_owned(), |c| c.name.clone());
@@ -673,6 +849,62 @@ mod tests {
         assert_eq!(l["kind"], "treemap");
         assert!(l["a11y"]["summary"].as_str().unwrap().starts_with("3 groups of amount by region / product, 60 in all"));
         assert!(squarify(&[0.0, -1.0], (0.0, 0.0, 10.0, 10.0)).iter().all(|q| q.2 == 0.0), "nothing to place");
+    }
+
+    /// Note 26 slice 8: a column of ISO dates is a time axis, ticked by the calendar.
+    #[test]
+    fn dates_are_a_time_axis() {
+        let t = Table::from_value(&json!({"columns": [
+            {"name": "day", "type": "STRING", "values": ["2026-01-05", "2026-02-10", "2026-03-15", "2026-06-01", "2026-09-20"]},
+            {"name": "n", "type": "FLOAT", "values": [1.5, 2.5, 3.5, 2.0, 4.0]},
+        ]}))
+        .unwrap();
+        let l = layout(&json!({"mark": "line", "x": "day", "y": ["n"]}), &t, (600.0, 400.0)).unwrap();
+        assert_eq!(l["timeX"], true);
+        let ticks: Vec<&str> = l["axes"][0]["ticks"].as_array().unwrap().iter().map(|t| t["text"].as_str().unwrap()).collect();
+        assert!(ticks.iter().any(|t| t.contains("2026")) && ticks.contains(&"May"), "{ticks:?}");
+        let h = layout(&json!({"mark": "histogram", "x": "day", "bins": 3}), &t, (600.0, 400.0)).unwrap();
+        assert_eq!(h["timeX"], true);
+        assert!(h["marks"][0]["tips"][0].as_str().unwrap().starts_with("2026-01-05 – "));
+    }
+
+    /// Note 26 slice 8: a stacked chart's shares, each stack 100%.
+    #[test]
+    fn normalized_stacks_are_shares() {
+        let l =
+            layout(&json!({"mark": "column", "x": "region", "y": ["amount"], "color": "product", "stack": true, "normalize": true}), &table(), (600.0, 400.0))
+                .unwrap();
+        assert_eq!(l["kind"], "stacked column of shares");
+        assert_eq!(l["axes"][1]["ticks"].as_array().unwrap().last().unwrap()["text"], "100%");
+        // north: a 25, b 5 → its stack's top is the plot's top at 100%
+        let top = l["scale"]["y"][3].as_f64().unwrap();
+        let a = rects(&l, 0);
+        let b = rects(&l, 1);
+        assert!((b[1] - top).abs() < 0.02, "north's stack reaches 100%: {} vs {top}", b[1]);
+        assert!(a[3] > b[3], "a's share (25 of 30) is the larger");
+    }
+
+    /// Note 26 slice 8: a range shown is the range drawn, the line reduced again within it; the
+    /// selected rows drawn over the rest; every mark carries its readouts.
+    #[test]
+    fn a_range_and_a_selection_are_drawn() {
+        let n = 20_000;
+        let t = Table::from_value(&json!({"columns": [
+            {"name": "x", "type": "FLOAT", "values": (0..n).map(|i| i as f64).collect::<Vec<_>>()},
+            {"name": "y", "type": "FLOAT", "values": (0..n).map(|i| (i as f64 * 0.01).sin()).collect::<Vec<_>>()},
+        ]}))
+        .unwrap();
+        let spec = json!({"mark": "line", "x": "x", "y": ["y"]});
+        let range = plumcraft_session::chart_view::ChartRange { x: plumcraft_session::chart_view::Span::new(100.0, 199.0), y: None };
+        let mut selected = vec![false; n];
+        selected[150] = true;
+        let l = layout_in(&spec, &t, (600.0, 400.0), &chart::View { range, selected: Some(selected) }).unwrap();
+        assert_eq!(l["scale"]["x"][0], 100.0);
+        assert_eq!(l["marks"][0]["xy"].as_array().unwrap().len(), 200, "the hundred x shown, every one at this resolution");
+        assert_eq!(l["selected"], 1);
+        assert_eq!(l["marks"][1]["selected"], true);
+        assert_eq!(l["marks"][1]["tips"][0], "row 150: 150 · 0.997495");
+        assert_eq!(l["marks"][0]["tips"].as_array().unwrap().len(), 100);
     }
 
     #[test]

@@ -107,6 +107,12 @@ fn all_parsers(text: &str) {
     let _ = plumcraft_proto::expansion::StoredExpansion::parse(text.as_bytes());
     // a CSV a viewer reads as a table (note 26 slice 4)
     let _ = plumcraft_proto::csv::read_csv(text);
+    // note 26 slice 8: dates and times on a chart's axis
+    let _ = plumcraft_proto::time::parse_iso(text);
+    if let Some(t) = plumcraft_proto::time::parse_iso(text) {
+        let _ = plumcraft_proto::time::ticks(t, t + 1e9, 600.0, 80.0);
+        let _ = plumcraft_proto::time::text(t);
+    }
 }
 
 #[test]

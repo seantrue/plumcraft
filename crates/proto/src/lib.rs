@@ -41,6 +41,7 @@ pub mod run;
 pub mod schema;
 pub mod session;
 pub mod slice;
+pub mod time;
 
 pub use caps::Caps;
 pub use data::{BlobMeta, DataRef, Form, Locator, PortValue};

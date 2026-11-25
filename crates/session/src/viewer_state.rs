@@ -126,6 +126,10 @@ pub struct ViewerState {
     pub grid_format: Option<String>,
     /// A table's numeric cells tinted by value (`viewer.table {colored}`).
     pub table_colored: bool,
+    /// A table shows only its value's selected rows (`viewer.table {selectedOnly}`, note 26 slice 8).
+    pub table_selected_only: bool,
+    /// The part of a chart shown (`viewer.range`, note 26 slice 8).
+    pub chart_range: crate::chart_view::ChartRange,
 }
 
 impl Default for ViewerState {
@@ -150,6 +154,8 @@ impl Default for ViewerState {
             grid_colored: false,
             grid_format: None,
             table_colored: false,
+            table_selected_only: false,
+            chart_range: crate::chart_view::ChartRange::default(),
         }
     }
 }
@@ -158,7 +164,8 @@ impl ViewerState {
     /// As `popout.get` reports it.
     pub fn json(&self) -> Value {
         json!({
-            "table": {"sort": self.sort, "desc": self.desc, "page": self.page, "pageRows": TABLE_PAGE, "colored": self.table_colored},
+            "table": {"sort": self.sort, "desc": self.desc, "page": self.page, "pageRows": TABLE_PAGE, "colored": self.table_colored, "selectedOnly": self.table_selected_only},
+            "chart": {"range": self.chart_range},
             "tree": {"expanded": self.expanded},
             "audio": {"playing": self.playing, "at": self.at_ms as f64 / 1000.0, "loop": self.looped, "level": f64::from(self.level) / 100.0, "seq": self.seq},
             "picture": {"channel": self.channel},
@@ -208,8 +215,9 @@ fn pointer(p: &Value, k: &str) -> Result<Option<String>> {
 }
 
 fn table(s: &mut Session, p: &Value) -> Result<Value> {
-    only(p, "viewer.table", &["sort", "desc", "page", "colored"])?;
+    only(p, "viewer.table", &["sort", "desc", "page", "colored", "selectedOnly"])?;
     let colored = flag(p, "colored")?;
+    let selected_only = flag(p, "selectedOnly")?;
     let sort = match p.get("sort") {
         None => None,
         Some(Value::Null) => Some(None),
@@ -238,7 +246,13 @@ fn table(s: &mut Session, p: &Value) -> Result<Value> {
     if let Some(c) = colored {
         st.table_colored = c;
     }
-    Ok(json!({"popout": id, "sort": st.sort, "desc": st.desc, "page": st.page, "colored": st.table_colored}))
+    if let Some(o) = selected_only {
+        if o != st.table_selected_only {
+            st.page = 0;
+        }
+        st.table_selected_only = o;
+    }
+    Ok(json!({"popout": id, "sort": st.sort, "desc": st.desc, "page": st.page, "colored": st.table_colored, "selectedOnly": st.table_selected_only}))
 }
 
 fn tree(s: &mut Session, p: &Value) -> Result<Value> {
