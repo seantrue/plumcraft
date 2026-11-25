@@ -207,7 +207,7 @@ pub fn build(manifest: &Manifest, opts: &Options) -> Result<(Engine, Report, Arc
         components.insert("pack.app_versions".into(), r.clone());
     }
     let info = EngineInfo { id: manifest.id.clone(), name: manifest.name.clone(), version: server_version, salt, components, ..Default::default() };
-    let mut e = Engine::new(info).with_work_root(cas.root().to_path_buf());
+    let mut e = Engine::new(info).with_acknowledgements(plumcraft_engine::workspace_acknowledgements(Vec::new())).with_work_root(cas.root().to_path_buf());
     if let Some(store) = &opts.store {
         e = e.with_store(store.clone());
     }

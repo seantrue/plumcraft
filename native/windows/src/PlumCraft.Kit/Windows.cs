@@ -645,6 +645,70 @@ public sealed class MessagesModel(DocumentModel model)
     }
 }
 
+/// <summary>The Acknowledgements window's model (FR4): `acknowledgements.get {shell: "windows", query}`, read
+/// when it opens and as the search changes, the last search winning.</summary>
+public sealed class AcknowledgementsModel(DocumentModel model)
+{
+    public DocumentModel Model { get; } = model;
+    public JsonElement Reply { get; private set; }
+    public string Query { get; private set; } = "";
+    public event Action? Changed;
+    int asked;
+
+    public async Task ReadAsync(string? query = null)
+    {
+        if (query is not null) Query = query;
+        var mine = ++asked;
+        try
+        {
+            var r = await Model.Core.ResultAsync("acknowledgements.get", Jsonv.Object(("shell", Jsonv.Of("windows")), ("query", Jsonv.Of(Query))), Model.RequestDoc);
+            if (mine != asked) return;
+            Reply = r;
+            Changed?.Invoke();
+        }
+        catch (Exception) { }
+    }
+
+    /// <summary>The editor's list and each engine's: (id, title, list or null, why none).</summary>
+    public List<(string Id, string Title, JsonElement? List, string? None)> Programs()
+    {
+        var out_ = new List<(string, string, JsonElement?, string?)>();
+        if (Reply.ValueKind != JsonValueKind.Object) return out_;
+        var editor = Reply.Get("editor");
+        if (editor is { ValueKind: JsonValueKind.Object } e) out_.Add(("editor", e.Get("name").Str() ?? "PlumCraft", e.Get("list"), null));
+        foreach (var x in Reply.Get("engines").Items())
+        {
+            var title = $"Engine: {x.Get("name").Str() ?? x.Get("id").Str() ?? ""}";
+            var id = $"engine:{x.Get("id").Str()}";
+            if (x.Get("given") is { ValueKind: JsonValueKind.True }) out_.Add((id, title, x.Get("list"), null));
+            else out_.Add((id, title, null, x.Get("error").Str() is { } why ? $"No list given: {why}" : "No list given."));
+        }
+        return out_;
+    }
+
+    /// <summary>A licence's section title: its id and first packages.</summary>
+    public static string GroupTitle(JsonElement g)
+    {
+        var names = g.Get("packages").Items().Select(p => p.Get("name").Str()).OfType<string>().ToList();
+        var more = names.Count > 4 ? $" and {names.Count - 4} more" : "";
+        return $"{g.Get("licence").Str()}: {string.Join(", ", names.Take(4))}{more}";
+    }
+
+    /// <summary>How many packages a list shows, of how many.</summary>
+    public static string PackagesLine(JsonElement? list)
+    {
+        var all = list?.Get("packages").U64() ?? 0;
+        var shown = list?.Get("shownPackages").U64() ?? all;
+        return shown == all ? $"{all} packages" : $"{shown} of {all} packages";
+    }
+
+    /// <summary>The person closed it: the core's window closes too.</summary>
+    public async Task CloseAsync()
+    {
+        try { await Model.RunAsync("app.acknowledgements", Jsonv.Object(("open", Jsonv.False))); } catch (Exception) { }
+    }
+}
+
 /// <summary>The windows of the core's own models a document has open, by key: `cache`, `params`,
 /// `editor:<node>` (report.get) and `compare`.</summary>
 public static class CoreWindowKeys

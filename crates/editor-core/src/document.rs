@@ -905,7 +905,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
     }
     let result = plumcraft_session::commands::with_doc(doc_id, || h.doc_mut().session.execute(id, params));
     // reading the messages in full leaves them (and the offer) as they are
-    let keeps = id == "view.messages";
+    let keeps = id == "view.messages" || id == "app.acknowledgements";
     // an offer lasts until the next command
     if !keeps {
         h.doc_mut().convert_offer = None;

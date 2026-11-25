@@ -37,6 +37,7 @@
 #![deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::unimplemented, clippy::todo, clippy::unreachable)]
 
 pub mod about_view;
+pub mod acknowledgements_view;
 pub mod app_hooks;
 pub use plumcraft_editor_core::appearance;
 pub mod array_view;
@@ -1620,6 +1621,7 @@ impl EditorApp {
         }
         self.prompt_modal(&ctx);
         about_view::show(&ctx, &mut self.doc.session);
+        acknowledgements_view::show(&ctx, &mut self.doc);
         let asks = graph_params_view::show(&ctx, &mut self.doc.session, &mut self.param_docs);
         if let Some((name, pos)) = asks.rename {
             self.canvas.nets.edit = Some(crate::net_view::NameEdit::new(crate::net_view::NameFor::RenamePort(name.clone()), name, pos));

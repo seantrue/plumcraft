@@ -5,7 +5,7 @@ FR4. The maintainer: "Add list of licenses that need display on Help/About dialo
 ## 1. Summary
 
 - **Almost everything is permissive and needs only its notice shown.** The Mac and iPad core library (`plumcraft-ffi` for `aarch64-apple-darwin`, the text, array and audio engines compiled in) pulls 207 third-party crates. Every one declares a licence; none is unknown. 191 are MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0 or a choice among them.
-- **The list can be made offline from what the build already has.** `cargo metadata --offline --locked` gives each crate's licence expression and folder, and 202 of the 207 shipped crates carry their licence texts in the local registry. The other 5 declare plain MIT, Apache-2.0, BSD-3-Clause or Zlib, whose standard texts PlumCraft would keep. No new tool is needed and no network step. `cargo-about`, `cargo-deny` and `cargo-license` are not installed here.
+- **The list can be made offline from what the build already has** (decided: with `cargo about`, run offline; section 5, point 6). `cargo metadata --offline --locked` gives each crate's licence expression and folder, and 202 of the 207 shipped crates carry their licence texts in the local registry. The other 5 declare plain MIT, Apache-2.0, BSD-3-Clause or Zlib, whose standard texts PlumCraft would keep. No new tool is needed and no network step. `cargo-about`, `cargo-deny` and `cargo-license` are not installed here.
 - **Four things need the maintainer's decision before part 2** (section 5):
   1. the **Windows app's Microsoft packages** are under Microsoft's own terms, not an open-source licence;
   2. **Symphonia**, the audio decoders, is **MPL-2.0**, a file-level copyleft;
@@ -99,4 +99,23 @@ The list is data the core holds and serves (`app.acknowledgements`, a command be
 
    Both licences permit embedding and ask for the notice with the fonts, which the list would carry. Nothing to decide unless the maintainer wants these fonts replaced.
 
-Recommendation: 1A, 2A, 3A, 4 as is. Part 2 then builds the list, the capability and the windows as in sections 3 and 4.
+**Decided (the maintainer, 2026-11-25):** asked on the checklist page, they answered: "Decisions: 1A; 2A; 3A; 4A; 5A; 6B". The six points as put to them:
+
+1. **1A,** Windows (Microsoft's App SDK and Win2D): list them with their full terms and go on.
+2. **2A,** Symphonia MPL-2.0: accept; list the licence and the source's address.
+3. **3A,** Python engines' bundled native libraries: list the installed licence files in full.
+4. **4A,** Embedded fonts: keep the fonts and list their notices.
+5. **5A,** A crate offering a choice: take the permissive option (`self_cell` as Apache-2.0).
+6. **6B,** How the list is made: "Install cargo-about (one download, with your OK) and use it", not a generator of PlumCraft's own. So the list is made by `cargo about`, from the local registry, with a checked-in `about.toml` that accepts exactly the licences found (anything new fails) and a template. A test that needs neither cargo-about nor the network fails when the lockfile changes and the list was not made again. CI does not install it. This replaces section 3.1's generator.
+
+Part 2 builds the list, the capability and the windows as in sections 3 and 4, with these answers.
+
+Later the same day the maintainer added: "Get licenses from online if needed." So `cargo about` may fetch a licence file the published crate left out, when the list is made by hand; the build, the tests and CI never call out, and the checked-in list is what ships.
+
+## 6. As built (part 2)
+
+- **The list.** `bash scripts/acknowledgements.sh` runs `cargo about generate --locked` with `about.toml` and the template `crates/editor-core/acknowledgements/about.hbs`, writing `rust.json` (194 licence texts over 436 third-party crates, every target the shells build for) and `cargo-lock.sha256`. A test (`acknowledgements::tests::the_list_was_made_from_this_lockfile`) compares that digest with Cargo.lock's; it needs neither `cargo about` nor the network. `about.toml` accepts exactly the eleven licences found, in order of preference (MIT first; `self_cell` resolves to Apache-2.0, never the GPL).
+- **What came from online.** `cargo about` 0.9.3 has no clearlydefined lookup: it fetches only the files a clarification in `about.toml` names, from the crate's own repository at the commit it was published from, each checked against its SHA-256. Fetched that way: the licence files (`git` entries in `about.toml`) of the accesskit crates; ecolor, eframe, egui, egui-wgpu, egui-winit, egui_extras, egui_kittest, emath and epaint; the objc2 crates and block2 (newer versions) and dispatch2; alloc-stdlib, brotli-decompressor, blake3, clipboard-win, constant_time_eq, libm, profiling, spirv, type-map, egui_plot and zune-jpeg 0.4 (its Zlib text). Read from the package instead (`files` entries, never fetched): the windows-rs crates (`license-mit`, which the scan missed), dpi, and the two soundcraft crates (a git dependency; the file at its checkout's root). Still the licence's standard text, nothing better found: dispatch 0.2.0, egui-scale 0.6.1, dasp_sample 0.11.0, zune-core 0.4.12, and the older versions of block2, objc2, objc2-app-kit, objc2-foundation and objc2-ui-kit.
+- **Beyond cargo.** In code (`plumcraft_editor_core::acknowledgements::OTHER`): Inter (OFL, the egui editor's font), Aileron (CC0), the SolidCraft code adapted into PlumCraft (MIT), and, for the Windows shell only, the Windows App SDK's terms, its ML terms, its third-party notices and WinUI's (copied from the NuGet packages), and Win2D's terms (the package names an address that now leads elsewhere; the text is the Internet Archive's copy of that page, 2025-01-13, and says so).
+- **Engines.** The capability `acknowledgements` and the operation of that name (`docs/interface.md` 5.3, 6.1, 6.3, 18). The Rust SDK: `Engine::with_acknowledgements`, `Acknowledgements::from_cargo_about`; the workspace's engines answer with a note that their crates are under PlumCraft, the array engine adding Inter. The Python SDK: `with_acknowledgements`, the `acknowledgements` class attribute, `plumcraft_engine.acknowledgements.from_distributions` (every licence file a distribution installed, in full, decision 3A).
+- **The window.** `app.acknowledgements` (Help, role `acknowledgements`: the Mac's application menu beside About, the iPad's Help beside About) and `acknowledgements.get {shell, query}`, the search the core's. Mac: a window; iPad and iPhone: a sheet over About (About's button); Windows: a window (About's dialog has a button); egui: a window (About's button).

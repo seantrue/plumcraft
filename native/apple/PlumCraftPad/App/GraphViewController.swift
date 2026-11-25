@@ -528,14 +528,18 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
         let msgs = PadMessages(model: model)
         msgs.host = self
         messagesSheet = msgs
+        let acks = PadAcknowledgements(model: model)
+        acks.host = self
+        acknowledgementsSheet = acks
         let cw = PadCoreWindows(model: model, pictures: v.canvas.pictures)
         cw.host = self
         coreWindows = cw
-        model.onWindows = { [weak pops, weak params, weak sheet, weak msgs, weak cw] w in
+        model.onWindows = { [weak pops, weak params, weak sheet, weak msgs, weak acks, weak cw] w in
             pops?.follow(w)
             params?.params.follow(w)
             sheet?.follow(w.settings)
             msgs?.follow(w.messages ?? false)
+            acks?.follow(w.acknowledgements ?? false)
             cw?.follow(w)
         }
         model.onToolbar = { [weak self] items in self?.followToolbar(items) }
@@ -744,6 +748,8 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var settingsSheet: PadSettingsSheet?
     /// The Messages sheet, following the core's `view.windows.messages` (N4 slice 5).
     var messagesSheet: PadMessages?
+    /// The Acknowledgements sheet, following the core's `view.windows.acknowledgements` (FR4).
+    var acknowledgementsSheet: PadAcknowledgements?
     /// The Cache Report, Parameters, value editors and Compare as sheets (N4 slice 6).
     var coreWindows: PadCoreWindows?
 

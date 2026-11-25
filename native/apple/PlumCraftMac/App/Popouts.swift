@@ -806,6 +806,65 @@ final class MessagesWindow: NSObject, NSWindowDelegate {
     }
 }
 
+/// The Acknowledgements window (FR4): the licences of what the app and its engines are built
+/// from, open while the core's `view.windows.acknowledgements` is (`app.acknowledgements`,
+/// beside About in the application menu); its close button closes it in the core too.
+@MainActor
+final class AcknowledgementsWindow: NSObject, NSWindowDelegate {
+    let acks: AcknowledgementsModel
+    /// The status file is written again (what the window shows changed).
+    var onChange: (() -> Void)?
+    private(set) var window: NSWindow?
+    private var closingFromCore = false
+
+    init(model: DocumentModel) {
+        acks = AcknowledgementsModel(model: model, shell: "mac")
+    }
+
+    func follow(_ open: Bool, over doc: NSWindow?) {
+        if open, window == nil {
+            let w = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 640, height: 620), styleMask: [.titled, .closable, .resizable, .miniaturizable], backing: .buffered, defer: false)
+            w.title = "Acknowledgements"
+            // a script's `ui.screenshot {window: "acknowledgements"}` draws it
+            w.identifier = NSUserInterfaceItemIdentifier("core-acknowledgements")
+            w.contentView = NSHostingView(rootView: AcknowledgementsView(acks: acks))
+            acks.onRead = { [weak self] in self?.onChange?() }
+            w.isReleasedWhenClosed = false
+            w.collectionBehavior.insert(.fullScreenAuxiliary)
+            w.delegate = self
+            w.center()
+            window = w
+            // in front for the person at the app; else just above the document's window
+            if NSApp.isActive && !CoreHost.options.scratchState {
+                w.makeKeyAndOrderFront(nil)
+            } else if let doc, doc.isVisible {
+                w.order(.above, relativeTo: doc.windowNumber)
+            } else {
+                w.orderBack(nil)
+            }
+        } else if !open, let w = window {
+            closingFromCore = true
+            w.close()
+            closingFromCore = false
+        }
+    }
+
+    func windowWillClose(_ n: Notification) {
+        if !closingFromCore {
+            let a = acks
+            Task { await a.close() }
+        }
+        window = nil
+    }
+
+    var describe: JSONValue {
+        var d = acks.describe.object ?? [:]
+        d["open"] = .bool(window != nil)
+        d["window"] = .int(Int64(window?.windowNumber ?? 0))
+        return .object(d)
+    }
+}
+
 /// A core window's undo manager: the document's undo history, the core's. With a SwiftUI window
 /// in front (the curves editor's) Edit › Undo and ⌘Z reach the window, which answers them with its
 /// undo manager: AppKit's own, empty, so Undo was greyed after a drag and did nothing. This one

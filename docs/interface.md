@@ -257,6 +257,7 @@ Engine → UI:
 | `graph.release` | engine | `RunRequest.scope` names the open graph's life, and `graph.release{scope}` frees what the engine kept for it (scratch files) when that life ends. A run goes on being able to use a scope released, as a new one | Kept until the engine stops |
 | `editor.curves` / `editor.mask` | engine | `NodeReport.editor.curves` / `.mask` payloads | The editor opens without engine data |
 | `lists.nested` | engine | The engine runs section 7.6 rule 2's nested lists, and writes and reads a list's `axes` (section 4.5), a watch's `path` and a display's `path` and `levels` (sections 10.2, 10.4). Its memo salt changes with it. A coordinator joins only engines that agree (rule 2). In the Rust SDK an engine that runs graphs with its own core (`Engine::with_core`) lists it only when it declares it (`with_cap("lists.nested")`) | Today's rule: a step run once per item joins its runs' lists into one flat list |
+| `acknowledgements` | engine | `acknowledgements` answers the licences of what the engine is built from (section 6.3); the editor shows them in its Acknowledgements window under the engine's name. The Rust SDK lists it with `Engine::with_acknowledgements`, the Python SDK with `with_acknowledgements` or the `acknowledgements` class attribute | The window says "no list given" under the engine's name |
 | `x.<pack>.<op>` | engine | A pack operation exists (`x.vi.export`, `x.vi.deliver`) | The pack's UI is hidden with a reason |
 | `codec.msgpack` | both | Reserved | JSON |
 
@@ -308,6 +309,7 @@ Nonce files are 32 random bytes in hex, mode 0600, in `<store>/.hello/`, deleted
 | `memo.lookup` | `{keys: [memo key]}` | `{records: [MemoRecord]}` | `memo.lookup` | 30 s |
 | `output.save` | `SaveRequest` | `SaveReply` | `output.save` | 300 s |
 | `graph.release` | `{scope}` | `{}` (idempotent) | `graph.release` | 10 s |
+| `acknowledgements` | `{}` | `Acknowledgements` (section 6.3) | `acknowledgements` | 30 s |
 | `x.<pack>.<op>` | pack-defined | pack-defined | the cap | 300 s |
 
 On a request/response binding every op is a JSON-RPC 2.0 method with these names. On AMQP the op is the `op` field of the body, as today (section 16.2).
@@ -315,6 +317,22 @@ On a request/response binding every op is a JSON-RPC 2.0 method with these names
 ### 6.2 Correlation
 
 Every request has an id (JSON-RPC `id`, AMQP `correlation_id`, in-process a host counter). Every reply echoes it. Run-scoped events carry `run_id` and `generation`. Op-scoped `log` events MAY carry `op_id` (the request id), so a long `x.vi.deliver` can report what it is doing.
+
+### 6.3 Acknowledgements
+
+FR4 (research note 29). An engine with the capability `acknowledgements` answers the operation of that name with the licences of what it is built from, as the editor's Acknowledgements window shows them (`plumcraft_proto::acknowledgements`):
+
+```json
+{"groups": [{"licence": "MIT", "name": "MIT License", "text": "Permission is hereby granted…",
+             "packages": [{"name": "serde", "version": "1.0.228", "url": "https://github.com/serde-rs/serde"}]}],
+ "note": ""}
+```
+
+- **Grouped by licence:** each group is one licence text, given once, with every package under it. `licence` is an SPDX id or expression (`LicenseRef-…` for terms with none); `name` (optional) is the licence's name as people say it; `url` (optional) is where the package's source is.
+- **`note`** (optional): what the engine wants said about the list ("Built from PlumCraft's own source: …"), and what the editor left out reading it.
+- **Hostile input** (section 18): the editor reads it leniently (a malformed group or package is skipped; a group without a licence or packages dropped) and bounded: at most 512 groups, 4,096 packages a group, 256 Ki characters a text (cut, saying so), 512 a name, version, address or licence, 8 Mi characters in all; what goes is said in `note`.
+- **How the SDKs make it.** Rust: `cargo about` with the editor's template (`crates/editor-core/acknowledgements/about.hbs`), read with `Acknowledgements::from_cargo_about`, which leaves out the workspace's own crates. Python: `plumcraft_engine.acknowledgements.from_distributions(names)`, from installed distributions' metadata and every licence file they installed, in full, with the distributions they require.
+- An engine compiled into an application gives its list the same way; an engine without the capability is shown with "no list given".
 
 ## 7. The catalogue
 
@@ -1186,6 +1204,7 @@ Found in the app bundle, `~/.config/plumcraft/engines/*.toml`, or `--engine-mani
 | Images, SVG, audio, text, JSON | Decode limits before allocation (≤ 16,384 px a side, ≤ 256 Mpx); SVG without external resources; audio rate 1–768,000 and channels 1–64; UTF-8 validated; JSON depth ≤ 64 |
 | Frames | `max_frame` enforced before parse; a longer line is an error and the connection is reset |
 | Tokens | 256-bit, from a 0600 file or the environment; never logged; compared in constant time |
+| Acknowledgements | Read leniently and bounded (section 6.3): groups, packages, texts and fields capped, the whole under 8 Mi characters, what was left out said |
 
 Every new parser gets `panic_hunt` fixtures (golden rule 1).
 

@@ -479,18 +479,39 @@ fn app_about(s: &mut Session, _: &Value) -> Result<Value> {
     )
 }
 
-/// `app.about`, in the Help menu.
+fn app_acknowledgements(s: &mut Session, p: &Value) -> Result<Value> {
+    let open = match p.get("open") {
+        None | Some(Value::Null) => true,
+        Some(v) => v.as_bool().ok_or_else(|| SessionError::Params("\"open\" must be true or false".into()))?,
+    };
+    s.views.acknowledgements = open;
+    Ok(json!({"open": open}))
+}
+
+/// `app.about` and `app.acknowledgements`, in the Help menu.
 pub(crate) fn about_specs() -> Vec<CommandSpec> {
-    vec![CommandSpec {
-        id: "app.about",
-        label: "About",
-        menu: &["Help"],
-        shortcut: None,
-        params: "{} -> {title, version, parts: [[name, version]], build: {line, shell, app, ui} | null, engine, components} (opens the About window: the application, what it was built from, which build it is, and the connected engine's components)",
-        enabled: always,
-        run: app_about,
-        journal: false,
-    }]
+    vec![
+        CommandSpec {
+            id: "app.about",
+            label: "About",
+            menu: &["Help"],
+            shortcut: None,
+            params: "{} -> {title, version, parts: [[name, version]], build: {line, shell, app, ui} | null, engine, components} (opens the About window: the application, what it was built from, which build it is, and the connected engine's components)",
+            enabled: always,
+            run: app_about,
+            journal: false,
+        },
+        CommandSpec {
+            id: "app.acknowledgements",
+            label: "Acknowledgements",
+            menu: &["Help"],
+            shortcut: None,
+            params: "{open?: bool (default: true)} -> {open}: the Acknowledgements window: the licences of what the editor is built from, grouped by licence with each text once, then each connected engine's (or \"no list given\"); About opens it too. Its model is acknowledgements.get",
+            enabled: always,
+            run: app_acknowledgements,
+            journal: false,
+        },
+    ]
 }
 
 /// `app.quit`, last in the File menu. The session has nothing to do: the editor closes its

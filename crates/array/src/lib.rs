@@ -29,6 +29,19 @@ use plumcraft_engine::{Engine, Node};
 use plumcraft_proto::catalogue::{Media, WireType, core_types};
 use plumcraft_proto::session::EngineInfo;
 
+/// The array engine's acknowledgements (FR4): the Inter font its Text node draws with, beside the
+/// workspace's Rust packages.
+fn acknowledgements() -> plumcraft_proto::acknowledgements::Acknowledgements {
+    use plumcraft_proto::acknowledgements::{LicenceGroup, Package};
+    let inter = LicenceGroup {
+        licence: "OFL-1.1".into(),
+        name: "SIL Open Font License 1.1".into(),
+        text: include_str!("../assets/fonts/OFL-Inter.txt").into(),
+        packages: vec![Package { name: "Inter (font)".into(), version: String::new(), url: "https://github.com/rsms/inter".into() }],
+    };
+    plumcraft_engine::workspace_acknowledgements(vec![inter])
+}
+
 /// The engine's demo workflow.
 pub const DEMO_WORKFLOW: &str = include_str!("demo.json");
 
@@ -53,7 +66,12 @@ pub fn engine() -> Engine {
         salt: plumcraft_engine::salt(&format!("rs:plumcraft-array+{version}"), &plumcraft_engine::code_digest!()),
         ..Default::default()
     };
-    let mut e = Engine::new(info).with_wire_type(core_types::array()).with_svg().with_wire_type(core_types::image()).with_wire_type(core_types::audio());
+    let mut e = Engine::new(info)
+        .with_acknowledgements(acknowledgements())
+        .with_wire_type(core_types::array())
+        .with_svg()
+        .with_wire_type(core_types::image())
+        .with_wire_type(core_types::audio());
     // PDF, as the craft packs declare it, so their exports cross into Rasterize PDF
     e = e.with_wire_type(WireType { id: "PDF".into(), media: Media::Bytes, ..Default::default() });
     // and video (FilmCraft's exports), into Video to Array

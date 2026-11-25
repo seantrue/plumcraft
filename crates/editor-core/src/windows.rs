@@ -42,6 +42,11 @@ pub struct Windows {
     /// with `view.messages {open: false}`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub messages: bool,
+    /// The Acknowledgements window is open (`app.acknowledgements`, FR4): a native shell shows
+    /// `acknowledgements.get` in a window (a sheet on iPad and iPhone), and closes it with
+    /// `app.acknowledgements {open: false}`.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub acknowledgements: bool,
     /// The Cache Report is open (`run.cacheReport`, N4 slice 6): `report.get {window: "cache"}`.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub cache: bool,
@@ -72,6 +77,7 @@ impl Windows {
             && self.popouts.is_empty()
             && self.settings.is_none()
             && !self.messages
+            && !self.acknowledgements
             && !self.cache
             && !self.params
             && self.editors.is_empty()
@@ -168,7 +174,18 @@ pub fn of(session: &Session) -> Windows {
     } else {
         0
     };
-    Windows { parameters, popouts, settings: v.settings.clone(), messages: v.messages, cache, params, editors, compare, reports }
+    Windows {
+        parameters,
+        popouts,
+        settings: v.settings.clone(),
+        messages: v.messages,
+        acknowledgements: v.acknowledgements,
+        cache,
+        params,
+        editors,
+        compare,
+        reports,
+    }
 }
 
 /// `popout.get {id}`: a pop-out's value, as `ui.inspect`'s `watched` has the panel's

@@ -84,6 +84,9 @@ pub struct Views {
     pub graph_params: bool,
     /// The Messages window (the status bar's messages in full) is open (`view.messages`).
     pub messages: bool,
+    /// The Acknowledgements window (the licences of what the editor and its engines are built
+    /// from) is open (`app.acknowledgements`, FR4).
+    pub acknowledgements: bool,
     /// The node the parameter editor is open on.
     pub parameters: Option<NodeId>,
     /// The nodes whose own editors are open (`node.editor`), oldest first.

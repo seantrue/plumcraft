@@ -74,6 +74,7 @@ pub fn engine() -> Engine {
         ..Default::default()
     };
     let mut e = Engine::new(info)
+        .with_acknowledgements(plumcraft_engine::workspace_acknowledgements(Vec::new()))
         .with_wire_type(core_types::text())
         .with_wire_type(WireType { id: STRING.into(), media: Media::Scalar, ..Default::default() })
         .with_wire_type(WireType { id: INT.into(), media: Media::Scalar, ..Default::default() })

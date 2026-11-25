@@ -26,6 +26,7 @@ public sealed class CoreWindows(DocWindow owner, DocumentModel model, Pictures p
 {
     readonly Dictionary<string, PanelWindow> open = new(StringComparer.Ordinal);
     PanelWindow? messages;
+    PanelWindow? acknowledgements;
     SettingsWindow? settings;
 
     public void Follow(DocumentWindows w)
@@ -59,6 +60,20 @@ public sealed class CoreWindows(DocWindow owner, DocumentModel model, Pictures p
             messages.CloseFromCore();
             messages = null;
         }
+        // Acknowledgements (FR4)
+        if (w.Acknowledgements == true && acknowledgements is null)
+        {
+            var a = new AcknowledgementsWindow(owner, new AcknowledgementsModel(model));
+            a.ClosedByPerson += () => { acknowledgements = null; owner.NoteStatus(); };
+            acknowledgements = a;
+            Ui.Prepare(a, owner, a.Size.w, a.Size.h);
+            a.Activate();
+        }
+        else if (w.Acknowledgements != true && acknowledgements is not null)
+        {
+            acknowledgements.CloseFromCore();
+            acknowledgements = null;
+        }
         // Settings: open on the core's section
         if (w.Settings is { } tab)
         {
@@ -85,6 +100,8 @@ public sealed class CoreWindows(DocWindow owner, DocumentModel model, Pictures p
         open.Clear();
         messages?.CloseFromCore();
         messages = null;
+        acknowledgements?.CloseFromCore();
+        acknowledgements = null;
         settings?.CloseFromCore();
         settings = null;
     }
@@ -94,6 +111,7 @@ public sealed class CoreWindows(DocWindow owner, DocumentModel model, Pictures p
         var o = new System.Text.Json.Nodes.JsonObject();
         foreach (var (k, w) in open) o[k] = w.Describe();
         if (messages is not null) o["messages"] = messages.Describe();
+        if (acknowledgements is not null) o["acknowledgements"] = acknowledgements.Describe();
         if (settings is not null) o["settings"] = settings.Describe();
         return o;
     }
@@ -357,6 +375,85 @@ public sealed class MessagesWindow : PanelWindow
     }
 
     public override System.Text.Json.Nodes.JsonObject Describe() => new() { ["open"] = true, ["count"] = messages.Messages.Count };
+}
+
+/// <summary>The Acknowledgements window (FR4): the licences of what the app and its engines are built from,
+/// the core's search box above a list of programs, each a heading over its licences; a licence is an
+/// expander, closed until opened, with its packages and its full text, selectable.</summary>
+public sealed class AcknowledgementsWindow : PanelWindow
+{
+    readonly AcknowledgementsModel acks;
+    readonly StackPanel body = new() { Spacing = 4, Padding = new Thickness(16, 4, 16, 16) };
+
+    public override (int w, int h) Size => (680, 640);
+
+    public AcknowledgementsWindow(DocWindow owner, AcknowledgementsModel acks) : base(owner, "Acknowledgements")
+    {
+        this.acks = acks;
+        var search = new TextBox { PlaceholderText = "Search a licence or a package", Margin = new Thickness(16, 12, 16, 8) };
+        search.TextChanged += async (_, _) => await acks.ReadAsync(search.Text);
+        var g = new Grid();
+        g.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        g.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
+        g.Children.Add(search);
+        var scroll = new ScrollViewer { Content = body };
+        Grid.SetRow(scroll, 1);
+        g.Children.Add(scroll);
+        Content = Root(g);
+        acks.Changed += Show;
+        _ = acks.ReadAsync();
+    }
+
+    protected override Task CloseInCoreAsync() => acks.CloseAsync();
+
+    void Show()
+    {
+        if (Gone) return;
+        body.Children.Clear();
+        foreach (var (_, title, list, none) in acks.Programs())
+        {
+            body.Children.Add(Ui.Heading(title));
+            if (none is not null)
+            {
+                body.Children.Add(Ui.Caption(none));
+                continue;
+            }
+            body.Children.Add(Ui.Caption(AcknowledgementsModel.PackagesLine(list)));
+            if (list.Get("note").Str() is { Length: > 0 } note) body.Children.Add(new TextBlock { Text = note, TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true });
+            foreach (var group in list.Get("groups").Items())
+            {
+                var e = new Expander { Header = AcknowledgementsModel.GroupTitle(group), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+                var g = group;
+                // the text is laid out only when the licence is opened
+                e.Expanding += (_, _) =>
+                {
+                    if (e.Content is not null) return;
+                    var inner = new StackPanel { Spacing = 4 };
+                    if (g.Get("name").Str() is { Length: > 0 } n) inner.Children.Add(new TextBlock { Text = n, Style = Ui.TextStyle("BodyStrongTextBlockStyle") });
+                    foreach (var p in g.Get("packages").Items())
+                    {
+                        var line = string.Join("  ", new[] { p.Get("name").Str(), p.Get("version").Str(), p.Get("url").Str() }.Where(s => !string.IsNullOrEmpty(s)));
+                        inner.Children.Add(new TextBlock { Text = line, IsTextSelectionEnabled = true, TextWrapping = TextWrapping.Wrap });
+                    }
+                    inner.Children.Add(new TextBlock
+                    {
+                        Text = g.Get("text").Str() ?? "", FontFamily = new FontFamily("Consolas"), FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                        IsTextSelectionEnabled = true, Margin = new Thickness(0, 6, 0, 0),
+                    });
+                    e.Content = inner;
+                };
+                body.Children.Add(e);
+            }
+        }
+        Owner.NoteStatus();
+    }
+
+    public override System.Text.Json.Nodes.JsonObject Describe() => new()
+    {
+        ["open"] = true, ["query"] = acks.Query,
+        ["groups"] = acks.Reply.ValueKind == JsonValueKind.Object ? acks.Reply.Get("editor").Get("list").Get("groups").Items().Count() : 0,
+        ["engines"] = acks.Reply.ValueKind == JsonValueKind.Object ? acks.Reply.Get("engines").Items().Count() : 0,
+    };
 }
 
 /// <summary>Compare: A and B side by side, one over the other with a divider, or their exact difference

@@ -90,6 +90,10 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         }
         about.action = #selector(about(_:))
         about.target = self
+        // Acknowledgements beside it (FR4): the model's item, run like any
+        if let (key, it) = find(role: .acknowledgements) {
+            app.addItem(item(it, key: key))
+        }
         app.addItem(.separator())
         // Settings… from the model's preferences item, at its shortcut (⌘,)
         if let (key, it) = find(role: .preferences) {
@@ -242,7 +246,7 @@ final class MenuBar: NSObject, NSMenuItemValidation {
                 continue
             }
             // the application menu has Settings…; the bar's own place for it is dropped
-            if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about { continue }
+            if it.role?.word == .preferences || it.role?.word == .quit || it.role?.word == .about || it.role?.word == .acknowledgements { continue }
             if it.isSection {
                 // B80: inline, under its heading (it was an untitled submenu holding every engine)
                 if !(m.items.last?.isSeparatorItem ?? true) { m.addItem(.separator()) }

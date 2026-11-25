@@ -43,7 +43,18 @@ UNAUTHORIZED = -32005
 UNAVAILABLE = -32006
 
 # Capabilities the engine offers whether or not the client listed them (spec 5.3).
-_ENGINE_ONLY = {"run.plan", "run.peek", "run.watch", "run.multi", "graph.put", "data.cas", "output.save", "output.save.question", "lists.nested"}
+_ENGINE_ONLY = {
+    "run.plan",
+    "run.peek",
+    "run.watch",
+    "run.multi",
+    "graph.put",
+    "data.cas",
+    "output.save",
+    "output.save.question",
+    "lists.nested",
+    "acknowledgements",
+}
 
 # Progress records are sent at most this often per node (spec 9.4).
 PROGRESS_EVERY_S = 0.1
@@ -349,6 +360,9 @@ class Engine:
     save_formats: ClassVar[tuple[Any, ...]] = ()
     # Offer the SDK's default save formats.
     default_save_formats: ClassVar[bool] = True
+    # The distributions it is built from (`("numpy", "pillow")`): their licences, and those of
+    # what they require, are its acknowledgements (`with_acknowledgements`, FR4). None gives none.
+    acknowledgements: ClassVar[tuple[str, ...] | None] = None
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
@@ -388,6 +402,11 @@ class Engine:
         from .declare import bind
 
         bind(self)
+        self._acknowledgements: dict | None = None
+        if type(self).acknowledgements is not None:
+            from .acknowledgements import from_distributions
+
+            self.with_acknowledgements(from_distributions(type(self).acknowledgements))
         if type(self).building_blocks:
             self.with_building_blocks()
         elif type(self).vary:
@@ -435,6 +454,20 @@ class Engine:
         a node's work is exactly what it sleeps on that clock)."""
         self.clock = clock
         return self
+
+    def with_acknowledgements(self, ack: dict) -> Engine:
+        """Give the licences of what this engine is built from (FR4): `{groups: [{licence, name?,
+        text, packages: [{name, version?, url?}]}], note?}`, as
+        `plumcraft_engine.acknowledgements.from_distributions` makes it from installed
+        distributions. The editor shows it in its Acknowledgements window under the engine's name."""
+        self._acknowledgements = ack
+        if "acknowledgements" not in self.caps:
+            self.caps.append("acknowledgements")
+        return self
+
+    def acknowledgements_list(self) -> dict | None:
+        """The licences given with `with_acknowledgements`, or None."""
+        return self._acknowledgements
 
     def with_wire_type(self, w: dict) -> Engine:
         self.wire_types.append(w)

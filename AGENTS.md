@@ -28,7 +28,7 @@ cargo fmt --all --check
 (cd python && uv run pytest && uv run ruff check .)
 ```
 
-A change to a message type regenerates the schema: `cargo run -p plumcraft-proto --example export_schema --features schema` (a test fails while `schema/protocol2.json` is stale). Update `docs/STATUS.md`. Update `AI.md` whenever you write a commit message (the `ai-md` skill). Commit only when asked.
+A change to `Cargo.lock` remakes the acknowledgements (FR4): `bash scripts/acknowledgements.sh` (it needs `cargo install cargo-about --locked --features cli`, once; CI never runs it; a test fails while `crates/editor-core/acknowledgements/rust.json` is older than the lockfile, and a licence not in `about.toml`'s `accepted` stops it until someone looks). A change to a message type regenerates the schema: `cargo run -p plumcraft-proto --example export_schema --features schema` (a test fails while `schema/protocol2.json` is stale). Update `docs/STATUS.md`. Update `AI.md` whenever you write a commit message (the `ai-md` skill). Commit only when asked.
 
 ## Scratch scripts and data
 

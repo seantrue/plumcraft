@@ -78,6 +78,7 @@ pub fn engine() -> Engine {
     };
     let scalar = |id: &str| WireType { id: id.into(), media: Media::Scalar, ..Default::default() };
     let mut e = Engine::new(info)
+        .with_acknowledgements(plumcraft_engine::workspace_acknowledgements(Vec::new()))
         .with_wire_type(plumcraft_proto::catalogue::core_types::audio())
         .with_wire_type(scalar(FLOAT))
         .with_wire_type(scalar(INT))

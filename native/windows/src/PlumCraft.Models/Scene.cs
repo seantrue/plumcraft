@@ -184,6 +184,8 @@ public sealed record DocumentWindows
     public bool? Compare { get; init; }
     /// <summary>Changes when what an open report reads changes: read it again then.</summary>
     public ulong? Reports { get; init; }
+    /// <summary>The Acknowledgements window is open (FR4): `acknowledgements.get`.</summary>
+    public bool? Acknowledgements { get; init; }
 }
 
 /// <summary>One pop-out window: what it follows, its title, when to bring it forward (`raised` rises)

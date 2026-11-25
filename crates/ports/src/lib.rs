@@ -348,6 +348,7 @@ pub fn engine() -> Engine {
     };
     let scalar = |id: &str| WireType { id: id.into(), media: plumcraft_proto::catalogue::Media::Scalar, ..Default::default() };
     let mut e = Engine::new(info)
+        .with_acknowledgements(plumcraft_engine::workspace_acknowledgements(Vec::new()))
         .with_wire_type(core_types::text())
         .with_wire_type(core_types::array())
         .with_wire_type(core_types::json())

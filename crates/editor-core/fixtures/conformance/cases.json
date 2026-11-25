@@ -3040,6 +3040,21 @@
           "timeout": 30
         }
       ]
+    },
+    {
+      "name": "the Acknowledgements window is the core's: opened, read, searched and closed",
+      "about": "FR4: app.acknowledgements opens the Acknowledgements window in the scene's view.windows; acknowledgements.get gives the editor's licences (grouped, each text once) and each engine's, an engine with the acknowledgements capability giving its own list; a search keeps the licences a package's name matches; app.acknowledgements {open: false} closes it",
+      "half": "read",
+      "needs": ["engine:text"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "app.acknowledgements", "params": {}}, "expect": {"/result/open": true}},
+        {"call": "scene.get", "expect": {"/result/view/windows/acknowledgements": true}},
+        {"call": "acknowledgements.get", "params": {"shell": "mac"}, "expect": {"/result/open": true, "/result/editor/list/packages": {"$min": 300}, "/result/engines": {"$find": {"where": {"given": true}, "want": {"/list/note": "Built from PlumCraft's own source: the Rust packages it uses are listed under PlumCraft."}}}}},
+        {"call": "acknowledgements.get", "params": {"query": "symphonia"}, "expect": {"/result/editor/list/groups/0/licence": "MPL-2.0", "/result/editor/list/groups": {"$len": 1}}},
+        {"call": "acknowledgements.get", "params": {"junk": 1}, "ok": false},
+        {"call": "command.run", "params": {"command": "app.acknowledgements", "params": {"open": false}}, "expect": {"/result/open": false}},
+        {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
+      ]
     }
   ]
 }

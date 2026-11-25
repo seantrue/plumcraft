@@ -38,6 +38,7 @@ pub fn protocol2() -> Value {
     add("PlanReply", generator.subschema_for::<PlanReply>());
     add("SaveRequest", generator.subschema_for::<SaveRequest>());
     add("SaveReply", generator.subschema_for::<SaveReply>());
+    add("Acknowledgements", generator.subschema_for::<crate::acknowledgements::Acknowledgements>());
     add("Envelope", generator.subschema_for::<Envelope>());
     add("StatusRecord", generator.subschema_for::<StatusRecord>());
     add("LiveUpdate", generator.subschema_for::<LiveUpdate>());
@@ -93,7 +94,7 @@ mod tests {
     #[test]
     fn document_shape() {
         let doc = protocol2();
-        assert_eq!(doc["messages"].as_object().unwrap().len(), 24);
+        assert_eq!(doc["messages"].as_object().unwrap().len(), 25);
         assert!(has_def::<crate::Handle>(&doc));
         assert!(has_def::<StatusRecord>(&doc));
         assert_eq!(doc["$defs"]["Handle"]["type"], "string");

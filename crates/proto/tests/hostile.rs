@@ -9,6 +9,8 @@ use plumcraft_proto::session::{EngineState, Hello, HelloReply};
 use plumcraft_proto::{Caps, DataRef, Handle, PortValue, ProtoError};
 
 const SEEDS: &[&str] = &[
+    // an engine's acknowledgements (FR4): licences, each with its text and packages
+    r#"{"groups": [{"licence": "MIT", "name": "MIT License", "text": "Permission is hereby granted", "packages": [{"name": "serde", "version": "1.0.0", "url": "https://crates.io/crates/serde"}]}], "note": ""}"#,
     // a nested list with its axes (spec 4.5, capability `lists.nested`)
     r#"{"kind": "list", "items": [{"kind": "list", "items": [{"kind": "json", "value": 0.1}, {"kind": "json", "value": 0.2}], "axes": [["s.values", 2]]}, {"kind": "list", "items": [], "axes": [["s.values", 0]]}], "axes": [["r.values", 2], ["x", 1]]}"#,
     // a watch and a display of a nested list: the item within the run, each level's count
@@ -87,6 +89,10 @@ fn all_parsers(text: &str) {
     let _ = serde_json::from_str::<EngineState>(text);
     let _ = serde_json::from_str::<Display>(text);
     let _ = serde_json::from_str::<WatchRequest>(text);
+    if let Ok(v) = serde_json::from_str::<serde_json::Value>(text) {
+        let _ = plumcraft_proto::acknowledgements::Acknowledgements::from_value(v);
+    }
+    let _ = plumcraft_proto::acknowledgements::Acknowledgements::from_cargo_about(text);
     let _ = serde_json::from_str::<DataRef>(text);
     let _ = serde_json::from_str::<PortValue>(text);
     let _ = serde_json::from_str::<Handle>(text);

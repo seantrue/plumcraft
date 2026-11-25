@@ -742,6 +742,14 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
             },
             None => err(not_here(method)),
         },
+        // the Acknowledgements window's model (FR4): the editor's licences and each engine's
+        "acknowledgements.get" => match crate::acknowledgements::check_params(params) {
+            Err(e) => err(e),
+            Ok(()) => match s.document_mut() {
+                Some(d) => ok(crate::acknowledgements::document_json(d, params)),
+                None => ok(crate::acknowledgements::get_json(false, "PlumCraft", &[], params)),
+            },
+        },
         // the Cache Report, the graph's Parameters window and a value editor, as models a shell
         // draws (N4 slice 6)
         "report.get" => match crate::reports::get(s.session(), params) {
