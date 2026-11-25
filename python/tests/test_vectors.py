@@ -7,21 +7,36 @@ becomes runnable, or a new one that isn't, fails until this list says so."""
 import json
 import pathlib
 
-from plumcraft_engine import CancelToken, Engine, exec
+from plumcraft_engine import CancelToken, Engine, Node, exec
 
 ROOT = pathlib.Path(__file__).resolve().parents[2] / "conformance" / "graphs"
 
 # Kinds the Python SDK's building blocks don't have: the text engine's Text and Upper case, the
-# test engine's Items, and vector 8's engine border (a coordinator's).
+# test engine's Items (its Join has a stand-in here).
 NOT_HERE = {
     "05-item-and-whole-list-inputs.json": "the test engine's ports.items and ports.mixed",
-    "08-across-an-engine-border.json": "an engine border, the coordinator's",
     "09-one-item-a-run-unchanged.json": "the text engine's text.literal and text.upper",
 }
 
 
+class Join(Node):
+    """A stand-in for the test engine's Join (`ports.join`, vector 11): its variadic slots joined."""
+
+    definition = {
+        "id": "ports.join",
+        "inputs": [
+            {"name": "c", "type": "STRING", "variadic": {"template": "c{n}", "names": [], "min": 2, "max": 4}},
+            {"name": "how", "type": "STRING", "default": "space"},
+        ],
+        "outputs": [{"name": "text", "type": "STRING"}],
+    }
+
+    def run(self, inputs, cx):
+        return {"text": " ".join(str(inputs[f"c{n}"]) for n in range(1, 5) if f"c{n}" in inputs)}
+
+
 def engine():
-    return Engine({"id": "py", "salt": "py"}).with_store(None).with_wire_type({"id": "FLOAT", "media": "scalar"}).with_building_blocks()
+    return Engine({"id": "py", "salt": "py"}).with_store(None).with_wire_type({"id": "FLOAT", "media": "scalar"}).with_building_blocks().with_node(Join())
 
 
 def shape(v):
@@ -50,8 +65,9 @@ def test_every_vector_the_python_sdk_can_run_holds_on_it():
     for f in files:
         v = json.loads(f.read_text())
         kinds = {n["kind"] for n in v["graph"]["nodes"].values()}
-        engines = {n.get("engine") for n in v["graph"]["nodes"].values()}
-        if not kinds <= have or len(engines) > 1:
+        # one executor: a vector across engines runs here as in one engine, which is what it
+        # must give (vector 8)
+        if not kinds <= have:
             skipped.append(f.name)
             continue
         targets = sorted({k.split(".", 1)[0] for k in v["expect"]})

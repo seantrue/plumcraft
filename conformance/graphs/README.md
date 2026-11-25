@@ -36,4 +36,5 @@ One JSON file a vector, named `NN-what-it-shows.json`:
 | `07-three-levels.json` | A range after a nested list adds a level: 3 × 2 × 2 | `lists.nested` |
 | `08-across-an-engine-border.json` | Vector 2 across an engine border | `lists.nested` |
 | `09-one-item-a-run-unchanged.json` | A step making one item a run is unchanged | none |
-| `10-b164-range-slice-whole-list.json` | The wiring of B164: a range of 5, a step of 2 a run, the slice `1`, a step of 3 a run, a whole-list step | `lists.nested` |
+| `10-b164-range-slice-whole-list.json` | The wiring of B164 as note 27 first read it: a range of 5, a step of 2 a run, the slice `1`, a step of 3 a run, a whole-list step | `lists.nested` |
+| `11-whole-list-input-with-a-sweep-of-its-own.json` | The wiring of B164 as the report's graph has it: the mask step run once per scale and once per run (a product of 15 over two sweeps, through a variadic input's slots), and a step that takes the masks and the scales whole runs once per run with its 3 (assumed, to be confirmed) | `lists.nested` |

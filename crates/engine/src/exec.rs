@@ -702,7 +702,64 @@ fn call(
     records: &mut dyn FnMut(StatusRecord),
     setup: &mut std::time::Duration,
 ) -> Result<Outputs, NodeError> {
-    call_level(node, def, id, inputs, cancel, records, setup, 0)
+    let regrouped = regroup(def, inputs);
+    call_level(node, def, id, regrouped.as_ref().unwrap_or(inputs), cancel, records, setup, 0)
+}
+
+/// Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2,
+/// assumed, to be confirmed): a list over a sweep the others share and one of its own (a product
+/// made upstream, such as a step run once per scale and once per value of a range) becomes a list
+/// over its own sweeps of lists over the shared ones, so the node runs once per item of its own
+/// sweeps, each with the shared sweep whole, as a list of lists does. A list whose sweeps no
+/// other whole-list input shares, or all of whose sweeps they share, is taken whole as before.
+/// `None`: nothing to regroup.
+pub fn regroup(def: &NodeDef, inputs: &crate::Inputs) -> Option<crate::Inputs> {
+    type Axes = Vec<(String, usize)>;
+    if def.flags.nested_input {
+        return None;
+    }
+    let whole: Vec<&String> = inputs.keys().filter(|k| def.flags.input_list || def.inputs.iter().any(|p| &p.name == *k && p.list)).collect();
+    let axes_of = |k: &str| match inputs.get(k) {
+        Some(Data::List(l)) if !is_nested(l) && !l.axes.is_empty() => Some(l.axes.clone()),
+        _ => None,
+    };
+    let mut out: Option<crate::Inputs> = None;
+    for name in &whole {
+        let Some(axes) = axes_of(name) else { continue };
+        let Some(Data::List(l)) = inputs.get(*name) else { continue };
+        let others: Vec<String> = whole.iter().filter(|o| **o != *name).filter_map(|o| axes_of(o)).flatten().map(|a| a.0).collect();
+        let (inner, outer): (Axes, Axes) = axes.iter().cloned().partition(|a| others.contains(&a.0));
+        if inner.is_empty() || outer.is_empty() || axes.iter().map(|a| a.1).product::<usize>() != l.items.len() {
+            continue;
+        }
+        // row-major: each axis's stride in the flat list
+        let mut stride = vec![1usize; axes.len()];
+        for k in (0..axes.len().saturating_sub(1)).rev() {
+            stride[k] = stride[k + 1] * axes[k + 1].1;
+        }
+        let offset = |want: &[(String, usize)], mut at: usize| -> usize {
+            let mut sum = 0;
+            for (axis, n) in want.iter().rev() {
+                let pos = axes.iter().position(|a| &a.0 == axis).unwrap_or(0);
+                sum += (at % (*n).max(1)) * stride.get(pos).copied().unwrap_or(0);
+                at /= (*n).max(1);
+            }
+            sum
+        };
+        let (outer_n, inner_n): (usize, usize) = (outer.iter().map(|a| a.1).product(), inner.iter().map(|a| a.1).product());
+        let runs = (0..outer_n)
+            .map(|o| {
+                let at: Vec<usize> = (0..inner_n).map(|i| offset(&inner, i) + offset(&outer, o)).collect();
+                Data::List(crate::List {
+                    items: at.iter().filter_map(|&j| l.items.get(j).cloned()).collect(),
+                    axes: inner.clone(),
+                    labels: if l.labels.is_empty() { Vec::new() } else { at.iter().map(|&j| l.label(j).to_owned()).collect() },
+                })
+            })
+            .collect();
+        out.get_or_insert_with(|| inputs.clone()).insert((*name).clone(), Data::List(crate::List { items: runs, axes: outer, labels: Vec::new() }));
+    }
+    out
 }
 
 #[allow(clippy::too_many_arguments)]

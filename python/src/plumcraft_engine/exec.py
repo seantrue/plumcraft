@@ -445,7 +445,65 @@ def _call(
     without an axis is a tuple, passed whole. A port that takes a whole list fed a list of lists runs
     once per item of every outer level, the innermost list whole, unless the node takes nested lists
     whole (`flags.nested_input`)."""
-    return _call_level(node, d, nid, inputs, cancel, record, setup if setup is not None else [0.0], 0)
+    return _call_level(node, d, nid, regroup(d, inputs) or inputs, cancel, record, setup if setup is not None else [0.0], 0)
+
+
+def regroup(d: dict, inputs: dict[str, Any]) -> dict[str, Any] | None:
+    """Whole-list inputs that bring a sweep their sibling whole-list inputs don't (spec 7.6 rule 2,
+    assumed, to be confirmed): a list over a sweep the others share and one of its own (a product
+    made upstream, such as a step run once per scale and once per value of a range) becomes a list
+    over its own sweeps of lists over the shared ones, so the node runs once per item of its own
+    sweeps, each with the shared sweep whole, as a list of lists does. A list whose sweeps no other
+    whole-list input shares, or all of whose sweeps they share, is taken whole as before. None:
+    nothing to regroup (as the Rust SDK's `exec::regroup`)."""
+    flags = d.get("flags") if isinstance(d.get("flags"), dict) else {}
+    if flags.get("nested_input") is True:
+        return None
+    whole_ports = {p.get("name") for p in d.get("inputs") or [] if isinstance(p, dict) and p.get("list") is True}
+    whole = [k for k in inputs if flags.get("input_list") is True or k in whole_ports]
+
+    def axes_of(k: str) -> list[tuple[str, int]] | None:
+        v = inputs.get(k)
+        return list(v.axes) if isinstance(v, List) and v.axes and not is_nested(v) else None
+
+    out: dict[str, Any] | None = None
+    for name in whole:
+        axes = axes_of(name)
+        if not axes:
+            continue
+        lst = inputs[name]
+        others = {a[0] for o in whole if o != name for a in (axes_of(o) or [])}
+        inner = [a for a in axes if a[0] in others]
+        outer = [a for a in axes if a[0] not in others]
+        total = 1
+        for _, n in axes:
+            total *= n
+        if not inner or not outer or total != len(lst.items):
+            continue
+        stride = [1] * len(axes)
+        for k in range(len(axes) - 2, -1, -1):
+            stride[k] = stride[k + 1] * axes[k + 1][1]
+        pos = {a[0]: k for k, a in enumerate(axes)}
+
+        def offset(want: list[tuple[str, int]], at: int, pos: dict[str, int] = pos, stride: list[int] = stride) -> int:
+            total = 0
+            for axis, n in reversed(want):
+                total += (at % max(n, 1)) * stride[pos[axis]]
+                at //= max(n, 1)
+            return total
+
+        outer_n = inner_n = 1
+        for _, n in outer:
+            outer_n *= n
+        for _, n in inner:
+            inner_n *= n
+        runs = []
+        for o in range(outer_n):
+            at = [offset(inner, i) + offset(outer, o) for i in range(inner_n)]
+            runs.append(List([lst.items[j] for j in at], list(inner), [lst.label(j) for j in at] if lst.labels else []))
+        out = out if out is not None else dict(inputs)
+        out[name] = List(runs, list(outer))
+    return out
 
 
 def _call_level(
