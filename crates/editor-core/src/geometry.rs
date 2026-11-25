@@ -1720,6 +1720,14 @@ pub fn locate(snap: &Snapshot, measured: &Measured, params: &Value) -> Result<Va
                         .map(|r| browse_rect(r).center())
                         .ok_or_else(|| format!("face {} has no widget measured on row {k}", crate::selection::shown_id(id)))?
                 }
+                // a row's caption (B173): its left end, where a row that opens its node's editor
+                // is measured from (its widget, when it has one, to its right)
+                ("caption", Some(k)) => {
+                    let k = k.as_u64().and_then(|k| i32::try_from(k).ok()).ok_or("row must be an input row's index")?;
+                    snap.row_rect(nid, k)
+                        .map(|r| Point::new(r.min.x + 6.0, r.center().y))
+                        .ok_or_else(|| format!("face {} has no row measured on row {k}", crate::selection::shown_id(id)))?
+                }
                 (_, Some(k)) => {
                     let k = k.as_u64().and_then(|k| i32::try_from(k).ok()).ok_or("row must be an input row's index")?;
                     snap.row_rect(nid, k)
