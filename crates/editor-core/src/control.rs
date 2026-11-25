@@ -711,7 +711,21 @@ pub fn now<S: Shell>(s: &mut S, method: &str, params: &Value) -> Value {
         },
         // a pop-out's value and its viewer's state (N4 slice 3)
         "popout.get" => match crate::windows::popout_json(s.session(), params) {
-            Ok(v) => ok(v),
+            Ok(mut v) => {
+                // SVG held as TEXT (note 26 slice 4): a reference of its own a shell draws as it draws
+                // any SVG, its picture started now at the size a shell asks first
+                if v["handle"].is_null()
+                    && let Some(d) = s.document_mut()
+                    && let Some(id) = params.get("id").and_then(Value::as_u64)
+                    && let Some(r) =
+                        d.session.run.entry(plumcraft_session::run::WatchRole::Popout(id)).and_then(|(_, d)| d).and_then(crate::viewers::svg_text_ref)
+                {
+                    let _ = d.media_service.get(&r, plumcraft_media::Want::Svg(crate::viewers::SVG_TEXT_PX));
+                    v["handle"] = json!(r.handle.as_ref().map(ToString::to_string));
+                    v["svgSource"] = json!(true);
+                }
+                ok(v)
+            }
             Err(e) => err(e),
         },
         // the status bar's messages in full, for the Messages window (N4 slice 5)

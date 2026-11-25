@@ -38,3 +38,15 @@ B159 put `zoomAsk` in `popout.get` but left `zoom_seq` out of the pop-out's `sta
 ## Slice 2b (branch `feat/views-s2b`)
 
 - Engine programs built once in my own target (`cargo build --bins`, and the test engine `plumcraft-ports` in release) so the engine-binary tests and the Mac's test-engine cases run.
+- Slice 2b committed as `5476be1` on `feat/views-s2b`: the core computes Compare's difference (`compare.rs`) and puts its pictures in the media service (`MediaService::put`); Apple Compare has Difference. Mac conformance 79 of 79, 0 skipped (engine programs built); iPad conformance 41 of 41, 1 skipped; iPad UI test `testCompareDifference` passed; Mac launch `claude-debug/views/s2b-mac/compare-difference.png`, iPad `s2b-pad/views-s2b-ui-difference.png` (looked at both). The conformance case pins A before opening B: on the iPad a pop-out opening replaces the one before. iPhone run of `testCompareDifference`: not completed (the chained background job got a stop signal, 148, twice); not checked on the iPhone.
+- Whole workspace (after `cargo clean --profile dev`, `CARGO_INCREMENTAL=0`): 1714 passed, 3 failed: `hidden_params_match_the_baseline` (the known baseline) and the two `hash_is_what_was_asked`, which refuse to run without the harness's `COMMONKIT_TEST_RUN` and a store root inside it; with those set both pass.
+
+## Slice 4 (branch `feat/views-s4`)
+
+- `plumcraft_proto::csv`: the text engine's CSV reader moved into the protocol crate (text engine wraps it), with limits (1,000,000 rows, 4,096 fields a row); in the hostile sweep (`csv_text_never_panics`, and every junk text through `read_csv`).
+- `plumcraft-media`: a value typed `text/csv` is read as a table by that reader (`Table::from_csv`).
+- Core registry: `text/csv` offered Table then Text; a TEXT starting with an `<svg` root offered SVG then Source. `popout.get` gives SVG text a `handle` of its own (the text inline, typed `image/svg+xml`, its picture started at 2048) and `svgSource: true`. Found on the Mac launch: without that handle the shells drew "no picture" (an inline TEXT has no full value).
+- Tests: editor-core `interchange_formats_are_offered_as_what_they_are`, `a_csv_value_pages_as_a_table`; conformance "a CSV value is a table a viewer away from its text, and SVG text a picture" (C ABI with the SVG picture drawn through `media.get`, egui, Mac 80 of 80 with none skipped, iPad 41 of 41 with 1 skipped); touched crates 948 passed, 1 failed (`hash_is_what_was_asked`, the harness environment).
+- Mac launch (`claude-debug/views/s4-mac-2/`): the CSV as a table and as text, the SVG text as a picture and as source; looked at each. My first launch script reused a name for a pop-out id, so its cleanup could not quit the app: I stopped that scripted copy by its PID, cleaned it, and the Library compare said unchanged.
+- Assumption 3 refined: CSV is never sniffed; SVG text is recognised by its `<svg` root, since a TEXT can't be typed.
+- Not checked: SVG text past the excerpt (the shell's Source still shows it; no picture); the egui editor doesn't offer these views (core additions).

@@ -314,12 +314,12 @@ The maintainer, 2026-11-24: "one agent to pursue track 3, including view of tabl
 | A list | Stepper, named items, sheet | T | T | T | T |
 | Bytes | Hex, paged | T | T | T | T |
 | Compare | Side by side, split | T | T | T | T |
-| Compare | Exact difference (mean, per channel) with probe | T | no | no | no |
+| Compare | Exact difference (mean, per channel) with probe | T | T (slice 2b; no probe on it yet) | T (slice 2b; no probe yet) | no |
 | Mesh (STL) | Shaded, turned, zoomed | T | no | no | no |
 | PDF | Pages | R | no (engine picture) | no | no |
-| **`text/csv`** (TEXT holding CSV, or bytes typed `text/csv`) | As a table | no | no | no | no |
+| **`text/csv`** (TEXT holding CSV, or bytes typed `text/csv`) | As a table | no | T (slice 4, conformance and launch) | T (slice 4, conformance) | no |
 | `text/csv` | As text | TEXT: yes; bytes: no (hex and Open) | TEXT: yes; bytes: hex | same | same |
-| **SVG text** (TEXT holding SVG, or bytes typed `image/svg+xml`) | As a picture | SVG type: yes; TEXT: no | SVG type: yes; TEXT: no | same | same |
+| **SVG text** (TEXT holding SVG, or bytes typed `image/svg+xml`) | As a picture | SVG type: yes; TEXT: no | T (slice 4, launched) | T (slice 4, conformance) | no |
 
 ### 11.2 Tables as tables
 
@@ -346,9 +346,9 @@ Regressions first (decision 2A); a table or interchange view egui has counts as 
 | Slice | What | Gate | Launch |
 |---|---|---|---|
 | 1 (done) | View modes, histograms, NaN counts | Conformance "an array's view is chosen through the core and its pictures change" | Mac, iPad, iPhone (B154) |
-| 2 (built, except Compare's difference: 2b) | **Pictures and grids**: the several-picture view gets one shared zoom and pan (`PictureZoom`, B159) and the probe; colour by value and number format in the array grid and colour by value in the table (`viewer.grid {colored, format}`, `viewer.table {colored}`, the page carrying each cell's 0-to-1 position); Compare's exact difference as the core's `derive:compare` picture; B161 (the iPhone's viewer bar overflowing) | Conformance cases per command; Swift unit tests | Mac scripted copy and the simulators, each view pictured |
+| 2 and 2b (built) | **Pictures and grids**: the several-picture view gets one shared zoom and pan (`PictureZoom`, B159) and the probe; colour by value and number format in the array grid and colour by value in the table (`viewer.grid {colored, format}`, `viewer.table {colored}`, the page carrying each cell's 0-to-1 position); Compare's exact difference as the core's `derive:compare` picture; B161 (the iPhone's viewer bar overflowing) | Conformance cases per command; Swift unit tests | Mac scripted copy and the simulators, each view pictured |
 | 3 | **Tables as tables**: cell text selectable and copied (Windows), column widths a person drags (iPad, Windows), the row and column count in the bar | UI test | iPad |
-| 4 | **Interchange formats**: `text/csv` offered Table then Text, SVG text offered Picture then Source; the CSV reader shared (`plumcraft_proto::csv`), in the hostile sweep, with size limits | Conformance "a CSV value is a table a viewer away from its text"; hostile sweep | Mac, iPad |
+| 4 (built) | **Interchange formats**: `text/csv` offered Table then Text, SVG text offered Picture then Source; the CSV reader shared (`plumcraft_proto::csv`), in the hostile sweep, with size limits | Conformance "a CSV value is a table a viewer away from its text"; hostile sweep | Mac, iPad |
 | 5 | **The plot again, on the chart engine** (was 3): display list, scales, ticks; table of positions, B152's histogram as columns | Display-list fixtures in Rust, Swift, C# | Mac, iPad |
 | 6 | 1-D series and hover previews (was 4) | Fixtures | Mac, iPad |
 | 7 to 13 | Columns and histograms with column choice, line and stacked area, treemap, zoom and hover, selection and linked views, optional kinds (were 5 to 10) | As before | As before |
@@ -359,7 +359,7 @@ The maintainer: "Make reasonable assumptions about what I choose if I am not ava
 
 1. **CSV as a table:** a value typed `text/csv` is offered Table, then Text (View As). Alternative: Text first, Table second.
 2. **SVG text as a picture:** a TEXT typed or named as SVG is offered Picture, then Source. Alternative: Source first.
-3. **No sniffing:** only the declared media type decides; text that looks like CSV is not offered a table. Alternative: sniff the first lines and offer Table second.
+3. **No sniffing of CSV:** only the declared media type makes a value a table; text that looks like CSV is not offered one. SVG is the exception, since a TEXT can't be typed and an `<svg` root element is unambiguous: a TEXT starting with one is offered the picture (as built in slice 4). Alternative: sniff CSV's first lines too and offer Table second.
 4. **The choice is View As** (`view.viewer`), not a new view-mode command like B154's `run.view`, because the reading is the core's and needs no engine run. Alternative: a `viewer.format` command.
 5. **Where CSV is read:** a shared reader in `plumcraft-proto`, used by the text engine and by `plumcraft-media` for display. Alternative: the viewer runs the text engine's Text to Table through Convert (an engine round trip for every look).
 6. **Colour by value** is off by default in the grid and the table, as in egui (it is a checkbox there, off until ticked). Alternative: on for numeric columns.

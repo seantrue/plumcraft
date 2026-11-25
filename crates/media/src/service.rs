@@ -909,9 +909,16 @@ pub const MAX_JSON_BYTES: usize = 64 << 20;
 
 /// The table of `r`'s bytes: an array its engine marks as a table (B152) column by column, else
 /// the core type's JSON.
+/// Whether a media type is CSV (`text/csv`, with or without parameters).
+pub fn is_csv(media: &str) -> bool {
+    media.split(';').next().is_some_and(|m| m.trim().eq_ignore_ascii_case("text/csv"))
+}
+
 fn table_of(r: &DataRef, b: &Blob) -> Result<Table, String> {
     match &r.meta.form {
         plumcraft_proto::data::Form::Array { dtype, shape, names, table: true, .. } => Table::from_array(dtype, shape, names, &b.bytes),
+        // a value typed `text/csv` (note 26 slice 4): read as CSV, as the text engine reads it
+        _ if is_csv(&r.meta.media) => Table::from_csv(&b.bytes),
         _ => Table::from_bytes(&b.bytes),
     }
 }
