@@ -526,6 +526,11 @@ public sealed class CompareWindow : PanelWindow
             return;
         }
         note.Text = d.Get("text").Str() ?? "";
+        // the probe (note 26 slice 8): a tap on a picture reads A, B and |A − B| there, the core's numbers
+        var probe = d.Get("probe");
+        note.Text += probe.Get("outside").IsTrue() ? "\nOutside the pictures" : probe.Get("text").Str() is { } pt ? $"\n{pt}" : "\nTap a picture to read A, B and |A − B| there";
+        var rows = d.Get("rows").Double() ?? 0;
+        var cols = d.Get("cols").Double() ?? 0;
         var panel = new StackPanel { Spacing = 10 };
         var mode = new ComboBox { Items = { "Mean of the Channels", "Each Channel" }, SelectedIndex = compare.Reply.Get("diff").Str() == "channels" ? 1 : 0 };
         mode.SelectionChanged += async (_, _) => await compare.RunAsync("viewer.compare", Jsonv.Object(("diff", Jsonv.Of(mode.SelectedIndex == 1 ? "channels" : "mean"))));
@@ -542,7 +547,16 @@ public sealed class CompareWindow : PanelWindow
             {
                 var src = new CanvasImageSource(CanvasDevice.GetSharedDevice(), bmp.SizeInPixels.Width, bmp.SizeInPixels.Height, 96);
                 using (var ds = src.CreateDrawingSession(Microsoft.UI.Colors.Transparent)) ds.DrawImage(bmp);
-                cell.Children.Add(new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 360, MaxWidth = 420 });
+                var img = new Image { Source = src, Stretch = Stretch.Uniform, MaxHeight = 360, MaxWidth = 420 };
+                img.Tapped += async (_, e) =>
+                {
+                    var at = e.GetPosition(img);
+                    if (rows <= 0 || cols <= 0 || img.ActualWidth <= 0 || img.ActualHeight <= 0) return;
+                    var r = (long)Math.Clamp(Math.Floor(at.Y / img.ActualHeight * rows), 0, rows - 1);
+                    var c = (long)Math.Clamp(Math.Floor(at.X / img.ActualWidth * cols), 0, cols - 1);
+                    await compare.RunAsync("viewer.compare", Jsonv.Object(("probe", Jsonv.Array([Jsonv.Of(r), Jsonv.Of(c)]))));
+                };
+                cell.Children.Add(img);
             }
             cell.Children.Add(Ui.Caption($"{p.Get("caption").Str()} · largest {p.Get("top").Str()}"));
             row.Children.Add(cell);

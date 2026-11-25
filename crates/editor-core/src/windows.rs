@@ -258,7 +258,9 @@ pub fn compare_json(session: &Session, params: &Value) -> Result<Value, String> 
         plumcraft_session::viewer_cmds::CompareHow::Split => "split",
         plumcraft_session::viewer_cmds::CompareHow::Difference => "difference",
     };
-    Ok(json!({"on": c.on, "how": how, "split": c.split, "channel": c.channel, "a": side(WatchRole::PinA), "b": side(WatchRole::PinB)}))
+    Ok(
+        json!({"on": c.on, "how": how, "split": c.split, "channel": c.channel, "probe": c.probe.map(|(r, c)| [r, c]), "a": side(WatchRole::PinA), "b": side(WatchRole::PinB)}),
+    )
 }
 
 /// Which section of the inspector a row is in, egui's parameters panel's order.

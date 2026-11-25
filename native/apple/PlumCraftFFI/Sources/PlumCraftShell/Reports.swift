@@ -354,7 +354,8 @@ public final class CompareModel {
         let d = reply?["difference"] ?? .null
         return ["how": reply?["how"] ?? .null, "a": reply?["a"]["title"] ?? .null, "b": reply?["b"]["title"] ?? .null,
                 "difference": d == .null ? .null : ["status": d["status"], "differing": d["differing"], "identical": d["identical"],
-                                                     "pictures": .uint(UInt64(d["pictures"].array?.count ?? 0)), "text": d["text"]]]
+                                                     "pictures": .uint(UInt64(d["pictures"].array?.count ?? 0)), "text": d["text"],
+                                                     "probe": d["probe"]["text"]]]
     }
 }
 
@@ -382,11 +383,25 @@ struct CompareDifference: SwiftUI.View {
             switch d["status"].string {
             case "ready":
                 Text(d["text"].string ?? "").font(.callout.monospacedDigit()).textSelection(.enabled).accessibilityIdentifier("compare-difference-text")
+                // the probe (note 26 slice 8): a tap on a picture reads A, B and |A − B| there, the core's numbers
+                HStack {
+                    Text(d["probe"]["outside"].bool == true ? "Outside the pictures" : (d["probe"]["text"].string ?? "Tap a picture to read A, B and |A − B| there"))
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary).textSelection(.enabled)
+                        .accessibilityIdentifier("compare-probe")
+                    if d["probe"] != .null {
+                        Button("Clear") { Task { await compare.run("viewer.compare", ["probe": .null]) } }.font(.caption).buttonStyle(.borderless)
+                    }
+                }
                 ScrollView {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 260), spacing: 10)], spacing: 10) {
                         ForEach(Array((d["pictures"].array ?? []).enumerated()), id: \.offset) { _, p in
                             VStack(spacing: 3) {
-                                if let h = p["handle"].string { DifferencePicture(pictures: compare.pictures, handle: h).frame(minHeight: 200) }
+                                if let h = p["handle"].string {
+                                    DifferencePicture(pictures: compare.pictures, handle: h, rows: d["rows"].double ?? 0, cols: d["cols"].double ?? 0) { r, c in
+                                        Task { await compare.run("viewer.compare", ["probe": [.uint(r), .uint(c)]]) }
+                                    }
+                                    .frame(minHeight: 200)
+                                }
                                 Text("\(p["caption"].string ?? "") · largest \(p["top"].string ?? "")").font(.caption).foregroundStyle(.secondary)
                             }
                         }
@@ -413,12 +428,28 @@ struct CompareDifference: SwiftUI.View {
 struct DifferencePicture: SwiftUI.View {
     let pictures: Pictures
     let handle: String
+    /// The arrays' size, which the picture may show smaller.
+    var rows: Double = 0
+    var cols: Double = 0
+    /// A tap, as the arrays' (row, column).
+    var probe: ((UInt64, UInt64) -> Void)?
     @State private var image: CGImage?
 
     var body: some SwiftUI.View {
         Group {
             if let image {
                 Image(decorative: image, scale: 1).resizable().interpolation(.none).aspectRatio(contentMode: .fit)
+                    .overlay {
+                        GeometryReader { g in
+                            Color.clear.contentShape(Rectangle()).onTapGesture { at in
+                                guard rows > 0, cols > 0, g.size.width > 0, g.size.height > 0, let probe else { return }
+                                let r = min(max(Int(at.y / g.size.height * rows), 0), Int(rows) - 1)
+                                let c = min(max(Int(at.x / g.size.width * cols), 0), Int(cols) - 1)
+                                probe(UInt64(r), UInt64(c))
+                            }
+                        }
+                    }
+                    .accessibilityIdentifier("compare-difference-picture")
             } else {
                 ProgressView()
             }

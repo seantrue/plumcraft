@@ -1693,7 +1693,7 @@
     },
     {
       "name": "Compare's exact difference is the core's: its words, its numbers and its picture",
-      "about": "note 26 slice 2b: with viewer.compare {how: difference}, compare.get carries difference {status, text, max, mean, differing, nan, elements, identical, pictures: [{handle, caption, w, h, top}]}, computed by the core from the two values' own numbers on a thread of its own (pending until done); each picture is lent by its handle as any picture is (media.get {want: rgba}); a value compared with itself is identical without being read twice",
+      "about": "note 26 slice 2b: with viewer.compare {how: difference}, compare.get carries difference {status, text, max, mean, differing, nan, elements, identical, rows, cols, pictures: [{handle, caption, w, h, top}], probe?}; slice 8: viewer.compare {probe: [row, col] | null} reads A, B and |A−B| there, each channel in the core's number text, outside the arrays said so, computed by the core from the two values' own numbers on a thread of its own (pending until done); each picture is lent by its handle as any picture is (media.get {want: rgba}); a value compared with itself is identical without being read twice",
       "half": "read",
       "needs": ["engine:array"],
       "steps": [
@@ -1717,6 +1717,13 @@
         {"call": "command.run", "params": {"command": "viewer.compare", "params": {"how": "difference"}}},
         {"call": "compare.get", "until": {"/result/difference/status": {"$one": ["ready", "failed"]}}, "timeout": 120, "expect": {"/result/how": "difference", "/result/difference/status": "ready", "/result/difference/identical": false, "/result/difference/differing": {"$min": 1}, "/result/difference/elements": 1200, "/result/difference/pictures": {"$len": 1}, "/result/difference/pictures/0/w": 40, "/result/difference/text": {"$includes": "elements differ"}}, "save": {"h": "/result/difference/pictures/0/handle"}},
         {"call": "media.get", "params": {"handle": "$h", "want": "rgba"}, "only": "media", "until": {"/result/status": {"$one": ["ready", "failed", "missing"]}}, "timeout": 30, "expect": {"/result/status": "ready", "/result/w": 40, "/result/h": 30}},
+        {"call": "command.run", "params": {"command": "viewer.compare", "params": {"probe": [15, 20]}}, "expect": {"/result/probe": [15, 20]}},
+        {"call": "compare.get", "expect": {"/result/probe": [15, 20], "/result/difference/rows": 30, "/result/difference/cols": 40, "/result/difference/probe/row": 15, "/result/difference/probe/channels": {"$len": 1}, "/result/difference/probe/channels/0/diff": {"$exists": true}, "/result/difference/probe/text": {"$includes": "(15, 20)"}}},
+        {"call": "command.run", "params": {"command": "viewer.compare", "params": {"probe": [99, 0]}}},
+        {"call": "compare.get", "expect": {"/result/difference/probe/outside": true}},
+        {"call": "command.run", "params": {"command": "viewer.compare", "params": {"probe": "here"}}, "ok": false},
+        {"call": "command.run", "params": {"command": "viewer.compare", "params": {"probe": null}}},
+        {"call": "compare.get", "expect": {"/result/probe": null, "/result/difference/probe": {"$exists": false}}},
         {"call": "command.run", "params": {"command": "node.set", "params": {"node": "$b", "port": "max_iterations", "value": 40}}},
         {"call": "command.run", "params": {"command": "run.start", "params": {}}},
         {"call": "ui.waitRun", "params": {"timeout": 120}},
