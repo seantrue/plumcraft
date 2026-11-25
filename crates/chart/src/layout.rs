@@ -64,6 +64,20 @@ pub fn kind_of(names: &[String], columns: usize) -> Option<Kind> {
     (columns == 2).then_some(Kind::Points(0, 1))
 }
 
+/// What an array can be plotted as, flagged a table or not (FR6, note 30: the offer is by kind
+/// and rank, a flag only picks the default): an (N, k) array whose columns name a plot (or two
+/// columns, points), or a 1-D series. [`plotted`] is the flagged form a face's chart follows.
+pub fn plottable(form: &plumcraft_proto::data::Form) -> Option<Kind> {
+    match form {
+        plumcraft_proto::data::Form::Array { shape, names, .. } => match shape.as_slice() {
+            [_, k] => kind_of(names, usize::try_from(*k).ok()?),
+            [n] if *n > 0 => Some(Kind::Series),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
 /// What a value's full reference says it plots as (a table array of two dimensions).
 pub fn plotted(form: &plumcraft_proto::data::Form) -> Option<Kind> {
     match form {

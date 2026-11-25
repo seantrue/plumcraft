@@ -107,10 +107,10 @@ fn table_of(d: &Display, media: &MediaService) -> Result<Table, String> {
         Some(v) => Table::from_value(v),
         None => {
             let b = bytes(d, media)?;
-            // an array its engine marks as a table (B152), else the core type's JSON
-            match d.full.as_ref().map(|f| &f.meta.form) {
-                Some(plumcraft_proto::data::Form::Array { dtype, shape, names, table: true, .. }) => Table::from_array(dtype, shape, names, &b.bytes),
-                _ => Table::from_bytes(&b.bytes),
+            // a numeric array of any rank (FR6), a CSV, else the core type's JSON
+            match d.full.as_ref() {
+                Some(f) => Table::of(&f.meta.form, &f.meta.media, &b.bytes),
+                None => Table::from_bytes(&b.bytes),
             }
         }
     }

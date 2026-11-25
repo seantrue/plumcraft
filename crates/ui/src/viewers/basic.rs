@@ -30,6 +30,15 @@ pub(crate) fn text_of(v: &ViewInput<'_>) -> Option<String> {
 
 /// The value as JSON: its inline value, else its full bytes parsed.
 fn json_of(v: &ViewInput<'_>) -> Option<Value> {
+    // a numeric array (FR6): read as the core reads it, then as columns
+    if v.display.value.is_none()
+        && let (Some(b), Some(f)) = (v.full, v.display.full.as_ref())
+        && matches!(f.meta.form, plumcraft_proto::data::Form::Array { .. })
+    {
+        let t = plumcraft_media::table::Table::of(&f.meta.form, &f.meta.media, &b.bytes).ok()?;
+        let columns: Vec<Value> = t.columns.iter().map(|c| json!({"name": c.name, "values": c.cells.iter().map(|x| x.json()).collect::<Vec<_>>()})).collect();
+        return Some(json!({"columns": columns}));
+    }
     let csv = plumcraft_editor_core::viewers::is_csv(v.display);
     v.display.value.clone().or_else(|| {
         v.full.and_then(|b| {

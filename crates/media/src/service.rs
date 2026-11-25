@@ -915,12 +915,8 @@ pub fn is_csv(media: &str) -> bool {
 }
 
 fn table_of(r: &DataRef, b: &Blob) -> Result<Table, String> {
-    match &r.meta.form {
-        plumcraft_proto::data::Form::Array { dtype, shape, names, table: true, .. } => Table::from_array(dtype, shape, names, &b.bytes),
-        // a value typed `text/csv` (note 26 slice 4): read as CSV, as the text engine reads it
-        _ if is_csv(&r.meta.media) => Table::from_csv(&b.bytes),
-        _ => Table::from_bytes(&b.bytes),
-    }
+    // a numeric array of any rank (FR6), a value typed `text/csv` (note 26 slice 4), or a TABLE
+    Table::of(&r.meta.form, &r.meta.media, &b.bytes)
 }
 
 /// A sound's sample rate, from its reference.

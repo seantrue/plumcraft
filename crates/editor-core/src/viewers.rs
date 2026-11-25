@@ -113,10 +113,32 @@ pub fn is_csv(d: &Display) -> bool {
     d.full.as_ref().is_some_and(|f| plumcraft_media::service::is_csv(&f.meta.media))
 }
 
+/// What an array's form allows (FR6, note 30): every view that can be computed for its kind,
+/// dtype and rank, never withheld because the result may look odd ("In general, it's the user's
+/// job to deal with odd, and your job to make seeing odd things easy", the maintainer,
+/// 2026-11-25). `(plot, table)`: it plots (a series, or columns that name a plot or two), and it
+/// reads as a table within the reader's limits (any numeric array: rows the leading axes, columns
+/// the last).
+pub fn array_views(d: &Display) -> (bool, bool) {
+    let Some(f) = d.full.as_ref() else { return (false, false) };
+    let Form::Array { dtype, shape, .. } = &f.meta.form else { return (false, false) };
+    // numbers only: a plot and a table read them (a dtype the table reader takes is one)
+    let numeric = plumcraft_media::table::Table::fits_array(dtype, &[1]);
+    (numeric && crate::chart::plottable(&f.meta.form).is_some(), plumcraft_media::table::Table::fits_array(dtype, shape))
+}
+
 /// The viewers a value is offered in, its default first: egui's registry
 /// (`plumcraft_ui::viewers::kinds_for`, which a test there holds this to), and SVG's source as text
 /// beside its picture. `(id, label)`.
+///
+/// An array (FR6, note 30) is offered everything computable for it: Pictures and Values always,
+/// Plot where it plots, Table and Chart where it reads as a table. A flag only orders them: a
+/// table-flagged array, or a 1-D series, plots (or tabulates) first; any other array shows its
+/// pictures first. A plotted array has a Chart beside its Plot (no longer "one chart a value").
 pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
+    if d.media == Media::Ndarray {
+        return offered_array(d);
+    }
     let mut out = Vec::new();
     let m = d.media;
     let obj = d.value.as_ref().is_some_and(|v| v.is_object() || v.is_array());
@@ -132,21 +154,14 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     add(m == Media::Vector || svg_text, "svg", "SVG");
     add(is_pdf(d), "pdf.pages", "Pages");
     add(m == Media::Doc, "doc", "Document");
-    // a table-flagged array (a histogram's centre and count, a node's points) is a table first: it
-    // has no picture (note 26 slice 2; B152 read it as a table for a TABLE value only)
-    let table_array = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }));
-    // a table of positions, or a histogram, plots first (the egui editor's Plot; note 26 slice 5,
-    // laid out by the core as a chart's display list); its numbers stay a viewer away
-    add(d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some()), "array.plot", "Plot");
-    add(m == Media::Ndarray && table_array, "table.grid", "Table");
-    add(m == Media::Ndarray, "array.pictures", "Pictures");
-    add(m == Media::Ndarray, "array.grid", "Values");
     add(m == Media::Audio, "audio", "Audio");
     // a CSV is a table first, its text a viewer away
-    add((m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows)) && !(m == Media::Ndarray && table_array), "table.grid", "Table");
+    let tabular = m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows);
+    // a TABLE carried as an array (B152's histogram) plots first, as any array that plots does
+    add(m == Media::Table && array_views(d).0, "array.plot", "Plot");
+    add(tabular, "table.grid", "Table");
     // a table's chart, its kind and columns chosen by `viewer.chart` (note 26 slices 5 to 7)
-    let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some());
-    add((m == Media::Table || csv || d.value.as_ref().is_some_and(is_rows)) && !table_array && !plotted, "table.chart", "Chart");
+    add(tabular, "table.chart", "Chart");
     add(is_xml(d), "xml", "XML");
     add(m == Media::Text || m == Media::Vector || csv, "text.plain", if m == Media::Vector || svg_text { "Source" } else { "Text" });
     add(m == Media::Scalar, "scalar", "Value");
@@ -156,6 +171,38 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     add(m == Media::Tree || (m == Media::Table && !array) || obj, "tree", "Tree");
     add(d.items > 1 && !d.sheet.is_empty(), "items", "Items");
     add(d.full.is_some() && m != Media::Doc, "hex", "Bytes");
+    out
+}
+
+/// An array's viewers (FR6): see [`offered`].
+fn offered_array(d: &Display) -> Vec<(&'static str, &'static str)> {
+    let (plot, table) = array_views(d);
+    let flagged = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }));
+    let series = d.full.as_ref().is_some_and(|f| matches!(&f.meta.form, Form::Array { shape, .. } if shape.len() == 1));
+    let mut out = Vec::new();
+    let mut add = |ok: bool, id, label| {
+        if ok {
+            out.push((id, label));
+        }
+    };
+    if flagged || series {
+        // the flag (or a series, which has no picture) chooses the default: its plot, else its table
+        add(plot, "array.plot", "Plot");
+        add(table, "table.grid", "Table");
+        add(table, "table.chart", "Chart");
+        add(true, "array.pictures", "Pictures");
+        add(true, "array.grid", "Values");
+    } else {
+        add(true, "array.pictures", "Pictures");
+        add(true, "array.grid", "Values");
+        add(plot, "array.plot", "Plot");
+        add(table, "table.grid", "Table");
+        add(table, "table.chart", "Chart");
+    }
+    // an array carried inline as JSON (small) outlines as any JSON does
+    add(d.value.as_ref().is_some_and(|v| v.is_object() || v.is_array()), "tree", "Tree");
+    add(d.items > 1 && !d.sheet.is_empty(), "items", "Items");
+    add(d.full.is_some(), "hex", "Bytes");
     out
 }
 
@@ -393,9 +440,17 @@ pub fn data(session: &Session, media: &MediaService, params: &Value) -> Result<V
                 Some(v) => v.as_f64().filter(|f| f.is_finite() && *f > 0.0).ok_or(format!("{k} must be a positive number of points")),
             };
             let size = (side("width", crate::chart::DEFAULT_SIZE.0)?, side("height", crate::chart::DEFAULT_SIZE.1)?);
-            let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plotted(&f.meta.form).is_some());
+            // the pop-out's viewer says which (FR6: an array may have both a Plot and a Chart): its
+            // own choice, else its default; any other viewer asking, a plotted value plots
+            let plotted = d.full.as_ref().is_some_and(|f| crate::chart::plottable(&f.meta.form).is_some());
+            let shown = o.viewer.clone().or_else(|| offered(d).first().map(|(id, _)| (*id).to_owned()));
+            let as_plot = match shown.as_deref() {
+                Some("array.plot") => plotted,
+                Some("table.chart") => false,
+                _ => plotted && spec.is_none(),
+            };
             let range = o.state.chart_range;
-            let mut list = if plotted && spec.is_none() { chart(d, media, size, range, sel) } else { table_chart(d, media, spec, size, range, sel) };
+            let mut list = if as_plot { chart(d, media, size, range, sel) } else { table_chart(d, media, spec, size, range, sel) };
             if part == "hit" {
                 let at = |k: &str| params.get(k).and_then(Value::as_f64).filter(|f| f.is_finite()).ok_or(format!("hit needs {k}, a point in the chart"));
                 let (x, y) = (at("x")?, at("y")?);
@@ -675,7 +730,7 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
 /// A chart's display list for a table array the core plots ([`crate::chart`]), laid out at `size`.
 fn chart(d: &Display, media: &MediaService, size: (f64, f64), range: plumcraft_session::chart_view::ChartRange, sel: Option<&Selection>) -> Value {
     let Some(full) = d.full.as_ref() else { return json!({"status": "failed", "error": "this value has no numbers to plot"}) };
-    let Some(kind) = crate::chart::plotted(&full.meta.form) else { return json!({"status": "failed", "error": "this value isn't a table a chart plots"}) };
+    let Some(kind) = crate::chart::plottable(&full.meta.form) else { return json!({"status": "failed", "error": "this value isn't a table a chart plots"}) };
     let names = match &full.meta.form {
         Form::Array { names, .. } => names.clone(),
         _ => Vec::new(),
@@ -979,7 +1034,7 @@ mod tests {
         let mut d = display(Media::Table, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["array.plot", "table.grid", "hex"], "a plot first (note 26 slice 5), no outline of an array");
+        assert_eq!(ids, ["array.plot", "table.grid", "table.chart", "hex"], "a plot first (note 26 slice 5), a chart beside it (FR6), no outline of an array");
         let mut st = ViewerState::default();
         let page = until(|| table(&d, &m, &st, None, None));
         assert_eq!(page["status"], Value::Null, "{page}");
@@ -1163,11 +1218,45 @@ mod tests {
         let mut d = display(Media::Ndarray, None);
         d.full = Some(r);
         let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
-        assert_eq!(ids, ["array.plot", "table.grid", "array.pictures", "array.grid", "hex"], "a histogram plots first, its table next");
+        assert_eq!(
+            ids,
+            ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "hex"],
+            "a histogram plots first, its table next, a chart beside them (FR6)"
+        );
         let mut p = DataRef::default();
         p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
         d.full = Some(p);
-        assert_eq!(offered(&d).first().map(|x| x.0), Some("array.pictures"), "a picture stays pictures first");
+        let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
+        assert_eq!(ids, ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"], "a picture stays pictures first, and is a table and a chart too");
+    }
+
+    /// FR6 (note 30, "All A"; "In general, it's the user's job to deal with odd, and your job to
+    /// make seeing odd things easy"): every array is offered what can be computed for its kind,
+    /// dtype and rank, whatever it looks like; a flag only orders them.
+    #[test]
+    fn every_array_is_offered_what_its_rank_allows() {
+        let offer = |dtype: &str, shape: Vec<u64>, names: Vec<&str>, table: bool| -> Vec<&'static str> {
+            let mut r = DataRef::default();
+            r.meta.form = Form::Array { dtype: dtype.into(), shape, space: None, names: names.into_iter().map(str::to_owned).collect(), table };
+            let mut d = display(Media::Ndarray, None);
+            d.full = Some(r);
+            offered(&d).into_iter().map(|x| x.0).collect()
+        };
+        // a series: plotted first, a one-column table and its chart
+        assert_eq!(offer("<f4", vec![100], vec![], false), ["array.plot", "table.grid", "table.chart", "array.pictures", "array.grid", "hex"]);
+        // a picture of three channels: H×W rows of three columns
+        assert_eq!(offer("<f4", vec![64, 48, 3], vec!["L", "a", "b"], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        // a labelled map, an integer plane
+        assert_eq!(offer("<i4", vec![64, 48], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        // a volume, rank 3 with more planes than a picture takes; rank 4
+        assert_eq!(offer("<f4", vec![10, 32, 200], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        assert_eq!(offer("<u2", vec![2, 3, 4, 5], vec![], false), ["array.pictures", "array.grid", "table.grid", "table.chart", "hex"]);
+        // two columns plot as points, unflagged too; the pictures stay first
+        assert_eq!(offer("<f8", vec![500, 2], vec![], false), ["array.pictures", "array.grid", "array.plot", "table.grid", "table.chart", "hex"]);
+        // past the table reader's limits (more columns than it reads): no Table, no Chart
+        assert_eq!(offer("<f4", vec![2, 5000], vec![], false), ["array.pictures", "array.grid", "hex"]);
+        // not numbers: no table
+        assert_eq!(offer("<U8", vec![4], vec![], false), ["array.pictures", "array.grid", "hex"]);
     }
 
     /// A `text/csv` value's page: read as CSV on the media workers, typed columns, sorted by the core.

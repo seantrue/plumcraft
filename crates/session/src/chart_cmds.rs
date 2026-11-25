@@ -47,7 +47,8 @@ pub fn columns_of(d: &plumcraft_proto::display::Display) -> Vec<(String, bool)> 
     }
     match d.full.as_ref().map(|f| &f.meta.form) {
         Some(Form::Table { columns, .. }) => columns.iter().map(|c| (c.name.clone(), numeric(&c.ty))).collect(),
-        Some(Form::Array { shape, names, table: true, .. }) => {
+        // a numeric array of any rank, flagged a table or not (FR6): its last axis the columns
+        Some(Form::Array { shape, names, .. }) => {
             let k = shape.last().copied().unwrap_or(0) as usize;
             (0..k.min(4096)).map(|i| (names.get(i).filter(|_| names.len() == k).cloned().unwrap_or_else(|| format!("c{}", i + 1)), true)).collect()
         }
