@@ -846,11 +846,30 @@ pub trait Holder: Driver {
     }
     /// The last command asked for an engine switch (or didn't).
     fn note_engine_asked(&mut self, _asked: bool) {}
+    /// File › Open Recent's graphs, newest first (B166): the preferences that are kept, the
+    /// core's shared look's (every document of a core shares one list), else the document's own.
+    fn recent(&mut self) -> Vec<PathBuf> {
+        self.doc().recent()
+    }
+    /// `path` was opened or saved (`was`: its file before a rename or a move).
+    fn note_recent(&mut self, path: &std::path::Path, was: Option<&std::path::Path>) {
+        self.doc_mut().with_recent(|s| s.note_recent(path, was));
+    }
+    /// Clear Menu.
+    fn clear_recent(&mut self) {
+        self.doc_mut().with_recent(prefs::Store::clear_recent);
+    }
 }
+
+/// The commands after which the graph's file is the newest in File › Open Recent (B166): those
+/// that open it, give it a file or move it.
+pub const RECORDS_RECENT: &[&str] = &["graph.open", "graph.save", "graph.saveAs", "graph.rename", "graph.move"];
 
 /// A command, as the editor runs any (see the module docs): its error is kept for the status bar.
 pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, String> {
     let doc_id = h.doc().id;
+    // the file before a rename or a move, which leaves File › Open Recent (B166)
+    let was = matches!(id, "graph.rename" | "graph.move").then(|| h.doc().session.path().map(std::path::Path::to_path_buf)).flatten();
     if let Some(st) = &mut h.doc_mut().startup
         && HELD_AT_STARTUP.contains(&id)
     {
@@ -939,6 +958,12 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         d.fit_owed = !graph.nodes.is_empty() || !graph.frames.is_empty();
     } else {
         d.forget_gone();
+    }
+    // File › Open Recent (B166): a graph opened or saved under a file of its own is the newest
+    if RECORDS_RECENT.contains(&id)
+        && let Some(path) = h.doc().session.path().map(std::path::Path::to_path_buf)
+    {
+        h.note_recent(&path, was.as_deref().filter(|w| *w != path));
     }
     h.after_command(id, &v);
     if id == "run.watch" && h.doc().watch_pops_out && params.get("port").and_then(Value::as_str).is_some() {
@@ -1327,6 +1352,26 @@ pub fn turn<H: Holder>(h: &mut H) -> Turn {
 
 /// A document is its own shell, with nothing drawn: no canvas, so no selection or geometry; asks
 /// raised go to its sink ([`Document::set_asks_sink`]).
+impl Document {
+    /// Run `f` on the preferences that keep File › Open Recent (B166): the shared look's, kept in
+    /// the application's own file, else (no shared look: tests, a shell keeping its own) the
+    /// document's in memory.
+    pub fn with_recent<R>(&mut self, f: impl FnOnce(&mut prefs::Store) -> R) -> R {
+        match self.look.clone() {
+            Some(look) => f(&mut crate::settings::lock(&look).store),
+            None => f(&mut self.folders),
+        }
+    }
+
+    /// File › Open Recent's graphs, newest first.
+    pub fn recent(&self) -> Vec<PathBuf> {
+        match &self.look {
+            Some(look) => crate::settings::lock(look).store.recent().to_vec(),
+            None => self.folders.recent().to_vec(),
+        }
+    }
+}
+
 impl Host for Document {
     fn session(&self) -> &Session {
         &self.session
@@ -1440,6 +1485,7 @@ impl Shell for Document {
             caps: self.caps,
             select_mode: self.select_mode,
             no_share: !self.share,
+            recent: self.recent(),
             ..crate::menu::Facts::default()
         }
     }

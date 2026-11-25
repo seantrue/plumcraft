@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Insert Graph starts the engine it needs; Open Recent becomes the core's (B165, B166) (two Claude Opus 5.5 agents; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "insert graph (components/condition) inserts nothong", "inserted condition.plum", "Fix b165". "open recent never has a list of recent graphs", "empty list. Never showed anything", "fix b166." And on packaging: "Can we fix multiple bugs per pass?", then "Yes, multiple per pass, please."
+
+**What the AI did.** Two agents in parallel worktrees, combined by the controller into one branch. For B165 the agent proved the insert was refused for node types of an engine not yet started, and checks instead against the engines the host can start (56 LOC in the session crate, a 113-line test file). For B166 the agent showed AppKit never fills a rebuilt menu bar's Open Recent, found the core had no recent list, and moved the list, the menu and three commands into the core (about 250 LOC in the core, 62 in the Mac's menu code, 11 in egui, a spec section, a conformance case, a test file).
+
+**Verification.** Each agent saw its tests fail without its fix, ran clippy, fmt and Mac conformance (76 of 76; 77 of 77 with the new case), and launched a scripted Plummer: the inserted group read back and seen in a picture the controller looked at; the recent menu read back before and after, across a relaunch. The controller ran the core and session tests, clippy and fmt on the combined branch; the full suite ran on the Linux test host. Neither was tried in the application of the reports, and no item was picked by hand.
+
+**Defects.** Both faults were in AI-written code: the insert's check predates engines starting on demand, and the Mac menu handed Open Recent to AppKit against the command rule. The controller told the maintainer B165's refusal was dropped silently and that the `.plum` type was the first suspect; both were wrong (the banner shows once; `.json` fails the same). The B166 agent's first version dropped the previous name on Save As, caught by its own test. A fault found and not fixed: the Mac shows the same error only once (B167).
+
 ### 2026-11-24 — Nested lists, slice 1: the spec, an axes field and shared vectors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** After answering note 27's decisions ("Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A"), to starting the work: "Go".

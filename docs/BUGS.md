@@ -4,22 +4,10 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 
 ## Open
 
-### B166. Mac: Open Recent never lists recent graphs
+### B167. Mac: the same error twice in a row shows no banner the second time
 
-- Reported: 2026-11-24
-- Report: "open recent never has a list of recent graphs"
-- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`, after opening and saving several graphs today (`.plum` and `.json`).
-- Answer (the maintainer, 2026-11-24): asked whether the menu is empty or greyed, and whether it ever listed anything: "empty list. Never showed anything".
-- Not yet known: whether Plummer itself has the fault or only an application built on the shell.
-- Issue: none
-
-### B165. Mac: Insert Graph of a component graph inserts nothing
-
-- Reported: 2026-11-24
-- Report: "insert graph (components/condition) inserts nothong"
-- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`. The graph inserted is a component graph of the research software's collection (a "condition" component, in a `components` folder).
-- Answer (the maintainer, 2026-11-24): "inserted condition.plum"; then "Fix b165". The component exists in both forms, `.json` and `.plum`.
-- Not yet known: whether anything is said (a banner, an error), and what was open when it was inserted.
+- Reported: 2026-11-24 (found by an agent while fixing B165, not by the maintainer)
+- Report: the Mac shows the document's last error as a banner only when its text differs from the last one shown (`GraphDocument.followState`). A second try at the same failing action, such as inserting the same refused file again, shows nothing at all. Likely why B165 looked silent.
 - Issue: none
 
 ### B164. Mac: a node driven by a range does not give several results on its output
@@ -89,6 +77,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Watch: record each sighting here with the reply.
 - Issue: none
 - Seen again: 2026-11-24, in the Linux gate on B151's branch (`ed7e6e3`, which changes no upload code). The second failure in a full run; still no cause.
+- Seen a third time: 2026-11-24, in the Linux gate on B164's branch (`dadb1e0`, which changes no upload code). Two of the day's last four full runs.
 
 ### B143. The conformance case "the engine's run changed while it goes" failed once on the Windows test VM
 
@@ -351,6 +340,27 @@ Closed without a fix: the maintainer decided they need no more work unless they 
 - Issue: none
 
 ## Fixed
+
+### B166. Mac: Open Recent never lists recent graphs
+
+- Reported: 2026-11-24
+- Report: "open recent never has a list of recent graphs"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`, after opening and saving several graphs today (`.plum` and `.json`).
+- Answer (the maintainer, 2026-11-24): asked whether the menu is empty or greyed, and whether it ever listed anything: "empty list. Never showed anything".
+- Issue: none
+- Cause (reproduced in Plummer itself): Open Recent was AppKit's menu. AppKit did note every graph, but the Mac rebuilds its menu bar when the front document or the menu's structure changes, and AppKit fills only the Open Recent menu it adopted first. The core had no list at all, so it was a shell-side action, which the command rule counts as a defect.
+- Fixed: 2026-11-24, branch `fix/b165-b166-files`: the list, the menu and its items are the core's. `Prefs.recent` (newest first, once each, 10 kept, in the application's own preferences); a successful open, save, save as, rename or move notes the file; File › Open Recent in the core's menu model, a missing file disabled with why, then Clear Menu; commands `graph.recent`, `graph.openRecent {path}` (only a path in the list) and `graph.clearRecent`. egui, the iPad and Windows get the menu from the model. `docs/shell-interface.md` 12.24. Two test files that fail without the recording, a shared conformance case. Launched on the Mac: the list read back newest first, a deleted file disabled, kept across a relaunch, emptied by Clear. Not checked: picking an item by hand; the Mac with every window closed; iPad, Windows and egui launches; the application built on the shell.
+
+### B165. Mac: Insert Graph of a component graph inserts nothing
+
+- Reported: 2026-11-24
+- Report: "insert graph (components/condition) inserts nothong"
+- Context: the maintainer's hand use of an application built on the Mac shell from the dev branch at `3403749`. The graph inserted is a component graph of the research software's collection (a "condition" component, in a `components` folder).
+- Answer (the maintainer, 2026-11-24): "inserted condition.plum"; then "Fix b165". The component exists in both forms, `.json` and `.plum`.
+- Issue: none
+- What a person saw (an agent, Plummer built before the fix, the menu's command run through the control port): the graph does not change. The refusal shows once as a banner; a second try at the same file shows nothing, since the Mac shows an error only when its text differs from the last (B167).
+- Cause (proved by a test and a launch): `graph.insert` checked the file against the connected engines' node types only. Where engines start as a graph comes to use them, a component whose nodes belong to an engine not yet started was refused, before the step that starts newly needed engines could run. `graph.open` keeps kinds it does not know yet and then starts their engines. Not the extension (`.json` fails the same way), not the group, not the Mac's panel: the controller's first suspicion, the `.plum` type, was wrong.
+- Fixed: 2026-11-24, branch `fix/b165-b166-files`: the file is checked and inserted against the catalogue plus the node types of engines the host can start (`crates/session/src/insert_cmds.rs`, `Session::edit_against`), and the needed engine then starts. A kind no engine offers is still refused, by name. A test with a public component, as `.plum` and `.json`, fails without the fix. Launched in Plummer: the group, its promoted port, its output and its wires arrive and the array engine starts. Not checked: the application with the report's own file; iPad and Windows (the same core).
 
 ### B162. Mac: after wiring a range driving node into a style graph, the graph no longer runs at all
 

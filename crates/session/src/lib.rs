@@ -628,13 +628,24 @@ impl Session {
     /// it is fixed). On error the graph is left as it was. An application's commands make their
     /// undo steps here too, under their own `label`.
     pub fn edit<T>(&mut self, label: &str, f: impl FnOnce(&mut Graph, &SchemaReply) -> Result<T>) -> Result<T> {
+        let catalog = std::mem::take(&mut self.catalog);
+        let result = self.edit_against(label, &catalog, f);
+        self.catalog = catalog;
+        result
+    }
+
+    /// [`Session::edit`], checked against `catalog` instead of the session's own: the catalogue
+    /// with the definitions of engines that are starting, for an insert that brings their nodes
+    /// (B165: `graph.insert`). Problems the session's catalogue sees only for want of those
+    /// engines go once they connect.
+    pub(crate) fn edit_against<T>(&mut self, label: &str, catalog: &SchemaReply, f: impl FnOnce(&mut Graph, &SchemaReply) -> Result<T>) -> Result<T> {
         let before = self.graph.clone();
-        let result = f(&mut self.graph, &self.catalog).and_then(|v| {
+        let result = f(&mut self.graph, catalog).and_then(|v| {
             let fresh: BTreeSet<NodeId> = self.graph.nodes.keys().filter(|id| !before.nodes.contains_key(*id)).cloned().collect();
-            self.graph.assign_serials(&fresh, |kind| display_name(&self.catalog, kind));
-            if self.graph.check(&self.catalog).is_err() {
-                let had = graph_problems(&before, &self.catalog);
-                if let Some(new) = graph_problems(&self.graph, &self.catalog).into_iter().find(|p| !had.contains(p)) {
+            self.graph.assign_serials(&fresh, |kind| display_name(catalog, kind));
+            if self.graph.check(catalog).is_err() {
+                let had = graph_problems(&before, catalog);
+                if let Some(new) = graph_problems(&self.graph, catalog).into_iter().find(|p| !had.contains(p)) {
                     return Err(GraphError::Broken(new).into());
                 }
             }

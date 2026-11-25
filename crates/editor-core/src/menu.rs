@@ -433,6 +433,9 @@ pub struct Facts {
     /// The shell has no share sheet ([`crate::document::Document::share`] false): File › Share…
     /// and the toolbar's Share are disabled with the core's reason.
     pub no_share: bool,
+    /// File › Open Recent's graphs, newest first (B166: the core's list, kept in the
+    /// preferences, which every shell's menu is built from).
+    pub recent: Vec<std::path::PathBuf>,
 }
 
 /// The menu bar's titles, in order.
@@ -493,6 +496,9 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
             // Share… (N4 slice 3) after Save As
             let at = items.iter().position(|i| i.command.as_deref() == Some("graph.saveAs")).map_or(items.len(), |k| k + 1);
             items.insert(at, share_item(session, facts));
+            // Open Recent (B166) after Open…
+            let at = items.iter().position(|i| i.command.as_deref() == Some("graph.open")).map_or(items.len(), |k| k + 1);
+            items.insert(at, open_recent(&facts.recent));
         }
         "Node" => items.extend(node_items(session, facts)),
         "Group" => items.extend(group_menu_items(session, facts)),
@@ -506,6 +512,36 @@ pub fn bar_menu(session: &Session, facts: &Facts, title: &str) -> Item {
     let mut m = Item::submenu(&format!("menu:{title}"), title, items);
     m.role = menu_role(title);
     m
+}
+
+/// The id of File › Open Recent's submenu.
+pub const OPEN_RECENT: &str = "menu:File/Open Recent";
+
+/// File › Open Recent (B166): the recent graphs, newest first, each by its file's name (with its
+/// folder's when two share a name) and its whole path on hover; one no longer there is disabled
+/// with why; then Clear Menu. Each runs a command with its params (`graph.openRecent {path}`,
+/// `graph.clearRecent {}`).
+pub fn open_recent(recent: &[std::path::PathBuf]) -> Item {
+    let name = |p: &std::path::Path| p.file_name().map_or_else(|| p.display().to_string(), |n| n.to_string_lossy().into_owned());
+    let mut items: Vec<Item> = recent
+        .iter()
+        .map(|p| {
+            let n = name(p);
+            let twin = recent.iter().filter(|q| name(q) == n).count() > 1;
+            let label = match p.parent().and_then(|d| d.file_name()) {
+                Some(folder) if twin => format!("{n} — {}", folder.to_string_lossy()),
+                _ => n,
+            };
+            let item = Item::run("graph.openRecent", label, json!({"path": p})).hover(p.display().to_string());
+            if p.is_file() { item } else { item.disabled(Some(format!("{} is no longer there", p.display()))) }
+        })
+        .collect();
+    if !items.is_empty() {
+        items.push(Item::separator());
+    }
+    let clear = Item::run("graph.clearRecent", "Clear Menu", json!({}));
+    items.push(if recent.is_empty() { clear.disabled(Some("no recent graphs".into())) } else { clear });
+    Item::submenu(OPEN_RECENT, "Open Recent", items)
 }
 
 /// A toggle command's state, for its check mark.

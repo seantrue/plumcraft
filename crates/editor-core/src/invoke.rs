@@ -47,13 +47,15 @@ pub enum AfterDiscard {
     Quit,
     /// Close this document's window, one of several (N5 slice 3: the prompt says close, not quit).
     Close,
+    /// `graph.open` this recent graph (File › Open Recent, B166).
+    OpenRecent(PathBuf),
 }
 
 impl AfterDiscard {
     pub fn name(&self) -> &'static str {
         match self {
             AfterDiscard::New => "new",
-            AfterDiscard::Open => "open",
+            AfterDiscard::Open | AfterDiscard::OpenRecent(_) => "open",
             AfterDiscard::Quit => "quit",
             AfterDiscard::Close => "close",
         }
@@ -153,6 +155,7 @@ impl Prompt {
         match self {
             Prompt::Discard { then: AfterDiscard::New } => "The graph has unsaved changes. Discard them and start a new graph?",
             Prompt::Discard { then: AfterDiscard::Open } => "The graph has unsaved changes. Discard them and open another workflow?",
+            Prompt::Discard { then: AfterDiscard::OpenRecent(_) } => "The graph has unsaved changes. Discard them and open the recent graph?",
             Prompt::Uploads(_) => "This run would send these files from your computer to an engine you attached to.",
             Prompt::Review(_) => "This workflow came from elsewhere, and it runs with your permissions. Check what it touches before you run it.",
             Prompt::Discard { then: AfterDiscard::Quit } => "The graph has unsaved changes. Discard them and quit?",
@@ -795,6 +798,9 @@ fn go_on(h: &mut impl Host, then: AfterDiscard, discard: bool, by: By) {
         }
         AfterDiscard::Open => {
             ask_workflow(h, by, Then::OpenWorkflow { discard });
+        }
+        AfterDiscard::OpenRecent(path) => {
+            let _ = h.run("graph.open", &json!({"path": path, "discard": discard}));
         }
         AfterDiscard::Quit | AfterDiscard::Close => h.close(),
     }
