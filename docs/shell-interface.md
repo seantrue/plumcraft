@@ -1253,6 +1253,12 @@ An array's view modes (floor F51) and its channels' histograms reach a native sh
 
 Conformance: "an array's view is chosen through the core and its pictures change".
 
+### 13.2.3 Several pictures, colour by value, number format (note 26 slice 2, 2026-11-24)
+
+- **Several pictures share one zoom and view** (an array shown as a picture a channel): a pinch or a drag on any of them zooms and pans all, Fit forgets it, 1:1 is a point a value pixel, a tap reads the value's numbers there (`viewer.data probe`) and pins the probe (`viewer.probe`). The zoom is the shell's, kept in the picture's own terms through a list's items (13.2.1, B159), and a `zoomAsk` is taken as for one picture. A pop-out's `stamp` moves when a zoom is asked, so a shell reads the pop-out again.
+- **Colour by value and number format** are the core's state (`viewer.grid {colored, format}`, `viewer.table {colored}`; `popout.get`'s `state.grid {colored, format, formats}` and `state.table {colored}`), and the page carries what a shell draws: `tints` (0 to 1, or null) and, for a grid, `range`. A shell tints a cell from its background towards its accent by `tint`; it computes no range itself.
+- **A table-flagged array is a table first** (`viewers::offered`): the Histogram node's `centre` and `count`, a node's points. It has no picture.
+
 ### 13.3 Fallback
 
 A shell that lacks a viewer shows the engine's rendition as a picture (every value has one, `docs/interface.md` section 10) with the summary, and lists the viewer as offered but unavailable. `viewers::viewable` stays the rule that no value is shown only as hex.

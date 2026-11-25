@@ -101,7 +101,41 @@ public struct ViewerBar: SwiftUI.View {
     }
 
     public var body: some SwiftUI.View {
-        HStack(spacing: 10) {
+        // B161: in a narrow window (an iPhone, a narrow iPad window) the bar takes two or three
+        // rows instead of running off both edges: the widest arrangement that fits is used
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 10) {
+                choosers
+                itemStepper
+                Spacer(minLength: 4)
+                actions
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) {
+                    choosers
+                    itemStepper
+                }
+                HStack(spacing: 10) {
+                    Spacer(minLength: 4)
+                    actions
+                }
+            }
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 10) { choosers }
+                HStack(spacing: 10) { itemStepper }
+                HStack(spacing: 10) {
+                    Spacer(minLength: 4)
+                    actions
+                }
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 6)
+    }
+
+    /// View As and an array's View mode.
+    @ViewBuilder private var choosers: some SwiftUI.View {
             if let offered = value.viewers, offered.count > 1 {
                 Picker("View As", selection: Binding(get: { value.viewer ?? "" }, set: { id in
                     let p = box.popout
@@ -118,6 +152,10 @@ public struct ViewerBar: SwiftUI.View {
             if value.modes.count > 1 {
                 ViewModePicker(box: box, value: value)
             }
+    }
+
+    /// A list's stepper (unchanged, moved here by B161).
+    @ViewBuilder private var itemStepper: some SwiftUI.View {
             if let n = value.items, n > 1 {
                 let i = value.index ?? 0
                 let names = Self.itemNames(value)
@@ -141,7 +179,10 @@ public struct ViewerBar: SwiftUI.View {
                 }
                 Button { step(i + 1, n) } label: { Image(systemName: "chevron.right") }.disabled(i + 1 >= n).accessibilityLabel("Next Item")
             }
-            Spacer(minLength: 4)
+    }
+
+    /// Drag out, Compare, Recipe, Copy, Share and Save As.
+    @ViewBuilder private var actions: some SwiftUI.View {
             let p = box.popout
             // drag the value out as a file of its own (`value.export`, N4 slice 6)
             Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
@@ -172,10 +213,6 @@ public struct ViewerBar: SwiftUI.View {
                 .labelStyle(.iconOnly).help("Share the value").accessibilityIdentifier("viewer-share")
             Button { Task { await p.takeOut("value.saveAs") } } label: { Label("Save As…", systemImage: "square.and.arrow.down") }
                 .labelStyle(.iconOnly).help("Save the value to a file").accessibilityIdentifier("viewer-save")
-        }
-        .buttonStyle(.borderless)
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     /// A list's items by name (`sheet`'s labels, in order), or none when the engine named none.
@@ -330,6 +367,79 @@ struct PageBar: SwiftUI.View {
 struct PageRow: Identifiable, Hashable {
     let id: Int
     let cells: [String]
+    /// Each cell's place from its range's low to high end, 0 to 1 (colour by value), or nil.
+    var tints: [Double?] = []
+
+    /// A page's rows, with their tints when the page has them (`viewer.data`'s `tints`).
+    static func of(_ page: JSONValue) -> [PageRow] {
+        let start = page["start"].uint64 ?? 0
+        let tints = page["tints"].array ?? []
+        return (page["cells"].array ?? []).enumerated().map { k, row in
+            PageRow(id: Int(start) + k, cells: (row.array ?? []).map { $0.string ?? "" },
+                    tints: k < tints.count ? (tints[k].array ?? []).map { $0.double.map { min(max($0, 0), 1) } } : [])
+        }
+    }
+
+    func tint(_ c: Int) -> Double? { c < tints.count ? tints[c] : nil }
+}
+
+/// A cell's background for colour by value: the accent, deeper for a larger value (the egui
+/// editor's heat runs from the panel's colour to the chart colour).
+struct CellTint: ViewModifier {
+    let t: Double?
+    func body(content: Content) -> some SwiftUI.View {
+        if let t {
+            content.background(Color.accentColor.opacity(0.08 + 0.5 * t))
+        } else {
+            content
+        }
+    }
+}
+
+/// Colour by value, and for a grid its number format: the core's state (`viewer.table` or
+/// `viewer.grid` `{colored, format}`, note 26 slice 2), shown above the cells.
+struct CellOptions: SwiftUI.View {
+    let box: ViewerBox
+    /// `viewer.table` or `viewer.grid`.
+    let command: String
+    let state: JSONValue
+    var body: some SwiftUI.View {
+        HStack(spacing: 12) {
+            let on = state["colored"].bool ?? false
+            Toggle("Colour by Value", isOn: Binding(get: { on }, set: { v in
+                let p = box.popout
+                Task { await p.command(command, ["colored": .bool(v)]) }
+            }))
+            .toggleStyle(.button)
+            .controlSize(.small)
+            .font(.caption)
+            .help("Tint each number from its range's lowest to its highest (\(command) colored)")
+            .accessibilityIdentifier("viewer-colour")
+            if command == "viewer.grid" {
+                let shown = state["format"].string
+                Menu {
+                    Button { set(.null) } label: { if shown == nil { Label("Default", systemImage: "checkmark") } else { Text("Default") } }
+                    ForEach((state["formats"].array ?? []).compactMap(\.string), id: \.self) { f in
+                        Button { set(.string(f)) } label: { if shown == f { Label(f, systemImage: "checkmark") } else { Text(f) } }
+                    }
+                } label: {
+                    Text("Format: \(shown ?? "Default")").font(.caption)
+                }
+                .fixedSize()
+                .buttonStyle(.borderless)
+                .help("How the numbers are written (viewer.grid format)")
+                .accessibilityIdentifier("viewer-format")
+            }
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 4)
+    }
+
+    private func set(_ f: JSONValue) {
+        let p = box.popout
+        Task { await p.command("viewer.grid", ["format": f]) }
+    }
 }
 
 struct PageColumn: Identifiable, Hashable {
@@ -395,7 +505,8 @@ struct TableViewer: SwiftUI.View {
             } else if let page = loader.page {
                 let cols = (page["columns"].array ?? []).enumerated().map { PageColumn(id: $0.offset, name: $0.element["name"].string ?? "c\($0.offset + 1)", numeric: $0.element["numeric"].bool ?? false) }
                 let start = page["start"].uint64 ?? 0
-                let rows = (page["cells"].array ?? []).enumerated().map { PageRow(id: Int(start) + $0.offset, cells: ($0.element.array ?? []).map { $0.string ?? "" }) }
+                let rows = PageRow.of(page)
+                CellOptions(box: box, command: "viewer.table", state: st)
                 let sort = Binding<[CoreSort]>(
                     get: { st["sort"].uint64.map { [CoreSort(column: Int($0), order: st["desc"].bool == true ? .reverse : .forward)] } ?? [] },
                     set: { new in
@@ -413,6 +524,7 @@ struct TableViewer: SwiftUI.View {
                             Text(c.id < r.cells.count ? r.cells[c.id] : "")
                                 .font(c.numeric ? .body.monospacedDigit() : .body)
                                 .frame(maxWidth: .infinity, alignment: c.numeric ? .trailing : .leading)
+                                .modifier(CellTint(t: r.tint(c.id)))
                                 .textSelection(.enabled)
                         }
                     }
@@ -490,6 +602,7 @@ struct PageGrid: SwiftUI.View {
                                     .lineLimit(1)
                                     .frame(width: w[i] - 16, alignment: c.numeric ? .trailing : .leading)
                                     .padding(.horizontal, 8)
+                                    .modifier(CellTint(t: r.tint(c.id)))
                                     .textSelection(.enabled)
                             }
                         }
@@ -547,7 +660,8 @@ struct PageGrid: SwiftUI.View {
                         HStack(alignment: .firstTextBaseline) {
                             Text(c.name).font(.callout).foregroundStyle(.secondary)
                             Spacer(minLength: 12)
-                            Text(cell(r, c)).font(c.numeric ? .body.monospacedDigit() : .body).multilineTextAlignment(.trailing).textSelection(.enabled)
+                            Text(cell(r, c)).font(c.numeric ? .body.monospacedDigit() : .body).multilineTextAlignment(.trailing)
+                                .modifier(CellTint(t: r.tint(c.id))).textSelection(.enabled)
                         }
                     }
                 }
@@ -576,7 +690,7 @@ struct GridViewer: SwiftUI.View {
                 let width = cells.first?.array?.count ?? 0
                 let cols = (0..<width).map { PageColumn(id: $0, name: "\(c0 + UInt64($0))", numeric: true) }
                 let start = page["start"].uint64 ?? 0
-                let rows = cells.enumerated().map { PageRow(id: Int(start) + $0.offset, cells: ($0.element.array ?? []).map { $0.string ?? "" }) }
+                let rows = PageRow.of(page)
                 HStack(spacing: 12) {
                     Text("\(page["dtype"].string ?? "") · \((page["shape"].array ?? []).compactMap(\.uint64).map(String.init).joined(separator: "×"))").font(.caption).foregroundStyle(.secondary)
                     if let planes = page["planes"].uint64, planes > 1 {
@@ -609,6 +723,7 @@ struct GridViewer: SwiftUI.View {
                 .buttonStyle(.borderless)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 5)
+                CellOptions(box: box, command: "viewer.grid", state: st)
                 if let stats = box.value?.stats?.array, !stats.isEmpty {
                     Text(ArrayStats.line(stats))
                         .font(.caption).foregroundStyle(.secondary).padding(.horizontal, 12).frame(maxWidth: .infinity, alignment: .leading)
@@ -619,6 +734,7 @@ struct GridViewer: SwiftUI.View {
                     TableColumnForEach(cols) { c in
                         TableColumn(c.name) { (r: PageRow) in
                             Text(c.id < r.cells.count ? r.cells[c.id] : "").font(.body.monospacedDigit()).frame(maxWidth: .infinity, alignment: .trailing)
+                                .modifier(CellTint(t: r.tint(c.id)))
                         }
                         .width(min: 56, ideal: 84)
                     }
@@ -1056,21 +1172,176 @@ struct ArrayPicturesViewer: SwiftUI.View {
                 LentPicture(box: box, handle: h, want: "rgba", px: nil)
             } else if views.isEmpty {
                 ViewerMessage(text: "This array has no picture: see its values.")
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
-                        ForEach(Array(views.enumerated()), id: \.offset) { _, p in
-                            VStack(spacing: 3) {
-                                if let h = p.handle { LentPicture(box: box, handle: h, want: "rgba", px: nil).frame(minHeight: 160) }
-                                Text(p.caption ?? "").font(.caption).foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                }
+            } else if let v {
+                SharedZoomPictures(box: box, value: v, views: views)
             }
         }
         .padding(12)
         .onAppear { box.describe["pictures"] = .uint(UInt64(views.count)) }
+    }
+}
+
+/// An array's several pictures (one per channel), sharing one zoom and view and one probe, as the
+/// egui editor's array view does (note 26 slice 2): a pinch or a drag on any picture zooms and
+/// pans them all, Fit forgets it, and a tap reads the value's own numbers there and pins the
+/// probe (`viewer.probe`). The zoom and view are the shell's, kept in the picture's own terms
+/// through the items of a list (`PictureZoom`, as B159 keeps a single picture's).
+struct SharedZoomPictures: SwiftUI.View {
+    let box: ViewerBox
+    let value: PopoutValue
+    let views: [PopoutValue.ViewPicture]
+    /// The zoom kept (nil: each picture fits its tile).
+    @State private var kept: PictureZoom?
+    /// A pinch or a drag in progress, applied on top of what is kept.
+    @GestureState private var pinch: CGFloat = 1
+    @GestureState private var drag: CGSize = .zero
+    @State private var reading = ""
+    /// The zoom ask (`zoomAsk.seq`) last taken (B159): a script's `viewer.zoom` on the pop-out.
+    @State private var askSeen: UInt64 = 0
+    /// The tiles' size, the same for all.
+    @State private var tile = CGSize(width: 1, height: 1)
+
+    /// The value's size in pixels (the pictures may be smaller renditions of it).
+    private var full: CGSize {
+        if let f = PictureSource.fullSize(value) { return CGSize(width: f.w, height: f.h) }
+        if let p = views.first { return CGSize(width: Int(p.w), height: Int(p.h)) }
+        return CGSize(width: 1, height: 1)
+    }
+
+    private var fit: Double { PictureZoom.fit(content: tile, picture: full) ?? 1 }
+
+    /// What is shown now: the kept zoom (or fit, about the middle) with the gesture in progress.
+    private var shown: PictureZoom {
+        var z = kept ?? PictureZoom(scale: fit, centre: CGPoint(x: 0.5, y: 0.5))
+        z.scale = min(max(z.scale * Double(pinch), PictureZoom.minScale), PictureZoom.maxScale)
+        z.centre.x = min(max(z.centre.x - drag.width / (full.width * z.scale), 0), 1)
+        z.centre.y = min(max(z.centre.y - drag.height / (full.height * z.scale), 0), 1)
+        return z
+    }
+
+    var body: some SwiftUI.View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 10) {
+                Button("Fit") { kept = nil }.disabled(kept == nil).accessibilityIdentifier("pictures-fit")
+                Button("1:1") { kept = PictureZoom(scale: 1, centre: shown.centre) }.accessibilityIdentifier("pictures-one")
+                Text("\(Int((shown.scale * 100).rounded()))%").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("pictures-zoom")
+                Spacer()
+            }
+            .buttonStyle(.borderless)
+            ScrollView {
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 10)], spacing: 10) {
+                    ForEach(Array(views.enumerated()), id: \.offset) { k, p in
+                        VStack(spacing: 3) {
+                            if let h = p.handle {
+                                ZoomTile(box: box, handle: h, full: full, zoom: shown) { px in probe(px) }
+                                    .frame(minHeight: 160)
+                                    .background(GeometryReader { g in Color.clear.onAppear { tile = g.size }.onChange(of: g.size) { _, s in tile = s } })
+                                    .accessibilityIdentifier("pictures-tile-\(k)")
+                            }
+                            Text(p.caption ?? "").font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .gesture(
+                    MagnifyGesture().updating($pinch) { g, st, _ in st = g.magnification }
+                        .onEnded { g in keep { $0.scale *= Double(g.magnification) } }
+                        .simultaneously(with: DragGesture(minimumDistance: 6).updating($drag) { g, st, _ in st = g.translation }
+                            .onEnded { g in keep { z in
+                                z.centre.x -= g.translation.width / (full.width * z.scale)
+                                z.centre.y -= g.translation.height / (full.height * z.scale)
+                            } })
+                )
+            }
+            if !reading.isEmpty {
+                Text(reading).font(.caption.monospacedDigit()).lineLimit(1).accessibilityIdentifier("pictures-reading")
+            }
+        }
+        .onAppear {
+            take(value.zoomAsk)
+            describe()
+        }
+        .onChange(of: kept) { _, _ in describe() }
+        .onChange(of: tile) { _, _ in describe() }
+        .onChange(of: value.zoomAsk) { _, a in take(a) }
+    }
+
+    /// A zoom asked of the pop-out, taken once (`zoomAsk`, B159): its scale and centre kept, or
+    /// Fit and 1:1 forgetting what was kept.
+    private func take(_ a: JSONValue?) {
+        guard let a, let seq = a["seq"].uint64, seq > askSeen else { return }
+        askSeen = seq
+        #if os(macOS)
+        let backing = Double(NSScreen.main?.backingScaleFactor ?? 2)
+        #else
+        let backing = Double(UIScreen.main.scale)
+        #endif
+        if a["to"].string == "1:1" {
+            kept = PictureZoom(scale: 1, centre: shown.centre)
+        } else {
+            kept = PictureZoom.asked(a, current: kept ?? shown, backing: backing, picture: full)
+        }
+    }
+
+    /// A gesture ended: what it made is kept.
+    private func keep(_ change: (inout PictureZoom) -> Void) {
+        var z = kept ?? PictureZoom(scale: fit, centre: CGPoint(x: 0.5, y: 0.5))
+        change(&z)
+        z.scale = min(max(z.scale, PictureZoom.minScale), PictureZoom.maxScale)
+        z.centre = CGPoint(x: min(max(z.centre.x, 0), 1), y: min(max(z.centre.y, 0), 1))
+        kept = z
+    }
+
+    private func describe() {
+        box.describe["zoom"] = shown.facts(kept: kept != nil, fit: fit)
+    }
+
+    /// A tap at a value pixel: its numbers read by the core, and the probe pinned there.
+    private func probe(_ px: (row: UInt64, col: UInt64)) {
+        let p = box.popout
+        Task {
+            let r = await p.data("probe", ["row": .uint(px.row), "col": .uint(px.col)], timeout: .seconds(5))
+            reading = "row \(px.row), col \(px.col)  " + (r["text"].string ?? r["unavailable"].string ?? r["error"].string ?? "")
+            _ = try? await p.model.run("viewer.probe", ["popout": .uint(p.id), "row": .uint(px.row), "col": .uint(px.col)])
+        }
+    }
+}
+
+/// One picture of a value drawn at a shared zoom: `zoom.scale` points a value pixel, `zoom.centre`
+/// in the middle of the tile; a tap gives the value pixel under it.
+struct ZoomTile: SwiftUI.View {
+    let box: ViewerBox
+    let handle: String
+    let full: CGSize
+    let zoom: PictureZoom
+    let tapped: ((row: UInt64, col: UInt64)) -> Void
+    @State private var image: CGImage?
+
+    var body: some SwiftUI.View {
+        GeometryReader { g in
+            let w = full.width * zoom.scale, h = full.height * zoom.scale
+            let x = g.size.width / 2 - zoom.centre.x * w, y = g.size.height / 2 - zoom.centre.y * h
+            ZStack(alignment: .topLeading) {
+                if let image {
+                    Image(decorative: image, scale: 1).resizable().interpolation(zoom.scale >= 2 ? .none : .medium)
+                        .frame(width: w, height: h)
+                        .offset(x: x, y: y)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .frame(width: g.size.width, height: g.size.height, alignment: .topLeading)
+            .clipped()
+            .contentShape(Rectangle())
+            .onTapGesture { at in
+                let c = (at.x - x) / w, r = (at.y - y) / h
+                guard c >= 0, c < 1, r >= 0, r < 1 else { return }
+                tapped((UInt64(r * full.height), UInt64(c * full.width)))
+            }
+        }
+        .task(id: handle) {
+            if let p = await box.pictures.load(handle, want: "rgba", px: nil) { image = p.image }
+        }
     }
 }
 

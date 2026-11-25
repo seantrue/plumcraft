@@ -120,6 +120,8 @@ pub fn of(session: &Session) -> Windows {
             serde_json::to_string(&o.text).unwrap_or_default().hash(&mut h);
             serde_json::to_string(&o.state).unwrap_or_default().hash(&mut h);
             format!("{:?}{:?}", o.fit, o.viewer).hash(&mut h);
+            // a zoom asked of it (`zoomAsk`, B159) is news to its shell even when nothing else moved
+            o.zoom_seq.hash(&mut h);
             Some(PopoutWindow {
                 id: o.id,
                 node: w.node.clone(),

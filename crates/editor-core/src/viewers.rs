@@ -58,10 +58,14 @@ pub fn offered(d: &Display) -> Vec<(&'static str, &'static str)> {
     add(m == Media::Vector, "svg", "SVG");
     add(is_pdf(d), "pdf.pages", "Pages");
     add(m == Media::Doc, "doc", "Document");
+    // a table-flagged array (a histogram's centre and count, a node's points) is a table first: it
+    // has no picture (note 26 slice 2; B152 read it as a table for a TABLE value only)
+    let table_array = d.full.as_ref().is_some_and(|f| matches!(f.meta.form, Form::Array { table: true, .. }));
+    add(m == Media::Ndarray && table_array, "table.grid", "Table");
     add(m == Media::Ndarray, "array.pictures", "Pictures");
     add(m == Media::Ndarray, "array.grid", "Values");
     add(m == Media::Audio, "audio", "Audio");
-    add(m == Media::Table || d.value.as_ref().is_some_and(is_rows), "table.grid", "Table");
+    add((m == Media::Table || d.value.as_ref().is_some_and(is_rows)) && !(m == Media::Ndarray && table_array), "table.grid", "Table");
     add(is_xml(d), "xml", "XML");
     add(m == Media::Text || m == Media::Vector, "text.plain", if m == Media::Vector { "Source" } else { "Text" });
     add(m == Media::Scalar, "scalar", "Value");
@@ -97,6 +101,54 @@ pub fn number(x: f64, int: bool) -> String {
     }
     let d = crate::widget_text::needed_decimals(&json!(x));
     crate::widget_text::number_text(&json!(x), false, d)
+}
+
+/// `v` in `format` (`%.Nf`, `%.Ne`, `%.Ng`, `%d`; anything else reads as `%.4g`).
+pub fn format_value(v: f64, format: &str) -> String {
+    if v.is_nan() {
+        return "nan".into();
+    }
+    if v.is_infinite() {
+        return if v > 0.0 { "inf".into() } else { "-inf".into() };
+    }
+    let f = format.trim();
+    let prec =
+        |default: usize| f.strip_prefix("%.").and_then(|r| r.get(..r.len().saturating_sub(1))).and_then(|n| n.parse::<usize>().ok()).unwrap_or(default).min(17);
+    match f.chars().last() {
+        Some('d') => format!("{}", v.round() as i64),
+        Some('f') => format!("{v:.*}", prec(3)),
+        Some('e') => format!("{v:.*e}", prec(3)),
+        _ => {
+            // %g: fixed for moderate magnitudes, else scientific, trailing zeros dropped.
+            let p = prec(4).max(1);
+            if v == 0.0 {
+                return "0".into();
+            }
+            let exp = v.abs().log10().floor() as i32;
+            if exp < -4 || exp >= p as i32 {
+                format!("{v:.*e}", p.saturating_sub(1))
+            } else {
+                let decimals = (p as i32 - 1 - exp).max(0) as usize;
+                let s = format!("{v:.decimals$}");
+                if s.contains('.') { s.trim_end_matches('0').trim_end_matches('.').to_owned() } else { s }
+            }
+        }
+    }
+}
+
+/// Where `x` lies from `lo` to `hi`, 0 to 1 at three decimals: a cell's tint (colour by value);
+/// none for a value that isn't finite, and 0.5 when the range is a single value.
+pub fn tint(x: f64, lo: f64, hi: f64) -> Value {
+    if !x.is_finite() || !lo.is_finite() || !hi.is_finite() {
+        return Value::Null;
+    }
+    let t = if hi > lo { ((x - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 0.5 };
+    json!((t * 1000.0).round() / 1000.0)
+}
+
+/// The finite minimum and maximum of `xs`.
+fn range(xs: impl Iterator<Item = f64>) -> (f64, f64) {
+    xs.filter(|x| x.is_finite()).fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(x), b.max(x)))
 }
 
 fn cell_text(c: &Cell) -> String {
@@ -303,13 +355,33 @@ fn table(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
     let columns: Vec<Value> = t.columns.iter().map(|c| json!({"name": c.name, "type": c.ty, "numeric": c.numeric()})).collect();
     let mut cells = Vec::with_capacity((end - start) as usize);
     let mut index = Vec::with_capacity((end - start) as usize);
+    // colour by value (note 26 slice 2): each numeric column's range, over all its rows
+    let ranges: Vec<Option<(f64, f64)>> =
+        if st.table_colored { t.columns.iter().map(|c| c.numeric().then(|| range(c.cells.iter().filter_map(Cell::num)))).collect() } else { Vec::new() };
+    let mut tints = Vec::new();
     for i in start..end {
         let r = order.as_ref().and_then(|o| o.get(i as usize).copied().map(u64::from)).unwrap_or(i);
         index.push(json!(r));
         cells.push(Value::Array(t.columns.iter().map(|c| json!(c.cells.get(r as usize).map(cell_text).unwrap_or_default())).collect()));
+        if st.table_colored {
+            tints.push(Value::Array(
+                t.columns
+                    .iter()
+                    .zip(&ranges)
+                    .map(|(c, rg)| match (rg, c.cells.get(r as usize).and_then(Cell::num)) {
+                        (Some((lo, hi)), Some(x)) => tint(x, *lo, *hi),
+                        _ => Value::Null,
+                    })
+                    .collect(),
+            ));
+        }
     }
-    json!({"columns": columns, "rows": rows, "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start,
-           "sort": st.sort, "desc": st.desc, "index": index, "cells": cells})
+    let mut out = json!({"columns": columns, "rows": rows, "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start,
+           "sort": st.sort, "desc": st.desc, "index": index, "cells": cells, "colored": st.table_colored});
+    if st.table_colored {
+        out["tints"] = Value::Array(tints);
+    }
+    out
 }
 
 fn kind_of(v: &Value) -> &'static str {
@@ -427,20 +499,27 @@ fn grid(d: &Display, media: &MediaService, st: &ViewerState) -> Value {
     let c0 = st.col.min(last_window(cols));
     let c1 = (c0 + GRID_COLUMNS).min(cols);
     let int = dtype.integer();
+    let read = |r: u64, c: u64| usize::try_from((r * cols + c) * planes + plane).ok().and_then(|i| dtype.read(&b.bytes, i));
+    // the number text: the core's, or the state's printf format (an integer array's %g as %d, as egui does)
+    let fmt = st.grid_format.as_deref().map(|f| if int && f.ends_with('g') { "%d" } else { f });
+    let text = |x: f64| fmt.map_or_else(|| number(x, int), |f| format_value(x, f));
+    // colour by value (note 26 slice 2): the plane's range, over all its cells
+    let rg = st.grid_colored.then(|| range((0..rows).flat_map(|r| (0..cols).map(move |c| (r, c))).filter_map(|(r, c)| read(r, c))));
     let mut cells = Vec::new();
+    let mut tints = Vec::new();
     for r in start..end {
-        let row: Vec<Value> = (c0..c1)
-            .map(|c| {
-                let i = (r * cols + c) * planes + plane;
-                json!(usize::try_from(i).ok().and_then(|i| dtype.read(&b.bytes, i)).map(|x| number(x, int)).unwrap_or_default())
-            })
-            .collect();
+        let row: Vec<Value> = (c0..c1).map(|c| json!(read(r, c).map(text).unwrap_or_default())).collect();
         cells.push(Value::Array(row));
+        if let Some((lo, hi)) = rg {
+            tints.push(Value::Array((c0..c1).map(|c| read(r, c).map_or(Value::Null, |x| tint(x, lo, hi))).collect()));
+        }
     }
     let plane_name = names.get(plane as usize).cloned();
     json!({"shape": shape, "dtype": b.dtype, "rows": rows, "cols": cols, "planes": planes, "plane": plane, "planeName": plane_name,
            "page": page, "pages": pages, "pageRows": TABLE_PAGE, "start": start, "end": end,
-           "firstCol": c0, "endCol": c1, "colsShown": GRID_COLUMNS, "prevCols": c0 > 0, "nextCols": c1 < cols, "cells": cells})
+           "firstCol": c0, "endCol": c1, "colsShown": GRID_COLUMNS, "prevCols": c0 > 0, "nextCols": c1 < cols, "cells": cells,
+           "colored": st.grid_colored, "format": st.grid_format, "tints": if rg.is_some() { Value::Array(tints) } else { Value::Null },
+           "range": rg.filter(|(lo, hi)| lo.is_finite() && hi.is_finite()).map(|(lo, hi)| [text(lo), text(hi)])})
 }
 
 fn hex(d: &Display, media: &MediaService, page: u64) -> Value {
@@ -627,6 +706,51 @@ mod tests {
         let want = ((10f64.ln() / 100f64.ln()) * 1e4).round() / 1e4;
         assert_eq!(l["heights"][1].as_f64(), Some(want), "ln(1 + 9) / ln(1 + 99)");
         assert_eq!(popout_extra(Some(&d), &st)["state"]["array"]["log"], true);
+    }
+
+    /// Note 26 slice 2: a grid's numbers in the state's format, and each cell's tint from the
+    /// plane's range; a table's numeric columns tinted over each column's range, text columns not.
+    #[test]
+    fn colour_by_value_and_the_number_format() {
+        let vals: Vec<u8> = [0.0f32, 1.0, 2.0, 3.0, f32::NAN, 4.0].iter().flat_map(|v| v.to_le_bytes()).collect();
+        let (m, r) = media_with(vals, "<f4", vec![2, 3]);
+        let mut d = display(Media::Ndarray, None);
+        d.full = Some(r);
+        let mut st = ViewerState::default();
+        let g = until(|| grid(&d, &m, &st));
+        assert_eq!((g["tints"].clone(), g["cells"][0][1].clone()), (Value::Null, json!("1")), "off by default; the core's numbers");
+        st.grid_colored = true;
+        st.grid_format = Some("%.2f".into());
+        let g = until(|| grid(&d, &m, &st));
+        assert_eq!(g["cells"][0][1], "1.00");
+        assert_eq!(g["tints"], json!([[0.0, 0.25, 0.5], [0.75, null, 1.0]]), "NaN untinted; the plane's range 0 to 4");
+        assert_eq!(g["range"], json!(["0.00", "4.00"]));
+        let t = display(
+            Media::Table,
+            Some(json!({"columns": [{"name": "n", "type": "INT", "values": [10, 20, 30]}, {"name": "s", "type": "STRING", "values": ["a", "b", "c"]}]})),
+        );
+        let mut st = ViewerState::default();
+        assert!(table(&t, &m, &st).get("tints").is_none());
+        st.table_colored = true;
+        assert_eq!(table(&t, &m, &st)["tints"], json!([[0.0, null], [0.5, null], [1.0, null]]));
+        assert_eq!(tint(5.0, 5.0, 5.0), json!(0.5), "a single value");
+        assert_eq!(tint(f64::INFINITY, 0.0, 1.0), Value::Null);
+        assert_eq!(format_value(1234.5678, "%.4g"), "1235");
+    }
+
+    /// A table-flagged array of numbers (the Histogram node's) is offered as a table first.
+    #[test]
+    fn a_table_flagged_array_is_a_table_first() {
+        let mut r = DataRef::default();
+        r.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![256, 2], space: None, names: vec!["centre".into(), "count".into()], table: true };
+        let mut d = display(Media::Ndarray, None);
+        d.full = Some(r);
+        let ids: Vec<&str> = offered(&d).iter().map(|x| x.0).collect();
+        assert_eq!(ids, ["table.grid", "array.pictures", "array.grid", "hex"]);
+        let mut p = DataRef::default();
+        p.meta.form = Form::Array { dtype: "<f4".into(), shape: vec![4, 4], space: None, names: vec![], table: false };
+        d.full = Some(p);
+        assert_eq!(offered(&d).first().map(|x| x.0), Some("array.pictures"), "a picture stays pictures first");
     }
 
     #[test]

@@ -43,7 +43,7 @@ impl Cell {
         }
     }
 
-    fn num(&self) -> Option<f64> {
+    pub fn num(&self) -> Option<f64> {
         match self {
             Cell::Int(i) => Some(*i as f64),
             Cell::Num(f) => Some(*f),
