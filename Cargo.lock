@@ -3001,6 +3001,7 @@ dependencies = [
  "plumcraft-scratch",
  "plumcraft-store",
  "plumcraft-text",
+ "serde",
  "serde_json",
 ]
 

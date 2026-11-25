@@ -47,7 +47,7 @@ pub fn identity(v: &PortValue) -> Value {
     match v {
         PortValue::Blob { data } => data.handle.as_ref().map_or(Value::Null, |h| Value::from(h.to_string())),
         PortValue::Json { value } => json!({"json": value}),
-        PortValue::List { items } => Value::Array(items.iter().map(identity).collect()),
+        PortValue::List { items, .. } => Value::Array(items.iter().map(identity).collect()),
         PortValue::Opaque { ty, .. } => json!({"opaque": ty}),
     }
 }
@@ -65,7 +65,9 @@ fn read(store: Option<&Store>, trusted: &[String], port: &str, v: &PortValue, de
     }
     match v {
         PortValue::Json { value } => Ok(Data::Json(value.clone())),
-        PortValue::List { items } => Ok(Data::List(List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?))),
+        PortValue::List { items, .. } => {
+            Ok(Data::List(List::new(items.iter().map(|i| read(store, trusted, port, i, depth + 1, n)).collect::<Result<_, _>>()?)))
+        }
         PortValue::Blob { data } => blob(store, trusted, port, data),
         PortValue::Opaque { ty, .. } => Err(NodeError::new(NodeError::CONFIG, format!("input {port:?}: a {ty} value stays in the engine that made it"))),
     }

@@ -94,7 +94,7 @@ fn value_of(s: &Session, node: &str, port: &str) -> Option<DataRef> {
     fn first(v: &PortValue) -> Option<DataRef> {
         match v {
             PortValue::Blob { data } => Some(data.clone()),
-            PortValue::List { items } => items.first().and_then(first),
+            PortValue::List { items, .. } => items.first().and_then(first),
             _ => None,
         }
     }

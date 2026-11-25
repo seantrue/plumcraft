@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-24 — Nested lists, slice 1: the spec, an axes field and shared vectors (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** After answering note 27's decisions ("Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A"), to starting the work: "Go".
+
+**What the AI did.** The agent wrote the decided rules into `docs/interface.md` with a status line on each, since nothing implements them; added `axes` to a list value in the protocol (17 call sites, the schema, the hostile-input sweep); and started the shared corpus the spec had named but which did not exist: 11 vectors from public building blocks, each with today's result and the nested one, and a runner. It left five points open that the decisions do not settle, rather than choosing.
+
+**Verification.** The agent's runs: 947 of 948 tests in the six crates touched (the known baseline failure), workspace clippy and fmt, the schema-freshness test; the runner seen failing when a vector was made to give the nested result early. The full suite ran on the Linux test host. Nothing here changes behaviour, so nothing was launched.
+
+**Defects.** Its first Zip vectors wired one of two required inputs. The gate failed twice with a compile error that came from another agent's build in the shared target folder replacing this worktree's artifact (the agent's reading, not proven): a hazard of the controller's arrangement of several worktrees on one target, which had not shown before.
+
 ### 2026-11-24 — Nested lists decided, and a note that says what today's rule does (B164) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "Node driven by range does not generate multiple results on output"; where: "I looked at right after the node, and the final result."; "fix B164". Given four ways to fix it: "Option 1, do the option 3 message first". Given the note's nine decisions: "Decisions: 1B; 2C; 3B; 4A; 5A; 6A; 7A; 8B; 9A".

@@ -1,0 +1,79 @@
+{
+ "name": "a range slice keeps each run's list, cut",
+ "about": "Vector 1, then the slice 0:2 into a range of 1. Nested: each run's list cut to its first 2 (all of it), a list of lists into a step that takes one item, which runs once per inner item: 3 \u00d7 2 runs of 1. Today: the flat list's first 2, two runs of 1, joined.",
+ "needs": [
+  "lists.nested"
+ ],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "r": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 0.0,
+     "stop": 2.0,
+     "num": 3,
+     "endpoint": true
+    }
+   },
+   "s": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "start": 10.0,
+     "num": 2,
+     "endpoint": true
+    }
+   },
+   "t": {
+    "kind": "vary.range",
+    "engine": "text",
+    "values": {
+     "stop": 100.0,
+     "num": 1,
+     "endpoint": true
+    }
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "r",
+     "port": "values"
+    },
+    "to": {
+     "node": "s",
+     "port": "stop"
+    }
+   },
+   {
+    "from": {
+     "node": "s",
+     "port": "values"
+    },
+    "to": {
+     "node": "t",
+     "port": "start"
+    },
+    "slice": "0:2"
+   }
+  ]
+ },
+ "expect": {
+  "t.values": {
+   "shape": [
+    3,
+    2,
+    1
+   ]
+  }
+ },
+ "today": {
+  "t.values": {
+   "shape": [
+    2
+   ]
+  }
+ }
+}

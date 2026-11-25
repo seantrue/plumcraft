@@ -1,0 +1,59 @@
+{
+ "name": "a step making one item a run is unchanged",
+ "about": "A list of 3 strings into Text, then Upper case: each run makes one item, so the result is a list over the runs, as today.",
+ "needs": [],
+ "graph": {
+  "version": 1,
+  "nodes": {
+   "v": {
+    "kind": "vary.string",
+    "engine": "text",
+    "values": {
+     "values": "a, b, c"
+    }
+   },
+   "t": {
+    "kind": "text.literal",
+    "engine": "text"
+   },
+   "u": {
+    "kind": "text.upper",
+    "engine": "text"
+   }
+  },
+  "wires": [
+   {
+    "from": {
+     "node": "v",
+     "port": "values"
+    },
+    "to": {
+     "node": "t",
+     "port": "text"
+    }
+   },
+   {
+    "from": {
+     "node": "t",
+     "port": "text"
+    },
+    "to": {
+     "node": "u",
+     "port": "text"
+    }
+   }
+  ]
+ },
+ "expect": {
+  "u.text": {
+   "shape": [
+    3
+   ],
+   "values": [
+    "A",
+    "B",
+    "C"
+   ]
+  }
+ }
+}
