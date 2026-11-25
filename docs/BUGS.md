@@ -9,6 +9,7 @@ Bugs reported in passing (`bug: …`), kept until fixed. Numbers are never reuse
 - Reported: 2026-11-25 (found by an AI agent's launch, not by the maintainer)
 - Report: the scripted Mac copy's picture of the whole document window, taken over the control port, is flipped top to bottom: node text reads mirrored vertically and titles sit at the bottom of each node. Pop-out pictures are the right way up.
 - Context: views slice 10's launch picture of four node faces. Not known: whether an earlier build's document picture was the right way up, and whether only the picture is flipped or anything a person sees.
+- Context: the capture code (`Asks.swift`, `CanvasView.snapshotPNG`, `LayerCanvas.snapshot`) is unchanged since N3 slice 3, so by the code it predates the slice that found it; no older build was pictured to confirm. Suspected, not confirmed: `snapshot` decides whether to flip from the host view's `isGeometryFlipped`, while the Mac view sets the flip on its root layer.
 - Issue: none
 
 ### B167. Mac: the same error twice in a row shows no banner the second time
