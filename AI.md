@@ -20,6 +20,28 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — An Acknowledgements window with every licence (FR4) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Feat: Add list of licenses that need display on Help/About dialog"; "All licences, in a separate Acknowledgements window"; "build FR4.5"; on the research's six points, "Decisions: 1A; 2A; 3A; 4A; 5A; 6B"; "Get licenses from online if needed."; "coalesce license variations"; "npexact -a".
+
+**What the AI did.** The agent surveyed the dependency tree (research note 29) and stopped for decisions, as briefed, on finding licences that were not plain permissive ones. Then it built the list with cargo-about, a model in the core that every shell draws, an engine capability with helpers in both SDKs, the command beside About, and the window on the Mac, iPad, iPhone, Windows and egui; and, on the maintainer's word, coalesced 194 distinct texts to 12 rows, one per licence, keeping every copyright line with its package.
+
+**Verification.** The agent's runs: the workspace's tests with the one known failure, Python, Mac conformance 92 of 92, Swift tests, an egui test with pictures, a test that no copyright line is lost in coalescing; launches on a scripted Mac copy and iPad and iPhone simulators. The controller looked at the iPad picture before coalescing and the iPhone picture after: a row per licence, "443 packages". The full suite ran on the Linux test host. Windows was built and not launched; an opened row was not seen on Apple.
+
+**Defects.** The controller's private-strings list wrongly held a name the maintainer had said weeks before was public, which blocked the push and cost the maintainer two questions; the maintainer corrected it. The first list had a row per distinct text, eight of them "Apache-2.0" on the first screen; the maintainer saw it in the controller's report and asked for one row per licence. The install command the controller authorised lacked a needed feature flag; the agent added it and said so. Win2D's licence page is gone from its address; the checked-in text is an archive's copy and says so.
+
+### 2026-11-25 — B173: a node's mask editor could not be reached by a person on the Mac (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Asked how to edit a mask, then: "Click on the edit field does nothing."; "I clicked the blue \"edit\" text. There was no mask item in the menu."; "fix 173".
+
+**What the AI did.** The agent launched a scripted copy of the application, found the editor present and two ways into it missing, and fixed both in the core and the shells' row measurement, with a test-engine node so the path is tested without private code.
+
+**Verification.** The agent's runs: core tests, a Swift layout test, a conformance case that opens the editor by the caption and the menu on the Mac, the iPad simulator and the C ABI; the application's own case, which fails on the build before the fix. The controller looked at the Mac picture of the editor after a stroke: the run's picture with a blue stroke across it; the controls above it are drawn as a black band with white blobs, which is the offscreen picture's fault (B170), not checked on a real screen. The full suite ran on the Linux test host.
+
+**Defects.** The controller told the maintainer, from reading code and without a launch, that a click on the row's label and an item in the node's menu open the editor; neither did, and the maintainer found out by trying. All four causes the controller suggested in the agent's brief were wrong. The existing case for this editor drove it by command only, so the person's way in had never been launched. The stroke in this fix's launch was sent as a command, not dragged.
+
+**Follow-up, the same day.** The Linux gate failed on the fix: the new conformance case did not pass on the egui editor, which the agent had left alone and whose tests it had not run. The gate caught it before the merge. The agent gave egui the same words, menu item and link, with the core's value window for the two kinds egui cannot draw. Its first whole-workspace run filled the Mac's disk (two agents building at once), and its first run on the Linux test host used nearly all of that machine's memory before it stopped its own build and reran with fewer jobs.
+
 ### 2026-11-25 — Promoted labels carry their node's name and can be renamed (FR5) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** "feat: promoted labels should carry the name of the node they came from (perhaps as a section header), and should support renaming". The controller asked which name, how a rename is kept and what several parameters of one node show, and offered a default; the maintainer: "Go with your lean", then "build FR4.5".

@@ -321,6 +321,23 @@ impl Node for Curve {
     }
 }
 
+/// `ports.masked`: a path input that names the core's mask editor (B173), as an application's
+/// "edit an intermediate" node does: `mask`, a file the editor writes (a save path, so the row
+/// has a field and its Browse button), its caption a link to the editor. Its text is the path.
+struct Masked;
+impl Node for Masked {
+    fn def(&self) -> NodeDef {
+        let mut mask = widget("mask", "STRING", json!(""));
+        mask.path = Some(PathHint { mode: "save".into(), filters: vec![PathFilter { name: "Mask".into(), extensions: vec!["png".into()] }] });
+        let mut d = def("ports.masked", "Masked", vec![mask], vec![port("text", TEXT)]);
+        d.editor = Some(Editor { kind: "mask".into(), port: "mask".into(), interpolant: None });
+        d
+    }
+    fn run(&self, i: &Inputs, _: &mut Cx) -> Result<Outputs, NodeError> {
+        Ok(out(&[("text", json!(text(i, "mask")))]))
+    }
+}
+
 /// The save format of its own (F19, Save Result): text between a pair of `mark`s, an option
 /// the editor asks for (`"` or `'`), as a `.quoted` file.
 const QUOTED: &str = "quoted";
@@ -369,6 +386,7 @@ pub fn engine() -> Engine {
         Box::new(Mixed),
         Box::new(Tune),
         Box::new(Curve),
+        Box::new(Masked),
         Box::new(Ink),
         Box::new(Strip),
         Box::new(Traced),

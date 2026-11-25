@@ -3057,6 +3057,223 @@
         {"call": "command.run", "params": {"command": "app.acknowledgements", "params": {"open": false}}, "expect": {"/result/open": false}},
         {"call": "scene.get", "expect": {"/result/view/windows": {"$exists": false}}}
       ]
+    },
+    {
+      "name": "a path row naming the mask editor opens it by its caption and by the node's menu",
+      "about": "B173: the test engine's ports.masked names the core's mask editor on its path input `mask` (as an application's \"edit an intermediate\" node does). Its row keeps its path field, says \"Edit Mask…\", and a tap on its caption (geometry.locate part caption: the shell measures the row from its caption to its field's end) opens the editor; the node's menu has Edit Mask…, and invoking that item opens it too; a shell whose rows the core hit-tests (`rows`: the Apple shells, a measured driver) takes the caption's tap through the core, the egui editor through its own caption link",
+      "half": "edit",
+      "needs": [
+        "engine:ports"
+      ],
+      "steps": [
+        {
+          "only": "ports_installed",
+          "call": "command.run",
+          "params": {
+            "command": "engine.use",
+            "params": {
+              "engine": "ports"
+            }
+          }
+        },
+        {
+          "only": "ports_installed",
+          "call": "ui.inspect",
+          "until": {
+            "/result/engine/engines": {
+              "$deep": {
+                "id": "ports",
+                "state": {
+                  "$deep": {
+                    "state": "connected"
+                  }
+                }
+              }
+            }
+          },
+          "timeout": 60
+        },
+        {
+          "call": "command.run",
+          "params": {
+            "command": "node.add",
+            "params": {
+              "kind": "ports.masked",
+              "pos": [
+                0,
+                0
+              ]
+            }
+          },
+          "save": {
+            "m": "/result/id"
+          }
+        },
+        {
+          "geometry": [
+            {
+              "node": "$m",
+              "size": [
+                260,
+                72
+              ],
+              "header": 28,
+              "pins": {
+                "in": [
+                  43
+                ],
+                "out": [
+                  43
+                ]
+              },
+              "rows": [
+                [
+                  10,
+                  34,
+                  250,
+                  52
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/nodes": {
+              "$find": {
+                "where": {
+                  "id": "$m"
+                },
+                "want": {
+                  "/inputs/0/editor/kind": "mask",
+                  "/inputs/0/editor/label": "Edit Mask…",
+                  "/inputs/0/widget/kind": "path"
+                }
+              }
+            }
+          }
+        },
+        {
+          "call": "menu.get",
+          "params": {
+            "context": {
+              "kind": "node",
+              "node": "$m"
+            }
+          },
+          "expect": {
+            "/result/items": {
+              "$find": {
+                "where": {
+                  "command": "node.editor"
+                },
+                "want": {
+                  "/label": "Edit Mask…",
+                  "/params": {
+                    "node": "$m"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "only": "rows",
+          "gesture": {
+            "kind": "tap",
+            "at": {
+              "$locate": {
+                "node": "$m",
+                "part": "caption",
+                "row": 0
+              }
+            },
+            "slop": 2
+          },
+          "expect": {
+            "/result/hit/part": "row",
+            "/result/commands": {
+              "$find": {
+                "where": {
+                  "command": "node.editor"
+                },
+                "want": {
+                  "/ok": true,
+                  "/params": {
+                    "node": "$m"
+                  }
+                }
+              }
+            }
+          }
+        },
+        {
+          "only": "rows",
+          "call": "scene.get",
+          "expect": {
+            "/result/view/windows/editors": [
+              "$m"
+            ]
+          }
+        },
+        {
+          "only": "rows",
+          "call": "ui.invoke",
+          "params": {
+            "command": "node.editor",
+            "params": {
+              "node": "$m",
+              "open": false
+            }
+          }
+        },
+        {
+          "call": "ui.invoke",
+          "params": {
+            "command": "node.editor",
+            "params": {
+              "node": "$m",
+              "open": false
+            }
+          }
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/view/windows/editors": {
+              "$exists": false
+            }
+          }
+        },
+        {
+          "call": "ui.invoke",
+          "params": {
+            "command": "node.editor",
+            "params": {
+              "node": "$m"
+            }
+          }
+        },
+        {
+          "call": "scene.get",
+          "expect": {
+            "/result/view/windows/editors": [
+              "$m"
+            ]
+          }
+        },
+        {
+          "call": "ui.invoke",
+          "params": {
+            "command": "node.editor",
+            "params": {
+              "node": "$m",
+              "open": false
+            }
+          }
+        }
+      ]
     }
   ]
 }

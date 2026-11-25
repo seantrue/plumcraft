@@ -118,15 +118,21 @@ public struct FaceLayout: Sendable, Equatable {
     }
 
     /// Each input row's caption rect where a tap on the row opens its node's value editor (the
-    /// scene row's `editor`, FR1) and the row has no widget; nil elsewhere.
+    /// scene row's `editor`, FR1), with a widget or without; nil elsewhere.
     public var opens: [CGRect?] = []
     /// FR5: each section header above a promoted row (its text and rect, face coordinates).
     public var sections: [(text: String, rect: CGRect)] = []
 
     /// What `plum_geometry_set` takes for this face: each row's widget rect, or the rect a tap
-    /// opens the editor in (the core's hit test finds rows by these).
+    /// opens the editor in, or both as one (B173: a row whose value has an editor and a widget,
+    /// its caption to its widget's end; the core keeps the widget's right end for a path's
+    /// Browse button). The core's hit test finds rows by these.
     public func measure(face: UInt64, rev: UInt64) -> FaceMeasureValues {
-        let rects = widgets.enumerated().map { k, w in w ?? (k < opens.count ? opens[k] : nil) }
+        let rects = widgets.enumerated().map { k, w -> CGRect? in
+            let o = k < opens.count ? opens[k] : nil
+            if let w, let o { return w.union(o) }
+            return w ?? o
+        }
         return FaceMeasureValues(face: face, rev: rev, width: Float(size.width), height: Float(size.height), header: Float(header),
                                  inputs: inputPins.map { Float($0) }, outputs: outputPins.map { Float($0) },
                                  rows: rects.map { $0.map { Rect(Double($0.minX), Double($0.minY), Double($0.maxX), Double($0.maxY)) } })
@@ -234,8 +240,9 @@ extension FaceLayout {
             } else {
                 widgets.append(nil)
             }
-            // a row that opens its node's editor: its caption is what a tap lands on
-            opens.append(r.editor != nil && widgetSizes[k] == nil ? CGRect(x: 10, y: y, width: max(24, labelWidths[k] + 8), height: min(rh, M.row)) : nil)
+            // a row that opens its node's editor: its caption (drawn as a link) is what a tap lands
+            // on, beside a widget too (B173: a path field's caption)
+            opens.append(r.editor != nil ? CGRect(x: 10, y: y, width: max(24, labelWidths[k] + 8), height: min(rh, M.row)) : nil)
             y += rh
         }
         let inBottom = y

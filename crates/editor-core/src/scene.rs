@@ -802,6 +802,27 @@ pub struct Inputs<'a> {
     pub geometry: Option<&'a crate::geometry::Measured>,
 }
 
+/// The editors the core itself has (B173): its general mask editor (`mask.stroke`, `node.editorData`)
+/// and its curves editor, which the C ABI's shells draw natively (the Swift kit's `NativeEditors`)
+/// and any other shell as the core's value window. A node naming one of these kinds gets the
+/// row's link with these words and the node menu's item.
+pub fn core_editors() -> Vec<Editor> {
+    vec![
+        Editor {
+            kind: crate::mask_cmds::KIND.into(),
+            label: "Edit Mask…".into(),
+            help: "Paint the mask over the node's picture: each stroke one undo step, kept in a file beside the workflow".into(),
+            summary: None,
+        },
+        Editor {
+            kind: plumcraft_session::curve_cmds::KIND.into(),
+            label: "Edit Curves…".into(),
+            help: "Shape the curves in their editor: each change one undo step".into(),
+            summary: None,
+        },
+    ]
+}
+
 /// The application's line on each node (`Hooks::node_overlays`), by node id.
 pub fn app_texts() -> HashMap<String, String> {
     plumcraft_session::commands::node_overlays().into_iter().filter_map(|(NodeId(id), o)| o.text.filter(|t| !t.is_empty()).map(|t| (id, t))).collect()

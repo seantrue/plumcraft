@@ -1524,6 +1524,8 @@ impl Shell for Document {
             select_mode: self.select_mode,
             no_share: !self.share,
             recent: self.recent(),
+            // the core's own editors (B173): a node naming one gets the menu's item for it
+            editors: crate::scene::core_editors().into_iter().map(|e| (e.kind, e.label, e.help)).collect(),
             ..crate::menu::Facts::default()
         }
     }
@@ -1531,10 +1533,11 @@ impl Shell for Document {
         Some(&mut self.menus)
     }
     /// The scene in the document's theme ([`Document::scene_theme`]), with the run animation
-    /// while it shows ([`Document::shown_anim`]) and no application editors (this shell draws
-    /// none).
+    /// while it shows ([`Document::shown_anim`]) and the core's own editors (B173: the mask and
+    /// curves editors the C ABI's shells draw; no application's).
     fn scene(&self) -> Option<crate::scene::Scene> {
-        Some(self.build_scene(&self.scene_theme(), self.shown_anim(std::time::Instant::now()), &crate::scene::app_texts(), &[]))
+        let editors = crate::scene::core_editors();
+        Some(self.build_scene(&self.scene_theme(), self.shown_anim(std::time::Instant::now()), &crate::scene::app_texts(), &editors))
     }
     /// `theme.get`: the tokens of the theme the scenes are built in.
     fn theme_tokens(&self) -> Option<Value> {

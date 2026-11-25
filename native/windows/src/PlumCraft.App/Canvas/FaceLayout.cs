@@ -89,14 +89,23 @@ public sealed class FaceLayout
 
     static WRect Inflate(WRect r, double d) => new(r.X - d, r.Y - d, r.Width + 2 * d, r.Height + 2 * d);
 
+    static WRect Union(WRect a, WRect b)
+    {
+        var x0 = Math.Min(a.X, b.X); var y0 = Math.Min(a.Y, b.Y);
+        return new WRect(x0, y0, Math.Max(a.X + a.Width, b.X + b.Width) - x0, Math.Max(a.Y + a.Height, b.Y + b.Height) - y0);
+    }
+
     /// <summary>What plum_geometry_set takes for this face.</summary>
     public PlumCore.FaceMeasure Measure(ulong nid, ulong rev)
     {
         var rows = new float[Widgets.Length * 4];
         for (int k = 0; k < Widgets.Length; k++)
         {
-            // a row with no widget that opens its node's editor reports its caption (FR1)
-            if ((Widgets[k] ?? (k < Opens.Length ? Opens[k] : null)) is { } w)
+            // a row that opens its node's editor reports its caption (FR1), with its widget as one
+            // rect when it has one (B173: the caption to the widget's end; the core keeps the right
+            // end for a path's Browse button)
+            var o = k < Opens.Length ? Opens[k] : null;
+            if ((Widgets[k] is { } wd && o is { } oo ? Union(wd, oo) : Widgets[k] ?? o) is { } w)
             {
                 rows[4 * k] = (float)w.X; rows[4 * k + 1] = (float)w.Y; rows[4 * k + 2] = (float)(w.X + w.Width); rows[4 * k + 3] = (float)(w.Y + w.Height);
             }
@@ -194,8 +203,9 @@ public sealed class FaceLayout
                 var wx = Math.Min(14 + labelWidths[k] + 8, Math.Max(width - ws.w - 8, 14));
                 L.Widgets[k] = new WRect(wx, y + (Math.Min(rh, FaceMetrics.Row) - Math.Min(ws.h, 18)) / 2, ws.w, ws.h);
             }
-            // a row that opens its node's editor: its caption is what a tap lands on (as the Apple FaceLayout.opens)
-            else if (!collapsed && face.Inputs[k].Editor is not null)
+            // a row that opens its node's editor: its caption is what a tap lands on (as the Apple
+            // FaceLayout.opens), beside a widget too (B173)
+            if (!collapsed && face.Inputs[k].Editor is not null)
                 L.Opens[k] = new WRect(10, y, Math.Max(24, labelWidths[k] + 8), Math.Min(rh, FaceMetrics.Row));
             y += rh;
         }
