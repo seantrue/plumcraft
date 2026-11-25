@@ -240,7 +240,7 @@ pub struct Switchboard<'a> {
     /// The engine's state, as last read.
     pub state: &'a mut EngineState,
     /// The last error, which the status bar shows.
-    pub last_error: &'a mut Option<String>,
+    pub last_error: &'a mut crate::error_line::ErrorLine,
     /// Reads the engine manifests again (`engine.manifests.reload`).
     pub reloader: &'a mut Option<Reloader>,
     /// Installs engines (`engine.install`).
@@ -312,7 +312,7 @@ impl Switchboard<'_> {
             (Op::AddEngine { target, wanted, first, first_id, coordinator }, Got::Engine(conn)) => match conn {
                 Err(e) => {
                     let e = format!("engine: {wanted}: {e}");
-                    *self.last_error = Some(e.clone());
+                    self.last_error.set(e.clone());
                     self.chain(Err(e))
                 }
                 Ok(conn) => {
@@ -374,7 +374,7 @@ impl Switchboard<'_> {
         self.session.engines.install_status = Some(said.clone());
         *self.installing = Some(i);
         // the status line (and a native shell's banner) says it has begun
-        *self.last_error = Some(said);
+        self.last_error.set(said);
         Ok(json!({"installing": url}))
     }
 
@@ -418,7 +418,7 @@ impl Switchboard<'_> {
             Err(e) => (crate::log::Level::Error, format!("Installing {url} failed: {e}")),
         };
         crate::log::write(level, "install", &said, None);
-        *self.last_error = Some(said);
+        self.last_error.set(said);
         self.effects.redraw = true;
         true
     }
@@ -430,7 +430,7 @@ impl Switchboard<'_> {
         let engines = choices.iter().map(|c| c.engine.as_str()).collect::<std::collections::BTreeSet<_>>().len();
         self.session.engines.choices = choices;
         self.session.engines.manifest_problems = problems.clone();
-        *self.last_error = problems.first().map(|p| format!("engine manifests: {p}"));
+        self.last_error.put(problems.first().map(|p| format!("engine manifests: {p}")));
         Ok(json!({"engines": engines, "problems": problems}))
     }
 
@@ -442,7 +442,7 @@ impl Switchboard<'_> {
         self.session.engines.added.clear();
         self.forget_runs(Instant::now());
         self.session.engines.current = None;
-        *self.last_error = None;
+        self.last_error.clear();
         self.effects.redraw = true;
         json!({"engines": [], "label": self.label()})
     }
@@ -508,13 +508,13 @@ impl Switchboard<'_> {
         self.session.docs.resolver = Some(Arc::new(move |r: &DataRef| conn.resolve(r).map(|b| b.bytes.to_vec())));
         *self.link = Some(link);
         share_connection(self.session, self.link);
-        let catalog = catalog.inspect_err(|e| *self.last_error = Some(format!("engine: {what}: {e}")))?;
+        let catalog = catalog.inspect_err(|e| self.last_error.set(format!("engine: {what}: {e}")))?;
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
-        *self.last_error = problems
-            .first()
-            .map(|first| format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len()))
-            .or_else(|| warnings.first().map(|w| format!("{what}: the engines disagree: {w}")));
+        match problems.first() {
+            Some(first) => self.last_error.set_problems(format!("{what}: the graph has {} problem(s) with these engines: {first}", problems.len())),
+            None => self.last_error.put(warnings.first().map(|w| format!("{what}: the engines disagree: {w}"))),
+        }
         Ok(
             json!({"engines": self.session.engines.engine_ids(), "connected": self.session.connected, "label": self.label(), "problems": problems, "warnings": warnings}),
         )
@@ -573,7 +573,7 @@ impl Switchboard<'_> {
             Ok(l) => l,
             Err(e) => {
                 let e = format!("engine: {wanted}: {e}");
-                *self.last_error = Some(e.clone());
+                self.last_error.set(e.clone());
                 self.effects.redraw = true;
                 return Err(e);
             }
@@ -585,13 +585,16 @@ impl Switchboard<'_> {
         let catalog = match catalog {
             Ok(c) => c,
             Err(e) => {
-                *self.last_error = Some(format!("engine: {wanted}: {e}"));
+                self.last_error.set(format!("engine: {wanted}: {e}"));
                 return Err(e);
             }
         };
         self.set_catalog(catalog);
         let problems: Vec<String> = self.session.problems().into_iter().collect();
-        *self.last_error = problems.first().map(|first| format!("{wanted}: the graph has {} problem(s) with this engine: {first}", problems.len()));
+        match problems.first() {
+            Some(first) => self.last_error.set_problems(format!("{wanted}: the graph has {} problem(s) with this engine: {first}", problems.len())),
+            None => self.last_error.clear(),
+        }
         let mut out = target.to_json();
         out["connected"] = json!(self.session.connected);
         out["label"] = json!(self.label());
@@ -791,7 +794,7 @@ mod tests {
         link: Option<Link>,
         coordinator: Option<Arc<Coordinator>>,
         state: EngineState,
-        last_error: Option<String>,
+        last_error: crate::error_line::ErrorLine,
         reloader: Option<Reloader>,
         installer: Option<Installer>,
         installing: Option<Installing>,

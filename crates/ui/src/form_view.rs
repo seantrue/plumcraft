@@ -161,7 +161,7 @@ impl EditorApp {
                 Some(id) => {
                     if let Err(e) = self.answer_ask(id, &serde_json::json!({"values": values})) {
                         self.command_form = None;
-                        self.doc.last_error = Some(e);
+                        self.doc.last_error.set(e);
                     }
                 }
                 None => self.command_form = None,

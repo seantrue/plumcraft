@@ -138,6 +138,7 @@ impl core::Shell for EditorApp {
             coordinator: self.doc.coordinator.as_ref(),
             switching: &self.doc.switching,
             last_error: self.doc.last_error.as_deref(),
+            error_seq: self.doc.last_error.seq(),
             asks: &self.doc.asks,
             document: &self.doc.document,
             app_title: self.app_title,
@@ -150,7 +151,7 @@ impl core::Shell for EditorApp {
         &mut self.control.parked
     }
     fn clear_last_error(&mut self) {
-        self.doc.last_error = None;
+        self.doc.last_error.clear();
     }
     /// What the command starts on an engine goes to the worker meanwhile, as in a frame.
     fn request<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {

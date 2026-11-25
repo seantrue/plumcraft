@@ -1641,19 +1641,33 @@ public final class LayerCanvas {
 
     /// The layer tree drawn into a picture, `size` points at `scale` (an app's own snapshot).
     public func snapshot(size: CGSize, scale: CGFloat) -> CGImage? {
+        Self.snapshot(of: host, size: size, scale: scale)
+    }
+
+    /// `layer` drawn into a bitmap, the right way up. A bitmap's origin is at its bottom left; a
+    /// layer whose y runs down (any layer on iOS, a geometry-flipped one on macOS: the Mac canvas's
+    /// host) is drawn through a flip, one whose y runs up (an AppKit layer left unflipped) as it
+    /// is. Before B168 the rule was inverted on macOS: the Mac's flipped host was drawn unflipped,
+    /// so its picture came out upside down.
+    public static func snapshot(of layer: CALayer, size: CGSize, scale: CGFloat) -> CGImage? {
         let w = Int(size.width * scale)
         let h = Int(size.height * scale)
         guard w > 0, h > 0, let space = CGColorSpace(name: CGColorSpace.sRGB),
               let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0, space: space,
                                   bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue)
         else { return nil }
-        if host.isGeometryFlipped {
-            ctx.scaleBy(x: scale, y: scale)
-        } else {
+        #if canImport(UIKit)
+        let yDown = true
+        #else
+        let yDown = layer.isGeometryFlipped
+        #endif
+        if yDown {
             ctx.translateBy(x: 0, y: CGFloat(h))
             ctx.scaleBy(x: scale, y: -scale)
+        } else {
+            ctx.scaleBy(x: scale, y: scale)
         }
-        host.render(in: ctx)
+        layer.render(in: ctx)
         return ctx.makeImage()
     }
 }

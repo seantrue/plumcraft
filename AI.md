@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — B168, B167 and B163 in one pass; B164 closed (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** "Fix B163,164,167,168".
+
+**What the AI did.** One branch, a commit a bug. B168: the snapshot's flip rule, wrong for the Mac's flipped root layer. B167: an error count in the core, followed by the Apple shells in place of comparing texts. B163: the core clears its problems line when the graph has none. B164 needed no code; the agent checked the merged dev branch for it.
+
+**Verification.** The agent's runs: Mac conformance 86 of 86, the iPad's read half, the C ABI suite, the Swift kit's 130, 759 tests in the crates touched; each new test shown to fail without its fix, except one C ABI test for B163 that passes either way. Launches on a scripted Mac copy and an iPad simulator. The controller looked at the Mac's document picture after the fix: titles at the top of each node, text upright, the four faces in place. The full suite ran on the Linux test host.
+
+**Defects and limits.** B163's cause was not found: the stale line could not be made with the public engines, and the agent read none of the reporting application's code, so the fix is aimed at the symptom's general form and is unproven where it was reported. The B168 fault had been worked around, not fixed, in an earlier helper that turned pictures over. B164's vector could not be run through the Mac app.
+
 ### 2026-11-25 — Nested lists, slice 8: decided rules, non-exhaustive types, the merge with the views work (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** On the checklist page, all fifteen nested-list points as built, and for the version: "Next release is 0.8.0, and mark these types non_exhaustive with constructors so it doesn't recur". Then "Chart: a;  merge", which the controller took as merging the four views pull requests, leaving the nested-list ones for the private half.

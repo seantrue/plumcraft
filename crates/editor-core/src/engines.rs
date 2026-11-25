@@ -1138,7 +1138,7 @@ mod tests {
         assert_eq!(manifest_problems(), problems);
         let mut d = crate::document::Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()));
         d.offer_installs(&launcher);
-        let said = d.last_error.clone().unwrap_or_default();
+        let said = d.last_error.text().unwrap_or_default();
         assert!(said.starts_with("engine manifests: ") && said.contains("person.toml"), "{said}");
         let listed = d.session.execute("engine.list", &serde_json::Value::Null).unwrap();
         assert_eq!(listed["manifestProblems"], serde_json::json!(problems));
@@ -1149,6 +1149,6 @@ mod tests {
         assert_eq!(launcher.load_manifests(), Vec::<String>::new());
         let mut fresh = crate::document::Document::new(plumcraft_session::Session::new(plumcraft_text::engine().schema()));
         fresh.offer_installs(&launcher);
-        assert_eq!((fresh.last_error.clone(), fresh.session.engines.manifest_problems.clone()), (None, Vec::<String>::new()));
+        assert_eq!((fresh.last_error.text(), fresh.session.engines.manifest_problems.clone()), (None, Vec::<String>::new()));
     }
 }

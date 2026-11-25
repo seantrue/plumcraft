@@ -75,7 +75,7 @@ fn file_open_on_a_picture_opens_its_graph_unsaved_and_says_what_it_lacks() {
     h.get_by_label("mine.pic");
     assert!(h.state().window_title().starts_with("mine.pic"), "{}", h.state().window_title());
     assert_eq!(h.state().session.path(), None);
-    assert_eq!(h.state().last_error, None);
+    assert_eq!(h.state().last_error.as_deref(), None);
 
     // Save doesn't write over the picture: it asks where
     h.state_mut().invoke("graph.save");

@@ -196,8 +196,8 @@ pub struct Document {
     pub coordinator: Option<Arc<Coordinator>>,
     /// The engine's state as last read.
     pub engine: EngineState,
-    /// The last command error, shown in the status bar.
-    pub last_error: Option<String>,
+    /// The last command error, shown in the status bar, and how many were said (B167).
+    pub last_error: crate::error_line::ErrorLine,
     /// A refused wire's way through (`wire.convert`'s params and the path's label), offered
     /// beside the error (docs/research/20-convert.md).
     pub convert_offer: Option<(Value, String)>,
@@ -371,7 +371,7 @@ impl Document {
             link: None,
             coordinator: None,
             engine: EngineState::Off,
-            last_error: None,
+            last_error: Default::default(),
             convert_offer: None,
             document: control::UNTITLED.into(),
             asks: Asks::default(),
@@ -485,7 +485,7 @@ impl Document {
         if let Some(first) = problems.first()
             && self.last_error.is_none()
         {
-            self.last_error = Some(match problems.len() {
+            self.last_error.set(match problems.len() {
                 1 => format!("engine manifests: {first}"),
                 n => format!("engine manifests: {n} problems; the first: {first}"),
             });
@@ -524,11 +524,11 @@ impl Document {
         let first = match link.conn.call("schema", json!({})).map(serde_json::from_value::<SchemaReply>) {
             Ok(Ok(catalog)) => Some(switchboard::set_catalog(&mut self.session, catalog)),
             Ok(Err(e)) => {
-                self.last_error = Some(format!("the engine's catalogue: {e}"));
+                self.last_error.set(format!("the engine's catalogue: {e}"));
                 None
             }
             Err(e) => {
-                self.last_error = Some(format!("schema: {}", e.message));
+                self.last_error.set(format!("schema: {}", e.message));
                 None
             }
         };
@@ -537,6 +537,7 @@ impl Document {
         self.link = Some(link);
         self.follow_link();
         switchboard::share_connection(&mut self.session, &self.link);
+        self.recheck_problems();
         first
     }
 
@@ -569,7 +570,19 @@ impl Document {
 
     /// What the shell must redo, gathered since the last call.
     pub fn take_effects(&mut self) -> Effects {
+        self.recheck_problems();
         std::mem::take(&mut self.effects)
+    }
+
+    /// B163: a status line that says the graph's problems goes once the graph has none, whatever
+    /// fixed them (an engine that joined, a catalogue read again, a node removed). It was a
+    /// picture of the problems when said, and stayed after they were gone. Every turn of every
+    /// shell passes here ([`Document::take_effects`]); the problems are read only while the line
+    /// says them.
+    pub fn recheck_problems(&mut self) {
+        if self.last_error.about_problems() && self.session.problems().is_empty() {
+            self.last_error.clear();
+        }
     }
 
     /// The media service reads through the current link (none: no engine), and the session's own
@@ -689,7 +702,7 @@ impl Document {
                 // unrun and no node's face in error) says why on the status line, every
                 // shell's banner; before, it was only in `ui.inspect` and the run looked silent
                 if let Some(why) = &self.session.run.run_error {
-                    self.last_error = Some(format!("the run stopped: {why}"));
+                    self.last_error.set(format!("the run stopped: {why}"));
                 }
             }
         }
@@ -902,7 +915,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         Err(e) => {
             let e = e.to_string();
             let d = h.doc_mut();
-            d.last_error = Some(e.clone());
+            d.last_error.set(e.clone());
             if id == "wire.connect" {
                 d.convert_offer = d.offer_for(params);
             }
@@ -910,13 +923,13 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         }
     };
     if !keeps {
-        h.doc_mut().last_error = None;
+        h.doc_mut().last_error.clear();
     }
     // the shell's own (the egui shell's look)
     let v = match h.shell_command(id, v) {
         Ok(v) => v,
         Err(e) => {
-            h.doc_mut().last_error = Some(e.clone());
+            h.doc_mut().last_error.set(e.clone());
             return Err(e);
         }
     };
@@ -924,7 +937,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
     if id == "wire.convert"
         && let Some(w) = v.get("warning").and_then(Value::as_str)
     {
-        d.last_error = Some(w.to_owned());
+        d.last_error.set(w.to_owned());
     }
     if id == "graph.new" || id == "graph.open" {
         if id == "graph.new" {
@@ -932,12 +945,12 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
         }
         if let Some(n) = v.get("problemCount").and_then(Value::as_u64).filter(|n| *n > 0) {
             let first = v.get("problems").and_then(|p| p.get(0)).and_then(Value::as_str).unwrap_or_default();
-            d.last_error = Some(format!("opened with {n} problem(s): {first}"));
+            d.last_error.set_problems(format!("opened with {n} problem(s): {first}"));
         }
         // what's missing is the banner's, for as long as it is; that says more than the first
         // node it left unknown
         if v.get("missingEngines").is_some() {
-            d.last_error = None;
+            d.last_error.clear();
         }
         // a graph with no file of its own is still known by what it came from
         if let Some(from) = v.get("openedFrom").and_then(Value::as_str) {
@@ -988,7 +1001,7 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
     if id == "bundle.detach" {
         let unresolved: Vec<&str> = v.get("unresolved").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
         if !unresolved.is_empty() {
-            d.last_error = Some(format!("detached, but these came from wires upstream and weren't copied: {}", unresolved.join(", ")));
+            d.last_error.set(format!("detached, but these came from wires upstream and weren't copied: {}", unresolved.join(", ")));
         }
     }
     if id == "viewer.recipe"
@@ -1002,12 +1015,12 @@ pub fn execute<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, 
     if id == "graph.bundle"
         && let Some(n) = v.get("missing").and_then(Value::as_array).map(Vec::len).filter(|n| *n > 0)
     {
-        d.last_error = Some(format!("bundled, but {n} path(s) couldn't go in: {}", v["missing"][0]["path"].as_str().unwrap_or_default()));
+        d.last_error.set(format!("bundled, but {n} path(s) couldn't go in: {}", v["missing"][0]["path"].as_str().unwrap_or_default()));
     }
     if id == "node.expand"
         && let Some(said) = expand_note(&v)
     {
-        d.last_error = Some(said);
+        d.last_error.set(said);
     }
     // The session recorded an engine switch: perform it, so the caller gets its outcome. A pick
     // can take steps (out, then in again the new way); the caller gets the last, and how the pick
@@ -1082,7 +1095,7 @@ pub fn settle_startup<H: Holder>(h: &mut H) -> bool {
                 Ok(())
             });
             if let Err(e) = r {
-                d.last_error = Some(e.to_string());
+                d.last_error.set(e.to_string());
             }
             d.effects.redraw = true;
         }
@@ -1119,7 +1132,7 @@ fn hold_add<H: Holder>(h: &mut H, id: &str, params: &Value) -> Option<Result<Val
     }
     let d = h.doc_mut();
     d.held_add = Some(HeldAdd { command: id.to_owned(), params: params.clone(), kind: kind.clone(), until: Instant::now() + ENGINE_WAIT });
-    d.last_error = None;
+    d.last_error.clear();
     Some(Ok(json!({"held": true, "kind": kind, "engine": engine, "until": format!("the {engine} engine has connected")})))
 }
 
@@ -1134,7 +1147,7 @@ fn release_add<H: Holder>(h: &mut H) -> bool {
     }
     let Some(held) = h.doc_mut().held_add.take() else { return false };
     if let Err(e) = h.run(&held.command, &held.params) {
-        h.doc_mut().last_error = Some(e);
+        h.doc_mut().last_error.set(e);
     }
     h.doc_mut().effects.redraw = true;
     true
@@ -1298,14 +1311,14 @@ pub fn after<H: Holder>(h: &mut H) -> Option<Duration> {
     let d = h.doc_mut();
     // an "Open in …" waiting for its value (session doc.open)
     match plumcraft_session::doc_cmds::poll_doc_open(&mut d.session) {
-        Some(Err(e)) => d.last_error = Some(e),
-        Some(Ok(_)) => d.last_error = None,
+        Some(Err(e)) => d.last_error.set(e),
+        Some(Ok(_)) => d.last_error.clear(),
         None => {}
     }
     // a document saved in its app: fed downstream and run (session doc_edits)
     match plumcraft_session::doc_edits::poll_doc_edits(&mut d.session, Instant::now()) {
-        Some(Err(e)) => d.last_error = Some(e),
-        Some(Ok(_)) => d.last_error = None,
+        Some(Err(e)) => d.last_error.set(e),
+        Some(Ok(_)) => d.last_error.clear(),
         None => {}
     }
     if plumcraft_session::doc_edits::watching(&d.session) {
@@ -1313,8 +1326,8 @@ pub fn after<H: Holder>(h: &mut H) -> Option<Duration> {
     }
     // an Open or Open with… waiting for its value (session value.open)
     match plumcraft_session::open_cmds::poll_value_open(&mut d.session) {
-        Some(Err(e)) => d.last_error = Some(e),
-        Some(Ok(_)) => d.last_error = None,
+        Some(Err(e)) => d.last_error.set(e),
+        Some(Ok(_)) => d.last_error.clear(),
         None => {}
     }
     if d.rerun_pending && !d.session.run.running {
@@ -1389,7 +1402,7 @@ impl Host for Document {
         execute(self, id, params)
     }
     fn say(&mut self, text: String) {
-        self.last_error = Some(text);
+        self.last_error.set(text);
     }
     fn prefs(&mut self) -> Option<&mut prefs::Store> {
         Some(&mut self.folders)
@@ -1452,6 +1465,7 @@ impl Shell for Document {
             coordinator: self.coordinator.as_ref(),
             switching: &self.switching,
             last_error: self.last_error.as_deref(),
+            error_seq: self.last_error.seq(),
             asks: &self.asks,
             document: &self.document,
             app_title: control::APP_TITLE,
@@ -1464,7 +1478,7 @@ impl Shell for Document {
         &mut self.parked
     }
     fn clear_last_error(&mut self) {
-        self.last_error = None;
+        self.last_error.clear();
     }
     fn presented(&mut self) {
         self.feed_asks();
@@ -1911,6 +1925,31 @@ mod tests {
         }
     }
 
+    /// B163: a graph opened with problems says so; once its catalogue has what it lacked, read
+    /// any way (here set straight, as an application's own setup can), the line goes. Before the
+    /// fix only a switch or a relink said the problems again, so the old count stayed.
+    #[test]
+    fn the_problems_line_goes_when_the_problems_do() {
+        let dir = plumcraft_scratch::dir("b163");
+        let path = dir.join("needs-ports.json");
+        std::fs::write(&path, json!({"version": 1, "nodes": {"j": {"kind": "ports.join", "pos": [0, 0]}}, "wires": []}).to_string()).unwrap();
+        let mut d = Document::new(Session::new(plumcraft_text::engine().schema()));
+        d.run("graph.open", &json!({"path": path, "discard": true})).unwrap();
+        // what graph.open gives a shell: the core says the problems on the status line
+        d.last_error.set_problems("opened with 1 problem(s): node j: unknown kind \"ports.join\"");
+        d.take_effects();
+        assert!(d.last_error.about_problems(), "still a problem: {:?}", d.last_error.as_deref());
+        // the catalogue gains the kind, without a switch or a relink
+        switchboard::set_catalog(&mut d.session, plumcraft_ports::engine().schema());
+        assert!(d.session.problems().is_empty(), "{:?}", d.session.problems());
+        d.take_effects();
+        assert_eq!(d.last_error.as_deref(), None, "the stale line went");
+        // another error isn't the problems', and stays
+        d.last_error.set("something else");
+        d.take_effects();
+        assert_eq!(d.last_error.as_deref(), Some("something else"));
+    }
+
     #[test]
     fn closing_cancels_the_run_and_never_waits_for_the_engine() {
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1979,7 +2018,7 @@ mod tests {
         d.run("node.add", &json!({"kind": "text.literal", "pos": [0, 0]})).unwrap();
         d.run("run.start", &json!({})).unwrap();
         wait(&mut d, "the refused run", |d| !d.session.run.running);
-        let said = d.last_error.clone().unwrap_or_default();
+        let said = d.last_error.text().unwrap_or_default();
         assert!(said.starts_with("the run stopped: ") && said.contains("missing node n1.edges"), "{said:?}");
     }
 

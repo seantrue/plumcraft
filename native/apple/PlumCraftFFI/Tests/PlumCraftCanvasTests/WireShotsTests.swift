@@ -16,15 +16,8 @@ import Testing
 
 @MainActor
 func writePNG(_ image: CGImage, _ path: String) {
-    // the snapshot of a flipped host comes upside down: turned the right way up to look at
-    var i = image
-    if let ctx = CGContext(data: nil, width: image.width, height: image.height, bitsPerComponent: 8, bytesPerRow: 0,
-                           space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedFirst.rawValue | CGBitmapInfo.byteOrder32Little.rawValue) {
-        ctx.translateBy(x: 0, y: CGFloat(image.height))
-        ctx.scaleBy(x: 1, y: -1)
-        ctx.draw(image, in: CGRect(x: 0, y: 0, width: image.width, height: image.height))
-        if let f = ctx.makeImage() { i = f }
-    }
+    // the right way up since B168 (it was turned over here before the snapshot was)
+    let i = image
     guard let d = CGImageDestinationCreateWithURL(URL(fileURLWithPath: path) as CFURL, "public.png" as CFString, 1, nil) else { return }
     CGImageDestinationAddImage(d, i, nil)
     CGImageDestinationFinalize(d)

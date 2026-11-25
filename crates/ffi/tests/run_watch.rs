@@ -92,6 +92,27 @@ fn the_feed_says_when_the_documents_title_dirty_state_and_undo_step_change() {
     c.close();
 }
 
+/// B167: the same error said twice is two errors: the `document` domain changes each time, its
+/// `errorSeq` rising, so a native shell's banner shows the second one too.
+#[test]
+fn the_same_error_twice_is_said_twice() {
+    let mut c = Client::open(&json!({"store_root": store_root("rw-error-twice")}));
+    let mut feed = Feed::default();
+    until(&mut c, &mut feed, "the first document state", |f| last_document(f).is_some());
+    let seq = |f: &Feed| last_document(f).and_then(|d| d["errorSeq"].as_u64()).unwrap_or(0);
+    let start = seq(&feed);
+    // a person's Copy with nothing selected: the status line says what to do
+    let invoke = |c: &mut Client, feed: &mut Feed| call(c, feed, "ui.invoke", json!({"command": "edit.copy", "by": "person"}));
+    invoke(&mut c, &mut feed);
+    until(&mut c, &mut feed, "the first error", |f| seq(f) > start);
+    let first = last_document(&feed).unwrap().clone();
+    assert_eq!(first["lastError"], "select nodes to copy first", "{first}");
+    invoke(&mut c, &mut feed);
+    until(&mut c, &mut feed, "the same error again, counted", |f| seq(f) > first["errorSeq"].as_u64().unwrap_or(0));
+    assert_eq!(last_document(&feed).unwrap()["lastError"], "select nodes to copy first");
+    c.close();
+}
+
 #[test]
 fn engines_also_puts_a_second_engines_kinds_in_every_documents_catalogue() {
     let mut c = Client::open(&json!({"store_root": store_root("rw-also"), "engines": {"default": "text", "mode": "inproc", "also": ["array"]}}));
@@ -181,5 +202,54 @@ fn a_shells_own_invoke_raises_asks_for_the_person_and_a_script_cannot_claim_it()
     let mut doc = plumcraft_editor_core::document::Document::new(plumcraft_session::Session::new(Default::default()));
     let v = plumcraft_editor_core::control::now(&mut doc, "ui.invoke", &json!({"command": "graph.saveAs", "by": "person"}));
     assert_eq!(v["ok"], false, "{v}");
+    c.close();
+}
+
+/// B163, the public engines' way: a graph whose node needs a second engine, switched to the first
+/// alone, has its problem said on the status line; once the second engine joins (`engine.add`),
+/// the line says nothing stale. (The relink always said the problems again, so this passed before
+/// the fix too; the fix, for a catalogue changed any other way, is `Document::recheck_problems`,
+/// tested in the core.)
+#[test]
+fn the_problems_line_goes_when_the_engine_that_fixes_them_joins() {
+    let root = store_root("rw-problems-line");
+    let path = std::path::PathBuf::from(&root).join("needs-array.json");
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::write(
+        &path,
+        json!({"version": 1, "nodes": {"t": {"kind": "text.literal", "pos": [0, 0], "values": {"text": "hi"}}, "m": {"kind": "array.mandelbrot", "pos": [0, 300], "values": {"width": 16, "height": 12}}}, "wires": []}).to_string(),
+    )
+    .unwrap();
+    let mut c = Client::open(&json!({"store_root": root, "engines": {"default": "text", "mode": "inproc", "auto": false}}));
+    let mut feed = Feed::default();
+    until(&mut c, &mut feed, "the first document state", |f| last_document(f).is_some());
+    let r = call(&mut c, &mut feed, "command.run", json!({"command": "graph.open", "params": {"path": path, "discard": true}}));
+    assert_eq!(r["ok"], true, "{r}");
+    // the text engine alone: the array node is a problem, said on the status line
+    let r = call(&mut c, &mut feed, "command.run", json!({"command": "engine.switch", "params": {"engine": "text", "mode": "inproc"}}));
+    assert_eq!(r["ok"], true, "{r}");
+    let t1 = Instant::now();
+    while t1.elapsed() < Duration::from_secs(3) {
+        c.wait_wake(Duration::from_millis(100));
+        pump(&mut c, &mut feed);
+    }
+    let i = call(&mut c, &mut feed, "ui.inspect", json!({}));
+    assert!(i["result"]["lastError"].as_str().is_some_and(|e| e.contains("the graph has 1 problem(s)")), "{}", i["result"]["lastError"]);
+    let r = call(&mut c, &mut feed, "command.run", json!({"command": "engine.add", "params": {"engine": "array", "mode": "inproc"}}));
+    assert_eq!(r["ok"], true, "{r}");
+    let t0 = Instant::now();
+    loop {
+        let i = call(&mut c, &mut feed, "ui.inspect", json!({}));
+        if i["result"]["catalog"]["nodes"].as_u64().unwrap_or(0) > 60 {
+            break;
+        }
+        assert!(t0.elapsed() < Duration::from_secs(60), "array never joined");
+        c.wait_wake(Duration::from_millis(100));
+    }
+    std::thread::sleep(Duration::from_millis(300));
+    pump(&mut c, &mut feed);
+    let i = call(&mut c, &mut feed, "ui.inspect", json!({}));
+    let said = i["result"]["lastError"].as_str().unwrap_or_default().to_owned();
+    assert!(!said.contains("problem"), "a stale problems line: {said}");
     c.close();
 }

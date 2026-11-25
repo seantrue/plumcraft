@@ -54,7 +54,7 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
     var opened = ContinuousClock.now
     var readyShown = false
     var appliedStart = false
-    var lastErrorShown: String?
+    var lastErrorShown: UInt64 = 0
     var keyPress: UInt64 = 0
     var lastArrow: ContinuousClock.Instant?
     var closing = false
@@ -671,8 +671,9 @@ final class GraphViewController: UIViewController, UIAdaptivePresentationControl
 
     func followState(_ st: DocumentState) {
         if let m = model { MenuState.shared.modelChanged(m) }
-        if let e = st.lastError, !e.isEmpty, e != lastErrorShown {
-            lastErrorShown = e
+        // a banner for each error the core says, the same one again too (B167): by its count
+        if let e = st.lastError, !e.isEmpty, st.errorSeq != lastErrorShown {
+            lastErrorShown = st.errorSeq
             say(e)
         }
         showTitle()

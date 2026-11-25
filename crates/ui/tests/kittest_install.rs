@@ -63,7 +63,7 @@ fn the_window_installs_a_public_engine_in_the_background_then_reloads() {
     until_done(&mut h);
     assert_eq!(*asked.lock().unwrap(), ["https://github.com/seantrue/plumcraft-duckdb-engine"]);
     assert_eq!(reloads.load(Ordering::SeqCst), 1, "the engine list is read again");
-    let said = h.state().last_error.clone().unwrap_or_default();
+    let said = h.state().last_error.text().unwrap_or_default();
     assert!(said.contains("installed and registered duckdb-engine") && said.contains("Engine menu offers it now"), "{said}");
     assert!(h.state().enabled("engine.install") && h.query_by_label("Install an Engine").is_none());
 }
@@ -77,7 +77,7 @@ fn a_failed_install_says_why_and_reloads_nothing() {
     assert_eq!(r["result"]["installing"], "https://github.com/someone/nothing", "{r}");
     until_done(&mut h);
     assert_eq!(reloads.load(Ordering::SeqCst), 0);
-    let said = h.state().last_error.clone().unwrap_or_default();
+    let said = h.state().last_error.text().unwrap_or_default();
     assert!(said.contains("someone/nothing") && said.contains("no such repository"), "{said}");
     // not a GitHub repository: refused at once
     let r = h.state_mut().control_now(&ctx, "command.run", &json!({"command": "engine.install", "params": {"repo": "not a repo"}}));

@@ -1056,7 +1056,7 @@ mod tests {
     #[test]
     fn canvas_commands_change_the_documents_selection_and_nothing_else() {
         let (mut d, a, b) = doc();
-        d.last_error = Some("an earlier error".into());
+        d.last_error.set("an earlier error");
         let undo = d.session.undo_label().map(str::to_owned);
         let r = execute(&mut d, "selection.set", &json!({"nodes": [a], "mode": "add"})).unwrap();
         assert_eq!(r, json!({"nodes": [a], "groups": [], "net": null}));
