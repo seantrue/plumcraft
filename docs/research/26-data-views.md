@@ -1,6 +1,6 @@
 # 26. Data views: arrays and tables as pictures, plots and charts in the native shells
 
-**Research, 2026-11-24, for B154. Nothing is built; the decisions in section 8 come first.**
+**Research, 2026-11-24, for B154. Slice 1 is built (view modes, histograms). Sections 11 and 12, the capability review and the revised plan, were added overnight on 2026-11-24.**
 
 The maintainer, 2026-11-24 (B154):
 
@@ -280,3 +280,88 @@ Decision 3 rests on a fact worth stating: `graph_info.hash`, the hash of what ma
 - Declarative specs: https://vega.github.io/vega-lite/docs/encoding.html ; https://vega.github.io/vega-lite/docs/stack.html ; https://vega.github.io/vega-lite/docs/selection.html ; https://vega.github.io/vega-lite/docs/bind.html ; https://vega.github.io/vega/docs/transforms/treemap/ ; https://github.com/vega/vega-lite/issues/1872 ; https://github.com/vega/vega-lite/pull/9784 ; https://github.com/observablehq/plot (docs: marks, transforms/stack, transforms/bin, transforms/group, features/facets, marks/tree; issues 1224, 1710, 1732)
 - Rust: https://docs.rs/plotters/latest/plotters/ ; https://docs.rs/plotters-backend/latest/plotters_backend/trait.DrawingBackend.html ; https://docs.rs/egui_plot/latest/egui_plot/ ; https://crates.io/crates/charts-rs ; https://crates.io/crates/treemap ; https://crates.io/crates/minmaxlttb ; https://crates.io/crates/lttb ; https://github.com/predict-idlab/tsdownsample
 - Papers: Bruls, Huizing, van Wijk, "Squarified Treemaps", VisSym 2000, https://diglib.eg.org/handle/10.2312/VisSym.VisSym00.033-042 ; Jugel et al., "M4: A Visualization-Oriented Time Series Data Aggregation", PVLDB 7(10), 2014, https://datavis.cs.columbia.edu/files/papers/m4.pdf ; Steinarsson, "Downsampling Time Series for Visual Representation", University of Iceland, 2013, https://skemman.is/bitstream/1946/15343/3/SS_MSthesis.pdf ; Van Der Donckt et al., MinMaxLTTB, 2023, https://arxiv.org/abs/2305.00332
+
+## 11. Capability review: every viewer, egui against the native shells (2026-11-24, overnight)
+
+The maintainer, 2026-11-24: "one agent to pursue track 3, including view of tables (not just plots), and view of interchange formats (text/csv, text/svg). Review the plumcraft capabilities." Read on the dev branch at `a0ec42b`, after B154 slice 1 (view modes, histograms) and B159 (a pop-out's zoom kept through its items). A cell is **T** (a named test launched or drove it), **R** (read from the code), or **no**. Mac and iPad share `PlumCraftShell/Viewers.swift` except for the single picture; the iPhone is the iPad app.
+
+### 11.1 The capability table
+
+| Viewer | Capability | egui | Mac | iPad, iPhone | Windows |
+|---|---|---|---|---|---|
+| Picture (IMAGE, one array picture) | Fit, 1:1, zoom, channel, probe, pinned probe, detail on zoom | T | T | T | T |
+| Picture | Zoom and view kept through a list's items | R (kept relative to fit) | T (B159) | T (B159, `testItemsKeepTheZoomAndView`) | no: every update refits (`Viewers.cs` `Apply`) |
+| Array, several pictures | One shared zoom, pan and probe | R | T (slice 2: zoom asked through the core, both pictures at 200%) | T (slice 2, `testSliceTwoViews`) | no |
+| Array | View modes (auto … angle) | T | T (B154) | T (B154) | R (B154 on Windows, built) |
+| Array | Channel histograms, log scale, NaN counts | R | T (B154) | T (B154) | R |
+| Array | 1-D series plot, table-of-positions plot | T | no | no | no |
+| Array grid | Paged, column window, plane | T | T | T | T |
+| Array grid | Number format; colour by value | R | T (slice 2, conformance and launch) | T (slice 2, conformance) | no |
+| **Table** (TABLE, rows, a table-flagged array) | Sort by a header | T (egui sorts in the UI) | T (the core sorts) | T | T |
+| Table | Paged for millions of rows | no: every row read and laid out virtually from the whole JSON | T (500 a page) | T | T |
+| Table | Row and column count | R | R | R | R |
+| Table | Colour by value | R | T (slice 2) | T (slice 2, `testSliceTwoViews`) | no |
+| Table | Column widths a person drags | R | R (SwiftUI `Table`) | no (fixed widths from the page) | no |
+| Table | Select and copy a cell's text | R (egui labels select) | R (`textSelection`) | R (`textSelection`) | no |
+| Table | Filter rows | no | no | no | no |
+| Table | Number text the core's | no (egui's `to_string`) | T | T | T |
+| Text (TEXT) | Wrap, monospaced, show all | R (wrap) | T | T | T |
+| Text | Find, with a count | R | no | no | no |
+| SVG | Drawn crisp at any zoom; source as text | T | T (picture, "Source") | T | T |
+| JSON | YAML and outline | T | T | T | T |
+| Audio | Waveform, spectrogram, play, seek, loop | T | T | T | T |
+| Scalar | The value, large | T | T | T | T |
+| A list | Stepper, named items, sheet | T | T | T | T |
+| Bytes | Hex, paged | T | T | T | T |
+| Compare | Side by side, split | T | T | T | T |
+| Compare | Exact difference (mean, per channel) with probe | T | no | no | no |
+| Mesh (STL) | Shaded, turned, zoomed | T | no | no | no |
+| PDF | Pages | R | no (engine picture) | no | no |
+| **`text/csv`** (TEXT holding CSV, or bytes typed `text/csv`) | As a table | no | no | no | no |
+| `text/csv` | As text | TEXT: yes; bytes: no (hex and Open) | TEXT: yes; bytes: hex | same | same |
+| **SVG text** (TEXT holding SVG, or bytes typed `image/svg+xml`) | As a picture | SVG type: yes; TEXT: no | SVG type: yes; TEXT: no | same | same |
+
+### 11.2 Tables as tables
+
+What egui's table does that the native ones lack: **colour by value** (each numeric cell tinted from the column's minimum to its maximum, `viewers/basic.rs:160-215`), **dragging a column's width** on the iPad and Windows, and **selecting a cell's text** on Windows. What the native ones do that egui doesn't: the core reads, sorts and pages the table on its workers (egui reads all of it, on the UI thread's frame, so a million rows is slow), and number text is the core's. Neither filters rows; the maintainer asked for "selecting columns, rows" (note 26 slices 8 and 9). So the table regressions are colour by value (all three native shells), column widths on the iPad and Windows, and cell copy on Windows.
+
+### 11.3 Interchange formats: `text/csv` and SVG as text
+
+How a value gets one of these media types today:
+
+- **Bytes typed by a media type.** The text engine's file types `CSV`, `TXT`, `MD`, `HTML` (`crates/text/src/files.rs:44`, for the craft packs' exports) are blobs with `meta.media` `text/csv` and so on, `Media::Bytes`. Every shell offers only `hex` (egui adds Open in another app). An SVG blob is `Media::Vector` already (`engine/src/exec.rs:1213`) and shows as a picture everywhere.
+- **TEXT holding CSV or SVG.** A TEXT value's media type is always `text/plain; charset=utf-8` (`docs/interface.md` section 3, the TEXT row); what the text says is not declared. Table to Text writes CSV as TEXT; a Text node can hold an SVG. Every shell shows them as text.
+- **A file read by name.** `plumcraft_proto::media::media_for_ext` maps `.csv` to `text/csv` and `.svg` to `image/svg+xml` (`crates/proto/src/media.rs`).
+
+What `docs/interface.md` says: `DataRef.meta.media` is the value's media type (`crates/proto/src/data.rs:41`, "`application/x-npy`, `text/plain; charset=utf-8`, `image/png`, …"), each core type has one fixed media type (section 3's table), and a pack type's blob carries its own. So the media type is already on every full value; **the mapping from a media type to the viewers offered belongs in the core's registry** (`plumcraft_editor_core::viewers::offered`, held to egui's by a test), as XML's already does (`is_xml`, from `meta.media`). The reading of CSV for the table viewer belongs beside the core's other value readers (`plumcraft_media::table`, which reads TABLE JSON and rows, and since B152 a table-flagged array): a display reader, as decoding a PNG is, not an engine node, so AGENTS.md rule 3 (no engine in core) holds. The text engine's CSV reader (`crates/text/src/files.rs:308`, quotes, line ends, typed columns) moves into `plumcraft-proto` so the engine and the viewer read CSV the same way.
+
+**Assumed for the maintainer** (see 12.2): a value typed `text/csv` (bytes, or a TEXT whose file was `.csv`) is offered **Table first, then Text**; a value typed `image/svg+xml` that is TEXT is offered **Picture first, then Source**. The choice is the existing View As (`view.viewer {popout, viewer}`), already a core command kept in the pop-out's state, so no new command is needed. A TEXT whose content merely looks like CSV is not sniffed: guessing is left out (a sniffed value could be offered "Table" as a second choice later).
+
+## 12. The plan, revised (overnight, 2026-11-24)
+
+### 12.1 Slices
+
+Regressions first (decision 2A); a table or interchange view egui has counts as a regression.
+
+| Slice | What | Gate | Launch |
+|---|---|---|---|
+| 1 (done) | View modes, histograms, NaN counts | Conformance "an array's view is chosen through the core and its pictures change" | Mac, iPad, iPhone (B154) |
+| 2 (built, except Compare's difference: 2b) | **Pictures and grids**: the several-picture view gets one shared zoom and pan (`PictureZoom`, B159) and the probe; colour by value and number format in the array grid and colour by value in the table (`viewer.grid {colored, format}`, `viewer.table {colored}`, the page carrying each cell's 0-to-1 position); Compare's exact difference as the core's `derive:compare` picture; B161 (the iPhone's viewer bar overflowing) | Conformance cases per command; Swift unit tests | Mac scripted copy and the simulators, each view pictured |
+| 3 | **Tables as tables**: cell text selectable and copied (Windows), column widths a person drags (iPad, Windows), the row and column count in the bar | UI test | iPad |
+| 4 | **Interchange formats**: `text/csv` offered Table then Text, SVG text offered Picture then Source; the CSV reader shared (`plumcraft_proto::csv`), in the hostile sweep, with size limits | Conformance "a CSV value is a table a viewer away from its text"; hostile sweep | Mac, iPad |
+| 5 | **The plot again, on the chart engine** (was 3): display list, scales, ticks; table of positions, B152's histogram as columns | Display-list fixtures in Rust, Swift, C# | Mac, iPad |
+| 6 | 1-D series and hover previews (was 4) | Fixtures | Mac, iPad |
+| 7 to 13 | Columns and histograms with column choice, line and stacked area, treemap, zoom and hover, selection and linked views, optional kinds (were 5 to 10) | As before | As before |
+
+### 12.2 Assumed (the controller's instruction, the maintainer away overnight)
+
+The maintainer: "Make reasonable assumptions about what I choose if I am not available for a decision". Each with the option taken first and the alternative.
+
+1. **CSV as a table:** a value typed `text/csv` is offered Table, then Text (View As). Alternative: Text first, Table second.
+2. **SVG text as a picture:** a TEXT typed or named as SVG is offered Picture, then Source. Alternative: Source first.
+3. **No sniffing:** only the declared media type decides; text that looks like CSV is not offered a table. Alternative: sniff the first lines and offer Table second.
+4. **The choice is View As** (`view.viewer`), not a new view-mode command like B154's `run.view`, because the reading is the core's and needs no engine run. Alternative: a `viewer.format` command.
+5. **Where CSV is read:** a shared reader in `plumcraft-proto`, used by the text engine and by `plumcraft-media` for display. Alternative: the viewer runs the text engine's Text to Table through Convert (an engine round trip for every look).
+6. **Colour by value** is off by default in the grid and the table, as in egui (it is a checkbox there, off until ticked). Alternative: on for numeric columns.
+7. **Shared zoom for several pictures** keeps one `PictureZoom` for all the value's pictures, in the shell, as B159 keeps a single picture's. Alternative: move the zoom into the core now (note 26 slice 2 as first written).
+8. **Compare's difference** is drawn from the core's `derive:compare` picture, as the contract (13.2) says, not computed in the shells. Alternative: each shell computes it.
