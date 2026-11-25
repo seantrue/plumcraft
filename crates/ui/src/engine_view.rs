@@ -371,4 +371,14 @@ impl Holder for EditorApp {
     fn note_engine_asked(&mut self, asked: bool) {
         self.engine_asked = asked;
     }
+    /// File › Open Recent (B166): this editor's own preferences keep the list.
+    fn recent(&mut self) -> Vec<std::path::PathBuf> {
+        self.prefs.recent().to_vec()
+    }
+    fn note_recent(&mut self, path: &std::path::Path, was: Option<&std::path::Path>) {
+        self.prefs.note_recent(path, was);
+    }
+    fn clear_recent(&mut self) {
+        self.prefs.clear_recent();
+    }
 }

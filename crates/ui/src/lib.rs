@@ -1193,6 +1193,7 @@ impl EditorApp {
             editors: value_editors::facts(),
             select_mode: self.doc.select_mode,
             no_share: !self.doc.share,
+            recent: self.prefs.recent().to_vec(),
         }
     }
 

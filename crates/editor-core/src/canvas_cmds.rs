@@ -354,6 +354,33 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
     CanvasCommand {
+        id: "graph.recent",
+        label: "Recent Graphs",
+        menu: &[],
+        shortcut: None,
+        params: "{} -> {recent: [{path, name, exists}]} (B166: File › Open Recent's graphs, newest first, at most ten: each graph opened or saved under a file of its own, kept in the application's preferences and shared by its documents; the menu model builds File › Open Recent from it)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "graph.openRecent",
+        label: "Open Recent",
+        menu: &[],
+        shortcut: None,
+        params: "{path: one of graph.recent's} -> {opened: path, window: \"this\" | \"new\", already?: true} or {asked: \"unsavedChanges\"} (B166: File › Open Recent's item. With a window per document, a graph not in this untouched window opens in a window of its own; else in this one, asking first when it has unsaved changes. Refused for a path not in the list, or a file no longer there)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
+        id: "graph.clearRecent",
+        label: "Clear Menu",
+        menu: &[],
+        shortcut: None,
+        params: "{} -> {recent: []} (B166: File › Open Recent › Clear Menu, kept)",
+        enabled: always,
+        shell: false,
+    },
+    CanvasCommand {
         id: "name.edit",
         label: "Rename",
         menu: &[],
@@ -390,6 +417,36 @@ const COMMANDS: &[CanvasCommand] = &[
         shell: false,
     },
 ];
+
+/// `graph.openRecent {path}` (B166): one of the recent graphs, opened as File › Open… opens the
+/// file chosen: with a window per document, in a window of its own unless this one is untouched;
+/// else here, after the unsaved-changes prompt when there are any.
+fn open_recent<H: Holder>(h: &mut H, params: &Value) -> Result<Value, String> {
+    check_fields(params, &["path"])?;
+    let path = params.get("path").and_then(Value::as_str).filter(|p| !p.is_empty() && !p.contains('\0')).ok_or("path must be one of graph.recent's")?;
+    let path = std::path::PathBuf::from(path);
+    if !h.recent().contains(&path) {
+        return Err(format!("{} isn't in Open Recent", path.display()));
+    }
+    if !path.is_file() {
+        return Err(format!("{} is no longer there", path.display()));
+    }
+    let d = h.doc_mut();
+    if d.session.path() == Some(path.as_path()) {
+        return Ok(json!({"opened": path, "window": "this", "already": true}));
+    }
+    if d.document_windows && !crate::invoke::untouched(d) {
+        d.opens.push((Some(path.clone()), crate::asks::By::Person));
+        return Ok(json!({"opened": path, "window": "new"}));
+    }
+    if d.session.is_dirty() {
+        let then = crate::invoke::AfterDiscard::OpenRecent(path);
+        crate::invoke::raise_prompt(d, crate::invoke::Prompt::Discard { then }, crate::asks::By::Person);
+        return Ok(json!({"asked": "unsavedChanges"}));
+    }
+    crate::document::execute(h, "graph.open", &json!({"path": path}))?;
+    Ok(json!({"opened": path, "window": "this"}))
+}
 
 /// Every canvas command, in `command.list`'s order.
 pub fn commands() -> &'static [CanvasCommand] {
@@ -622,6 +679,22 @@ pub fn execute<H: Holder>(h: &mut H, c: &CanvasCommand, params: &Value) -> Resul
 }
 
 fn core_part<H: Holder>(h: &mut H, id: &str, params: &Value) -> Result<Value, String> {
+    // File › Open Recent (B166): the list is the preferences', which the holder keeps
+    match id {
+        "graph.recent" => {
+            check_fields(params, &[])?;
+            let list: Vec<Value> =
+                h.recent().iter().map(|p| json!({"path": p, "name": p.file_name().map(|n| n.to_string_lossy().into_owned()), "exists": p.is_file()})).collect();
+            return Ok(json!({"recent": list}));
+        }
+        "graph.clearRecent" => {
+            check_fields(params, &[])?;
+            h.clear_recent();
+            return Ok(json!({"recent": []}));
+        }
+        "graph.openRecent" => return open_recent(h, params),
+        _ => {}
+    }
     let d = h.doc_mut();
     match id {
         "selection.set" => {

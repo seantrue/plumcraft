@@ -27,6 +27,9 @@ use serde_json::Value;
 /// The largest preferences file read.
 const MAX_BYTES: u64 = 1024 * 1024;
 
+/// How many recent graphs File › Open Recent keeps (B166): AppKit's own default.
+pub const RECENT_MAX: usize = 10;
+
 /// The dialog kinds whose folders are remembered.
 pub mod keys {
     /// File › Open, Insert: a workflow or bundle to read.
@@ -72,9 +75,27 @@ pub struct Prefs {
     /// time; 500 when unset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub anim_ms: Option<u32>,
+    /// File › Open Recent (B166): the graphs last opened or saved, newest first, at most
+    /// [`RECENT_MAX`]. Each shell's menu is built from it by the core.
+    #[serde(default, deserialize_with = "lenient_paths", skip_serializing_if = "Vec::is_empty")]
+    pub recent: Vec<PathBuf>,
     /// Fields this build doesn't know, kept for the file.
     #[serde(flatten)]
     pub extra: BTreeMap<String, Value>,
+}
+
+/// A list of paths as the file holds it: anything that isn't a path (a number, an object, a
+/// relative or empty path) is left out, and the list is cut to [`RECENT_MAX`], so a hand-edited
+/// file costs at most its junk.
+fn lenient_paths<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<PathBuf>, D::Error> {
+    let v = Value::deserialize(d)?;
+    let mut out: Vec<PathBuf> = Vec::new();
+    for p in v.as_array().into_iter().flatten().filter_map(Value::as_str).map(PathBuf::from) {
+        if p.is_absolute() && !out.contains(&p) && out.len() < RECENT_MAX {
+            out.push(p);
+        }
+    }
+    Ok(out)
 }
 
 impl Prefs {
@@ -216,6 +237,34 @@ impl Store {
         }
     }
 
+    /// The recent graphs, newest first (B166).
+    pub fn recent(&self) -> &[PathBuf] {
+        &self.prefs.recent
+    }
+
+    /// `path` was opened or saved: first in the recent graphs, once, at most [`RECENT_MAX`] kept.
+    /// `was`: the file it was before (a rename or a move), which leaves the list.
+    pub fn note_recent(&mut self, path: &Path, was: Option<&Path>) {
+        if !path.is_absolute() {
+            return;
+        }
+        let mut list: Vec<PathBuf> = vec![path.to_path_buf()];
+        list.extend(self.prefs.recent.iter().filter(|p| p.as_path() != path && Some(p.as_path()) != was).cloned());
+        list.truncate(RECENT_MAX);
+        if list != self.prefs.recent {
+            self.prefs.recent = list;
+            self.save();
+        }
+    }
+
+    /// File › Open Recent › Clear Menu.
+    pub fn clear_recent(&mut self) {
+        if !self.prefs.recent.is_empty() {
+            self.prefs.recent.clear();
+            self.save();
+        }
+    }
+
     pub fn set_theme(&mut self, name: &str) {
         if self.prefs.theme.as_deref() != Some(name) {
             self.prefs.theme = Some(name.to_owned());
@@ -251,6 +300,38 @@ mod tests {
         let d = plumcraft_scratch::dir("prefs").join(name);
         std::fs::create_dir_all(&d).unwrap();
         d
+    }
+
+    /// B166: the recent graphs are kept in the file, newest first, once each, at most ten; a
+    /// rename takes the old name's place; Clear empties them; junk in the file is left out.
+    #[test]
+    fn recent_graphs_are_kept_newest_first_and_come_back() {
+        let dir = folder("recent");
+        let file = dir.join("prefs.json");
+        let _ = std::fs::remove_file(&file);
+        let mut s = Store::at(file.clone());
+        let p = |n: &str| dir.join(n);
+        s.note_recent(&p("a.plum"), None);
+        s.note_recent(&p("b.json"), None);
+        s.note_recent(&p("a.plum"), None);
+        assert_eq!(s.recent(), [p("a.plum"), p("b.json")], "newest first, once each");
+        s.note_recent(&p("c.plum"), Some(&p("b.json")));
+        assert_eq!(s.recent(), [p("c.plum"), p("a.plum")], "a rename takes the old name's place");
+        s.note_recent(Path::new("relative.plum"), None);
+        assert_eq!(s.recent().len(), 2, "only a whole path");
+        for k in 0..12 {
+            s.note_recent(&p(&format!("g{k}.plum")), None);
+        }
+        assert_eq!(s.recent().len(), RECENT_MAX);
+        assert_eq!(s.recent()[0], p("g11.plum"));
+        let back = Store::at(file.clone());
+        assert_eq!(back.recent(), s.recent(), "kept in the file");
+        s.clear_recent();
+        assert!(Store::at(file.clone()).recent().is_empty(), "Clear Menu, kept");
+        std::fs::write(&file, json!({"recent": ["/x/a.plum", 7, "rel.plum", {"p": 1}, "/x/a.plum", "/x/b.plum"], "theme": "dusk"}).to_string()).unwrap();
+        let junk = Store::at(file);
+        assert_eq!(junk.recent(), [PathBuf::from("/x/a.plum"), PathBuf::from("/x/b.plum")], "junk left out");
+        assert_eq!(junk.prefs().theme.as_deref(), Some("dusk"), "and costs nothing else");
     }
 
     #[test]

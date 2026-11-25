@@ -2057,6 +2057,22 @@
         {"call": "ask.answer", "params": {"ask": "$b", "cancel": true}},
         {"call": "command.run", "params": {"command": "graph.info", "params": {}}, "expect": {"/result/path": "$scratch/old.json"}}
       ]
+    },
+    {
+      "name": "File › Open Recent lists the graphs saved, newest first, from the core's list, and Clear Menu empties it",
+      "about": "B166 (the maintainer: 'open recent never has a list of recent graphs'): the list is the core's, kept in the application's preferences; the menu model's File › Open Recent is built from it (one item per graph running graph.openRecent with its path, Clear Menu running graph.clearRecent), so every shell shows the same. `saves`: the driver's shell can write the case's $scratch folder",
+      "half": "edit",
+      "needs": ["saves"],
+      "steps": [
+        {"call": "command.run", "params": {"command": "graph.saveAs", "params": {"path": "$scratch/recent-one.plum"}}},
+        {"call": "command.run", "params": {"command": "graph.saveAs", "params": {"path": "$scratch/recent-two.json"}}},
+        {"call": "command.run", "params": {"command": "graph.recent", "params": {}}, "expect": {"/result/recent/0/path": "$scratch/recent-two.json", "/result/recent/0/exists": true, "/result/recent/1/path": "$scratch/recent-one.plum"}},
+        {"call": "menu.get", "params": {}, "until": {"/result/menus/0/items": {"$find": {"where": {"id": "menu:File/Open Recent"}, "want": {"/items/0/label": "recent-two.json", "/items/0/command": "graph.openRecent", "/items/0/params/path": "$scratch/recent-two.json", "/items/1/label": "recent-one.plum"}}}}, "timeout": 10},
+        {"call": "command.run", "params": {"command": "graph.openRecent", "params": {"path": "$scratch/not-in-the-list.plum"}}, "ok": false},
+        {"call": "command.run", "params": {"command": "graph.clearRecent", "params": {}}},
+        {"call": "command.run", "params": {"command": "graph.recent", "params": {}}, "expect": {"/result/recent": {"$len": 0}}},
+        {"call": "menu.get", "params": {}, "until": {"/result/menus/0/items": {"$find": {"where": {"id": "menu:File/Open Recent"}, "want": {"/items": {"$len": 1}, "/items/0/label": "Clear Menu", "/items/0/enabled": false}}}}, "timeout": 10}
+      ]
     }
   ]
 }

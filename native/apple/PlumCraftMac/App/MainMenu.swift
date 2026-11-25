@@ -6,7 +6,8 @@
 // interpretation.
 //
 // What the Mac places itself (the model's roles): About, Settings…, Services, Hide, Quit in the
-// application menu; New, Open…, Open Recent, Close, Save, Save As… as NSDocument's; Undo, Redo,
+// application menu; New, Open…, Close, Save, Save As… as NSDocument's; Open Recent is the
+// core's (B166: the model's File › Open Recent, the list the core keeps); Undo, Redo,
 // Cut, Copy, Paste, Delete, Select All as the standard actions down the responder chain, so a text
 // field that is editing takes them and the canvas sends the core's commands otherwise; the Window
 // and Help menus as the system's.
@@ -34,6 +35,9 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     private(set) weak var source: DocumentModel?
     /// Called with the text of the built bar each time it is built or changes (`--dump-menus`).
     var onDump: ((String) -> Void)?
+    /// File › Open Recent's items as the last document's model had them (B166), for the bar with
+    /// no document, which has no model to ask.
+    private(set) var lastRecent: [MenuItem] = []
 
     // MARK: Building
 
@@ -62,6 +66,7 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         }
         walk(menus, "")
         items = flat
+        if let recent = flat.values.first(where: { $0.id == Self.openRecentID }) { lastRecent = recent.items }
         if !force && sig == shape {
             dump()
             return
@@ -147,24 +152,67 @@ final class MenuBar: NSObject, NSMenuItemValidation {
         return bar
     }
 
-    /// File's items NSDocument gives that the model has no command for: Open Recent, Close,
-    /// Revert.
+    /// The model's id of File › Open Recent (the core's `menu::OPEN_RECENT`).
+    static let openRecentID = "menu:File/Open Recent"
+
+    /// File's items NSDocument gives that the model has no command for: Close, Revert; and with
+    /// no document, Open Recent from the last model's list.
+    ///
+    /// B166: Open Recent was AppKit's, a submenu holding only Clear Menu for the document
+    /// controller to fill. But the bar is built anew whenever the front document or the model's
+    /// shape changes, and AppKit fills only the recent-documents menu it adopted, never the new
+    /// one: the menu stayed empty while `recentDocumentURLs` had the graphs. Now the list and its
+    /// items are the core's (`graph.openRecent`, `graph.clearRecent`), in the model like any menu.
     private func fileExtras(_ m: NSMenu) {
-        let recent = NSMenu(title: "Open Recent")
-        // the document controller fills this menu itself: it finds it by its Clear Menu item
-        recent.addItem(withTitle: "Clear Menu", action: #selector(NSDocumentController.clearRecentDocuments(_:)), keyEquivalent: "")
-        let r = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
-        r.submenu = recent
         // after Open… (the core's, a model item with the open role; NSDocumentController's when
         // no document is open)
-        let openAt = m.items.firstIndex { $0.action == #selector(NSDocumentController.openDocument(_:)) || modelItem($0)?.role?.word == .open }
+        var openAt = m.items.firstIndex { $0.action == #selector(NSDocumentController.openDocument(_:)) || modelItem($0)?.role?.word == .open }
             .map { $0 + 1 } ?? m.items.count
-        m.insertItem(r, at: openAt)
+        if !m.items.contains(where: { modelItem($0)?.id == Self.openRecentID }) {
+            m.insertItem(recentWithoutDocument(), at: openAt)
+            openAt += 1
+        } else {
+            openAt = (m.items.firstIndex { modelItem($0)?.id == Self.openRecentID } ?? openAt - 1) + 1
+        }
         let close = NSMenuItem(title: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
-        m.insertItem(close, at: openAt + 1)
+        m.insertItem(close, at: openAt)
         let saveAt = m.items.firstIndex { $0.action == #selector(NSDocument.saveAs(_:)) }.map { $0 + 1 }
         if let saveAt {
             m.insertItem(NSMenuItem(title: "Revert to Saved", action: #selector(NSDocument.revertToSaved(_:)), keyEquivalent: ""), at: saveAt)
+        }
+    }
+
+    /// File › Open Recent with no document (every window closed): the last model's items, each
+    /// opening its graph as Open… does (a document of its own); Clear Menu needs a document,
+    /// whose model runs the core's command, so it waits for one.
+    private func recentWithoutDocument() -> NSMenuItem {
+        let sub = NSMenu(title: "Open Recent")
+        sub.autoenablesItems = true
+        for it in lastRecent {
+            if it.separator {
+                sub.addItem(.separator())
+                continue
+            }
+            guard it.command == "graph.openRecent", let path = it.params?["path"].string else { continue }
+            let mi = NSMenuItem(title: it.label, action: #selector(openRecentFile(_:)), keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = path
+            mi.toolTip = it.enabled ? it.hover : it.reason
+            sub.addItem(mi)
+        }
+        let clear = sub.addItem(withTitle: "Clear Menu", action: nil, keyEquivalent: "")
+        clear.toolTip = "open a graph to clear the list"
+        let r = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
+        r.submenu = sub
+        return r
+    }
+
+    /// A recent graph picked with no document open: opened as Open… opens a file (the core opens
+    /// it in a document of its own, which notes it as the newest).
+    @objc func openRecentFile(_ sender: NSMenuItem) {
+        guard let path = sender.representedObject as? String else { return }
+        NSDocumentController.shared.openDocument(withContentsOf: URL(fileURLWithPath: path), display: true) { _, _, error in
+            if let error { CoreHost.present(error) }
         }
     }
 
@@ -321,6 +369,9 @@ final class MenuBar: NSObject, NSMenuItemValidation {
     // MARK: Validation and dispatch
 
     func validateMenuItem(_ mi: NSMenuItem) -> Bool {
+        if mi.action == #selector(openRecentFile(_:)) {
+            return (mi.representedObject as? String).map { FileManager.default.fileExists(atPath: $0) } ?? false
+        }
         guard let it = modelItem(mi) else { return false }
         apply(it, to: mi)
         return it.enabled && source != nil
