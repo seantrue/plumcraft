@@ -20,6 +20,16 @@ The maintainer also chose the name (PlumCraft, over the recommended WireCraft, a
 
 ## Contributions
 
+### 2026-11-25 — Charts: time axes, zoom, a selection shared by a table and its chart, readouts (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
+
+**What the maintainer said.** Track 3 overnight, on reasonable assumptions. The selection belonging to the value is their decision 7A in note 26.
+
+**What the AI did.** A date and time parser in the protocol crate and calendar ticks; shares of a stack; a pop-out's range with lines reduced again inside it; a selection kept per node and port, set by a brush or by rows, drawn by the chart and marked by the table; a second window of one port; a readout written by the core; a probe on Compare's difference. Gestures on the Apple shells, drawing in egui, and the same on Windows. It stopped before hover and face previews: the plan in note 26 could not work, since a face shows the engine's thumbnail and the core holds only watched values, and it put three options to the controller, who left the choice to the maintainer.
+
+**Verification.** The agent's runs: Mac conformance 84 of 84 and the C ABI and egui suites; iPad and iPhone UI tests (a drag brush and Clear, the chart choices, the difference probe); the Swift kit's 126; 1,266 tests in the crates touched; Windows built on the test VM, not launched. The controller looked at three Mac pictures: the brushed line chart (a band from about 20 April to 9 May, 21 points marked, "21 selected"), the table window of the same value reading "21 of 366 rows selected", and that table showing only the 21 rows, dated 22 April onward. The full suite ran on the Linux test host.
+
+**Defects.** A selection made in another window did not redraw an Apple viewer, since it changes neither the value nor that viewer's state; every Apple viewer now keys on the observed stamp. The first iPhone run failed on the agent's own assertion of an exact pixel. Seen by the controller in the pictures and not fixed: selected rows are tinted cell by cell with gaps; the picture meant to show marked rows shows the top of the table, where none is selected; the Selected Only button looks the same on and off.
+
 ### 2026-11-25 — The 1-D series and the six chart kinds, chosen by command and kept in the graph (B154) (Claude Opus 5.5 agent; Claude Fable 5.2 controlling)
 
 **What the maintainer said.** Track 3 overnight, on reasonable assumptions; the six kinds are the ones they named when note 26 was decided.
